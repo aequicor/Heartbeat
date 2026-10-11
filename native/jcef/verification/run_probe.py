@@ -83,10 +83,12 @@ def handler_type(profiles: Path, token: str, events: list[dict]) -> type[http.se
             if self.path not in ("/clear-profile", "/delete-profile"):
                 self.reply(404, b'{"error":"unknown operation"}')
                 return
-            owner = profiles / "profile-a"
-            target = owner / "browser" if self.path == "/clear-profile" else owner
+            owner = profiles / "profile-a-owner"
+            target = profiles / "profile-a"
             try:
                 remove_owned_profile(profiles, target)
+                if self.path == "/delete-profile":
+                    remove_owned_profile(profiles, owner)
                 if self.path == "/clear-profile" and not (owner / "owner-marker.txt").is_file():
                     raise AssertionError("Clear deleted owner metadata")
                 if self.path == "/delete-profile" and owner.exists():
@@ -147,7 +149,17 @@ def launch(command: list[str], log: Path, timeout: float, env: dict[str, str]) -
             terminate_tree(process)
             raise RuntimeError(f"Native phase timed out; process tree terminated; see {log}") from None
         if code != 0:
-            raise RuntimeError(f"Native phase exited {code}; see {log}")
+            output.flush()
+            tail = "\n".join(log.read_text(encoding="utf-8", errors="replace").splitlines()[-50:])
+            raise RuntimeError(f"Native phase exited {code}; see {log}\n{tail}")
+
+
+def java_platform_options(platform_name: str) -> list[str]:
+    if platform_name != "darwin":
+        return []
+    # JCEF's windowed mac bridge links LWComponentPeer and reflects its native peer.
+    return [f"--add-opens=java.desktop/{package}=ALL-UNNAMED"
+            for package in ("sun.awt", "sun.lwawt", "sun.lwawt.macosx")]
 
 
 def sha256(path: Path) -> str:
@@ -193,8 +205,8 @@ def main() -> int:
         layout = native_layout(args.native_dir)
         summary["nativeLibrarySha256"] = sha256(layout["library"])
         profiles = output / "profiles"
-        (profiles / "profile-a").mkdir(parents=True)
-        (profiles / "profile-a" / "owner-marker.txt").write_text("owned by this verification run", encoding="utf-8")
+        (profiles / "profile-a-owner").mkdir(parents=True)
+        (profiles / "profile-a-owner" / "owner-marker.txt").write_text("owned by this verification run", encoding="utf-8")
         server_token = uuid.uuid4().hex
         server = http.server.ThreadingHTTPServer(("127.0.0.1", args.port),
                                                 handler_type(profiles, server_token, summary["deletions"]))
@@ -221,8 +233,7 @@ def main() -> int:
                 scale = label.removeprefix("visual-") if mode == "visual" else "native"
                 java = [args.java, "-Djava.awt.headless=false", "-Dfile.encoding=UTF-8",
                         "-Djava.library.path=" + str(args.native_dir.resolve())]
-                if sys.platform == "darwin":
-                    java.append("--add-opens=java.desktop/sun.awt=ALL-UNNAMED")
+                java += java_platform_options(sys.platform)
                 java += ["-classpath", os.pathsep.join(map(str, [classes, *classpath])), "SessionProbe",
                          "--native-dir=" + str(args.native_dir.resolve()), "--profiles=" + str(profiles),
                          "--origin=" + origin, "--server-token=" + server_token, "--mode=" + mode,

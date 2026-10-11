@@ -252,3 +252,16 @@ index 407cc77..b25c7e9 100644
 +    public String cookieable_schemes_list = "";
 +    public boolean cookieable_schemes_exclude_defaults = false;
 +}
+
+diff --git a/build.xml b/build.xml
+--- a/build.xml
++++ b/build.xml
+@@ -25,7 +25,7 @@
+   <target name="compile">
+     <mkdir dir="${out.path}"/>
+     <javac encoding="UTF8" nowarn="on" deprecation="off" debug="on" includeantruntime="false" destdir="${out.path}"
+-           executable="/usr/bin/javac" fork="true" memoryinitialsize="32m" memorymaximumsize="128m" includeJavaRuntime="yes"
++           executable="${jdk7.path}/bin/javac" fork="true" memoryinitialsize="32m" memorymaximumsize="128m" includeJavaRuntime="no"
+            target="1.8" source="1.8">
+       <compilerarg value="-XDignore.symbol.file"/>
+       <classpath location="${jdk7.path}/jre/lib/rt.jar" />

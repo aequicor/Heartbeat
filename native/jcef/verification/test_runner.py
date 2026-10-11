@@ -3,14 +3,31 @@
 import http.cookiejar
 import http.server
 import json
+import os
 from pathlib import Path
 import tempfile
+import sys
 import threading
 import unittest
 import urllib.error
 import urllib.request
 
-from run_probe import handler_type, remove_owned_profile
+from run_probe import handler_type, java_platform_options, launch, remove_owned_profile
+
+
+class LauncherTests(unittest.TestCase):
+    def test_mac_windowed_peer_packages_are_opened(self):
+        options = java_platform_options("darwin")
+        for package in ("sun.awt", "sun.lwawt", "sun.lwawt.macosx"):
+            self.assertIn(f"--add-opens=java.desktop/{package}=ALL-UNNAMED", options)
+        self.assertEqual(java_platform_options("win32"), [])
+
+    def test_failed_process_surfaces_diagnostic_in_ci_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            log = Path(temporary) / "failed.log"
+            with self.assertRaisesRegex(RuntimeError, "synthetic native diagnostic"):
+                launch([sys.executable, "-c", "print('synthetic native diagnostic'); exit(7)"],
+                       log, 10, os.environ.copy())
 
 
 class FixtureTests(unittest.TestCase):
@@ -19,9 +36,11 @@ class FixtureTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.profiles = Path(self.temporary.name) / "profiles"
         self.a = self.profiles / "profile-a"
-        (self.a / "browser").mkdir(parents=True)
-        (self.a / "browser" / "cache").write_text("synthetic", encoding="utf-8")
-        (self.a / "owner-marker.txt").write_text("owner", encoding="utf-8")
+        self.a.mkdir(parents=True)
+        (self.a / "cache").write_text("synthetic", encoding="utf-8")
+        self.owner = self.profiles / "profile-a-owner"
+        self.owner.mkdir()
+        (self.owner / "owner-marker.txt").write_text("owner", encoding="utf-8")
         self.b = self.profiles / "profile-b"
         self.b.mkdir()
         (self.b / "marker").write_text("other profile", encoding="utf-8")
@@ -57,27 +76,28 @@ class FixtureTests(unittest.TestCase):
 
     def test_clear_preserves_owner_and_other_profile(self):
         self.assertTrue(self.post("/clear-profile")["passed"])
-        self.assertFalse((self.a / "browser").exists())
-        self.assertTrue((self.a / "owner-marker.txt").exists())
+        self.assertFalse(self.a.exists())
+        self.assertTrue((self.owner / "owner-marker.txt").exists())
         self.assertEqual((self.b / "marker").read_text(encoding="utf-8"), "other profile")
 
     def test_delete_removes_only_selected_profile(self):
         self.assertTrue(self.post("/delete-profile")["passed"])
         self.assertFalse(self.a.exists())
+        self.assertFalse(self.owner.exists())
         self.assertTrue((self.b / "marker").exists())
 
     def test_unauthorized_mutation_is_rejected(self):
         with self.assertRaises(urllib.error.HTTPError) as error:
             self.post("/clear-profile", "wrong-token")
         self.assertEqual(error.exception.code, 403)
-        self.assertTrue((self.a / "browser" / "cache").exists())
+        self.assertTrue((self.a / "cache").exists())
         self.assertEqual(self.events, [])
 
     def test_deletion_cannot_target_root_or_outside_directory(self):
         for target in (self.profiles, Path(self.temporary.name)):
             with self.assertRaises(ValueError):
                 remove_owned_profile(self.profiles, target)
-        self.assertTrue((self.a / "browser" / "cache").exists())
+        self.assertTrue((self.a / "cache").exists())
 
 
 if __name__ == "__main__":

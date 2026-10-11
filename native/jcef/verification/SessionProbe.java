@@ -145,7 +145,8 @@ public final class SessionProbe {
     }
 
     private Anchor anchor(String profile) throws Exception {
-        Path path = Path.of(required("profiles"), profile, "browser").toAbsolutePath();
+        // Chrome CEF152 requires cache_path to be root_cache_path or its immediate child.
+        Path path = Path.of(required("profiles"), profile).toAbsolutePath();
         Files.createDirectories(path);
         CefRequestContextSettings settings = new CefRequestContextSettings();
         settings.cache_path = path.toString();

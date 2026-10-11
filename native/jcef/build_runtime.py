@@ -237,9 +237,35 @@ def collect(artifacts: Path, destination: Path) -> None:
     (destination / "source-lock.json").write_text(json.dumps(release_lock, indent=2) + "\n")
 
 
+def verify_package(source: Path, target: str, artifacts: Path) -> None:
+    """Validate restored cache bytes before executing JNI or publishing artifacts."""
+    manifest = json.loads((artifacts / f"manifest-{target}.json").read_text())
+    data = lock()
+    for key, expected in {"platform": target, "version": VERSION, "releaseTag": RELEASE_TAG,
+                          "jcefCommit": data["jcefCommit"], "cefVersion": data["cefVersion"],
+                          "patchSha256": data["patchSha256"]}.items():
+        if manifest[key] != expected:
+            raise ValueError(f"Cached runtime input mismatch: {key}")
+    expected_files = {f"jcef-api-{VERSION}.jar", f"jcef-natives-{target}-{VERSION}.jar"}
+    if set(manifest["files"]) != expected_files or not manifest["nativeFiles"]:
+        raise ValueError("Incomplete runtime manifest")
+    for name, checksum in manifest["files"].items():
+        if sha256(artifacts / name) != checksum:
+            raise ValueError(f"Corrupt cached artifact: {name}")
+    stage = source / "heartbeat-native-stage"
+    actual_files = {p.relative_to(stage).as_posix() for p in stage.rglob("*")
+                    if p.is_file() and not p.is_symlink()}
+    if actual_files != set(manifest["nativeFiles"]):
+        raise ValueError("Cached native stage has missing or extra files")
+    for name, checksum in manifest["nativeFiles"].items():
+        if sha256(stage / name) != checksum:
+            raise ValueError(f"Corrupt cached native file: {name}")
+    print(f"Verified {target}: API, native jar, and {len(actual_files)} staged files", flush=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["prepare", "build", "package", "collect"])
+    parser.add_argument("command", choices=["prepare", "build", "package", "collect", "verify"])
     parser.add_argument("--source", type=Path, default=Path("build/jcef-source"))
     parser.add_argument("--target", choices=TARGETS)
     parser.add_argument("--output", type=Path, default=Path("build/jcef-artifacts"))
@@ -253,6 +279,8 @@ def main() -> None:
         parser.error("--target is required")
     elif options.command == "build":
         build(source, options.target)
+    elif options.command == "verify":
+        verify_package(source, options.target, output)
     else:
         package(source, options.target, output)
 

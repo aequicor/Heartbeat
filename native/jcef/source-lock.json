@@ -1,7 +1,7 @@
 {
   "jcefCommit": "17e805ad387d89839fdd2b864466b6510b2a783c",
   "cefVersion": "152.0.6+g708dc14+chromium-152.0.7977.83",
-  "patchSha256": "da75f366960544195de384dfbd605f7336bd5441558f85960e1efe29d1a3bca4",
+  "patchSha256": "5f1a79a28f71a5dbce3284f2f4045587ef4bd5dda46146ec0cae2dbdabc3133a",
   "nativeArtifacts": {},
   "artifactVersion": "152.0.6-hb1"
 }

@@ -33,6 +33,7 @@ class RuntimePackagingTest(unittest.TestCase):
         self.write(f"source/third_party/cef/cef_binary_{cef}_windows64/LICENSE.txt")
         self.write("source/heartbeat-api-classes/org/cef/CefRequestContextSettings.class")
         runtime.package(source, "windows-amd64", self.root / "first")
+        runtime.verify_package(source, "windows-amd64", self.root / "first")
         name = f"jcef-natives-windows-amd64-{runtime.VERSION}.jar"
         with zipfile.ZipFile(self.root / "first" / name) as jar:
             archive = f"jcef-natives-windows-amd64-{runtime.RELEASE_TAG}.tar.gz"
@@ -46,6 +47,9 @@ class RuntimePackagingTest(unittest.TestCase):
         (source / "heartbeat-native-stage").rename(source / "previous-stage")
         runtime.package(source, "windows-amd64", self.root / "second")
         self.assertEqual(runtime.sha256(self.root / "first" / name), runtime.sha256(self.root / "second" / name))
+        (source / "heartbeat-native-stage/jcef.dll").write_bytes(b"tampered")
+        with self.assertRaisesRegex(ValueError, "Corrupt cached native file"):
+            runtime.verify_package(source, "windows-amd64", self.root / "first")
 
     def artifacts(self):
         for target in runtime.TARGETS:

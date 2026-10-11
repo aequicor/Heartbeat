@@ -50,13 +50,23 @@ jobs:
         run: python -m pip install six==1.17.0
       - name: Verify packaging and release lock contracts
         run: python -m unittest discover -s native/jcef -p "test_*.py" -v
+      - name: Restore matching native build
+        id: native-cache
+        uses: actions/cache/restore@v4
+        with:
+          key: jcef-v1-${{ matrix.target }}-${{ hashFiles('native/jcef/source-lock.json', 'native/jcef/request-context-settings.patch', 'native/jcef/build_runtime.py') }}
+          path: |
+            build/jcef-artifacts
+            build/jcef-source/heartbeat-native-stage
+            build/jcef-source/third_party/jogamp/jar
       - name: macOS build tools
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && steps.native-cache.outputs.cache-hit != 'true'
         run: brew install ninja ant
       - name: Check out and patch locked JCEF sources
+        if: steps.native-cache.outputs.cache-hit != 'true'
         run: python native/jcef/build_runtime.py prepare
       - name: Compile Windows JNI with the target architecture toolchain
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && steps.native-cache.outputs.cache-hit != 'true'
         shell: cmd
         run: |
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do set "VS_INSTALL=%%i"
@@ -64,10 +74,22 @@ jobs:
           if errorlevel 1 exit /b %errorlevel%
           python native/jcef/build_runtime.py build --target ${{ matrix.target }}
       - name: Compile macOS JNI
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && steps.native-cache.outputs.cache-hit != 'true'
         run: python native/jcef/build_runtime.py build --target ${{ matrix.target }}
       - name: Package and hash matching Java and native artifacts
+        if: steps.native-cache.outputs.cache-hit != 'true'
         run: python native/jcef/build_runtime.py package --target ${{ matrix.target }}
+      - name: Verify built or restored artifact checksums
+        run: python native/jcef/build_runtime.py verify --target ${{ matrix.target }}
+      - name: Save native build independently of verification outcome
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
+          path: |
+            build/jcef-artifacts
+            build/jcef-source/heartbeat-native-stage
+            build/jcef-source/third_party/jogamp/jar
       - uses: actions/upload-artifact@v4
         with:
           name: jcef-${{ matrix.target }}
