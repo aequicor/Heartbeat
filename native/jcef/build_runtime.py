@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import urllib.request
 import zipfile
 
 HERE = Path(__file__).resolve().parent
@@ -59,6 +60,7 @@ def prepare(source: Path) -> None:
 def build(source: Path, target: str) -> None:
     data = lock()
     cef_platform, arch = TARGETS[target]
+    prepare_formatter(source, target)
     output = source / "jcef_build"
     run("cmake", "-S", source, "-B", output, "-G", "Ninja",
         "-DCMAKE_BUILD_TYPE=Release", f"-DPROJECT_ARCH={arch}",
@@ -78,6 +80,30 @@ def build(source: Path, target: str) -> None:
     classpath = os.pathsep.join(str(p) for p in sorted((source / "third_party/jogamp/jar").glob("*.jar")))
     run("javac", "--release", "8", "-encoding", "UTF-8", "-g:source,lines", "-cp", classpath,
         "-d", classes, "@" + str(arguments))
+
+
+def prepare_formatter(source: Path, target: str) -> None:
+    # CMake always fetches clang-format through a vendored 2019 gsutil whose six
+    # importer is incompatible with Python >=3.12. Fetch the identical hash-pinned
+    # object over HTTPS first; upstream validates it and skips the gsutil call.
+    directory = source / "tools/buildtools"
+    if target.startswith("windows"):
+        output = directory / "win/clang-format.exe"
+        hash_file = directory / "win/clang-format.exe.sha1"
+    else:
+        output = directory / "mac/clang-format"
+        arch = "arm64" if target.endswith("arm64") else "x64"
+        hash_file = directory / f"mac/clang-format.{arch}.sha1"
+    expected = hash_file.read_text().strip()
+    if len(expected) != 40 or any(c not in "0123456789abcdef" for c in expected):
+        raise ValueError("Invalid upstream formatter checksum")
+    with urllib.request.urlopen("https://storage.googleapis.com/chromium-clang-format/" + expected,
+                                timeout=120) as response:
+        content = response.read()
+    if hashlib.sha1(content).hexdigest() != expected:
+        raise ValueError("Formatter checksum differs from the locked upstream source")
+    output.write_bytes(content)
+    output.chmod(0o755)
 
 
 def metadata(target: str) -> bytes:

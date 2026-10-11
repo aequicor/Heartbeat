@@ -85,6 +85,17 @@ class RuntimePackagingTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "patch differs"):
                 runtime.lock()
 
+    def test_formatter_requires_upstream_hash_before_writing_executable(self):
+        expected = hashlib.sha1(b"formatter").hexdigest()
+        self.write("tools/buildtools/mac/clang-format.arm64.sha1", expected.encode())
+        with patch.object(runtime.urllib.request, "urlopen", return_value=io.BytesIO(b"wrong")):
+            with self.assertRaisesRegex(ValueError, "Formatter checksum differs"):
+                runtime.prepare_formatter(self.root, "macosx-arm64")
+        self.assertFalse((self.root / "tools/buildtools/mac/clang-format").exists())
+        with patch.object(runtime.urllib.request, "urlopen", return_value=io.BytesIO(b"formatter")):
+            runtime.prepare_formatter(self.root, "macosx-arm64")
+        self.assertEqual(b"formatter", (self.root / "tools/buildtools/mac/clang-format").read_bytes())
+
 
 if __name__ == "__main__":
     unittest.main()
