@@ -32,6 +32,7 @@ import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsIntent
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsMachineKey
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsOutput
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureOwner
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineKey
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
@@ -96,6 +97,7 @@ class AiStudioModel(
     private val efforts: EffortChoicesView,
     private val machines: MachineRegistry,
     private val attachmentsCatalog: AttachmentsCatalog,
+    assists: ComposerAssists,
     previews: StudioAttachmentPreviews,
     private val harnesses: StudioHarnesses = StudioHarnesses.None,
 ) {
@@ -105,8 +107,15 @@ class AiStudioModel(
     /** Navigation is executed by the lifecycle component, never by a retained IO scope. */
     val attachmentNavigation = MutableSharedFlow<StudioAttachmentNavigation>(extraBufferCapacity = 8)
     private val previewRequests = MutableStateFlow<List<ResourceRef>>(emptyList())
+
     private val organisms = StudioOrganismView(machine, machines, backend) { it.withAttachmentMetadata() }
 
+    /** Late-bound file attach of an accepted suggestion: the store itself is created below. */
+    private var attachSuggestedFile: suspend (paneId: Int, location: String) -> Unit = { _, _ -> }
+
+    private val suggestions = StudioSuggestions(assists) { paneId, location ->
+        attachSuggestedFile(paneId, location)
+    }
     val store = factory.create<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>(
         name = "AiStudio",
         initial = AiStudioScreenState(now = clock.now()).reflectMachine(machine.state.value),
@@ -123,7 +132,7 @@ class AiStudioModel(
                     log.d { "attachment preview visibility: ${previewRequests.value.size} -> ${requests.size}" }
                     previewRequests.value = requests
                 }
-                next
+                suggestions.onState(next)
             }
         }
         reflect(machine, onOutput = { output ->
@@ -220,6 +229,7 @@ class AiStudioModel(
                 }
                 launch { observeTranscripts(pipeline) }
                 launch { observeAttachmentPreviews(pipeline, previews, previewRequests) }
+                launch { suggestions.observe(pipeline) }
                 launch { observeClock(pipeline) }
             }
         }
@@ -227,6 +237,11 @@ class AiStudioModel(
     }
 
     init {
+        attachSuggestedFile = { paneId, location ->
+            store.intent(
+                AiStudioScreenIntent.ImportAttachments(paneId, listOf(NativeAttachmentUi.File(location))),
+            )
+        }
         store.start(scope.coroutineScope)
         scope.coroutineScope.launch { machine.send(AiStudioIntent.Public.Start) }
     }
@@ -464,7 +479,7 @@ class AiStudioModel(
                 AiStudioIntent.Public.RespondPermission(intent.sessionId, intent.requestId, intent.optionId),
             )
 
-            is AiStudioScreenIntent.DraftChanged -> updateState { withDraft(intent.paneId, intent.text) }
+            is AiStudioScreenIntent.Suggestions -> suggestions.handle(pipeline, intent)
 
             is AiStudioScreenIntent.Submit -> submitStudioDraft(pipeline, machine, harnesses, intent.paneId)
 

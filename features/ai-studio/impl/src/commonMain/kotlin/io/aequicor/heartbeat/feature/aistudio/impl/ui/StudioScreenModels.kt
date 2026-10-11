@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentPreviewUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ComposerCaretRequestUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ContextUsageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.HarnessChoiceUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.HarnessChoicesUi
@@ -100,6 +101,9 @@ internal data class PaneContent(
     val nativeTree: SessionTreeUi? = null,
     val isAttachmentFailed: Boolean = false,
     val attachmentPreviews: ImmutableMap<String, AttachmentPreviewUi> = persistentMapOf(),
+    /** Suggestions of the pane's active composer token; null hides the popup. */
+    val suggestions: io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ComposerSuggestionsUi? = null,
+    val caretRequest: ComposerCaretRequestUi? = null,
 ) {
     /** A descendant view has no execution controls; root ownership remains unchanged. */
     val isNativeChild: Boolean get() = nativeTree?.sessions?.any {
@@ -168,6 +172,8 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         nativeTree = nativeTrees[pane.sessionId],
         isAttachmentFailed = pane.id in attachmentErrorPanes,
         attachmentPreviews = attachmentPreviews,
+        suggestions = composerSuggestions[draftKey(pane.id)]?.takeIf { it.items.isNotEmpty() },
+        caretRequest = caretRequest(pane.id),
         isSubmitFailed = pane.id in failedPanes,
         renaming = sidebar.renaming?.takeIf { it.origin == paneOrigin(pane.id) },
         settings = effectiveSettings,

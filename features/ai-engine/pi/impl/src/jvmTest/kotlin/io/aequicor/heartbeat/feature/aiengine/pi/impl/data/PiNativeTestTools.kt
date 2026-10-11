@@ -20,6 +20,9 @@ internal object TestNativeTools : ProfileAgentTools by NoAgentTools {
 
 internal object TestNativeClassifier : NativeCallClassifier {
     override fun terminatesHost(command: String): Boolean = command.contains("--stop") || command.startsWith("taskkill")
-    override suspend fun isWorkspaceEdit(path: String, workspace: String): Boolean =
-        path.startsWith("$workspace/") && !path.contains("/.git/")
+    override suspend fun isWorkspaceEdit(path: String, workspace: String): Boolean {
+        val normalizedPath = path.replace('\\', '/')
+        val normalizedWorkspace = workspace.replace('\\', '/').trimEnd('/')
+        return normalizedPath.startsWith("$normalizedWorkspace/") && !normalizedPath.contains("/.git/")
+    }
 }

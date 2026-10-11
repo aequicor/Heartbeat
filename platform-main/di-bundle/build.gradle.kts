@@ -47,6 +47,8 @@ kotlin {
             implementation(projects.features.harness.impl)
             implementation(projects.features.agentLearning.api)
             implementation(projects.features.agentLearning.impl)
+            implementation(projects.features.autocomplete.api)
+            implementation(projects.features.autocomplete.impl)
             implementation(projects.features.organicAi.api)
             implementation(projects.features.organicAi.impl)
             api(projects.features.plantUmlSupport.api)

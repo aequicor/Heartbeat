@@ -237,4 +237,5 @@ internal fun StudioSession.toUi(): SessionUi = SessionUi(
     isAwaitingChecklist = isAwaitingChecklist,
     isReady = isReady,
     parentChatId = parentChatId,
+    executionWorkspace = treeAccess?.workspace?.value,
 )

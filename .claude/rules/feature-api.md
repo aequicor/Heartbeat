@@ -144,6 +144,13 @@ DTO и callbacks без реализации IO. Допускает kotlinx.seri
 бизнес-машины: типы результатов, конфигурация профиля и опциональные `EngineFeature` для нативных
 операций. Поисковый запрос не является длительным состоянием фичи; IO и UI находятся только в `impl`.
 
+`features/autocomplete/api` — сервисный контракт `ComposerAssists` без бизнес-машины: подсказки композера —
+запрос/ответ без длительного бизнес-флоу. В API находятся типы области поиска и подсказок, тогл,
+чистые `composerTrigger` / `applyComposerSuggestion`; IO и объединение источников остаются в `impl`.
+Собственного UI нет: ai-studio проецирует контракт в модели своего стора, а ДС получает только UI-модели.
+Поэтому autocomplete не входит в `SERVICE_CONTRACT_FEATURES`. Execution workspace задаёт каталог файлов
+и нативных скиллов; логический проект отдельно задаёт область выученных инструкций.
+
 `features/plant-uml-support/api` — сервисный контракт `PlantUmlRenderer` без бизнес-машины: рендер диаграммы —
 запрос/ответ без длительного флоу (типы `PlantUmlRequest`/`PlantUmlStyle`/`PlantUmlResult`, `availability` по тоглу).
 UI у фичи нет: диаграммы рисует ДС (`HbDiagramsProvider` + SPI `HbDiagramRenderer`), а desktop-хост адаптирует к нему

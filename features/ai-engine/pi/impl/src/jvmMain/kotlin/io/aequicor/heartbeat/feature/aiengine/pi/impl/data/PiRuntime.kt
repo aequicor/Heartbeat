@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsComposerAssists
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.OwnedTurnAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.OwnedTurnStop
@@ -97,6 +98,7 @@ internal class PiRuntime(
                 AttachesSessions to this,
                 NativeWebFetch to services.nativeWeb,
                 StopsOwnedTurns to ownedTurns,
+                ListsComposerAssists to PiComposerAssists(services.workspaces, environment.dispatchers),
             ),
         )
 

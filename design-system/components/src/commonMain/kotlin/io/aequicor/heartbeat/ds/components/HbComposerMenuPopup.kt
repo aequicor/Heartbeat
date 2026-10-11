@@ -125,7 +125,7 @@ private fun ComposerMenuSheet(
 }
 
 @Composable
-private fun ComposerSectionLabel(label: String, modifier: Modifier = Modifier) {
+internal fun ComposerSectionLabel(label: String, modifier: Modifier = Modifier) {
     HbText(
         text = label,
         modifier = modifier.padding(

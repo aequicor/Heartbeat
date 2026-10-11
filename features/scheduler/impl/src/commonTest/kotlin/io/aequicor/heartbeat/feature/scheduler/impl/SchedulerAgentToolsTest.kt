@@ -34,6 +34,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.impl.data.InMemorySchedulerBus
 import io.aequicor.heartbeat.feature.scheduler.impl.data.SchedulerAgentTools
 import io.aequicor.heartbeat.feature.scheduler.impl.data.WakeScheduler
+import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerPersistence
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
@@ -66,10 +67,13 @@ class SchedulerAgentToolsTest {
     ): Fixture {
         val clock = VirtualClock(testScheduler)
         val machine = SpecMachine(state)
+        val persistence = SchedulerPersistence(MemoryWakeStorage((state as? SchedulerState.Ready)?.wakes.orEmpty()))
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) { persistence.load() }
+        persistEffects(machine, persistence)
         val bus = InMemorySchedulerBus(clock)
         val tools = SchedulerAgentTools(
             machine,
-            WakeScheduler(machine, lazyOf(hosts)),
+            WakeScheduler(machine, lazyOf(hosts), persistence),
             bus,
             toggles,
             clock,

@@ -6,12 +6,14 @@ import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerOutput
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import io.aequicor.heartbeat.feature.scheduler.api.WakeCondition
 import io.aequicor.heartbeat.feature.scheduler.api.WakeId
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRejection
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerMachine
+import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerPersistence
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -25,12 +27,13 @@ import kotlin.uuid.Uuid
 private val ANSWER_TIMEOUT = 10.seconds
 private const val ID_LENGTH = 12
 
-/** Verifies a session has a wake host before scheduling, then waits for the answer to the exact request. */
+/** Verifies a wake host and confirms the exact request only after its state has reached durable storage. */
 @Inject
 internal class WakeScheduler(
     private val machine: SchedulerMachine,
     // Lazy: hosts depend on the runtime, which itself uses the hosted tools.
     private val hosts: Lazy<Set<ScheduledSessionHost>>,
+    private val persistence: SchedulerPersistence,
 ) {
     /** Schedules [request] at [now]. */
     suspend fun schedule(request: WakeRequest, now: Instant): ScheduleOutcome = coroutineScope {
@@ -40,12 +43,22 @@ internal class WakeScheduler(
         }
         val sent = machine.send(SchedulerIntent.Public.Schedule(request, now))
         val outcome = if (sent == SendResult.Accepted) {
-            withTimeoutOrNull(ANSWER_TIMEOUT) { answer.await() } ?: ScheduleOutcome.Unconfirmed
+            withTimeoutOrNull(ANSWER_TIMEOUT) { confirm(answer.await()) } ?: ScheduleOutcome.Unconfirmed
         } else {
             ScheduleOutcome.NotTaken
         }
         answer.cancel()
         outcome
+    }
+
+    private suspend fun confirm(outcome: ScheduleOutcome): ScheduleOutcome {
+        if (outcome == ScheduleOutcome.Scheduled) {
+            // State is published before outputs. A newer snapshot also includes this request or its settlement.
+            val revision = (machine.state.value as? SchedulerState.Ready)?.revision
+                ?: return ScheduleOutcome.Unconfirmed
+            persistence.revision.first { it >= revision }
+        }
+        return outcome
     }
 }
 
@@ -57,7 +70,7 @@ internal fun newActionId(): ActionId = ActionId("a" + Uuid.random().toHexString(
 
 /** What became of a wake request. */
 internal sealed interface ScheduleOutcome {
-    /** The wake is pending. */
+    /** The wake was accepted and its state is durable across profile reopening. */
     data object Scheduled : ScheduleOutcome
 
     /** The machine refused it. */
@@ -69,7 +82,7 @@ internal sealed interface ScheduleOutcome {
     /** The machine did not take the request (still loading). */
     data object NotTaken : ScheduleOutcome
 
-    /** The machine took the request but did not answer in time. */
+    /** The machine took the request but its answer or durable write was not confirmed in time. */
     data object Unconfirmed : ScheduleOutcome
 }
 

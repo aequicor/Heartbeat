@@ -58,6 +58,7 @@ public sealed interface PlantUmlResult {
      * A PNG [png] of the first page, drawn at [scale] pixels per logical unit; [width] × [height] is the logical size.
      * Equality is by identity.
      */
+    @Suppress("UseDataClass") // Rendered images intentionally use identity equality, as documented above.
     public class Image(
         public val png: ByteArray,
         public val width: Float,
