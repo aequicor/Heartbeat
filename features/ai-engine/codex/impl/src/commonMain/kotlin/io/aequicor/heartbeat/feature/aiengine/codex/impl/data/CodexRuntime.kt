@@ -92,13 +92,14 @@ internal class CodexRuntime(
     private val connections = mutableSetOf<CodexConnection>()
     private val commands = Mutex()
     val ownedTurns = CodexOwnedTurns(this, launch, sessions, commands)
+    val trees = CodexSessionTrees(this, rpc) { root ->
+        // Native subagents are loaded only in the execution process of their open root thread.
+        sessions[root.nativeId]?.connection?.takeIf { !it.isClosed }?.rpc
+    }
     override val features: EngineFeatures = CodexFeatures(
         this,
         providerUsage,
-        CodexSessionTrees(
-            this,
-            rpc,
-        ),
+        trees,
         ownedTurns,
         blocked = {
             if (isClosed) EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed) else null
@@ -359,7 +360,11 @@ internal class CodexRuntime(
     /** Last-handle release keeps active native work alive, then retires only that idle execution process. */
     fun release(session: CodexSession) {
         if (isClosed || !session.isUnused || ownedTurns.isReserved(session.ref.nativeId)) return
-        profile.coroutineScope.launch { commands.withLock { retireUnused(session) } }
+        profile.coroutineScope.launch {
+            // Native subagents keep running in this process after their root turn ends; retiring would kill them.
+            if (session.children.isActive()) return@launch
+            commands.withLock { retireUnused(session) }
+        }
     }
 
     private suspend fun retireUnused(session: CodexSession) = session.connectionMutex.withLock {

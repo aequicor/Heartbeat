@@ -37,7 +37,11 @@ import kotlinx.serialization.json.put
  * Metadata and history reads only: observing a child never runs thread/resume or changes its model.
  * Complete, inactive families wait for runtime notifications; active or uncertain families retain polling.
  */
-internal class CodexSessionTrees(private val runtime: CodexRuntime, private val rpc: CodexRpc) : SessionTrees {
+internal class CodexSessionTrees(
+    private val runtime: CodexRuntime,
+    private val rpc: CodexRpc,
+    private val execution: (SessionRef) -> CodexRpc? = { null },
+) : SessionTrees {
     private val log = Log.tag("CodexSessionTrees")
 
     @HighFrequency
@@ -74,15 +78,28 @@ internal class CodexSessionTrees(private val runtime: CodexRuntime, private val 
     @HighFrequency
     internal suspend fun snapshot(root: SessionRef, access: SessionTreeAccess): SessionTreeSnapshot {
         validate(root, access)
+        return discover(root, peer(root))
+    }
+
+    /** Whether a native descendant of [root] reports outstanding work in the process behind [peer]. */
+    internal suspend fun hasActiveDescendants(root: SessionRef, peer: CodexRpc): Boolean =
+        discover(root, peer).nodes.any { it.ref != root && it.activity.isActive }
+
+    /** The metadata process has not loaded an open root's family: its live status is in the execution process. */
+    @HighFrequency
+    private fun peer(root: SessionRef): CodexRpc = execution(root) ?: rpc
+
+    @HighFrequency
+    private suspend fun discover(root: SessionRef, peer: CodexRpc): SessionTreeSnapshot {
         val nodes = linkedMapOf<SessionRef, SessionTreeNode>()
         val pending = ArrayDeque<Pair<SessionRef, JsonObject>>()
         val queued = mutableSetOf<String>()
-        pending.add(root to read(root))
+        pending.add(root to read(peer, root))
         var isComplete = true
         while (pending.isNotEmpty()) {
             val (ref, thread) = pending.removeFirst()
             if (ref in nodes) continue
-            val replay = readTurns(rpc, ref, thread)
+            val replay = readTurns(peer, ref, thread)
             val turns = replay.turns
             isComplete = isComplete && replay.isCanonical
             val observed = thread.activity(root, turns.lastOrNull())
@@ -100,7 +117,7 @@ internal class CodexSessionTrees(private val runtime: CodexRuntime, private val 
                     .flatMap { it.queuedAgents() }
             }
             nodes[ref] = node
-            pending.addAll(children(root, ref, turns, nodes.keys))
+            pending.addAll(children(peer, root, ref, turns, nodes.keys))
         }
         return SessionTreeSnapshot(
             root,
@@ -111,6 +128,7 @@ internal class CodexSessionTrees(private val runtime: CodexRuntime, private val 
 
     @HighFrequency
     private suspend fun children(
+        peer: CodexRpc,
         root: SessionRef,
         parent: SessionRef,
         turns: List<JsonObject>,
@@ -121,7 +139,7 @@ internal class CodexSessionTrees(private val runtime: CodexRuntime, private val 
         return ids.mapNotNull { id ->
             val ref = root.copy(nativeId = id)
             if (ref in known) return@mapNotNull null
-            val thread = read(ref)
+            val thread = read(peer, ref)
             // Forked histories include ancestor events; only the immediate native parent admits a child.
             if (thread.nativeParent() == parent.nativeId) ref to thread else null
         }
@@ -132,12 +150,12 @@ internal class CodexSessionTrees(private val runtime: CodexRuntime, private val 
         if (ref != root && family.descendants().none { it.node.ref == ref }) {
             fail(EngineFailure.Session(SessionFailureReason.NotFound))
         }
-        return CodexTreeHistory(runtime, rpc, root, ref) { validate(root, access) }
+        return CodexTreeHistory(runtime, { peer(root) }, root, ref) { validate(root, access) }
     }
 
     @HighFrequency
-    private suspend fun read(ref: SessionRef): JsonObject {
-        val thread = rpc.request("thread/read", json("threadId" to ref.nativeId.json())).obj("thread")
+    private suspend fun read(peer: CodexRpc, ref: SessionRef): JsonObject {
+        val thread = peer.request("thread/read", json("threadId" to ref.nativeId.json())).obj("thread")
         if (thread.text("id") != ref.nativeId) protocolFailure()
         return thread
     }
@@ -177,7 +195,7 @@ internal fun JsonObject.treeNode(root: SessionRef): SessionTreeNode {
 /** A private replay journal, refreshed by read requests; owns no execution lease. */
 private class CodexTreeHistory(
     private val runtime: CodexRuntime,
-    private val rpc: CodexRpc,
+    private val peer: () -> CodexRpc,
     private val root: SessionRef,
     private val ref: SessionRef,
     private val gate: suspend () -> Unit,
@@ -204,6 +222,7 @@ private class CodexTreeHistory(
     @HighFrequency
     private suspend fun refresh(): Boolean {
         gate()
+        val rpc = peer()
         val thread = rpc.request(
             "thread/read",
             json("threadId" to ref.nativeId.json()),

@@ -122,6 +122,8 @@ internal class CodexSession(
         { codexTurnOutcome(it, route.binding) },
     ) { nativeTurn = it }
 
+    val children = CodexSessionChildren(this, scope)
+
     private val leases = mutableSetOf<CodexLease>()
     fun lease(): ActiveSession = CodexLease(this).also { leases += it }
     fun release(lease: CodexLease) {

@@ -2,6 +2,13 @@
 
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexEngine
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -14,6 +21,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -54,6 +62,33 @@ class CodexHostedJobsTest {
         assertTrue(child.isCompleted)
         assertNull(jobs.lifetime(turn))
         assertNull(jobs.parent(turn))
+    }
+
+    @Test
+    fun `profile drains retain only pending parents and forget them once cleanup ends`() = runTest {
+        val jobs = CodexHostedJobs(backgroundScope, timeoutMillis = 100)
+        val turn = TurnId("turn")
+        val cleanup = CompletableDeferred<Unit>()
+        CoroutineScope(backgroundScope.coroutineContext + assertNotNull(jobs.parent(turn))).launch {
+            try {
+                awaitCancellation()
+            } finally {
+                withContext(NonCancellable) { cleanup.await() }
+            }
+        }
+        assertNotNull(jobs.parent(TurnId("idle"))).cancel()
+        runCurrent()
+        assertEquals(setOf(turn), jobs.pending().keys)
+        val drains = CodexHostedDrains()
+        val ref = SessionRef(CodexEngine.Id, SessionSourceId("codex.local"), "thread")
+        val route =
+            ExecutionRoute(CodexEngine.Id, EngineBindingId("binding"), AuthSourceId("codex"), AuthRevision.Unknown)
+        drains.retain(ref, route, "owner", jobs)
+        assertFalse(drains.isEmpty)
+        assertFalse(drains.drain(ref, route, "owner", turn))
+        cleanup.complete(Unit)
+        assertTrue(drains.drain(ref, route, "owner", turn))
+        assertTrue(drains.isEmpty)
     }
 
     @Test

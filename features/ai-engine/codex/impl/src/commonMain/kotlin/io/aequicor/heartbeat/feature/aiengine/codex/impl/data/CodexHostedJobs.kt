@@ -15,7 +15,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  */
 internal class CodexHostedJobs(
     private val scope: CoroutineScope,
-    private val timeoutMillis: Long = DRAIN_TIMEOUT,
+    private val timeoutMillis: Long = HOSTED_DRAIN_TIMEOUT,
     private val onDrained: () -> Unit = {},
 ) {
     private val jobs = mutableMapOf<TurnId, CompletableJob>()
@@ -48,16 +48,27 @@ internal class CodexHostedJobs(
     suspend fun drain(turn: TurnId): Boolean {
         revoke(turn)
         val parent = jobs[turn] ?: return true
-        val isFinished = withTimeoutOrNull(timeoutMillis) {
-            parent.join()
-            true
-        } ?: false
+        val isFinished = drainHostedParent(parent, timeoutMillis)
         if (isFinished && jobs[turn] === parent) jobs.remove(turn)
         return isFinished
     }
 
+    /** Parents whose cleanup is still running; once completed they reference neither this owner nor its session. */
+    fun pending(): Map<TurnId, Job> = jobs.filterValues { !it.isCompleted }
+
     private companion object {
         const val MAX_CLOSED_TURNS = 32
-        const val DRAIN_TIMEOUT = 5_000L
     }
 }
+
+/** Cancels [parent] and waits for its children, including non-cancellable cleanup. Absent parents are drained. */
+internal suspend fun drainHostedParent(parent: Job?, timeoutMillis: Long = HOSTED_DRAIN_TIMEOUT): Boolean {
+    parent ?: return true
+    parent.cancel()
+    return withTimeoutOrNull(timeoutMillis) {
+        parent.join()
+        true
+    } ?: false
+}
+
+private const val HOSTED_DRAIN_TIMEOUT = 5_000L

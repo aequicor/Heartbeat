@@ -31,6 +31,7 @@ internal class CodexConnection(
             val session = bound.await()
             rpc.notifications.collect { message ->
                 observe(message)
+                session.children.observe(message)
                 val thread = (message["params"] as? JsonObject)?.text("threadId")
                 if (thread == session.ref.nativeId) {
                     session.event(message, this@CodexConnection)
