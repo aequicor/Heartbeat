@@ -35,20 +35,28 @@ internal class StudioHelperNative(
 ) {
     private val log = Log.tag("StudioHelperNative")
 
+    /**
+     * Saves terminal evidence of a journaled helper request. History is read only for an unresolved receipt; a
+     * failure leaves the receipt for later reconciliation and never fails the observed turn.
+     */
     suspend fun remember(
         record: StudioChatRecord,
         request: RequestId,
         session: SessionRef,
         turn: TurnId,
         outcome: TurnOutcome,
-        items: List<SessionItem>,
+        items: suspend () -> List<SessionItem>,
     ) {
-        val helper = HelperId(record.id)
-        if (attempts.receipt(helper, request)?.terminal != null) return
-        check(record.ref == session) { "Helper native identity changed" }
-        val settled = confirmed(record, request, turn, outcome) ?: return
-        attempts.terminal(helper, request, terminal(session, turn, settled, items))
-        log.v { "Saved exact helper terminal evidence" }
+        evidence {
+            val helper = HelperId(record.id)
+            val receipt = attempts.receipt(helper, request)
+            if (receipt == null) log.w { "Helper turn has no journaled request; terminal evidence is not saved" }
+            if (receipt == null || receipt.phase !in NATIVE_PHASES) return@evidence null
+            check(record.ref == session) { "Helper native identity changed" }
+            val settled = confirmed(record, request, turn, outcome) ?: return@evidence null
+            attempts.terminal(helper, request, terminal(session, turn, settled, items()))
+            log.v { "Saved exact helper terminal evidence" }
+        }
     }
 
     suspend fun result(
@@ -191,5 +199,8 @@ internal class StudioHelperNative(
 
     private companion object {
         const val STOP_WAIT_MILLIS = 30_000L
+
+        /** Unresolved native phases; terminal, revoked or missing receipts never read history again. */
+        val NATIVE_PHASES = setOf(StudioHelperPhase.Submitting, StudioHelperPhase.Accepted)
     }
 }

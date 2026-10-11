@@ -21,11 +21,12 @@ internal class StudioHelperAdmission(
             check(supplied.matches(helper, request.request)) { "The helper submission belongs to another request" }
             return request
         }
-        val prepared = attempts.prepare(helper, HelperPrompt(request.request, request.prompt))
+        // A scheduled wake keeps its request id across deliveries; a revoked earlier preparation may be redone.
+        val prepared = attempts.prepareDelivery(helper, HelperPrompt(request.request, request.prompt))
         check(prepared.isNew) { "The helper request is already owned" }
         log.v { "Reserved helper request through common admission" }
         return request.copy(
-            submission = StudioHelperSubmission(attempts, helper, request.request, request.submission, admissions),
+            submission = StudioHelperSubmission(attempts, admissions, helper, request.request, request.submission),
         )
     }
 }

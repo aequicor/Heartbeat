@@ -31,14 +31,9 @@ internal class StudioHelperTurnObserver(
     ) {
         val record = access.value.helperRecord(HelperId(request.id))
         if (record.helper != null) {
-            native.remember(
-                record,
-                request.request,
-                active.ref,
-                turn,
-                outcome,
-                native.read(active.features.requireFeature(SessionHistory)),
-            )
+            native.remember(record, request.request, active.ref, turn, outcome) {
+                native.read(active.features.requireFeature(SessionHistory))
+            }
         }
     }
 }

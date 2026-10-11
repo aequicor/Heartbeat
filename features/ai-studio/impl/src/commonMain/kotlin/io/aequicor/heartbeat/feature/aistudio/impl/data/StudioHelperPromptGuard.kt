@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -16,9 +17,11 @@ import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.time.Duration.Companion.seconds
 
-/** A false decision permanently revokes this preparation, including while its durable begin write is pending. */
+/**
+ * A false decision permanently revokes this preparation, including while its durable begin write is pending.
+ * Each decision wait is bounded by the owners' declared [SchedulerLimits.HELPER_ADMISSION_DEADLINE].
+ */
 internal class StudioHelperPromptGuard(private val decisions: Flow<Boolean>) {
     private val phase = MutableStateFlow(Phase.Preparing)
     private val log = Log.tag("StudioHelperPromptGuard")
@@ -32,7 +35,7 @@ internal class StudioHelperPromptGuard(private val decisions: Flow<Boolean>) {
         }
         try {
             check(
-                withTimeoutOrNull(2.seconds) {
+                withTimeoutOrNull(SchedulerLimits.HELPER_ADMISSION_DEADLINE) {
                     initial.await()
                     true
                 } == true,
@@ -77,7 +80,7 @@ internal class StudioHelperPromptGuard(private val decisions: Flow<Boolean>) {
 
     /** Refreshes native configuration after admission IO while revocation still owns preparation. */
     suspend fun <T> submitted(prepare: suspend () -> T): T {
-        val isAllowed = withTimeoutOrNull(2.seconds) { decisions.first() } == true
+        val isAllowed = withTimeoutOrNull(SchedulerLimits.HELPER_ADMISSION_DEADLINE) { decisions.first() } == true
         currentCoroutineContext().ensureActive()
         if (!isAllowed) revoke()
         if (phase.value != Phase.Preparing) throw CancellationException("Helper context admission was revoked")

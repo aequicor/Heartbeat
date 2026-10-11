@@ -105,6 +105,47 @@ class StudioTurnExecutorTest {
     }
 
     @Test
+    fun `failing receipt observers never abandon native ownership or the reported outcome`() = runTest {
+        val fixture = TurnFixture()
+        fixture.host.acceptedFailure = IllegalStateException("Acceptance receipt unavailable")
+        fixture.host.terminalFailure = IllegalStateException("Terminal receipt unavailable")
+        val run = async { fixture.executor.execute(fixture.host, fixture.request) }
+        runCurrent()
+        fixture.tools.release.complete(Unit)
+        assertEquals(RunOutcome.Completed, run.await())
+        assertEquals(1, fixture.host.acceptedReceipts.size)
+        assertEquals(1, fixture.host.terminalReceipts.size)
+        assertEquals(listOf("finish-end", "refresh", "settled", "outcome"), fixture.events.takeLast(4))
+    }
+
+    @Test
+    fun `failing terminal observer in recovery still settles ownership and reports the failure`() = runTest {
+        val fixture = TurnFixture()
+        fixture.host.stopCheckFailure = IllegalStateException("Stop check failed")
+        fixture.host.terminalFailure = IllegalStateException("Terminal receipt unavailable")
+        fixture.active.state.value = ActiveSessionState.Running(fixture.turn.copy(outcome = null))
+        val run = async { fixture.executor.execute(fixture.host, fixture.request) }
+        runCurrent()
+        fixture.active.state.value = ActiveSessionState.Ready(fixture.turn.copy(outcome = TurnOutcome.Cancelled))
+        fixture.tools.release.complete(Unit)
+        assertEquals(RunOutcome.Failed, run.await())
+        assertEquals(1, fixture.host.terminalReceipts.size)
+        assertEquals(listOf("finish-end", "settled", "failure"), fixture.events.takeLast(3))
+    }
+
+    @Test
+    fun `a failure after the terminal observer never records terminal evidence twice`() = runTest {
+        val fixture = TurnFixture()
+        val request = fixture.request.copy(onOutcome = { throw IllegalStateException("Graph journal unavailable") })
+        val run = async { fixture.executor.execute(fixture.host, request) }
+        runCurrent()
+        fixture.tools.release.complete(Unit)
+        assertEquals(RunOutcome.Failed, run.await())
+        assertEquals(1, fixture.host.terminalReceipts.size)
+        assertEquals(listOf("settled", "failure"), fixture.events.takeLast(2))
+    }
+
+    @Test
     fun `recovered helper receipt records actual cancellation instead of generic failed run`() = runTest {
         val fixture = TurnFixture()
         fixture.host.isIsolated = false
@@ -689,8 +730,11 @@ private class ExecutorHost(
     val terminalReceipts = mutableListOf<Triple<RequestId, TurnId, TurnOutcome>>()
     var terminalEvents = emptyList<String>()
     var isTerminalHistoryCurrent: Boolean? = null
+    var acceptedFailure: Exception? = null
+    var terminalFailure: Exception? = null
     override suspend fun acceptedTurn(request: StudioTurnRequest, active: ActiveSession, turn: TurnId) {
         acceptedReceipts += request.request to turn
+        acceptedFailure?.let { throw it }
     }
     override suspend fun terminalTurn(
         request: StudioTurnRequest,
@@ -702,6 +746,7 @@ private class ExecutorHost(
         terminalReceipts += Triple(request.request, turn, outcome)
         terminalEvents = events.toList()
         isTerminalHistoryCurrent = isHistoryCurrent
+        terminalFailure?.let { throw it }
     }
     override suspend fun isWorktree(id: String) = isIsolated
     override suspend fun openTurn(id: String, settings: RunSettings): ActiveSession {

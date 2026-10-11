@@ -83,8 +83,7 @@ class StudioHelperNativeTest {
             fixture.ref,
             fixture.turn.id,
             TurnOutcome.Completed,
-            fixture.messages,
-        )
+        ) { fixture.messages }
         assertNull(fixture.attempts.receipt(HelperId("helper"), fixture.turn.request!!)?.terminal)
         fixture.stop = OwnedTurnStop.Confirmed(fixture.turn)
         fixture.native.remember(
@@ -93,8 +92,7 @@ class StudioHelperNativeTest {
             fixture.ref,
             fixture.turn.id,
             TurnOutcome.Completed,
-            fixture.messages,
-        )
+        ) { fixture.messages }
         assertEquals("answer", fixture.attempts.receipt(HelperId("helper"), fixture.turn.request!!)?.terminal?.answer)
     }
 
@@ -142,7 +140,7 @@ class StudioHelperNativeTest {
     }
 }
 
-private class NativeHelperFixture :
+internal class NativeHelperFixture :
     ActiveSession,
     SessionHistory {
     val attempts = StudioHelperAttempts(ChecklistTestStores())
@@ -209,7 +207,7 @@ private class NativeHelperFixture :
     override fun watch(after: HistoryCheckpoint) = emptyFlow<SessionEvent>()
 }
 
-private fun nativeFeatures(vararg entries: EngineFeature) = object : EngineFeatures {
+internal fun nativeFeatures(vararg entries: EngineFeature) = object : EngineFeatures {
     override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> =
         entries.firstNotNullOfOrNull { key.type.safeCast(it) }?.let { FeatureAccess.Available(it) }
             ?: FeatureAccess.Unsupported

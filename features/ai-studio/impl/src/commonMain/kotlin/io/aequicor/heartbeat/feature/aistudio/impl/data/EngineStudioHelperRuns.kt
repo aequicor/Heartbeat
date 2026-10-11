@@ -53,6 +53,7 @@ internal class EngineStudioHelperRuns(
                 WorktreeRunKind.Coding,
                 prompt.request,
                 onAccepted = onAccepted,
+                directives = prompt.directives,
                 submission = submission,
             ),
             waitForIdle = true,

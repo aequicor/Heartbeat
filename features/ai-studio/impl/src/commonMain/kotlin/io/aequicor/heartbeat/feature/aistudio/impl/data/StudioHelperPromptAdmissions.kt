@@ -31,7 +31,7 @@ internal class StudioHelperPromptAdmissions(
         helper: HelperId,
         session: SessionRef,
         receipt: StudioHelperReceipt,
-        workspace: WorkspaceRef? = null,
+        workspace: WorkspaceRef?,
     ): Flow<Boolean> = flow {
         val handoff = receipt.handoff
         val feature = handoff?.ownerFeature

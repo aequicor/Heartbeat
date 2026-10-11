@@ -36,12 +36,27 @@ class StudioHelperAdmissionTest {
     }
 
     @Test
+    fun `a wake redelivered after its revoked preparation is admitted again`() = runTest {
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        val admission = StudioHelperAdmission(attempts, emptyHelperAdmissions())
+        val wake = runRequest("wake_w1").copy(id = record.id, submission = StudioRunSubmission())
+        // The owner deferred the first delivery before native submission.
+        assertNotNull(admission.prepare(record, wake).submission).cancel()
+        assertEquals(StudioHelperPhase.NotSubmitted, attempts.receipt(HelperId(record.id), wake.request)?.phase)
+        val redelivered = admission.prepare(record, wake.copy(submission = StudioRunSubmission()))
+        assertEquals(StudioHelperPhase.Preparing, attempts.receipt(HelperId(record.id), wake.request)?.phase)
+        assertNotNull(redelivered.submission).begin()
+        assertEquals(StudioHelperPhase.Submitting, attempts.receipt(HelperId(record.id), wake.request)?.phase)
+        assertFailsWith<IllegalStateException> { admission.prepare(record, wake) }
+    }
+
+    @Test
     fun `a helper gate belonging to another chat or request is rejected`() = runTest {
         val attempts = StudioHelperAttempts(ChecklistTestStores())
         val request = runRequest("manual").copy(id = record.id)
         val helper = HelperId(record.id)
         attempts.prepare(helper, HelperPrompt(request.request, request.prompt))
-        val gate = StudioHelperSubmission(attempts, helper, request.request)
+        val gate = StudioHelperSubmission(attempts, emptyHelperAdmissions(), helper, request.request)
         val matching = request.copy(submission = gate)
         assertSame(matching, StudioHelperAdmission(attempts, emptyHelperAdmissions()).prepare(record, matching))
         assertFailsWith<IllegalStateException> {

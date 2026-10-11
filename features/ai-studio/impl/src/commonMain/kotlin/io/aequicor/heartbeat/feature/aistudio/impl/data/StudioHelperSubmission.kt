@@ -1,6 +1,9 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -14,28 +17,29 @@ import kotlin.uuid.Uuid
 /** The coordinator retains this exact gate; cancel and native begin share the durable journal barrier. */
 internal class StudioHelperSubmission(
     private val attempts: StudioHelperAttempts,
+    private val admissions: StudioHelperPromptAdmissions,
     private val helper: HelperId,
     private val request: RequestId,
     private val prior: StudioSubmissionGate? = null,
-    private val admissions: StudioHelperPromptAdmissions? = null,
 ) : StudioSubmissionGate {
     private val log = Log.tag("StudioHelperSubmission")
     private val cancelled = MutableStateFlow(false)
     private val started = MutableStateFlow(false)
     private val claim = Uuid.random().toString()
     private var contextGuard: StudioHelperPromptGuard? = null
+    private var boundSession: SessionRef? = null
     override val isCancelled: Boolean get() = cancelled.value
 
     /** All production helper sends enter this scope, including manual turns in a marked chat. */
-    suspend fun <T> withPreparation(session: SessionRef, workspace: WorkspaceRef? = null, block: suspend () -> T): T {
+    suspend fun <T> withPreparation(session: SessionRef, workspace: WorkspaceRef?, block: suspend () -> T): T {
         check(started.compareAndSet(false, true)) { "Helper submission is already owned" }
         log.v { "Claimed helper preparation" }
         var guard: StudioHelperPromptGuard? = null
         try {
             val bound = attempts.bindSession(helper, request, session)
                 ?: throw CancellationException("Helper preparation is revoked or already submitted")
-            val source = checkNotNull(admissions) { "Helper prompt admission is unavailable" }
-            val preparedGuard = StudioHelperPromptGuard(source.decisions(helper, session, bound, workspace))
+            boundSession = session
+            val preparedGuard = StudioHelperPromptGuard(admissions.decisions(helper, session, bound, workspace))
             guard = preparedGuard
             contextGuard = preparedGuard
             return preparedGuard.watch(block)
@@ -50,14 +54,38 @@ internal class StudioHelperSubmission(
 
     override suspend fun begin() = begin {}
 
-    /** Final configuration refresh remains cancellable until this sender owns native submission. */
+    /**
+     * Final configuration refresh remains cancellable until this sender owns native submission. The helper's
+     * durable boundary is crossed first: a revoked receipt must leave a prior gate (a scheduled wake) unsubmitted.
+     */
     suspend fun <T> begin(prepare: suspend () -> T): T {
-        prior?.begin()
         if (!attempts.begin(helper, request, claim)) {
             throw CancellationException("Helper native submission is revoked or owned")
         }
+        var isPriorBegun = false
+        try {
+            prior?.begin()
+            isPriorBegun = true
+        } finally {
+            // A refusing prior gate retires this sender's own claim before its failure propagates.
+            if (!isPriorBegun) withContext(NonCancellable) { retire() }
+        }
         val guard = contextGuard
         return if (guard == null) prepare() else guard.submitted(prepare)
+    }
+
+    /**
+     * Enters the native send. An engine refusal other than an unknown outcome proves the request was never
+     * accepted, so the receipt becomes NotSubmitted instead of an unresolved submission holding the helper.
+     */
+    suspend fun <T> send(native: suspend () -> T): T = try {
+        native()
+    } catch (e: EngineException) {
+        if (!e.isAcceptanceUnknown) {
+            val isRetired = withContext(NonCancellable) { retire() }
+            log.i { "Helper native send refused before acceptance; not submitted=$isRetired" }
+        }
+        throw e
     }
 
     override suspend fun cancel(): Boolean {
@@ -79,4 +107,11 @@ internal class StudioHelperSubmission(
         } else {
             null
         }
+
+    /** Only this sender's own claim can be retired, and only while no native acceptance was journaled. */
+    private suspend fun retire(): Boolean = attempts.cancelBeforeNative(helper, request, boundSession, claim)
 }
+
+/** Only an explicitly unknown outcome leaves acceptance uncertain; other engine failures precede acceptance. */
+private val EngineException.isAcceptanceUnknown: Boolean
+    get() = (failure as? EngineFailure.Request)?.reason == RequestFailureReason.OutcomeUnknown

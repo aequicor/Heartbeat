@@ -45,7 +45,10 @@ internal interface StudioTurnHost {
     suspend fun failedTurn(id: String, error: Exception): RunOutcome
 }
 
-/** Records exact acceptance and terminal evidence without coupling the executor to helper storage. */
+/**
+ * Records exact acceptance and terminal evidence without coupling the executor to helper storage. The executor
+ * isolates failures of these hooks: they never abandon native ownership, settlement or the run outcome.
+ */
 internal interface StudioTurnObserver {
     suspend fun acceptedTurn(request: StudioTurnRequest, active: ActiveSession, turn: TurnId) = Unit
     suspend fun terminalTurn(
@@ -173,7 +176,7 @@ internal class StudioTurnExecutor(
             }
             progress.active = active
             progress.turn = turn
-            observer.acceptedTurn(request, active, turn)
+            observe("acceptance") { observer.acceptedTurn(request, active, turn) }
             request.onTurnAccepted(active)
             notifyAccepted(request)
             if (progress.isIsolated) worktrees.accepted(request.id, request.request, active.ref, turn)
@@ -188,7 +191,8 @@ internal class StudioTurnExecutor(
                 completed.request == request.request || completed.request in request.recoveryRequests,
             ) { "Terminal turn belongs to another request" }
             val outcome = checkNotNull(completed.outcome) { "Terminal outcome is unavailable" }
-            observer.terminalTurn(request, active, turn, outcome, isHistoryCurrent = true)
+            progress.isTerminalObserved = true
+            observe("terminal") { observer.terminalTurn(request, active, turn, outcome, isHistoryCurrent = true) }
             request.onOutcome(outcome)
             worktrees.settled(request.id.takeIf { progress.isIsolated }, request.request, active.ref, turn, outcome)
             host.outcome(request.id, outcome)
@@ -269,6 +273,17 @@ internal class StudioTurnExecutor(
         data class Completed(val outcome: TurnOutcome) : GraphRecovery
     }
 
+    /** An observer failure is logged; the turn's ownership, settlement and outcome continue unchanged. */
+    private suspend fun observe(hook: String, block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.e(error) { "Native turn $hook evidence could not be recorded; continue native ownership" }
+        }
+    }
+
     /** Notification failure cannot abandon native ownership or unlock a prepared worktree. */
     private suspend fun notifyAccepted(request: StudioTurnRequest) {
         try {
@@ -294,8 +309,10 @@ internal class StudioTurnExecutor(
         }
         tools.finishTurn(active.ref, turn)
         val terminal = active.state.value.takeIf { it.isTerminalFor(turn) }?.lastCompletedTurn()
-        if (terminal?.request == request.request && terminal.outcome != null) {
-            observer.terminalTurn(request, active, turn, checkNotNull(terminal.outcome), isHistoryCurrent = false)
+        // The observer already ran for this terminal turn if the failure came after it; never call it twice.
+        if (!progress.isTerminalObserved && terminal?.request == request.request && terminal.outcome != null) {
+            val outcome = checkNotNull(terminal.outcome)
+            observe("terminal") { observer.terminalTurn(request, active, turn, outcome, isHistoryCurrent = false) }
         }
         worktrees.failed(request.id.takeIf { progress.isIsolated }, request.request, active.ref, turn)
     }
@@ -326,6 +343,7 @@ internal class StudioTurnExecutor(
         var active: ActiveSession? = null
         var turn: TurnId? = null
         var isTerminal = false
+        var isTerminalObserved = false
     }
 
     private companion object {

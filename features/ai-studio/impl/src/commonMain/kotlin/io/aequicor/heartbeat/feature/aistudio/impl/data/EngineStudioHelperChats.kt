@@ -75,7 +75,7 @@ internal class EngineStudioHelperChats(
             runs.value.runHelper(
                 helper,
                 prompt,
-                StudioHelperSubmission(attempts, helper, prompt.request, admissions = admissions),
+                StudioHelperSubmission(attempts, admissions, helper, prompt.request),
             ) {
                 val receipt = checkNotNull(attempts.receipt(helper, prompt.request))
                 answer.complete(checkNotNull(receipt.submission()) { "Missing helper acceptance receipt" })

@@ -70,12 +70,12 @@ class StudioHelperPromptAdmissionsTest {
 
     @Test
     fun `missing ambiguous or mismatched durable identity refuses context admission`() = runTest {
-        assertFalse(admissions(emptySet()).decisions(helper, session, receipt).first())
+        assertFalse(admissions(emptySet()).decisions(helper, session, receipt, null).first())
         val owners = setOf(owner("harness") { flowOf(true) }, owner("harness") { flowOf(true) })
-        assertFalse(admissions(owners).decisions(helper, session, receipt).first())
+        assertFalse(admissions(owners).decisions(helper, session, receipt, null).first())
         val unique = setOf(owner("harness") { error("wrong metadata must not reach owner") })
         val wrong = metadata.copy(lastRequest = RequestId("other"))
-        assertFalse(admissions(unique, wrong).decisions(helper, session, receipt).first())
+        assertFalse(admissions(unique, wrong).decisions(helper, session, receipt, null).first())
     }
 
     @Test
@@ -91,10 +91,10 @@ class StudioHelperPromptAdmissionsTest {
                 emit(true)
             }
         }
-        val gate = StudioHelperSubmission(attempts, helper, request, admissions = admissions(setOf(owner)))
+        val gate = StudioHelperSubmission(attempts, admissions(setOf(owner)), helper, request)
         var native = false
         val result = async {
-            gate.withPreparation(session) {
+            gate.withPreparation(session, null) {
                 gate.begin()
                 native = true
             }
@@ -113,8 +113,8 @@ class StudioHelperPromptAdmissionsTest {
         val attempts = StudioHelperAttempts(ChecklistTestStores())
         attempts.prepare(helper, HelperPrompt(request, "prompt", handoff = handoff))
         val owner = owner("harness") { flow { awaitCancellation() } }
-        val gate = StudioHelperSubmission(attempts, helper, request, admissions = admissions(setOf(owner)))
-        val result = async { gate.withPreparation(session) { error("must not prepare") } }
+        val gate = StudioHelperSubmission(attempts, admissions(setOf(owner)), helper, request)
+        val result = async { gate.withPreparation(session, null) { error("must not prepare") } }
         runCurrent()
         result.cancel()
         assertFailsWith<CancellationException> { result.await() }
@@ -157,9 +157,9 @@ class StudioHelperPromptAdmissionsTest {
                 emit(true)
             }
         }
-        val gate = StudioHelperSubmission(attempts, helper, request, admissions = admissions(setOf(owner)))
+        val gate = StudioHelperSubmission(attempts, admissions(setOf(owner)), helper, request)
         val nativeTrust = async {
-            gate.withPreparation(session) {
+            gate.withPreparation(session, null) {
                 gate.begin { policy.trust(record, captured) { configurations } }
             }
         }
@@ -173,10 +173,10 @@ class StudioHelperPromptAdmissionsTest {
     fun `cancelling final configuration refresh still retires local submitting claim`() = runTest {
         val attempts = StudioHelperAttempts(ChecklistTestStores())
         attempts.prepare(helper, HelperPrompt(request, "prompt"))
-        val gate = StudioHelperSubmission(attempts, helper, request, admissions = emptyHelperAdmissions())
+        val gate = StudioHelperSubmission(attempts, emptyHelperAdmissions(), helper, request)
         val refreshing = CompletableDeferred<Unit>()
         val result = async {
-            gate.withPreparation(session) {
+            gate.withPreparation(session, null) {
                 gate.begin {
                     refreshing.complete(Unit)
                     awaitCancellation()

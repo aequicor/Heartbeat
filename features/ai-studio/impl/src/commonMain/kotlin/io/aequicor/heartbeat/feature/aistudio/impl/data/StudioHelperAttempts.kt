@@ -40,11 +40,29 @@ internal class StudioHelperAttempts(
     private val store = stores.keyValue(HelperAttemptsSpec)
     private val lock = Mutex()
 
-    suspend fun prepare(helper: HelperId, prompt: HelperPrompt): StudioHelperPreparation = lock.withLock {
+    suspend fun prepare(helper: HelperId, prompt: HelperPrompt): StudioHelperPreparation =
+        prepare(helper, prompt, isRedelivery = false)
+
+    /**
+     * Prepares a host delivery whose stable request may arrive again after its previous preparation ended before
+     * native send: revoked (a deferred or cancelled scheduled wake) or abandoned in Preparing by a closed profile.
+     * Only such a receipt of the same immutable prompt is prepared anew; a tombstone written before the prompt
+     * arrived stays final. Callers are serialized by the chat's execution reservation, so the earlier sender has
+     * already left; Submitting and later phases are never prepared again.
+     */
+    suspend fun prepareDelivery(helper: HelperId, prompt: HelperPrompt): StudioHelperPreparation =
+        prepare(helper, prompt, isRedelivery = true)
+
+    private suspend fun prepare(
+        helper: HelperId,
+        prompt: HelperPrompt,
+        isRedelivery: Boolean,
+    ): StudioHelperPreparation = lock.withLock {
         val records = read(helper)
-        val fingerprint = "${prompt.isRecovery}:${prompt.text}".encodeUtf8().sha256().hex()
+        val fingerprint = prompt.fingerprint()
         val existing = records[prompt.request.value]
-        if (existing != null) {
+        val isRedelivered = isRedelivery && existing?.isRedeliveryOf(prompt, fingerprint) == true
+        if (existing != null && !isRedelivered) {
             check(
                 existing.fingerprint == null ||
                     (existing.fingerprint == fingerprint && existing.handoff == prompt.handoff),
@@ -53,7 +71,9 @@ internal class StudioHelperAttempts(
             }
             return@withLock StudioHelperPreparation(existing, isNew = false)
         }
-        check(records.values.none { it.isUnresolved }) { "The previous helper request must be reconciled first" }
+        check(records.values.none { it.isUnresolved && it.request != prompt.request }) {
+            "The previous helper request must be reconciled first"
+        }
         val receipt = StudioHelperReceipt(
             prompt.request,
             StudioHelperPhase.Preparing,
@@ -61,7 +81,7 @@ internal class StudioHelperAttempts(
             handoff = prompt.handoff,
         )
         write(helper, records + (prompt.request.value to receipt))
-        log.v { "Journaled helper preparation" }
+        log.v { "Journaled helper preparation redelivered=$isRedelivered" }
         StudioHelperPreparation(receipt, isNew = true)
     }
 
@@ -100,11 +120,12 @@ internal class StudioHelperAttempts(
     }
 
     /**
-     * Only the exact local sender, before entering native send, may retire its own durable claim. External cancel
-     * must keep using cancelBeforeSubmission. A lost begin ACK is safe: the persisted claim identifies its owner;
-     * another sender's Submitting is never downgraded. A failed cleanup write leaves the attempt uncertain.
+     * Only the exact local sender, before entering native send or after the engine definitively refused it, may
+     * retire its own durable claim; a sender without a bound session passes null. External cancel must keep using
+     * cancelBeforeSubmission. A lost begin ACK is safe: the persisted claim identifies its owner; another sender's
+     * Submitting is never downgraded. A failed cleanup write leaves the attempt uncertain.
      */
-    suspend fun cancelBeforeNative(helper: HelperId, request: RequestId, session: SessionRef, claim: String): Boolean =
+    suspend fun cancelBeforeNative(helper: HelperId, request: RequestId, session: SessionRef?, claim: String): Boolean =
         lock.withLock {
             val records = read(helper)
             val receipt = checkNotNull(records[request.value]) { "Missing helper preparation" }
@@ -204,9 +225,20 @@ internal class StudioHelperAttempts(
         }
     }
 
+    /** The same immutable prompt whose earlier preparation never crossed the native submission boundary. */
+    private fun StudioHelperReceipt.isRedeliveryOf(prompt: HelperPrompt, fingerprint: String): Boolean =
+        phase in REPREPARABLE_PHASES && this.fingerprint == fingerprint && handoff == prompt.handoff
+
     private companion object {
         val NATIVE_PHASES = setOf(StudioHelperPhase.Submitting, StudioHelperPhase.Accepted, StudioHelperPhase.Terminal)
+        val REPREPARABLE_PHASES = setOf(StudioHelperPhase.Preparing, StudioHelperPhase.NotSubmitted)
     }
+}
+
+/** Directives are part of the immutable attempt; older receipts without them keep their original fingerprint. */
+private fun HelperPrompt.fingerprint(): String {
+    val directed = directives.joinToString("") { "\u0000$it" }
+    return "$isRecovery:$text$directed".encodeUtf8().sha256().hex()
 }
 
 /** Receipt decoder errors can include a persisted answer; omit its text and cause. */

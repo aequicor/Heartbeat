@@ -29,7 +29,7 @@ class StudioHelperRunCoordinatorTest {
         val request = runRequest("revoked")
         journal.prepare(helper, HelperPrompt(request.request, request.prompt))
         journal.cancelBeforeSubmission(helper, request.request)
-        val gate = StudioHelperSubmission(journal, helper, request.request)
+        val gate = StudioHelperSubmission(journal, emptyHelperAdmissions(), helper, request.request)
         host.execute = { actual ->
             assertTrue(actual.submission === gate)
             actual.submission?.begin()
@@ -54,7 +54,7 @@ class StudioHelperRunCoordinatorTest {
         val helper = HelperId("helper")
         val request = runRequest("pending")
         journal.prepare(helper, HelperPrompt(request.request, request.prompt))
-        val gate = StudioHelperSubmission(journal, helper, request.request)
+        val gate = StudioHelperSubmission(journal, emptyHelperAdmissions(), helper, request.request)
         val preparing = CompletableDeferred<Unit>()
         host.execute = { actual ->
             preparing.await()
@@ -82,7 +82,7 @@ class StudioHelperRunCoordinatorTest {
         val helper = HelperId("helper")
         val request = runRequest("pending")
         journal.prepare(helper, HelperPrompt(request.request, request.prompt))
-        val gate = StudioHelperSubmission(journal, helper, request.request)
+        val gate = StudioHelperSubmission(journal, emptyHelperAdmissions(), helper, request.request)
         val preparing = CompletableDeferred<Unit>()
         host.execute = { actual ->
             preparing.await()

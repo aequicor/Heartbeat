@@ -1,13 +1,17 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperProgress
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCreateRequest
@@ -133,6 +137,40 @@ class EngineStudioHelperChatsTest {
     }
 
     @Test
+    fun `progress is read only for an accepted receipt and must match its native identity`() = runTest {
+        val fixture = HelperFixture(backgroundScope)
+        val observed = HelperProgress(HelperInput.request, HelperSession, TurnId(HelperInput.request.value))
+        fixture.progress = observed
+        assertNull(fixture.host.progress(HelperChat, HelperInput.request))
+        fixture.attempts.prepare(HelperChat, HelperInput)
+        fixture.attempts.begin(HelperChat, HelperInput.request)
+        assertNull(fixture.host.progress(HelperChat, HelperInput.request))
+        assertEquals(0, fixture.progressReads)
+        fixture.attempts.accepted(HelperChat, HelperInput.request, HelperSession, TurnId(HelperInput.request.value))
+        assertEquals(observed, fixture.host.progress(HelperChat, HelperInput.request))
+        fixture.progress = null
+        assertNull(fixture.host.progress(HelperChat, HelperInput.request))
+        fixture.progress = observed.copy(session = HelperSession.copy(nativeId = "other"))
+        assertFailsWith<IllegalStateException> { fixture.host.progress(HelperChat, HelperInput.request) }
+        fixture.progress = observed.copy(request = RequestId("foreign"))
+        assertFailsWith<IllegalStateException> { fixture.host.progress(HelperChat, HelperInput.request) }
+        assertNull(fixture.host.progress(HelperChat, RequestId("unknown")))
+    }
+
+    @Test
+    fun `definite native refusal answers not submitted and frees the helper for its next request`() = runTest {
+        val fixture = HelperFixture(backgroundScope)
+        fixture.refusal = EngineException(EngineFailure.Session(SessionFailureReason.Busy))
+        assertIs<HelperSubmission.NotSubmitted>(fixture.host.prompt(HelperChat, HelperInput))
+        assertNull(fixture.host.result(HelperChat, HelperInput.request))
+        assertIs<HelperCancellation.NotSubmitted>(fixture.host.cancel(HelperChat, HelperInput.request))
+        fixture.refusal = null
+        val next = HelperInput.copy(request = RequestId("R2"))
+        assertIs<HelperSubmission.Accepted>(fixture.host.prompt(HelperChat, next))
+        fixture.finish.complete(Unit)
+    }
+
+    @Test
     fun `duplicate prompt while ACK is pending shares one submission`() = runTest {
         val fixture = HelperFixture(backgroundScope)
         fixture.beforeAck = CompletableDeferred()
@@ -163,6 +201,9 @@ private class HelperFixture(private val scope: CoroutineScope) :
     var stops = 0
     var result: StudioHelperTerminal? = null
     var stopped: StudioHelperTerminal? = null
+    var progress: HelperProgress? = null
+    var progressReads = 0
+    var refusal: EngineException? = null
 
     fun restart() = EngineStudioHelperChats(
         this,
@@ -186,6 +227,10 @@ private class HelperFixture(private val scope: CoroutineScope) :
     ) {
         beforeBegin?.await()
         submission.begin()
+        refusal?.let { failure ->
+            assertFailsWith<EngineException> { submission.send<Unit> { throw failure } }
+            return
+        }
         sends++
         beforeAck?.await()
         attempts.accepted(helper, prompt.request, HelperSession, TurnId(prompt.request.value))
@@ -197,6 +242,10 @@ private class HelperFixture(private val scope: CoroutineScope) :
     }
 
     override suspend fun helperTerminal(helper: HelperId, request: RequestId): StudioHelperTerminal? = result
+    override suspend fun helperProgress(helper: HelperId, request: RequestId): HelperProgress? {
+        progressReads++
+        return progress
+    }
     override suspend fun stopHelper(helper: HelperId, request: RequestId): StudioHelperTerminal? {
         stops++
         return stopped

@@ -5,8 +5,12 @@ import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.KeyValueStore
 import io.aequicor.heartbeat.core.datastore.Retention
 import io.aequicor.heartbeat.core.datastore.StoreKey
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
@@ -51,9 +55,9 @@ class StudioHelperAttemptsTest {
             stores.afterWrite = {}
             throw CancellationException("lost binding ACK")
         }
-        val gate = StudioHelperSubmission(journal, helper, prompt.request, admissions = emptyHelperAdmissions())
+        val gate = StudioHelperSubmission(journal, emptyHelperAdmissions(), helper, prompt.request)
         assertFailsWith<CancellationException> {
-            gate.withPreparation(session) { error("must not prepare") }
+            gate.withPreparation(session, null) { error("must not prepare") }
         }
         assertTrue(gate.isCancelled)
         val receipt = assertNotNull(journal.receipt(helper, prompt.request))
@@ -97,9 +101,9 @@ class StudioHelperAttemptsTest {
         val stores = AttemptStores()
         val journal = StudioHelperAttempts(stores)
         journal.prepare(helper, prompt)
-        val gate = StudioHelperSubmission(journal, helper, prompt.request, admissions = emptyHelperAdmissions())
+        val gate = StudioHelperSubmission(journal, emptyHelperAdmissions(), helper, prompt.request)
         assertFailsWith<CancellationException> {
-            gate.withPreparation(session) {
+            gate.withPreparation(session, null) {
                 stores.afterWrite = {
                     stores.afterWrite = {}
                     throw CancellationException("lost begin ACK")
@@ -116,9 +120,9 @@ class StudioHelperAttemptsTest {
     fun `after native ownership cancellation retains uncertainty for reconciliation`() = runTest {
         val journal = StudioHelperAttempts(ChecklistTestStores())
         journal.prepare(helper, prompt)
-        val gate = StudioHelperSubmission(journal, helper, prompt.request, admissions = emptyHelperAdmissions())
+        val gate = StudioHelperSubmission(journal, emptyHelperAdmissions(), helper, prompt.request)
         assertFailsWith<CancellationException> {
-            gate.withPreparation(session) {
+            gate.withPreparation(session, null) {
                 gate.begin()
                 throw CancellationException("native ACK unknown")
             }
@@ -126,6 +130,91 @@ class StudioHelperAttemptsTest {
         assertFalse(gate.isCancelled)
         assertEquals(StudioHelperPhase.Submitting, journal.receipt(helper, prompt.request)?.phase)
         assertFalse(gate.cancel())
+    }
+
+    @Test
+    fun `definite engine refusal before acceptance journals the helper request as not submitted`() = runTest {
+        val journal = StudioHelperAttempts(ChecklistTestStores())
+        journal.prepare(helper, prompt)
+        val gate = StudioHelperSubmission(journal, emptyHelperAdmissions(), helper, prompt.request)
+        assertFailsWith<EngineException> {
+            gate.withPreparation(session, null) {
+                gate.begin()
+                gate.send<TurnId> { throw EngineException(EngineFailure.Session(SessionFailureReason.Busy)) }
+            }
+        }
+        assertEquals(StudioHelperPhase.NotSubmitted, journal.receipt(helper, prompt.request)?.phase)
+        assertNull(journal.unresolved(helper))
+        assertTrue(journal.prepare(helper, prompt.copy(request = RequestId("R2"))).isNew)
+    }
+
+    @Test
+    fun `unknown native outcome keeps the helper request unresolved`() = runTest {
+        val journal = StudioHelperAttempts(ChecklistTestStores())
+        journal.prepare(helper, prompt)
+        val gate = StudioHelperSubmission(journal, emptyHelperAdmissions(), helper, prompt.request)
+        val unknown = EngineException(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, prompt.request))
+        assertFailsWith<EngineException> {
+            gate.withPreparation(session, null) {
+                gate.begin()
+                gate.send<TurnId> { throw unknown }
+            }
+        }
+        assertEquals(StudioHelperPhase.Submitting, journal.receipt(helper, prompt.request)?.phase)
+        assertEquals(prompt.request, journal.unresolved(helper))
+    }
+
+    @Test
+    fun `a revoked helper receipt leaves the prior scheduled gate unsubmitted`() = runTest {
+        val journal = StudioHelperAttempts(ChecklistTestStores())
+        journal.prepare(helper, prompt)
+        journal.cancelBeforeSubmission(helper, prompt.request)
+        val prior = StudioRunSubmission()
+        val gate = StudioHelperSubmission(journal, emptyHelperAdmissions(), helper, prompt.request, prior)
+        assertFailsWith<CancellationException> { gate.begin() }
+        // Still preparing: the coordinator's cancellation settles the wake as not submitted.
+        assertTrue(prior.cancel())
+        assertTrue(prior.isCancelled)
+    }
+
+    @Test
+    fun `a prior gate refusing after the helper boundary retires the helper claim`() = runTest {
+        val journal = StudioHelperAttempts(ChecklistTestStores())
+        journal.prepare(helper, prompt)
+        val prior = StudioRunSubmission().apply { cancel() }
+        val gate = StudioHelperSubmission(journal, emptyHelperAdmissions(), helper, prompt.request, prior)
+        assertFailsWith<CancellationException> { gate.begin() }
+        assertEquals(StudioHelperPhase.NotSubmitted, journal.receipt(helper, prompt.request)?.phase)
+    }
+
+    @Test
+    fun `a redelivered request is prepared again only before its native boundary`() = runTest {
+        val journal = StudioHelperAttempts(ChecklistTestStores())
+        assertTrue(journal.prepareDelivery(helper, prompt).isNew)
+        // A preparation abandoned by a closed profile, then one revoked before native send.
+        assertTrue(journal.prepareDelivery(helper, prompt).isNew)
+        journal.cancelBeforeSubmission(helper, prompt.request)
+        assertTrue(journal.prepareDelivery(helper, prompt).isNew)
+        assertEquals(StudioHelperPhase.Preparing, journal.receipt(helper, prompt.request)?.phase)
+        assertFalse(journal.prepare(helper, prompt).isNew)
+        assertFailsWith<IllegalStateException> { journal.prepareDelivery(helper, prompt.copy(text = "changed")) }
+        journal.begin(helper, prompt.request, "sender")
+        assertFalse(journal.prepareDelivery(helper, prompt).isNew)
+        val tombstone = RequestId("cancelled-before-arrival")
+        journal.cancelBeforeSubmission(helper, tombstone)
+        assertFalse(journal.prepareDelivery(helper, prompt.copy(request = tombstone)).isNew)
+    }
+
+    @Test
+    fun `host directives are part of the immutable helper request`() = runTest {
+        val journal = StudioHelperAttempts(ChecklistTestStores())
+        val directed = prompt.copy(directives = listOf("Return a summary"))
+        journal.prepare(helper, directed)
+        assertFalse(journal.prepare(helper, directed).isNew)
+        assertFailsWith<IllegalStateException> { journal.prepare(helper, prompt) }
+        assertFailsWith<IllegalStateException> {
+            journal.prepare(helper, directed.copy(directives = listOf("Something else")))
+        }
     }
 
     @Test
@@ -274,7 +363,7 @@ class StudioHelperAttemptsTest {
         val stores = AttemptStores()
         val journal = StudioHelperAttempts(stores)
         journal.prepare(helper, prompt)
-        val gate = StudioHelperSubmission(journal, helper, prompt.request)
+        val gate = StudioHelperSubmission(journal, emptyHelperAdmissions(), helper, prompt.request)
         val revoked = async { gate.awaitRevocation() }
         val write = CompletableDeferred<Unit>()
         stores.beforeWrite = { write.await() }
@@ -319,7 +408,7 @@ class StudioHelperAttemptsTest {
         val journal = StudioHelperAttempts(stores)
         journal.prepare(helper, prompt)
         stores.beforeWrite = { error("disk") }
-        val gate = StudioHelperSubmission(journal, helper, prompt.request)
+        val gate = StudioHelperSubmission(journal, emptyHelperAdmissions(), helper, prompt.request)
         assertFailsWith<IllegalStateException> { gate.begin() }
         assertEquals(StudioHelperPhase.Preparing, journal.receipt(helper, prompt.request)?.phase)
         stores.beforeWrite = {}
@@ -337,7 +426,7 @@ class StudioHelperAttemptsTest {
         val journal = StudioHelperAttempts(stores)
         journal.prepare(helper, prompt)
         stores.beforeWrite = { error("disk") }
-        val gate = StudioHelperSubmission(journal, helper, prompt.request)
+        val gate = StudioHelperSubmission(journal, emptyHelperAdmissions(), helper, prompt.request)
         assertFailsWith<IllegalStateException> { gate.cancel() }
         assertFalse(gate.isCancelled)
         stores.beforeWrite = {}
