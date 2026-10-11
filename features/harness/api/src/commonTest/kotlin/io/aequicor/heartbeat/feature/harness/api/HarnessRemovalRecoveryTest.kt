@@ -11,7 +11,7 @@ class HarnessRemovalRecoveryTest {
             harnesses = listOf(HarnessEntry(harness, mapOf(code.id to ItemStatus.Active(7)))),
             activationGeneration = 7,
         )
-        val pending = live.send(HarnessIntent.Public.Delete(request, harness.id, harness.revision))
+        val pending = live.send(HarnessIntent.Internal.Delete(request, harness.id, harness.revision))
         val receipt = checkNotNull(pending.pending[harness.id]).receipt
         val restored = pending.copy(
             pending = emptyMap(),
@@ -32,7 +32,7 @@ class HarnessRemovalRecoveryTest {
 
     @Test
     fun `failed deletion while suspended retains content without activating code`() {
-        val pending = ready.send(HarnessIntent.Public.Delete(request, harness.id, harness.revision))
+        val pending = ready.send(HarnessIntent.Internal.Delete(request, harness.id, harness.revision))
             .send(HarnessIntent.Internal.Suspended)
         val receipt = checkNotNull(pending.pending[harness.id]).receipt
         HarnessMachineSpec.assertTransition(

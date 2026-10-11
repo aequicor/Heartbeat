@@ -59,7 +59,7 @@ internal class HarnessWorkflowStartup(
                 .collect { orphans ->
                     orphans.forEach { run ->
                         val request = RequestId(Uuid.random().toHexString())
-                        runs.send(HarnessRunsIntent.Public.Cancel(request, run.id, WorkflowViewer.User))
+                        runs.send(HarnessRunsIntent.Internal.CancelRun(request, run.id, WorkflowViewer.User))
                     }
                 }
         } finally {

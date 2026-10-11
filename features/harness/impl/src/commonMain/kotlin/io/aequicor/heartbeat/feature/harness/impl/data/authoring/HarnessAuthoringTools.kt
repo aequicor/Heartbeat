@@ -343,7 +343,7 @@ internal class HarnessAuthoringTools(
             is AuthoringCommand.Update -> update(context, checkNotNull(harness), command, plan.scope)
 
             is AuthoringCommand.Delete -> outcome(
-                HarnessIntent.Public.Delete(request(), checkNotNull(harness).id, harness.revision),
+                HarnessIntent.Internal.Delete(request(), checkNotNull(harness).id, harness.revision),
                 "Deleted harness ${harness.name.value}",
             )
 
@@ -391,7 +391,7 @@ internal class HarnessAuthoringTools(
     ): AgentToolResult {
         val id = HarnessId("h_" + Uuid.random().toHexString())
         val draft = HarnessDraft(command.name, command.title, command.description, checkNotNull(plan.scope))
-        val intent = HarnessIntent.Public.Create(request(), id, draft, context.session, clock.now())
+        val intent = HarnessIntent.Internal.Create(request(), id, draft, context.session, clock.now())
         val created = library.value.submit(intent).failureText()
         val connection = if (created != null || !command.isAttached) {
             ""
@@ -421,7 +421,7 @@ internal class HarnessAuthoringTools(
         )
         changes.forEachIndexed { index, change ->
             val revision = harness.revision + index
-            val intent = HarnessIntent.Public.Update(request(), harness.id, change, revision, author, clock.now())
+            val intent = HarnessIntent.Internal.Update(request(), harness.id, change, revision, author, clock.now())
             val failed = library.value.submit(intent).failureText() ?: return@forEachIndexed
             return if (index == 0) {
                 failure("not updated: $failed")
@@ -440,11 +440,11 @@ internal class HarnessAuthoringTools(
         success: String,
     ): AgentToolResult {
         val author = HarnessAuthor.Agent(context.session)
-        val intent = HarnessIntent.Public.Update(request(), harness.id, change, harness.revision, author, at)
+        val intent = HarnessIntent.Internal.Update(request(), harness.id, change, harness.revision, author, at)
         return outcome(intent, success)
     }
 
-    private suspend fun outcome(intent: HarnessIntent.Public, success: String): AgentToolResult =
+    private suspend fun outcome(intent: HarnessIntent.Command, success: String): AgentToolResult =
         library.value.submit(intent).failureText()?.let { failure("not saved: $it") } ?: AgentToolResult(success)
 
     private suspend fun scopeOf(context: AgentToolContext, scope: AuthoringScope): HarnessScope? = when (scope) {

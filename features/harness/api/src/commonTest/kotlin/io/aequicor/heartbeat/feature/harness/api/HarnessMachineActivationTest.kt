@@ -114,7 +114,7 @@ class HarnessMachineActivationTest {
 
     @Test
     fun `suspension preserves writes and fences late activation across resume of same revision`() {
-        val write = pending.send(HarnessIntent.Public.SetEnabled(request, harness.id, true, 0, now))
+        val write = pending.send(HarnessIntent.Internal.SetEnabled(request, harness.id, true, 0, now))
         val suspended = write.copy(
             isSuspended = true,
             activationGeneration = 2,
@@ -158,7 +158,7 @@ class HarnessMachineActivationTest {
     @Test
     fun `disabling a harness cancels pinned runs even after its last workflow was removed`() {
         val empty = ready.copy(harnesses = listOf(HarnessEntry(harness.copy(items = emptyList()))))
-        val saving = empty.send(HarnessIntent.Public.SetEnabled(request, harness.id, false, 0, now))
+        val saving = empty.send(HarnessIntent.Internal.SetEnabled(request, harness.id, false, 0, now))
         val receipt = saveOf(saving).receipt
         val committed = saving.send(HarnessIntent.Internal.Saved(receipt))
         HarnessMachineSpec.assertTransition(

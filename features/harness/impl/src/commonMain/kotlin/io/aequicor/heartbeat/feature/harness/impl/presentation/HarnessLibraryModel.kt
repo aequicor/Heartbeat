@@ -100,13 +100,13 @@ internal class HarnessLibraryModel(
         when (intent) {
             is HarnessLibraryIntent.SelectApproval -> if (ready != null) {
                 val level = intent.approval.toDomain()
-                sendTo(machine, HarnessIntent.Public.SetApproval(issue(), level, ready.approvalRevision))
+                sendTo(machine, HarnessIntent.Internal.SetApproval(issue(), level, ready.approvalRevision))
             }
 
             is HarnessLibraryIntent.SetEnabled -> ready?.harnesses?.firstOrNull { it.harness.id.value == intent.id }
                 ?.let { entry ->
                     val revision = entry.harness.revision
-                    val command = HarnessIntent.Public.SetEnabled(
+                    val command = HarnessIntent.Internal.SetEnabled(
                         issue(),
                         HarnessId(intent.id),
                         intent.isEnabled,

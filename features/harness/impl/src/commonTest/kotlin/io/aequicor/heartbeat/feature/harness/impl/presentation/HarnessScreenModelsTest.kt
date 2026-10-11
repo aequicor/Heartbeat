@@ -66,9 +66,9 @@ class HarnessScreenModelsTest {
         val opened = backgroundScope.async { screen.actions.first() }
         screen.intent(HarnessLibraryIntent.Open(harness.id.value))
         runCurrent()
-        val approval = assertIs<HarnessIntent.Public.SetApproval>(library.sent[0])
+        val approval = assertIs<HarnessIntent.Internal.SetApproval>(library.sent[0])
         assertEquals(HarnessApproval.AcceptAll to 2L, approval.level to approval.expectedRevision)
-        val enabled = assertIs<HarnessIntent.Public.SetEnabled>(library.sent[1])
+        val enabled = assertIs<HarnessIntent.Internal.SetEnabled>(library.sent[1])
         assertEquals(false to 4L, enabled.isEnabled to enabled.expectedRevision)
         assertEquals(HarnessLibraryAction.OpenDetail(harness.id.value), opened.await())
     }
@@ -133,7 +133,7 @@ class HarnessScreenModelsTest {
         )
         screen.intent(HarnessItemIntent.Save)
         runCurrent()
-        val first = assertIs<HarnessIntent.Public.Update>(library.sent.single())
+        val first = assertIs<HarnessIntent.Internal.Update>(library.sent.single())
         assertEquals(4L, first.expectedRevision)
         assertEquals(rule.copy(text = "Use only tokens"), (first.change as HarnessChange.PutItem).item)
         assertTrue(screen.states.value.isConflict)
@@ -141,7 +141,7 @@ class HarnessScreenModelsTest {
         library.outcome = LibraryOutcome.Committed(HarnessOutput.Updated(request(), harness.id))
         screen.intent(HarnessItemIntent.Overwrite)
         runCurrent()
-        assertEquals(5L, (library.sent.last() as HarnessIntent.Public.Update).expectedRevision)
+        assertEquals(5L, (library.sent.last() as HarnessIntent.Internal.Update).expectedRevision)
         assertTrue(!screen.states.value.isDirty && !screen.states.value.isConflict)
     }
 
@@ -160,7 +160,7 @@ class HarnessScreenModelsTest {
         assertEquals(listOf(true, false), claude.tools.map { it.isOnAllowed })
         screen.intent(HarnessToolsIntent.SetNative("claude", "Bash", NativeChoiceUi.On))
         runCurrent()
-        val update = assertIs<HarnessIntent.Public.Update>(library.sent.single())
+        val update = assertIs<HarnessIntent.Internal.Update>(library.sent.single())
         val tools = (update.change as HarnessChange.Tools).tools
         assertEquals(mapOf("claude" to mapOf("Bash" to ToolSwitch.On)), tools.native)
     }

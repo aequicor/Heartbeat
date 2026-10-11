@@ -5,13 +5,22 @@ import io.aequicor.heartbeat.core.statemachine.assertTransition
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
 
 class HarnessRunsAdmissionTest {
     private val spec = HarnessRunsMachineSpec
     private val run = workflowRun()
-    private val start = HarnessRunsIntent.Public.Start(Request, run, Now)
+    private val start = HarnessRunsIntent.Internal.StartRun(Request, run, Now)
+
+    @Test
+    fun `starting and cancelling runs are internal to the feature`() {
+        val cancel = HarnessRunsIntent.Internal.CancelRun(Request, run.id, WorkflowViewer.User)
+        val commands: List<HarnessRunsIntent> = listOf(start, cancel)
+        assertTrue(commands.all { it is HarnessRunsIntent.Internal && it is HarnessRunsIntent.Command })
+        assertTrue(commands.none { it is HarnessRunsIntent.Public })
+    }
 
     @Test
     fun `startup retry and unavailable requests preserve suspension`() {
@@ -116,7 +125,7 @@ class HarnessRunsAdmissionTest {
     @Test
     fun `cancel hides foreign ownership fences old driver and repeated request retries cleanup`() {
         val ready = HarnessRunsState.Ready(listOf(run))
-        val cancel = HarnessRunsIntent.Public.Cancel(Request, run.id, WorkflowViewer.Agent(Caller))
+        val cancel = HarnessRunsIntent.Internal.CancelRun(Request, run.id, WorkflowViewer.Agent(Caller))
         for (intent in listOf(
             cancel.copy(run = RunId("wf_missing")),
             cancel.copy(by = WorkflowViewer.Agent(Caller.copy(nativeId = "foreign"))),

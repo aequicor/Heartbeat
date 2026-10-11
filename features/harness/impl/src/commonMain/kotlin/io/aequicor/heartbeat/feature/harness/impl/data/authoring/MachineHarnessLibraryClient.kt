@@ -46,7 +46,7 @@ internal class MachineHarnessLibraryClient(
         return (loaded as? HarnessState.Ready)?.takeUnless(HarnessState.Ready::isSuspended)
     }
 
-    override suspend fun submit(intent: HarnessIntent.Public): LibraryOutcome = coroutineScope {
+    override suspend fun submit(intent: HarnessIntent.Command): LibraryOutcome = coroutineScope {
         log.d { "Submit harness library command ${intent::class.simpleName.orEmpty()}" }
         val library = machine.value
         val outcome = async(start = CoroutineStart.UNDISPATCHED) {
@@ -74,7 +74,7 @@ internal class MachineHarnessLibraryClient(
         withTimeoutOrNull(LOAD_TIMEOUT) { workspaces.observe().first() }.orEmpty().any { it.ref == workspace }
 }
 
-private fun HarnessOutput.outcomeOf(intent: HarnessIntent.Public): LibraryOutcome? {
+private fun HarnessOutput.outcomeOf(intent: HarnessIntent.Command): LibraryOutcome? {
     val request = when (this) {
         is HarnessOutput.Created -> requestId
         is HarnessOutput.Updated -> requestId

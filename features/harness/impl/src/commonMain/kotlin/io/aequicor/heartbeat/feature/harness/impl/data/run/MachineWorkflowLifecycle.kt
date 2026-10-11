@@ -37,7 +37,7 @@ internal class MachineWorkflowLifecycle(
         return if (effect.isStopping) {
             selected.forEach {
                 val request = RequestId(Uuid.random().toHexString())
-                machine.send(HarnessRunsIntent.Public.Cancel(request, it.id, WorkflowViewer.User))
+                machine.send(HarnessRunsIntent.Internal.CancelRun(request, it.id, WorkflowViewer.User))
             }
             selected.isEmpty()
         } else {

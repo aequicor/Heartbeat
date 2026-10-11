@@ -18,7 +18,7 @@ class HarnessMachineSideWritesTest {
             effects = listOf(HarnessEffect.SaveAttachments(write)),
         )
         pending.refuses(HarnessIntent.Public.Detach(request, harness.id, session), HarnessRejection.Busy)
-        pending.refuses(HarnessIntent.Public.Delete(request, harness.id, 0), HarnessRejection.Busy)
+        pending.refuses(HarnessIntent.Internal.Delete(request, harness.id, 0), HarnessRejection.Busy)
         HarnessMachineSpec.assertIgnored(
             pending,
             HarnessIntent.Internal.AttachmentsSaved(write.copy(requestId = RequestId("stale"))),
@@ -75,7 +75,7 @@ class HarnessMachineSideWritesTest {
 
     @Test
     fun `approval changes only on matching durable receipt and stale public revision conflicts`() {
-        val intent = HarnessIntent.Public.SetApproval(request, HarnessApproval.AcceptAll, 0)
+        val intent = HarnessIntent.Internal.SetApproval(request, HarnessApproval.AcceptAll, 0)
         val write = HarnessApprovalWrite(request, HarnessApproval.AcceptAll, 1)
         val pending = ready.copy(approvalWrite = write, writeGeneration = 1)
         HarnessMachineSpec.assertTransition(ready, intent, pending, effects = listOf(HarnessEffect.SaveApproval(write)))
@@ -105,7 +105,7 @@ class HarnessMachineSideWritesTest {
         HarnessMachineSpec.assertIgnored(retried, HarnessIntent.Internal.AttachmentsSaved(original))
         HarnessMachineSpec.assertIgnored(retried, HarnessIntent.Internal.AttachmentsFailed(original))
         assertEquals(2, retried.attachmentWrite?.generation)
-        val approve = HarnessIntent.Public.SetApproval(request, HarnessApproval.AcceptAll, 0)
+        val approve = HarnessIntent.Internal.SetApproval(request, HarnessApproval.AcceptAll, 0)
         val approval = ready.send(approve)
         val previous = checkNotNull(approval.approvalWrite)
         val retry = approval.send(HarnessIntent.Internal.ApprovalFailed(previous)).send(approve)

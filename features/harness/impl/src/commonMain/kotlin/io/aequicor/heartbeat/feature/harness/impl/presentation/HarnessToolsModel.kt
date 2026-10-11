@@ -118,7 +118,7 @@ internal class HarnessToolsModel(
             updateState { copy(isSaveFailed = true) }
             return
         }
-        val intent = HarnessIntent.Public.Update(
+        val intent = HarnessIntent.Internal.Update(
             request(),
             id,
             HarnessChange.Tools(tools),

@@ -45,7 +45,7 @@ internal class RecordingLibrary(initial: HarnessState) :
     override val current: HarnessState.Ready? get() = state.value as? HarnessState.Ready
     override suspend fun ready(): HarnessState.Ready? = current
 
-    override suspend fun submit(intent: HarnessIntent.Public): LibraryOutcome {
+    override suspend fun submit(intent: HarnessIntent.Command): LibraryOutcome {
         sent += intent
         return outcome
     }

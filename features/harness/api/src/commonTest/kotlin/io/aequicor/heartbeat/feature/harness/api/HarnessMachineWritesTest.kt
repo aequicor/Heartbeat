@@ -41,7 +41,7 @@ class HarnessMachineWritesTest {
     @Test
     fun `update keeps old code until save and preserves it on failed storage`() {
         val changed = code.copy(source = "new source")
-        val intent = HarnessIntent.Public.Update(
+        val intent = HarnessIntent.Internal.Update(
             request,
             harness.id,
             HarnessChange.PutItem(changed),
@@ -88,7 +88,7 @@ class HarnessMachineWritesTest {
         val pending = initial.copy(pending = mapOf(harness.id to mutation), writeGeneration = 1)
         HarnessMachineSpec.assertTransition(
             initial,
-            HarnessIntent.Public.Delete(request, harness.id, 0),
+            HarnessIntent.Internal.Delete(request, harness.id, 0),
             pending,
             effects = listOf(HarnessEffect.Remove(harness, receipt)),
         )
@@ -116,12 +116,12 @@ class HarnessMachineWritesTest {
 
     @Test
     fun `item and harness enabling are revision checked durable updates`() {
-        ready.refuses(HarnessIntent.Public.SetEnabled(request, harness.id, false, 3, now), HarnessRejection.Conflict)
+        ready.refuses(HarnessIntent.Internal.SetEnabled(request, harness.id, false, 3, now), HarnessRejection.Conflict)
         ready.refuses(
-            HarnessIntent.Public.SetItemEnabled(request, harness.id, code.id, false, 3, now),
+            HarnessIntent.Internal.SetItemEnabled(request, harness.id, code.id, false, 3, now),
             HarnessRejection.Conflict,
         )
-        val disabled = ready.send(HarnessIntent.Public.SetEnabled(request, harness.id, false, 0, now))
+        val disabled = ready.send(HarnessIntent.Internal.SetEnabled(request, harness.id, false, 0, now))
         val mutation = saveOf(disabled)
         assertFalse(mutation.harness.isEnabled)
         val done = disabled.send(HarnessIntent.Internal.Saved(mutation.receipt))
@@ -137,14 +137,15 @@ class HarnessMachineWritesTest {
             ),
             HarnessMachineSpec.resolve(disabled, HarnessIntent.Internal.Saved(mutation.receipt))?.effects,
         )
-        val itemDisabled = ready.send(HarnessIntent.Public.SetItemEnabled(request, harness.id, code.id, false, 0, now))
+        val itemDisabled =
+            ready.send(HarnessIntent.Internal.SetItemEnabled(request, harness.id, code.id, false, 0, now))
         assertFalse(saveOf(itemDisabled).harness.items.single().isEnabled)
         assertTrue(itemDisabled.harnesses.single().harness.items.single().isEnabled)
     }
 
     @Test
     fun `names cannot mutate or collide and missing items and harnesses are rejected`() {
-        val update = HarnessIntent.Public.Update(
+        val update = HarnessIntent.Internal.Update(
             request,
             harness.id,
             HarnessChange.PutItem(code.copy(name = ItemName("renamed"))),
@@ -178,7 +179,8 @@ class HarnessMachineWritesTest {
             HarnessChange.RemoveItem(code.id),
         )
         changes.forEach { change ->
-            val intent = HarnessIntent.Public.Update(request, harness.id, change, 0, HarnessAuthor.Agent(session), now)
+            val author = HarnessAuthor.Agent(session)
+            val intent = HarnessIntent.Internal.Update(request, harness.id, change, 0, author, now)
             val pending = ready.send(intent)
             val mutation = saveOf(pending)
             assertEquals(1, mutation.harness.revision)
@@ -202,7 +204,7 @@ class HarnessMachineWritesTest {
         val items = (1..HarnessLimits.ITEMS).map { code.copy(id = ItemId("$it"), name = ItemName("i$it")) }
         val full = ready.copy(harnesses = listOf(HarnessEntry(harness.copy(items = items))))
         full.refuses(
-            HarnessIntent.Public.Update(request, harness.id, HarnessChange.PutItem(code), 0, HarnessAuthor.User, now),
+            HarnessIntent.Internal.Update(request, harness.id, HarnessChange.PutItem(code), 0, HarnessAuthor.User, now),
             HarnessRejection.Limit,
         )
     }
@@ -220,7 +222,7 @@ class HarnessMachineWritesTest {
         }
         val full = ready.copy(harnesses = entries)
         val old = entries.first().harness
-        val shrink = HarnessIntent.Public.Update(
+        val shrink = HarnessIntent.Internal.Update(
             request,
             old.id,
             HarnessChange.Meta("small", ""),
@@ -239,7 +241,7 @@ class HarnessMachineWritesTest {
 
     @Test
     fun `late save receipt cannot commit a different retry with the same public request id`() {
-        val intent = HarnessIntent.Public.Update(
+        val intent = HarnessIntent.Internal.Update(
             request,
             harness.id,
             HarnessChange.Meta("first", ""),

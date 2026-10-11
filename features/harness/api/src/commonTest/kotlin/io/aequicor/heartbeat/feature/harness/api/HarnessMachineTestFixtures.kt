@@ -17,13 +17,13 @@ internal val harness = Harness(
     HarnessId("harness"), draft.name, draft.title, "", HarnessScope.Attached, true,
     listOf(code), ToolPolicySpec(), null, 0, now, now,
 )
-internal val create = HarnessIntent.Public.Create(request, harness.id, draft, null, now)
+internal val create = HarnessIntent.Internal.Create(request, harness.id, draft, null, now)
 internal val ready = HarnessState.Ready(listOf(HarnessEntry(harness)), isRuntimeAvailable = true)
 
 internal fun HarnessState.Ready.send(intent: HarnessIntent): HarnessState.Ready =
     assertNotNull(HarnessMachineSpec.resolve(this, intent)).to as HarnessState.Ready
 
-internal fun HarnessState.Ready.refuses(intent: HarnessIntent.Public, reason: HarnessRejection) {
+internal fun HarnessState.Ready.refuses(intent: HarnessIntent.Command, reason: HarnessRejection) {
     HarnessMachineSpec.assertTransition(
         this,
         intent,

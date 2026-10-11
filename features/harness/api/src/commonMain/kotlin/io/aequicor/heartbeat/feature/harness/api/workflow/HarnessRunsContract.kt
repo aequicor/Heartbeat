@@ -34,19 +34,32 @@ public sealed interface HarnessRunsState : MachineState {
 
 /** Correlated requests and generation-fenced feedback from durable drivers. */
 public sealed interface HarnessRunsIntent : MachineIntent {
-    /** Host requests admitted by the profile machine. */
-    public sealed interface Public : HarnessRunsIntent {
+    /** Requests whose host-generated id correlates the admission output. */
+    public sealed interface Command : HarnessRunsIntent {
         public val requestId: RequestId
-
-        /** The host generates the run id, pins code, validates input and obtains approval before admission. */
-        public data class Start(override val requestId: RequestId, val run: WorkflowRun, val at: Instant) : Public
-
-        /** Cancellation is complete only after StopRun confirms all owned native work has settled. */
-        public data class Cancel(override val requestId: RequestId, val run: RunId, val by: WorkflowViewer) : Public
     }
 
-    /** Trusted effect feedback; generation checks reject retired drivers. */
+    /**
+     * Other features have no commands: a run executes its pinned code and the machine trusts the pinned source and
+     * the declared viewer, so only this feature starts and cancels runs after its own approval and visibility checks.
+     */
+    public sealed interface Public : HarnessRunsIntent
+
+    /** This feature's admission requests and trusted effect feedback; generation checks reject retired drivers. */
     public sealed interface Internal : HarnessRunsIntent {
+        /** The host generates the run id, pins approved code, validates input and obtains approval before admission. */
+        public data class StartRun(override val requestId: RequestId, val run: WorkflowRun, val at: Instant) :
+            Internal,
+            Command
+
+        /**
+         * [by] is the viewer the host verified. Cancellation is complete only after StopRun confirms all owned native
+         * work has settled.
+         */
+        public data class CancelRun(override val requestId: RequestId, val run: RunId, val by: WorkflowViewer) :
+            Internal,
+            Command
+
         /** Starts or retries journal restoration. */
         public data object Start : Internal
 

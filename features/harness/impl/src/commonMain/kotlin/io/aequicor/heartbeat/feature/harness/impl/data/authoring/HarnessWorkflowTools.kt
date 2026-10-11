@@ -179,7 +179,7 @@ internal class HarnessWorkflowTools(
             }
             try {
                 val sent = machine.send(
-                    HarnessRunsIntent.Public.Cancel(request, run.id, WorkflowViewer.Agent(context.session)),
+                    HarnessRunsIntent.Internal.CancelRun(request, run.id, WorkflowViewer.Agent(context.session)),
                 )
                 if (sent == SendResult.Accepted) withTimeoutOrNull(OUTCOME_TIMEOUT) { receipt.await() } else null
             } finally {

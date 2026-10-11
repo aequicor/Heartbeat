@@ -4,19 +4,20 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Instant
 
-internal fun HarnessRunsState.Ready.startRejection(intent: HarnessRunsIntent.Public.Start): WorkflowRejection? = when {
-    isSuspended -> WorkflowRejection.Unavailable
-    runs.any { it.id == intent.run.id } -> WorkflowRejection.Duplicate
-    runs.count { it.status == WorkflowStatus.Running } >= HarnessLimits.RUNS -> WorkflowRejection.Capacity
-    !intent.run.isNewAt(intent.at) -> WorkflowRejection.InvalidRun
-    else -> null
-}
+internal fun HarnessRunsState.Ready.startRejection(intent: HarnessRunsIntent.Internal.StartRun): WorkflowRejection? =
+    when {
+        isSuspended -> WorkflowRejection.Unavailable
+        runs.any { it.id == intent.run.id } -> WorkflowRejection.Duplicate
+        runs.count { it.status == WorkflowStatus.Running } >= HarnessLimits.RUNS -> WorkflowRejection.Capacity
+        !intent.run.isNewAt(intent.at) -> WorkflowRejection.InvalidRun
+        else -> null
+    }
 
 private fun WorkflowRun.isNewAt(at: Instant): Boolean = status == WorkflowStatus.Running &&
     cancellation == null && steps.isEmpty() && awaiting.isEmpty() && attempt == 0 && driverGeneration == 0L &&
     at >= startedAt && at < deadline && (origin != WorkflowOrigin.Agent || caller != null)
 
-internal fun HarnessRunsState.Ready.cancelRejection(intent: HarnessRunsIntent.Public.Cancel): WorkflowRejection? {
+internal fun HarnessRunsState.Ready.cancelRejection(intent: HarnessRunsIntent.Internal.CancelRun): WorkflowRejection? {
     val run = runs.firstOrNull { it.id == intent.run && it.isVisibleTo(intent.by) }
     return when {
         run == null -> WorkflowRejection.NotFound

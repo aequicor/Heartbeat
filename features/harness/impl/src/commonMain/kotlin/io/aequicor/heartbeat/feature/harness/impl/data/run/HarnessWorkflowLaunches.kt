@@ -203,7 +203,7 @@ internal class HarnessWorkflowLaunches(
             }
         }
         try {
-            val sent = machine.send(HarnessRunsIntent.Public.Start(request, run, clock.now()))
+            val sent = machine.send(HarnessRunsIntent.Internal.StartRun(request, run, clock.now()))
             when {
                 sent != SendResult.Accepted -> false
                 (machine.state.value as? HarnessRunsState.Ready)?.runs?.any { it.id == run.id } == true -> true

@@ -41,7 +41,7 @@ internal interface HarnessLibraryClient {
     suspend fun ready(): HarnessState.Ready?
 
     /** Sends one command and waits for its own receipt. */
-    suspend fun submit(intent: HarnessIntent.Public): LibraryOutcome
+    suspend fun submit(intent: HarnessIntent.Command): LibraryOutcome
 
     /** Source project of a session workspace: a worktree maps to its project; unknown folders have none. */
     suspend fun sourceProject(workspace: WorkspaceRef?): WorkspaceRef?

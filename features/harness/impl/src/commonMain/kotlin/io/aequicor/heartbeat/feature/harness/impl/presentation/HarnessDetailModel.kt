@@ -165,7 +165,7 @@ internal class HarnessDetailModel(
 
             is HarnessDetailIntent.CancelRun -> sendTo(
                 runs,
-                HarnessRunsIntent.Public.Cancel(request(), RunId(intent.run), WorkflowViewer.User),
+                HarnessRunsIntent.Internal.CancelRun(request(), RunId(intent.run), WorkflowViewer.User),
             )
 
             HarnessDetailIntent.DismissError -> updateState { copy(error = null) }
@@ -196,11 +196,11 @@ internal class HarnessDetailModel(
     private suspend fun DetailPipeline.edit(harness: Harness, intent: HarnessDetailIntent) {
         when (intent) {
             is HarnessDetailIntent.SetEnabled -> send(
-                HarnessIntent.Public.SetEnabled(request(), id, intent.isEnabled, harness.revision, clock.now()),
+                HarnessIntent.Internal.SetEnabled(request(), id, intent.isEnabled, harness.revision, clock.now()),
             )
 
             is HarnessDetailIntent.SetItemEnabled -> send(
-                HarnessIntent.Public.SetItemEnabled(
+                HarnessIntent.Internal.SetItemEnabled(
                     request(),
                     id,
                     ItemId(intent.item),
@@ -230,7 +230,7 @@ internal class HarnessDetailModel(
 
             HarnessDetailIntent.ConfirmDelete -> {
                 updateState { copy(isDeleting = false) }
-                send(HarnessIntent.Public.Delete(request(), id, harness.revision))
+                send(HarnessIntent.Internal.Delete(request(), id, harness.revision))
             }
 
             is HarnessDetailIntent.OpenItem,
@@ -248,12 +248,12 @@ internal class HarnessDetailModel(
     // PipelineContext is FlowMVI's coroutine-backed receiver for store updates and sendTo.
     @Suppress("SuspendFunWithCoroutineScopeReceiver")
     private suspend fun DetailPipeline.change(harness: Harness, change: HarnessChange) = send(
-        HarnessIntent.Public.Update(request(), id, change, harness.revision, HarnessAuthor.User, clock.now()),
+        HarnessIntent.Internal.Update(request(), id, change, harness.revision, HarnessAuthor.User, clock.now()),
     )
 
     // PipelineContext is FlowMVI's coroutine-backed receiver for store updates and sendTo.
     @Suppress("SuspendFunWithCoroutineScopeReceiver")
-    private suspend fun DetailPipeline.send(intent: HarnessIntent.Public) {
+    private suspend fun DetailPipeline.send(intent: HarnessIntent.Command) {
         issued.update { (it + intent.requestId).toList().takeLast(ISSUED_KEPT).toSet() }
         log.v { "Harness detail command issued: ${intent::class.simpleName.orEmpty()}" }
         sendTo(machine, intent) { updateState { copy(error = DetailErrorUi.SaveFailed) } }

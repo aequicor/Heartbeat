@@ -6,6 +6,7 @@ internal fun HarnessState.Ready.feedback(intent: HarnessIntent.Internal): Librar
     HarnessIntent.Internal.Suspended -> if (isSuspended) null else suspendLibrary(true)
     HarnessIntent.Internal.Resumed -> if (isSuspended) suspendLibrary(false) else null
     HarnessIntent.Internal.Start -> null
+    is HarnessIntent.Internal.Edit -> null
 }
 
 private fun HarnessState.Ready.storageFeedback(intent: HarnessIntent.Internal.Storage): LibraryTransition? =

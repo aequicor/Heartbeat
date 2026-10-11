@@ -7,19 +7,19 @@ import kotlin.time.Instant
 internal fun HarnessState.Ready.reject(request: RequestId, reason: HarnessRejection) =
     LibraryTransition(this, output = HarnessOutput.Rejected(request, reason))
 
-internal fun HarnessState.Ready.command(intent: HarnessIntent.Public): LibraryTransition = when (intent) {
-    is HarnessIntent.Public.Create -> create(intent)
-    is HarnessIntent.Public.Update -> update(intent)
-    is HarnessIntent.Public.Delete -> remove(intent)
-    is HarnessIntent.Public.SetEnabled -> enable(intent)
-    is HarnessIntent.Public.SetItemEnabled -> enableItem(intent)
+internal fun HarnessState.Ready.command(intent: HarnessIntent.Command): LibraryTransition = when (intent) {
+    is HarnessIntent.Internal.Create -> create(intent)
+    is HarnessIntent.Internal.Update -> update(intent)
+    is HarnessIntent.Internal.Delete -> remove(intent)
+    is HarnessIntent.Internal.SetEnabled -> enable(intent)
+    is HarnessIntent.Internal.SetItemEnabled -> enableItem(intent)
     is HarnessIntent.Public.Attach -> attach(intent.requestId, intent.id, intent.session, true)
     is HarnessIntent.Public.Detach -> attach(intent.requestId, intent.id, intent.session, false)
-    is HarnessIntent.Public.SetApproval -> approve(intent)
+    is HarnessIntent.Internal.SetApproval -> approve(intent)
     is HarnessIntent.Public.Reload -> reload(intent)
 }
 
-private fun HarnessState.Ready.create(intent: HarnessIntent.Public.Create): LibraryTransition {
+private fun HarnessState.Ready.create(intent: HarnessIntent.Internal.Create): LibraryTransition {
     val draft = intent.draft
     val reserved = reservedHarnesses()
     if (reserved.any { it.id == intent.id || it.name == draft.name }) {
@@ -34,7 +34,7 @@ private fun HarnessState.Ready.create(intent: HarnessIntent.Public.Create): Libr
     return save(intent.requestId, harness, true)
 }
 
-private fun HarnessState.Ready.update(intent: HarnessIntent.Public.Update): LibraryTransition {
+private fun HarnessState.Ready.update(intent: HarnessIntent.Internal.Update): LibraryTransition {
     mutationRejection(intent.id, intent.expectedRevision)?.let { return reject(intent.requestId, it) }
     val old = harnesses.first { it.harness.id == intent.id }.harness
     val invalid = old.changeRejection(intent.change)
@@ -65,13 +65,13 @@ private fun Harness.changeRejection(change: HarnessChange): HarnessRejection? = 
     is HarnessChange.Meta, is HarnessChange.Scope, is HarnessChange.Tools -> null
 }
 
-private fun HarnessState.Ready.enable(intent: HarnessIntent.Public.SetEnabled): LibraryTransition {
+private fun HarnessState.Ready.enable(intent: HarnessIntent.Internal.SetEnabled): LibraryTransition {
     mutationRejection(intent.id, intent.expectedRevision)?.let { return reject(intent.requestId, it) }
     val harness = harnesses.first { it.harness.id == intent.id }.harness.copy(isEnabled = intent.isEnabled)
     return revised(intent.requestId, harness, intent.at)
 }
 
-private fun HarnessState.Ready.enableItem(intent: HarnessIntent.Public.SetItemEnabled): LibraryTransition {
+private fun HarnessState.Ready.enableItem(intent: HarnessIntent.Internal.SetItemEnabled): LibraryTransition {
     mutationRejection(intent.id, intent.expectedRevision)?.let { return reject(intent.requestId, it) }
     val harness = harnesses.first { it.harness.id == intent.id }.harness
     return if (harness.items.none { it.id == intent.item }) {
@@ -110,7 +110,7 @@ private fun HarnessState.Ready.save(request: RequestId, harness: Harness, isCrea
     )
 }
 
-private fun HarnessState.Ready.remove(intent: HarnessIntent.Public.Delete): LibraryTransition {
+private fun HarnessState.Ready.remove(intent: HarnessIntent.Internal.Delete): LibraryTransition {
     mutationRejection(intent.id, intent.expectedRevision)?.let { return reject(intent.requestId, it) }
     return if (attachmentWrite != null || pending.values.any { it is HarnessMutation.Remove }) {
         reject(intent.requestId, HarnessRejection.Busy)
@@ -167,7 +167,7 @@ private fun HarnessState.Ready.attach(
     )
 }
 
-private fun HarnessState.Ready.approve(intent: HarnessIntent.Public.SetApproval): LibraryTransition = when {
+private fun HarnessState.Ready.approve(intent: HarnessIntent.Internal.SetApproval): LibraryTransition = when {
     intent.expectedRevision != approvalRevision -> reject(intent.requestId, HarnessRejection.Conflict)
 
     approvalWrite != null -> reject(intent.requestId, HarnessRejection.Busy)

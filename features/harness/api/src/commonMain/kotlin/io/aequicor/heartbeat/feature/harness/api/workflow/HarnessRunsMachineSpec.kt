@@ -13,15 +13,15 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | From | Intent | Guard | To | Effect / Output |
  * |---|---|---|---|---|
  * | Idle/Failed | Internal.Start | any | Loading, preserve suspension | Restore |
- * | Idle/Loading/Failed | Public | any | stay | Rejected(Unavailable) |
+ * | Idle/Loading/Failed | StartRun/CancelRun | any | stay | Rejected(Unavailable) |
  * | Loading | Restored | unique journal ids | Ready, retain, advance generations | Drive unless suspended |
  * | Loading | Restored | duplicate journal ids | Failed, preserve suspension | none |
  * | Loading | RestoreFailed | any | Failed, preserve suspension | none |
  * | Idle/Loading/Failed | Suspended/Resumed | any | stay, update suspension | none |
- * | Ready | Start | disabled/duplicate/full/invalid | stay | Rejected |
- * | Ready | Start | admitted | stay, append | Drive / Started |
- * | Ready | Cancel | missing/foreign/terminal | stay | Rejected |
- * | Ready | Cancel | owned running | stay, cancellation + generation fence | StopRun / CancellationRequested |
+ * | Ready | StartRun | disabled/duplicate/full/invalid | stay | Rejected |
+ * | Ready | StartRun | admitted | stay, append | Drive / Started |
+ * | Ready | CancelRun | missing/foreign/terminal | stay | Rejected |
+ * | Ready | CancelRun | owned running | stay, cancellation + generation fence | StopRun / CancellationRequested |
  * | Ready | StepStarted | current driver, valid preparation/progress/recovery | stay, replace step | none |
  * | Ready | StepFinished/StepFailed | current driver, immutable correlation | stay, memoize terminal step | none |
  * | Ready | PermissionsChanged | current executing driver | stay, transient permissions | none |
@@ -34,6 +34,8 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  *
  * Journal loading rejects duplicate ids instead of accepting an ambiguous owner. Retention keeps all Running
  * records, and the newest 20 terminal records per harness within 30 days. UI and tools apply [isVisibleTo].
+ * Starting and cancelling are Internal: the machine trusts the pinned source and the declared viewer, so no other
+ * feature may send them through [HarnessRunsMachineKey], whose public intents are empty.
  */
 public val HarnessRunsMachineSpec: MachineSpec<
     HarnessRunsState,
@@ -98,7 +100,7 @@ public val HarnessRunsMachineSpec: MachineSpec<
         }
     }
     state<HarnessRunsState.Ready> {
-        on<HarnessRunsIntent.Public.Start> {
+        on<HarnessRunsIntent.Internal.StartRun> {
             stay { if (state.startRejection(intent) == null) state.copy(runs = state.runs + intent.run) else state }
             effect { if (state.startRejection(intent) == null) HarnessRunsEffect.Drive(listOf(intent.run)) else null }
             output {
@@ -106,7 +108,7 @@ public val HarnessRunsMachineSpec: MachineSpec<
                     ?: HarnessRunsOutput.Started(intent.requestId, intent.run.id)
             }
         }
-        on<HarnessRunsIntent.Public.Cancel> {
+        on<HarnessRunsIntent.Internal.CancelRun> {
             stay { if (state.cancelRejection(intent) == null) state.replace(state.cancelling(intent.run)) else state }
             effect {
                 if (state.cancelRejection(
@@ -135,7 +137,7 @@ public val HarnessRunsMachineSpec: MachineSpec<
         }
     }
     any {
-        on<HarnessRunsIntent.Public> {
+        on<HarnessRunsIntent.Command> {
             output {
                 HarnessRunsOutput.Rejected(
                     intent.requestId,

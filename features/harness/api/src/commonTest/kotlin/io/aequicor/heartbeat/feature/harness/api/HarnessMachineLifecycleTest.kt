@@ -7,6 +7,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class HarnessMachineLifecycleTest {
     @Test
@@ -40,10 +41,10 @@ class HarnessMachineLifecycleTest {
     }
 
     @Test
-    fun `all public requests receive unavailable in non model states`() {
-        val publics = listOf(
+    fun `public requests and internal edits receive unavailable in non model states`() {
+        val commands = listOf(
             create,
-            HarnessIntent.Public.Update(
+            HarnessIntent.Internal.Update(
                 request,
                 harness.id,
                 HarnessChange.Meta("", ""),
@@ -51,24 +52,24 @@ class HarnessMachineLifecycleTest {
                 HarnessAuthor.User,
                 now,
             ),
-            HarnessIntent.Public.Delete(
+            HarnessIntent.Internal.Delete(
                 request,
                 harness.id,
                 0,
             ),
-            HarnessIntent.Public.SetEnabled(request, harness.id, true, 0, now),
-            HarnessIntent.Public.SetItemEnabled(request, harness.id, code.id, true, 0, now),
+            HarnessIntent.Internal.SetEnabled(request, harness.id, true, 0, now),
+            HarnessIntent.Internal.SetItemEnabled(request, harness.id, code.id, true, 0, now),
             HarnessIntent.Public.Attach(
                 request,
                 harness.id,
                 session,
             ),
             HarnessIntent.Public.Detach(request, harness.id, session),
-            HarnessIntent.Public.SetApproval(request, HarnessApproval.Ask, 0), HarnessIntent.Public.Reload(request),
+            HarnessIntent.Internal.SetApproval(request, HarnessApproval.Ask, 0), HarnessIntent.Public.Reload(request),
         )
         val states = listOf(HarnessState.Idle(), HarnessState.Loading(HarnessLoad(1, 0)), HarnessState.Failed(true))
         states.forEach { state ->
-            publics.forEach { intent ->
+            commands.forEach { intent ->
                 HarnessMachineSpec.assertTransition(
                     state,
                     intent,
@@ -76,6 +77,28 @@ class HarnessMachineLifecycleTest {
                     outputs = listOf(HarnessOutput.Rejected(request, HarnessRejection.Unavailable)),
                 )
             }
+        }
+    }
+
+    @Test
+    fun `other features can only connect chats and reload while edits stay internal`() {
+        val edits: List<HarnessIntent.Command> = listOf(
+            create,
+            HarnessIntent.Internal.SetApproval(request, HarnessApproval.AcceptAll, 0),
+            HarnessIntent.Internal.SetEnabled(request, harness.id, true, 0, now),
+        )
+        assertTrue(edits.none { it is HarnessIntent.Public })
+        val publics: List<HarnessIntent.Public> = listOf(
+            HarnessIntent.Public.Attach(request, harness.id, session),
+            HarnessIntent.Public.Detach(request, harness.id, session),
+            HarnessIntent.Public.Reload(request),
+        )
+        // Exhaustive on purpose: a new public command must be reviewed against code activation and approval.
+        publics.forEach { intent ->
+            val isMembershipOrReload = when (intent) {
+                is HarnessIntent.Public.Attach, is HarnessIntent.Public.Detach, is HarnessIntent.Public.Reload -> true
+            }
+            assertTrue(isMembershipOrReload)
         }
     }
 
@@ -89,7 +112,7 @@ class HarnessMachineLifecycleTest {
         )
         HarnessMachineSpec.assertTransition(
             HarnessState.Failed(false, 3),
-            HarnessIntent.Public.SetApproval(request, HarnessApproval.Ask, 0),
+            HarnessIntent.Internal.SetApproval(request, HarnessApproval.Ask, 0),
             HarnessState.Failed(false, 3),
             outputs = listOf(HarnessOutput.Rejected(request, HarnessRejection.Unavailable)),
         )
@@ -155,7 +178,7 @@ class HarnessMachineLifecycleTest {
             effects = listOf(HarnessEffect.Load(load)),
         )
         loading.refuses(HarnessIntent.Public.Reload(request), HarnessRejection.Busy)
-        val update = HarnessIntent.Public.SetEnabled(request, harness.id, false, 0, now)
+        val update = HarnessIntent.Internal.SetEnabled(request, harness.id, false, 0, now)
         val pending = loading.send(update)
         val committed = pending.send(HarnessIntent.Internal.Saved(saveOf(pending).receipt))
         val loaded = HarnessIntent.Internal.Loaded(load, listOf(harness))

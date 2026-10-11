@@ -5,11 +5,40 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import kotlin.time.Instant
 
-/** Authorized library commands and correlated repository/runtime feedback. */
+/**
+ * Library commands and correlated repository/runtime feedback. Other features may only connect chats and refresh
+ * ([Public]); content, code, enabling and the approval level change only through [Internal.Edit].
+ */
 public sealed interface HarnessIntent : MachineIntent {
     /** Commands whose host-generated request id correlates the durable outcome. */
-    public sealed interface Public : HarnessIntent {
+    public sealed interface Command : HarnessIntent {
         public val requestId: RequestId
+    }
+
+    /** Commands any feature may send through the registry; none of them changes content, code or approval. */
+    public sealed interface Public : Command {
+        /** Connects a session independently of the harness revision. */
+        public data class Attach(override val requestId: RequestId, val id: HarnessId, val session: SessionRef) :
+            Public
+
+        /** Removes an explicit session connection. */
+        public data class Detach(override val requestId: RequestId, val id: HarnessId, val session: SessionRef) :
+            Public
+
+        /** Refreshes the snapshot without leaving Ready or cancelling pending writes. */
+        public data class Reload(override val requestId: RequestId) : Public
+    }
+
+    /** This feature's edits, repository receipts and runtime lifecycle feedback; stale tokens are ignored. */
+    public sealed interface Internal : HarnessIntent {
+        /**
+         * Edits of content, code, enabling and the approval level. Activation compiles and publishes saved code, and
+         * the machine never checks approval: only this feature's stores (direct user edits) and agent tools (after
+         * the user's decision) hold the full machine that accepts them.
+         */
+        public sealed interface Edit :
+            Internal,
+            Command
 
         /** Reserves a new immutable identity and name before saving. */
         public data class Create(
@@ -18,7 +47,7 @@ public sealed interface HarnessIntent : MachineIntent {
             val draft: HarnessDraft,
             val author: SessionRef?,
             val at: Instant,
-        ) : Public
+        ) : Edit
 
         /** Applies an authorized edit only to the expected committed revision. */
         public data class Update(
@@ -28,11 +57,11 @@ public sealed interface HarnessIntent : MachineIntent {
             val expectedRevision: Long,
             val author: HarnessAuthor,
             val at: Instant,
-        ) : Public
+        ) : Edit
 
         /** Removes the harness through the durable cascade after revision validation. */
         public data class Delete(override val requestId: RequestId, val id: HarnessId, val expectedRevision: Long) :
-            Public
+            Edit
 
         /** Persists the enabled flag; disabling cancels all runs owned by this harness. */
         public data class SetEnabled(
@@ -41,7 +70,7 @@ public sealed interface HarnessIntent : MachineIntent {
             val isEnabled: Boolean,
             val expectedRevision: Long,
             val at: Instant,
-        ) : Public
+        ) : Edit
 
         /** Persists an item flag without changing pinned workflow runs. */
         public data class SetItemEnabled(
@@ -51,29 +80,15 @@ public sealed interface HarnessIntent : MachineIntent {
             val isEnabled: Boolean,
             val expectedRevision: Long,
             val at: Instant,
-        ) : Public
-
-        /** Connects a session independently of the harness revision. */
-        public data class Attach(override val requestId: RequestId, val id: HarnessId, val session: SessionRef) :
-            Public
-
-        /** Removes an explicit session connection. */
-        public data class Detach(override val requestId: RequestId, val id: HarnessId, val session: SessionRef) :
-            Public
+        ) : Edit
 
         /** [expectedRevision] refers to Ready.approvalRevision, not the library or harness revision. */
         public data class SetApproval(
             override val requestId: RequestId,
             val level: HarnessApproval,
             val expectedRevision: Long,
-        ) : Public
+        ) : Edit
 
-        /** Refreshes the snapshot without leaving Ready or cancelling pending writes. */
-        public data class Reload(override val requestId: RequestId) : Public
-    }
-
-    /** Repository receipts and runtime lifecycle feedback; stale tokens are ignored. */
-    public sealed interface Internal : HarnessIntent {
         /** Receipts for durable library and setting IO. */
         public sealed interface Storage : Internal
 

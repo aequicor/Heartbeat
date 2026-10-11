@@ -257,7 +257,7 @@ internal class HarnessItemModel(
     }
 
     private suspend fun submit(item: HarnessItem, revision: Long): ItemUpdate {
-        val intent = HarnessIntent.Public.Update(
+        val intent = HarnessIntent.Internal.Update(
             request(),
             harnessId,
             HarnessChange.PutItem(item),

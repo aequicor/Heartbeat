@@ -16,20 +16,20 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Loading | Loaded, matching valid snapshot | Ready preserving suspension | Activate enabled supported code |
  * | Loading | Loaded invalid / LoadFailed, matching | Failed | StorageFailed |
  * | Failed, not suspended | Reload (the screen's retry) | Loading | Load |
- * | Idle, Loading, Failed | any other Public | stay | Rejected(Unavailable) |
- * | Ready | Create valid unique and within reserved quotas | stay, pending save | Save |
- * | Ready | Update/SetEnabled/SetItemEnabled, current revision and valid | stay, pending save | Save |
- * | Ready | Delete, current revision and attachment domain free | stay, pending remove | Remove (cascade) |
+ * | Idle, Loading, Failed | any other Command (Public or Internal.Edit) | stay | Rejected(Unavailable) |
+ * | Ready | Internal.Create valid unique and within reserved quotas | stay, pending save | Save |
+ * | Ready | Internal.Update/SetEnabled/SetItemEnabled, current revision and valid | stay, pending save | Save |
+ * | Ready | Internal.Delete, current revision and attachment domain free | stay, pending remove | Remove (cascade) |
  * | Ready | mutation stale revision / busy / missing / invalid / limits | stay | Rejected |
  * | Ready | Saved, exact pending receipt | stay, commit model | Activate/Deactivate, Created/Updated |
  * | Ready | Removed, exact pending receipt | stay, remove model and attachments | Deleted |
  * | Ready | SaveFailed, exact receipt | stay, preserve committed model | StorageFailed |
  * | Ready | RemoveFailed, exact receipt | stay, restore statuses at a new generation | Activate, StorageFailed |
- * | Ready | Attach/Detach, known id and domain free, within bounds | stay, pending attachment | SaveAttachments |
+ * | Ready | Public Attach/Detach, known id, domain free, within bounds | stay, pending attachment | SaveAttachments |
  * | Ready | AttachmentsSaved/Failed, exact | stay, commit/preserve map | Attached/Detached/StorageFailed |
- * | Ready | SetApproval, current approval revision and domain free | stay, pending approval | SaveApproval |
+ * | Ready | Internal.SetApproval, current approval revision and domain free | stay, pending approval | SaveApproval |
  * | Ready | ApprovalSaved/Failed, exact write | stay, commit/preserve approval | ApprovalChanged/StorageFailed |
- * | Ready | Reload, no pending reload | stay, isReloading | Load; concurrent writes continue |
+ * | Ready | Public Reload, no pending reload | stay, isReloading | Load; concurrent writes continue |
  * | Ready | Loaded, exact reload and unchanged library without writes | stay, replace snapshot | Deactivate/Activate |
  * | Ready | Loaded, exact reload superseded by writes | stay, clear reload | none |
  * | Ready | invalid Loaded/LoadFailed, exact reload | stay, clear reload | StorageFailed |
@@ -41,7 +41,10 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  *
  * Activation generation also fences late replies across suspend/resume of the same harness revision.
  * Runtime failures can precede the activation receipt; the later receipt cannot overwrite their Failed status.
- * Agent permission decisions happen before Public commands; the machine never treats author metadata as approval.
+ * Edits that change content, code, enabling or approval are Internal: other features can only connect chats and
+ * reload through [HarnessMachineKey], since activation compiles and publishes saved code without asking. Agent
+ * permission decisions happen in this feature's tools before an edit; the machine never treats author metadata as
+ * approval.
  */
 public val HarnessMachineSpec: MachineSpec<HarnessState, HarnessIntent, HarnessEffect, HarnessOutput> =
     machineSpec(HarnessMachineKey, HarnessState.Idle()) {
@@ -106,7 +109,7 @@ public val HarnessMachineSpec: MachineSpec<HarnessState, HarnessIntent, HarnessE
             ) { stay { state.copy(isSuspended = false) } }
         }
         state<HarnessState.Ready> {
-            on<HarnessIntent.Public> {
+            on<HarnessIntent.Command> {
                 stay { state.command(intent).state }
                 effect { state.command(intent).effects.getOrNull(0) }
                 effect { state.command(intent).effects.getOrNull(1) }
@@ -129,9 +132,9 @@ private fun <S : HarnessState> StateBuilder<
     HarnessEffect,
     HarnessOutput,
 >.unavailable(
-    isRetry: (S, HarnessIntent.Public) -> Boolean = { _, _ -> false },
+    isRetry: (S, HarnessIntent.Command) -> Boolean = { _, _ -> false },
 ) {
-    on<HarnessIntent.Public>(guard = { !isRetry(state, intent) }) {
+    on<HarnessIntent.Command>(guard = { !isRetry(state, intent) }) {
         output { HarnessOutput.Rejected(intent.requestId, HarnessRejection.Unavailable) }
     }
 }

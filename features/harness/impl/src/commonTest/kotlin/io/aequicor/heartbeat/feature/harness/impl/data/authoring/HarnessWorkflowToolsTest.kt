@@ -73,7 +73,7 @@ class HarnessWorkflowToolsTest {
             listOf(run.copy(status = WorkflowStatus.Running, finishedAt = null)),
         )
         tools.execute(context(dispatchSession), HarnessTools.WORKFLOW_CANCEL, runArgument("wf_1"))
-        val cancel = runs.sent.single() as HarnessRunsIntent.Public.Cancel
+        val cancel = runs.sent.single() as HarnessRunsIntent.Internal.CancelRun
         assertEquals(WorkflowViewer.Agent(dispatchSession), cancel.by)
         assertEquals(run.id, cancel.run)
     }

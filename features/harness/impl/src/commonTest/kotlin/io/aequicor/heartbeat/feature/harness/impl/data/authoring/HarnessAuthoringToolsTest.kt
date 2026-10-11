@@ -126,7 +126,7 @@ class HarnessAuthoringToolsTest {
         assertTrue(approval.description.orEmpty().contains("compiled, warnings: 0"))
         val result = tools.execute(context.copy(authorization = approval), HarnessTools.ITEM_PUT, arguments)
         assertFalse(result.isError, result.text)
-        val update = assertIs<HarnessIntent.Public.Update>(library.sent.single())
+        val update = assertIs<HarnessIntent.Internal.Update>(library.sent.single())
         assertEquals(harness.revision, update.expectedRevision)
         val item = assertIs<HarnessItem.Script>(assertIs<HarnessChange.PutItem>(update.change).item)
         assertEquals("hooks.toString()", item.source)
@@ -156,7 +156,7 @@ class HarnessAuthoringToolsTest {
         val arguments = put("instruction", "rule", "New")
         val approval = tools.approval(context, spec(HarnessTools.ITEM_PUT), arguments)
         tools.execute(context.copy(authorization = approval), HarnessTools.ITEM_PUT, arguments)
-        val item = (library.sent.single() as HarnessIntent.Public.Update).change as HarnessChange.PutItem
+        val item = (library.sent.single() as HarnessIntent.Internal.Update).change as HarnessChange.PutItem
         assertEquals(existing.copy(text = "New"), item.item)
         val asSkill = put("skill", "rule", "Body", description = "d")
         assertTrue(tools.execute(context.copy(authorization = approval), HarnessTools.ITEM_PUT, asSkill).isError)
@@ -173,7 +173,7 @@ class HarnessAuthoringToolsTest {
         val approval = tools.approval(context, spec(HarnessTools.CREATE), arguments)
         val result = tools.execute(context.copy(authorization = approval), HarnessTools.CREATE, arguments)
         assertFalse(result.isError, result.text)
-        val create = assertIs<HarnessIntent.Public.Create>(library.sent[0])
+        val create = assertIs<HarnessIntent.Internal.Create>(library.sent[0])
         assertEquals(HarnessScope.Projects(setOf(SOURCE)), create.draft.scope)
         assertEquals(dispatchSession, create.author)
         val attach = assertIs<HarnessIntent.Public.Attach>(library.sent[1])
@@ -192,7 +192,7 @@ class HarnessAuthoringToolsTest {
         assertTrue(approval.description.orEmpty().contains("claude tool Bash: on (was default)"))
         val result = tools.execute(context.copy(authorization = approval), HarnessTools.TOOLS_SET, on)
         assertTrue(result.text.contains("harness.native_tools"))
-        val change = (library.sent.single() as HarnessIntent.Public.Update).change as HarnessChange.Tools
+        val change = (library.sent.single() as HarnessIntent.Internal.Update).change as HarnessChange.Tools
         assertEquals(ToolSwitch.On, change.tools.native["claude"]?.get("Bash"))
         listOf(tools(native = "Agent" to "on"), tools(native = "Nope" to "off"), tools(hosted = "harness_create"))
             .forEach { assertTrue(tools.execute(context, HarnessTools.TOOLS_SET, it).isError) }
@@ -263,7 +263,7 @@ class HarnessAuthoringToolsTest {
         assertTrue(approval.description.orEmpty().contains("Kept switches of engines unavailable now: pi"))
         val result = tools.execute(context.copy(authorization = approval), HarnessTools.TOOLS_SET, arguments)
         assertFalse(result.isError, result.text)
-        val change = (library.sent.single() as HarnessIntent.Public.Update).change as HarnessChange.Tools
+        val change = (library.sent.single() as HarnessIntent.Internal.Update).change as HarnessChange.Tools
         assertEquals(mapOf("bash" to ToolSwitch.Off), change.tools.native["pi"])
         assertEquals(mapOf("WebFetch" to ToolSwitch.Off), change.tools.native["claude"])
     }
@@ -371,7 +371,7 @@ private class FakeLibrary : HarnessLibraryClient {
     var harnesses: List<io.aequicor.heartbeat.feature.harness.api.Harness>? = null
     var outcome: LibraryOutcome? = null
     val outcomes = ArrayDeque<LibraryOutcome>()
-    val sent = mutableListOf<HarnessIntent.Public>()
+    val sent = mutableListOf<HarnessIntent.Command>()
 
     override val current: HarnessState.Ready?
         get() {
@@ -382,7 +382,7 @@ private class FakeLibrary : HarnessLibraryClient {
 
     override suspend fun ready(): HarnessState.Ready? = current
 
-    override suspend fun submit(intent: HarnessIntent.Public): LibraryOutcome {
+    override suspend fun submit(intent: HarnessIntent.Command): LibraryOutcome {
         sent += intent
         return outcomes.removeFirstOrNull() ?: outcome
             ?: LibraryOutcome.Committed(HarnessOutput.Updated(intent.requestId, HarnessId("any")))

@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.navigation.RouteEntry
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
+import io.aequicor.heartbeat.core.statemachine.MachineRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HookedToolCall
@@ -26,6 +27,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.api.HarnessItemRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessMachineKey
 import io.aequicor.heartbeat.feature.harness.api.HarnessName
+import io.aequicor.heartbeat.feature.harness.api.HarnessOutput
 import io.aequicor.heartbeat.feature.harness.api.HarnessRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
@@ -115,15 +117,7 @@ class HarnessIntegrationTest {
                 val machine = app.machines.observe(HarnessMachineKey).filterNotNull().first()
                 machine.state.filterIsInstance<HarnessState.Ready>().first()
                 val code = hookScript()
-                machine.send(
-                    HarnessIntent.Public.Create(
-                        RequestId("create"),
-                        HarnessId("harness"),
-                        HarnessDraft(HarnessName("test"), "Test", scope = HarnessScope.Profile, items = listOf(code)),
-                        null,
-                        Instant.fromEpochMilliseconds(1_000),
-                    ),
-                )
+                create(machine, code)
                 val saved = machine.state.filterIsInstance<HarnessState.Ready>().first {
                     it.harnesses.singleOrNull()?.itemStatus?.get(code.id) is ItemStatus.Active
                 }
@@ -161,6 +155,22 @@ class HarnessIntegrationTest {
         }
         app.profileSessions.close()
     }
+
+    /** Edits are Internal and only harness:impl holds the full machine; the cast stands in for it here. */
+    private suspend fun create(machine: MachineRef<HarnessState, *, HarnessOutput>, code: HarnessItem) {
+        @Suppress("UNCHECKED_CAST") // The registry reference dispatches every intent of its spec.
+        val library = machine as MachineRef<HarnessState, HarnessIntent, HarnessOutput>
+        library.send(
+            HarnessIntent.Internal.Create(
+                RequestId("create"),
+                HarnessId("harness"),
+                HarnessDraft(HarnessName("test"), "Test", scope = HarnessScope.Profile, items = listOf(code)),
+                null,
+                Instant.fromEpochMilliseconds(1_000),
+            ),
+        )
+    }
+
     private suspend fun assertSchedulerHooks(hooks: Set<SessionHook>, bus: SchedulerBus): HookedToolCall =
         coroutineScope {
             val event = async(start = CoroutineStart.UNDISPATCHED) {

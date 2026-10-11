@@ -15,7 +15,10 @@ public data class HarnessDraft(
     override fun toString(): String = "HarnessDraft(name=$name, ***)"
 }
 
-/** Agent approvals are enforced by the caller before sending an authorized mutation to this pure machine. */
+/**
+ * Who made an [HarnessIntent.Internal.Edit]. Metadata only: agent approvals are enforced by this feature's tools
+ * before they send the edit, and the pure machine never treats the author as approval.
+ */
 public sealed interface HarnessAuthor {
     /** A direct user edit; no agent approval is needed. */
     public data object User : HarnessAuthor

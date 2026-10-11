@@ -41,7 +41,7 @@ public sealed interface HarnessOutput : MachineOutput {
     public data class StorageFailed(val requestId: RequestId?) : HarnessOutput
 }
 
-/** Profile-scoped library, started on first feature enable. */
+/** Profile-scoped library, started on first feature enable. Other features send only [HarnessIntent.Public]. */
 public object HarnessMachineKey : MachineKey<
     HarnessState,
     HarnessIntent,

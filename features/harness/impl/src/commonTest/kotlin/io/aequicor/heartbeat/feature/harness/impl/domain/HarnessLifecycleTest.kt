@@ -102,7 +102,7 @@ class HarnessLifecycleTest {
         backgroundScope.launch { followHarnessToggle(library, enabled) }
         runCurrent()
         library.value.send(
-            HarnessIntent.Public.Update(
+            HarnessIntent.Internal.Update(
                 RequestId("edit"),
                 harness.id,
                 HarnessChange.Meta("Changed", ""),
