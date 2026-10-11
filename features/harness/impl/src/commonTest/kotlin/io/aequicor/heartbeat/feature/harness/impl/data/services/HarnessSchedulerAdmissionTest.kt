@@ -205,14 +205,32 @@ class HarnessSchedulerAdmissionTest {
     }
 
     @Test
-    fun `exhausted session streak holds owned wakes without persisting ancestry`() = runTest {
+    fun `exhausted session streak drops harness chain wakes without persisting ancestry`() = runTest {
         repeat(HarnessLimits.SEND_CHAIN) { streaks.harnessTurnStarted(dispatchSession) }
         val eventOnly = request.copy(condition = WakeCondition(events = setOf(EventKeys.custom("ready"))))
-        assertEquals(ScheduledWakeAdmission.Defer, admission.wake(eventOnly).first())
+        // A held event-only wake would keep its quota until a user turn.
+        assertEquals(ScheduledWakeAdmission.Drop, admission.wake(eventOnly).first())
         assertEquals(ScheduledWakeAdmission.Drop, admission.wake(request).first())
         assertEquals(null, storage.lookup(request.session, request.id.deliveryRequestId()))
+        // A workflow's completion wake started by the agent carries no harness ancestry and is not in a streak.
+        val completion = request.copy(
+            id = WakeId("completion"),
+            ownerContext = HarnessOwnedContext().encode(harness, HarnessCallOrigin()),
+        )
+        assertEquals(ScheduledWakeAdmission.Allow, admission.wake(completion).first())
         streaks.otherTurnStarted(dispatchSession)
         assertEquals(ScheduledWakeAdmission.Allow, admission.wake(eventOnly).first())
+    }
+
+    @Test
+    fun `a streak exhausted during preparation drops a wake that was allowed`() = runTest {
+        val decisions = mutableListOf<ScheduledWakeAdmission>()
+        backgroundScope.launch { admission.wake(request).collect { decisions += it } }
+        runCurrent()
+        assertEquals(listOf(ScheduledWakeAdmission.Allow), decisions)
+        repeat(HarnessLimits.SEND_CHAIN) { streaks.harnessTurnStarted(dispatchSession) }
+        runCurrent()
+        assertEquals(listOf(ScheduledWakeAdmission.Allow, ScheduledWakeAdmission.Drop), decisions)
     }
 
     @Test

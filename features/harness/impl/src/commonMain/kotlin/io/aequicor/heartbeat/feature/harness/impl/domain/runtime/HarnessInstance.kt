@@ -31,6 +31,12 @@ internal class HarnessInstance(
     private var context: HarnessRuntimeContext? = null
     private val log = Log.tag("HarnessRuntime")
     private val errors = CoroutineExceptionHandler { _, error ->
+        if (error.isHarnessLimitRefusal()) {
+            // The host's own limit decision ends the work without counting as a failure; fatal causes propagate.
+            error.rethrowFatalHarnessFailure()
+            log.d { "Instance background work ended by a host limit refusal" }
+            return@CoroutineExceptionHandler
+        }
         log.w(harnessScriptFailure(error)) { "Instance background callback failed" }
         phase.compareAndSet(HarnessInstancePhase.Preparing, HarnessInstancePhase.PreparationFailed)
         environment.scope.launch(environment.dispatchers.default) { onBackgroundFailure(this@HarnessInstance) }

@@ -10,12 +10,14 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HarnessNativeTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolGroup
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessEntry
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
@@ -91,6 +93,18 @@ class HarnessReadToolsTest {
             lines[0],
         )
         assertEquals("- other — Other · connected chats only · off · no items", lines[1])
+    }
+
+    @Test
+    fun `list marks a covering harness beyond the active limit as restricting here`() = runTest {
+        val overflow = object : HarnessActiveAccess {
+            override suspend fun active(workspace: WorkspaceRef?, session: SessionRef?): List<Harness> = emptyList()
+            override suspend fun applicable(workspace: WorkspaceRef?, session: SessionRef?) = listOf(owner)
+        }
+        val limited = HarnessReadTools(toggles, lazyOf(library), lazyOf(ReadCatalogs), lazyOf(overflow))
+        val lines = limited.execute(context, HarnessTools.LIST, JsonObject(emptyMap())).text.lines()
+        assertTrue(lines[0].endsWith(" · connected here · restricts here"), lines[0])
+        assertFalse(lines[1].contains(" here"), lines[1])
     }
 
     @Test

@@ -25,8 +25,10 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.transformLatest
 
 /** Shared write-before-Allow boundary. Construction leaves authority and persistent storage lazy. */
@@ -58,9 +60,10 @@ internal class HarnessSchedulerAdmission(
     /**
      * While provenance is still restoring after startup an event-only wake defers to producer replay; a deadline
      * cannot defer, so it waits for the first known decision within the scheduler's initial admission window.
-     * An owned wake into a session whose harness turn streak is exhausted waits for a user turn the same way.
      * A denied publisher drops harness wakes, but only defers another owner's event-only wake: the publisher's
-     * authority may return, and that wake was never the harness's to discard.
+     * authority may return, and that wake was never the harness's to discard. An owned wake that continues a
+     * harness chain is dropped while its session's turn streak is exhausted, live until native submission; owned
+     * wakes without harness ancestry (a workflow's completion wake started by the agent) are not part of a streak.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     private fun admit(
@@ -74,14 +77,15 @@ internal class HarnessSchedulerAdmission(
             emit(ScheduledWakeAdmission.Allow)
         }
     } else {
-        access.value.permits(
-            owner.harness,
-            target?.let { HarnessTarget(it.session, it.workspace) },
-        ).transformLatest { decision ->
+        combine(
+            access.value.permits(owner.harness, target?.let { HarnessTarget(it.session, it.workspace) }),
+            target?.let { streaks.exhausted(it.session) } ?: flowOf(false),
+            ::Pair,
+        ).transformLatest { (decision, isStreakExhausted) ->
             when (decision) {
                 HarnessAccess.Unknown -> if (request.condition.deadline == null) emit(ScheduledWakeAdmission.Defer)
                 HarnessAccess.Denied -> emit(denied(request, target))
-                is HarnessAccess.Permitted -> emit(permitted(request, target, decision, resolve))
+                is HarnessAccess.Permitted -> emit(permitted(request, decision, isStreakExhausted, resolve))
             }
         }
     }
@@ -93,25 +97,26 @@ internal class HarnessSchedulerAdmission(
             ScheduledWakeAdmission.Drop
         }
 
+    /** A held event-only wake would keep its quota until a user turn, so an exhausted streak drops it as well. */
     private suspend fun permitted(
         request: WakeRequest,
-        target: WakeRequest?,
         decision: HarnessAccess.Permitted,
+        isStreakExhausted: Boolean,
         resolve: suspend () -> HarnessCallOrigin,
     ): ScheduledWakeAdmission {
-        if (target != null && streaks.isExhausted(target.session)) {
-            log.d { "Hold harness wake: session turn streak reached" }
-            val isEventOnly = request.condition.deadline == null
-            return if (isEventOnly) ScheduledWakeAdmission.Defer else ScheduledWakeAdmission.Drop
+        val origin = resolve()
+        if (isStreakExhausted && origin.isHarnessChain) {
+            log.d { "Drop harness wake: session turn streak reached" }
+            return ScheduledWakeAdmission.Drop
         }
-        persist(request, resolve())
+        persist(request, origin)
         val isCurrent = decision.permit.isCurrent()
         currentCoroutineContext().ensureActive()
         return if (isCurrent) ScheduledWakeAdmission.Allow else ScheduledWakeAdmission.Drop
     }
 
     private suspend fun persist(request: WakeRequest, origin: HarnessCallOrigin) {
-        if (origin.isHookRestricted || origin.sendChain.isNotEmpty()) {
+        if (origin.isHarnessChain) {
             storage.value.restrict(request.session, request.id.deliveryRequestId(), origin)
         }
         currentCoroutineContext().ensureActive()

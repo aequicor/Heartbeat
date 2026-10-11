@@ -72,6 +72,8 @@ internal class HarnessReadTools(
         val state = library.value.ready() ?: return failure("The harness library is unavailable")
         if (state.harnesses.isEmpty()) return AgentToolResult("No harnesses yet. Create one with harness_create.")
         val active = access.value.active(context.workspace, context.session).map { it.id }.toSet()
+        // Restrictions (off switches, Deny/Ask hooks) also apply from covering harnesses beyond the active limit.
+        val restricting = access.value.applicable(context.workspace, context.session).map { it.id }.toSet()
         val attached = state.attachments[context.session].orEmpty()
         return AgentToolResult(
             state.harnesses.joinToString("\n") { entry ->
@@ -82,7 +84,11 @@ internal class HarnessReadTools(
                     append(if (harness.isEnabled) " · on" else " · off")
                     append(" · ").append(harness.items.counts())
                     if (harness.id in attached) append(" · connected here")
-                    if (harness.id in active) append(" · active here")
+                    if (harness.id in active) {
+                        append(" · active here")
+                    } else if (harness.id in restricting) {
+                        append(" · restricts here")
+                    }
                 }
             },
         )

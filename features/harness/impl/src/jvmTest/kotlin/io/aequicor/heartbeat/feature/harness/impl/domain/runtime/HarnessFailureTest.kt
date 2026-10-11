@@ -6,9 +6,11 @@ import java.util.concurrent.CompletionException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 class HarnessFailureTest {
     @Test
@@ -76,6 +78,25 @@ class HarnessFailureTest {
             fatal,
             assertFailsWith<OutOfMemoryError> {
                 harnessScriptFailure(IllegalStateException(CancellationException("nested").apply { initCause(fatal) }))
+            },
+        )
+    }
+
+    @Test
+    fun `host limit refusals are marked even when wrapped, while fatal causes still propagate`() = runTest {
+        val refusal = HarnessLimitRefusal("streak")
+        for (error in listOf(refusal, IllegalStateException("private wrapper", refusal))) {
+            val failure = assertIs<HarnessAttempt.Failure>(captureHarnessFailure<Nothing> { throw error })
+            assertTrue(failure.error.isRefusal)
+            assertNull(failure.error.cause)
+        }
+        val ordinary = captureHarnessFailure<Nothing> { throw IllegalStateException() }
+        assertFalse(assertIs<HarnessAttempt.Failure>(ordinary).error.isRefusal)
+        val fatal = OutOfMemoryError("private source")
+        assertSame(
+            fatal,
+            assertFailsWith<OutOfMemoryError> {
+                captureHarnessFailure<Nothing> { throw HarnessLimitRefusal("streak").apply { initCause(fatal) } }
             },
         )
     }

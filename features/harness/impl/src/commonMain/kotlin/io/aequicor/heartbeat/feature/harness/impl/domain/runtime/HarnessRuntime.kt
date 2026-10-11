@@ -446,8 +446,9 @@ private fun <K> MutableMap<K, Long>.raise(key: K, generation: Long) {
     this[key] = maxOf(this[key] ?: Long.MIN_VALUE, generation)
 }
 
+/** A host limit refusal ends the callback without counting as its failure. */
 private fun HarnessInvocationResult<*>.hasFailed(): Boolean = this is HarnessInvocationResult.TimedOut ||
-    (this as? HarnessInvocationResult.Completed)?.value is HarnessAttempt.Failure ||
+    ((this as? HarnessInvocationResult.Completed)?.value as? HarnessAttempt.Failure)?.error?.isRefusal == false ||
     (this is HarnessInvocationResult.Cancelled && !isExpected)
 
 private fun HarnessActivationRequest.compilation(): HarnessCompilationRequest? = when (val code = item) {

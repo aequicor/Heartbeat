@@ -28,6 +28,9 @@ import kotlin.time.Clock
 
 internal val HarnessLibrarySpec = KeyValueSpec("harness_library")
 
+/** Index of harness ids in [HarnessLibrarySpec]; present once any harness was ever saved in the profile. */
+internal const val HARNESS_LIBRARY_INDEX = "index"
+
 /** Profile-owned, serialized library IO. Values remain raw strings so decode failure never looks like absence. */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
@@ -172,7 +175,7 @@ internal class KeyValueHarnessLibrary(
     }
 
     private companion object {
-        const val INDEX = "index"
+        const val INDEX = HARNESS_LIBRARY_INDEX
         const val ATTACHMENTS = "attachments"
         const val APPROVAL = "approval"
     }

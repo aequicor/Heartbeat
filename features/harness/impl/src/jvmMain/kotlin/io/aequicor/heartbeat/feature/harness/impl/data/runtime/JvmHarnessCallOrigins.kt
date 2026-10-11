@@ -20,9 +20,11 @@ import kotlin.coroutines.CoroutineContext
  * script created itself (a raw thread, a fresh CoroutineScope, a Java callback), so it fails closed: it is treated
  * as hook-restricted and can never schedule an agent turn, spawn a helper or start a workflow.
  *
- * A carrier frozen into an author-owned context (for example `CoroutineScope(scope.coroutineContext + Job())` built
- * during evaluation) does not keep its old ancestry: every child it starts also merges the origin of the launching
- * thread, so launching it from a hook still yields a hook-restricted child.
+ * The common derived-scope idiom, a carrier frozen into an author-owned context (for example
+ * `CoroutineScope(scope.coroutineContext + Job())` built during evaluation), does not keep only its old ancestry: a
+ * child it starts on a thread that runs inside a host carrier also merges that thread's origin, so launching it
+ * from a hook still yields a hook-restricted child. A launch from a thread without a carrier keeps the frozen
+ * snapshot; this is a mitigation, not a guarantee, and the session turn streak bounds what escapes it.
  */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)

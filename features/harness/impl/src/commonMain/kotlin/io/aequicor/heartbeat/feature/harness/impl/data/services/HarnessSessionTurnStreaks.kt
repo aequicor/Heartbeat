@@ -10,19 +10,25 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionLifecycle
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessEventGate
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRequestAncestry
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 
 /**
- * Session-wide bound that does not depend on call carriers: consecutive accepted turns whose request carries harness
- * ancestry (script sends, wakes and their relays) without an intervening turn of any other origin, normally the
- * user's. Author code that escaped its carrier loses its chain, but it cannot make a harness turn look like a user
- * turn, so at most [HarnessLimits.SEND_CHAIN] such turns follow each other; further sends and wakes are refused.
- * Memory only (a restart forgives one streak); above [MAX_TRACKED_SESSIONS] the least recently counted session is
- * forgotten.
+ * Best-effort, bounded session-wide limit that does not depend on call carriers: consecutive accepted turns whose
+ * request carries harness ancestry (script sends, wakes and their relays) without an intervening turn of any other
+ * origin, normally the user's. Author code that escaped its carrier loses its chain, but it cannot make a harness
+ * turn look like a user turn. Once [HarnessLimits.SEND_CHAIN] such turns were counted, further sends and wakes are
+ * refused and pending harness-chain wakes are dropped until another turn starts. It is not an exact cap: turns
+ * observed without request identity or readable ancestry are not counted, a wake whose native submission
+ * already started is not revoked, and the counter lives in memory (a restart forgives one streak; above
+ * [MAX_TRACKED_SESSIONS] the least recently counted session is forgotten).
  */
 @SingleIn(ProfileScope::class)
 @Inject
@@ -30,7 +36,10 @@ internal class HarnessSessionTurnStreaks {
     private val streaks = MutableStateFlow<Map<SessionRef, Int>>(emptyMap())
     private val log = Log.tag("HarnessServices")
 
-    fun isExhausted(session: SessionRef): Boolean = (streaks.value[session] ?: 0) >= HarnessLimits.SEND_CHAIN
+    fun isExhausted(session: SessionRef): Boolean = streaks.value.isExhausted(session)
+
+    /** Current state immediately, then each change, so live admissions follow the session's streak. */
+    fun exhausted(session: SessionRef): Flow<Boolean> = streaks.map { it.isExhausted(session) }.distinctUntilChanged()
 
     @HighFrequency
     fun harnessTurnStarted(session: SessionRef) {
@@ -74,9 +83,14 @@ internal class HarnessSessionTurnObserver(
             log.w(error) { "Turn ancestry is unavailable; the harness turn streak is kept" }
             return
         }
-        val isHarnessTurn = origin != null && (origin.isHookRestricted || origin.sendChain.isNotEmpty())
-        if (isHarnessTurn) streaks.harnessTurnStarted(session) else streaks.otherTurnStarted(session)
+        if (origin?.isHarnessChain == true) streaks.harnessTurnStarted(session) else streaks.otherTurnStarted(session)
     }
 }
+
+/** A turn caused by harness code (a hook relay or a script send/wake chain) rather than by the user. */
+internal val HarnessCallOrigin.isHarnessChain: Boolean get() = isHookRestricted || sendChain.isNotEmpty()
+
+private fun Map<SessionRef, Int>.isExhausted(session: SessionRef): Boolean =
+    (this[session] ?: 0) >= HarnessLimits.SEND_CHAIN
 
 private const val MAX_TRACKED_SESSIONS = 256

@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.harness.impl.data.HARNESS_LIBRARY_INDEX
 import io.aequicor.heartbeat.feature.harness.impl.data.HarnessLibrarySpec
 import io.aequicor.heartbeat.feature.harness.impl.data.run.KeyValueHarnessRunStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
@@ -96,4 +97,4 @@ internal val HarnessAncestryMarkerKey = stringKey("ancestry.written")
 private const val ANCESTRY_MARKER_VERSION = "1"
 
 /** The harness library's index key; present once any harness was ever saved in this profile. */
-private val LegacyLibraryIndexKey = stringKey("index")
+private val LegacyLibraryIndexKey = stringKey(HARNESS_LIBRARY_INDEX)

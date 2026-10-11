@@ -83,7 +83,11 @@ private val API = """
     - workflows.start(ItemName("screen"), input) — start a workflow of this harness (covered by script approval).
     Hooks cannot send, wake, spawn or start workflows. Not available: top-level suspend (use script.scope.launch),
     @Serializable, println, exitProcess, global coroutine scopes, blocking bridges and @file annotations.
-    ${HarnessLimits.FAILURES} failures in a row disable the item. Exceptions are reported by type only.
+    Harness turns in a chat: after ${HarnessLimits.SEND_CHAIN} agent turns in a row started by harnesses (sends,
+    wakes and their follow-ups) without a turn of the user, sessions.send and scheduler.wake throw
+    IllegalStateException and pending script wakes of that chat are dropped until the user writes again.
+    ${HarnessLimits.FAILURES} failures in a row disable the item. Exceptions are reported by type only. Refusals of
+    the turn limit above are not failures: an uncaught one ends the callback without counting towards the limit.
 
     Workflow source registers one definition: workflow { input -> … JsonElement }. Inside (WorkflowScope):
     - agent(prompt, AgentOptions(title, target = null)): String — runs a helper chat and returns its answer;

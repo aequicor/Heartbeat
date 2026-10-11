@@ -150,8 +150,9 @@ internal class HarnessWorkflowTools(
         } catch (error: CancellationException) {
             throw error
         } catch (error: IllegalArgumentException) {
-            log.w(IllegalArgumentException(error::class.simpleName)) { "Workflow input rejected" }
-            failure(INPUT_MISMATCH)
+            // The model's input was checked above; a host precondition failing here is not the model's input error.
+            log.w(IllegalArgumentException(error::class.simpleName)) { "Workflow start refused: request mismatch" }
+            failure("The workflow cannot start: the request no longer matches the workflow; check it with harness_get")
         } catch (error: IllegalStateException) {
             log.w(IllegalStateException(error::class.simpleName)) { "Workflow start refused" }
             failure("The workflow cannot start now: it is disabled, at capacity or no longer active here")

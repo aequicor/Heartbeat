@@ -19,8 +19,9 @@ import kotlin.time.Instant
 /**
  * Instance-owned timer registrations. Staging never invokes author code. Every timer waits for the exact runtime
  * publication and enters through [HarnessTimerInvoker]; the next delay begins only after actual termination.
- * Pumps use the injected control dispatcher and neutral ancestry, while each callback keeps its registration
- * origin. Disposal wakes pending delays without cancelling an already admitted callback or its runtime budget.
+ * Pumps use the injected control dispatcher and, through the carrier, inherit the registering code's origin rather
+ * than a neutral one; each callback runs with its registration origin. Disposal wakes pending delays without
+ * cancelling an already admitted callback or its runtime budget.
  */
 internal class HarnessTimers(
     private val target: HarnessInstanceTarget,

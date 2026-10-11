@@ -3,8 +3,11 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.runtime
 import io.aequicor.heartbeat.core.logging.Log
 import kotlinx.coroutines.CancellationException
 
-/** Safe boundary value: never retains a user exception, source, message, stack or cause. */
-internal class ScriptFailure : Exception("Harness script failed")
+/**
+ * Safe boundary value: never retains a user exception, source, message, stack or cause. [isRefusal] only records
+ * that the host refused a documented limit ([HarnessLimitRefusal]); such an outcome is not a script fault.
+ */
+internal class ScriptFailure(val isRefusal: Boolean = false) : Exception("Harness script failed")
 
 /** The value can contain private script data, so even a successful attempt has a redacted representation. */
 internal sealed interface HarnessAttempt<out T> {
@@ -23,8 +26,16 @@ internal suspend fun <T> captureHarnessFailure(block: suspend () -> T): HarnessA
     capturePlatformHarnessFailure(block).fold(
         onSuccess = { HarnessAttempt.Success(it) },
         onFailure = { error ->
-            Log.tag("HarnessRuntime").w(harnessScriptFailure(error)) { "Script callback failed" }
-            HarnessAttempt.Failure(ScriptFailure())
+            val log = Log.tag("HarnessRuntime")
+            val isRefusal = error.isHarnessLimitRefusal()
+            if (isRefusal) {
+                // The host's own limit decision, not a script fault; fatal causes still propagate.
+                error.rethrowFatalHarnessFailure()
+                log.d { "Script callback ended by a host limit refusal" }
+            } else {
+                log.w(harnessScriptFailure(error)) { "Script callback failed" }
+            }
+            HarnessAttempt.Failure(ScriptFailure(isRefusal))
         },
     )
 

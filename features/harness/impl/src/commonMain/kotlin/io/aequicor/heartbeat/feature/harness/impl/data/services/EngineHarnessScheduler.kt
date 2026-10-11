@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceTarget
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessLimitRefusal
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HARNESS_WAKE_OWNER
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSchedulerHost
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptEvent
@@ -65,11 +66,14 @@ internal class EngineHarnessScheduler(
 
     /**
      * [request] already carries the incremented chain; only [isSend] makes the note visible in the chat. The
-     * session's harness turn streak is checked independently of that chain, which escaped author code can lose.
+     * session's harness turn streak is checked independently of that chain, which escaped author code can lose;
+     * reaching it is a [HarnessLimitRefusal], which the runtime does not count as a failure of the callback.
      */
     private suspend fun submit(owner: HarnessInstanceTarget, request: HarnessScriptWake, isSend: Boolean): WakeId {
         check(sessions.isCurrent(owner)) { "Script activation is unavailable" }
-        check(!streaks.isExhausted(request.session)) { "Harness turn streak reached; the session awaits a user turn" }
+        if (streaks.isExhausted(request.session)) {
+            throw HarnessLimitRefusal("Harness turn streak reached; the session awaits a user turn")
+        }
         val route = sessions.session(request.session)
         val permit = checkNotNull(sessions.permit(owner, HarnessTarget(request.session, route.workspace))) {
             "Session is unavailable to this harness"

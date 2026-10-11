@@ -150,6 +150,27 @@ class HarnessWorkflowStartTest {
         assertTrue(runs.sent.isEmpty())
     }
 
+    @Test
+    fun `a host precondition failing after the input check is a request mismatch, not an input error`() = runTest {
+        val tools = tools()
+        // The tools read a snapshot whose schema accepts the input; the library at the same revision does not.
+        val numeric = buildJsonObject {
+            put("type", "object")
+            putJsonObject("properties") { putJsonObject("screen") { put("type", "number") } }
+        }
+        client.snapshot = HarnessState.Ready(
+            listOf(HarnessEntry(owner.copy(items = listOf(workflow.copy(input = numeric))))),
+            isRuntimeAvailable = true,
+        )
+        val wrong = arguments(JsonPrimitive(5))
+        val approval = tools.approval(context(), spec, wrong)
+        val result = tools.execute(context(authorization = approval), HarnessTools.WORKFLOW_START, wrong)
+        assertTrue(result.isError, result.text)
+        assertTrue(result.text.startsWith("The workflow cannot start: the request no longer matches"), result.text)
+        assertFalse(result.text.contains("schema"), result.text)
+        assertTrue(runs.sent.isEmpty())
+    }
+
     private fun TestScope.tools(): HarnessWorkflowTools {
         val origins = object : HarnessCallOrigins {
             override fun current() = HarnessCallOrigin()
