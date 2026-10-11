@@ -179,6 +179,33 @@ class HarnessSessionProofsTest {
         assertTrue(proofs.isResolved(forged.session))
         assertFalse(proofs.allows(harness.id, forged.session))
     }
+
+    @Test
+    fun `harnesses past the active cap restrict without contributing`() {
+        val base = runtimeRequest(1).harness
+        val earlier = (0..7).map { base.copy(id = HarnessId("a$it"), name = HarnessName("a$it")) }
+        val restricting = base.copy(id = HarnessId("z"), name = HarnessName("zz_guard"))
+        val project = base.copy(
+            id = HarnessId("p"),
+            name = HarnessName("b_project"),
+            scope = HarnessScope.Projects(setOf(PROJECT)),
+        )
+        val library = HarnessState.Ready(
+            (earlier + restricting + project).map(::HarnessEntry),
+            isRuntimeAvailable = true,
+        )
+        var worktrees: WorktreeState? = null
+        val proofs = HarnessSessionProofs({ library }, { worktrees }, { null })
+        proofs.remember(CONTEXT)
+        // The source project is still unknown: only certainly covering harnesses restrict.
+        assertTrue(proofs.restricts(restricting.id, dispatchSession))
+        assertFalse(proofs.restricts(project.id, dispatchSession))
+        worktrees = WorktreeState.Ready(mapOf("chat" to WorktreeTask("chat", PROJECT, executionWorkspace = CHECKOUT)))
+        assertFalse(proofs.allows(restricting.id, dispatchSession))
+        assertTrue(proofs.restricts(restricting.id, dispatchSession))
+        assertTrue(proofs.restricts(project.id, dispatchSession))
+        assertTrue(earlier.all { proofs.allows(it.id, dispatchSession) })
+    }
 }
 
 private val PROJECT = WorkspaceRef("project")

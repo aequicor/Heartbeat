@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.runtime
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptToolResult
@@ -158,5 +159,34 @@ class HarnessHookDispatchTest {
         fixture.hooks.afterTool(fixture.call, ScriptToolResult("result"))
         assertEquals<List<HarnessCallOrigin?>>(List(3) { captured.merge(HarnessCallOrigin(true)) }, observed)
         assertNull(currentCoroutineContext()[HarnessOriginContext])
+    }
+
+    @Test
+    fun `restricting hooks of a covering harness past the active cap still run while text hooks do not`() = runTest {
+        val fixture = HarnessDispatchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        var texts = 0
+        fixture.onEvaluate = { script ->
+            script.hooks.beforePrompt { _, _ ->
+                texts++
+                "context"
+            }
+            script.hooks.afterTool { _, _ ->
+                texts++
+                "note"
+            }
+            script.hooks.beforeTool { ToolHookVerdict.Deny("restricted") }
+        }
+        fixture.activate()
+        // Overflow: eight harnesses sort earlier, so this one covers the session without contributing.
+        val overflow = object : HarnessSessionAdmission {
+            override fun allows(harness: HarnessId, session: SessionRef): Boolean = false
+            override fun restricts(harness: HarnessId, session: SessionRef): Boolean =
+                session == fixture.call.context.session
+        }
+        val hooks = HarnessHookDispatch(fixture.runtime, overflow)
+        assertEquals(ToolHookVerdict.Deny("restricted"), hooks.beforeTool(fixture.call))
+        assertNull(hooks.beforePrompt(fixture.context, "prompt"))
+        assertNull(hooks.afterTool(fixture.call, ScriptToolResult("result")))
+        assertEquals(0, texts)
     }
 }

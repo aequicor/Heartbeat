@@ -1,9 +1,12 @@
 package io.aequicor.heartbeat.feature.harness.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.harness.api.HarnessId
+import io.aequicor.heartbeat.feature.harness.api.HarnessName
 import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
 import io.aequicor.heartbeat.feature.harness.impl.data.delivery.HarnessToolPolicyProvider
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessActiveAccess
@@ -59,4 +62,25 @@ class HarnessToolPolicyProviderTest {
             )
             assertFailsWith<CancellationException> { cancelled.policy(scope) }
         }
+
+    @Test
+    fun `restrictions of a harness past the active cap survive while its on switches do not`() = runTest {
+        val earlier = (0..7).map { harness.copy(id = HarnessId("a$it"), name = HarnessName("a$it")) }
+        val guard = harness.copy(
+            id = HarnessId("guard"),
+            name = HarnessName("zz_guard"),
+            tools = ToolPolicySpec(
+                setOf("web_search"),
+                mapOf("pi" to mapOf("bash" to ToolSwitch.Off, "grep" to ToolSwitch.On)),
+            ),
+        )
+        val all = earlier + guard
+        val access = object : HarnessActiveAccess {
+            override suspend fun active(workspace: WorkspaceRef?, session: SessionRef?) = all.take(8)
+            override suspend fun applicable(workspace: WorkspaceRef?, session: SessionRef?) = all
+        }
+        val policy = HarnessToolPolicyProvider(lazyOf(access)).policy(ToolPolicyScope(engine = EngineId("pi")))
+        assertEquals(setOf("web_search"), policy?.hostedOff)
+        assertEquals(mapOf("bash" to ToolSwitch.Off), policy?.native)
+    }
 }

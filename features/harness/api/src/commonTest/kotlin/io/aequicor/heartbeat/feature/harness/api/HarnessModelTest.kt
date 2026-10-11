@@ -89,6 +89,11 @@ class HarnessModelTest {
             (0..7).map { "item_$it" },
             activeHarnesses(crowded, emptyMap(), Session, null).map { it.name.value },
         )
+        assertEquals(
+            (0..9).map { "item_$it" },
+            applicableHarnesses(crowded, emptyMap(), Session, null).map { it.name.value },
+        )
+        assertEquals(emptyList(), applicableHarnesses(crowded, emptyMap(), Session, null, isSuspended = true))
         assertFalse(HarnessEnabled.default)
     }
 

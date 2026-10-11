@@ -4,7 +4,9 @@ import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HookedToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict
+import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptToolResult
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -16,6 +18,7 @@ import kotlin.time.Duration.Companion.milliseconds
  * Script hooks run concurrently under budgets below the facade's enclosing deadline. Results retain snapshot
  * order, independent of completion order. One failed callback cannot discard another callback's known Deny.
  * Text hooks only return additional context; callers retain their original prompt/tool result.
+ * Text hooks follow the capped active set; tool hooks, which only restrict, follow every covering harness.
  */
 internal class HarnessHookDispatch(
     private val runtime: HarnessRuntime,
@@ -36,13 +39,15 @@ internal class HarnessHookDispatch(
     @HighFrequency
     suspend fun beforeTool(call: HookedToolCall): ToolHookVerdict {
         log.v { "dispatch harness tool hooks" }
-        val callbacks = callbacks(call.context) { it.beforeTool() }
+        // Restricting hooks run in every covering session, so overflow past the active cap cannot silence them.
+        val callbacks = callbacks(call.context, sessions::restricts) { it.beforeTool() }
         val verdicts = parallel(callbacks) { entry ->
             invoke(
                 entry,
                 call.context,
                 900.milliseconds,
                 ToolHookVerdict.Ask("A harness script did not respond"),
+                sessions::restricts,
             ) { handler -> handler(call) }
         }
         return verdicts.filterIsInstance<ToolHookVerdict.Deny>().firstOrNull()
@@ -57,16 +62,17 @@ internal class HarnessHookDispatch(
         val values = parallel(callbacks) { entry ->
             invoke(entry, call.context, 900.milliseconds, null) { handler -> handler(call, result) }
         }
-        return joined(values, RESULT_CHARS)
+        return joined(values, HOOK_RESULT_CHARS)
     }
 
     @HighFrequency
     private suspend fun <H : Any> callbacks(
         context: SessionHookContext,
+        admits: (HarnessId, SessionRef) -> Boolean = sessions::allows,
         select: (HarnessScriptRegistrations) -> List<HarnessCallback<H>>,
     ): List<Pair<HarnessInstance, HarnessCallback<H>>> = runtime.published().flatMap { instance ->
         val script = instance.runtimeContext as? HarnessScriptContext
-        if (script == null || !sessions.allows(instance.request.harness.id, context.session)) {
+        if (script == null || !admits(instance.request.harness.id, context.session)) {
             emptyList()
         } else {
             select(script.registrations).filter { it.isActive }.map { instance to it }
@@ -79,6 +85,7 @@ internal class HarnessHookDispatch(
         context: SessionHookContext,
         budget: Duration,
         failed: T?,
+        admits: (HarnessId, SessionRef) -> Boolean = sessions::allows,
         block: suspend (H) -> T?,
     ): T? {
         val (instance, callback) = entry
@@ -86,7 +93,7 @@ internal class HarnessHookDispatch(
             origin = callback.origin.merge(HarnessCallOrigin(isHookRestricted = true)),
         )
         val result = runtime.invoke(instance, budget, options) {
-            if (sessions.allows(instance.request.harness.id, context.session)) {
+            if (admits(instance.request.harness.id, context.session)) {
                 callback.acquire()?.let { block(it) }
             } else {
                 null
@@ -115,4 +122,6 @@ internal class HarnessHookDispatch(
 }
 
 private const val PROMPT_CHARS = 8_000
-private const val RESULT_CHARS = 2_000
+
+/** Limit of the joined afterTool notes; the authoring reference quotes it. */
+internal const val HOOK_RESULT_CHARS = 2_000

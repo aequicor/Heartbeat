@@ -31,8 +31,14 @@ internal class MachineHarnessActiveAccess(
     private val toggles: FeatureToggles,
     private val projects: HarnessProjectSnapshots,
 ) : HarnessActiveAccess {
+    override suspend fun active(workspace: WorkspaceRef?, session: SessionRef?): List<Harness> =
+        resolve { select(workspace, session) }
+
+    override suspend fun applicable(workspace: WorkspaceRef?, session: SessionRef?): List<Harness> =
+        resolve { applicable(workspace, session) }
+
     @OptIn(ExperimentalCoroutinesApi::class)
-    override suspend fun active(workspace: WorkspaceRef?, session: SessionRef?): List<Harness> {
+    private suspend fun resolve(selection: HarnessActiveSnapshot.() -> List<Harness>?): List<Harness> {
         if (!toggles.get(HarnessEnabled)) return emptyList()
         return checkNotNull(
             withTimeoutOrNull(1_000.milliseconds) {
@@ -42,7 +48,7 @@ internal class MachineHarnessActiveAccess(
                     machines.observe(WorktreeMachineKey).flatMapLatest { it?.state ?: flowOf(null) },
                     projects.projects,
                 ) { enabled, library, worktrees, catalog ->
-                    HarnessActiveSnapshot(enabled, library, worktrees, catalog).select(workspace, session)
+                    HarnessActiveSnapshot(enabled, library, worktrees, catalog).selection()
                 }.filterNotNull().first()
             },
         ) { "Harness activation is unavailable" }

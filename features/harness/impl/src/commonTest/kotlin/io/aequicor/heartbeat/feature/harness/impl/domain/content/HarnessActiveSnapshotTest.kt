@@ -100,7 +100,9 @@ class HarnessActiveSnapshotTest {
         val entries = (0..9).reversed().map {
             HarnessEntry(profile.copy(id = HarnessId("$it"), name = HarnessName("h_$it")))
         }
-        val selected = snapshot.copy(library = ready.copy(harnesses = entries)).select(null, null)
-        assertEquals((0..7).map { "h_$it" }, selected?.map { it.name.value })
+        val crowded = snapshot.copy(library = ready.copy(harnesses = entries))
+        assertEquals((0..7).map { "h_$it" }, crowded.select(null, null)?.map { it.name.value })
+        // Restrictions read every covering harness: overflow never displaces them.
+        assertEquals((0..9).map { "h_$it" }, crowded.applicable(null, null)?.map { it.name.value })
     }
 }

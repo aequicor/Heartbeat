@@ -14,9 +14,26 @@ public val HarnessEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
  * Pure activation using the host-resolved source project and verified helper affiliation.
  * Attachments and a helper's originating harness extend permanent scope; they never bypass isEnabled.
  * Overlapping scopes select a harness once. Overflow is deterministic: immutable name order, at most eight.
+ * The cap bounds contributions only (content, instructions, script tools, events, native On switches);
+ * restrictions use the uncapped [applicableHarnesses].
  * Suspension immediately removes all effective contributions while the committed library stays intact.
  */
 public fun activeHarnesses(
+    harnesses: List<Harness>,
+    attachments: Map<SessionRef, Set<HarnessId>>,
+    session: SessionRef,
+    sourceProject: WorkspaceRef?,
+    helperOf: HarnessId? = null,
+    isSuspended: Boolean = false,
+): List<Harness> = applicableHarnesses(harnesses, attachments, session, sourceProject, helperOf, isSuspended)
+    .take(HarnessLimits.ACTIVE_PER_SESSION)
+
+/**
+ * Every enabled harness whose scope covers the session, in name order and without the cap of [activeHarnesses].
+ * Restrictions (Off and hosted_off switches, Deny/Ask tool hooks) come from this whole list, so that harnesses
+ * sorting earlier by name can never push a restricting harness out of a session.
+ */
+public fun applicableHarnesses(
     harnesses: List<Harness>,
     attachments: Map<SessionRef, Set<HarnessId>>,
     session: SessionRef,
@@ -34,5 +51,5 @@ public fun activeHarnesses(
                 is HarnessScope.Projects -> sourceProject in scope.projects
             }
         )
-    }.distinctBy { it.id }.sortedBy { it.name.value }.take(HarnessLimits.ACTIVE_PER_SESSION).toList()
+    }.distinctBy { it.id }.sortedBy { it.name.value }.toList()
 }

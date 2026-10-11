@@ -10,7 +10,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.HarnessMutation
 import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
-import io.aequicor.heartbeat.feature.harness.api.activeHarnesses
+import io.aequicor.heartbeat.feature.harness.api.applicableHarnesses
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import io.aequicor.heartbeat.feature.worktreemode.api.sourceProjectOf
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -52,6 +52,9 @@ internal class HarnessSessionProofs(
 
     override fun allows(harness: HarnessId, session: SessionRef): Boolean = harness in selected(session).active
 
+    /** Only certainly covering harnesses: an unknown source project never admits a project-scoped hook. */
+    override fun restricts(harness: HarnessId, session: SessionRef): Boolean = harness in selected(session).applicable
+
     /**
      * False means hook applicability is unknown and tool interception must conservatively require a decision.
      * Without any published instance no script can observe the session, so nothing is unknown (for example while
@@ -72,15 +75,17 @@ internal class HarnessSessionProofs(
         val source = sourceProject(proof.workspace)
         val attached = ready.attachments[session].orEmpty()
         val project = (source as? SourceProjectProof.Known)?.workspace
-        val known = activeHarnesses(harnesses, ready.attachments, session, project).mapTo(linkedSetOf()) { it.id }
+        val applicable = applicableHarnesses(harnesses, ready.attachments, session, project)
+            .mapTo(linkedSetOf()) { it.id }
+        val known = applicable.take(HarnessLimits.ACTIVE_PER_SESSION).toSet()
         val possible = harnesses.filter { it.scope is HarnessScope.Projects && it.id !in attached }
         return if (source != SourceProjectProof.Unknown || possible.isEmpty()) {
-            SessionSelection(known, isResolved = true)
+            SessionSelection(known, applicable, isResolved = true)
         } else {
             // Unknown project candidates can displace only later names; certain earlier hooks still apply.
             val certain = (harnesses.filter { it.id in known } + possible).asSequence().distinctBy { it.id }
                 .sortedBy { it.name.value }.take(HarnessLimits.ACTIVE_PER_SESSION).mapTo(linkedSetOf()) { it.id }
-            SessionSelection(known.intersect(certain))
+            SessionSelection(known.intersect(certain), applicable)
         }
     }
 
@@ -121,6 +126,10 @@ private sealed interface SourceProjectProof {
     data object Unknown : SourceProjectProof
 }
 
-private data class SessionSelection(val active: Set<HarnessId> = emptySet(), val isResolved: Boolean = false) {
+private data class SessionSelection(
+    val active: Set<HarnessId> = emptySet(),
+    val applicable: Set<HarnessId> = emptySet(),
+    val isResolved: Boolean = false,
+) {
     override fun toString(): String = "SessionSelection(***)"
 }

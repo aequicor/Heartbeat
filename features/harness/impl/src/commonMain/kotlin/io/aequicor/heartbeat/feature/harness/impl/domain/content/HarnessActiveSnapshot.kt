@@ -22,7 +22,12 @@ internal data class HarnessActiveSnapshot(
     val worktrees: WorktreeState?,
     val projects: Set<WorkspaceRef>?,
 ) {
-    fun select(workspace: WorkspaceRef?, session: SessionRef?): List<Harness>? {
+    /** Contributing harnesses: [applicable] capped at [HarnessLimits.ACTIVE_PER_SESSION] in name order. */
+    fun select(workspace: WorkspaceRef?, session: SessionRef?): List<Harness>? =
+        applicable(workspace, session)?.take(HarnessLimits.ACTIVE_PER_SESSION)
+
+    /** Every covering harness in name order, uncapped: restrictions must not be displaced by earlier names. */
+    fun applicable(workspace: WorkspaceRef?, session: SessionRef?): List<Harness>? {
         if (!isEnabled || library?.isSuspended == true) return emptyList()
         check(library !is HarnessState.Failed) { "Harness library is unavailable" }
         val ready = library as? HarnessState.Ready ?: return null
@@ -34,8 +39,7 @@ internal data class HarnessActiveSnapshot(
         val projectWorkspace = workspace?.takeIf { isProjectScoped }
         val source = if (projectWorkspace != null) sourceOf(projectWorkspace) else SourceProject(null)
         return source?.let { known ->
-            enabled.asSequence().filter { it.isActive(attached, known.ref) }
-                .sortedBy { it.name.value }.take(HarnessLimits.ACTIVE_PER_SESSION).toList()
+            enabled.filter { it.isActive(attached, known.ref) }.sortedBy { it.name.value }
         }
     }
 
@@ -68,5 +72,12 @@ private fun Harness.isActive(attached: Set<HarnessId>, source: WorkspaceRef?): B
 
 /** Resolves trusted host routing, with a bounded wait for restored library and source-project evidence. */
 internal fun interface HarnessActiveAccess {
+    /** Contributing harnesses, at most [HarnessLimits.ACTIVE_PER_SESSION]. */
     suspend fun active(workspace: WorkspaceRef?, session: SessionRef?): List<Harness>
+
+    /**
+     * Every covering harness, uncapped, for restrictions (Off, hosted_off). Overflow-free fakes may keep the
+     * default; the production access resolves it separately from [active].
+     */
+    suspend fun applicable(workspace: WorkspaceRef?, session: SessionRef?): List<Harness> = active(workspace, session)
 }
