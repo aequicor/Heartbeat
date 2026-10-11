@@ -20,22 +20,30 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionAnswer
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import io.aequicor.heartbeat.feature.aiengine.facade.api.accepts
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineEnabled
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
-import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsEnabled
+import io.aequicor.heartbeat.feature.browser.api.BrowserEnabled
+import io.aequicor.heartbeat.feature.browser.api.BrowserResearchAccess
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatEnabled
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatIntent
+import io.aequicor.heartbeat.feature.researchchat.api.ResearchLoadState
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchQuestion
+import io.aequicor.heartbeat.feature.researchchat.api.ResearchRecoveryAction
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResource
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceKind
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceScope
@@ -63,7 +71,10 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.uuid.Uuid
 
-/** Accepted generations survive screen destruction, and every run reads an immutable source snapshot. */
+/**
+ * Accepted generations survive screen destruction, and every run reads an immutable source
+ * snapshot.
+ */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
 @Inject
@@ -74,25 +85,33 @@ internal class ProfileResearchRepository(
     private val toggles: FeatureToggles,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val attachments: ResearchAttachments = ResearchAttachments.Legacy,
+    private val browserRecovery: ResearchBrowserRecovery? = null,
 ) : ResearchRepository {
     private val log = Log.tag("ResearchRepository")
+    private val sourceImporter = ResearchSourceImporter(search, attachments)
+    private val permissions = MutableStateFlow<Map<String, List<PermissionRequest>>>(emptyMap())
     private val running = MutableStateFlow<Set<String>>(emptySet())
     private val executionLock = Mutex()
     private val recoveryLock = Mutex()
+    private val sourceResumeLock = Mutex()
     private val handles = mutableMapOf<String, ActiveSession>()
     private val stops = mutableSetOf<String>()
 
     override fun observe() = combine(
         storage.observe(),
         running,
-    ) { sessions, active ->
+        permissions,
+        toggles.observe(BrowserEnabled),
+        toggles.observe(BrowserResearchAccess),
+    ) { sessions, active, requests, browserEnabled, isRecoveryEnabled ->
         log.d { "Observe research profile workspace" }
-        ResearchWorkspace(sessions, active)
+        ResearchWorkspace(sessions, active, requests, isBrowserRecoveryAvailable = browserEnabled && isRecoveryEnabled)
     }
 
     override suspend fun prepare(target: EngineTarget): ResearchWorkspace {
         log.i { "Prepare research workspace" }
         requireEnabled(target)
+        browserRecovery?.restore()
         migrateSources()
         recoverPending()
         if (storage.read().none { it.target == target }) createSession(target)
@@ -123,7 +142,33 @@ internal class ProfileResearchRepository(
         requireEditable(sessionId, questionId)
         require(input.value.isNotBlank()) { "Empty resource" }
         log.i { "Import research source kind=${input.kind}" }
-        val imported = importResource(input)
+        val imported =
+            try {
+                sourceImporter.importSource(input)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                val isRecoveryEnabled = toggles.get(BrowserEnabled) && toggles.get(BrowserResearchAccess)
+                if (
+                    input.kind != ResearchResourceKind.Website ||
+                    !isWebUrl(input.value.trim()) ||
+                    !isRecoveryEnabled
+                ) {
+                    throw error
+                }
+                log.w(IllegalStateException(error::class.simpleName)) {
+                    "Keep failed website for browser recovery"
+                }
+                ResearchResource(
+                    newId(),
+                    input.title.ifBlank { input.value },
+                    input.kind,
+                    input.value.trim(),
+                    "text/html",
+                    loadState = ResearchLoadState.Failed,
+                    loadError = "fetch_failed",
+                )
+            }
         val source = if (input.kind == ResearchResourceKind.Website) {
             imported
         } else {
@@ -142,7 +187,9 @@ internal class ProfileResearchRepository(
         check(toggles.get(AttachmentsEnabled)) { "New attachments are disabled" }
         val support = inputSupport(session(input.sessionId).target)
         val files = input.attachments.map { attachments.registered(it.id) }
-        require(files.size <= support.maxAttachments && files.sumOf { it.sizeBytes } <= support.maxTotalBytes) {
+        require(
+            files.size <= support.maxAttachments && files.sumOf { it.sizeBytes } <= support.maxTotalBytes,
+        ) {
             "Research attachments exceed limits"
         }
         val sources = files.map { file ->
@@ -152,7 +199,11 @@ internal class ProfileResearchRepository(
             ResearchResource(
                 newId(),
                 file.name,
-                if (file.mediaType.startsWith("image/")) ResearchResourceKind.Image else ResearchResourceKind.Document,
+                if (file.mediaType.startsWith("image/")) {
+                    ResearchResourceKind.Image
+                } else {
+                    ResearchResourceKind.Document
+                },
                 file.resource.id,
                 file.mediaType,
                 attachmentId = file.id,
@@ -174,7 +225,7 @@ internal class ProfileResearchRepository(
     /** Unique migration keys make reopening after a crash reuse the already committed file. */
     private suspend fun migrateSources() = recoveryLock.withLock {
         storage.read().forEach { session ->
-            val migrated = session.resources.map { migrateSource(it) }
+            val migrated = session.resources.map { sourceImporter.migrate(it) }
             if (migrated != session.resources) {
                 storage.update(session.id) { stored ->
                     stored.copy(
@@ -187,67 +238,6 @@ internal class ProfileResearchRepository(
         }
     }
 
-    /** A rejected legacy source remains removable and never hides the other saved conversations. */
-    private suspend fun migrateSource(source: ResearchResource): ResearchResource = try {
-        attachments.persist(source, LegacyResearchSupport, migration = true)
-    } catch (error: CancellationException) {
-        throw error
-    } catch (error: Exception) {
-        log.w(IllegalStateException(error::class.simpleName)) { "Legacy source migration failed" }
-        source.copy(hasAttachmentError = true)
-    }
-
-    private suspend fun importResource(input: ResearchChatIntent.Public.AddResource): ResearchResource {
-        val value = input.value.trim()
-        val title = input.title.trim()
-        if (value.startsWith("attachment:")) {
-            val file = attachments.registered(AttachmentId(value.substringAfter(':')))
-            return ResearchResource(
-                newId(),
-                title.ifBlank { file.name },
-                input.kind,
-                file.resource.id,
-                file.mediaType,
-                attachmentId = file.id,
-                attachmentSizeBytes = file.sizeBytes,
-            )
-        }
-        return when (input.kind) {
-            ResearchResourceKind.Website -> {
-                require(isWebUrl(value)) { "An HTTP(S) source is required" }
-                val page = search.fetch(value)
-                require(page.text.isNotBlank()) { "Empty website content" }
-                ResearchResource(
-                    newId(),
-                    title.ifBlank { page.title ?: value },
-                    input.kind,
-                    value,
-                    "text/html",
-                    page.text,
-                )
-            }
-
-            ResearchResourceKind.Document -> {
-                val mediaType = input.mediaType ?: "text/plain"
-                require(mediaType in setOf("text/plain", "text/markdown", "application/pdf")) { "Unsupported document" }
-                require(mediaType != "application/pdf" || value.startsWith("data:application/pdf;base64,")) {
-                    "A PDF must contain imported bytes"
-                }
-                ResearchResource(newId(), title.ifBlank { "Document" }, input.kind, value, mediaType)
-            }
-
-            ResearchResourceKind.Image -> {
-                require(value.startsWith("https://") || value.startsWith("data:image/")) { "Unsupported image source" }
-                val mediaType = input.mediaType ?: value.takeIf { it.startsWith("data:") }
-                    ?.substringAfter("data:")?.substringBefore(';') ?: "image/jpeg"
-                require(
-                    mediaType in setOf("image/png", "image/jpeg", "image/webp", "image/gif"),
-                ) { "Unsupported image" }
-                ResearchResource(newId(), title.ifBlank { "Image" }, input.kind, value, mediaType)
-            }
-        }
-    }
-
     override suspend fun setResourceSelected(
         sessionId: String,
         questionId: String,
@@ -256,28 +246,8 @@ internal class ProfileResearchRepository(
     ) {
         requireEditable(sessionId, questionId)
         log.i { "Change question source selection selected=$isSelected" }
-        storage.update(sessionId) { session ->
-            require(session.resources.any { it.id == resourceId }) { "Unknown resource" }
-            session.copy(
-                questions = session.questions.map { question ->
-                    if (question.id != questionId) {
-                        question
-                    } else {
-                        question.copy(
-                            excludedResourceIds = if (isSelected) {
-                                question.excludedResourceIds - resourceId
-                            } else {
-                                question.excludedResourceIds + resourceId
-                            },
-                            resourceIds = if (isSelected && resourceId !in session.sharedResourceIds) {
-                                question.resourceIds + resourceId
-                            } else {
-                                question.resourceIds
-                            },
-                        )
-                    }
-                },
-            )
+        storage.update(sessionId) {
+            it.selectSource(questionId, resourceId, isSelected)
         }
     }
 
@@ -304,6 +274,63 @@ internal class ProfileResearchRepository(
                     )
                 },
             )
+        }
+    }
+
+    override suspend fun decidePermission(
+        questionId: String,
+        requestId: String,
+        optionId: String,
+        answer: PermissionAnswer?,
+    ) {
+        log.d { "Respond to research permission" }
+        val active = executionLock.withLock { handles[questionId] } ?: return
+        val state = active.state.value as? ActiveSessionState.AwaitingUserAction
+        val request = state?.requests?.firstOrNull { it.id.value == requestId }
+        val option = request?.options?.firstOrNull { it.id.value == optionId }
+        if (request == null || option == null) return
+        val decision = PermissionDecision(request.turn, request.id, option.id, answer)
+        require(request.accepts(decision)) { "Invalid permission answer" }
+        active.features.requireFeature(RequestsPermissions).respond(decision)
+    }
+
+    override suspend fun recoverResource(sessionId: String, resourceId: String, action: ResearchRecoveryAction) {
+        requireEnabled(session(sessionId).target)
+        log.d { "Recover research resource" }
+        profile.coroutineScope.async {
+            recoverAndResume(sessionId, resourceId, action)
+        }.await()
+    }
+
+    private suspend fun recoverAndResume(sessionId: String, resourceId: String, action: ResearchRecoveryAction) {
+        requireNotNull(browserRecovery).recover(sessionId, resourceId, action)
+        if (action == ResearchRecoveryAction.Continue) {
+            sourceResumeLock.withLock {
+                val current = session(sessionId)
+                val ready =
+                    current.questions.filter { question ->
+                        question.pendingSourcePrompt != null &&
+                            current.selectedResources(question).all {
+                                it.loadState == ResearchLoadState.Ready
+                            }
+                    }
+                ready.forEach { question ->
+                    val prompt = requireNotNull(question.pendingSourcePrompt)
+                    storage.update(sessionId) { stored ->
+                        stored.copy(
+                            questions =
+                                stored.questions.map {
+                                    if (it.id == question.id) {
+                                        it.copy(pendingSourcePrompt = null)
+                                    } else {
+                                        it
+                                    }
+                                },
+                        )
+                    }
+                    run(sessionId, question.id, prompt)
+                }
+            }
         }
     }
 
@@ -342,6 +369,27 @@ internal class ProfileResearchRepository(
         val prepared = prepareSources(session, question)
         if (executionLock.withLock { question.id in stops }) {
             true
+        } else if (
+            prepared.selectedResources(question).any { it.loadState != ResearchLoadState.Ready }
+        ) {
+            executionLock.withLock {
+                if (question.id !in stops) {
+                    storage.update(session.id) { stored ->
+                        stored.copy(
+                            questions =
+                                stored.questions.map {
+                                    if (it.id == question.id) {
+                                        it.copy(pendingSourcePrompt = prompt)
+                                    } else {
+                                        it
+                                    }
+                                },
+                        )
+                    }
+                }
+            }
+            accepted.complete(true)
+            true
         } else {
             val active = openQuestion(session, question, prompt)
             executeTurn(prepared, question, prompt, active, accepted)
@@ -365,19 +413,21 @@ internal class ProfileResearchRepository(
 
     private suspend fun prepareSources(session: ResearchSession, question: ResearchQuestion): ResearchSession {
         log.d { "Prepare selected research sources" }
-        val prepared = loadSelectedSources(session, question, search)
+        val prepared = loadSelectedSources(session, question, search, toggles.get(BrowserResearchAccess))
         storage.update(session.id) { stored ->
             stored.copy(
                 resources = stored.resources.map { source ->
-                    val hydrated = prepared.resources.firstOrNull { it.id == source.id && it.text.isNotBlank() }
-                    if (source.text.isBlank() && hydrated != null) source.copy(text = hydrated.text) else source
+                    val hydrated = prepared.resources.firstOrNull { it.id == source.id }
+                    if (source.text.isBlank() && hydrated != null) hydrated else source
                 },
             )
         }
         return prepared
     }
 
-    /** A clean native segment cannot replay attachments excluded from the current source selection. */
+    /**
+     * A clean native segment cannot replay attachments excluded from the current source selection.
+     */
     private suspend fun openQuestion(
         session: ResearchSession,
         question: ResearchQuestion,
@@ -386,7 +436,7 @@ internal class ProfileResearchRepository(
         requireEnabled(session.target)
         log.i { "Open research native segment" }
         val active = facade.engines.features(session.target.engine).requireFeature(CreatesSessions)
-            .create(CreateSessionRequest(session.target))
+            .create(CreateSessionRequest(session.target, areDetachedToolsEnabled = true))
         executionLock.withLock { handles[question.id] = active }
         storage.update(session.id) { stored ->
             stored.copy(
@@ -422,6 +472,13 @@ internal class ProfileResearchRepository(
         }
         val mirror = ResearchHistory { items -> persistSegment(session.id, question, items) }
         val observation = launch { observeHistory(mirror, history) }
+        val permissionObservation = launch {
+            active.state.collect { state ->
+                val requests = (state as? ActiveSessionState.AwaitingUserAction)?.requests.orEmpty()
+                log.v { "Research permissions changed" }
+                permissions.update { it + (question.id to requests) }
+            }
+        }
         try {
             val request = PromptRequest(RequestId(newId()), session.promptParts(question, prompt))
             val turn = submit(active, request)
@@ -434,10 +491,15 @@ internal class ProfileResearchRepository(
             isExpectedEnd
         } finally {
             observation.cancel()
+            permissionObservation.cancel()
+            permissions.update { it - question.id }
         }
     }
 
-    /** Local stop may end the stream without a known remote outcome; only an unsolicited interruption is an error. */
+    /**
+     * Local stop may end the stream without a known remote outcome; only an unsolicited
+     * interruption is an error.
+     */
     private suspend fun awaitTurn(questionId: String, active: ActiveSession, turn: TurnId): Boolean {
         val terminal = active.state.first {
             (it is ActiveSessionState.Ready && it.lastTurn?.id == turn) ||
@@ -446,9 +508,13 @@ internal class ProfileResearchRepository(
         val finished = (terminal as? ActiveSessionState.Ready)?.lastTurn
             ?: (terminal as? ActiveSessionState.Unavailable)?.lastTurn
         return when (finished?.outcome) {
-            TurnOutcome.Completed, TurnOutcome.Cancelled -> true
+            TurnOutcome.Completed, TurnOutcome.Cancelled,
+            -> true
+
             TurnOutcome.Unknown -> executionLock.withLock { questionId in stops }
-            is TurnOutcome.Failed, null -> false
+
+            is TurnOutcome.Failed, null,
+            -> false
         }
     }
 
@@ -457,7 +523,11 @@ internal class ProfileResearchRepository(
         storage.update(sessionId) { stored ->
             stored.copy(
                 questions = stored.questions.map {
-                    if (it.id == questionId) it.copy(pendingSegmentStart = null, hasFailed = isFailed) else it
+                    if (it.id == questionId) {
+                        it.copy(pendingSegmentStart = null, hasFailed = isFailed)
+                    } else {
+                        it
+                    }
                 },
             )
         }
@@ -484,7 +554,10 @@ internal class ProfileResearchRepository(
     }
 
     private suspend fun persistSegment(sessionId: String, previous: ResearchQuestion, items: List<SessionItem>) {
-        val sources = discoveredResources(items)
+        val sources = discoveredResources(
+            items,
+            toggles.get(BrowserEnabled) && toggles.get(BrowserResearchAccess),
+        )
         storage.update(sessionId) { stored ->
             val changed = stored.copy(
                 questions = stored.questions.map {
@@ -545,15 +618,41 @@ internal class ProfileResearchRepository(
         }
     }
 
-    override suspend fun stop(questionId: String) {
+    override suspend fun stop(questionId: String) = sourceResumeLock.withLock {
+        val sessions =
+            storage.read().filter { session -> session.questions.any { it.id == questionId } }
         val active = executionLock.withLock {
-            if (questionId !in running.value) return
-            stops += questionId
+            if (questionId in running.value) stops += questionId
+            sessions.forEach { session ->
+                storage.update(session.id) { stored ->
+                    stored.copy(
+                        questions =
+                            stored.questions.map {
+                                if (it.id == questionId) {
+                                    it.copy(pendingSourcePrompt = null)
+                                } else {
+                                    it
+                                }
+                            },
+                    )
+                }
+            }
             handles[questionId]
-        } ?: return
-        val turn = active.state.value.activeTurn() ?: return
-        log.i { "User requested research cancellation" }
-        active.features.requireFeature(CancelsTurns).cancel(turn.id)
+        }
+        sessions.forEach { session ->
+            val question = session.questions.first { it.id == questionId }
+            session
+                .selectedResources(question)
+                .filter { it.recoveryAttempt != null }
+                .forEach {
+                    browserRecovery?.recover(session.id, it.id, ResearchRecoveryAction.Cancel)
+                }
+        }
+        val turn = active?.state?.value?.activeTurn()
+        if (active != null && turn != null) {
+            log.i { "User requested research cancellation" }
+            active.features.requireFeature(CancelsTurns).cancel(turn.id)
+        }
     }
 
     private suspend fun release(questionId: String) {
@@ -570,7 +669,9 @@ internal class ProfileResearchRepository(
     }
 
     private suspend fun markFailed(sessionId: String, questionId: String) = storage.update(sessionId) { stored ->
-        stored.copy(questions = stored.questions.map { if (it.id == questionId) it.copy(hasFailed = true) else it })
+        stored.copy(
+            questions = stored.questions.map { if (it.id == questionId) it.copy(hasFailed = true) else it },
+        )
     }
 
     private suspend fun requireEditable(sessionId: String, questionId: String) {
@@ -606,9 +707,15 @@ private fun <F : EngineFeature> EngineFeatures.requireFeature(key: EngineFeature
 
 private fun ActiveSessionState.activeTurn(): Turn? = when (this) {
     is ActiveSessionState.Submitting -> turn
+
     is ActiveSessionState.Running -> turn
+
     is ActiveSessionState.AwaitingUserAction -> turn
+
     is ActiveSessionState.Interrupting -> turn
+
     is ActiveSessionState.Unavailable -> activeTurn
-    is ActiveSessionState.Ready, is ActiveSessionState.Closing, ActiveSessionState.Closed -> null
+
+    is ActiveSessionState.Ready, is ActiveSessionState.Closing, ActiveSessionState.Closed,
+    -> null
 }
