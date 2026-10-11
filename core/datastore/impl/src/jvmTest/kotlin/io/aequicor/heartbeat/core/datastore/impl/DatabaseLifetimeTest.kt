@@ -20,6 +20,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import okio.FileSystem
 import okio.SYSTEM
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -172,6 +173,7 @@ class DatabaseLifetimeTest {
                 profile.close()
                 profile.job.join()
                 assertFailsWith<IllegalStateException> { registry.awaitClosed() }
+                driver.closeNativeResources()
                 env.dispose()
             }
         }
@@ -188,18 +190,29 @@ class DatabaseLifetimeTest {
 /** Blocks before native step, so even an old unsafe close fails an assertion instead of crashing the test JVM. */
 private class GatedLifetimeDriver : SQLiteDriver {
     private val delegate = BundledSQLiteDriver()
+    private val connections = ConcurrentLinkedQueue<SQLiteConnection>()
+    private val statements = ConcurrentLinkedQueue<SQLiteStatement>()
     val isArmed = AtomicBoolean(false)
     val entered = CompletableDeferred<Unit>()
     val release = CountDownLatch(1)
     val closes = AtomicInteger()
     var hasCloseFailure = false
 
+    /**
+     * Releases resources Room may leave behind when an injected failure aborts its pool close.
+     * Called only after queries and the registry close have settled; native close is idempotent.
+     */
+    fun closeNativeResources() {
+        statements.forEach(SQLiteStatement::close)
+        connections.forEach(SQLiteConnection::close)
+    }
+
     override fun open(fileName: String): SQLiteConnection {
-        val connection = delegate.open(fileName)
+        val connection = delegate.open(fileName).also(connections::add)
         val isClosed = AtomicBoolean(false)
         return object : SQLiteConnection by connection {
             override fun prepare(sql: String): SQLiteStatement {
-                val statement = connection.prepare(sql)
+                val statement = connection.prepare(sql).also(statements::add)
                 return object : SQLiteStatement by statement {
                     override fun step(): Boolean {
                         if (sql == "SELECT COUNT(*) FROM tags" && isArmed.compareAndSet(true, false)) {
