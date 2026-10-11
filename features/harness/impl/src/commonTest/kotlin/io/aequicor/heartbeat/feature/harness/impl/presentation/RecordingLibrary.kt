@@ -37,6 +37,9 @@ internal class RecordingLibrary(initial: HarnessState) :
     val sent = mutableListOf<HarnessIntent>()
     var outcome: LibraryOutcome = LibraryOutcome.Committed(HarnessOutput.Updated(request(), HarnessId("any")))
 
+    /** When set, a submitted edit waits for it, as a durable save does. */
+    var submitted: CompletableDeferred<Unit>? = null
+
     override suspend fun send(intent: HarnessIntent): SendResult {
         sent += intent
         return SendResult.Accepted
@@ -47,6 +50,7 @@ internal class RecordingLibrary(initial: HarnessState) :
 
     override suspend fun submit(intent: HarnessIntent.Command): LibraryOutcome {
         sent += intent
+        submitted?.await()
         return outcome
     }
 

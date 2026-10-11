@@ -6,12 +6,14 @@ import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.core.statemachine.flowmvi.reflect
 import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolGroup
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
 import io.aequicor.heartbeat.feature.harness.api.HarnessAuthor
 import io.aequicor.heartbeat.feature.harness.api.HarnessChange
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
+import io.aequicor.heartbeat.feature.harness.api.HarnessOutput
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.HarnessTools
 import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
@@ -21,6 +23,8 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
 import pro.respawn.flowmvi.api.MVIState
@@ -65,12 +69,22 @@ internal class HarnessToolsModel(
 ) {
     private val id = HarnessId(harness)
 
+    /** Policy edits of this screen; only their failures are shown here. */
+    private val issued = MutableStateFlow<Set<RequestId>>(emptySet())
+
     val store = factory.create<HarnessToolsState, HarnessToolsIntent, HarnessToolsAction>(
         "HarnessTools",
         HarnessToolsState().reflectPolicy(machine.state.value),
         onError = { this },
     ) {
-        reflect(machine) { reflectPolicy(it) }
+        reflect(machine, onOutput = { output ->
+            val request = (output as? HarnessOutput.StorageFailed)?.requestId
+                ?: (output as? HarnessOutput.Rejected)?.requestId
+            if (request != null && request in issued.value) {
+                log.i { "Tool policy edit was not saved" }
+                updateState { copy(isSaveFailed = true) }
+            }
+        }) { reflectPolicy(it) }
         whileSubscribed {
             catalogs.nativeEnabling().collect { isAvailable ->
                 updateState { copy(isNativeEnablingAvailable = isAvailable) }
@@ -118,8 +132,10 @@ internal class HarnessToolsModel(
             updateState { copy(isSaveFailed = true) }
             return
         }
+        val request = request()
+        issued.update { (it + request).toList().takeLast(ISSUED_KEPT).toSet() }
         val intent = HarnessIntent.Internal.Update(
-            request(),
+            request,
             id,
             HarnessChange.Tools(tools),
             revision,

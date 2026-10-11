@@ -44,6 +44,7 @@ import io.aequicor.heartbeat.feature.harness.impl.resources.harness_dismiss
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_draft_restored
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_error_compile_timeout
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_error_input
+import io.aequicor.heartbeat.feature.harness.impl.resources.harness_error_placeholder
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_error_too_long
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_field_content
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_field_description
@@ -52,6 +53,7 @@ import io.aequicor.heartbeat.feature.harness.impl.resources.harness_save
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_save_failed
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_saving
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_unsupported_code
+import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableSet
 import org.jetbrains.compose.resources.stringResource
@@ -166,13 +168,13 @@ private fun SourceEditor(
         modifier.fillMaxWidth().height(HbTheme.dimensions.codeEditorHeight).testTag("harness-item-editor"),
         language = if (state.isCode) "kotlin" else null,
         isReadOnly = state.isReadOnly,
-        isError = errorLines.isNotEmpty(),
+        isError = state.diagnostics.any { it.isError },
         errorLines = errorLines,
     )
 }
 
 @Composable
-private fun Diagnostics(diagnostics: List<DiagnosticUi>, modifier: Modifier = Modifier) {
+private fun Diagnostics(diagnostics: ImmutableList<DiagnosticUi>, modifier: Modifier = Modifier) {
     HbSettingsSection(stringResource(Res.string.harness_diagnostics), modifier.testTag("harness-item-diagnostics")) {
         HbColumn(gap = HbTheme.spacing.xs) {
             diagnostics.forEach { diagnostic ->
@@ -214,16 +216,18 @@ private fun Actions(state: HarnessItemState, onIntent: (HarnessItemIntent) -> Un
     }
 }
 
+/** Cancel, Esc and the scrim close the question and keep the draft for further editing. */
 @Composable
 private fun ConflictDialog(onIntent: (HarnessItemIntent) -> Unit, modifier: Modifier = Modifier) {
     HbDialog(
         stringResource(Res.string.harness_conflict_title),
-        { onIntent(HarnessItemIntent.DismissError) },
+        { onIntent(HarnessItemIntent.DismissConflict) },
         modifier.testTag("harness-item-conflict"),
         actions = {
             HbButton(
                 stringResource(Res.string.harness_cancel),
-                { onIntent(HarnessItemIntent.DismissError) },
+                { onIntent(HarnessItemIntent.DismissConflict) },
+                Modifier.testTag("harness-item-conflict-cancel"),
                 style = HbButtonStyle.Ghost,
             )
             HbButton(
@@ -247,6 +251,7 @@ private fun ConflictDialog(onIntent: (HarnessItemIntent) -> Unit, modifier: Modi
 private fun ItemErrorUi.message() = when (this) {
     ItemErrorUi.SaveFailed -> Res.string.harness_save_failed
     ItemErrorUi.InvalidInput -> Res.string.harness_error_input
+    ItemErrorUi.InvalidPlaceholder -> Res.string.harness_error_placeholder
     ItemErrorUi.TooLong -> Res.string.harness_error_too_long
     ItemErrorUi.CompileTimedOut -> Res.string.harness_error_compile_timeout
 }

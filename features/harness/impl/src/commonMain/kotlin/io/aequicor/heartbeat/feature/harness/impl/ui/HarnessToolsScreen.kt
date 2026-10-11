@@ -177,13 +177,23 @@ private fun NativeRow(
     val defaultLabel = stringResource(
         if (tool.isEnabledByDefault) Res.string.harness_native_default_on else Res.string.harness_native_default_off,
     )
-    val labels = mapOf(
-        NativeChoiceUi.Default to defaultLabel,
-        NativeChoiceUi.On to stringResource(Res.string.harness_native_on),
-        NativeChoiceUi.Off to stringResource(Res.string.harness_native_off),
-    )
+    val onLabel = stringResource(Res.string.harness_native_on)
+    val offLabel = stringResource(Res.string.harness_native_off)
+    val labels = remember(defaultLabel, onLabel, offLabel) {
+        mapOf(NativeChoiceUi.Default to defaultLabel, NativeChoiceUi.On to onLabel, NativeChoiceUi.Off to offLabel)
+    }
     val isOnAllowed = tool.isOnAllowed && isNativeEnablingAvailable
     val choiceDescription = "${tool.name}: ${labels.getValue(tool.choice)}"
+    val items = remember(labels, tool.choice, isOnAllowed) {
+        NativeChoiceUi.entries.map { choice ->
+            HbMenuItem(
+                choice.name,
+                labels.getValue(choice),
+                isEnabled = choice != NativeChoiceUi.On || isOnAllowed,
+                isChecked = choice == tool.choice,
+            )
+        }.toImmutableList()
+    }
     HbSettingsRow(
         tool.name,
         modifier.fillMaxWidth().testTag("harness-native-$engine-${tool.name}"),
@@ -199,14 +209,7 @@ private fun NativeRow(
                 size = HbButtonSize.Small,
             )
             HbMenu(
-                NativeChoiceUi.entries.map { choice ->
-                    HbMenuItem(
-                        choice.name,
-                        labels.getValue(choice),
-                        isEnabled = choice != NativeChoiceUi.On || isOnAllowed,
-                        isChecked = choice == tool.choice,
-                    )
-                }.toImmutableList(),
+                items,
                 isExpanded,
                 { isExpanded = false },
                 { id ->

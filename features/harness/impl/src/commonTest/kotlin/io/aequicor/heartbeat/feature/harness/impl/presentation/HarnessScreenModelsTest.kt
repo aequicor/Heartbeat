@@ -33,11 +33,14 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessDiagnosti
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationContext
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessScriptHost
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -146,6 +149,121 @@ class HarnessScreenModelsTest {
     }
 
     @Test
+    fun `dismissing a conflict keeps the draft and saves nothing`() = runTest {
+        val library = RecordingLibrary(ready)
+        library.outcome = LibraryOutcome.Rejected(HarnessRejection.Conflict)
+        val model = itemModel(library, rule)
+        val screen = subscribe(model.store)
+        screen.intent(HarnessItemIntent.ChangeText("Use only tokens"))
+        screen.intent(HarnessItemIntent.Save)
+        runCurrent()
+        assertTrue(screen.states.value.isConflict)
+
+        screen.intent(HarnessItemIntent.DismissConflict)
+        runCurrent()
+        val state = screen.states.value
+        assertTrue(!state.isConflict && state.isDirty && !state.isSaving)
+        assertEquals("Use only tokens", state.text)
+        assertEquals(1, library.sent.size)
+    }
+
+    @Test
+    fun `typing continues during a save and keeps the newer text as a draft of the saved revision`() = runTest {
+        val library = RecordingLibrary(ready)
+        val saving = CompletableDeferred<Unit>()
+        library.submitted = saving
+        val drafts = HarnessDrafts()
+        val model = itemModel(library, rule, drafts)
+        val screen = subscribe(model.store)
+        screen.intent(HarnessItemIntent.ChangeText("Use only tokens"))
+        screen.intent(HarnessItemIntent.Save)
+        runCurrent()
+        assertTrue(screen.states.value.isSaving)
+
+        screen.intent(HarnessItemIntent.ChangeText("Use only design tokens"))
+        runCurrent()
+        assertEquals("Use only design tokens", screen.states.value.text, "the keystroke is not queued behind the save")
+        saving.complete(Unit)
+        runCurrent()
+        val state = screen.states.value
+        assertTrue(!state.isSaving && state.isDirty)
+        assertEquals("Use only design tokens", state.text)
+        val saved = assertIs<HarnessIntent.Internal.Update>(library.sent.single())
+        assertEquals(rule.copy(text = "Use only tokens"), (saved.change as HarnessChange.PutItem).item)
+
+        library.submitted = null
+        library.state.value = ready.copy(
+            harnesses = ready.harnesses.map { it.copy(harness = it.harness.copy(revision = 5)) },
+        )
+        screen.intent(HarnessItemIntent.Save)
+        runCurrent()
+        assertEquals(5L, (library.sent.last() as HarnessIntent.Internal.Update).expectedRevision)
+        assertTrue(!screen.states.value.isDirty)
+        assertEquals(null, drafts.get(Json.encodeToString(listOf(harness.id.value, rule.id.value))))
+    }
+
+    @Test
+    fun `template placeholders that are not argument names are rejected before saving`() = runTest {
+        val template = HarnessItem.Template(ItemId("ask"), ItemName("ask"), "Asks", "Explain {{topic}}", setOf("topic"))
+        val library = RecordingLibrary(
+            ready.copy(harnesses = listOf(HarnessEntry(harness.copy(items = listOf(template), revision = 4)))),
+        )
+        val model = itemModel(library, template)
+        val screen = subscribe(model.store)
+        listOf("Explain {{Topic}}", "Explain {{ topic }}", "Explain {{topic").forEach { body ->
+            screen.intent(HarnessItemIntent.ChangeText(body))
+            screen.intent(HarnessItemIntent.Save)
+            runCurrent()
+            assertEquals(ItemErrorUi.InvalidPlaceholder, screen.states.value.error, body)
+            assertTrue(library.sent.isEmpty(), body)
+        }
+
+        screen.intent(HarnessItemIntent.ChangeText("Explain {{topic}} to {{reader}}"))
+        screen.intent(HarnessItemIntent.Save)
+        runCurrent()
+        val saved = (assertIs<HarnessIntent.Internal.Update>(library.sent.single()).change as HarnessChange.PutItem)
+        assertEquals(setOf("topic", "reader"), (saved.item as HarnessItem.Template).arguments)
+        assertEquals(null, screen.states.value.error)
+    }
+
+    @Test
+    fun `tool policy shows refusals and storage failures of its own edits only`() = runTest {
+        val library = RecordingLibrary(ready)
+        val model = HarnessToolsModel(harness.id.value, library, Catalogs, storeFactory(), backgroundScope)
+        val screen = subscribe(model.store)
+        screen.intent(HarnessToolsIntent.SetNative("claude", "Bash", NativeChoiceUi.Off))
+        runCurrent()
+        val own = assertIs<HarnessIntent.Internal.Update>(library.sent.single()).requestId
+
+        library.outputs.emit(HarnessOutput.Rejected(request(), HarnessRejection.Conflict))
+        library.outputs.emit(HarnessOutput.StorageFailed(null))
+        runCurrent()
+        assertTrue(!screen.states.value.isSaveFailed, "an agent write or a reload failure is not this screen's")
+        library.outputs.emit(HarnessOutput.Rejected(own, HarnessRejection.Conflict))
+        runCurrent()
+        assertTrue(screen.states.value.isSaveFailed)
+
+        screen.intent(HarnessToolsIntent.DismissError)
+        runCurrent()
+        library.outputs.emit(HarnessOutput.StorageFailed(own))
+        runCurrent()
+        assertTrue(screen.states.value.isSaveFailed)
+    }
+
+    @Test
+    fun `library retries a failed load through the public reload`() = runTest {
+        val library = RecordingLibrary(HarnessState.Failed())
+        val model = HarnessLibraryModel(library, storeFactory(), backgroundScope)
+        val screen = subscribe(model.store)
+        assertEquals(PhaseUi.Failed, screen.states.value.phase)
+
+        screen.intent(HarnessLibraryIntent.Reload)
+        runCurrent()
+        assertIs<HarnessIntent.Public.Reload>(library.sent.single())
+        assertTrue(!screen.states.value.isSaveFailed)
+    }
+
+    @Test
     fun `tool switches replace the stored policy and gated tools are offered on`() = runTest {
         val library = RecordingLibrary(ready)
         val model = HarnessToolsModel(
@@ -165,6 +283,19 @@ class HarnessScreenModelsTest {
         assertEquals(mapOf("claude" to mapOf("Bash" to ToolSwitch.On)), tools.native)
     }
 }
+
+private fun TestScope.itemModel(
+    library: RecordingLibrary,
+    item: HarnessItem,
+    drafts: HarnessDrafts = HarnessDrafts(),
+) = HarnessItemModel(
+    harness.id.value,
+    item.id.value,
+    library,
+    HarnessItemEditing(library, HarnessCodeChecks(EditorHost(null)) { it }, drafts),
+    storeFactory(),
+    backgroundScope,
+)
 
 private class EditorHost(private val result: HarnessCompilationResult?) : HarnessScriptHost {
     val requests = mutableListOf<HarnessCompilationRequest>()

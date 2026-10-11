@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessChange
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
 import io.aequicor.heartbeat.feature.harness.api.HarnessOutput
+import io.aequicor.heartbeat.feature.harness.api.HarnessRejection
 import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.ItemId
@@ -47,7 +48,7 @@ internal data class MetaDraftUi(val title: String, val description: String) {
 }
 
 /** Why the last change did not apply. */
-internal enum class DetailErrorUi { SaveFailed, Conflict }
+internal enum class DetailErrorUi { SaveFailed, Conflict, Busy, Limit }
 
 /** One harness with its items, connections, tool policy entry and runs. */
 @Immutable
@@ -149,8 +150,10 @@ internal class HarnessDetailModel(
             output is HarnessOutput.StorageFailed && output.requestId in issued.value ->
                 updateState { copy(error = DetailErrorUi.SaveFailed) }
 
-            output is HarnessOutput.Rejected && output.requestId in issued.value ->
-                updateState { copy(error = DetailErrorUi.Conflict) }
+            output is HarnessOutput.Rejected && output.requestId in issued.value -> {
+                log.i { "Harness detail change rejected: ${output.reason}" }
+                updateState { copy(error = output.reason.toUi()) }
+            }
         }
     }
 
@@ -317,6 +320,17 @@ internal class HarnessDetailModel(
             .sortedByDescending { it.startedAt }.take(RUNS_SHOWN).toList()
         return copy(runs = owned.map { it.toUi(names[it.workflow] ?: it.workflow.value) }.toImmutableList())
     }
+}
+
+private fun HarnessRejection.toUi(): DetailErrorUi = when (this) {
+    HarnessRejection.Conflict -> DetailErrorUi.Conflict
+
+    HarnessRejection.Busy -> DetailErrorUi.Busy
+
+    HarnessRejection.Limit -> DetailErrorUi.Limit
+
+    HarnessRejection.Unavailable, HarnessRejection.NotFound, HarnessRejection.Duplicate, HarnessRejection.Invalid ->
+        DetailErrorUi.SaveFailed
 }
 
 private const val RUNS_SHOWN = 20

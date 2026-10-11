@@ -8,6 +8,8 @@
     <string name="harness_dismiss">Скрыть</string>
     <string name="harness_save_failed">Не удалось сохранить изменение.</string>
     <string name="harness_conflict">Харнесс изменился за это время; изменение не применено.</string>
+    <string name="harness_busy">Другое изменение этого харнесса ещё сохраняется. Повторите попытку.</string>
+    <string name="harness_limit">Изменение превышает ограничения библиотеки харнессов.</string>
     <string name="harness_approval_section">Подтверждение правок агента</string>
     <string name="harness_approval_section_hint">Как принимаются харнессы, тексты и переключатели инструментов, которые пишет агент. Код и включение нативных инструментов подтверждаются всегда.</string>
     <string name="harness_approval_ask">Всегда спрашивать</string>
@@ -88,6 +90,7 @@
     <string name="harness_diagnostic_warning">Предупреждение %1$s</string>
     <string name="harness_error_input">Схема входа должна быть JSON-объектом со свойствами string, number, boolean или enum.</string>
     <string name="harness_error_too_long">Текст длиннее, чем допускает этот элемент.</string>
+    <string name="harness_error_placeholder">Плейсхолдеры шаблона должны иметь вид {{name}}: строчные латинские буквы, цифры и _.</string>
     <string name="harness_error_compile_timeout">Компиляция заняла слишком много времени. Повторите.</string>
     <string name="harness_conflict_title">Элемент изменился</string>
     <string name="harness_conflict_text">Пока вы редактировали, агент или другое окно сохранили более новую версию.</string>

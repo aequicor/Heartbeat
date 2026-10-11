@@ -17,21 +17,27 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.api.HarnessRejection
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.ItemId
+import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.isHarnessInputSchema
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.CodeCheck
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeChecks
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.ItemDraft
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.ItemKind
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.LibraryOutcome
+import io.aequicor.heartbeat.feature.harness.impl.domain.content.renderHarnessTemplate
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeDiagnostic
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeKind
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessDiagnosticSeverity
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -75,7 +81,7 @@ internal data class HarnessItemEditing(
 )
 
 /** Why the last save did not apply. */
-internal enum class ItemErrorUi { SaveFailed, InvalidInput, TooLong, CompileTimedOut }
+internal enum class ItemErrorUi { SaveFailed, InvalidInput, InvalidPlaceholder, TooLong, CompileTimedOut }
 
 /** The item editor: text or code, its metadata and the last compilation diagnostics. */
 @Immutable
@@ -112,6 +118,9 @@ internal sealed interface HarnessItemIntent : MVIIntent {
 
     /** Saves over a newer revision after a conflict. */
     data object Overwrite : HarnessItemIntent
+
+    /** Closes the conflict question and keeps editing the draft. */
+    data object DismissConflict : HarnessItemIntent
     data object DismissError : HarnessItemIntent
 }
 
@@ -176,6 +185,8 @@ internal class HarnessItemModel(
             HarnessItemIntent.Overwrite -> save(isOverwrite = true)
 
             HarnessItemIntent.DismissError -> updateState { copy(error = null) }
+
+            HarnessItemIntent.DismissConflict -> updateState { copy(isConflict = false) }
         }
     }
 
@@ -184,13 +195,13 @@ internal class HarnessItemModel(
     @Suppress("SuspendFunWithCoroutineScopeReceiver")
     @HighFrequency
     private suspend fun ItemPipeline.edit(change: (EditorDraft) -> EditorDraft) {
-        var kept: EditorDraft? = null
         updateState {
             if (isReadOnly || phase != PhaseUi.Ready) return@updateState this
             val next = change(
                 drafts.get(draftKey) ?: EditorDraft(text, description, input, entry()?.harness?.revision ?: 0),
             )
-            kept = next
+            // Kept within the state update, so a finishing save sees the draft of exactly the shown texts.
+            drafts.put(draftKey, next)
             copy(
                 text = next.text,
                 description = next.description,
@@ -200,11 +211,13 @@ internal class HarnessItemModel(
                 diagnostics = persistentListOf(),
             )
         }
-        kept?.let { drafts.put(draftKey, it) }
     }
 
-    /** Marks the save in the state, then compiles and submits outside the state transaction, so typing continues. */
-    // PipelineContext is FlowMVI's coroutine-backed receiver for store updates.
+    /**
+     * Marks the save in the state, then compiles and submits in a job of the store: the intent queue keeps taking
+     * keystrokes meanwhile. The result applies to the state current when the save finishes.
+     */
+    // PipelineContext is FlowMVI's coroutine-backed receiver for store updates and jobs.
     @Suppress("SuspendFunWithCoroutineScopeReceiver")
     private suspend fun ItemPipeline.save(isOverwrite: Boolean) {
         var shown: HarnessItemState? = null
@@ -215,9 +228,17 @@ internal class HarnessItemModel(
         }
         val snapshot = shown ?: return
         log.i { "Save harness item overwrite=$isOverwrite" }
-        val result = saved(snapshot, isOverwrite)
-        // The result applies to the state current after the save, not to the snapshot it started from.
-        updateState { result() }
+        launch {
+            val result = try {
+                saved(snapshot, isOverwrite)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                log.e(error) { "Harness item save failed" }
+                failed(ItemErrorUi.SaveFailed)
+            }
+            updateState { result() }
+        }
     }
 
     private suspend fun saved(shown: HarnessItemState, isOverwrite: Boolean): ItemUpdate {
@@ -231,6 +252,7 @@ internal class HarnessItemModel(
             log.w(IllegalArgumentException(error::class.simpleName)) { "Edited item exceeds its limits" }
             return failed(ItemErrorUi.TooLong)
         }
+        if (edited is HarnessItem.Template && !edited.isRenderable()) return failed(ItemErrorUi.InvalidPlaceholder)
         val check = if (edited.isCodeItem()) {
             checks.check(harnessId, itemId, edited.codeKind(), shown.text, false)
         } else {
@@ -250,13 +272,13 @@ internal class HarnessItemModel(
 
             null, is CodeCheck.Compiled -> {
                 val warnings = (check as? CodeCheck.Compiled)?.warnings.orEmpty().toUi()
-                val submitted = submit(edited, revision)
+                val submitted = submit(edited, revision, shown)
                 ({ submitted().copy(diagnostics = warnings) })
             }
         }
     }
 
-    private suspend fun submit(item: HarnessItem, revision: Long): ItemUpdate {
+    private suspend fun submit(item: HarnessItem, revision: Long, shown: HarnessItemState): ItemUpdate {
         val intent = HarnessIntent.Internal.Update(
             request(),
             harnessId,
@@ -266,10 +288,7 @@ internal class HarnessItemModel(
             clock.now(),
         )
         return when (val outcome = library.submit(intent)) {
-            is LibraryOutcome.Committed -> {
-                drafts.remove(draftKey)
-                ({ copy(isSaving = false, isDirty = false, isDraftRestored = false, isConflict = false) })
-            }
+            is LibraryOutcome.Committed -> ({ committed(shown, revision + 1) })
 
             is LibraryOutcome.Rejected -> if (outcome.reason == HarnessRejection.Conflict) {
                 { copy(isSaving = false, isConflict = true) }
@@ -279,6 +298,22 @@ internal class HarnessItemModel(
 
             else -> failed(ItemErrorUi.SaveFailed)
         }
+    }
+
+    /**
+     * The saved texts are committed as [revision]. Edits typed during the save stay a draft based on that revision,
+     * so saving them again does not conflict with this save; otherwise the draft is dropped.
+     */
+    private fun HarnessItemState.committed(shown: HarnessItemState, revision: Long): HarnessItemState {
+        val isUnchanged = text == shown.text && description == shown.description && input == shown.input
+        if (isUnchanged) {
+            drafts.remove(draftKey)
+        } else {
+            drafts.get(draftKey)?.let { drafts.put(draftKey, it.copy(baseRevision = revision)) }
+            log.d { "Edits typed during the save stay a draft" }
+        }
+        val isDirty = drafts.get(draftKey) != null
+        return copy(isSaving = false, isDirty = isDirty, isDraftRestored = false, isConflict = false)
     }
 
     private fun entry(): HarnessEntry? =
@@ -327,12 +362,31 @@ private fun HarnessItem.edited(text: String, description: String, input: JsonObj
     is HarnessItem.Template -> copy(
         body = text,
         description = description.trim(),
-        arguments = PLACEHOLDER.findAll(text).map { it.groupValues[1] }.filter { it.matches(ARGUMENT) }.toSet(),
+        arguments = templateArguments(text).filterTo(mutableSetOf()) { it.matches(ARGUMENT) },
     )
 
     is HarnessItem.Script -> copy(source = text, description = description.trim())
 
     is HarnessItem.Workflow -> copy(source = text, description = description.trim(), input = input)
+}
+
+/** Placeholders of a template body, parsed like the agent's authoring tool does. */
+private fun templateArguments(body: String): Set<String> =
+    ItemDraft(ItemKind.Template, TEMPLATE_DRAFT_NAME, "", body).arguments
+
+/** Every placeholder is a declared argument and the body renders with them, as agents will call it. */
+private fun HarnessItem.Template.isRenderable(): Boolean {
+    if (templateArguments(body) != arguments) {
+        log.i { "Template placeholders are not valid argument names" }
+        return false
+    }
+    return try {
+        renderHarnessTemplate(this, arguments.associateWith { "" })
+        true
+    } catch (error: IllegalArgumentException) {
+        log.w(IllegalArgumentException(error::class.simpleName)) { "Template body does not render" }
+        false
+    }
 }
 
 private fun parseInput(text: String): JsonObject? = if (text.isBlank()) {
@@ -359,5 +413,5 @@ private val log = Log.tag("HarnessHost")
 private typealias ItemUpdate = HarnessItemState.() -> HarnessItemState
 
 private fun failed(error: ItemErrorUi): ItemUpdate = { copy(isSaving = false, error = error) }
-private val PLACEHOLDER = Regex("\\{\\{([^{}]+)}}")
 private val ARGUMENT = Regex("[a-z][a-z0-9_]{0,31}")
+private val TEMPLATE_DRAFT_NAME = ItemName("template")

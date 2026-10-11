@@ -1,11 +1,14 @@
 package io.aequicor.heartbeat.feature.harness.impl.ui
 
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.harness.impl.presentation.ApprovalUi
@@ -63,5 +66,29 @@ class HarnessScreensUiTest {
             onNodeWithTag("harness-item-editor").assertExists()
             onNodeWithTag("harness-item-save").assertIsNotEnabled()
             runOnIdle { assertEquals(emptyList(), intents) }
+        }
+
+    @Test
+    fun `cancel and Escape close the conflict question without reloading or overwriting`() =
+        runSkikoComposeUiTest(size = Size(900f, 900f)) {
+            val intents = mutableListOf<HarnessItemIntent>()
+            val state = HarnessItemState(
+                phase = PhaseUi.Ready,
+                harnessName = "compose_ui",
+                name = "rule",
+                text = "Use only tokens",
+                isDirty = true,
+                isConflict = true,
+            )
+            setContent { HbTheme { HarnessItemContent(state, intents::add, {}) } }
+
+            onNodeWithTag("harness-item-conflict-cancel").performClick()
+            onNodeWithTag("harness-item-conflict").performKeyInput { pressKey(Key.Escape) }
+            runOnIdle {
+                assertEquals<List<HarnessItemIntent>>(
+                    listOf(HarnessItemIntent.DismissConflict, HarnessItemIntent.DismissConflict),
+                    intents,
+                )
+            }
         }
 }

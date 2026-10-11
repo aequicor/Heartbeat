@@ -51,6 +51,7 @@ import io.aequicor.heartbeat.feature.harness.impl.presentation.ScopeUi
 import io.aequicor.heartbeat.feature.harness.impl.resources.Res
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_attachments
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_attachments_hint
+import io.aequicor.heartbeat.feature.harness.impl.resources.harness_busy
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_cancel
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_conflict
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_delete
@@ -67,6 +68,7 @@ import io.aequicor.heartbeat.feature.harness.impl.resources.harness_kind_script
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_kind_skill
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_kind_template
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_kind_workflow
+import io.aequicor.heartbeat.feature.harness.impl.resources.harness_limit
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_meta_title
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_no_projects
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_run_cancel
@@ -166,6 +168,8 @@ private fun ErrorBanner(error: DetailErrorUi, onIntent: (HarnessDetailIntent) ->
     val message = when (error) {
         DetailErrorUi.SaveFailed -> Res.string.harness_save_failed
         DetailErrorUi.Conflict -> Res.string.harness_conflict
+        DetailErrorUi.Busy -> Res.string.harness_busy
+        DetailErrorUi.Limit -> Res.string.harness_limit
     }
     HbBanner(stringResource(message), modifier.testTag("harness-detail-error")) {
         HbButton(

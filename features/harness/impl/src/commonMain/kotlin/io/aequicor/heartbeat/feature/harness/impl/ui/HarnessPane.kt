@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
@@ -67,7 +68,9 @@ internal fun HarnessPane(
         }
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
             HbLazyColumn(
-                Modifier.widthIn(max = HbTheme.dimensions.settingsMaxWidth).fillMaxSize().testTag("$tag-list"),
+                // The soft keyboard must not cover the focused editor or field at the end of the list.
+                Modifier.widthIn(max = HbTheme.dimensions.settingsMaxWidth).fillMaxSize().imePadding()
+                    .testTag("$tag-list"),
                 gap = HbTheme.spacing.l,
                 contentPadding = PaddingValues(HbTheme.spacing.xl),
                 content = content,
