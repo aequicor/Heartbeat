@@ -89,4 +89,17 @@ class HarnessSchedulerSnapshotTest {
         assertEquals(false, restored.copy(library = deleting).allows(harness.id, wake))
         assertEquals(false, restored.copy(library = library.copy(isSuspended = true)).allows(harness.id, null))
     }
+
+    @Test
+    fun `orphaned workspace is decided as no project once worktrees and catalog are known`() {
+        val profile =
+            harness.copy(id = HarnessId("profile"), name = HarnessName("profile"), scope = HarnessScope.Profile)
+        val library = ready.copy(harnesses = ready.harnesses + HarnessEntry(profile))
+        val orphan = HarnessTarget(dispatchSession, WorkspaceRef("removed"))
+        val known = HarnessSchedulerSnapshot(library, WorktreeState.Ready(), setOf(project), 1)
+        assertEquals(false, known.allows(harness.id, orphan))
+        assertEquals(true, known.allows(profile.id, orphan))
+        assertEquals(null, known.copy(projects = null).allows(harness.id, orphan))
+        assertEquals(null, known.copy(worktrees = WorktreeState.Loading).allows(harness.id, orphan))
+    }
 }

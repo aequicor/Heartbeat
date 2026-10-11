@@ -222,7 +222,12 @@ internal class WorkflowRunExecution(
         val covered = records.mapTo(mutableSetOf()) { it.key }
         for (step in run.steps.filter { it.helper != null && it.key !in covered && !it.isTerminal }) {
             val helper = checkNotNull(step.helper)
-            val binding = checkNotNull(bindings.lookup(helper)) { "Missing helper ownership" }
+            val binding = bindings.lookup(helper)
+            if (binding == null) {
+                // An expired proof cannot release the helper; retrying would keep this run Running forever.
+                log.w { "Skip cleanup of a workflow helper whose ownership proof expired" }
+                continue
+            }
             check(binding.owner == run.id.action && binding.harness == run.harness)
             val grant = WorkflowHelperGrant(
                 ActionId("wf_slot_" + Uuid.random().toHexString()),

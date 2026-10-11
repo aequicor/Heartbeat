@@ -72,6 +72,8 @@ internal class StoredHarnessHelperBindings(
 
 /**
  * Sliding lifetime of a helper ownership proof, renewed by every owned admission of the helper. It outlives the
- * 30-day workflow run retention, so a recovery prompt to a still-known helper chat keeps its proof.
+ * 30-day retention of a finished workflow run, so a recovery prompt to a still-known helper chat keeps its proof.
+ * A paused Running run has no deadline and can outlive it: a resumed step whose proof expired fails as Interrupted,
+ * and cleanup skips that helper with a warning, so the run still reaches a terminal state and frees its slot.
  */
 internal val HELPER_BINDING_RETENTION = 90.days

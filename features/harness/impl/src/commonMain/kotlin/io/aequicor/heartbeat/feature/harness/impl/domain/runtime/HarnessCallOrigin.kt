@@ -38,5 +38,13 @@ internal class HarnessOriginContext(val origin: HarnessCallOrigin) : CoroutineCo
 /** Profile-owned bridge for synchronous coroutine-context snapshots and suspend service origin checks. */
 internal interface HarnessCallOrigins {
     fun current(): HarnessCallOrigin
+
+    /** Carrier for author code and its children; a child also merges the launching thread's current origin. */
     fun context(origin: HarnessCallOrigin): CoroutineContext
+
+    /**
+     * Carrier of a long-lived host pump that never runs author code itself: its children keep [origin] whichever
+     * thread starts them, because each delivered envelope supplies its own ancestry. Never exposed to scripts.
+     */
+    fun hostContext(origin: HarnessCallOrigin): CoroutineContext = context(origin)
 }

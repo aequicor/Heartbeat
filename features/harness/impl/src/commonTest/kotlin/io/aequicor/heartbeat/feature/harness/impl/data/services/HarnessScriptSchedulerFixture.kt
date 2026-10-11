@@ -69,6 +69,7 @@ internal class HarnessScriptSchedulerFixture(scope: TestScope) {
     val ancestry = MemoryHarnessRequestAncestry()
     val port = SchedulerWakePortFixture()
     val published = mutableListOf<BusEvent>()
+    val streaks = HarnessSessionTurnStreaks()
     var isProvenanceKnown = true
     private val access = object : HarnessSchedulerAccess {
         override fun permits(harness: HarnessId, target: HarnessTarget?): Flow<HarnessAccess> {
@@ -137,6 +138,7 @@ internal class HarnessScriptSchedulerFixture(scope: TestScope) {
                 clock,
             )
         },
+        streaks,
         clock,
     )
     val spawns = HarnessSpawnFixture(scope.backgroundScope)

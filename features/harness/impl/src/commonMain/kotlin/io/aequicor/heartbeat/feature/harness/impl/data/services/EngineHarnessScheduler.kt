@@ -40,6 +40,7 @@ internal class EngineHarnessScheduler(
     private val bus: Lazy<SchedulerBus>,
     private val wakes: Lazy<HarnessWakePort>,
     private val operations: Lazy<HarnessWakeOperations>,
+    private val streaks: HarnessSessionTurnStreaks,
     private val clock: Clock,
 ) : HarnessSchedulerHost,
     HarnessSessionSender {
@@ -62,9 +63,13 @@ internal class EngineHarnessScheduler(
         return submit(owner, request, isSend = true)
     }
 
-    /** [request] already carries the incremented chain; only [isSend] makes the note visible in the chat. */
+    /**
+     * [request] already carries the incremented chain; only [isSend] makes the note visible in the chat. The
+     * session's harness turn streak is checked independently of that chain, which escaped author code can lose.
+     */
     private suspend fun submit(owner: HarnessInstanceTarget, request: HarnessScriptWake, isSend: Boolean): WakeId {
         check(sessions.isCurrent(owner)) { "Script activation is unavailable" }
+        check(!streaks.isExhausted(request.session)) { "Harness turn streak reached; the session awaits a user turn" }
         val route = sessions.session(request.session)
         val permit = checkNotNull(sessions.permit(owner, HarnessTarget(request.session, route.workspace))) {
             "Session is unavailable to this harness"

@@ -149,7 +149,13 @@ internal class WorkflowHelperDriver(
         if (reused != null) return reused to false
         admitted()
         val attachment = step?.helper?.let { helper ->
-            val binding = checkNotNull(bindings.lookup(helper)) { "Workflow helper binding is missing" }
+            val binding = bindings.lookup(helper)
+            if (binding == null) {
+                // The proof expired while the run was paused; the helper can never be prompted again.
+                log.w { "Workflow helper ownership proof expired; the step is interrupted" }
+                progress.fail(key, WorkflowFailure.Interrupted)
+                throw WorkflowStepFailed(WorkflowFailure.Interrupted)
+            }
             check(binding.owner == ActionId(run.id.value) && binding.harness == run.harness)
             binding.attachRequest
         } ?: RequestId(nextId())

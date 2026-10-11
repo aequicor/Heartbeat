@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.harness.impl.data.services
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
+import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.impl.data.HarnessTestStores
 import io.aequicor.heartbeat.feature.harness.impl.data.events.EmptyHarnessEventRuns
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessEventAncestry
@@ -57,10 +58,12 @@ class HarnessSchedulerAdmissionTest {
 
         override fun snapshot() = error("Admission never reads a bulk snapshot")
     }
+    private val streaks = HarnessSessionTurnStreaks()
     private val admission = HarnessSchedulerAdmission(
         lazyOf(access),
         HarnessEventAncestry(lazyOf(storage), lazyOf(EmptyHarnessEventRuns)),
         lazyOf(storage),
+        streaks,
     )
     private val request = WakeRequest(
         WakeId("owned"),
@@ -126,6 +129,7 @@ class HarnessSchedulerAdmissionTest {
             lazy { error("disabled feature must stay lazy") },
             HarnessEventAncestry(lazyOf(storage), lazyOf(EmptyHarnessEventRuns)),
             lazyOf(storage),
+            HarnessSessionTurnStreaks(),
         )
         val ordinary = request.copy(ownerFeature = null, ownerContext = null, initiator = source)
         val delivery = WakeDelivery(ScheduledWake(ordinary, at), WakeReason.Deadline(at))
@@ -180,6 +184,7 @@ class HarnessSchedulerAdmissionTest {
             lazy { error("disabled feature must stay lazy") },
             HarnessEventAncestry(lazyOf(stored), lazyOf(EmptyHarnessEventRuns)),
             lazyOf(stored),
+            HarnessSessionTurnStreaks(),
         )
         val source = RequestInitiator(dispatchSession, RequestId("source"))
         val ordinary = request.copy(ownerFeature = null, ownerContext = null, initiator = source)
@@ -197,5 +202,42 @@ class HarnessSchedulerAdmissionTest {
         storage.failure = IllegalStateException("private IO failure")
         assertEquals(ScheduledWakeAdmission.Drop, admission.wake(request).first())
         assertTrue(HarnessScheduledEventOwner(admission).isSessionOriginObserver)
+    }
+
+    @Test
+    fun `exhausted session streak holds owned wakes without persisting ancestry`() = runTest {
+        repeat(HarnessLimits.SEND_CHAIN) { streaks.harnessTurnStarted(dispatchSession) }
+        val eventOnly = request.copy(condition = WakeCondition(events = setOf(EventKeys.custom("ready"))))
+        assertEquals(ScheduledWakeAdmission.Defer, admission.wake(eventOnly).first())
+        assertEquals(ScheduledWakeAdmission.Drop, admission.wake(request).first())
+        assertEquals(null, storage.lookup(request.session, request.id.deliveryRequestId()))
+        streaks.otherTurnStarted(dispatchSession)
+        assertEquals(ScheduledWakeAdmission.Allow, admission.wake(eventOnly).first())
+    }
+
+    @Test
+    fun `denied publisher defers another owner's event wake but drops a harness wake`() = runTest {
+        val event = BusEvent(
+            EventKeys.custom("harness.owner.done"),
+            EventOrigin.Feature("harness", HarnessOwnedContext().encode(harness, origin)),
+            at,
+        )
+        val condition = WakeCondition(events = setOf(event.key))
+        val foreign = request.copy(condition = condition, ownerFeature = null, ownerContext = null)
+        permits.value = HarnessAccess.Denied
+        assertEquals(
+            ScheduledWakeAdmission.Defer,
+            admission.event(WakeDelivery(ScheduledWake(foreign, at), WakeReason.Event(event))).first(),
+        )
+        val withDeadline = foreign.copy(condition = condition.copy(deadline = at))
+        assertEquals(
+            ScheduledWakeAdmission.Drop,
+            admission.event(WakeDelivery(ScheduledWake(withDeadline, at), WakeReason.Event(event))).first(),
+        )
+        val owned = request.copy(condition = condition)
+        assertEquals(
+            ScheduledWakeAdmission.Drop,
+            admission.event(WakeDelivery(ScheduledWake(owned, at), WakeReason.Event(event))).first(),
+        )
     }
 }

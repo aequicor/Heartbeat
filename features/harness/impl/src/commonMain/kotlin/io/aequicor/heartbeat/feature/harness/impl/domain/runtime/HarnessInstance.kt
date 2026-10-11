@@ -43,7 +43,7 @@ internal class HarnessInstance(
      * supervisor keeps author `scope.cancel()` from stopping host event delivery; [drain] stops them with [root].
      */
     internal val dispatchScope = CoroutineScope(
-        backgroundContext + SupervisorJob(root) + environment.origins.context(HarnessCallOrigin()),
+        backgroundContext + SupervisorJob(root) + environment.origins.hostContext(HarnessCallOrigin()),
     )
     internal val calls = HarnessInvocation(
         CoroutineScope(environment.scope.coroutineContext + root + errors),

@@ -113,6 +113,11 @@ internal data class HarnessSchedulerSnapshot(
         return if (target == null) true else allowsTarget(ready, enabled, harness, target)
     }
 
+    /**
+     * Unknown only while worktrees or the project catalog are restoring. Once both are known, a folder that is
+     * neither a checkout nor a saved project (a removed project, a finished worktree) proves "no project", so event
+     * wakes into it get a final decision instead of deferring forever while holding quota.
+     */
     private fun allowsTarget(
         ready: HarnessState.Ready,
         enabled: List<Harness>,
@@ -124,7 +129,8 @@ internal data class HarnessSchedulerSnapshot(
             null
         } else {
             val restored = worktrees as? WorktreeState.Ready ?: return null
-            restored.sourceProjectOf(workspace) ?: workspace.takeIf { projects?.contains(it) == true } ?: return null
+            val catalog = projects ?: return null
+            restored.sourceProjectOf(workspace) ?: workspace.takeIf { it in catalog }
         }
         return activeHarnesses(enabled, ready.attachments, target.session, source).any { it.id == harness }
     }

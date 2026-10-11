@@ -115,6 +115,39 @@ class HarnessCallOriginsTest {
     }
 
     @Test
+    fun `scope derived from the activation context before a hook still inherits the hook`() = runTest {
+        val origins = JvmHarnessCallOrigins()
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val owner = SupervisorJob(coroutineContext[Job])
+        val activation = HarnessOriginScope(
+            CoroutineScope(owner + dispatcher + origins.context(HarnessCallOrigin())),
+            origins,
+        )
+        // Evaluation-time idiom: a neutral carrier is frozen into an author-owned scope and context.
+        val (derived, captured) = withContext(origins.context(HarnessCallOrigin())) {
+            CoroutineScope(activation.coroutineContext + SupervisorJob(owner)) to activation.coroutineContext
+        }
+        val hook = HarnessCallOrigin(true, mapOf(HarnessId("owner") to 1))
+        val fromScope = CompletableDeferred<HarnessCallOrigin>()
+        try {
+            val fromContext = withContext(origins.context(hook)) {
+                derived.launch {
+                    delay(1)
+                    fromScope.complete(origins.current())
+                }
+                withContext(captured) { origins.current() }
+            }
+            assertEquals(hook, fromScope.await())
+            assertEquals(hook, fromContext)
+            assertFailsWith<IllegalStateException> { fromScope.await().forSend(HarnessId("owner")) }
+            // A host launch through the same derived scope keeps its neutral ancestry.
+            assertEquals(HarnessCallOrigin(), derived.async { origins.current() }.await())
+        } finally {
+            owner.cancelAndJoin()
+        }
+    }
+
+    @Test
     fun `nested carriers restore previous values and remain isolated between profiles`() = runTest {
         val first = JvmHarnessCallOrigins()
         val second = JvmHarnessCallOrigins()

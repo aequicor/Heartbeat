@@ -35,6 +35,7 @@ internal class HarnessSchedulerAdmission(
     private val access: Lazy<HarnessSchedulerAccess>,
     private val ancestry: HarnessEventAncestry,
     private val storage: Lazy<HarnessRequestAncestry>,
+    private val streaks: HarnessSessionTurnStreaks,
 ) {
     private val ownership = HarnessOwnedContext()
     private val log = Log.tag("HarnessSchedulerAdmission")
@@ -57,6 +58,9 @@ internal class HarnessSchedulerAdmission(
     /**
      * While provenance is still restoring after startup an event-only wake defers to producer replay; a deadline
      * cannot defer, so it waits for the first known decision within the scheduler's initial admission window.
+     * An owned wake into a session whose harness turn streak is exhausted waits for a user turn the same way.
+     * A denied publisher drops harness wakes, but only defers another owner's event-only wake: the publisher's
+     * authority may return, and that wake was never the harness's to discard.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     private fun admit(
@@ -76,17 +80,34 @@ internal class HarnessSchedulerAdmission(
         ).transformLatest { decision ->
             when (decision) {
                 HarnessAccess.Unknown -> if (request.condition.deadline == null) emit(ScheduledWakeAdmission.Defer)
-
-                HarnessAccess.Denied -> emit(ScheduledWakeAdmission.Drop)
-
-                is HarnessAccess.Permitted -> {
-                    persist(request, resolve())
-                    val isCurrent = decision.permit.isCurrent()
-                    currentCoroutineContext().ensureActive()
-                    emit(if (isCurrent) ScheduledWakeAdmission.Allow else ScheduledWakeAdmission.Drop)
-                }
+                HarnessAccess.Denied -> emit(denied(request, target))
+                is HarnessAccess.Permitted -> emit(permitted(request, target, decision, resolve))
             }
         }
+    }
+
+    private fun denied(request: WakeRequest, target: WakeRequest?): ScheduledWakeAdmission =
+        if (target == null && request.isForeignEventWake()) {
+            ScheduledWakeAdmission.Defer
+        } else {
+            ScheduledWakeAdmission.Drop
+        }
+
+    private suspend fun permitted(
+        request: WakeRequest,
+        target: WakeRequest?,
+        decision: HarnessAccess.Permitted,
+        resolve: suspend () -> HarnessCallOrigin,
+    ): ScheduledWakeAdmission {
+        if (target != null && streaks.isExhausted(target.session)) {
+            log.d { "Hold harness wake: session turn streak reached" }
+            val isEventOnly = request.condition.deadline == null
+            return if (isEventOnly) ScheduledWakeAdmission.Defer else ScheduledWakeAdmission.Drop
+        }
+        persist(request, resolve())
+        val isCurrent = decision.permit.isCurrent()
+        currentCoroutineContext().ensureActive()
+        return if (isCurrent) ScheduledWakeAdmission.Allow else ScheduledWakeAdmission.Drop
     }
 
     private suspend fun persist(request: WakeRequest, origin: HarnessCallOrigin) {
@@ -105,6 +126,9 @@ internal class HarnessSchedulerAdmission(
         emit(ScheduledWakeAdmission.Drop)
     }
 }
+
+/** Another feature's event-only wake; it can wait for the next event instead of being discarded. */
+private fun WakeRequest.isForeignEventWake(): Boolean = ownerFeature != HARNESS_WAKE_OWNER && condition.deadline == null
 
 /** Owned wakes require both current target activation and durable ancestry before native preparation. */
 @ContributesIntoSet(ProfileScope::class)
