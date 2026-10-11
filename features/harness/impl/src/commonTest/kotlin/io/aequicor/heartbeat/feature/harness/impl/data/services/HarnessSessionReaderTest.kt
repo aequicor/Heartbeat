@@ -1,5 +1,9 @@
 package io.aequicor.heartbeat.feature.harness.impl.data.services
 
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCheckpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCursor
@@ -49,6 +53,29 @@ class HarnessSessionReaderTest {
         assertEquals(WorkspaceRef("checkout"), result.last().workspace)
         result.forEach { assertNull(it.target) }
         assertEquals(listOf(null, next), fixture.facade.pageRequests.map { it.cursor })
+    }
+
+    @Test
+    fun `one broken or unresolved session is skipped without waiting or failing the listing`() = runTest {
+        val fixture = HarnessScriptSchedulerFixture(this)
+        val active = fixture.activate()
+        val owner = HarnessInstanceTarget(active.request, active)
+        val route = ExecutionRoute(
+            dispatchSession.engine,
+            EngineBindingId("binding"),
+            AuthSourceId("auth"),
+            AuthRevision.Known("1"),
+            WorkspaceRef("different checkout"),
+        )
+        val broken = fixture.summary.value.copy(ref = dispatchSession.copy(nativeId = "broken"), lastRoute = route)
+        val missing = fixture.summary.value.copy(ref = dispatchSession.copy(nativeId = "missing"))
+        fixture.facade.summaries[broken.ref] = MutableStateFlow(broken)
+        fixture.facade.page = { SessionPage(listOf(broken, missing, fixture.summary.value), null, emptyList()) }
+        assertEquals(listOf(dispatchSession), fixture.reader.list(owner).map { it.session })
+        val started = testScheduler.currentTime
+        fixture.isProvenanceKnown = false
+        assertTrue(fixture.reader.list(owner).isEmpty())
+        assertEquals(started, testScheduler.currentTime)
     }
 
     @Test

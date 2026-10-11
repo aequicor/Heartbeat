@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.harness.impl.data.services
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
+import io.aequicor.heartbeat.feature.harness.impl.data.HarnessTestStores
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.MemoryHarnessRequestAncestry
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.dispatchSession
@@ -14,6 +15,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 
 class HarnessRequestOriginObserverTest {
     private val storage = MemoryHarnessRequestAncestry()
@@ -35,6 +37,17 @@ class HarnessRequestOriginObserverTest {
         observer.record(attempt)
         observer.record(attempt.copy(causes = emptySet()))
         assertEquals(HarnessCallOrigin(true, mapOf(harness to 3)), storage.lookup(attempt.session, attempt.request))
+    }
+
+    @Test
+    fun `profile that never recorded ancestry relays without opening the database`() = runTest {
+        val stores = HarnessTestStores()
+        val stored = StoredHarnessRequestAncestry(stores)
+        // HarnessTestStores refuses every database open, so a lookup that reached Room would throw here.
+        HarnessRequestOriginObserver(lazyOf(stored)).record(attempt)
+        assertNull(stored.lookup(attempt.session, attempt.request))
+        stores.keyValue(HarnessAncestryMarkerSpec).set(HarnessAncestryMarkerKey, "1")
+        assertFailsWith<IllegalStateException> { stored.lookup(attempt.session, attempt.request) }
     }
 
     @Test

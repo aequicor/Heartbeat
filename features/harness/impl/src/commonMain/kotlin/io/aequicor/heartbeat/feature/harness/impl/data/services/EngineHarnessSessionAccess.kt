@@ -10,6 +10,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSummary
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceTarget
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRuntime
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessAccess
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessAccessSnapshot
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDeliveryPermit
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSchedulerAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessTarget
@@ -20,7 +22,12 @@ import kotlin.time.Duration.Companion.seconds
 /** Shared authority and read-only routing for session services and scheduling. */
 internal interface HarnessSessionAccess {
     fun isCurrent(owner: HarnessInstanceTarget): Boolean
+
+    /** Waits briefly for restored provenance; null when denied or still unknown. */
     suspend fun permit(owner: HarnessInstanceTarget, target: HarnessTarget?): HarnessDeliveryPermit?
+
+    /** One synchronous authority view for checking many targets at once. */
+    fun snapshot(): HarnessAccessSnapshot
     suspend fun session(session: SessionRef): HarnessSessionRoute
 }
 
@@ -35,8 +42,14 @@ internal class EngineHarnessSessionAccess(
     override fun isCurrent(owner: HarnessInstanceTarget): Boolean = owner.access.isActive &&
         runtime.value.publishedInstances.value.any { it === owner.access && it.request == owner.request }
 
-    override suspend fun permit(owner: HarnessInstanceTarget, target: HarnessTarget?): HarnessDeliveryPermit? =
-        withTimeoutOrNull(2.seconds) { access.value.permits(owner.request.harness.id, target).first() }
+    override suspend fun permit(owner: HarnessInstanceTarget, target: HarnessTarget?): HarnessDeliveryPermit? {
+        val decision = withTimeoutOrNull(2.seconds) {
+            access.value.permits(owner.request.harness.id, target).first { it != HarnessAccess.Unknown }
+        }
+        return (decision as? HarnessAccess.Permitted)?.permit
+    }
+
+    override fun snapshot(): HarnessAccessSnapshot = access.value.snapshot()
 
     override suspend fun session(session: SessionRef): HarnessSessionRoute {
         val handle = facade.value.sessions.get(session)

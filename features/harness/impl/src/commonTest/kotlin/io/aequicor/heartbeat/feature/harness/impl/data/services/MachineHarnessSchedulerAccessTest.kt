@@ -12,17 +12,19 @@ import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessEntry
+import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
 import io.aequicor.heartbeat.feature.harness.api.HarnessLoad
 import io.aequicor.heartbeat.feature.harness.api.HarnessMachineKey
+import io.aequicor.heartbeat.feature.harness.api.HarnessName
 import io.aequicor.heartbeat.feature.harness.api.HarnessOutput
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessProjectSnapshots
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessEventGate
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.dispatchSession
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.runtimeRequest
-import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDeliveryPermit
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessAccess
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
-import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,9 +37,10 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.minutes
 
 class MachineHarnessSchedulerAccessTest {
     private val registry = SchedulerAccessRegistry()
@@ -48,50 +51,78 @@ class MachineHarnessSchedulerAccessTest {
     private val ready = HarnessState.Ready(listOf(HarnessEntry(harness)), isRuntimeAvailable = true)
 
     @Test
-    fun `first collection waits for initial library registration and load`() = runTest {
-        val result = async { access.permits(harness.id, null).first() }
+    fun `first collection reports unknown until initial library registration and load`() = runTest {
+        val observed = mutableListOf<HarnessAccess>()
+        backgroundScope.launch { access.permits(harness.id, null).collect { observed += it } }
         runCurrent()
-        assertFalse(result.isCompleted)
+        assertEquals(listOf<HarnessAccess>(HarnessAccess.Unknown), observed)
         val machine = SchedulerAccessMachine(HarnessState.Loading(HarnessLoad(1, 0)))
         registry.library.value = machine
         gate.open()
         runCurrent()
-        assertFalse(result.isCompleted)
+        assertEquals(listOf<HarnessAccess>(HarnessAccess.Unknown), observed)
         machine.state.value = ready
         runCurrent()
-        val permit = assertNotNull(result.await())
+        val permit = assertIs<HarnessAccess.Permitted>(observed.last()).permit
         assertTrue(permit.isCurrent())
         machine.state.value = ready.copy(isSuspended = true)
         assertFalse(permit.isCurrent())
     }
 
     @Test
-    fun `startup wait is bounded and off does not resolve registry observations`() = runTest {
-        val result = async { access.permits(harness.id, null).first() }
-        advanceTimeBy(1001)
+    fun `startup without known state never becomes a refusal and off resolves no observations`() = runTest {
+        val observed = mutableListOf<HarnessAccess>()
+        backgroundScope.launch { access.permits(harness.id, null).collect { observed += it } }
+        advanceTimeBy(1.minutes)
         runCurrent()
-        assertNull(result.await())
+        assertEquals(listOf<HarnessAccess>(HarnessAccess.Unknown), observed)
+        assertNull(access.snapshot().allows(harness.id, null))
         toggles.enabled.value = false
         registry.observations = 0
-        assertNull(access.permits(harness.id, null).first())
+        assertEquals(HarnessAccess.Denied, access.permits(harness.id, null).first())
         assertEquals(0, registry.observations)
+    }
+
+    @Test
+    fun `unrelated library changes keep a permit current while a new generation revokes it`() = runTest {
+        val machine = SchedulerAccessMachine(ready)
+        registry.library.value = machine
+        gate.open()
+        val observed = mutableListOf<HarnessAccess>()
+        backgroundScope.launch { access.permits(harness.id, null).collect { observed += it } }
+        runCurrent()
+        val permit = assertIs<HarnessAccess.Permitted>(observed.single()).permit
+        val other = harness.copy(id = HarnessId("other"), name = HarnessName("other"))
+        machine.state.value = ready.copy(
+            harnesses = ready.harnesses + HarnessEntry(other),
+            attachments = mapOf(dispatchSession to setOf(other.id)),
+        )
+        runCurrent()
+        assertTrue(permit.isCurrent())
+        assertEquals(1, observed.size)
+        assertEquals(true, access.snapshot().allows(harness.id, null))
+        gate.close()
+        gate.open()
+        runCurrent()
+        assertFalse(permit.isCurrent())
+        assertTrue(assertIs<HarnessAccess.Permitted>(observed.last()).permit.isCurrent())
     }
 
     @Test
     fun `closing an established generation revokes immediately without startup grace`() = runTest {
         registry.library.value = SchedulerAccessMachine(ready)
         gate.open()
-        val observed = mutableListOf<HarnessDeliveryPermit?>()
+        val observed = mutableListOf<HarnessAccess>()
         backgroundScope.launch { access.permits(harness.id, null).collect { observed += it } }
         runCurrent()
-        val permit = assertNotNull(observed.single())
+        val permit = assertIs<HarnessAccess.Permitted>(observed.single()).permit
         gate.close()
         runCurrent()
-        assertNull(observed.last())
+        assertEquals(HarnessAccess.Denied, observed.last())
         assertFalse(permit.isCurrent())
         gate.open()
         runCurrent()
-        assertNotNull(observed.last())
+        assertIs<HarnessAccess.Permitted>(observed.last())
         assertFalse(permit.isCurrent())
     }
 }

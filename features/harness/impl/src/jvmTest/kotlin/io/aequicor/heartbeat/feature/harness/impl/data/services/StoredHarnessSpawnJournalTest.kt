@@ -184,6 +184,8 @@ class StoredHarnessSpawnJournalTest {
         migration.runMigrationsAndValidate(3, HarnessAncestryDatabaseSpec.migrations).close()
         val journal = open()
         val stores = SpawnJournalTestStores(checkNotNull(database))
+        // Rows exist only after the profile marker was written by the first restriction.
+        stores.keyValue(HarnessAncestryMarkerSpec).set(HarnessAncestryMarkerKey, "1")
         assertEquals(record.origin, StoredHarnessRequestAncestry(stores).lookup(dispatchSession, record.request))
         assertEquals(
             HarnessHelperBinding(helper, record.action, harness, record.attachRequest),

@@ -6,8 +6,8 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessEventAncestry
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRequestAncestry
-import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.harnessScriptFailure
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HARNESS_WAKE_OWNER
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessHelperAttachments
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessHelperBindings
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSchedulerAccess
@@ -22,7 +22,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.transformLatest
 
 /**
@@ -44,6 +43,7 @@ internal class HarnessScheduledHelperPromptOwner(
     private val ownership = HarnessOwnedContext()
     private val log = Log.tag("HarnessHelperAdmission")
 
+    /** Admission runs only host code (codec, Room, registry), so its original failure is logged as is. */
     override fun admission(attempt: HelperPromptAttempt): Flow<Boolean> = flow {
         if (attempt.handoff?.ownerFeature == feature) {
             emitAll(owned(attempt))
@@ -53,10 +53,14 @@ internal class HarnessScheduledHelperPromptOwner(
         }
     }.catch { error ->
         if (error is CancellationException || error !is Exception) throw error
-        log.w(harnessScriptFailure(error)) { "Reject helper with unavailable harness admission" }
+        log.w(error) { "Reject helper with unavailable harness admission" }
         emit(false)
     }
 
+    /**
+     * False only for an actual refusal (denied authority or attachment). Unknown provenance and a superseded
+     * permit emit nothing: the next decision follows, and the host's admission deadline bounds the wait.
+     */
     @OptIn(ExperimentalCoroutinesApi::class)
     private fun owned(attempt: HelperPromptAttempt): Flow<Boolean> = flow {
         val owner = checkNotNull(ownership.decode(attempt.handoff?.ownerContext)) { "Missing helper owner" }
@@ -69,27 +73,42 @@ internal class HarnessScheduledHelperPromptOwner(
         }
         emitAll(
             access.value.permits(owner.harness, null).transformLatest { publisher ->
-                if (publisher == null) {
-                    emit(false)
-                } else {
-                    val bound = bindings.value.bindSession(binding.helper, binding.owner, attempt.session)
-                    persist(attempt)
-                    if (!publisher.isCurrent() || !attachments.value.ensureAttached(bound)) {
-                        emit(false)
-                    } else {
-                        emitAll(
-                            access.value.permits(owner.harness, HarnessTarget(attempt.session, attempt.workspace))
-                                .mapLatest { target ->
-                                    val isAllowed = target != null && target.isCurrent()
-                                    currentCoroutineContext().ensureActive()
-                                    isAllowed
-                                },
-                        )
+                when (publisher) {
+                    HarnessAccess.Unknown -> Unit
+
+                    HarnessAccess.Denied -> emit(false)
+
+                    is HarnessAccess.Permitted -> {
+                        val bound = bindings.value.bindSession(binding.helper, binding.owner, attempt.session)
+                        persist(attempt)
+                        if (publisher.permit.isCurrent()) {
+                            if (attachments.value.ensureAttached(bound)) {
+                                emitAll(target(owner, attempt))
+                            } else {
+                                emit(false)
+                            }
+                        }
                     }
                 }
             },
         )
     }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun target(owner: HarnessOwnership, attempt: HelperPromptAttempt): Flow<Boolean> =
+        access.value.permits(owner.harness, HarnessTarget(attempt.session, attempt.workspace)).transformLatest {
+            when (it) {
+                HarnessAccess.Unknown -> Unit
+
+                HarnessAccess.Denied -> emit(false)
+
+                is HarnessAccess.Permitted -> {
+                    val isCurrent = it.permit.isCurrent()
+                    currentCoroutineContext().ensureActive()
+                    if (isCurrent) emit(true)
+                }
+            }
+        }
 
     private suspend fun persist(attempt: HelperPromptAttempt) {
         val origin = ancestry.helper(attempt)

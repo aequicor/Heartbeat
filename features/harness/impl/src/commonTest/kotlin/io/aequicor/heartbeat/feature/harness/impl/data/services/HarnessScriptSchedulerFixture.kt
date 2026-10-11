@@ -21,11 +21,14 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionQuery
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSummary
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstance
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRegistrationFixture
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRequestOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.MemoryHarnessRequestAncestry
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.dispatchSession
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessAccess
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessAccessSnapshot
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDeliveryPermit
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSchedulerAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptSessions
@@ -43,6 +46,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.SchedulerBus
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
 import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -65,19 +69,30 @@ internal class HarnessScriptSchedulerFixture(scope: TestScope) {
     val ancestry = MemoryHarnessRequestAncestry()
     val port = SchedulerWakePortFixture()
     val published = mutableListOf<BusEvent>()
-    private val access = HarnessSchedulerAccess { _, target ->
-        targets += target
-        val captured = admissionRevision
-        flowOf(
-            if (isAllowed && allowsTarget(target)) {
-                HarnessDeliveryPermit {
-                    beforePermit()
-                    isAllowed && allowsTarget(target) && admissionRevision == captured
-                }
-            } else {
-                null
-            },
-        )
+    var isProvenanceKnown = true
+    private val access = object : HarnessSchedulerAccess {
+        override fun permits(harness: HarnessId, target: HarnessTarget?): Flow<HarnessAccess> {
+            targets += target
+            val captured = admissionRevision
+            return flowOf(
+                when (snapshot().allows(harness, target)) {
+                    null -> HarnessAccess.Unknown
+
+                    false -> HarnessAccess.Denied
+
+                    true -> HarnessAccess.Permitted(
+                        HarnessDeliveryPermit {
+                            beforePermit()
+                            isAllowed && allowsTarget(target) && admissionRevision == captured
+                        },
+                    )
+                },
+            )
+        }
+
+        override fun snapshot() = HarnessAccessSnapshot { _, target ->
+            if (target != null && !isProvenanceKnown) null else isAllowed && allowsTarget(target)
+        }
     }
     private val bus = object : SchedulerBus {
         override val events = MutableSharedFlow<BusEvent>()

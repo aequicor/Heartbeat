@@ -7,8 +7,8 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessEventAncestry
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRequestAncestry
-import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.harnessScriptFailure
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HARNESS_WAKE_OWNER
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSchedulerAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessTarget
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
@@ -54,6 +54,10 @@ internal class HarnessSchedulerAdmission(
         admit(delivery.wake.request, publisher, null) { ancestry.delivery(delivery) }
     }
 
+    /**
+     * While provenance is still restoring after startup an event-only wake defers to producer replay; a deadline
+     * cannot defer, so it waits for the first known decision within the scheduler's initial admission window.
+     */
     @OptIn(ExperimentalCoroutinesApi::class)
     private fun admit(
         request: WakeRequest,
@@ -69,14 +73,18 @@ internal class HarnessSchedulerAdmission(
         access.value.permits(
             owner.harness,
             target?.let { HarnessTarget(it.session, it.workspace) },
-        ).transformLatest { permit ->
-            if (permit == null) {
-                emit(ScheduledWakeAdmission.Drop)
-            } else {
-                persist(request, resolve())
-                val isCurrent = permit.isCurrent()
-                currentCoroutineContext().ensureActive()
-                emit(if (isCurrent) ScheduledWakeAdmission.Allow else ScheduledWakeAdmission.Drop)
+        ).transformLatest { decision ->
+            when (decision) {
+                HarnessAccess.Unknown -> if (request.condition.deadline == null) emit(ScheduledWakeAdmission.Defer)
+
+                HarnessAccess.Denied -> emit(ScheduledWakeAdmission.Drop)
+
+                is HarnessAccess.Permitted -> {
+                    persist(request, resolve())
+                    val isCurrent = decision.permit.isCurrent()
+                    currentCoroutineContext().ensureActive()
+                    emit(if (isCurrent) ScheduledWakeAdmission.Allow else ScheduledWakeAdmission.Drop)
+                }
             }
         }
     }
@@ -88,11 +96,12 @@ internal class HarnessSchedulerAdmission(
         currentCoroutineContext().ensureActive()
     }
 
+    /** Admission runs only host code (codec, Room, registry), so its original failure is logged as is. */
     private fun guarded(source: () -> Flow<ScheduledWakeAdmission>): Flow<ScheduledWakeAdmission> = flow {
         emitAll(source())
     }.catch { error ->
         if (error is CancellationException || error !is Exception) throw error
-        log.w(harnessScriptFailure(error)) { "Reject wake with unavailable harness admission" }
+        log.w(error) { "Reject wake with unavailable harness admission" }
         emit(ScheduledWakeAdmission.Drop)
     }
 }

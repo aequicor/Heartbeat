@@ -121,7 +121,10 @@ class StoredHarnessHelperBindingsTest {
         }
         migration.runMigrationsAndValidate(2, HarnessAncestryDatabaseSpec.migrations).close()
         val repository = open()
-        val ancestry = StoredHarnessRequestAncestry(HelperBindingTestStores(checkNotNull(database)))
+        val stores = HelperBindingTestStores(checkNotNull(database))
+        // Rows exist only after the profile marker was written by the first restriction.
+        stores.keyValue(HarnessAncestryMarkerSpec).set(HarnessAncestryMarkerKey, "1")
+        val ancestry = StoredHarnessRequestAncestry(stores)
         assertEquals(expected, ancestry.lookup(dispatchSession, RequestId("R")))
         repository.bind(binding)
         assertEquals(binding, repository.lookup(binding.helper))

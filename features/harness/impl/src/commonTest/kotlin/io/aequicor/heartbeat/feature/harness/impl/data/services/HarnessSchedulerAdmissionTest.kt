@@ -2,13 +2,16 @@ package io.aequicor.heartbeat.feature.harness.impl.data.services
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
+import io.aequicor.heartbeat.feature.harness.impl.data.HarnessTestStores
 import io.aequicor.heartbeat.feature.harness.impl.data.events.EmptyHarnessEventRuns
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessEventAncestry
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.MemoryHarnessRequestAncestry
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.dispatchSession
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDeliveryPermit
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSchedulerAccess
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessTarget
 import io.aequicor.heartbeat.feature.scheduler.api.BusEvent
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
@@ -24,15 +27,18 @@ import io.aequicor.heartbeat.feature.scheduler.api.deliveryRequestId
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeAdmission
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
 class HarnessSchedulerAdmissionTest {
@@ -41,11 +47,15 @@ class HarnessSchedulerAdmissionTest {
     private val origin = HarnessCallOrigin(true, mapOf(harness to 2))
     private val storage = MemoryHarnessRequestAncestry()
     private var isCurrent = true
-    private val permits = MutableStateFlow<HarnessDeliveryPermit?>(HarnessDeliveryPermit { isCurrent })
-    private val access = HarnessSchedulerAccess { owner, target ->
-        assertEquals(harness, owner)
-        target?.let { assertEquals(dispatchSession, it.session) }
-        permits
+    private val permits = MutableStateFlow<HarnessAccess>(HarnessAccess.Permitted(HarnessDeliveryPermit { isCurrent }))
+    private val access = object : HarnessSchedulerAccess {
+        override fun permits(harness: HarnessId, target: HarnessTarget?): Flow<HarnessAccess> {
+            assertEquals(this@HarnessSchedulerAdmissionTest.harness, harness)
+            target?.let { assertEquals(dispatchSession, it.session) }
+            return permits
+        }
+
+        override fun snapshot() = error("Admission never reads a bulk snapshot")
     }
     private val admission = HarnessSchedulerAdmission(
         lazyOf(access),
@@ -101,7 +111,7 @@ class HarnessSchedulerAdmissionTest {
         val observed = mutableListOf<ScheduledWakeAdmission>()
         backgroundScope.launch { admission.wake(request).collect { observed += it } }
         entered.await()
-        permits.value = null
+        permits.value = HarnessAccess.Denied
         runCurrent()
         release.complete(Unit)
         runCurrent()
@@ -138,12 +148,47 @@ class HarnessSchedulerAdmissionTest {
             admission.event(WakeDelivery(ScheduledWake(request, at), WakeReason.Event(event))).first(),
         )
         assertEquals(origin.merge(trigger), storage.lookup(request.session, request.id.deliveryRequestId()))
-        permits.value = null
+        permits.value = HarnessAccess.Denied
         assertEquals(ScheduledWakeAdmission.Drop, admission.wake(request).first())
         assertEquals(
             ScheduledWakeAdmission.Drop,
             admission.event(WakeDelivery(ScheduledWake(request, at), WakeReason.Event(event))).first(),
         )
+    }
+
+    @Test
+    fun `unknown provenance defers event wakes and keeps deadline wakes waiting instead of dropping`() = runTest {
+        permits.value = HarnessAccess.Unknown
+        val eventOnly = request.copy(condition = WakeCondition(events = setOf(EventKeys.custom("ready"))))
+        assertEquals(ScheduledWakeAdmission.Defer, admission.wake(eventOnly).first())
+        val decisions = mutableListOf<ScheduledWakeAdmission>()
+        backgroundScope.launch { admission.wake(request).collect { decisions += it } }
+        advanceTimeBy(10.seconds)
+        runCurrent()
+        assertTrue(decisions.isEmpty())
+        permits.value = HarnessAccess.Permitted(HarnessDeliveryPermit { true })
+        runCurrent()
+        assertEquals(listOf(ScheduledWakeAdmission.Allow), decisions)
+        assertEquals(origin, storage.lookup(request.session, request.id.deliveryRequestId()))
+    }
+
+    @Test
+    fun `ordinary relay without any recorded ancestry allows without opening the database`() = runTest {
+        val stores = HarnessTestStores()
+        val stored = StoredHarnessRequestAncestry(stores)
+        val detached = HarnessSchedulerAdmission(
+            lazy { error("disabled feature must stay lazy") },
+            HarnessEventAncestry(lazyOf(stored), lazyOf(EmptyHarnessEventRuns)),
+            lazyOf(stored),
+        )
+        val source = RequestInitiator(dispatchSession, RequestId("source"))
+        val ordinary = request.copy(ownerFeature = null, ownerContext = null, initiator = source)
+        val event = BusEvent(EventKeys.custom("done"), EventOrigin.Session(dispatchSession, RequestId("cause")), at)
+        val wake = ScheduledWake(ordinary, at)
+        // HarnessTestStores refuses every database open, so any lookup that reached Room would drop the wake.
+        for (reason in listOf(WakeReason.Deadline(at), WakeReason.Event(event))) {
+            assertEquals(ScheduledWakeAdmission.Allow, detached.event(WakeDelivery(wake, reason)).first())
+        }
     }
 
     @Test

@@ -14,7 +14,6 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessEventDis
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessEventGate
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstance
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRuntime
-import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.harnessScriptFailure
 import io.aequicor.heartbeat.feature.scheduler.api.BusEvent
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerOutput
 import kotlinx.coroutines.CancellationException
@@ -109,7 +108,8 @@ internal class HarnessEventSources(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            log.w(harnessScriptFailure(error)) { "Skip event with unavailable request ancestry" }
+            // Ancestry resolution is host IO and codecs, never author code: keep the original failure.
+            log.w(error) { "Skip event with unavailable request ancestry" }
             return
         }
         currentCoroutineContext().ensureActive()

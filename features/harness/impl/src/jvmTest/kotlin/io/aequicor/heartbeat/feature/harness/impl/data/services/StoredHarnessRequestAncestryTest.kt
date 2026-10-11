@@ -29,6 +29,9 @@ class StoredHarnessRequestAncestryTest {
     private val path = directory.resolve("ancestry.db").absolutePath
     private var database: HarnessAncestryDatabase? = null
 
+    /** Profile key-value storage survives repository and database restarts, like the real profile directory. */
+    private val values = HarnessTestStores()
+
     @AfterTest
     fun close() {
         database?.close()
@@ -41,7 +44,7 @@ class StoredHarnessRequestAncestryTest {
             .setDriver(BundledSQLiteDriver())
             .build()
         database = current
-        return StoredHarnessRequestAncestry(AncestryTestStores(current))
+        return StoredHarnessRequestAncestry(AncestryTestStores(current, values))
     }
 
     @Test
@@ -117,16 +120,22 @@ class StoredHarnessRequestAncestryTest {
             .setDriver(BundledSQLiteDriver())
             .build()
         database = current
-        val stores = AncestryTestStores(current)
+        val stores = AncestryTestStores(current, values)
         val repository = StoredHarnessRequestAncestry(stores)
         repository.restrict(dispatchSession, REQUEST, HarnessCallOrigin())
-        assertEquals(0, stores.opens)
+        // No restriction was ever written in this profile, so lookups stay off the database too.
         assertNull(repository.lookup(dispatchSession, REQUEST))
+        assertEquals(0, stores.opens)
+        repository.restrict(dispatchSession, REQUEST, HarnessCallOrigin(true))
         assertEquals(1, stores.opens)
+        val restarted = StoredHarnessRequestAncestry(AncestryTestStores(current, values))
+        assertEquals(HarnessCallOrigin(true), restarted.lookup(dispatchSession, REQUEST))
+        assertNull(restarted.lookup(dispatchSession, RequestId("unrelated")))
     }
 }
 
-private class AncestryTestStores(private val database: HarnessAncestryDatabase) : DataStores by HarnessTestStores() {
+private class AncestryTestStores(private val database: HarnessAncestryDatabase, values: HarnessTestStores) :
+    DataStores by values {
     var opens = 0
 
     @Suppress("UNCHECKED_CAST") // This fixture accepts only the exact database spec associated with its instance.

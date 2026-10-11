@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessAttachmentWrite
 import io.aequicor.heartbeat.feature.harness.api.HarnessEntry
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
+import io.aequicor.heartbeat.feature.harness.impl.data.HarnessTestStores
 import io.aequicor.heartbeat.feature.harness.impl.data.events.EmptyHarnessEventRuns
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessEventAncestry
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessProjectSnapshots
@@ -16,11 +17,13 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessEventGat
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.MemoryHarnessRequestAncestry
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.dispatchSession
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.runtimeRequest
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDeliveryPermit
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessHelperAttachments
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessHelperBinding
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessHelperBindings
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSchedulerAccess
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessTarget
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperHandoff
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
@@ -29,15 +32,19 @@ import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperPromptAttempt
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 class HarnessScheduledHelperPromptOwnerTest {
     private val harness = HarnessId("harness")
@@ -47,8 +54,8 @@ class HarnessScheduledHelperPromptOwnerTest {
     private val origin = HarnessCallOrigin(true, mapOf(harness to 2))
     private val storage = MemoryHarnessRequestAncestry()
     private val bindings = HelperBindingMemory(HarnessHelperBinding(helper, action, harness, RequestId("attach")))
-    private val publisher = MutableStateFlow<HarnessDeliveryPermit?>(HarnessDeliveryPermit { true })
-    private val target = MutableStateFlow<HarnessDeliveryPermit?>(HarnessDeliveryPermit { true })
+    private val publisher = MutableStateFlow<HarnessAccess>(permitted { true })
+    private val target = MutableStateFlow<HarnessAccess>(permitted { true })
     private val workspace = WorkspaceRef("actual-checkout")
     private val attempt = HelperPromptAttempt(
         HelperMetadata(helper, action, null, dispatchSession, request),
@@ -59,15 +66,19 @@ class HarnessScheduledHelperPromptOwnerTest {
     )
     private var attachments = 0
     private var attach: suspend () -> Boolean = { true }
-    private val access = HarnessSchedulerAccess { owner, destination ->
-        assertEquals(harness, owner)
-        if (destination == null) {
-            publisher
-        } else {
-            assertEquals(dispatchSession, destination.session)
-            assertEquals(workspace, destination.workspace)
-            target
+    private val access = object : HarnessSchedulerAccess {
+        override fun permits(harness: HarnessId, target: HarnessTarget?): Flow<HarnessAccess> {
+            assertEquals(this@HarnessScheduledHelperPromptOwnerTest.harness, harness)
+            return if (target == null) {
+                publisher
+            } else {
+                assertEquals(dispatchSession, target.session)
+                assertEquals(workspace, target.workspace)
+                this@HarnessScheduledHelperPromptOwnerTest.target
+            }
         }
+
+        override fun snapshot() = error("Helper admission never reads a bulk snapshot")
     }
     private val owner = HarnessScheduledHelperPromptOwner(
         lazyOf(bindings),
@@ -151,7 +162,7 @@ class HarnessScheduledHelperPromptOwnerTest {
     @Test
     fun `attachment revision invalidates old publisher snapshot but fresh target still authorizes`() = runTest {
         var isPublisherCurrent = true
-        publisher.value = HarnessDeliveryPermit { isPublisherCurrent }
+        publisher.value = permitted { isPublisherCurrent }
         attach = {
             isPublisherCurrent = false
             true
@@ -187,7 +198,7 @@ class HarnessScheduledHelperPromptOwnerTest {
         val decisions = mutableListOf<Boolean>()
         backgroundScope.launch { owner.admission(attempt).collect { decisions += it } }
         entered.await()
-        publisher.value = null
+        publisher.value = HarnessAccess.Denied
         runCurrent()
         release.complete(Unit)
         runCurrent()
@@ -200,12 +211,46 @@ class HarnessScheduledHelperPromptOwnerTest {
         attach = { false }
         assertFalse(owner.admission(attempt).first())
         attach = { true }
-        target.value = null
+        target.value = HarnessAccess.Denied
         assertFalse(owner.admission(attempt).first())
-        target.value = HarnessDeliveryPermit { false }
-        assertFalse(owner.admission(attempt).first())
+        // A superseded target permit is not a refusal: nothing is emitted until the next decision arrives.
+        target.value = permitted { false }
+        assertNull(withTimeoutOrNull(10.seconds) { owner.admission(attempt).first() })
+        target.value = permitted { true }
         storage.failure = IllegalStateException("private failure")
         assertFalse(owner.admission(attempt).first())
+    }
+
+    @Test
+    fun `unknown provenance and a stale publisher wait for the next decision instead of refusing`() = runTest {
+        publisher.value = HarnessAccess.Unknown
+        val decisions = mutableListOf<Boolean>()
+        backgroundScope.launch { owner.admission(attempt).collect { decisions += it } }
+        runCurrent()
+        assertTrue(decisions.isEmpty())
+        publisher.value = permitted { false }
+        runCurrent()
+        assertTrue(decisions.isEmpty())
+        assertEquals(0, attachments)
+        publisher.value = permitted { true }
+        runCurrent()
+        assertEquals(listOf(true), decisions)
+        assertEquals(1, attachments)
+    }
+
+    @Test
+    fun `initiator relay without any recorded ancestry allows without opening the database`() = runTest {
+        val stored = StoredHarnessRequestAncestry(HarnessTestStores())
+        val relay = HarnessScheduledHelperPromptOwner(
+            lazy { error("must not resolve helper binding") },
+            lazy { error("must not attach") },
+            lazy { error("must not start feature authority") },
+            HarnessEventAncestry(lazyOf(stored), lazyOf(EmptyHarnessEventRuns)),
+            lazyOf(stored),
+        )
+        val source = RequestInitiator(dispatchSession.copy(nativeId = "source"), RequestId("source-R"))
+        // HarnessTestStores refuses every database open, so reaching Room would refuse the helper.
+        assertTrue(relay.admission(attempt.copy(handoff = HelperHandoff(initiator = source))).first())
     }
 
     @Test
@@ -232,3 +277,6 @@ private class HelperBindingMemory(var record: HarnessHelperBinding?) : HarnessHe
     override suspend fun bindSession(helper: HelperId, owner: ActionId, session: SessionRef): HarnessHelperBinding =
         checkNotNull(record).copy(session = session).also { record = it }
 }
+
+private fun permitted(isCurrent: suspend () -> Boolean): HarnessAccess =
+    HarnessAccess.Permitted(HarnessDeliveryPermit(isCurrent))

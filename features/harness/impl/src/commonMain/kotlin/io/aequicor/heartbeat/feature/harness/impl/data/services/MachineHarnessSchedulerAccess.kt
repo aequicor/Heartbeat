@@ -15,6 +15,8 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.activeHarnesses
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessProjectSnapshots
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessEventGate
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessAccess
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessAccessSnapshot
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDeliveryPermit
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSchedulerAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessTarget
@@ -22,18 +24,18 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import io.aequicor.heartbeat.feature.worktreemode.api.sourceProjectOf
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.mapLatest
-import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.flow.map
 
 /**
  * Uses persisted scheduler routing and attachments even before any facade callback after restart. Reading the
  * registry never starts the library or an engine. A helper must be durably attached before its first prompt;
- * neither owner text nor an action-id prefix can prove helper affiliation.
+ * neither owner text nor an action-id prefix can prove helper affiliation. Until the library, the enabled
+ * generation and the needed worktree mapping are restored, a decision is [HarnessAccess.Unknown], never a refusal.
  */
 @ContributesBinding(ProfileScope::class)
 @Inject
@@ -44,10 +46,10 @@ internal class MachineHarnessSchedulerAccess(
     private val gate: HarnessEventGate,
 ) : HarnessSchedulerAccess {
     @OptIn(ExperimentalCoroutinesApi::class)
-    override fun permits(harness: HarnessId, target: HarnessTarget?): Flow<HarnessDeliveryPermit?> =
+    override fun permits(harness: HarnessId, target: HarnessTarget?): Flow<HarnessAccess> =
         toggles.observe(HarnessEnabled).flatMapLatest { enabled ->
             if (!enabled) {
-                flowOf(null)
+                flowOf(HarnessAccess.Denied)
             } else {
                 combine(
                     machines.observe(HarnessMachineKey).flatMapLatest { it?.state ?: flowOf(null) },
@@ -55,24 +57,28 @@ internal class MachineHarnessSchedulerAccess(
                     projects.projects,
                     gate.epochs,
                 ) { library, worktrees, catalog, epoch ->
-                    HarnessSchedulerSnapshot(library, worktrees, catalog, epoch, gate.hasOpened)
-                }.mapLatest { snapshot ->
-                    when (snapshot.allows(harness, target)) {
-                        true -> HarnessDeliveryPermit {
-                            toggles.get(HarnessEnabled) && snapshot == current()
-                        }
-
-                        // Leave time for restored worktree mapping before the scheduler's initial 2s deadline.
-                        null -> {
-                            delay(1.seconds)
-                            null
-                        }
-
-                        false -> null
+                    val isAllowed = HarnessSchedulerSnapshot(library, worktrees, catalog, epoch, gate.hasOpened)
+                        .allows(harness, target)
+                    // A permit is bound to its enabled generation; other decisions do not depend on it.
+                    isAllowed to epoch.takeIf { isAllowed == true }
+                }.distinctUntilChanged().map { (isAllowed, epoch) ->
+                    when (isAllowed) {
+                        true -> HarnessAccess.Permitted(HarnessDeliveryPermit { isCurrent(harness, target, epoch) })
+                        false -> HarnessAccess.Denied
+                        null -> HarnessAccess.Unknown
                     }
                 }
             }
         }
+
+    override fun snapshot(): HarnessAccessSnapshot = current()
+
+    /** Only this decision and its enabled generation matter; unrelated library edits keep the permit current. */
+    private suspend fun isCurrent(harness: HarnessId, target: HarnessTarget?, epoch: Long?): Boolean {
+        if (!toggles.get(HarnessEnabled)) return false
+        val current = current()
+        return current.epoch == epoch && current.allows(harness, target) == true
+    }
 
     private fun current(): HarnessSchedulerSnapshot = HarnessSchedulerSnapshot(
         machines.find(HarnessMachineKey)?.state?.value,
@@ -90,8 +96,8 @@ internal data class HarnessSchedulerSnapshot(
     val projects: Set<WorkspaceRef>?,
     val epoch: Long?,
     val hasOpened: Boolean = true,
-) {
-    fun allows(harness: HarnessId, target: HarnessTarget?): Boolean? {
+) : HarnessAccessSnapshot {
+    override fun allows(harness: HarnessId, target: HarnessTarget?): Boolean? {
         if (library?.isSuspended == true) return false
         if (epoch == null) return if (hasOpened) false else null
         val ready = when (library) {
