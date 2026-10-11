@@ -17,6 +17,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import me.friwi.jcefmaven.CefAppBuilder
 import me.friwi.jcefmaven.CefBuildInfo
+import me.friwi.jcefmaven.EnumOS
 import me.friwi.jcefmaven.EnumPlatform
 import me.friwi.jcefmaven.MavenCefAppHandlerAdapter
 import org.cef.CefApp
@@ -58,6 +59,7 @@ internal class DesktopDefaultBrowserResources(
             setMirrors(emptyList())
             setProgressHandler { _, _ -> }
             setAppHandler(object : MavenCefAppHandlerAdapter() {})
+            cefSettings.useBundledBrowserPaths(directory, platform.os)
             cefSettings.windowless_rendering_enabled = false
             cefSettings.root_cache_path = File(
                 storageRoot.path(),
@@ -83,4 +85,16 @@ internal class DesktopDefaultBrowserResources(
         check(CefApp.getState() == CefApp.CefAppState.INITIALIZED) { "Browser runtime initialization failed" }
         return app
     }
+}
+
+/**
+ * Pins Windows subprocesses and resources to the same bundle as the loaded native libraries.
+ * JCEF otherwise finds the first jcef.dll in java.library.path, which may belong to the JBR SDK.
+ * On macOS jcefmaven already supplies the absolute helper and framework paths from its bundle.
+ */
+internal fun CefSettings.useBundledBrowserPaths(directory: File, os: EnumOS) {
+    if (os != EnumOS.WINDOWS) return
+    browser_subprocess_path = File(directory, "jcef_helper.exe").absolutePath
+    resources_dir_path = directory.absolutePath
+    locales_dir_path = File(directory, "locales").absolutePath
 }
