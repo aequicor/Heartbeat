@@ -27,7 +27,9 @@ internal class CodexSessionStop(
         val turn = pending?.turn ?: state.codexCurrentTurn()?.takeIf { it.matches(request, expected) }
             ?: state.lastTurn()?.takeIf { it.matches(request, expected) }
         return turn?.let { selected ->
-            val stop = CodexStopClaim(selected, session.connection, pending)
+            // A restored turn ran on an earlier process; stopping it never retires the current connection.
+            val isExecuting = pending != null || session.isActiveExecutionOwned
+            val stop = CodexStopClaim(selected, session.connection, pending, isExecuting)
             claim = stop
             pending?.stop()
             session.hostedJobs.revoke(selected.id)
@@ -53,7 +55,7 @@ internal class CodexSessionStop(
         check(claim === stop && record.turn.id == stop.turn.id && record.turn.request == stop.turn.request)
         val isNative = stop.boundary is CodexSubmissionBoundary.NativeMayStart ||
             (stop.submission == null && stop.turn.outcome == null)
-        if (isNative) session.runtime.discard(stop.origin)
+        if (isNative && stop.isOriginExecuting) session.runtime.discard(stop.origin)
         val isCurrent = session.machine.state.value.codexCurrentTurn()?.id == record.turn.id
         val isFirst = settle(record)
         if (isCurrent) {
@@ -89,7 +91,13 @@ internal class CodexSessionStop(
     private fun unavailable(): EngineFailure = EngineFailure.Session(SessionFailureReason.NotResumable)
 }
 
-internal class CodexStopClaim(val turn: Turn, val origin: CodexConnection, val submission: CodexSubmission?) {
+internal class CodexStopClaim(
+    val turn: Turn,
+    val origin: CodexConnection,
+    val submission: CodexSubmission?,
+    /** Whether [origin] may run the claimed turn and must be retired with it. */
+    val isOriginExecuting: Boolean = true,
+) {
     var boundary: CodexSubmissionBoundary? = null
         private set
 

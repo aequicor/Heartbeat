@@ -261,6 +261,7 @@ internal class CodexRuntime(
         workspace: WorkspaceRef?,
         areDetachedToolsEnabled: Boolean,
     ): ActiveSession = withContext(dispatchers.main) {
+        nativeId?.let { resumeStop(it, target, workspace) }
         commands.withLock {
             gate()
             if (target.engine != identity.engine) {
@@ -281,6 +282,22 @@ internal class CodexRuntime(
                 openNative(nativeId, target, route, areDetachedToolsEnabled)
             }
         }
+    }
+
+    /**
+     * A stop interrupted by a restart leaves its fence, which forbids reopening the thread. It is completed first,
+     * only through proven exit of the fenced processes; otherwise opening still fails as busy.
+     */
+    private suspend fun resumeStop(nativeId: String, target: EngineTarget, workspace: WorkspaceRef?) {
+        if (sessions[nativeId] != null || ownedTurns.isReserved(nativeId)) return
+        val ref = SessionRef(identity.engine, config.historySource, nativeId)
+        val route = ExecutionRoute(identity.engine, target.binding, identity.source, identity.revision, workspace)
+        val fence = CodexTurnJournal(host.turns, ref, route, null).pendingStop() ?: return
+        gate()
+        log.i { "Codex interrupted turn stop resumed before reopening" }
+        val isDrained = host.hostedDrains.drain(ref, route, turnOwnership, fence.turn.id)
+        val journal = CodexTurnJournal(host.turns, ref, route, turnOwnership)
+        if (isDrained) CodexStoredTurnStop(journal, launch).stop(checkNotNull(fence.turn.request), fence.turn.id)
     }
 
     private suspend fun openNative(

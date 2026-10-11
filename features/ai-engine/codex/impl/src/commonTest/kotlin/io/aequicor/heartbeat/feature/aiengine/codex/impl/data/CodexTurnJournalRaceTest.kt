@@ -5,10 +5,12 @@ package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexLocalConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
@@ -52,12 +54,54 @@ class CodexTurnJournalRaceTest {
     }
 
     @Test
-    fun `missing ownership is rejected before accepting a native request`() = runTest {
+    fun `missing ownership is a proven rejection that leaves the chat ready`() = runTest {
         val fixture = Fixture(this, configuration = CodexLocalConfiguration())
         val session = fixture.open()
-        assertFailsWith<EngineException> { session.feature(SendsPrompts).send(Prompt) }
+        val failure = assertFailsWith<EngineException> { session.feature(SendsPrompts).send(Prompt) }.failure
+        assertEquals(RequestFailureReason.Invalid, assertIs<EngineFailure.Request>(failure).reason)
+        runCurrent()
+        assertIs<ActiveSessionState.Ready>(session.state.value)
         assertFalse(fixture.wire.written.any { it.text("method") == "turn/start" })
         assertNull(fixture.environment.turns.get(session.ref))
+    }
+
+    @Test
+    fun `journal failure before turn start is a rejection and the next request proceeds`() = runTest {
+        val records = GatedTurnRecords()
+        val fixture = Fixture(this, turns = records)
+        val session = fixture.open()
+        var isFailing = true
+        records.beforeWrite = { if (isFailing && it.active != null) error("Disk unavailable") }
+        val failure = assertFailsWith<EngineException> { session.feature(SendsPrompts).send(Prompt) }.failure
+        assertEquals(RequestFailureReason.Invalid, assertIs<EngineFailure.Request>(failure).reason)
+        runCurrent()
+        assertIs<ActiveSessionState.Ready>(session.state.value)
+        assertFalse(fixture.wire.written.any { it.text("method") == "turn/start" })
+        isFailing = false
+        val turn = session.feature(SendsPrompts).send(Prompt.copy(id = RequestId("next")))
+        assertEquals(turn, assertIs<ActiveSessionState.Running>(session.state.value).turn.id)
+        assertEquals(1, fixture.wire.written.count { it.text("method") == "turn/start" })
+    }
+
+    @Test
+    fun `stale record of a rejected turn is completed by the next request`() = runTest {
+        val records = GatedTurnRecords()
+        val fixture = Fixture(this, turns = records)
+        val base = fixture.onTurn
+        fixture.onTurn = { fixture.wire.error(it) }
+        val session = fixture.open()
+        var isFailing = true
+        records.beforeWrite = { if (isFailing && it.last != null) error("Disk unavailable") }
+        assertFailsWith<EngineException> { session.feature(SendsPrompts).send(Prompt) }
+        runCurrent()
+        val rejected = assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn
+        assertIs<TurnOutcome.Failed>(rejected?.outcome)
+        assertEquals(rejected?.id, records.get(session.ref)?.active?.turn?.id)
+        isFailing = false
+        fixture.onTurn = base
+        val next = session.feature(SendsPrompts).send(Prompt.copy(id = RequestId("next")))
+        assertEquals(rejected, records.get(session.ref)?.last?.turn)
+        assertEquals(next, records.get(session.ref)?.active?.turn?.id)
     }
 
     @Test

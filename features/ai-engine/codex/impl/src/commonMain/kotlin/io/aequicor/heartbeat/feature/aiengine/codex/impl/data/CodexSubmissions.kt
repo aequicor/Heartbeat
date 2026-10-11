@@ -40,7 +40,7 @@ internal class CodexSubmissions(
                 fail(EngineFailure.Session(SessionFailureReason.Busy))
             }
             val turn = Turn(TurnId(Uuid.random().toString()), request.id, session.target)
-            val submission = CodexSubmission(turn, session.hostedJobs::revoke, request.trust ?: TrustLevel.Ask)
+            val submission = CodexSubmission(turn, session.hostedJobs::revoke, request.trust ?: TrustLevel.Ask, last)
             entry = submission
             pending = submission
             return session.connectionMutex.withLock {

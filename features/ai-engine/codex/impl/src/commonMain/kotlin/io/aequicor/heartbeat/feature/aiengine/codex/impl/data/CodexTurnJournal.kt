@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -25,15 +26,31 @@ internal class CodexTurnJournal(
 
     suspend fun restore(): CodexTurnSnapshot? = guarded { records.get(ref)?.also(::validate) }
 
-    suspend fun begin(turn: Turn, trust: TrustLevel, processOwner: CodexExecutionOwner? = null) = guarded {
+    /** The fenced turn's identity only; resuming its stop validates ownership again before any signal. */
+    suspend fun pendingStop(): CodexTurnRecord? = guarded { records.get(ref)?.stopping }
+
+    /**
+     * [settled] is the session's locally terminal last turn: a record of it left active by a failed terminal
+     * write is completed with that outcome instead of blocking every later request.
+     */
+    suspend fun begin(
+        turn: Turn,
+        trust: TrustLevel,
+        processOwner: CodexExecutionOwner? = null,
+        settled: Turn? = null,
+    ) = guarded {
         val owner = checkNotNull(ownership) { "Native store ownership unavailable" }
+        var isCompleted = false
         records.update(ref) { previous ->
-            val before = previous?.let(::rebound) ?: CodexTurnSnapshot(ref, route, owner)
+            val known = previous?.let(::rebound)
+            val before = known?.completing(settled) ?: CodexTurnSnapshot(ref, route, owner)
+            isCompleted = known != null && before.last != known.last
             check(
                 before.active == null && before.stopping == null && before.last?.turn?.id != turn.id,
             ) { "Previous turn is unresolved" }
             before.copy(active = CodexTurnRecord(turn, null, trust, processOwner))
         }
+        if (isCompleted) log.i { "Codex turn record completed from the observed terminal outcome" }
     }
 
     /**
@@ -176,6 +193,13 @@ internal class CodexTurnJournal(
         return if (snapshot.isUnresolved) snapshot else snapshot.copy(route = route, ownership = ownership)
     }
 
+    private fun CodexTurnSnapshot.completing(settled: Turn?): CodexTurnSnapshot {
+        val outcome = settled?.outcome ?: return this
+        val record = active?.takeIf { it.turn.id == settled.id && it.turn.request == settled.request }
+        if (record == null || stopping != null) return this
+        return copy(active = null, last = record.copy(turn = record.turn.copy(outcome = outcome)))
+    }
+
     private fun CodexTurnRecord.bind(native: String): CodexTurnRecord {
         check(nativeId == null || nativeId == native) { "Codex native turn identity changed" }
         return copy(nativeId = native)
@@ -193,6 +217,32 @@ internal class CodexTurnJournal(
             "Codex turn journal unavailable"
         }
         fail(EngineFailure.Session(SessionFailureReason.NotResumable))
+    }
+}
+
+private val admissionLog = Log.tag("CodexTurnAdmission")
+
+/** Nothing reached the native process yet: a refused begin is a proven rejection, never an unknown outcome. */
+internal suspend fun CodexTurnJournal.admit(
+    turn: Turn,
+    trust: TrustLevel,
+    processOwner: CodexExecutionOwner?,
+    settled: Turn?,
+) {
+    try {
+        begin(turn, trust, processOwner, settled)
+    } catch (e: EngineException) {
+        admissionLog.w(e) { "Codex submission refused: turn journal unavailable" }
+        fail(EngineFailure.Request(RequestFailureReason.Invalid, turn.request))
+    }
+}
+
+/** A rejected turn never started natively; a failed write is completed by the next begin from its outcome. */
+internal suspend fun CodexTurnJournal.finishRejected(turn: TurnId, outcome: TurnOutcome) {
+    try {
+        finish(turn, outcome)
+    } catch (e: EngineException) {
+        admissionLog.w(e) { "Rejected Codex turn could not be recorded" }
     }
 }
 

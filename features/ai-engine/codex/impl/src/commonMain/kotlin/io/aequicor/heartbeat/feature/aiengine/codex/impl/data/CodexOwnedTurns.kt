@@ -44,7 +44,7 @@ internal class CodexOwnedTurns(
                 access.workspace,
             )
             val reservation = commands.withLock { reserve(ref, request, route, access) }
-                ?: return@withContext OwnedTurnStop.Unconfirmed
+                ?: return@withContext unconfirmed("another stop holds the session")
             reservation.mutex.withLock { perform(ref, request, access, reservation) }
         }
 
@@ -55,7 +55,11 @@ internal class CodexOwnedTurns(
         reservation: Reservation,
     ): OwnedTurnStop = try {
         runtime.gate()
-        reservation.cached(access.expectedTurn) ?: resolve(ref, request, access, reservation)
+        when (val cached = reservation.cached(access.expectedTurn)) {
+            null -> resolve(ref, request, access, reservation)
+            OwnedTurnStop.Unconfirmed -> unconfirmed("a different turn was confirmed")
+            else -> cached
+        }
     } finally {
         // Before validating cold ownership no work was revoked or signalled. A bad route must not poison retry.
         if (!reservation.isValidated && reservation.claim == null && reservations[ref] === reservation) {
@@ -92,7 +96,7 @@ internal class CodexOwnedTurns(
         val selected = select(snapshot, request, access, reservation)
         if (selected == null) {
             if (reservations[ref] === reservation) reservations.remove(ref)
-            return OwnedTurnStop.Unconfirmed
+            return unconfirmed("no matching turn")
         }
         reservation.isValidated = true
         val result = stopSelected(ref, journal, selected, reservation)
@@ -126,13 +130,31 @@ internal class CodexOwnedTurns(
         val isPrepared = session == null || claim == null || session.stopping.prepare(claim)
         val isDrained = isPrepared && (session == null || session.hostedJobs.drain(turn.id)) &&
             runtime.host.hostedDrains.drain(ref, reservation.route, runtime.turnOwnership, turn.id)
-        if (!isDrained) return null
         val pending = claim?.submission
-        return if (pending != null && claim.boundary == CodexSubmissionBoundary.NotSent) {
-            journal.cancelBeforeSubmission(pending, pending.trust)
-        } else {
-            CodexStoredTurnStop(journal, launch).stop(checkNotNull(turn.request), turn.id)
+        val result = when {
+            !isDrained -> null
+
+            pending != null && claim.boundary == CodexSubmissionBoundary.NotSent ->
+                journal.cancelBeforeSubmission(pending, pending.trust)
+
+            else -> CodexStoredTurnStop(journal, launch).stop(checkNotNull(turn.request), turn.id)
         }
+        if (result == null) {
+            unconfirmed(
+                when {
+                    !isPrepared -> "submission boundary unresolved"
+                    !isDrained -> "hosted work still draining"
+                    else -> "process exit unconfirmed"
+                },
+            )
+        }
+        return result
+    }
+
+    /** One line per stop that leaves the request's capacity held, with the reason it could not be proven. */
+    private fun unconfirmed(reason: String): OwnedTurnStop.Unconfirmed {
+        log.i { "Codex owned turn stop unconfirmed: $reason" }
+        return OwnedTurnStop.Unconfirmed
     }
 
     private suspend fun complete(

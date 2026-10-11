@@ -18,6 +18,8 @@ internal class CodexSubmission(
     val turn: Turn,
     private val revoke: (TurnId) -> Unit = {},
     val trust: TrustLevel = TrustLevel.Ask,
+    /** The session's terminal last turn when this request was admitted. */
+    val settled: Turn? = null,
 ) {
     val accepted = CompletableDeferred<TurnId>()
     private val prepared = CompletableDeferred<CodexSubmissionBoundary>()

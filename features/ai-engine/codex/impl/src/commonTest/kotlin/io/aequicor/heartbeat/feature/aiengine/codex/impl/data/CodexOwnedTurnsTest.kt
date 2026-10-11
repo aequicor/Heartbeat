@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.OwnedTurnAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.OwnedTurnStop
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
@@ -44,7 +45,7 @@ import kotlin.test.assertTrue
 
 class CodexOwnedTurnsTest {
     @Test
-    fun `cold interrupted projection needs owned stop to settle the active request`() = runTest {
+    fun `cold interrupted projection settles the restored request only after its owner exits`() = runTest {
         val records = MemoryCodexTurnRecords()
         val (first, _) = fixture(records)
         val original = first.open()
@@ -54,7 +55,13 @@ class CodexOwnedTurnsTest {
         val (second, launch) = fixture(records)
         second.resumedTurns = JsonArray(listOf(interrupted))
         second.threadTurns = listOf(interrupted)
+        val exit = CompletableDeferred<Unit>()
+        launch.onStop = {
+            exit.await()
+            true
+        }
         val restored = second.runtime.attach(original.ref, ResumeSessionRequest(second.target))
+        runCurrent()
         assertEquals(turn, assertIs<ActiveSessionState.Unavailable>(restored.state.value).activeTurn?.id)
         second.event("turn/completed", "turn" to json("id" to "foreign".json(), "status" to "completed".json()))
         runCurrent()
@@ -68,15 +75,78 @@ class CodexOwnedTurnsTest {
         assertFailsWith<EngineException> {
             restored.feature(SendsPrompts).send(Prompt.copy(id = RequestId("too-early")))
         }
-        val stopped = assertIs<OwnedTurnStop.Confirmed>(second.stop(restored))
-        assertEquals(turn, stopped.turn.id)
-        assertEquals(TurnOutcome.Unknown, stopped.turn.outcome)
+        exit.complete(Unit)
+        runCurrent()
+        val settled = assertIs<ActiveSessionState.Ready>(restored.state.value).lastTurn
+        assertEquals(turn, settled?.id)
+        assertEquals(TurnOutcome.Unknown, settled?.outcome)
         assertEquals(1, launch.stops)
-        assertIs<ActiveSessionState.Ready>(restored.state.value)
+        // The helper's exact stop reads the same durable receipt without signalling again.
+        val stopped = assertIs<OwnedTurnStop.Confirmed>(second.stop(restored))
+        assertEquals(settled, stopped.turn)
+        assertEquals(1, launch.stops)
         // A proven exit permits a new turn even though the historical native projection remains interrupted.
         val next = restored.feature(SendsPrompts).send(Prompt.copy(id = RequestId("next")))
         assertEquals(next, assertIs<ActiveSessionState.Running>(restored.state.value).turn.id)
         first.runtime.close()
+        second.runtime.close()
+    }
+
+    @Test
+    fun `unbound turn after a lost start reply settles through explicit reconciliation`() = runTest {
+        val (fixture, launch) = fixture()
+        val reply = fixture.onTurn
+        fixture.onTurn = {}
+        val session = fixture.open()
+        assertFailsWith<EngineException> { session.feature(SendsPrompts).send(Prompt) }
+        runCurrent()
+        val unbound = assertNotNull(assertIs<ActiveSessionState.Unavailable>(session.state.value).activeTurn)
+        assertNull(fixture.environment.turns.get(session.ref)?.active?.nativeId)
+        session.feature(ReconcilesSession).synchronize()
+        val settled = assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn
+        assertEquals(unbound.id, settled?.id)
+        assertEquals(TurnOutcome.Unknown, settled?.outcome)
+        assertEquals(1, launch.stops)
+        assertTrue(fixture.wire.peers.single().isClosed)
+        fixture.onTurn = reply
+        val next = session.feature(SendsPrompts).send(Prompt.copy(id = RequestId("next")))
+        assertEquals(next, assertIs<ActiveSessionState.Running>(session.state.value).turn.id)
+        assertEquals(2, fixture.wire.peers.size)
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `unbound turn without process identity keeps waiting on reconciliation`() = runTest {
+        val fixture = Fixture(this)
+        fixture.onTurn = {}
+        val session = fixture.open()
+        assertFailsWith<EngineException> { session.feature(SendsPrompts).send(Prompt) }
+        runCurrent()
+        assertFailsWith<EngineException> { session.feature(ReconcilesSession).synchronize() }
+        assertNotNull(assertIs<ActiveSessionState.Unavailable>(session.state.value).activeTurn)
+        assertFalse(fixture.wire.peers.single().isClosed)
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `stop fence left by a restart is completed before the thread reopens`() = runTest {
+        val records = MemoryCodexTurnRecords()
+        val (first, firstLaunch) = fixture(records)
+        val original = first.open()
+        val turn = original.feature(SendsPrompts).send(Prompt)
+        firstLaunch.onStop = { awaitCancellation() }
+        val stopping = async { first.stop(original) }
+        runCurrent()
+        stopping.cancelAndJoin()
+        first.runtime.close()
+        assertNotNull(records.get(original.ref)?.stopping)
+        val (second, launch) = fixture(records)
+        val restored = second.runtime.attach(original.ref, ResumeSessionRequest(second.target))
+        val settled = assertIs<ActiveSessionState.Ready>(restored.state.value).lastTurn
+        assertEquals(turn, settled?.id)
+        assertEquals(TurnOutcome.Unknown, settled?.outcome)
+        assertEquals(1, launch.stops)
+        assertNull(records.get(original.ref)?.stopping)
         second.runtime.close()
     }
 

@@ -20,7 +20,9 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 
-/** A stored active turn has no process ownership proof; only native terminal evidence can settle it. */
+private val log = Log.tag("CodexTurnOutcome")
+
+/** A restored active turn starts Unavailable until native terminal evidence or its owner's exit settles it. */
 internal fun CodexTurnSnapshot?.codexInitialState(): ActiveSessionState = this?.active?.let {
     ActiveSessionState.Unavailable(EngineFailure.Session(SessionFailureReason.NotResumable), it.turn, last?.turn)
 } ?: ActiveSessionState.Ready(this?.last?.turn)
@@ -38,7 +40,7 @@ internal fun codexTurnOutcome(native: JsonObject, binding: EngineBindingId): Tur
 
         "failed" -> {
             val failure = codexTurnFailure(native["error"] as? JsonObject, binding)
-            Log.tag("CodexSession").w { "Codex turn failed code=${failure.code}" }
+            log.w { "Codex turn failed code=${failure.code}" }
             TurnOutcome.Failed(failure)
         }
 

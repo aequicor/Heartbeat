@@ -65,7 +65,10 @@ internal class CodexSession(
     private val log = Log.tag("CodexSession")
     val history = CodexHistory()
     private val journal = CodexTurnJournal(runtime.host.turns, ref, route, runtime.turnOwnership)
-    private var isActiveExecutionOwned = restored?.active == null
+
+    /** False for a restored turn: its execution belongs to an earlier process, never to [connection]. */
+    var isActiveExecutionOwned = restored?.active == null
+        private set
     private val inputs = mutableMapOf<TurnId, CodexPromptInputs>()
     private val scope = runtime.host.scopes.child(runtime.profile, "codex-${Uuid.random()}")
     private val nativeTurns = mutableMapOf<String, TurnId>()
@@ -122,6 +125,7 @@ internal class CodexSession(
         { codexTurnOutcome(it, route.binding) },
     ) { nativeTurn = it }
 
+    val settlement = CodexTurnSettlement(this, journal, scope, nativeTurns, ::execute, ::settleTerminal)
     val children = CodexSessionChildren(this, scope)
 
     private val leases = mutableSetOf<CodexLease>()
@@ -181,20 +185,15 @@ internal class CodexSession(
 
     suspend fun cancel(turn: TurnId) {
         runtime.ensureOpen()
-        if (machine.send(
-                ActiveSessionIntent.Public.Cancel(turn),
-            ) != SendResult.Accepted
-        ) {
+        if (settlement.cancel(turn)) return
+        if (machine.send(ActiveSessionIntent.Public.Cancel(turn)) != SendResult.Accepted) {
             fail(EngineFailure.Session(SessionFailureReason.Changed))
         }
     }
 
     suspend fun respond(decision: PermissionDecision) {
         runtime.ensureOpen()
-        if (machine.send(
-                ActiveSessionIntent.Public.Decide(decision),
-            ) != SendResult.Accepted
-        ) {
+        if (machine.send(ActiveSessionIntent.Public.Decide(decision)) != SendResult.Accepted) {
             fail(EngineFailure.Request(RequestFailureReason.Invalid))
         }
     }
@@ -249,7 +248,7 @@ internal class CodexSession(
         machine.send(ActiveSessionIntent.Internal.Failed(id, failure))
         val state = machine.state.value as? ActiveSessionState.Unavailable ?: return
         if (isRejected && id != null && state.activeTurn?.id == id) {
-            journal.finish(id, TurnOutcome.Failed(failure))
+            journal.finishRejected(id, TurnOutcome.Failed(failure))
             finished += id
             machine.send(
                 ActiveSessionIntent.Internal.Synchronized(
@@ -302,18 +301,8 @@ internal class CodexSession(
     }
 
     private suspend fun interrupt(effect: ActiveSessionEffect.Cancel) {
-        rpc.request(
-            "turn/interrupt",
-            json(
-                "threadId" to ref.nativeId.json(),
-                "turnId" to
-                    (
-                        nativeTurns.entries.firstOrNull {
-                            it.value == effect.turn
-                        }?.key ?: protocolFailure()
-                    ).json(),
-            ),
-        )
+        val native = nativeTurns.entries.firstOrNull { it.value == effect.turn }?.key ?: protocolFailure()
+        rpc.request("turn/interrupt", json("threadId" to ref.nativeId.json(), "turnId" to native.json()))
     }
 
     private suspend fun submit(effect: ActiveSessionEffect.Submit) {
@@ -323,7 +312,7 @@ internal class CodexSession(
         val prepared = inputs.remove(effect.turn.id) ?: protocolFailure()
         val input = JsonArray(prepared.parts)
         val origin = connection
-        journal.begin(effect.turn, trust, origin.rpc.processOwner())
+        journal.admit(effect.turn, trust, origin.rpc.processOwner(), submission.settled)
         submission.ensureAllowed()
         confirmSubmission(effect)
         submission.nativeMayStart(origin)
@@ -422,34 +411,30 @@ internal class CodexSession(
     }
 
     private suspend fun synchronizeIdle(active: Turn?, remembered: JsonObject?) {
+        // Codex 0.160.1 projects interrupted from a different app-server even while the owner is still active:
+        // a restored turn settles only through its recorded owner's proven exit, or the absence of any owner.
+        val isRestoredOpen = remembered?.text("status") !in RESTORED_TERMINAL_STATUSES
+        if (active != null && !isActiveExecutionOwned && isRestoredOpen) return settlement.settle(active)
         // Rollout projections may omit turns or their status. Unknown means proven stopped, not missing data.
         if (active != null && remembered?.text("status") !in TERMINAL_STATUSES) return
-        // Codex 0.160.1 projects interrupted from a different app-server even while the owner is still active.
-        if (active != null && remembered?.text("status") == "interrupted" && !isActiveExecutionOwned) return
-        val completed = if (active != null && remembered != null && active.id !in finished) {
+        if (active != null && remembered != null && active.id !in finished) {
             val result = codexTurnOutcome(remembered, route.binding)
             cancelTools(active.id)
             journal.finish(active.id, result)
-            if (currentTurn()?.id != active.id || !finished.add(active.id)) return
-            ActiveSessionIntent.Internal.Finished(active.id, result)
-        } else {
-            null
+            settleTerminal(active, result)
+            return
         }
         nativeTurn = null
         permissions.clear()
         active?.let { cancelTools(it.id) }
-        machine.send(ActiveSessionIntent.Internal.Synchronized(active = null, completed = completed))
-        completed?.let { done -> history.publish { SessionEvent.TurnFinished(it, done.turn, done.outcome) } }
+        machine.send(ActiveSessionIntent.Internal.Synchronized(active = null))
         runtime.release(this)
     }
 
     private suspend fun accept(turn: Turn) {
         if (stopping.blocks(turn.id)) return
         if (pendingSubmission?.let { it.turn.id == turn.id && it.isStopRequested } == true) return
-        if (submissions.remove(
-                turn.id,
-            )?.complete(turn.id) == true
-        ) {
+        if (submissions.remove(turn.id)?.complete(turn.id) == true) {
             history.publish { SessionEvent.TurnStarted(it, turn) }
         }
         machine.send(ActiveSessionIntent.Internal.Accepted(turn.id))
@@ -467,7 +452,18 @@ internal class CodexSession(
         nativeHistory.load(turns, isNew, isCanonical, nativeTurns)
         val active = restored?.active ?: return
         val native = turns.orEmpty().filterIsInstance<JsonObject>().firstOrNull { it.text("id") == active.nativeId }
-        if (native?.text("status") in TERMINAL_STATUSES) synchronizeIdle(active.turn, native)
+        synchronizeIdle(active.turn, native?.takeIf { active.nativeId != null })
+    }
+
+    /** Callers revoke the turn's hosted calls before its terminal write. */
+    private suspend fun settleTerminal(active: Turn, outcome: TurnOutcome) {
+        if (currentTurn()?.id != active.id || !finished.add(active.id)) return
+        nativeTurn = null
+        permissions.clear()
+        val completed = ActiveSessionIntent.Internal.Finished(active.id, outcome)
+        machine.send(ActiveSessionIntent.Internal.Synchronized(active = null, completed = completed))
+        history.publish { SessionEvent.TurnFinished(it, active.id, outcome) }
+        runtime.release(this)
     }
 
     suspend fun event(message: JsonObject, source: CodexConnection = connection) {

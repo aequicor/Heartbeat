@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RestoresSessionTurns
@@ -40,6 +41,7 @@ internal class CodexLease(private val session: CodexSession) :
     CancelsTurns,
     RequestsPermissions,
     AppliesTrustLevels,
+    ReconcilesSession,
     RestoresSessionTurns,
     SessionHistory {
     private val log = Log.tag("CodexLease")
@@ -83,6 +85,7 @@ internal class CodexLease(private val session: CodexSession) :
 
     override suspend fun send(request: PromptRequest): TurnId = command { session.send(request) }
     override suspend fun cancel(turn: TurnId) = command { session.cancel(turn) }
+    override suspend fun synchronize() = command { session.settlement.synchronize() }
     override suspend fun respond(decision: PermissionDecision) = command { session.respond(decision) }
     override suspend fun page(request: HistoryPageRequest): HistoryPage = command { session.history.page(request) }
     override fun watch(after: HistoryCheckpoint): Flow<SessionEvent> = channelFlow {
