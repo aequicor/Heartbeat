@@ -21,7 +21,11 @@ internal data class BrowserViewState(
     val error: BrowserViewError? = null,
 )
 
-internal enum class BrowserViewError { LoadFailed, UnsupportedAddress, EngineUnavailable }
+internal enum class BrowserViewError {
+    LoadFailed,
+    UnsupportedAddress,
+    EngineUnavailable,
+}
 
 /** The implementation schedules commands onto its native UI thread. */
 internal fun interface BrowserViewController {
@@ -33,7 +37,16 @@ internal fun interface BrowserViewController {
  * detached controllers. A fresh surface restores the current URL; history belongs to that surface.
  */
 internal interface BrowserSurface {
-    /** Injected platform services; each native backend checks the refined domain contract before use. */
+    val hasTabs: Boolean
+        get() = false
+
+    /** A stable surface for the selected desktop tab; mobile keeps the single surface. */
+    fun forTab(id: String?): BrowserSurface = this
+
+    /**
+     * Injected platform services; each native backend checks the refined domain contract before
+     * use.
+     */
     val nativeResources: BrowserNativeResources
     val initialUrl: String
     fun attached(controller: BrowserViewController)

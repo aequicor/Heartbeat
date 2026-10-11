@@ -23,7 +23,11 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
         val workspace by component.workspace.stack.subscribeAsState()
         val isBrowserShown by component.showsBrowser.collectAsState(false)
         val chatAreaTitle = stringResource(
-            if (component.isBrowserActive()) Res.string.browser_mode else Res.string.research_mode,
+            if (component.isBrowserActive) {
+                Res.string.browser_mode
+            } else {
+                Res.string.research_mode
+            },
         )
         val isConnectionsShown by component.showsConnections.collectAsState(false)
         val isProfileSettingsShown by component.showsProfileSettings.collectAsState(false)
@@ -65,9 +69,13 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
                 onOpenSettings = if (isUnifiedSettingsShown) component::openSettings else null,
             )
         }
-        // Any entry above the studio's own chat (research) takes over the chat area; the sidebar stays.
+        // Any entry above the studio's own chat (research) takes over the chat area; the sidebar
+        // stays.
         val chatArea = workspace.active.instance as? ComposableComponent
-        AiStudioScreen(component.model, exits, modifier, chatArea = chatArea)
+        val browserMode by component.browserMode.collectAsState()
+        StudioBrowserLayout(browserMode, modifier, browser = { NavStack(component.browser) }) {
+            AiStudioScreen(component.model, exits, Modifier, chatArea = chatArea)
+        }
         val dialogs by component.dialogs.stack.subscribeAsState()
         if (dialogs.active.instance !== StudioNoDialog) NavStack(component.dialogs)
     }

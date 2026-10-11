@@ -15,4 +15,15 @@
     <string name="browser_unsupported_address">This address is not supported. Only HTTP and HTTPS pages can open here.</string>
     <string name="browser_load_failed">The page could not load. Check the address and connection, then reload.</string>
     <string name="browser_engine_unavailable">The browser engine is unavailable on this device.</string>
+    <string name="browser_new_tab">New tab</string>
+    <string name="browser_close_tab">Close tab</string>
+    <string name="browser_expand">Expand</string>
+    <string name="browser_panel">Side panel</string>
+    <string name="browser_hide">Hide browser</string>
+    <string name="browser_take_control">Take control</string>
+    <string name="browser_return_agent">Return to agent</string>
+    <string name="browser_title">Browser</string>
+    <string name="browser_clear_data">Clear browser data and close all tabs</string>
+    <string name="browser_approve_control">Allow agent to control this tab</string>
+    <string name="browser_reject_control">Decline</string>
 </resources>

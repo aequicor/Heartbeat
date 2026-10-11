@@ -8,6 +8,8 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(projects.features.browser.api)
+            implementation(projects.features.aiEngine.facade.api)
+            implementation(projects.core.profileFacade.api)
             implementation(projects.core.common)
             implementation(projects.core.di.ext)
             implementation(projects.core.mvi)

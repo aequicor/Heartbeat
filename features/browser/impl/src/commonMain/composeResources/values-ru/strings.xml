@@ -15,4 +15,15 @@
     <string name="browser_unsupported_address">Этот адрес не поддерживается. Здесь можно открыть только HTTP- и HTTPS-страницы.</string>
     <string name="browser_load_failed">Не удалось загрузить страницу. Проверьте адрес и подключение, затем обновите страницу.</string>
     <string name="browser_engine_unavailable">Браузерный движок недоступен на этом устройстве.</string>
+    <string name="browser_new_tab">Новая вкладка</string>
+    <string name="browser_close_tab">Закрыть вкладку</string>
+    <string name="browser_expand">Развернуть</string>
+    <string name="browser_panel">Боковая панель</string>
+    <string name="browser_hide">Скрыть браузер</string>
+    <string name="browser_take_control">Взять управление</string>
+    <string name="browser_return_agent">Вернуть агенту</string>
+    <string name="browser_title">Браузер</string>
+    <string name="browser_clear_data">Очистить данные браузера и закрыть все вкладки</string>
+    <string name="browser_approve_control">Разрешить агенту управление вкладкой</string>
+    <string name="browser_reject_control">Отклонить</string>
 </resources>
