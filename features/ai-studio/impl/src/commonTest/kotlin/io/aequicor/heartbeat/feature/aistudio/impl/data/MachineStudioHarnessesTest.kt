@@ -112,6 +112,32 @@ class MachineStudioHarnessesTest {
     }
 
     @Test
+    fun `a library that leaves a write unanswered gets no further writes for the first prompt`() = runTest {
+        val library = SpecHarnessLibrary(backgroundScope)
+        library.isSilent = true
+        val harnesses = MachineStudioHarnesses(HarnessRegistry(library), HarnessToggleOn)
+        harnesses.claim("submission", setOf("compose", "verify"))
+
+        harnesses.beforeSubmit("submission", session)
+
+        assertEquals(1, library.sent.size)
+        assertEquals(3_000L, currentTime, "one confirmation wait, not one per harness")
+    }
+
+    @Test
+    fun `the first prompt waits for its connections only up to a common deadline`() = runTest {
+        val names = listOf("alpha", "bravo", "charlie", "delta", "echo")
+        val library = SpecHarnessLibrary(backgroundScope, names, writeMillis = 2_400L)
+        val harnesses = MachineStudioHarnesses(HarnessRegistry(library), HarnessToggleOn)
+        harnesses.claim("submission", names.toSet())
+
+        harnesses.beforeSubmit("submission", session)
+
+        assertEquals(10_000L, currentTime)
+        assertEquals(4, library.attached(session).size)
+    }
+
+    @Test
     fun `an existing chat reports whether the library confirmed the connection`() = runTest {
         val library = SpecHarnessLibrary(backgroundScope)
         val harnesses = MachineStudioHarnesses(HarnessRegistry(library), HarnessToggleOn)
@@ -128,14 +154,18 @@ class MachineStudioHarnessesTest {
  * Runs the actual harness spec. Attachment writes finish later, as the repository does, so the library is busy
  * while one is in flight.
  */
-private class SpecHarnessLibrary(private val scope: CoroutineScope) :
-    MachineRef<HarnessState, HarnessIntent.Public, HarnessOutput> {
+private class SpecHarnessLibrary(
+    private val scope: CoroutineScope,
+    names: List<String> = listOf("compose", "verify"),
+    private val writeMillis: Long = WRITE_MILLIS,
+) : MachineRef<HarnessState, HarnessIntent.Public, HarnessOutput> {
     override val name: String = HarnessMachineKey.name
-    override val state = MutableStateFlow<HarnessState>(
-        HarnessState.Ready(harnesses = listOf("compose", "verify").map(::libraryEntry)),
-    )
+    override val state = MutableStateFlow<HarnessState>(HarnessState.Ready(harnesses = names.map(::libraryEntry)))
     override val outputs = MutableSharedFlow<HarnessOutput>(extraBufferCapacity = 16)
     val sent = mutableListOf<HarnessIntent.Public>()
+
+    /** Takes every intent and never answers, as a stalled library does. */
+    var isSilent = false
     private val lock = Mutex()
 
     fun attached(session: SessionRef): Set<HarnessId> =
@@ -143,7 +173,7 @@ private class SpecHarnessLibrary(private val scope: CoroutineScope) :
 
     override suspend fun send(intent: HarnessIntent.Public): SendResult {
         sent += intent
-        return apply(intent)
+        return if (isSilent) SendResult.Accepted else apply(intent)
     }
 
     private suspend fun apply(intent: HarnessIntent): SendResult = lock.withLock {
@@ -152,7 +182,7 @@ private class SpecHarnessLibrary(private val scope: CoroutineScope) :
         next.outputs.forEach { outputs.emit(it) }
         next.effects.filterIsInstance<HarnessEffect.SaveAttachments>().forEach { effect ->
             scope.launch {
-                delay(WRITE_MILLIS)
+                delay(writeMillis)
                 apply(HarnessIntent.Internal.AttachmentsSaved(effect.write))
             }
         }

@@ -14,6 +14,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import io.aequicor.heartbeat.ds.components.HbChatComposer
 import io.aequicor.heartbeat.ds.components.HbComposerAction
 import io.aequicor.heartbeat.ds.components.HbComposerLayout
@@ -567,20 +569,31 @@ private fun harnessActions(harnesses: ImmutableList<HarnessChoiceUi>): List<HbCo
     }
 }
 
-/** Chips of the harnesses active in the chat; a connected one is disconnected by unchecking its chip. */
+/**
+ * Chips of the harnesses active in the chat; a connected one is disconnected by unchecking its chip. A harness
+ * active by its scope cannot be unchecked: its disabled chip explains why in a tooltip and to accessibility services.
+ */
 @Composable
 private fun HarnessChips(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit) {
     val active = remember(content.harnesses) { content.harnesses.filter { it.isSelected } }
+    val permanent = stringResource(Res.string.harness_menu_permanent)
     active.forEach { harness ->
         key(harness.id) {
-            HbComposerToggle(
-                label = harness.title,
-                isChecked = true,
-                onCheckedChange = { onIntent(AiStudioScreenIntent.SelectHarness(content.pane.id, harness.id, it)) },
-                enabled = !harness.isPermanent,
-                icon = HbIcons.Code,
-                modifier = Modifier.testTag("harness-chip-${content.pane.id}-${harness.id}"),
-            )
+            HbTooltip(permanent, isEnabled = harness.isPermanent) {
+                HbComposerToggle(
+                    label = harness.title,
+                    isChecked = true,
+                    onCheckedChange = {
+                        onIntent(AiStudioScreenIntent.SelectHarness(content.pane.id, harness.id, it))
+                    },
+                    enabled = !harness.isPermanent,
+                    icon = HbIcons.Code,
+                    modifier = Modifier.testTag("harness-chip-${content.pane.id}-${harness.id}")
+                        .then(
+                            if (harness.isPermanent) Modifier.semantics { stateDescription = permanent } else Modifier,
+                        ),
+                )
+            }
         }
     }
 }

@@ -93,7 +93,7 @@ internal class MachineStudioHarnesses(private val machines: MachineRegistry, pri
             } else {
                 HarnessIntent.Public.Detach(request, HarnessId(harness), session)
             }
-        }
+        } == Written.Confirmed
         if (isConfirmed) {
             log.i { "Chat harness connection changed attach=$isSelected" }
         } else {
@@ -114,7 +114,10 @@ internal class MachineStudioHarnesses(private val machines: MachineRegistry, pri
         log.v { "Harness choice claim released" }
     }
 
-    /** Failures leave the chat without the harness instead of failing the turn. */
+    /**
+     * Failures leave the chat without the harness instead of failing the turn. The first prompt waits at most
+     * [SUBMIT_DEADLINE] for all connections, and a library that leaves one write unanswered gets no further writes.
+     */
     override suspend fun beforeSubmit(submissionId: String, session: SessionRef) {
         val claimed = claims.getAndUpdate { it - submissionId }[submissionId] ?: return
         val library = library()
@@ -123,13 +126,23 @@ internal class MachineStudioHarnesses(private val machines: MachineRegistry, pri
             return
         }
         var connected = 0
-        claimed.forEach { harness ->
-            if (write(library) { HarnessIntent.Public.Attach(it, HarnessId(harness), session) }) connected++
-        }
+        val isAnswered = withTimeoutOrNull(SUBMIT_DEADLINE) {
+            for (harness in claimed) {
+                when (write(library) { HarnessIntent.Public.Attach(it, HarnessId(harness), session) }) {
+                    Written.Confirmed -> connected++
+                    Written.Refused -> Unit
+                    Written.Unanswered -> return@withTimeoutOrNull false
+                }
+            }
+            true
+        } == true
         if (connected == claimed.size) {
             log.i { "Harnesses connected before the first prompt count=$connected" }
         } else {
-            log.w { "Harnesses chosen for a new chat were not all connected connected=$connected of=${claimed.size}" }
+            log.w {
+                "Harnesses chosen for a new chat were not all connected connected=$connected of=${claimed.size} " +
+                    "answered=$isAnswered"
+            }
         }
     }
 
@@ -138,17 +151,24 @@ internal class MachineStudioHarnesses(private val machines: MachineRegistry, pri
 
     /**
      * Writes one connection and waits for its receipt. The library holds a single attachment write, so a busy
-     * library is retried once the write in flight has finished.
+     * library is retried once the write in flight has finished. A write the library did not take, did not answer
+     * or that stayed busy past [CONFIRMATION] is [Written.Unanswered].
      */
-    private suspend fun write(library: Library, change: (RequestId) -> HarnessIntent.Public): Boolean {
+    private suspend fun write(library: Library, change: (RequestId) -> HarnessIntent.Public): Written {
         var attempts = 0
         var receipt: HarnessOutput?
+        var isWritable = true
         do {
             attempts++
             receipt = submit(library, change(RequestId(Uuid.random().toHexString())))
             val isBusy = receipt is HarnessOutput.Rejected && receipt.reason == HarnessRejection.Busy
-        } while (isBusy && attempts < WRITE_ATTEMPTS && awaitWritable(library))
-        return receipt is HarnessOutput.Attached || receipt is HarnessOutput.Detached
+            if (isBusy && attempts < WRITE_ATTEMPTS) isWritable = awaitWritable(library)
+        } while (isBusy && attempts < WRITE_ATTEMPTS && isWritable)
+        return when {
+            receipt is HarnessOutput.Attached || receipt is HarnessOutput.Detached -> Written.Confirmed
+            receipt == null || !isWritable -> Written.Unanswered
+            else -> Written.Refused
+        }
     }
 
     private suspend fun awaitWritable(library: Library): Boolean {
@@ -182,6 +202,9 @@ internal class MachineStudioHarnesses(private val machines: MachineRegistry, pri
     }
 }
 
+/** How one connection write ended. */
+private enum class Written { Confirmed, Refused, Unanswered }
+
 /** Keeps the newest claims; insertion order is preserved by the map. */
 private fun Map<String, Set<String>>.newest(): Map<String, Set<String>> =
     if (size <= CLAIMS_KEPT) this else entries.drop(size - CLAIMS_KEPT).associate { it.key to it.value }
@@ -189,5 +212,6 @@ private fun Map<String, Set<String>>.newest(): Map<String, Set<String>> =
 private typealias Library = MachineRef<HarnessState, HarnessIntent.Public, HarnessOutput>
 
 private val CONFIRMATION = 3.seconds
+private val SUBMIT_DEADLINE = 10.seconds
 private const val WRITE_ATTEMPTS = 5
 private const val CLAIMS_KEPT = 16

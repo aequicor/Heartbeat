@@ -128,8 +128,10 @@ class AiStudioModel(
         }
         reflect(machine, onOutput = { output ->
             when (output) {
-                // A new chat's harness claim travels with its submission; the turn uses and releases it.
+                // A new chat's harness claim travels with its submission; the turn uses and releases it. A chat
+                // that failed to start runs no turn, so its claim is released and the choice returns to the pane.
                 is AiStudioOutput.SubmitFailed -> {
+                    if (output.submissionId.isNotEmpty()) harnesses.release(output.submissionId)
                     updateState {
                         if (output.submissionId.isEmpty()) {
                             restoreDraft(output, machine.state.value)

@@ -5,7 +5,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAttachmentPreview
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentDescriptor
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toImmutableSet
@@ -93,7 +95,10 @@ sealed interface NativeAttachmentUi {
     }
 }
 
-/** Snapshot retained until native acceptance; a newer draft is never replaced or cleared. */
+/**
+ * Snapshot retained until native acceptance; a newer draft is never replaced or cleared. [harnesses] is the new
+ * chat's harness choice that left the pane with it, returned to the pane when the submission is rejected.
+ */
 @Immutable
 data class SubmissionUi(
     val paneId: Int,
@@ -102,6 +107,7 @@ data class SubmissionUi(
     val attachments: ImmutableList<AttachmentUi>,
     val sessionId: String? = null,
     val isDisplayed: Boolean = true,
+    val harnesses: ImmutableSet<String> = persistentSetOf(),
 )
 
 /** Creation binds a pending draft to its native session even when the pane later changes. */
@@ -112,12 +118,14 @@ internal fun AiStudioScreenState.prepareSubmission(id: String, sessionId: String
 
 internal fun AiStudioScreenState.pendingSubmission(paneId: Int, id: String): SubmissionUi {
     val key = draftKey(paneId)
+    val sessionId = panes.firstOrNull { it.id == paneId }?.sessionId
     return SubmissionUi(
         paneId,
         if (key.startsWith("pane:")) "submission:$id" else key,
         draft(paneId),
         attachments(paneId),
-        sessionId = panes.firstOrNull { it.id == paneId }?.sessionId,
+        sessionId = sessionId,
+        harnesses = if (sessionId == null) harnessChoices.panes[paneId] ?: persistentSetOf() else persistentSetOf(),
     )
 }
 
@@ -164,7 +172,10 @@ internal fun AiStudioScreenState.acceptSubmission(id: String, sessionId: String 
     )
 }
 
-/** Rejection never rewrites the current text or files. */
+/**
+ * Rejection never rewrites the current text or files. A new chat's draft returns to its pane together with the
+ * harness choice that left with it, added to anything chosen there since.
+ */
 internal fun AiStudioScreenState.rejectSubmission(id: String, sessionId: String = ""): AiStudioScreenState {
     val submitted = submissions[id] ?: return this
     val nextKey = sessionId.ifBlank { submitted.sessionId.orEmpty() }.ifBlank {
@@ -192,6 +203,7 @@ internal fun AiStudioScreenState.rejectSubmission(id: String, sessionId: String 
         submissions = (submissions - id).toImmutableMap(),
         drafts = nextDrafts.toImmutableMap(),
         draftAttachments = nextFiles.toImmutableMap(),
+        harnessChoices = harnessChoices.restorePane(submitted, nextKey),
         attachmentRequests = attachmentRequests.mapValues { (_, key) ->
             if (key == submitted.draftKey) nextKey else key
         }.toImmutableMap(),

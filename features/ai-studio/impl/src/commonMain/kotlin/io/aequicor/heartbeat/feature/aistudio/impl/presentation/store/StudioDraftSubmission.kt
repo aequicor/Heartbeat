@@ -14,7 +14,10 @@ import kotlin.uuid.Uuid
 
 private val log = Log.tag("StudioDraftSubmission")
 
-/** Queues the exact draft snapshot before dispatch; only native acceptance may clear it. */
+/**
+ * Queues the exact draft snapshot before dispatch; only native acceptance may clear it. A new chat's harness choice
+ * travels with the snapshot and leaves the pane; a refused dispatch returns both (chats keep their own choice).
+ */
 internal suspend fun submitStudioDraft(
     pipeline: PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>,
     machine: Machine<AiStudioState, AiStudioIntent, AiStudioOutput>,
@@ -29,7 +32,7 @@ internal suspend fun submitStudioDraft(
         val submissionId = Uuid.random().toString()
         val pending = pendingSubmission(paneId, submissionId)
         log.i { "Submit pane draft with attachments count=${pending.attachments.size}" }
-        harnesses.claim(submissionId, newChatHarnesses(chat, paneId))
+        harnesses.claim(submissionId, pending.harnesses)
         updateState {
             queueSubmission(submissionId, pending).copy(harnessChoices = harnessChoices.withoutPane(paneId))
         }
@@ -48,10 +51,6 @@ internal suspend fun submitStudioDraft(
         }
     }
 }
-
-/** A new chat's harness choice travels with its submission and leaves the pane; chats keep their own. */
-private fun AiStudioScreenState.newChatHarnesses(chat: String?, paneId: Int): Set<String> =
-    if (chat == null) harnessChoices.panes[paneId].orEmpty() else emptySet()
 
 /** Effective native selection shared by transcript projection and submission; missing children fall back to root. */
 internal fun AiStudioScreenState.selectedNative(sessionId: String?): String = subSessions[sessionId]?.takeIf { key ->

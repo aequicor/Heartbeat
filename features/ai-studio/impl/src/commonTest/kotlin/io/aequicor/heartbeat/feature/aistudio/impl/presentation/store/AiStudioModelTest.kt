@@ -653,10 +653,10 @@ class AiStudioModelTest {
     }
 
     @Test
-    fun `a submission the machine refuses releases its harness claim`() = runTest {
+    fun `a submission the machine refuses releases its harness claim and returns the choice to the pane`() = runTest {
         val harnesses = FakeStudioHarnesses()
         val fixture = Fixture(this, ready.copy(panes = listOf(StudioPane(0))), harnesses = harnesses)
-        fixture.subscribe()
+        val screen = fixture.subscribe()
         fixture.model.store.intent(AiStudioScreenIntent.SelectHarness(0, "compose", true))
         fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(0, "Build the screen"))
         fixture.machine.result = SendResult.Ignored
@@ -665,6 +665,28 @@ class AiStudioModelTest {
 
         val claimed = harnesses.claims.single().first
         assertEquals(listOf(claimed), harnesses.released)
+        assertEquals<Set<String>?>(setOf("compose"), screen.states.value.harnessChoices.panes[0])
+    }
+
+    @Test
+    fun `a new chat that fails to start releases its claim and returns the choice to the pane`() = runTest {
+        val harnesses = FakeStudioHarnesses()
+        val fixture = Fixture(this, ready.copy(panes = listOf(StudioPane(0))), harnesses = harnesses)
+        val screen = fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.SelectHarness(0, "compose", true))
+        fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(0, "Build the screen"))
+        fixture.model.store.intent(AiStudioScreenIntent.Submit(0))
+        runCurrent()
+        val submitted = fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.Submit>().single()
+        assertTrue(0 !in screen.states.value.harnessChoices.panes)
+
+        fixture.machine.outputs.emit(
+            AiStudioOutput.SubmitFailed(0, "Build the screen", 7, submissionId = submitted.submissionId),
+        )
+        runCurrent()
+        assertEquals(listOf(submitted.submissionId), harnesses.released)
+        assertEquals<Set<String>?>(setOf("compose"), screen.states.value.harnessChoices.panes[0])
+        assertEquals("Build the screen", screen.states.value.draft(0))
     }
 
     @Test

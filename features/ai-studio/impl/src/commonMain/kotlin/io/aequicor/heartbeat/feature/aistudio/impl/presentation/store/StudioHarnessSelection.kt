@@ -78,6 +78,16 @@ internal fun HarnessChoicesUi.choosePane(paneId: Int, harness: String, isSelecte
     )
 }
 
+/**
+ * A rejected new chat's choice returns to its pane when its draft does ([draftKey] is the pane's), joined with
+ * anything chosen there meanwhile.
+ */
+internal fun HarnessChoicesUi.restorePane(submitted: SubmissionUi, draftKey: String): HarnessChoicesUi {
+    if (submitted.harnesses.isEmpty() || draftKey != "pane:${submitted.paneId}") return this
+    val restored = panes[submitted.paneId].orEmpty() + submitted.harnesses
+    return copy(panes = (panes + (submitted.paneId to restored.toImmutableSet())).toImmutableMap())
+}
+
 /** The pane's choice left with its submission. */
 internal fun HarnessChoicesUi.withoutPane(paneId: Int): HarnessChoicesUi =
     if (paneId in panes) copy(panes = (panes - paneId).toImmutableMap()) else this
