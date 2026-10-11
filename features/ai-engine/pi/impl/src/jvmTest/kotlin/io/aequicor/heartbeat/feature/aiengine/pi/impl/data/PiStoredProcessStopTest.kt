@@ -204,6 +204,42 @@ class PiStoredProcessStopTest {
     }
 
     @Test
+    fun `listing of a parent that exits during enumeration is never adopted`() = runTest {
+        val root = StopProcess(1)
+        val foreign = StopProcess(2)
+        root.observed = listOf(foreign)
+        root.onEnumerate = { root.exit() }
+        var saved: PiExecutionOwner? = null
+        assertTrue(
+            stopper { if (it == 1L) root else foreign }.stop(Owner, { true }) { discovered ->
+                discovered.also { saved = it }
+            },
+        )
+        assertEquals(Owner, saved)
+        assertEquals(0, root.signals)
+        assertEquals(0, foreign.signals)
+    }
+
+    @Test
+    fun `descendant started before its parent is never adopted`() = runTest {
+        val root = StopProcess(1)
+        val earlier = StopProcess(2, "2026-10-05T00:00:00Z")
+        root.observed = listOf(earlier)
+        var saved: PiExecutionOwner? = null
+        val waiting = async {
+            stopper { if (it == 1L) root else earlier }.stop(Owner, { true }) { discovered ->
+                discovered.also { saved = it }
+            }
+        }
+        runCurrent()
+        assertEquals(Owner, saved)
+        assertEquals(1, root.signals)
+        assertEquals(0, earlier.signals)
+        root.exit()
+        assertTrue(waiting.await())
+    }
+
+    @Test
     fun `exit proof needs every stored identity gone and never signals`() = runTest {
         val root = StopProcess(1)
         val owner = Owner.copy(observedChildren = listOf(PiProcessIdentity(2, START)))

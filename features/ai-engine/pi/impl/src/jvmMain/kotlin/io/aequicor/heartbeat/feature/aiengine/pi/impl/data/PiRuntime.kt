@@ -28,6 +28,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.StopsOwnedTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
@@ -178,7 +179,7 @@ internal class PiRuntime(
                 ?: piFailure(EngineFailure.Session(SessionFailureReason.NotFound))
             log.i { "Attaching stored Pi session" }
             val launchRequest = CreateSessionRequest(request.target, request.workspace, request.areDetachedToolsEnabled)
-            settleExited(ref, launchRequest)
+            settleInterrupted(ref, launchRequest)
             return launch(launchRequest, PiTranscript(ref, file))
         } finally {
             withContext(NonCancellable) { mutex.withLock { attaching.remove(ref) } }
@@ -186,17 +187,43 @@ internal class PiRuntime(
     }
 
     /**
-     * A turn interrupted by an earlier runtime whose whole stored process tree is gone settles as Unknown before
-     * reopening; the reserved ref keeps owned stops and other attaches out meanwhile. Anything else stays for recheck.
+     * Settles what an earlier runtime left before reopening; the reserved ref keeps owned stops and other attaches
+     * out meanwhile. A durable stop fence is resumed: it was requested by the turn's owner, and nobody else would
+     * retry it once its session is gone. A turn whose whole stored process tree is gone settles as Unknown.
+     * Neither happens while hosted work of the earlier runtime still drains; anything else stays for recheck.
+     * A turn stored without process identity can be neither proven nor caused to exit: it stays unavailable, and
+     * reopening never guesses its outcome from a fresh process.
      */
-    private suspend fun settleExited(ref: SessionRef, request: CreateSessionRequest) {
-        val journal = PiTurnJournal(environment.turns, ref, route(request), credential)
+    private suspend fun settleInterrupted(ref: SessionRef, request: CreateSessionRequest) {
+        val route = route(request)
+        val journal = PiTurnJournal(environment.turns, ref, route, credential)
         val snapshot = journal.restore() ?: return
-        val active = snapshot.active?.takeIf { snapshot.stopping == null } ?: return
+        val stopping = snapshot.stopping
+        if (stopping != null) {
+            val stopRequest = stopping.turn.request ?: return
+            if (!isDrained(ref, route, stopping.turn.id)) return
+            val stopped = PiStoredTurnStop(journal, processes).stop(stopRequest, stopping.turn.id)
+            if (stopped != null) {
+                log.i { "Deferred Pi turn stop confirmed before reopening" }
+            } else {
+                log.i { "Deferred Pi turn stop is still unconfirmed" }
+            }
+            return
+        }
+        val active = snapshot.active ?: return
         val owner = active.processOwner ?: return
-        if (!processes.hasExited(owner)) return
+        if (!processes.hasExited(owner) || !isDrained(ref, route, active.turn.id)) return
         journal.finish(active.turn.id, TurnOutcome.Unknown)
         log.i { "Interrupted Pi turn settled as unknown: its process exited" }
+    }
+
+    /** The profile barrier for hosted work an earlier runtime left running for [turn]. */
+    private suspend fun isDrained(ref: SessionRef, route: ExecutionRoute, turn: TurnId): Boolean {
+        val isDrained = withContext(dispatchers.main) {
+            environment.hostedDrains.drain(ref, route, credential, turn)
+        }
+        if (!isDrained) log.i { "Interrupted Pi turn stays unresolved: earlier hosted work is still draining" }
+        return isDrained
     }
 
     /** Recheck of a turn left by an earlier process: the exact owned stop proves or causes its exit. */
@@ -301,6 +328,7 @@ internal class PiRuntime(
     // removal could resurrect a consumer count of an already released process.
     private suspend fun forgotten(session: PiSession) {
         mutex.withLock {
+            ownedTurns.forget(session)
             sessions.remove(session)
             draining.remove(session)
             consumers.remove(session)

@@ -29,7 +29,21 @@ internal class PiOwnedTurns(
     private val log = Log.tag("PiOwnedTurns")
     private val reservations = ConcurrentHashMap<SessionRef, Reservation>()
 
+    // Last unconfirmed reason per ref: owners poll their stop, so only a new or changed reason reaches INFO.
+    private val reported = object : LinkedHashMap<SessionRef, String>() {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<SessionRef, String>?): Boolean =
+            size > MAX_REPORTED
+    }
+
     fun isReserved(nativeId: String?): Boolean = reservations.keys.any { it.nativeId == nativeId }
+
+    /**
+     * Called under the runtime mutex when [session] is released. Its claim guards nothing any more: a durable fence
+     * stays in the journal, and the next owned stop or attach resumes it instead of finding the ref reserved forever.
+     */
+    fun forget(session: PiSession) {
+        reservations.values.removeAll { it.session === session }
+    }
 
     override suspend fun stop(ref: SessionRef, request: RequestId, access: OwnedTurnAccess): OwnedTurnStop =
         withContext(runtime.dispatchers.main) {
@@ -48,7 +62,7 @@ internal class PiOwnedTurns(
             )
             runtime.validateStop(access)
             val reservation = commands.withLock { reserve(ref, request, route, access) }
-                ?: return@withContext unconfirmed("the session is attaching or stopping another request")
+                ?: return@withContext unconfirmed(ref, "the session is attaching or stopping another request")
             reservation.mutex.withLock { perform(ref, request, access, reservation) }
         }
 
@@ -104,15 +118,20 @@ internal class PiOwnedTurns(
         val selected = select(snapshot, request, access, reservation)
         if (selected == null) {
             if (reservations[ref] === reservation) reservations.remove(ref)
-            return unconfirmed("no stoppable turn matches the request")
+            return unconfirmed(ref, "no stoppable turn matches the request")
         }
         reservation.isValidated = true
         val result = stopSelected(ref, journal, selected, reservation)
-        return result?.let { complete(ref, reservation, it) } ?: unconfirmed("termination is not confirmed yet")
+        return result?.let { complete(ref, reservation, it) } ?: unconfirmed(ref, "termination is not confirmed yet")
     }
 
-    private fun unconfirmed(reason: String): OwnedTurnStop.Unconfirmed {
-        log.i { "Pi owned turn stop unconfirmed: $reason" }
+    private fun unconfirmed(ref: SessionRef, reason: String): OwnedTurnStop.Unconfirmed {
+        val isRepeated = synchronized(reported) { reported.put(ref, reason) == reason }
+        if (isRepeated) {
+            log.v { "Pi owned turn stop still unconfirmed: $reason" }
+        } else {
+            log.i { "Pi owned turn stop unconfirmed: $reason" }
+        }
         return OwnedTurnStop.Unconfirmed
     }
 
@@ -172,6 +191,7 @@ internal class PiOwnedTurns(
             val confirmed = OwnedTurnStop.Confirmed(result.turn)
             reservation.result = confirmed
             if (reservations[ref] === reservation) reservations.remove(ref)
+            synchronized(reported) { reported.remove(ref) }
             log.i { "Pi owned turn stop confirmed" }
             confirmed
         }
@@ -190,5 +210,9 @@ internal class PiOwnedTurns(
         fun cached(expected: TurnId?): OwnedTurnStop? = result?.let {
             if (expected == null || it.turn.id == expected) it else OwnedTurnStop.Unconfirmed
         }
+    }
+
+    private companion object {
+        const val MAX_REPORTED = 64
     }
 }

@@ -40,13 +40,26 @@ internal class PiProcessStop(
         Unit
     }
 
-    /** Called under [lock] while the root was alive; an exit during the listing voids it. */
+    /**
+     * Called under [lock] while the root was alive; an exit during the listing voids it. A live descendant without
+     * a start instant cannot be told apart from a later reuse of its PID: it is never signalled, and the capture
+     * stays incomplete so no exit is confirmed without it.
+     */
     private fun capture() {
-        var listed: List<ProcessHandle> = emptyList()
-        isCaptured = attempt { listed = process.descendants().use { it.toList() } }
+        var identified: List<ProcessHandle> = emptyList()
+        var unidentified: List<ProcessHandle> = emptyList()
+        val isListed = attempt {
+            val listed = process.descendants().use { it.toList() }
+            listed.partition { it.info().startInstant().isPresent }.let { (known, unknown) ->
+                identified = known
+                unidentified = unknown
+            }
+        }
+        isCaptured = isListed
         if (process.isAlive) {
-            children += listed
-        } else if (listed.isNotEmpty()) {
+            children += identified
+            isCaptured = isListed && unidentified.none { it.isAlive }
+        } else if (identified.isNotEmpty() || unidentified.isNotEmpty()) {
             log.d { "Pi process exited during descendant inspection; its listing was discarded" }
         }
     }

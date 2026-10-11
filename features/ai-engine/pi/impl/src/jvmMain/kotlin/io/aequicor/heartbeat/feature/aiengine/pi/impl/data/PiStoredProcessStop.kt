@@ -13,7 +13,8 @@ import java.time.Instant
  * start instant of a live process or denied inspection does not. Signals use ProcessHandle, never Process.destroy's
  * blocking pipe cleanup. Descendant observation is a snapshot, not OS containment. Persisting before signalling
  * preserves discovered identities if the application dies between killing a wrapper and observing its children's
- * exit. A process exiting while it is inspected is gone; only a live replacement of its PID voids an inspection.
+ * exit. A process exiting while it is inspected is gone; only a live replacement of its PID voids an inspection,
+ * and the descendants listed for a parent that did not outlive the listing are never adopted.
  */
 internal class PiStoredProcessStop(
     private val dispatchers: DispatcherProvider,
@@ -74,9 +75,23 @@ internal class PiStoredProcessStop(
             // descendants() resolves the current PID tree, unlike ProcessHandle.isAlive's identity check.
             // Refuse the entire observation if another live process took the parent's PID during enumeration.
             check(!isReplaced(identity)) { "Parent changed during descendant inspection" }
-            observed += descendants
+            observed += outlived(identity, descendants)
         }
         return owner.copy(observedChildren = observed.toList())
+    }
+
+    /**
+     * A parent missing from the OS snapshot is matched by PID alone, so a listing it did not outlive may name
+     * foreign processes that inherited its PID as their parent: it is discarded. A descendant always starts after
+     * its parent; an earlier one belongs to a reused parent PID.
+     */
+    private fun outlived(parent: PiProcessIdentity, descendants: List<PiProcessIdentity>): List<PiProcessIdentity> {
+        if (matching(parent) == null) {
+            if (descendants.isNotEmpty()) log.d { "Pi process exited during descendant inspection" }
+            return emptyList()
+        }
+        val started = Instant.parse(parent.startedAt)
+        return descendants.filter { !Instant.parse(it.startedAt).isBefore(started) }
     }
 
     private fun matching(identity: PiProcessIdentity): ProcessHandle? {

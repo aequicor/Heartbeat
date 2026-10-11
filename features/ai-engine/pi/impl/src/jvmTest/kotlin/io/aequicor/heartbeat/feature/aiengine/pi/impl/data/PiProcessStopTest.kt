@@ -15,6 +15,8 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.OutputStream
+import java.time.Duration
+import java.time.Instant
 import java.util.Optional
 import java.util.concurrent.CompletableFuture
 import java.util.stream.Stream
@@ -115,6 +117,23 @@ class PiProcessStopTest {
         assertFalse(foreign.isStopRequested)
     }
 
+    @Test
+    fun `live descendant without start instant is never signalled and keeps the stop unconfirmed`() = runTest {
+        val child = StopChild().apply { startedAt = null }
+        val process = StopProcess(child)
+        val stop = PiProcessStop(process, dispatchers())
+        assertFalse(stop.awaitStopped())
+        assertTrue(process.isStopRequested)
+        assertFalse(child.isStopRequested)
+        child.startedAt = Instant.EPOCH
+        val waiting = async { stop.awaitStopped() }
+        runCurrent()
+        assertTrue(child.isStopRequested)
+        process.exit()
+        child.exit()
+        assertTrue(waiting.await())
+    }
+
     private fun TestScope.dispatchers(): DispatcherProvider = object : DispatcherProvider {
         override val main: CoroutineDispatcher = StandardTestDispatcher(testScheduler)
         override val io: CoroutineDispatcher = main
@@ -154,6 +173,7 @@ private class StopProcess(private val child: StopChild? = null) : Process() {
 private class StopChild : ProcessHandle {
     private val exited = CompletableFuture<ProcessHandle>()
     var isStopRequested = false
+    var startedAt: Instant? = Instant.EPOCH
     fun exit() {
         exited.complete(this)
     }
@@ -161,7 +181,14 @@ private class StopChild : ProcessHandle {
     override fun parent(): Optional<ProcessHandle> = Optional.empty()
     override fun children(): Stream<ProcessHandle> = Stream.empty()
     override fun descendants(): Stream<ProcessHandle> = Stream.empty()
-    override fun info(): ProcessHandle.Info = error("Unused")
+    override fun info(): ProcessHandle.Info = object : ProcessHandle.Info {
+        override fun startInstant(): Optional<Instant> = Optional.ofNullable(startedAt)
+        override fun command(): Optional<String> = error("Unused")
+        override fun commandLine(): Optional<String> = error("Unused")
+        override fun arguments(): Optional<Array<String>> = error("Unused")
+        override fun totalCpuDuration(): Optional<Duration> = error("Unused")
+        override fun user(): Optional<String> = error("Unused")
+    }
     override fun onExit(): CompletableFuture<ProcessHandle> = exited.thenApply { this }
     override fun supportsNormalTermination(): Boolean = true
     override fun isAlive(): Boolean = !exited.isDone

@@ -573,7 +573,7 @@ internal class PiSession(
         val origin = notSent { rpc() }
         val accepted = entry.accepted
         // A refused or unwritten request record is definite: the prompt below was never sent.
-        notSent { turnJournal.begin(effect.turn, entry.trust, origin.processOwner()) }
+        notSent { stopping.recordBegin(turnJournal, effect.turn, entry.trust, origin) }
         entry.ensureAllowed()
         promptResources.submit(origin, sessionConfiguration, effect.request) {
             validate()

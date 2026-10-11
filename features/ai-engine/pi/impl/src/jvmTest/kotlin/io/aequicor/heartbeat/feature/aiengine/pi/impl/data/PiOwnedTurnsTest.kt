@@ -5,6 +5,8 @@ package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.OwnedTurnAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.OwnedTurnStop
@@ -230,6 +232,29 @@ class PiOwnedTurnsTest {
         assertIs<ActiveSessionState.Ready>(session.state.value)
         session.send(prompt("later"))
         assertEquals(2, fixture.processes.connections.size)
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `turn whose process crashed and failed recovery is stopped through its stored identity`() = runTest {
+        val records = MemoryPiTurnRecords()
+        val fixture = runtimeFixture(this, records)
+        fixture.processes.configure = {
+            it.owner = Owner
+            it.promptAck.complete(JsonObject(emptyMap()))
+        }
+        val session = fixture.runtime.createOwnedSession()
+        val turn = session.send(prompt("request"))
+        val process = fixture.processes.connections.single()
+        process.isOpen = false
+        process.failed(EngineFailure.Engine(EngineFailureReason.Crashed))
+        fixture.processes.beforeStart = { piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable)) }
+        assertFailsWith<EngineException> { session.synchronize() }
+        assertNull(session.connection)
+        val result = assertIs<OwnedTurnStop.Confirmed>(fixture.stop(session, "request", turn))
+        assertEquals(TurnOutcome.Unknown, result.turn.outcome)
+        assertEquals(1, fixture.processes.stopCalls)
+        assertNull(records.get(session.ref)?.active)
         fixture.runtime.close()
     }
 

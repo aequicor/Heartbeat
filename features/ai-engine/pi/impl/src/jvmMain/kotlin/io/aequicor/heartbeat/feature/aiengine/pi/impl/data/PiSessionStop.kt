@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.coroutines.withTimeoutOrNull
@@ -17,11 +18,28 @@ internal class PiSessionStop(
     var claim: PiStopClaim? = null
         private set
 
+    /**
+     * Owned turn whose durable begin stored its process identity: a stored stop reaches it even after its live
+     * connection was lost and recovery failed. A turn left by an earlier process without identity never becomes
+     * stoppable: it stays unavailable rather than being settled on a guess.
+     */
+    var identified: TurnId? = null
+        private set
+
+    /** Writes the durable begin of an owned turn with the identity of the process it is about to be sent to. */
+    suspend fun recordBegin(journal: PiTurnJournal, turn: Turn, trust: TrustLevel, origin: PiConnection) {
+        val owner = origin.processOwner()
+        journal.begin(turn, trust, owner)
+        if (owner != null) identified = turn.id
+    }
+
     /** Revokes nothing for a turn whose exit can be neither proven nor caused; the caller gets no claim. */
     fun begin(request: RequestId, expected: TurnId?): PiStopClaim? {
         claim?.let { return it.takeIf { old -> old.turn.matches(request, expected) } }
         val pending = session.submissions.pending?.takeIf { it.turn.matches(request, expected) }
-        val current = session.turn?.takeIf { it.matches(request, expected) && session.isTurnStoppable }
+        val current = session.turn?.takeIf {
+            it.matches(request, expected) && (session.isTurnStoppable || it.id == identified)
+        }
         val selected = pending?.turn ?: current
         return selected?.let { turn ->
             val stop = PiStopClaim(turn, session.connection, pending)

@@ -30,13 +30,21 @@ internal class PiNativeApproval(
 
     suspend fun answer(id: String, call: PiApprovalCall, turn: Turn, context: AgentToolContext) {
         try {
-            val response = call.result?.let { result ->
+            val result = call.result
+            val decision = if (result == null) authorize(id, call, turn, context) else null
+            val response = if (result != null) {
                 val note = environment.tools.afterHosted(context, call.tool, call.arguments, result)
                 "value" to JsonPrimitive(note.orEmpty())
-            } ?: ("confirmed" to JsonPrimitive(authorize(id, call, turn, context).isAllowed))
+            } else {
+                "confirmed" to JsonPrimitive(checkNotNull(decision).verdict.isAllowed)
+            }
             currentCoroutineContext().ensureActive()
             // Recheck after the gate, before sending Allow to the captured process.
-            if (!isCurrent()) return
+            if (!isCurrent()) {
+                if (decision != null) log.d { "Pi native ${call.tool} decision dropped: the turn is no longer current" }
+                return
+            }
+            decision?.let { audit(call.tool, it) }
             reply(id, response)
         } catch (e: CancellationException) {
             throw e
@@ -66,13 +74,8 @@ internal class PiNativeApproval(
         }
     }
 
-    private suspend fun authorize(
-        id: String,
-        call: PiApprovalCall,
-        turn: Turn,
-        context: AgentToolContext,
-    ): NativeVerdict {
-        val classified = classify(call) ?: return NativeVerdict.Deny("Unknown native tool")
+    private suspend fun authorize(id: String, call: PiApprovalCall, turn: Turn, context: AgentToolContext): Decision {
+        val classified = classify(call) ?: return Decision(NativeVerdict.Deny("Unknown native tool"), false, false)
         val (native, isHostTermination) = classified
         var isAsked = false
         val bound = context.copy(
@@ -89,13 +92,24 @@ internal class PiNativeApproval(
         } else {
             environment.tools.authorizeNative(bound, native)
         }
-        // Audit without the target: automatic allowances follow trust or policy and leave no user decision.
-        log.i {
-            val source = if (isAsked) "user" else "trust or policy"
-            "Pi native ${call.tool} ${if (verdict.isAllowed) "allowed" else "denied"} by $source"
-        }
-        return verdict
+        return Decision(verdict, isAsked, native.action == AgentToolAction.Read)
     }
+
+    /**
+     * Audit without the target. User decisions and anything beyond reading reach INFO; automatic reads follow
+     * trust or policy on every native lookup (search tools are also audited by the hosted gate), so VERBOSE.
+     */
+    private fun audit(tool: String, decision: Decision) {
+        val source = if (decision.isAsked) "user" else "trust or policy"
+        val verdict = if (decision.verdict.isAllowed) "allowed" else "denied"
+        if (decision.isAsked || !decision.isRead) {
+            log.i { "Pi native $tool $verdict by $source" }
+        } else {
+            log.v { "Pi native $tool $verdict by $source" }
+        }
+    }
+
+    private data class Decision(val verdict: NativeVerdict, val isAsked: Boolean, val isRead: Boolean)
     private suspend fun classify(call: PiApprovalCall): Pair<NativeToolCall, Boolean>? {
         val action = if (call.tool in SearchTools) {
             AgentToolAction.Read
