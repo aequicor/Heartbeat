@@ -191,7 +191,7 @@ class AiStudioInteractionUiTest {
                 HbTheme(darkTheme = false) {
                     AiStudioContent(state, { intent ->
                         events += intent
-                        if (intent is AiStudioScreenIntent.DraftChanged) {
+                        if (intent is AiStudioScreenIntent.Suggestions.DraftChanged) {
                             state = state.withDraft(intent.paneId, intent.text)
                         }
                     }, exits)
@@ -204,7 +204,9 @@ class AiStudioInteractionUiTest {
             runOnIdle {
                 assertEquals(
                     listOf<AiStudioScreenIntent>(
-                        AiStudioScreenIntent.DraftChanged(1, "Test the redesigned studio"),
+                        AiStudioScreenIntent.Suggestions.DraftChanged(1, "Test the redesigned studio"),
+                        // The editor reports the caret after its own text change; mid-text typing needs it.
+                        AiStudioScreenIntent.Suggestions.CaretMoved(1, "Test the redesigned studio".length),
                         AiStudioScreenIntent.Submit(1),
                     ),
                     events,

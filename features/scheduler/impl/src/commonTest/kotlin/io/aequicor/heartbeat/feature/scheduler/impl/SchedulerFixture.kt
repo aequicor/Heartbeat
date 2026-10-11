@@ -36,12 +36,15 @@ import io.aequicor.heartbeat.feature.scheduler.api.spi.SpawnRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.WakePrompt
 import io.aequicor.heartbeat.feature.scheduler.impl.data.NetworkStatus
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerMachine
+import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerPersistence
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestCoroutineScheduler
+import kotlinx.coroutines.test.TestScope
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Instant
@@ -78,6 +81,7 @@ internal class SpecMachine(initial: SchedulerState = SchedulerState.Ready()) : S
     override val outputs: Flow<SchedulerOutput> = emitted
     val effects = mutableListOf<SchedulerEffect>()
     val sent = mutableListOf<SchedulerIntent>()
+    var onEffect: (SchedulerEffect) -> Unit = {}
 
     override suspend fun send(intent: SchedulerIntent): SendResult {
         sent += intent
@@ -85,7 +89,15 @@ internal class SpecMachine(initial: SchedulerState = SchedulerState.Ready()) : S
         state.value = resolution.to
         effects += resolution.effects
         resolution.outputs.forEach { emitted.emit(it) }
+        resolution.effects.forEach(onEffect)
         return SendResult.Accepted
+    }
+}
+
+/** Runs persistence effects in the profile-like background scope, independently of the tool caller. */
+internal fun TestScope.persistEffects(machine: SpecMachine, persistence: SchedulerPersistence) {
+    machine.onEffect = { effect ->
+        if (effect is SchedulerEffect.Persist) backgroundScope.launch { persistence.persist(effect) }
     }
 }
 

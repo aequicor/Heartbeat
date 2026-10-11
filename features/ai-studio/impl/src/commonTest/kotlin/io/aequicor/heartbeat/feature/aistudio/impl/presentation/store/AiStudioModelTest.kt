@@ -49,6 +49,12 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentDescriptor
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssistOrigin
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerTrigger
+import io.aequicor.heartbeat.feature.autocomplete.api.HostCommand
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureOwner
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureSessionId
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapabilities
@@ -95,7 +101,10 @@ import pro.respawn.flowmvi.api.Provider
 import pro.respawn.flowmvi.dsl.collect
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 class AiStudioModelTest {
@@ -142,10 +151,119 @@ class AiStudioModelTest {
     }
 
     @Test
+    fun `composer suggestions follow the caret token and acceptance replaces it`() = runTest {
+        val command = ComposerSuggestion.Command(
+            "host:remember",
+            "/remember",
+            "",
+            ComposerAssistOrigin.Heartbeat,
+            "/remember ",
+        )
+        val fixture = Fixture(
+            this,
+            ready,
+            assists = object : ComposerAssists {
+                override suspend fun suggest(
+                    trigger: ComposerTrigger,
+                    scope: ComposerScope,
+                    hostCommands: List<HostCommand>,
+                ): List<ComposerSuggestion> = listOf(command)
+            },
+        )
+        val screen = fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "/rem"))
+        advanceTimeBy(300.milliseconds)
+        runCurrent()
+        assertEquals(listOf("/remember"), screen.states.value.suggestions(0)?.items?.map { it.label })
+
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.AcceptSuggestion(0))
+        runCurrent()
+        assertEquals("/remember ", screen.states.value.draft(0))
+        assertEquals(0, screen.states.value.suggestions(0)?.items?.size ?: 0)
+        val request = assertNotNull(screen.states.value.caretRequest(0))
+        assertEquals("/remember ", request.text)
+        assertEquals(10, request.caret)
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.CaretRequestApplied(0, request.id + 1))
+        runCurrent()
+        assertEquals(request, screen.states.value.caretRequest(0))
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.CaretRequestApplied(0, request.id))
+        runCurrent()
+        assertNull(screen.states.value.caretRequest(0))
+    }
+
+    @Test
+    fun `dismissed suggestions stay hidden for the same token and return for the next one`() = runTest {
+        val fixture = Fixture(
+            this,
+            ready,
+            assists = object : ComposerAssists {
+                override suspend fun suggest(
+                    trigger: ComposerTrigger,
+                    scope: ComposerScope,
+                    hostCommands: List<HostCommand>,
+                ): List<ComposerSuggestion> = listOf(
+                    ComposerSuggestion.Skill("host:verify", "verify", "", ComposerAssistOrigin.Heartbeat, "verify "),
+                )
+            },
+        )
+        val screen = fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "use @ver"))
+        advanceTimeBy(300.milliseconds)
+        runCurrent()
+        assertEquals(1, screen.states.value.suggestions(0)?.items?.size)
+
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DismissSuggestions(0))
+        runCurrent()
+        assertEquals(0, screen.states.value.suggestions(0)?.items?.size ?: 0)
+
+        // Typing on changes the token, so the completion returns for the new query.
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "use @veri"))
+        advanceTimeBy(300.milliseconds)
+        runCurrent()
+        assertEquals(1, screen.states.value.suggestions(0)?.items?.size)
+    }
+
+    @Test
+    fun `a caret outside any token clears the suggestion list`() = runTest {
+        val fixture = Fixture(
+            this,
+            ready,
+            assists = object : ComposerAssists {
+                override suspend fun suggest(
+                    trigger: ComposerTrigger,
+                    scope: ComposerScope,
+                    hostCommands: List<HostCommand>,
+                ): List<ComposerSuggestion> = listOf(
+                    ComposerSuggestion.File(
+                        "file:README.md",
+                        "README.md",
+                        "2 kB",
+                        ComposerAssistOrigin.Heartbeat,
+                        "README.md",
+                        "C:\\p\\README.md",
+                        2_048,
+                        "text/markdown",
+                    ),
+                )
+            },
+        )
+        val screen = fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "read @READ"))
+        advanceTimeBy(300.milliseconds)
+        runCurrent()
+        assertEquals(1, screen.states.value.suggestions(0)?.items?.size)
+
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "plain words only"))
+        advanceTimeBy(300.milliseconds)
+        runCurrent()
+        assertEquals(0, screen.states.value.suggestions(0)?.items?.size ?: 0)
+    }
+
+    @Test
     fun `submit preserves the draft until native acceptance`() = runTest {
         val fixture = Fixture(this, ready)
         val screen = fixture.subscribe()
-        fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(0, "Next step"))
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "Next step"))
         fixture.machine.result = SendResult.Ignored
         fixture.model.store.intent(AiStudioScreenIntent.Submit(0))
         runCurrent()
@@ -173,7 +291,7 @@ class AiStudioModelTest {
         }
         val fixture = Fixture(this, ready, repository)
         val screen = fixture.subscribe()
-        fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(0, "Follow up"))
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "Follow up"))
         fixture.model.store.intent(AiStudioScreenIntent.SelectSubSession("s-facade", "c1"))
         fixture.model.store.intent(AiStudioScreenIntent.Submit(0))
         runCurrent()
@@ -226,7 +344,7 @@ class AiStudioModelTest {
         val failed = ready.copy(panes = listOf(StudioPane(0, createRequestId = 7)))
         val fixture = Fixture(this, failed)
         val screen = fixture.subscribe()
-        fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(0, "New input"))
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "New input"))
         runCurrent()
         fixture.machine.outputs.emit(AiStudioOutput.SubmitFailed(0, "Old prompt", 7))
         runCurrent()
@@ -395,7 +513,7 @@ class AiStudioModelTest {
         val fixture = Fixture(this, ready.copy(panes = ready.panes + StudioPane(1)))
         val screen = fixture.subscribe()
         fixture.model.store.intent(AiStudioScreenIntent.SetDrawerOpen(true))
-        fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(1, "Draft"))
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(1, "Draft"))
         fixture.model.store.intent(AiStudioScreenIntent.OpenSession("s-adr"))
         fixture.model.store.intent(AiStudioScreenIntent.ClosePane(1))
         runCurrent()
@@ -624,10 +742,18 @@ class AiStudioModelTest {
         assertEquals("photo.png", projected.last().attachments.single().name)
     }
 
-    private class Fixture(
+    internal class Fixture(
         private val scope: TestScope,
         initial: AiStudioState,
         repository: StudioRepository = InMemoryStudioRepository(TestClock(scope)),
+        assists: io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists =
+            object : io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists {
+                override suspend fun suggest(
+                    trigger: io.aequicor.heartbeat.feature.autocomplete.api.ComposerTrigger,
+                    scope: io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope,
+                    hostCommands: List<io.aequicor.heartbeat.feature.autocomplete.api.HostCommand>,
+                ): List<io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion> = emptyList()
+            },
     ) {
         val machine = FakeMachine(initial)
         val efforts = FakeEfforts()
@@ -651,6 +777,7 @@ class AiStudioModelTest {
             efforts = efforts,
             machines = efforts,
             attachmentsCatalog = catalog,
+            assists = assists,
             previews = object : StudioAttachmentPreviews {
                 override fun observe(resources: List<ResourceRef>) = flowOf(emptyMap<String, StudioAttachmentPreview>())
             },
@@ -672,7 +799,7 @@ class AiStudioModelTest {
     }
 }
 
-private class FakeCatalog : AttachmentsCatalog {
+internal class FakeCatalog : AttachmentsCatalog {
     val observed = mutableListOf<List<AttachmentId>>()
 
     override suspend fun get(id: AttachmentId): AttachmentDescriptor? = null
@@ -683,7 +810,7 @@ private class FakeCatalog : AttachmentsCatalog {
     }
 }
 
-private class FakeMachine(initial: AiStudioState) : Machine<AiStudioState, AiStudioIntent, AiStudioOutput> {
+internal class FakeMachine(initial: AiStudioState) : Machine<AiStudioState, AiStudioIntent, AiStudioOutput> {
     override val name = "ai_studio"
     override val state = MutableStateFlow(initial)
     override val outputs = MutableSharedFlow<AiStudioOutput>(extraBufferCapacity = 8)
@@ -696,7 +823,7 @@ private class FakeMachine(initial: AiStudioState) : Machine<AiStudioState, AiStu
     }
 }
 
-private class FakeEfforts :
+internal class FakeEfforts :
     EffortChoicesView,
     MachineRegistry {
     override val state = MutableStateFlow<EffortConfigurationState>(EffortConfigurationState.Ready())
@@ -743,7 +870,7 @@ private fun agentCapture(mode: ComputerUseMode) = ComputerUseState.Capturing(
     isOpen = true,
 )
 
-private class FakeComputerUseMachine : Machine<ComputerUseState, ComputerUseIntent, ComputerUseOutput> {
+internal class FakeComputerUseMachine : Machine<ComputerUseState, ComputerUseIntent, ComputerUseOutput> {
     override val name = "computer-use"
     override val state = MutableStateFlow<ComputerUseState>(ComputerUseState.Idle)
     override val outputs = MutableSharedFlow<ComputerUseOutput>()
@@ -751,7 +878,7 @@ private class FakeComputerUseMachine : Machine<ComputerUseState, ComputerUseInte
     override suspend fun send(intent: ComputerUseIntent): SendResult = SendResult.Accepted
 }
 
-private class FakeSchedulerMachine : Machine<SchedulerState, SchedulerIntent, SchedulerOutput> {
+internal class FakeSchedulerMachine : Machine<SchedulerState, SchedulerIntent, SchedulerOutput> {
     override val name = "scheduler"
     override val state = MutableStateFlow<SchedulerState>(SchedulerState.Loading)
     override val outputs = MutableSharedFlow<SchedulerOutput>()

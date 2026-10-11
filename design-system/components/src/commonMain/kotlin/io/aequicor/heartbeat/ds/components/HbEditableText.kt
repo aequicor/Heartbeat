@@ -27,6 +27,7 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -60,6 +61,10 @@ private const val REJECTION_GRACE_FRAMES = 2
  * [isSecret] switches to a secure single-line editor: the text is obfuscated, cut and copy are disabled,
  * the keyboard is a password keyboard without autocorrect, and the text is never written to saved state.
  * Accessibility receives the same hidden text as the screen, even on bridges that expose password values.
+ *
+ * [onCaretChange] reports the caret (selection start) after every user edit or owner-driven replacement, so an
+ * owner can resolve token triggers at the caret, including edits that keep the same caret offset.
+ * [caretRequest] moves the caret once after the requested replacement text has arrived.
  */
 @Composable
 internal fun HbEditableText(
@@ -74,14 +79,35 @@ internal fun HbEditableText(
     isSecret: Boolean = false,
     leadingContent: (@Composable () -> Unit)? = null,
     trailingContent: (@Composable () -> Unit)? = null,
+    onCaretChange: ((Int) -> Unit)? = null,
+    caretRequest: HbComposerCaretRequest? = null,
+    onCaretRequestApply: (Long) -> Unit = {},
 ) {
     val state = rememberEditorState(value, isSecret)
     val bridge = remember(state) { ControlledEditorBridge(value, state.selection) }
     val currentValue by rememberUpdatedState(value)
+    val caretListener by rememberUpdatedState(onCaretChange)
+    // The first composition reports nothing: owners see caret changes, not the initial position.
+    var reportedCaret by remember { mutableIntStateOf(state.selection.min) }
+    var reportedText by remember { mutableStateOf(state.text.toString()) }
+    var appliedCaretRequest by remember { mutableStateOf<HbComposerCaretRequest?>(null) }
     // Reading text also observes rejected proposals and edits that bypass InputTransformation, such as undo.
     val editingText = state.text.toString()
-    SideEffect(value, editingText, state.selection, bridge.revision) {
+    SideEffect(value, editingText, state.selection, bridge.revision, caretRequest) {
         bridge.reconcile(state, value, onValueChange)
+        val isRequestedTextCurrent = caretRequest?.text == value && state.text.toString() == value
+        if (caretRequest != null && caretRequest != appliedCaretRequest && isRequestedTextCurrent) {
+            state.edit { selection = TextRange(caretRequest.caret.coerceIn(0, length)) }
+            appliedCaretRequest = caretRequest
+            onCaretRequestApply(caretRequest.id)
+        }
+        val caret = state.selection.min
+        val text = state.text.toString()
+        if (caret != reportedCaret || text != reportedText) {
+            reportedCaret = caret
+            reportedText = text
+            caretListener?.invoke(caret)
+        }
     }
     LaunchedEffect(bridge, bridge.rejectionCheck) {
         if (bridge.rejectionCheck == 0) return@LaunchedEffect
