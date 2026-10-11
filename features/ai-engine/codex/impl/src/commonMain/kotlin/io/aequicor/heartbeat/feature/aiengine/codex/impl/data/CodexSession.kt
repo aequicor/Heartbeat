@@ -72,6 +72,9 @@ internal class CodexSession(
     private val inputs = mutableMapOf<TurnId, CodexPromptInputs>()
     private val scope = runtime.host.scopes.child(runtime.profile, "codex-${Uuid.random()}")
     private val recheckAttempts = CodexRecheckAttempts(scope)
+
+    /** Initialized before anything that may release this session: every release reads it. */
+    val children = CodexSessionChildren(this, scope)
     private val nativeTurns = mutableMapOf<String, TurnId>()
     private val nativeHistory = CodexNativeHistory(ref, history, runtime.host)
     private var isCreatedHere = false
@@ -114,8 +117,9 @@ internal class CodexSession(
         scope,
         EffectHandler { effect, _ ->
             // Handoff to the profile-owned scope. State changes must not cancel accepted native work.
+            val attempt = if (effect is ActiveSessionEffect.Recheck) recheckAttempts.started() else null
             val job = scope.coroutineScope.launch { execute(effect) }
-            if (effect is ActiveSessionEffect.Recheck) job.invokeOnCompletion { recheckAttempts.finished() }
+            if (attempt != null) job.invokeOnCompletion { recheckAttempts.finished(attempt) }
         },
     )
 
@@ -128,7 +132,6 @@ internal class CodexSession(
     ) { nativeTurn = it }
 
     val settlement = CodexTurnSettlement(this, journal, scope, nativeTurns, recheckAttempts, ::settleTerminal)
-    val children = CodexSessionChildren(this, scope)
 
     private val leases = mutableSetOf<CodexLease>()
     fun lease(): ActiveSession = CodexLease(this).also { leases += it }

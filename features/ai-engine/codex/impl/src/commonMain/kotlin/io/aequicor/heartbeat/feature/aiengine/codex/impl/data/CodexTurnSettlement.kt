@@ -13,12 +13,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
 
 /**
@@ -68,20 +67,17 @@ internal class CodexTurnSettlement(
     }
 
     /**
-     * Reconciliation through the machine: sends [ActiveSessionIntent.Public.Recheck] and waits for the attempt, so an
-     * explicit request is one more machine recheck, never a reconcile that bypasses it. The caller reads the state.
+     * Reconciliation through the machine: sends [ActiveSessionIntent.Public.Recheck] and waits for its attempt, so an
+     * explicit request is one more machine recheck, never a reconcile that bypasses it. An attempt that started
+     * earlier and ends meanwhile does not satisfy the wait. The caller reads the state.
      */
-    private suspend fun recheck() = coroutineScope {
-        val done = async(start = CoroutineStart.UNDISPATCHED) { rechecks.next() }
-        if (scope.isClosed) {
-            done.cancel()
-            fail(EngineFailure.Session(SessionFailureReason.NotResumable))
-        }
+    private suspend fun recheck() {
+        if (scope.isClosed) fail(EngineFailure.Session(SessionFailureReason.NotResumable))
         if (session.machine.send(ActiveSessionIntent.Public.Recheck) != SendResult.Accepted) {
-            done.cancel()
             fail(EngineFailure.Session(SessionFailureReason.Changed))
         }
-        done.await()
+        // The machine launches the effect before send returns, so the latest started attempt is this one or later.
+        rechecks.awaitFinished(rechecks.latest)
     }
 
     /**
@@ -152,21 +148,41 @@ internal class CodexTurnSettlement(
     }
 }
 
-/** Completion of machine-driven reconciliation attempts, which explicit synchronization awaits. */
+/**
+ * Numbered machine-driven reconciliation attempts, which explicit synchronization awaits by number: a waiter is never
+ * woken by an attempt that started before its own.
+ */
 internal class CodexRecheckAttempts(scope: ScopeHandle) {
     private val log = Log.tag("CodexRecheckAttempts")
-    private val attempts = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    private val startedAttempts = MutableStateFlow(0L)
+
+    /** The highest finished attempt number; [Long.MAX_VALUE] once the session is closed. */
+    private val finishedAttempt = MutableStateFlow(0L)
 
     init {
         // A closed session runs no further attempt; its waiters must not hang.
-        scope.onClose { finished() }
+        scope.onClose {
+            finishedAttempt.value = Long.MAX_VALUE
+            log.v { "Codex recheck attempts closed: waiters released" }
+        }
     }
 
-    /** Called after every Recheck effect ends, successfully or not, including one cancelled before it started. */
-    fun finished() {
-        log.v { "Codex recheck attempt finished" }
-        attempts.tryEmit(Unit)
+    /** The number of the latest started attempt. */
+    val latest: Long get() = startedAttempts.value
+
+    /** Called when the machine launches a Recheck effect; returns the attempt's number. */
+    fun started(): Long = startedAttempts.updateAndGet { it + 1 }.also { attempt ->
+        log.v { "Codex recheck attempt started attempt=$attempt" }
     }
 
-    suspend fun next() = attempts.first()
+    /** Called after the Recheck effect [attempt] ends, successfully or not, including one cancelled before it ran. */
+    fun finished(attempt: Long) {
+        log.v { "Codex recheck attempt finished attempt=$attempt" }
+        finishedAttempt.update { maxOf(it, attempt) }
+    }
+
+    /** Waits until an attempt numbered [attempt] or later has finished. */
+    suspend fun awaitFinished(attempt: Long) {
+        finishedAttempt.first { it >= attempt }
+    }
 }

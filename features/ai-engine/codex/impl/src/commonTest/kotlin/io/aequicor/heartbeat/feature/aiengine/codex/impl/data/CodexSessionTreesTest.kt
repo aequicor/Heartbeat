@@ -1,7 +1,9 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexEngine
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionActivity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -185,6 +187,72 @@ class CodexSessionTreesTest {
         fixture.runtime.close()
     }
 
+    @Test
+    fun `release while a retention recheck is pending does not restart the retention period`() = runTest {
+        val fixture = Fixture(this)
+        val session = fixture.keptForActiveChild()
+        val execution = fixture.wire.peers.single()
+        advanceTimeBy(CodexSessionChildren.MAX_RETENTION_MILLIS - TEN_MINUTES)
+        runCurrent()
+        assertFalse(execution.isClosed)
+        // A lease attached and released in between is another release of the same idle period.
+        fixture.runtime.attach(session.ref, ResumeSessionRequest(fixture.target)).close()
+        runCurrent()
+        advanceTimeBy(2 * TEN_MINUTES)
+        runCurrent()
+        assertTrue(execution.isClosed)
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `retention period ends while the session is in use`() = runTest {
+        val fixture = Fixture(this)
+        val session = fixture.keptForActiveChild()
+        val execution = fixture.wire.peers.single()
+        advanceTimeBy(CodexSessionChildren.MAX_RETENTION_MILLIS - TEN_MINUTES)
+        runCurrent()
+        val lease = fixture.runtime.attach(session.ref, ResumeSessionRequest(fixture.target))
+        // The pending recheck fires while the session is in use and ends the period.
+        advanceTimeBy(2 * TEN_MINUTES)
+        runCurrent()
+        lease.close()
+        runCurrent()
+        advanceTimeBy(HALF_HOUR)
+        runCurrent()
+        assertFalse(execution.isClosed)
+        fixture.runtime.close()
+    }
+
+    /** A closed session whose idle execution process is kept for an active native subagent. */
+    private suspend fun Fixture.keptForActiveChild(): ActiveSession {
+        val delegate = wire.handler
+        wire.handler = { message ->
+            val id = (message["params"] as? JsonObject)?.text("threadId").orEmpty()
+            when (message.text("method")) {
+                "thread/read" -> wire.reply(
+                    message,
+                    json("thread" to if (id == "child") thread(id, "thread", "active") else thread(id, null)),
+                )
+
+                "thread/turns/list" -> wire.reply(
+                    message,
+                    json("data" to JsonArray(if (id == "thread") listOf(spawn("child")) else emptyList())),
+                )
+
+                else -> delegate(message)
+            }
+        }
+        val session = open()
+        session.feature(SendsPrompts).send(Prompt)
+        event("item/completed", "turnId" to "native-turn".json(), "item" to spawn("child").items().single())
+        event("turn/completed", "turn" to json("id" to "native-turn".json(), "status" to "completed".json()))
+        test.runCurrent()
+        session.close()
+        test.runCurrent()
+        assertFalse(wire.peers.single().isClosed)
+        return session
+    }
+
     private fun spawn(child: String): JsonObject = Json.parseToJsonElement(
         """{"id":"native-turn","status":"completed","itemsView":"full","items":[
         {"id":"spawn","type":"subAgentActivity","kind":"started","agentThreadId":"$child"}]}""",
@@ -295,5 +363,6 @@ class CodexSessionTreesTest {
     private companion object {
         const val CHILD_RECHECK = 5_001L
         const val HALF_HOUR = 30 * 60 * 1_000L
+        const val TEN_MINUTES = 10 * 60 * 1_000L
     }
 }

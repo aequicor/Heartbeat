@@ -380,12 +380,19 @@ internal class CodexRuntime(
         }
     }
 
-    /** Last-handle release keeps active native work alive, then retires only that idle execution process. */
-    fun release(session: CodexSession) {
-        if (isClosed || !session.isUnused || ownedTurns.isReserved(session.ref.nativeId)) return
+    /**
+     * Last-handle release keeps active native work alive, then retires only that idle execution process.
+     * [isRetentionRecheck] marks the recheck scheduled by [CodexSessionChildren] while subagents keep it.
+     */
+    fun release(session: CodexSession, isRetentionRecheck: Boolean = false) {
+        if (isClosed) return
+        if (!session.isUnused || ownedTurns.isReserved(session.ref.nativeId)) {
+            session.children.interrupt()
+            return
+        }
         profile.coroutineScope.launch {
             // Native subagents keep running in this process after their root turn ends; retiring would kill them.
-            if (session.children.isActive()) return@launch
+            if (session.children.isActive(isRetentionRecheck)) return@launch
             commands.withLock { retireUnused(session) }
         }
     }
