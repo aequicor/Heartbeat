@@ -30,6 +30,8 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessRejection
 import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.HarnessTools
+import io.aequicor.heartbeat.feature.harness.api.ItemId
+import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeChecks
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
@@ -321,6 +323,74 @@ class HarnessAuthoringToolsTest {
         toggles.enabled.value = false
         assertTrue(tools.specifications(null).isEmpty())
         assertNull(library.sent.firstOrNull())
+    }
+
+    @Test
+    fun `membership changes and removals of a harness with an enabled script always ask`() = runTest {
+        library.approval = HarnessApproval.AcceptAll
+        val script = HarnessItem.Script(ItemId("script"), ItemName("guard"), "", "hooks.toString()")
+        val ref = buildJsonObject { put("harness", harness.name.value) }
+        val removeScript = buildJsonObject {
+            put("harness", harness.name.value)
+            put("name", script.name.value)
+        }
+        val widen = buildJsonObject {
+            put("harness", harness.name.value)
+            put("scope", "profile")
+        }
+        library.items = listOf(script.copy(isEnabled = false))
+        listOf(HarnessTools.ATTACH, HarnessTools.DETACH, HarnessTools.DELETE).forEach {
+            assertFalse(tools.requiresDecision(context, spec(it), ref), it)
+        }
+        assertFalse(tools.requiresDecision(context, spec(HarnessTools.ITEM_DELETE), removeScript))
+        assertFalse(tools.requiresDecision(context, spec(HarnessTools.UPDATE), widen))
+        library.items = listOf(script)
+        listOf(HarnessTools.ATTACH, HarnessTools.DETACH, HarnessTools.DELETE).forEach {
+            assertTrue(tools.requiresDecision(context, spec(it), ref), it)
+        }
+        assertTrue(tools.requiresDecision(context, spec(HarnessTools.ITEM_DELETE), removeScript))
+        val removal = tools.approval(context, spec(HarnessTools.ITEM_DELETE), removeScript).description.orEmpty()
+        assertTrue(removal.contains("hooks stop guarding"), removal)
+        assertTrue(tools.requiresDecision(context, spec(HarnessTools.UPDATE), widen))
+        library.scope = HarnessScope.Profile
+        val narrow = buildJsonObject {
+            put("harness", harness.name.value)
+            put("scope", "attached")
+        }
+        assertTrue(tools.requiresDecision(context, spec(HarnessTools.UPDATE), narrow))
+        val text = tools.approval(context, spec(HarnessTools.UPDATE), narrow).description.orEmpty()
+        assertTrue(text.contains("Hooks of enabled scripts stop guarding"), text)
+    }
+
+    @Test
+    fun `a tool policy approval covers the exact policy including kept switches`() = runTest {
+        library.approval = HarnessApproval.AcceptAll
+        library.tools = ToolPolicySpec(native = mapOf("pi" to mapOf("bash" to ToolSwitch.Off)))
+        val arguments = tools(native = "WebFetch" to "off")
+        val approval = tools.approval(context, spec(HarnessTools.TOOLS_SET), arguments)
+        // The pi engine registers meanwhile: its switch is no longer kept, so the approved policy is not the result.
+        catalogs.available = catalogs.available + EngineDescriptor(
+            EngineId("pi"),
+            "Pi",
+            EngineFamily.Vendor,
+            emptySet(),
+            HarnessNativeTools,
+            nativeTools = listOf(
+                NativeToolSpec("bash", AgentToolAction.Command, isEnabledByDefault = true, isGated = true),
+            ),
+        )
+        val result = tools.execute(context.copy(authorization = approval), HarnessTools.TOOLS_SET, arguments)
+        assertTrue(result.isError && result.text.contains("changed while awaiting approval"), result.text)
+        assertTrue(library.sent.isEmpty())
+    }
+
+    @Test
+    fun `a refusal that still asks tells the user why`() = runTest {
+        library.isAvailable = false
+        val skill = put("skill", "design", "Design tokens", description = "Load before UI work")
+        assertTrue(tools.requiresDecision(context, spec(HarnessTools.ITEM_PUT), skill))
+        val approval = tools.approval(context, spec(HarnessTools.ITEM_PUT), skill)
+        assertEquals("Request will be refused: the harness library is unavailable", approval.description)
     }
 
     private fun put(kind: String, name: String, content: String, description: String? = null): JsonObject =

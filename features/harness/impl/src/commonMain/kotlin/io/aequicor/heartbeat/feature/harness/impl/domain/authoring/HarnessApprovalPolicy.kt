@@ -2,14 +2,17 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.authoring
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessApproval
+import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
 
 /**
  * Agent edits follow the profile level: Ask always asks, ByTrust asks unless the turn has Full trust (AutoEdits
- * still asks), AcceptAll never asks. Code and anything that can make a tool usable again always ask, whatever the
- * level: see [reEnabled], [isWiderThan] and the callers' membership checks.
+ * still asks), AcceptAll never asks. Code, anything that can make a tool usable again and membership changes of a
+ * harness with an enabled script always ask, whatever the level: see [reEnabled], [isWiderThan],
+ * [hasEnabledScript] and the callers' membership checks.
  */
 internal fun HarnessApproval.requiresDecision(trust: TrustLevel, isAlwaysAsked: Boolean): Boolean =
     isAlwaysAsked || when (this) {
@@ -43,6 +46,13 @@ internal fun reEnabled(current: ToolPolicySpec, next: ToolPolicySpec): List<Stri
         }
     }
 }
+
+/**
+ * An enabled script runs its hooks, events and tools with access to every chat where the harness applies: wider
+ * membership spreads that access like a native On switch, and narrower membership drops its Deny/Ask hooks like
+ * a restriction.
+ */
+internal val Harness.hasEnabledScript: Boolean get() = items.any { it is HarnessItem.Script && it.isEnabled }
 
 /** The policy switches a native tool On: wider membership spreads it to more chats. */
 internal val ToolPolicySpec.hasNativeOn: Boolean get() = native.values.any { ToolSwitch.On in it.values }

@@ -66,7 +66,7 @@ internal class HarnessEventDispatch(
         while (true) {
             val previous = queues.value
             previous[instance]?.let { return it }
-            val channel = Channel<Envelope>(64, BufferOverflow.DROP_OLDEST)
+            val channel = Channel<Envelope>(EVENT_QUEUE_CAPACITY, BufferOverflow.DROP_OLDEST)
             if (!queues.compareAndSet(previous, previous + (instance to channel))) {
                 channel.cancel()
                 continue
@@ -128,3 +128,6 @@ internal class HarnessEventDispatch(
         override fun toString(): String = "HarnessEventEnvelope(***)"
     }
 }
+
+/** Newest events kept per script instance; the authoring reference quotes it. */
+internal const val EVENT_QUEUE_CAPACITY = 64

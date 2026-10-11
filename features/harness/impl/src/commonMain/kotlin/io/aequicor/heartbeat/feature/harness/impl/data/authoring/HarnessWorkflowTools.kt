@@ -35,6 +35,7 @@ import io.aequicor.heartbeat.feature.harness.impl.data.run.HarnessWorkflowLaunch
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRequestOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.HarnessRunsMachine
+import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.isWorkflowInput
 import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
 import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import kotlinx.coroutines.CancellationException
@@ -110,10 +111,22 @@ internal class HarnessWorkflowTools(
         val (harness, workflow) = target(arguments) ?: return failure("No such enabled workflow; see harness_get")
         val expected = "harness=${harness.id.value}@${harness.revision};workflow=${workflow.id.value}"
         if (context.authorization?.binding != expected) {
-            return failure("The workflow changed while awaiting approval; request it again")
+            log.d { "Workflow start approval is stale" }
+            return failure(APPROVAL_CHANGED)
         }
         val request = context.request ?: return failure("Workflows can only be started from an accepted turn")
         if (!helpers.value.canHost(context.session)) return failure("Helper chats cannot be hosted for this chat")
+        // The library is read again at launch; an edit after the question is an expected race, not a fault.
+        val approved = ApprovedWorkflow(harness.revision, workflow.id)
+        if (!launches.value.isApproved(harness.id, workflow.name, approved)) {
+            log.i { "Workflow start refused: changed while awaiting approval" }
+            return failure(APPROVAL_CHANGED)
+        }
+        // A model input that misses the schema is an answer for the model, not a host fault.
+        if (!isWorkflowInput(workflow.input, input(arguments))) {
+            log.d { "Workflow input rejected" }
+            return failure(INPUT_MISMATCH)
+        }
         return try {
             val launch = launches.value.prepare(
                 harness.id,
@@ -124,8 +137,8 @@ internal class HarnessWorkflowTools(
                 RequestInitiator(context.session, request),
                 origins.value.origin(context.session, request),
                 WorkflowOrigin.Agent,
-                // The library is read again at launch; only the snapshot the user approved may start.
-                ApprovedWorkflow(harness.revision, workflow.id),
+                // Only the snapshot the user approved may start, even after the check above.
+                approved,
             )
             val result = launches.value.start(launch)
             val wake = if (result.hasWake) {
@@ -138,7 +151,7 @@ internal class HarnessWorkflowTools(
             throw error
         } catch (error: IllegalArgumentException) {
             log.w(IllegalArgumentException(error::class.simpleName)) { "Workflow input rejected" }
-            failure("The input does not match the workflow schema")
+            failure(INPUT_MISMATCH)
         } catch (error: IllegalStateException) {
             log.w(IllegalStateException(error::class.simpleName)) { "Workflow start refused" }
             failure("The workflow cannot start now: it is disabled, at capacity or no longer active here")
@@ -188,7 +201,6 @@ internal class HarnessWorkflowTools(
                 receipt.cancel()
             }
         }
-        log.i { "Agent workflow cancel requested accepted=${outcome is HarnessRunsOutput.CancellationRequested}" }
         return when (outcome) {
             is HarnessRunsOutput.CancellationRequested ->
                 AgentToolResult("Cancelling run ${run.id.value}; helpers are being stopped.")
@@ -236,6 +248,8 @@ private fun parseRunId(value: String): RunId? = if (value.matches(RUN_ID)) RunId
 private fun JsonObject.text(key: String): String? =
     (get(key) as? JsonPrimitive)?.takeIf { it.isString }?.content?.trim()?.takeIf { it.isNotEmpty() }
 
+private const val INPUT_MISMATCH = "The input does not match the workflow schema"
+private const val APPROVAL_CHANGED = "The workflow changed while awaiting approval; request it again"
 private val OUTCOME_TIMEOUT = 5.seconds
 private val ITEM_NAME = Regex("[a-z][a-z0-9_]{0,31}")
 private val RUN_ID = Regex("wf_[a-zA-Z0-9_]{1,64}")

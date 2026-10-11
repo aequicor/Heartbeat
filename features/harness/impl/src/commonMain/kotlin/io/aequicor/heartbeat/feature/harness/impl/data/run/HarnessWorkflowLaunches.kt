@@ -137,6 +137,17 @@ internal class HarnessWorkflowLaunches(
         return launch
     }
 
+    /**
+     * Whether the live library still holds exactly the approved revision and enabled workflow item. A stale
+     * approval is an expected race the caller reports as its own outcome; [prepare] still refuses it.
+     */
+    fun isApproved(harness: HarnessId, workflow: ItemName, approved: ApprovedWorkflow): Boolean {
+        val state = library.value.state.value as? HarnessState.Ready ?: return true
+        val current = state.harnesses.singleOrNull { it.harness.id == harness }?.harness ?: return true
+        val item = current.items.singleOrNull { it.name == workflow }
+        return current.revision == approved.revision && item?.id == approved.item
+    }
+
     suspend fun start(launch: WorkflowLaunch, isCallerCurrent: () -> Boolean = { true }): WorkflowLaunchResult {
         check(isCallerCurrent() && isCurrent(launch)) { "Workflow admission changed" }
         val result = CompletableDeferred<WorkflowLaunchResult>()

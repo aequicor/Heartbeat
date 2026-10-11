@@ -145,6 +145,8 @@ class HarnessWorkflowStartTest {
         library.state.value = HarnessState.Ready(listOf(HarnessEntry(replaced)), isRuntimeAvailable = true)
         val result = tools.execute(context(authorization = approval), HarnessTools.WORKFLOW_START, arguments())
         assertTrue(result.isError, result.text)
+        // A stale approval is its own outcome: the agent asks again instead of reading it as a capacity failure.
+        assertEquals("The workflow changed while awaiting approval; request it again", result.text)
         assertTrue(runs.sent.isEmpty())
     }
 

@@ -15,6 +15,8 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlin.contracts.ExperimentalContracts
+import kotlin.contracts.contract
 
 /** Permanent scope chosen by the agent; "project" always means the source project of the calling session. */
 internal enum class AuthoringScope { Attached, Profile, Project }
@@ -141,7 +143,7 @@ internal fun parseUpdate(arguments: JsonObject): Parsed<AuthoringCommand.Update>
         arguments["description"]?.let { line(arguments.text("description"), "description", DESCRIPTION_CHARS, false) },
         arguments.text("scope")?.let(::scope),
     )
-    require(command.title != null || command.description != null || command.scope != null) {
+    argument(command.title != null || command.description != null || command.scope != null) {
         "nothing to change: pass title, description or scope"
     }
     command
@@ -166,33 +168,33 @@ internal fun parseItemPut(arguments: JsonObject): Parsed<AuthoringCommand.PutIte
     val kind = ItemKind.entries.firstOrNull { it.key == arguments.text("kind") }
         ?: invalid("kind must be skill, instruction, template, script or workflow")
     val content = arguments.raw("content") ?: invalid("content is required")
-    require(content.isNotBlank()) { "content is required" }
+    argument(content.isNotBlank()) { "content is required" }
     val limit = when (kind) {
         ItemKind.Skill -> HarnessLimits.SKILL_CHARS
         ItemKind.Instruction -> HarnessLimits.INSTRUCTION_CHARS
         ItemKind.Template -> HarnessLimits.TEMPLATE_CHARS
         ItemKind.Script, ItemKind.Workflow -> HarnessLimits.SOURCE_CHARS
     }
-    require(content.length <= limit) { "content is longer than $limit characters" }
+    argument(content.length <= limit) { "content is longer than $limit characters" }
     val description = line(
         arguments.text("description"),
         "description",
         DESCRIPTION_CHARS,
         isRequired = kind == ItemKind.Skill || kind == ItemKind.Template,
     )
-    require(!hasHiddenCharacters(content)) { "content contains invisible or control characters" }
-    require(!looksLikeSecret("$description\n$content")) { "it looks like a credential; secrets are never stored" }
+    argument(!hasHiddenCharacters(content)) { "content contains invisible or control characters" }
+    argument(!looksLikeSecret("$description\n$content")) { "it looks like a credential; secrets are never stored" }
     if (kind.isCode) forbiddenConstruct(content)?.let { invalid("code uses $it, which is not allowed in harness code") }
     val input = arguments["input"]?.let {
-        require(kind == ItemKind.Workflow) { "input is only for workflows" }
-        require(it is JsonObject && isHarnessInputSchema(it)) {
+        argument(kind == ItemKind.Workflow) { "input is only for workflows" }
+        argument(it is JsonObject && isHarnessInputSchema(it)) {
             "input must be an object schema with string, number, boolean, enum and required"
         }
         it
     } ?: JsonObject(emptyMap())
     val draft = ItemDraft(kind, itemName(arguments.text("name")), description, content, input)
     if (kind == ItemKind.Template) {
-        require(draft.arguments.all { it.matches(ARGUMENT_NAME) }) {
+        argument(draft.arguments.all { it.matches(ARGUMENT_NAME) }) {
             "template placeholders must be {{name}} with lowercase letters, digits and _"
         }
     }
@@ -207,19 +209,19 @@ internal fun parseToolsSet(arguments: JsonObject): Parsed<AuthoringCommand.SetTo
         is JsonArray -> value.map { (it as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)?.content.orEmpty() }
         else -> invalid("hosted_off must be an array of tool names")
     }.map { hostedToolName(it.trim()) }
-    require(hosted.none(String::isBlank)) { "hosted_off must contain tool names" }
+    argument(hosted.none(String::isBlank)) { "hosted_off must contain tool names" }
     val native = when (val value = arguments["native"]) {
         null -> emptyMap()
 
         is JsonObject -> value.mapValues { (engine, tools) ->
-            require(engine.isNotBlank() && tools is JsonObject) { "native must map engine ids to tool switches" }
+            argument(engine.isNotBlank() && tools is JsonObject) { "native must map engine ids to tool switches" }
             tools.mapValues { (_, switch) ->
                 when ((switch as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)?.content) {
                     "on" -> ToolSwitch.On
                     "off" -> ToolSwitch.Off
                     else -> invalid("native switches must be on or off; omit a tool to keep its default")
                 }
-            }.also { require(it.keys.none(String::isBlank)) { "native tool names must not be blank" } }
+            }.also { argument(it.keys.none(String::isBlank)) { "native tool names must not be blank" } }
         }.filterValues { it.isNotEmpty() }
 
         else -> invalid("native must be an object")
@@ -249,27 +251,35 @@ private class InvalidArguments(message: String) : IllegalArgumentException(messa
 
 private fun invalid(message: String): Nothing = throw InvalidArguments(message)
 
+/** Model-input requirement: a failure is an [InvalidArguments] answer for the model, never a fault. */
+@OptIn(ExperimentalContracts::class)
+private inline fun argument(value: Boolean, message: () -> String) {
+    contract { returns() implies value }
+    if (!value) invalid(message())
+}
+
+/** Only model-input refusals become answers; any other exception is a host fault and propagates. */
 private inline fun <T> parsing(block: () -> T): Parsed<T> = try {
     Parsed.Valid(block())
-} catch (rejection: IllegalArgumentException) {
+} catch (rejection: InvalidArguments) {
     // Model-supplied values never reach the message: every requirement above uses a fixed explanation.
     Parsed.failure(rejection)
 }
 
 private fun only(arguments: JsonObject, vararg names: String) {
     val unknown = arguments.keys - names.toSet()
-    require(unknown.isEmpty()) { "unknown arguments; accepted: ${names.joinToString()}" }
+    argument(unknown.isEmpty()) { "unknown arguments; accepted: ${names.joinToString()}" }
 }
 
 private fun harnessName(value: String?): HarnessName {
-    require(value != null && value.matches(HARNESS_NAME)) {
+    argument(value != null && value.matches(HARNESS_NAME)) {
         "harness name must match [a-z][a-z0-9_]{1,19}"
     }
     return HarnessName(value)
 }
 
 private fun itemName(value: String?): ItemName {
-    require(value != null && value.matches(ITEM_NAME)) { "item name must match [a-z][a-z0-9_]{0,31}" }
+    argument(value != null && value.matches(ITEM_NAME)) { "item name must match [a-z][a-z0-9_]{0,31}" }
     return ItemName(value)
 }
 
@@ -282,13 +292,13 @@ private fun scope(value: String): AuthoringScope = when (value) {
 
 private fun line(value: String?, field: String, limit: Int, isRequired: Boolean): String {
     val text = value?.trim().orEmpty()
-    require(!isRequired || text.isNotEmpty()) { "$field is required" }
-    require(text.none { it == '\n' || it == '\r' || it == ' ' || it == ' ' }) {
+    argument(!isRequired || text.isNotEmpty()) { "$field is required" }
+    argument(text.none { it == '\n' || it == '\r' || it == ' ' || it == ' ' }) {
         "$field must be a single line"
     }
-    require(text.length <= limit) { "$field is longer than $limit characters" }
-    require(!hasHiddenCharacters(text)) { "$field contains invisible or control characters" }
-    require(!looksLikeSecret(text)) { "$field looks like a credential; secrets are never stored" }
+    argument(text.length <= limit) { "$field is longer than $limit characters" }
+    argument(!hasHiddenCharacters(text)) { "$field contains invisible or control characters" }
+    argument(!looksLikeSecret(text)) { "$field looks like a credential; secrets are never stored" }
     return text
 }
 

@@ -3,6 +3,8 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.authoring
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.script.HARNESS_API_VERSION
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HARNESS_CONTEXT_CHARS
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.EVENT_QUEUE_CAPACITY
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HOOK_RESULT_CHARS
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInvocationBudget
 
 /** Topics of harness_api_reference; the examples are compiled by a desktop test against the current API. */
@@ -41,7 +43,10 @@ private val GUIDE = """
 
     Approval: texts follow the profile approval level; code, switching a tool on and giving a turned-off tool
     back (removing an off switch, disconnecting, deleting or narrowing a harness that turns tools off, connecting or
-    widening one that switches native tools on) always ask the user.
+    widening one that switches native tools on) always ask the user. A harness with an enabled script asks for every
+    connection, disconnection, scope change and deletion, and deleting an enabled script asks too.
+    Off switches and Deny/Ask hooks apply in every chat a harness covers; everything else comes from the first
+    ${HarnessLimits.ACTIVE_PER_SESSION} covering harnesses of a chat by name.
     Never store secrets, tokens or personal data in a harness. Keep instructions short: the whole harness block
     shares $HARNESS_CONTEXT_CHARS characters per chat; skills are not in the block, only their index.
     Limits: ${HarnessLimits.HARNESSES} harnesses, ${HarnessLimits.ITEMS} items each, ${HarnessLimits.SCRIPT_TOOLS}
@@ -61,7 +66,7 @@ private val API = """
     - hooks.beforePrompt { context, text -> String? } — extra context appended to the user's prompt.
     - hooks.beforeTool { call -> ToolHookVerdict } — Continue, Deny(reason) or Ask(reason); never allows.
       call.name, call.action (Read/Edit/Command), call.arguments (untrusted JsonObject), call.isNative.
-    - hooks.afterTool { call, result -> String? } — a note shown to the agent before the result (≤ 2000 chars).
+    - hooks.afterTool { call, result -> String? } — a note shown to the agent before the result (≤ $HOOK_RESULT_CHARS chars).
     - events.on<SessionEvent.TurnFinished> { event -> } — see topic events.
       Handlers run ≤ ${HarnessInvocationBudget.Event}.
     - agent.tool(ItemName("check"), description, schema, action = AgentToolAction.Command) { call ->
@@ -99,7 +104,7 @@ private val EVENTS = """
       only for chats where this harness is active; context has session, workspace, request and turn.
     - EngineEvent.AvailabilityChanged / ConnectionsChanged.
     - HarnessLifecycleEvent.Activated, HarnessLifecycleEvent.WorkflowFinished(run, status).
-    Queues keep the newest 64 events per handler; slow handlers lose old events.
+    Queues keep the newest $EVENT_QUEUE_CAPACITY events per script; slow handlers lose old events.
 """.trimIndent()
 
 /** Desktop script of the example harness: blocks destructive commands and reminds about checks after edits. */
