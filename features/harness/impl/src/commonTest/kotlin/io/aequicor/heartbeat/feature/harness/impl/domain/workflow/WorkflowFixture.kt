@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStep
 import io.aequicor.heartbeat.feature.harness.impl.data.RunDeliveryClock
 import io.aequicor.heartbeat.feature.harness.impl.data.RunDeliveryTestStore
 import io.aequicor.heartbeat.feature.harness.impl.data.run.KeyValueHarnessRunStorage
+import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import okio.ByteString.Companion.encodeUtf8
@@ -21,7 +22,7 @@ import kotlin.time.Duration.Companion.hours
 internal class WorkflowFixture {
     val clock = RunDeliveryClock()
     val store = RunDeliveryTestStore(clock)
-    val storage = KeyValueHarnessRunStorage(store, clock)
+    val storage = KeyValueHarnessRunStorage(store, clock, Dispatchers.Unconfined)
     val initial = WorkflowRun(
         RunId("wf_test"), HarnessId("harness"), ItemId("workflow"),
         PinnedWorkflow(

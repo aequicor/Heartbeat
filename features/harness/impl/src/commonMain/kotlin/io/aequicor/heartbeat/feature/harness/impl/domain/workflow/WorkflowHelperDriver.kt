@@ -47,6 +47,7 @@ internal class WorkflowHelperDriver(
     private val handoff: HelperHandoff,
     private val isAdmitted: suspend () -> Boolean,
     private val permissions: suspend (WorkflowStep, List<PermissionRequest>) -> Unit = { _, _ -> },
+    private val driver: Job? = null,
     private val nextId: () -> String = { Uuid.random().toHexString() },
 ) : WorkflowAgentSteps {
     private val log = Log.tag("HarnessWorkflow")
@@ -78,14 +79,29 @@ internal class WorkflowHelperDriver(
 
     /**
      * Clears the step's permission requests and frees a terminal step's slot. A cancelled [owner] tries once:
-     * the next owner releases the rest, since the terminal memo is already durable.
+     * the next owner releases the rest, since the terminal memo is already durable. A branch cancelled by a
+     * failing sibling while its [driver] generation still owns the run also stops its helper now: otherwise a
+     * retried parallel group would wait for this slot until the run's deadline. A revoked driver keeps the slot
+     * for the next owner, which reconciles the exact request instead.
      */
     private suspend fun settle(step: WorkflowStep, resource: WorkflowHelperResource, owner: Job?) {
         permissions(step, emptyList())
         val phase = progress.steps.singleOrNull { it.key == step.key }?.phase
-        if (phase == StepPhase.Completed || phase == StepPhase.Failed) {
+        val isTerminal = phase == StepPhase.Completed || phase == StepPhase.Failed
+        val isAbandoned = !isTerminal && owner?.isCancelled == true && driver?.isActive == true && isStillAdmitted()
+        if (isAbandoned) log.d { "Workflow branch cancelled by its group; stopping its helper" }
+        if (isTerminal || isAbandoned) {
             while (!resources.release(resource) && owner?.isActive != false) delay(POLL_INTERVAL)
         }
+    }
+
+    private suspend fun isStillAdmitted(): Boolean = try {
+        isAdmitted()
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        log.w(harnessScriptFailure(error)) { "Workflow admission unavailable while settling a branch" }
+        false
     }
 
     /** Polls the exact request until its terminal result is durable; unknown outcomes are recovered. */

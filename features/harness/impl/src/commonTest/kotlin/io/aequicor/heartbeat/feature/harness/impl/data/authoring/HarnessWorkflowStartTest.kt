@@ -24,7 +24,10 @@ import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsIntent
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsOutput
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsState
+import io.aequicor.heartbeat.feature.harness.impl.data.RunDeliveryClock
+import io.aequicor.heartbeat.feature.harness.impl.data.RunDeliveryTestStore
 import io.aequicor.heartbeat.feature.harness.impl.data.run.HarnessWorkflowLaunches
+import io.aequicor.heartbeat.feature.harness.impl.data.run.KeyValueHarnessRunStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.LibraryOutcome
@@ -153,6 +156,7 @@ class HarnessWorkflowStartTest {
         val launches = HarnessWorkflowLaunches(
             lazyOf(library),
             lazyOf(runs),
+            RunDeliveryClock().let { KeyValueHarnessRunStorage(RunDeliveryTestStore(it), it, Dispatchers.Unconfined) },
             lazyOf(helpers),
             lazy {
                 WorkflowCodeExecutor(AvailableHost, HarnessExecutionLane(Dispatchers.Default), origins, StartClock) {

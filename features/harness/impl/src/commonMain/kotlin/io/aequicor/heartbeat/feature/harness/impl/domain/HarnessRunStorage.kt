@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain
 
+import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
 
 /**
@@ -20,4 +21,19 @@ internal interface HarnessRunStorage {
      * [HarnessStorageUncertain] means retry this proposal; it never proves a helper stopped or a run disappeared.
      */
     suspend fun save(run: WorkflowRun, expectedGeneration: Long?): Boolean
+
+    /** One journal by id, without decoding the others; null when absent or expired. */
+    suspend fun find(id: RunId): WorkflowRun? = load().singleOrNull { it.id == id }
+
+    /**
+     * Removes the exact initial record of a start the run machine definitively rejected. A record that a driver
+     * has already advanced is kept and false is returned; an absent record counts as discarded.
+     */
+    suspend fun discard(run: WorkflowRun): Boolean = false
+
+    /** Whether the terminal result of [id] has already reached the durable scheduler outbox. */
+    suspend fun isPublished(id: RunId): Boolean = false
+
+    /** Records outbox delivery of a terminal run, so a restart does not publish its finish again. */
+    suspend fun markPublished(id: RunId) = Unit
 }

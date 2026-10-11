@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -44,8 +45,11 @@ internal class WorkflowRunExecution(
     private val helpers = ports.helpers
     private val bindings = ports.bindings
 
-    /** Revoked author work has joined. Stop native work but preserve Running replay state and its requests. */
-    suspend fun pause(requested: WorkflowRun) {
+    /**
+     * Revoked author work has joined. Stop native work but preserve Running replay state and its requests.
+     * Returns true when the run is terminal, so its driver owner can be retired.
+     */
+    suspend fun pause(requested: WorkflowRun): Boolean {
         val run = claim(requested)
         if (run.status != WorkflowStatus.Running) {
             terminal(run, requested.driverGeneration)
@@ -54,26 +58,34 @@ internal class WorkflowRunExecution(
             finish(progress, WorkflowStatus.Failed(checkNotNull(run.cancellation)), requested.driverGeneration)
         } else {
             cleanup(run, onlyTerminalSteps = false)
+            return false
         }
+        return true
     }
 
-    suspend fun execute(requested: WorkflowRun, isCurrent: () -> Boolean) {
+    /** Returns only after a terminal record is committed and published; failures leave the request retryable. */
+    suspend fun execute(requested: WorkflowRun, isCurrent: () -> Boolean): Boolean {
         val run = claim(requested)
         if (run.status != WorkflowStatus.Running) {
             terminal(run, requested.driverGeneration)
-            return
+        } else {
+            drive(run, requested.driverGeneration, isCurrent)
         }
+        return true
+    }
+
+    private suspend fun drive(run: WorkflowRun, projection: Long, isCurrent: () -> Boolean) {
         val progress = WorkflowRunJournal(run, storage) { feedback(it.feedback(run)) }
         val cancellation = run.cancellation
         if (cancellation != null) {
-            finish(progress, WorkflowStatus.Failed(cancellation), requested.driverGeneration)
+            finish(progress, WorkflowStatus.Failed(cancellation), projection)
             return
         }
         while (!access.isAdmitted(run)) {
             currentCoroutineContext().ensureActive()
             if (!isCurrent()) throw WorkflowExecutionUnavailable()
             if (clock.now() >= run.deadline) {
-                fail(progress, WorkflowFailure.Timeout, requested.driverGeneration)
+                fail(progress, WorkflowFailure.Timeout, projection)
                 return
             }
             delay(RETRY_INTERVAL)
@@ -82,7 +94,7 @@ internal class WorkflowRunExecution(
         val origin = access.origin(run)
         val routing = run.routing
         if (origin == null || origin.isHookRestricted || routing == null) {
-            fail(progress, WorkflowFailure.Error, requested.driverGeneration)
+            fail(progress, WorkflowFailure.Error, projection)
             return
         }
         val permissions = WorkflowPermissions {
@@ -96,6 +108,7 @@ internal class WorkflowRunExecution(
             routing.handoff,
             { isCurrent() && access.isAdmitted(run) },
             permissions::update,
+            driver = currentCoroutineContext()[Job],
         )
         val outcome = try {
             WorkflowStatus.Completed(code.execute(run, progress, agents, origin))
@@ -106,27 +119,34 @@ internal class WorkflowRunExecution(
             WorkflowStatus.Failed(error.reason)
         }
         if (!isCurrent()) throw WorkflowExecutionUnavailable()
-        finish(progress, outcome, requested.driverGeneration)
+        finish(progress, outcome, projection)
     }
 
-    /** Called during Restore as well, repairing the commit-to-outbox window without re-executing code. */
+    /**
+     * Called during Restore as well, repairing the commit-to-outbox window without re-executing code. The outbox
+     * write is not idempotent (it republishes the finished event), so a durable mark skips delivered results; a
+     * crash between delivery and the mark repeats the delivery at most once.
+     */
     suspend fun publish(run: WorkflowRun) {
         val payload = when (val status = run.status) {
             is WorkflowStatus.Completed -> "Workflow completed:\n" + status.result.toString()
             is WorkflowStatus.Failed -> "Workflow failed: ${status.reason}"
             WorkflowStatus.Running -> return
         }
+        if (storage.isPublished(run.id)) return
         val bounded = if (payload.length <= SchedulerLimits.MAX_PAYLOAD) {
             payload
         } else {
             payload.take(SchedulerLimits.MAX_PAYLOAD - RESULT_SUFFIX.length) + RESULT_SUFFIX
         }
         helpers.finish(run.id.action, bounded)
+        storage.markPublished(run.id)
+        log.d { "Workflow result published" }
     }
 
     /** Serial generation checkpoints bridge suspension/resume fences without dropping a parallel branch. */
     private suspend fun claim(requested: WorkflowRun): WorkflowRun {
-        var stored: WorkflowRun = storage.load().singleOrNull { it.id == requested.id } ?: run {
+        var stored: WorkflowRun = storage.find(requested.id) ?: run {
             check(requested.steps.isEmpty() && requested.attempt == 0) { "Workflow journal is missing" }
             // A start can be suspended before its first effect runs; its immutable admitted input remains valid.
             val initial = requested.copy(driverGeneration = 0, attempt = 0, steps = emptyList(), awaiting = emptyMap())
@@ -173,33 +193,41 @@ internal class WorkflowRunExecution(
         feedback(HarnessRunsIntent.Internal.TerminalRestored(run, projection))
     }
 
-    /** Release can remain unconfirmed indefinitely. No timeout or coroutine cancellation means native success. */
+    /**
+     * Release can remain unconfirmed indefinitely. No timeout or coroutine cancellation means native success.
+     * Leases this run already holds are released before any new slot is claimed: acquiring first could wait for
+     * this owner's own capacity forever. Steps without a live record then take one slot at a time.
+     */
     private suspend fun cleanup(run: WorkflowRun, onlyTerminalSteps: Boolean) {
-        val records = resources.records(run.id).associateBy { it.key }.toMutableMap()
-        if (!onlyTerminalSteps) {
-            for (step in run.steps.filter { it.helper != null && it.key !in records && !it.isTerminal }) {
-                val binding = checkNotNull(bindings.lookup(checkNotNull(step.helper))) { "Missing helper ownership" }
-                check(binding.owner == run.id.action && binding.harness == run.harness)
-                val grant = WorkflowHelperGrant(
-                    ActionId("wf_slot_" + Uuid.random().toHexString()),
-                    run.id,
-                    run.harness,
-                    step.key,
-                    step.promptSha,
-                    run.caller,
-                    checkNotNull(step.request),
-                    binding.attachRequest,
-                )
-                val resource = resources.acquire(grant, step.helper)
-                resource.bind(checkNotNull(step.helper))
-                records[step.key] = resource.grant
-            }
-        }
-        for (record in records.values) {
+        val records = resources.records(run.id)
+        for (record in records) {
             if (onlyTerminalSteps && run.steps.singleOrNull { it.key == record.key }?.isTerminal != true) continue
-            val resource = resources.acquire(record)
-            while (!resources.release(resource)) delay(RETRY_INTERVAL)
+            settle(resources.acquire(record))
         }
+        if (onlyTerminalSteps) return
+        val covered = records.mapTo(mutableSetOf()) { it.key }
+        for (step in run.steps.filter { it.helper != null && it.key !in covered && !it.isTerminal }) {
+            val helper = checkNotNull(step.helper)
+            val binding = checkNotNull(bindings.lookup(helper)) { "Missing helper ownership" }
+            check(binding.owner == run.id.action && binding.harness == run.harness)
+            val grant = WorkflowHelperGrant(
+                ActionId("wf_slot_" + Uuid.random().toHexString()),
+                run.id,
+                run.harness,
+                step.key,
+                step.promptSha,
+                run.caller,
+                checkNotNull(step.request),
+                binding.attachRequest,
+            )
+            val resource = resources.acquire(grant, helper)
+            resource.bind(helper)
+            settle(resource)
+        }
+    }
+
+    private suspend fun settle(resource: WorkflowHelperResource) {
+        while (!resources.release(resource)) delay(RETRY_INTERVAL)
     }
 }
 

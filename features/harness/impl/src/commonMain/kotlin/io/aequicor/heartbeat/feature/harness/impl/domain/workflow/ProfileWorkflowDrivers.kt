@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.harnessScriptFailure
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -21,7 +22,8 @@ import kotlin.time.Duration.Companion.seconds
 /**
  * One serial owner per run. collectLatest revokes and joins the previous generation before a replacement can
  * touch storage or helper leases. Non-cooperative author code therefore delays the barrier instead of granting
- * concurrent ownership. Requests are nonblocking; library lifecycle polls the confirmed pause barrier.
+ * concurrent ownership. Requests are nonblocking; library lifecycle polls the confirmed pause barrier. A slot and
+ * its follower live only until the run's terminal record is settled, unless a newer request arrived meanwhile.
  */
 internal class ProfileWorkflowDrivers(
     private val scope: CoroutineScope,
@@ -31,6 +33,9 @@ internal class ProfileWorkflowDrivers(
     private val lock = Mutex()
     private val slots = MutableStateFlow<Map<RunId, WorkflowDriverSlot>>(emptyMap())
     private val log = Log.tag("HarnessWorkflow")
+
+    /** Runs that currently have a driver slot and follower. */
+    val activeRuns: Set<RunId> get() = slots.value.keys
 
     suspend fun drive(run: WorkflowRun) = offer(WorkflowDriverRequest(run, isPause = false))
 
@@ -53,7 +58,7 @@ internal class ProfileWorkflowDrivers(
         val slot = slots.value[request.run.id] ?: WorkflowDriverSlot().also { created ->
             slots.update { it + (request.run.id to created) }
             log.v { "Workflow driver slot created" }
-            scope.launch { follow(created) }
+            created.follower = scope.launch { follow(request.run.id, created) }
         }
         slot.request.update { old ->
             when {
@@ -69,23 +74,39 @@ internal class ProfileWorkflowDrivers(
         }
     }
 
-    private suspend fun follow(slot: WorkflowDriverSlot) {
+    private suspend fun follow(run: RunId, slot: WorkflowDriverSlot) {
         slot.request.filterNotNull().collectLatest { request ->
             var hasReportedFailure = false
-            while (!attempt(slot, request, hasReportedFailure)) {
+            var isTerminal = attempt(slot, request, hasReportedFailure)
+            while (isTerminal == null) {
                 hasReportedFailure = true
                 delay(1.seconds)
+                isTerminal = attempt(slot, request, hasReportedFailure)
             }
             slot.settled.value = request.run.driverGeneration
+            if (isTerminal) retire(run, slot, request)
         }
     }
 
-    /** One pass of the exact request; false keeps the same owner retrying after an uncertain outcome. */
+    /** A terminal run needs no owner: drop its slot and stop the follower, unless a newer request replaced it. */
+    private suspend fun retire(run: RunId, slot: WorkflowDriverSlot, request: WorkflowDriverRequest) {
+        val isRetired = lock.withLock {
+            (slots.value[run] === slot && slot.request.value == request).also { isCurrent ->
+                if (isCurrent) slots.update { it - run }
+            }
+        }
+        if (isRetired) {
+            log.v { "Workflow driver slot retired" }
+            slot.follower?.cancel()
+        }
+    }
+
+    /** One pass of the exact request: terminal, settled, or null to retry after an uncertain outcome. */
     private suspend fun attempt(
         slot: WorkflowDriverSlot,
         request: WorkflowDriverRequest,
         isReported: Boolean,
-    ): Boolean {
+    ): Boolean? {
         currentCoroutineContext().ensureActive()
         return try {
             if (request.isPause) {
@@ -95,15 +116,14 @@ internal class ProfileWorkflowDrivers(
                     slot.request.value == request && isProjectionCurrent(request.run.id, request.run.driverGeneration)
                 }
             }
-            true
         } catch (error: WorkflowExecutionUnavailable) {
             if (!isReported) log.w(error) { "Workflow driver awaits reconciliation" }
-            false
+            null
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
             if (!isReported) log.w(harnessScriptFailure(error)) { "Workflow driver awaits durable IO" }
-            false
+            null
         }
     }
 }
@@ -113,4 +133,5 @@ private data class WorkflowDriverRequest(val run: WorkflowRun, val isPause: Bool
 private class WorkflowDriverSlot {
     val request = MutableStateFlow<WorkflowDriverRequest?>(null)
     val settled = MutableStateFlow(-1L)
+    var follower: Job? = null
 }

@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.workflow
 
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.workflow.AgentOptions
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepPhase
@@ -8,10 +9,13 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowFailure
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStepFailed
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
+import okio.ByteString.Companion.encodeUtf8
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -126,6 +130,34 @@ class WorkflowEngineTest {
         }
         assertEquals(StepPhase.Prepared, interrupted.storage.load().single().steps.single().phase)
         assertEquals(JsonNull, interrupted.engine().execute { step("pause") { JsonNull } })
+    }
+
+    @Test
+    fun `an unavailable port swallowed by author code never commits or memoizes the fallback`() = runTest {
+        val fixture = WorkflowFixture()
+        val journal = fixture.journal()
+        val unavailable = WorkflowAgentSteps { _, _, _, _ -> throw WorkflowExecutionUnavailable() }
+        val engine = WorkflowEngine(journal.state.value, journal, unavailable, fixture.clock) {
+            it.encodeUtf8().sha256().hex()
+        }
+        val log = Log.tag("WorkflowEngineTest")
+        assertFailsWith<WorkflowExecutionUnavailable> {
+            engine.execute {
+                step("guarded") {
+                    try {
+                        JsonPrimitive(agent("Task", AgentOptions("Helper")))
+                    } catch (error: IllegalStateException) {
+                        // Author code that catches broadly also catches the host's cancellation-shaped signal.
+                        currentCoroutineContext().ensureActive()
+                        log.w(error) { "author fallback" }
+                        JsonPrimitive("fallback")
+                    }
+                }
+            }
+        }
+        val step = fixture.storage.load().single().steps.single()
+        assertEquals(StepPhase.Prepared, step.phase)
+        assertEquals(null, step.result)
     }
 
     @Test

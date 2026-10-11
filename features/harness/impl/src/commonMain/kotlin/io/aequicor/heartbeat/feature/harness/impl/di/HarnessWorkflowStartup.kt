@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartup
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
@@ -20,6 +21,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.HarnessRunsMachine
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.ProfileWorkflowDrivers
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowHelperJournal
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
@@ -39,6 +41,8 @@ internal class HarnessWorkflowStartup(
     private val drivers: Lazy<ProfileWorkflowDrivers>,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
 ) : ProfileStartup {
+    private val log = Log.tag("HarnessWorkflow")
+
     override fun start() {
         profile.coroutineScope.launch {
             toggles.observe(HarnessEnabled).distinctUntilChanged().collectLatest { enabled ->
@@ -67,9 +71,12 @@ internal class HarnessWorkflowStartup(
         }
     }
 
-    /** Preexisting granted slots must drain even when the profile opens with the feature disabled. */
+    /**
+     * Preexisting granted slots must drain even when the profile opens with the feature disabled. An unreadable
+     * grant journal is treated as possibly holding slots; it must not end the toggle observation for the profile.
+     */
     private suspend fun followSuspended() {
-        if (!machine.isInitialized() && grants.value.pending().isEmpty()) return
+        if (!machine.isInitialized() && !hasPendingGrants()) return
         val runs = machine.value
         runs.send(HarnessRunsIntent.Internal.Suspended)
         if (runs.state.value is HarnessRunsState.Idle || runs.state.value is HarnessRunsState.Failed) {
@@ -83,6 +90,15 @@ internal class HarnessWorkflowStartup(
                 }
             }
         }
+    }
+
+    private suspend fun hasPendingGrants(): Boolean = try {
+        grants.value.pending().isNotEmpty()
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        log.w(error) { "Workflow helper grants are unreadable; draining the journal conservatively" }
+        true
     }
 }
 

@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.harness.impl.data.run.KeyValueHarnessRunSto
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessStorageCorrupt
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessStorageUncertain
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
@@ -35,7 +36,7 @@ import kotlin.time.Duration.Companion.seconds
 class HarnessRunStorageTest {
     private val clock = RunDeliveryClock()
     private val kv = RunDeliveryTestStore(clock)
-    private fun repository() = KeyValueHarnessRunStorage(kv, clock)
+    private fun repository() = KeyValueHarnessRunStorage(kv, clock, Dispatchers.Unconfined)
     private fun run(id: String = "wf_one", harness: String = "harness") = WorkflowRun(
         RunId(id), HarnessId(harness), ItemId("workflow"),
         PinnedWorkflow("private-source", "a".repeat(64), 1, emptyMap()), JsonObject(emptyMap()), null,
@@ -185,5 +186,48 @@ class HarnessRunStorageTest {
         kv.crashAfterWrite = null
         assertEquals(listOf(original), repository().load())
         assertTrue(repository().save(original, null))
+    }
+
+    @Test
+    fun `saving one run reads and writes only its value and the index`() = runTest {
+        val other = run("wf_other")
+        val own = run()
+        assertTrue(repository().save(other, null))
+        assertTrue(repository().save(own, null))
+        // An unreadable unrelated journal cannot be touched by a checkpoint of another run.
+        kv.readFailureKey = "run.wf_other"
+        val step = WorkflowStep(StepKey("s0"), "c".repeat(64), request = RequestId("first"))
+        assertTrue(repository().save(own.copy(steps = listOf(step)), 0))
+        assertEquals(own.copy(steps = listOf(step)), repository().find(own.id))
+        assertFailsWith<HarnessStorageUncertain> { repository().load() }
+        kv.readFailureKey = null
+        assertEquals(listOf(own.copy(steps = listOf(step)), other), repository().load())
+    }
+
+    @Test
+    fun `outbox mark survives restart and leaves the journal valid`() = runTest {
+        val terminal = run().copy(status = WorkflowStatus.Completed(JsonNull), finishedAt = clock.now())
+        assertTrue(repository().save(terminal, null))
+        assertFalse(repository().isPublished(terminal.id))
+        repository().markPublished(terminal.id)
+        assertTrue(repository().isPublished(terminal.id))
+        assertEquals(listOf(terminal), repository().load())
+        assertTrue(repository().save(terminal, null))
+        assertTrue(repository().isPublished(terminal.id))
+        clock.instant += 31.days
+        assertTrue(repository().load().isEmpty())
+        assertFalse(repository().isPublished(terminal.id))
+    }
+
+    @Test
+    fun `discard removes only an unclaimed initial record`() = runTest {
+        val initial = run()
+        assertTrue(repository().save(initial, null))
+        assertTrue(repository().discard(initial))
+        assertTrue(repository().load().isEmpty())
+        assertTrue(repository().save(initial, null))
+        assertTrue(repository().save(initial.copy(driverGeneration = 1), 0))
+        assertFalse(repository().discard(initial))
+        assertEquals(listOf(initial.copy(driverGeneration = 1)), repository().load())
     }
 }

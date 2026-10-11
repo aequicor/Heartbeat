@@ -20,7 +20,9 @@ import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperReleaseResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -134,6 +136,59 @@ internal class WorkflowHelperDriverTest {
         assertEquals(1, fixture.base.creates)
         assertTrue(fixture.base.prompts.single().isRecovery)
     }
+
+    @Test
+    fun `cancellation after a terminal step makes one release attempt`() = runTest {
+        val fixture = WorkflowHelpersFixture()
+        val progress = fixture.workflow.journal()
+        var execution: Job? = null
+        fixture.base.release = {
+            checkNotNull(execution).cancel()
+            HelperReleaseResult.Unconfirmed
+        }
+        execution = async { fixture.driver(progress).execute(KEY, DIGEST, "Task", OPTIONS) }
+        execution.join()
+        assertEquals(1, fixture.base.releases)
+        assertEquals(StepPhase.Completed, progress.steps.single().phase)
+    }
+
+    @Test
+    fun `active owner repeats an unconfirmed release until released`() = runTest {
+        val fixture = WorkflowHelpersFixture()
+        val progress = fixture.workflow.journal()
+        fixture.base.release = {
+            if (fixture.base.releases < 3) HelperReleaseResult.Unconfirmed else HelperReleaseResult.Released
+        }
+        assertEquals("Done", fixture.driver(progress).execute(KEY, DIGEST, "Task", OPTIONS))
+        assertEquals(3, fixture.base.releases)
+        assertTrue(fixture.grants.pending().isEmpty())
+    }
+
+    @Test
+    fun `branch cancelled by its group stops its helper while a revoked driver keeps it`() = runTest {
+        val fixture = WorkflowHelpersFixture()
+        val progress = fixture.workflow.journal()
+        fixture.beforePrompt = { awaitCancellation() }
+        val driver = Job()
+        val branch = async { fixture.driver(progress, driver).execute(KEY, DIGEST, "Task", OPTIONS) }
+        runCurrent()
+        branch.cancelAndJoin()
+        assertEquals(1, fixture.base.releases)
+        assertTrue(fixture.grants.pending().isEmpty())
+        val revoked = WorkflowHelpersFixture()
+        val revokedProgress = revoked.workflow.journal()
+        revoked.beforePrompt = { awaitCancellation() }
+        val revokedDriver = Job()
+        val revokedBranch = async {
+            revoked.driver(revokedProgress, revokedDriver).execute(KEY, DIGEST, "Task", OPTIONS)
+        }
+        runCurrent()
+        revokedDriver.cancel()
+        revokedBranch.cancelAndJoin()
+        assertEquals(0, revoked.base.releases)
+        assertEquals(1, revoked.grants.pending().size)
+        driver.cancel()
+    }
 }
 
 private class WorkflowHelpersFixture {
@@ -162,13 +217,14 @@ private class WorkflowHelpersFixture {
     }
     private val resources = WorkflowHelperResources(helpers, grants)
 
-    fun driver(progress: WorkflowRunJournal): WorkflowHelperDriver = WorkflowHelperDriver(
+    fun driver(progress: WorkflowRunJournal, driver: Job? = null): WorkflowHelperDriver = WorkflowHelperDriver(
         workflow.initial,
         progress,
         WorkflowHelperPorts(grants, resources, helpers, bindings),
         null,
         HelperHandoff(),
         { true },
+        driver = driver,
     ) { "id_${sequence++}" }
 
     fun grant(): WorkflowHelperGrant = WorkflowHelperGrant(

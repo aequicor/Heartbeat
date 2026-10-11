@@ -4,17 +4,27 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
-import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStatus
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessStorageCorrupt
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Instant
 
-/** Committed terminal metadata is the only authority for tolerating a missing expired value. */
+/**
+ * Committed terminal metadata is the only authority for tolerating a missing expired value. [isPublished] records
+ * that the terminal result reached the scheduler outbox, so restarts never republish an already delivered finish.
+ */
 @Serializable
-internal data class HarnessRunHeader(val id: RunId, val harness: HarnessId, val finishedAt: Instant?) {
+internal data class HarnessRunHeader(
+    val id: RunId,
+    val harness: HarnessId,
+    val finishedAt: Instant?,
+    val isPublished: Boolean = false,
+) {
     val expiresAt: Instant? get() = finishedAt?.plus(RUN_RETENTION)
+
+    /** The part of the header derived from the run value itself. */
+    fun identity(): HarnessRunHeader = copy(isPublished = false)
 }
 
 @Serializable
@@ -24,23 +34,14 @@ internal data class HarnessRunIndex(val entries: List<HarnessRunHeader> = emptyL
     }
 }
 
-/** Ephemeral coherent read; private journal content must not reach incidental logs. */
-internal data class HarnessRunRecords(
-    val indexText: String?,
-    val index: HarnessRunIndex,
-    val values: Map<RunId, String?>,
-    val runs: List<WorkflowRun>,
-) {
-    override fun toString(): String = "HarnessRunRecords(***)"
-}
-
 internal fun WorkflowRun.header(): HarnessRunHeader = HarnessRunHeader(id, harness, finishedAt)
 
-internal fun retainedRuns(runs: List<WorkflowRun>, now: Instant): List<WorkflowRun> {
-    val running = runs.filter { it.status == WorkflowStatus.Running }
-    val terminal = runs.filter { it.header().expiresAt?.let { expiry -> expiry > now } == true }
+/** Retention decided from headers alone, so a single-run write never decodes the other journals. */
+internal fun retainedHeaders(headers: List<HarnessRunHeader>, now: Instant): List<HarnessRunHeader> {
+    val running = headers.filter { it.finishedAt == null }
+    val terminal = headers.filter { it.expiresAt?.let { expiry -> expiry > now } == true }
         .groupBy { it.harness }.values.flatMap { values ->
-            values.sortedWith(compareByDescending<WorkflowRun> { it.finishedAt }.thenBy { it.id.value })
+            values.sortedWith(compareByDescending<HarnessRunHeader> { it.finishedAt }.thenBy { it.id.value })
                 .take(TERMINAL_RUNS_PER_HARNESS)
         }
     return (running + terminal).sortedBy { it.id.value }

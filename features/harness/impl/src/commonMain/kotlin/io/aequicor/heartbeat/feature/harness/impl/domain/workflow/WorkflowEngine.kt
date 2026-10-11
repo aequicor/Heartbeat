@@ -46,6 +46,7 @@ internal class WorkflowEngine(
 ) : WorkflowScope {
     private val visited = MutableStateFlow<Set<StepKey>>(emptySet())
     private val diverged = MutableStateFlow(false)
+    private val unavailable = MutableStateFlow(false)
     private val started = MutableStateFlow(false)
     private val log = Log.tag("HarnessWorkflow")
     override val input: JsonObject get() = run.input
@@ -54,6 +55,7 @@ internal class WorkflowEngine(
         check(started.compareAndSet(false, true)) { "A replay engine executes once" }
         log.v { "Workflow replay started" }
         val result = withContext(WorkflowFrame(this, "")) { author { definition(input) } }
+        ensureAvailable()
         if (diverged.value || journal.steps.any { it.key !in visited.value }) divergence()
         return bounded(result)
     }
@@ -63,11 +65,15 @@ internal class WorkflowEngine(
         val old = existing(place.key, hash)
         if (old?.phase == StepPhase.Completed) return@position stringResult(old)
         if (old?.phase == StepPhase.Failed) throw WorkflowStepFailed(checkNotNull(old.failure))
-        agents.execute(place.key, hash, prompt, options).also {
-            val saved = existing(place.key, hash)
-            if (saved?.phase != StepPhase.Completed || stringResult(saved) != it) {
-                log.w(IllegalStateException("Helper result is not durable")) { "Workflow helper journal unavailable" }
-                throw WorkflowExecutionUnavailable()
+        port {
+            agents.execute(place.key, hash, prompt, options).also {
+                val saved = existing(place.key, hash)
+                if (saved?.phase != StepPhase.Completed || stringResult(saved) != it) {
+                    log.w(
+                        IllegalStateException("Helper result is not durable"),
+                    ) { "Workflow helper journal unavailable" }
+                    throw WorkflowExecutionUnavailable()
+                }
             }
         }
     }
@@ -92,7 +98,7 @@ internal class WorkflowEngine(
                 visitChildren(place)
                 throw WorkflowStepFailed(checkNotNull(old.failure))
             }
-            journal.prepare(place.key, hash)
+            port { journal.prepare(place.key, hash) }
             val values = recordFailure(place.key) {
                 coroutineScope {
                     branches.mapIndexed { index, branch ->
@@ -102,8 +108,9 @@ internal class WorkflowEngine(
                     }.awaitAll()
                 }
             }
+            ensureAvailable()
             // The marker records only structure; child journals own results, avoiding an oversized aggregate.
-            if (old?.phase != StepPhase.Completed) journal.complete(place.key, JsonPrimitive("parallel"))
+            if (old?.phase != StepPhase.Completed) port { journal.complete(place.key, JsonPrimitive("parallel")) }
             values
         }
 
@@ -124,15 +131,18 @@ internal class WorkflowEngine(
             if (old.phase == StepPhase.Failed) throw WorkflowStepFailed(checkNotNull(old.failure))
             return checkNotNull(old.result)
         }
-        journal.prepare(place.key, hash)
+        port { journal.prepare(place.key, hash) }
         val result = recordFailure(place.key) {
             withContext(WorkflowFrame(this, place.children)) { bounded(author(body)) }
         }
-        journal.complete(place.key, result)
+        // An author body that swallowed an unavailable port must not memoize its fallback value.
+        ensureAvailable()
+        port { journal.complete(place.key, result) }
         return result
     }
 
     private suspend fun <T> position(block: suspend (WorkflowPosition) -> T): T {
+        ensureAvailable()
         val frame = currentCoroutineContext()[WorkflowFrame]?.takeIf { it.owner === this } ?: divergence()
         val place = frame.enter() ?: divergence()
         return try {
@@ -159,8 +169,26 @@ internal class WorkflowEngine(
         body()
     } catch (failure: WorkflowStepFailed) {
         if (failure.reason == WorkflowFailure.Diverged) divergence()
-        journal.fail(key, failure.reason)
+        ensureAvailable()
+        port { journal.fail(key, failure.reason) }
         throw failure
+    }
+
+    /**
+     * Unavailability is a cancellation-shaped host signal that author code can catch with `catch (e: Exception)`.
+     * It is latched here and raised again at every later DSL call and at completion, like divergence, so a
+     * swallowed signal can never commit or memoize the author's fallback.
+     */
+    private suspend fun <T> port(block: suspend () -> T): T = try {
+        block()
+    } catch (error: WorkflowExecutionUnavailable) {
+        unavailable.value = true
+        log.v { "Workflow execution port unavailable" }
+        throw error
+    }
+
+    private fun ensureAvailable() {
+        if (unavailable.value) throw WorkflowExecutionUnavailable()
     }
 
     private suspend fun <T> author(body: suspend () -> T): T = capturePlatformHarnessFailure(body).getOrElse { error ->

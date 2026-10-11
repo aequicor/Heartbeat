@@ -25,10 +25,12 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsOutput
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsState
 import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowOrigin
+import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRejection
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRouting
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessOwnedContext
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
+import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessActiveAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.harnessScriptFailure
@@ -91,6 +93,7 @@ internal data class ApprovedWorkflow(val revision: Long, val item: ItemId)
 internal class HarnessWorkflowLaunches(
     private val library: Lazy<HarnessMachine>,
     private val runs: Lazy<HarnessRunsMachine>,
+    private val storage: HarnessRunStorage,
     private val helpers: Lazy<HelperAgents>,
     private val code: Lazy<WorkflowCodeExecutor>,
     private val active: Lazy<HarnessActiveAccess>,
@@ -171,15 +174,6 @@ internal class HarnessWorkflowLaunches(
                 ownerFeature = HARNESS_WAKE_OWNER, ownerContext = context, initiator = launch.initiator,
             )
         }
-        if (wake != null) {
-            wakes.value.schedule(HarnessWakeSubmission(launch.harness.id, wake, launch.origin, false)) {
-                isCallerCurrent() && isCurrent(launch)
-            }
-        }
-        if (!isCallerCurrent() || !isCurrent(launch)) {
-            if (wake != null) wakePort.value.cancel(wake)
-            error("Workflow admission changed")
-        }
         val run = WorkflowRun(
             id, launch.harness.id, launch.workflow.id,
             pinWorkflow(launch.harness, launch.workflow) { it.encodeUtf8().sha256().hex() },
@@ -191,16 +185,56 @@ internal class HarnessWorkflowLaunches(
                 launch.generation,
             ),
         )
-        val isAccepted = admit(run)
+        // The journal record precedes every side effect: after a crash past this point Restore drives the run,
+        // so neither the run nor a caller wake about a run that never existed can be lost or orphaned.
+        check(storage.save(run, null)) { "Workflow journal rejected the run" }
+        var isStartSent = false
+        val isAccepted = try {
+            if (wake != null) {
+                wakes.value.schedule(HarnessWakeSubmission(launch.harness.id, wake, launch.origin, false)) {
+                    isCallerCurrent() && isCurrent(launch)
+                }
+            }
+            check(isCallerCurrent() && isCurrent(launch)) { "Workflow admission changed" }
+            isStartSent = true
+            admit(run)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            // A failed Start send is uncertain: the durable record then stays and is driven after the next restore.
+            if (!isStartSent) withdraw(run, wake)
+            throw error
+        }
         if (isAccepted == false) {
-            if (wake != null) wakePort.value.cancel(wake)
+            withdraw(run, wake)
             error("Workflow start was rejected")
         }
         log.i { "Workflow start submitted origin=${launch.kind} confirmed=${isAccepted == true}" }
         return WorkflowLaunchResult(id, wake != null, isAccepted == true)
     }
 
-    /** Null preserves an uncertain Start; its existing run/wake identities must never be resubmitted as new work. */
+    /** Undoes a start that will never run: its scheduled caller wake and its never-claimed journal record. */
+    private suspend fun withdraw(run: WorkflowRun, wake: WakeRequest?) {
+        try {
+            if (wake != null) wakePort.value.cancel(wake)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(harnessScriptFailure(error)) { "Workflow caller wake was not withdrawn" }
+        }
+        try {
+            if (!storage.discard(run)) log.w { "Workflow journal record was already claimed; it stays" }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(harnessScriptFailure(error)) { "Workflow journal record was not withdrawn" }
+        }
+    }
+
+    /**
+     * Null preserves an uncertain Start; its existing run/wake identities must never be resubmitted as new work.
+     * A Duplicate rejection means a concurrent restore already adopted the stored record, so it counts as started.
+     */
     private suspend fun admit(run: WorkflowRun): Boolean? = coroutineScope {
         val request = RequestId(Uuid.random().toHexString())
         val machine = runs.value
@@ -214,8 +248,13 @@ internal class HarnessWorkflowLaunches(
             val sent = machine.send(HarnessRunsIntent.Internal.StartRun(request, run, clock.now()))
             when {
                 sent != SendResult.Accepted -> false
+
                 (machine.state.value as? HarnessRunsState.Ready)?.runs?.any { it.id == run.id } == true -> true
-                else -> withTimeoutOrNull(5.seconds) { receipt.await() }?.let { it is HarnessRunsOutput.Started }
+
+                else -> withTimeoutOrNull(5.seconds) { receipt.await() }?.let {
+                    it is HarnessRunsOutput.Started ||
+                        (it as? HarnessRunsOutput.Rejected)?.reason == WorkflowRejection.Duplicate
+                }
             }
         } finally {
             receipt.cancel()
