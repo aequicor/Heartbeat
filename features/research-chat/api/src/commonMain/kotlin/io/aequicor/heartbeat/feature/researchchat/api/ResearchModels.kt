@@ -6,16 +6,26 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import kotlinx.serialization.Serializable
 
-/** Supported source categories. A document is text or an imported PDF; images retain native image content. */
+/**
+ * Supported source categories. A document is text or an imported PDF; images retain native image
+ * content.
+ */
 @Serializable
-public enum class ResearchResourceKind { Website, Document, Image }
+public enum class ResearchResourceKind {
+    Website,
+    Document,
+    Image,
+}
 
 /** Shared sources are offered to every question; question sources remain local to that question. */
-public enum class ResearchResourceScope { Session, Question }
+public enum class ResearchResourceScope {
+    Session,
+    Question,
+}
 
 /**
- * Durable source content. [value] is a URL or a stable attachment reference.
- * Legacy inline values migrate on opening; never log them.
+ * Durable source content. [value] is a URL or a stable attachment reference. Legacy inline values
+ * migrate on opening; never log them.
  */
 @Serializable
 public data class ResearchResource(
@@ -28,6 +38,16 @@ public data class ResearchResource(
     val attachmentId: AttachmentId? = null,
     val attachmentSizeBytes: Long? = null,
     val hasAttachmentError: Boolean = false,
+    val loadState: ResearchLoadState =
+        if (kind != ResearchResourceKind.Website || text.isNotBlank()) {
+            ResearchLoadState.Ready
+        } else {
+            ResearchLoadState.Pending
+        },
+    val loadError: String? = null,
+    val sourceUrl: String? = null,
+    val recoveryAttempt: String? = null,
+    val browserTabId: String? = null,
 ) {
     override fun toString(): String = "ResearchResource(id=$id, kind=$kind)"
 }
@@ -43,6 +63,7 @@ public data class ResearchQuestion(
     val excludedResourceIds: Set<String> = emptySet(),
     val hasFailed: Boolean = false,
     val pendingSegmentStart: Int? = null,
+    val pendingSourcePrompt: String? = null,
 )
 
 /** A logical research session. Every question uses [target], with no project/workspace attached. */
@@ -61,8 +82,32 @@ public data class ResearchSession(
     }
 }
 
-/** Profile snapshot. Running question ids are transient; saved transcripts and sources survive reopening. */
+/**
+ * Profile snapshot. Running question ids are transient; saved transcripts and sources survive
+ * reopening.
+ */
 public data class ResearchWorkspace(
     val sessions: List<ResearchSession> = emptyList(),
     val running: Set<String> = emptySet(),
+    val permissions: Map<String, List<io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest>> =
+        emptyMap(),
+    /** Transient capability derived from the current browser and recovery switches. */
+    val isBrowserRecoveryAvailable: Boolean = false,
 )
+
+/** Persisted loading state; native operations and tab identifiers are revalidated after restart. */
+@Serializable
+public enum class ResearchLoadState {
+    Pending,
+    Loading,
+    Ready,
+    Failed,
+    NeedsUserAction,
+}
+
+/** Only explicit user actions may continue a browser-assisted download. */
+public enum class ResearchRecoveryAction {
+    Open,
+    Continue,
+    Cancel,
+}

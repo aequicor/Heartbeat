@@ -20,15 +20,20 @@ internal class ResearchChatEffects(private val repository: ResearchRepository, p
     EffectHandler<ResearchChatEffect, ResearchChatIntent> {
     override suspend fun handle(effect: ResearchChatEffect, machine: EffectScope<ResearchChatIntent>) {
         when (effect) {
+            is ResearchChatEffect.DecidePermission ->
+                repository.decidePermission(
+                    effect.questionId,
+                    effect.requestId,
+                    effect.optionId,
+                    effect.answer,
+                )
+
+            is ResearchChatEffect.RecoverResource ->
+                repository.recoverResource(effect.sessionId, effect.resourceId, effect.action)
+
             is ResearchChatEffect.Load -> load(effect, machine)
 
-            ResearchChatEffect.Observe -> combine(
-                repository.observe(),
-                toggles.observe(ResearchChatEnabled),
-                toggles.observe(KoogEngineEnabled),
-            ) { workspace, research, koog ->
-                ResearchChatIntent.Internal.Observed(workspace, research && koog)
-            }.collect { machine.send(it) }
+            ResearchChatEffect.Observe -> observe(machine)
 
             is ResearchChatEffect.CreateSession -> {
                 val session = repository.createSession(effect.target)
@@ -44,10 +49,51 @@ internal class ResearchChatEffects(private val repository: ResearchRepository, p
             is ResearchChatEffect.CreateQuestion -> {
                 val questionId = repository.createQuestion(effect.sessionId)
                 machine.send(
-                    ResearchChatIntent.Internal.Created(repository.observe().first(), effect.sessionId, questionId),
+                    ResearchChatIntent.Internal.Created(
+                        repository.observe().first(),
+                        effect.sessionId,
+                        questionId,
+                    ),
                 )
             }
 
+            is ResearchChatEffect.AddResource,
+            is ResearchChatEffect.AddAttachments,
+            is ResearchChatEffect.SelectResource,
+            is ResearchChatEffect.ShareResource,
+            is ResearchChatEffect.RemoveResource,
+            -> sources(effect, machine)
+
+            is ResearchChatEffect.Run -> {
+                val run = repository.run(effect.sessionId, effect.questionId, effect.prompt)
+                if (run.accepted.await()) {
+                    machine.send(ResearchChatIntent.Internal.Submitted(effect.questionId))
+                }
+                machine.send(
+                    ResearchChatIntent.Internal.RunFinished(
+                        effect.questionId,
+                        !run.completion.await(),
+                    ),
+                )
+            }
+
+            is ResearchChatEffect.Stop -> repository.stop(effect.questionId)
+        }
+    }
+
+    private suspend fun observe(machine: EffectScope<ResearchChatIntent>) {
+        combine(
+            repository.observe(),
+            toggles.observe(ResearchChatEnabled),
+            toggles.observe(KoogEngineEnabled),
+        ) { workspace, research, koog ->
+            ResearchChatIntent.Internal.Observed(workspace, research && koog)
+        }
+            .collect { machine.send(it) }
+    }
+
+    private suspend fun sources(effect: ResearchChatEffect, machine: EffectScope<ResearchChatIntent>) {
+        when (effect) {
             is ResearchChatEffect.AddResource -> {
                 repository.addResource(effect.sessionId, effect.questionId, effect.input)
                 machine.send(ResearchChatIntent.Internal.ResourceAdded)
@@ -78,13 +124,15 @@ internal class ResearchChatEffects(private val repository: ResearchRepository, p
                 machine.send(ResearchChatIntent.Internal.Mutated)
             }
 
-            is ResearchChatEffect.Run -> {
-                val run = repository.run(effect.sessionId, effect.questionId, effect.prompt)
-                if (run.accepted.await()) machine.send(ResearchChatIntent.Internal.Submitted(effect.questionId))
-                machine.send(ResearchChatIntent.Internal.RunFinished(effect.questionId, !run.completion.await()))
-            }
-
-            is ResearchChatEffect.Stop -> repository.stop(effect.questionId)
+            is ResearchChatEffect.DecidePermission,
+            is ResearchChatEffect.RecoverResource,
+            is ResearchChatEffect.Load,
+            ResearchChatEffect.Observe,
+            is ResearchChatEffect.CreateSession,
+            is ResearchChatEffect.CreateQuestion,
+            is ResearchChatEffect.Run,
+            is ResearchChatEffect.Stop,
+            -> error("Not a source mutation")
         }
     }
 

@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.researchchat.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionAnswer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentDescriptor
 import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchAttachmentPolicy
@@ -12,9 +13,21 @@ import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
 import pro.respawn.flowmvi.api.MVIState
 
-internal enum class ResearchPhase { Loading, Ready, Disabled, Error }
-internal enum class ResourceKindUi { Website, Document, Image }
-internal enum class ResourceScopeUi { Session, Question }
+internal enum class ResearchPhase {
+    Loading,
+    Ready,
+    Disabled,
+    Error,
+}
+internal enum class ResourceKindUi {
+    Website,
+    Document,
+    Image,
+}
+internal enum class ResourceScopeUi {
+    Session,
+    Question,
+}
 
 @Immutable
 internal data class ResearchSessionUi(val id: String, val title: String, val isSelected: Boolean)
@@ -39,6 +52,11 @@ internal data class ResearchResourceUi(
     val isCompatible: Boolean = true,
     val sizeBytes: Long? = null,
     val hasImportError: Boolean = false,
+    val isBrowserRequired: Boolean = false,
+    val isBrowserRecoveryAvailable: Boolean = false,
+    val loadError: String? = null,
+    val isBrowserOpened: Boolean = false,
+    val isLoadingSource: Boolean = false,
     val mediaType: String? = null,
 )
 
@@ -52,7 +70,13 @@ internal data class ResearchMessageUi(
     val isNotice: Boolean = false,
 )
 
-internal enum class ResearchToolStatus { Pending, Running, Complete, Failed, Cancelled }
+internal enum class ResearchToolStatus {
+    Pending,
+    Running,
+    Complete,
+    Failed,
+    Cancelled,
+}
 
 /** Ordered visible content only; attachments remain in the explicitly selected source catalog. */
 @Immutable
@@ -75,12 +99,37 @@ internal sealed interface ResearchPartUi {
 
 /** Input drafts follow question identities; all research state is projected from the machine. */
 @Immutable
+internal data class ResearchPermissionUi(
+    val id: String,
+    val title: String,
+    val description: String?,
+    val options: ImmutableList<ResearchPermissionOptionUi>,
+    val kind: ResearchPermissionKind = ResearchPermissionKind.Buttons,
+    val choices: ImmutableList<Pair<String, String>> = persistentListOf(),
+    val min: Int = 0,
+    val max: Int = 0,
+    val placeholder: String? = null,
+    val isMultiline: Boolean = false,
+)
+
+internal enum class ResearchPermissionKind {
+    Buttons,
+    SingleChoice,
+    MultiChoice,
+    FreeText,
+}
+
+@Immutable
+internal data class ResearchPermissionOptionUi(val id: String, val title: String, val isSkip: Boolean)
+
+@Immutable
 internal data class ResearchScreenState(
     val phase: ResearchPhase = ResearchPhase.Loading,
     val sessions: ImmutableList<ResearchSessionUi> = persistentListOf(),
     val questions: ImmutableList<ResearchQuestionUi> = persistentListOf(),
     val resources: ImmutableList<ResearchResourceUi> = persistentListOf(),
     val messages: ImmutableList<ResearchMessageUi> = persistentListOf(),
+    val permissions: ImmutableList<ResearchPermissionUi> = persistentListOf(),
     val sessionTitle: String = "",
     val questionTitle: String = "",
     val draft: String = "",
@@ -107,6 +156,12 @@ internal data class ResearchScreenState(
 internal sealed interface ResearchScreenIntent : MVIIntent {
     sealed interface ResourceEdit : ResearchScreenIntent
     sealed interface AttachmentEdit : ResearchScreenIntent
+    sealed interface SourceRecovery : ResearchScreenIntent {
+        val id: String
+    }
+    data class DecidePermission(val id: String, val option: String, val answer: PermissionAnswer? = null) :
+        ResearchScreenIntent
+
     data object Retry : ResearchScreenIntent
     data object NewSession : ResearchScreenIntent
     data class SelectSession(val id: String) : ResearchScreenIntent
@@ -123,6 +178,12 @@ internal sealed interface ResearchScreenIntent : MVIIntent {
     data object AddResource : ResearchScreenIntent
     data class SetResourceSelected(val id: String, val isSelected: Boolean) : ResearchScreenIntent
     data class ShareResource(val id: String) : ResearchScreenIntent
+
+    data class OpenSourceBrowser(override val id: String) : SourceRecovery
+
+    data class ContinueSource(override val id: String) : SourceRecovery
+
+    data class CancelSource(override val id: String) : SourceRecovery
     data class RemoveResource(val id: String) : ResearchScreenIntent
     data class SelectSourceScope(val scope: ResourceScopeUi) : ResourceEdit
     data object ImportFile : ResearchScreenIntent

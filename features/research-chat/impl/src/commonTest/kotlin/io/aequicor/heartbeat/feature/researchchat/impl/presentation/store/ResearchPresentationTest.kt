@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatState
+import io.aequicor.heartbeat.feature.researchchat.api.ResearchLoadState
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchQuestion
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResource
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceKind
@@ -110,6 +111,35 @@ class ResearchPresentationTest {
         val source = ResearchScreenState().reflectResearch(failed).resources.single()
         assertFalse(source.isCompatible)
         assertTrue(source.hasImportError)
+    }
+
+    @Test
+    fun `recovery switch hides browser actions without hiding the saved source failure`() {
+        val source = local.copy(
+            kind = ResearchResourceKind.Website,
+            value = "https://example.com/source",
+            mediaType = "text/html",
+            loadState = ResearchLoadState.Failed,
+            loadError = "fetch_failed",
+            browserTabId = "saved-tab",
+        )
+        val disabled = ready.copy(
+            workspace = ResearchWorkspace(listOf(session.copy(resources = listOf(source)))),
+        )
+        val initial = ResearchScreenState().reflectResearch(disabled)
+        assertFalse(initial.resources.single().isBrowserRecoveryAvailable)
+        assertTrue(initial.resources.single().isBrowserRequired)
+        assertEquals("fetch_failed", initial.resources.single().loadError)
+
+        val enabled = initial.reflectResearch(
+            disabled.copy(workspace = disabled.workspace.copy(isBrowserRecoveryAvailable = true)),
+        )
+        assertTrue(enabled.resources.single().isBrowserRecoveryAvailable)
+        val revoked = enabled.reflectResearch(disabled).resources.single()
+        assertFalse(revoked.isBrowserRecoveryAvailable)
+        assertTrue(revoked.isBrowserRequired)
+        assertEquals("fetch_failed", revoked.loadError)
+        assertTrue(revoked.isBrowserOpened)
     }
 
     @Test

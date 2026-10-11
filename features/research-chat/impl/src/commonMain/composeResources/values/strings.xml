@@ -67,4 +67,12 @@
     <string name="research_file_size">%1$d B</string>
     <string name="research_source_import_error">The saved source could not be moved to attachment storage. Deselect or remove it.</string>
     <string name="research_attachment_limits">Selected files exceed the message limits. Deselect some sources.</string>
+    <string name="research_browser_open">Open in browser</string>
+    <string name="research_browser_continue">Continue loading</string>
+    <string name="research_browser_cancel">Cancel</string>
+    <string name="research_browser_help">Source unavailable. Open it in the browser, complete any access check, then continue loading.</string>
+    <string name="research_browser_loading">Loading source in the browser…</string>
+    <string name="research_source_load_failed">The source could not be loaded.</string>
+    <string name="research_source_load_cancelled">Source loading was cancelled.</string>
+    <string name="research_source_browser_retry">The browser could not retrieve the source. Another attempt is required.</string>
 </resources>
