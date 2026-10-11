@@ -15,6 +15,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import io.aequicor.heartbeat.ds.components.HbChatComposer
 import io.aequicor.heartbeat.ds.components.HbComposerAction
+import io.aequicor.heartbeat.ds.components.HbComposerCaretRequest
 import io.aequicor.heartbeat.ds.components.HbComposerLayout
 import io.aequicor.heartbeat.ds.components.HbComposerMenuButton
 import io.aequicor.heartbeat.ds.components.HbComposerMenuStyle
@@ -153,6 +154,8 @@ internal fun StudioComposer(
         onSuggestionAccept = { index -> onIntent(AiStudioScreenIntent.Suggestions.AcceptSuggestion(pane.id, index)) },
         onSuggestionsDismiss = { onIntent(AiStudioScreenIntent.Suggestions.DismissSuggestions(pane.id)) },
         onCaretChange = { caret -> onIntent(AiStudioScreenIntent.Suggestions.CaretMoved(pane.id, caret)) },
+        caretRequest = content.caretRequest?.let { HbComposerCaretRequest(it.id, it.text, it.caret) },
+        onCaretRequestApply = { id -> onIntent(AiStudioScreenIntent.Suggestions.CaretRequestApplied(pane.id, id)) },
         contextContent = if (content.hasComposerContext()) {
             { StudioComposerContext(content, onIntent) }
         } else {
@@ -185,10 +188,10 @@ private fun PaneContent.hasComposerContext(): Boolean {
 @Composable
 private fun composerSuggestions(content: PaneContent): HbComposerSuggestions? {
     val list = content.suggestions ?: return null
-    var previousSection: String? = null
     val rows = list.items.mapIndexed { index, suggestion ->
         val section = suggestion.sectionKey()
-        val row = HbComposerSuggestion(
+        val previousSection = list.items.getOrNull(index - 1)?.sectionKey()
+        HbComposerSuggestion(
             id = suggestion.id,
             label = suggestion.label,
             supportingText = suggestion.description.takeIf(String::isNotEmpty),
@@ -201,8 +204,6 @@ private fun composerSuggestions(content: PaneContent): HbComposerSuggestions? {
             isEnabled = suggestion.kind != SuggestionKindUi.File || suggestion.isSupported,
             isSelected = index == list.selectedIndex,
         )
-        previousSection = section
-        row
     }.toImmutableList()
     return HbComposerSuggestions(rows, list.selectedIndex)
 }

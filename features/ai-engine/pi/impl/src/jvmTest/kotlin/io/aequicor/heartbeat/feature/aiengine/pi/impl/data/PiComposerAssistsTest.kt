@@ -8,19 +8,29 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.test.runTest
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import java.nio.file.Files
 import java.nio.file.Path
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class PiComposerAssistsTest {
+    @get:Rule
+    val temporary = TemporaryFolder()
+
     private val target = EngineTarget(EngineId("pi"), EngineBindingId("b"), ModelId("m"))
     private val workspace = WorkspaceRef("project")
 
     @Test
     fun `skills come from both project skill directories with frontmatter names`() = runTest {
-        val root = Files.createTempDirectory("pi-skills")
+        val root = temporary.newFolder("pi-skills").toPath()
         write(root, ".agents/skills/verify/SKILL.md", frontmatter("verify", "run checks"))
         write(root, ".pi/skills/utf8/SKILL.md", frontmatter(null, "encoding helper"))
         write(root, ".agents/skills/empty/nested.txt", "not a skill")
@@ -38,11 +48,33 @@ class PiComposerAssistsTest {
 
     @Test
     fun `a session without a project or an unknown workspace has no assists`() = runTest {
-        val root = Files.createTempDirectory("pi-skills")
+        val root = temporary.newFolder("pi-skills").toPath()
         write(root, ".agents/skills/verify/SKILL.md", frontmatter("verify", ""))
         val source = assists(root)
         assertEquals(emptyList(), source.assists(target, null))
         assertEquals(emptyList(), source.assists(target, WorkspaceRef("unknown")))
+    }
+
+    @Test
+    fun `candidate budget also bounds entries which are not skill directories`() {
+        val root = temporary.newFolder("pi-skill-budget").toPath()
+        repeat(5) { write(root, "candidate-$it.txt", "not a skill") }
+        assertEquals(2, piSkillEntries(root, 2, EmptyCoroutineContext).size)
+    }
+
+    @Test
+    fun `cancellation during skill listing stops the enumeration`() {
+        val root = temporary.newFolder("pi-skill-cancel").toPath()
+        repeat(5) { write(root, "candidate-$it.txt", "not a skill") }
+        val job = Job()
+        var checks = 0
+        val context = object : CoroutineContext by job {
+            override fun <E : CoroutineContext.Element> get(key: CoroutineContext.Key<E>): E? {
+                if (++checks == 3) job.cancel()
+                return job[key]
+            }
+        }
+        assertFailsWith<CancellationException> { piSkillEntries(root, 5, context) }
     }
 
     private fun assists(root: Path) = PiComposerAssists(

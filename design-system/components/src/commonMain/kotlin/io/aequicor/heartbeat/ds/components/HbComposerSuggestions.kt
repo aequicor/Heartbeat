@@ -12,9 +12,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
@@ -122,6 +125,10 @@ internal fun ComposerSuggestionsPopup(
 
 @Composable
 private fun SuggestionRow(item: HbComposerSuggestion, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val bringIntoView = remember { BringIntoViewRequester() }
+    LaunchedEffect(item.id, item.isSelected) {
+        if (item.isSelected) bringIntoView.bringIntoView()
+    }
     val interactions = remember { MutableInteractionSource() }
     val isHovered by interactions.collectIsHoveredAsState()
     val isPressed by interactions.collectIsPressedAsState()
@@ -129,6 +136,7 @@ private fun SuggestionRow(item: HbComposerSuggestion, onClick: () -> Unit, modif
     val motion = HbTheme.motion
     val shape = HbTheme.shapes.medium
     val targetBackground = when {
+        item.isSelected -> colors.selectedContainer
         !item.isEnabled -> Color.Transparent
         isPressed -> colors.pressedOverlay
         isHovered -> colors.interactionHoverOverlay
@@ -144,6 +152,7 @@ private fun SuggestionRow(item: HbComposerSuggestion, onClick: () -> Unit, modif
     HbRow(
         modifier = modifier
             .heightIn(min = HbTheme.dimensions.touchTarget)
+            .bringIntoViewRequester(bringIntoView)
             .semantics { selected = item.isSelected }
             .clickable(interactions, indication = null, enabled = item.isEnabled, role = Role.Button, onClick = onClick)
             .background(background, shape)

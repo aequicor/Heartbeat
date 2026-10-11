@@ -46,6 +46,8 @@ data class SessionUi(
     val isAwaitingChecklist: Boolean = false,
     val isReady: Boolean = false,
     val scheduledWait: SessionWaitUi? = null,
+    /** Actual execution directory reference, which differs from [projectId] for worktree chats. */
+    val executionWorkspace: String? = null,
 ) {
     /** Work is pending even when no engine turn is currently executing. */
     val isWaiting: Boolean get() = scheduledWait != null || isAwaitingChecklist
@@ -103,6 +105,8 @@ data class AiStudioScreenState(
     val drafts: ImmutableMap<String, String> = persistentMapOf(),
     /** Caret position of each composer draft; drives the active autocomplete token. */
     val draftCarets: ImmutableMap<String, Int> = persistentMapOf(),
+    /** One-shot editor caret requests tied to accepted replacement text. */
+    val draftCaretRequests: ImmutableMap<String, ComposerCaretRequestUi> = persistentMapOf(),
     /** Suggestions of each composer draft's active token; absent hides the popup. */
     val composerSuggestions: ImmutableMap<String, ComposerSuggestionsUi> = persistentMapOf(),
     val draftAttachments: ImmutableMap<String, ImmutableList<AttachmentUi>> = persistentMapOf(),
@@ -155,7 +159,14 @@ data class AiStudioScreenState(
 
     /** The caret of the pane's draft; end of text until the editor reports a position. */
     fun draftCaret(paneId: Int): Int = draftCarets[draftKey(paneId)] ?: draft(paneId).length
+
+    /** Last accepted completion's caret request for the pane's editor. */
+    fun caretRequest(paneId: Int): ComposerCaretRequestUi? = draftCaretRequests[draftKey(paneId)]
 }
+
+/** Apply this caret once, after the editor displays [text]; [id] is unique across this screen's drafts. */
+@Immutable
+data class ComposerCaretRequestUi(val id: Long, val text: String, val caret: Int)
 
 /** User events of the studio screen. */
 sealed interface AiStudioScreenIntent : MVIIntent {
@@ -232,6 +243,9 @@ sealed interface AiStudioScreenIntent : MVIIntent {
 
         /** The caret of a pane's composer moved; the active token is resolved against it. */
         data class CaretMoved(val paneId: Int, val caret: Int) : Suggestions
+
+        /** The editor applied this one-shot caret request; remounting must not replay it. */
+        data class CaretRequestApplied(val paneId: Int, val id: Long) : Suggestions
 
         /** Keyboard navigation moved the suggestion selection by [delta] within the pane's list. */
         data class MoveSuggestion(val paneId: Int, val delta: Int) : Suggestions
@@ -390,6 +404,8 @@ data class ComposerSuggestionsUi(
     val selectedIndex: Int,
     /** Token the list belongs to; Escape hides it until the token changes. */
     val token: String,
+    /** Coordinator generation; acceptance and publication reject obsolete requests. */
+    val requestId: Long = 0,
 )
 
 /** One actionable permission exposed by the current native session. */

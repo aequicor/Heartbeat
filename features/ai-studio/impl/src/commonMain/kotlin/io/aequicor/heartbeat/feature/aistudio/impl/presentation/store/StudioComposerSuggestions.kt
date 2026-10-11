@@ -1,6 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssistOrigin
@@ -8,25 +8,33 @@ import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerTrigger
 import io.aequicor.heartbeat.feature.autocomplete.api.HostCommand
-import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 
 /** Host commands the composer offers; the semantics of each stay with the studio. */
+@HighFrequency
 internal fun AiStudioScreenState.hostCommands(): List<HostCommand> =
     if (isRememberEnabled) listOf(HostCommand("remember", "/remember", "", "/remember ")) else emptyList()
 
 /** Engine route, workspace and input limits the pane's suggestions are resolved against. */
+@HighFrequency
 internal fun AiStudioScreenState.composerScope(paneId: Int): ComposerScope {
     val pane = panes.firstOrNull { it.id == paneId }
     val sessionId = pane?.sessionId
     val modelId = organisms[sessionId]?.modelId ?: configurations[sessionId]?.modelId
         ?: session(sessionId)?.modelId?.takeIf(String::isNotBlank) ?: settings.modelId
+    val project = (pane?.projectId ?: session(sessionId)?.projectId)?.takeIf(String::isNotEmpty)?.let(::WorkspaceRef)
+    val execution = session(sessionId)?.executionWorkspace?.let(::WorkspaceRef)
+    val workspace = if (pane?.isWorktree == true || session(sessionId)?.isWorktree == true) {
+        execution
+    } else {
+        execution ?: project
+    }
     return ComposerScope(
         target = studioModelTarget(modelId),
-        workspace = (pane?.projectId ?: session(sessionId)?.projectId)?.takeIf(String::isNotEmpty)
-            ?.let(::WorkspaceRef),
+        workspace = workspace,
         inputSupport = models.firstOrNull { it.id == modelId }?.inputSupport?.toDomain(),
+        project = project,
     )
 }
 
@@ -36,12 +44,20 @@ internal data class SuggestionQuery(
     val trigger: ComposerTrigger,
     val scope: ComposerScope,
     val hostCommands: List<HostCommand>,
+    val text: String,
+    val caret: Int,
 ) {
     val token: String get() = trigger.tokenKey()
 }
 
 /** Identity of the token being completed; a dismissed token stays dismissed until it changes. */
-internal fun ComposerTrigger.tokenKey(): String = "${this::class.simpleName}:$range.first:$query"
+internal fun ComposerTrigger.tokenKey(): String {
+    val kind = when (this) {
+        is ComposerTrigger.Command -> "command"
+        is ComposerTrigger.Mention -> "mention"
+    }
+    return "$kind:${range.first}:$query"
+}
 
 /** The caret follows the end of a programmatic draft replacement until the editor reports a position. */
 internal fun AiStudioScreenState.withDraftCaret(paneId: Int, caret: Int): AiStudioScreenState = copy(
@@ -53,29 +69,23 @@ internal fun AiStudioScreenState.withoutSuggestions(paneId: Int): AiStudioScreen
     composerSuggestions = (composerSuggestions - draftKey(paneId)).toImmutableMap(),
 )
 
-/** Escape hides the list but keeps its token, so typing on does not reopen the same completion. */
-internal fun AiStudioScreenState.withDismissedSuggestions(paneId: Int, token: String): AiStudioScreenState = copy(
-    composerSuggestions = (
-        composerSuggestions + (draftKey(paneId) to ComposerSuggestionsUi(persistentListOf(), 0, token))
-    ).toImmutableMap(),
-)
-
-/** Published suggestions replace the pane's entry unless that exact token was dismissed. */
+/** Publishes rows bearing the coordinator generation checked by acceptance. */
 internal fun AiStudioScreenState.withSuggestionItems(
     query: SuggestionQuery,
     items: List<ComposerSuggestion>,
-): AiStudioScreenState {
-    val current = composerSuggestions[query.draftKey]
-    val isDismissed = current != null && current.items.isEmpty() && current.token == query.token
-    if (isDismissed) return this
-    return copy(
-        composerSuggestions = (
-            composerSuggestions + (
-                query.draftKey to ComposerSuggestionsUi(items.map { it.toUi() }.toImmutableList(), 0, query.token)
+    requestId: Long,
+): AiStudioScreenState = copy(
+    composerSuggestions = (
+        composerSuggestions + (
+            query.draftKey to ComposerSuggestionsUi(
+                items.map { it.toUi() }.toImmutableList(),
+                0,
+                query.token,
+                requestId,
             )
-        ).toImmutableMap(),
-    )
-}
+        )
+    ).toImmutableMap(),
+)
 
 /** Moves the selection cyclically within the pane's list. */
 internal fun AiStudioScreenState.withMovedSuggestion(paneId: Int, delta: Int): AiStudioScreenState {
@@ -140,6 +150,3 @@ internal fun SuggestionUi.toCompletion(): ComposerSuggestion = when (kind) {
 private fun SuggestionOriginUi.toApi(): ComposerAssistOrigin = engine
     ?.let(ComposerAssistOrigin::Engine)
     ?: ComposerAssistOrigin.Heartbeat
-
-@Suppress("unused")
-private val unusedEngineId: EngineId? = null

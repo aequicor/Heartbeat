@@ -96,7 +96,7 @@ class AiStudioModel(
     private val efforts: EffortChoicesView,
     private val machines: MachineRegistry,
     private val attachmentsCatalog: AttachmentsCatalog,
-    private val assists: ComposerAssists,
+    assists: ComposerAssists,
     previews: StudioAttachmentPreviews,
 ) {
     private val log = Log.tag("AiStudioModel")
@@ -129,7 +129,7 @@ class AiStudioModel(
                     log.d { "attachment preview visibility: ${previewRequests.value.size} -> ${requests.size}" }
                     previewRequests.value = requests
                 }
-                next
+                suggestions.onState(next)
             }
         }
         reflect(machine, onOutput = { output ->

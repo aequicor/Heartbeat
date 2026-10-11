@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +52,14 @@ private val log = Log.tag("DS/ChatComposer")
 public enum class HbComposerLayout { Stacked, Inline, Panel }
 
 /**
+ * One owner-requested caret move after replacing [text]. [id] identifies the operation and must change for
+ * each new request. Editors apply it once, after the matching text arrives, without overriding later user moves.
+ * The owner clears acknowledged requests to avoid replay when the editor is recreated.
+ */
+@Immutable
+public data class HbComposerCaretRequest(public val id: Long, public val text: String, public val caret: Int)
+
+/**
  * Controlled multiline editor and send/stop action. Ctrl/Cmd+Enter (including numpad Enter) sends a
  * non-blank draft and never inserts a newline. On desktop Enter sends and Shift+Enter inserts a newline;
  * touch platforms retain multiline Enter. Tab moves focus.
@@ -88,6 +97,8 @@ public fun HbChatComposer(
     onSuggestionAccept: (Int) -> Unit = {},
     onSuggestionsDismiss: () -> Unit = {},
     onCaretChange: ((Int) -> Unit)? = null,
+    caretRequest: HbComposerCaretRequest? = null,
+    onCaretRequestApply: (Long) -> Unit = {},
     leadingContent: @Composable RowScope.() -> Unit = {},
     trailingContent: @Composable RowScope.() -> Unit = {},
     contextContent: (@Composable RowScope.() -> Unit)? = null,
@@ -142,22 +153,21 @@ public fun HbChatComposer(
                             value = value,
                             onValueChange = onValueChange,
                             interactionSource = interactionSource,
-                            modifier = composerEditorKeys(
-                                base = editorModifier.then(inputModifier)
-                                    .heightIn(min = minOf(editorMinHeight, inputMaxHeight), max = inputMaxHeight),
-                                suggestions = suggestions,
-                                isSendEnabled = isSendEnabled,
-                                isEnterSendingEnabled = isEnterSendingEnabled,
-                                onSend = onSend,
-                                focusManager = focusManager,
-                                onSuggestionMove = onSuggestionMove,
-                                onSuggestionAccept = onSuggestionAccept,
-                                onSuggestionsDismiss = onSuggestionsDismiss,
-                            ),
+                            modifier = editorModifier.then(inputModifier)
+                                .heightIn(min = minOf(editorMinHeight, inputMaxHeight), max = inputMaxHeight)
+                                .composerSuggestionKeys(
+                                    hasSuggestions = !suggestions?.items.isNullOrEmpty(),
+                                    onNavigate = onSuggestionMove,
+                                    onAccept = selectedSuggestionAccept(suggestions, onSuggestionAccept),
+                                    onDismiss = onSuggestionsDismiss,
+                                )
+                                .composerSendKeys(isSendEnabled, isEnterSendingEnabled, onSend, focusManager),
                             placeholder = placeholder,
                             enabled = enabled,
                             accessibleLabel = accessibleLabel,
                             onCaretChange = onCaretChange,
+                            caretRequest = caretRequest,
+                            onCaretRequestApply = onCaretRequestApply,
                         )
                     },
                 )
@@ -302,6 +312,8 @@ private fun ComposerEditor(
     enabled: Boolean = true,
     accessibleLabel: String = placeholder,
     onCaretChange: ((Int) -> Unit)? = null,
+    caretRequest: HbComposerCaretRequest? = null,
+    onCaretRequestApply: (Long) -> Unit = {},
 ) {
     HbEditableText(
         value = value,
@@ -316,41 +328,29 @@ private fun ComposerEditor(
         interactionSource = interactionSource,
         placeholder = placeholder,
         onCaretChange = onCaretChange,
+        caretRequest = caretRequest,
+        onCaretRequestApply = onCaretRequestApply,
     )
 }
 
-/** Key handling of the editor input: suggestion navigation first, then the send shortcut and focus. */
-private fun composerEditorKeys(
-    base: Modifier,
-    suggestions: HbComposerSuggestions?,
+/** Handles sending and focus traversal after the preceding suggestion modifier has had its turn. */
+private fun Modifier.composerSendKeys(
     isSendEnabled: Boolean,
     isEnterSendingEnabled: Boolean,
     onSend: () -> Unit,
     focusManager: FocusManager,
-    onSuggestionMove: (Int) -> Unit,
-    onSuggestionAccept: (Int) -> Unit,
-    onSuggestionsDismiss: () -> Unit,
-): Modifier = base
-    .composerSuggestionKeys(
-        hasSuggestions = suggestions != null && suggestions.items.isNotEmpty(),
-        onNavigate = onSuggestionMove,
-        onAccept = selectedSuggestionAccept(suggestions, onSuggestionAccept),
-        onDismiss = onSuggestionsDismiss,
-    )
-    .onPreviewKeyEvent { event ->
-        handleSendShortcut(event, isSendEnabled, isEnterSendingEnabled, onSend) ||
-            handleFocusTraversal(event, focusManager)
-    }
+): Modifier = onPreviewKeyEvent { event ->
+    handleSendShortcut(event, isSendEnabled, isEnterSendingEnabled, onSend) ||
+        handleFocusTraversal(event, focusManager)
+}
 
 /** Accepts the keyboard-selected suggestion; a disabled row keeps the draft untouched. */
 private fun selectedSuggestionAccept(
     suggestions: HbComposerSuggestions?,
     onSuggestionAccept: (Int) -> Unit,
 ): () -> Unit = {
-    suggestions?.let { current ->
-        current.items.getOrNull(current.selectedIndex)
-            ?.takeIf { it.isEnabled }
-            ?.let { onSuggestionAccept(current.selectedIndex) }
+    if (suggestions != null && suggestions.items.getOrNull(suggestions.selectedIndex)?.isEnabled == true) {
+        onSuggestionAccept(suggestions.selectedIndex)
     }
 }
 

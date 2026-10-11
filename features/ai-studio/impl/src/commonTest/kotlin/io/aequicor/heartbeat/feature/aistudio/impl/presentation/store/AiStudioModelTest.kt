@@ -101,6 +101,8 @@ import pro.respawn.flowmvi.api.Provider
 import pro.respawn.flowmvi.dsl.collect
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -178,6 +180,15 @@ class AiStudioModelTest {
         runCurrent()
         assertEquals("/remember ", screen.states.value.draft(0))
         assertEquals(0, screen.states.value.suggestions(0)?.items?.size ?: 0)
+        val request = assertNotNull(screen.states.value.caretRequest(0))
+        assertEquals("/remember ", request.text)
+        assertEquals(10, request.caret)
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.CaretRequestApplied(0, request.id + 1))
+        runCurrent()
+        assertEquals(request, screen.states.value.caretRequest(0))
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.CaretRequestApplied(0, request.id))
+        runCurrent()
+        assertNull(screen.states.value.caretRequest(0))
     }
 
     @Test
@@ -731,7 +742,7 @@ class AiStudioModelTest {
         assertEquals("photo.png", projected.last().attachments.single().name)
     }
 
-    private class Fixture(
+    internal class Fixture(
         private val scope: TestScope,
         initial: AiStudioState,
         repository: StudioRepository = InMemoryStudioRepository(TestClock(scope)),
@@ -788,7 +799,7 @@ class AiStudioModelTest {
     }
 }
 
-private class FakeCatalog : AttachmentsCatalog {
+internal class FakeCatalog : AttachmentsCatalog {
     val observed = mutableListOf<List<AttachmentId>>()
 
     override suspend fun get(id: AttachmentId): AttachmentDescriptor? = null
@@ -799,7 +810,7 @@ private class FakeCatalog : AttachmentsCatalog {
     }
 }
 
-private class FakeMachine(initial: AiStudioState) : Machine<AiStudioState, AiStudioIntent, AiStudioOutput> {
+internal class FakeMachine(initial: AiStudioState) : Machine<AiStudioState, AiStudioIntent, AiStudioOutput> {
     override val name = "ai_studio"
     override val state = MutableStateFlow(initial)
     override val outputs = MutableSharedFlow<AiStudioOutput>(extraBufferCapacity = 8)
@@ -812,7 +823,7 @@ private class FakeMachine(initial: AiStudioState) : Machine<AiStudioState, AiStu
     }
 }
 
-private class FakeEfforts :
+internal class FakeEfforts :
     EffortChoicesView,
     MachineRegistry {
     override val state = MutableStateFlow<EffortConfigurationState>(EffortConfigurationState.Ready())
@@ -859,7 +870,7 @@ private fun agentCapture(mode: ComputerUseMode) = ComputerUseState.Capturing(
     isOpen = true,
 )
 
-private class FakeComputerUseMachine : Machine<ComputerUseState, ComputerUseIntent, ComputerUseOutput> {
+internal class FakeComputerUseMachine : Machine<ComputerUseState, ComputerUseIntent, ComputerUseOutput> {
     override val name = "computer-use"
     override val state = MutableStateFlow<ComputerUseState>(ComputerUseState.Idle)
     override val outputs = MutableSharedFlow<ComputerUseOutput>()
@@ -867,7 +878,7 @@ private class FakeComputerUseMachine : Machine<ComputerUseState, ComputerUseInte
     override suspend fun send(intent: ComputerUseIntent): SendResult = SendResult.Accepted
 }
 
-private class FakeSchedulerMachine : Machine<SchedulerState, SchedulerIntent, SchedulerOutput> {
+internal class FakeSchedulerMachine : Machine<SchedulerState, SchedulerIntent, SchedulerOutput> {
     override val name = "scheduler"
     override val state = MutableStateFlow<SchedulerState>(SchedulerState.Loading)
     override val outputs = MutableSharedFlow<SchedulerOutput>()

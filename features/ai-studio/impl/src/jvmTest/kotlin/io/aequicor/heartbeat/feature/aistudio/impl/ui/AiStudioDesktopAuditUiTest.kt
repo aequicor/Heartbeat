@@ -125,7 +125,8 @@ class AiStudioDesktopAuditUiTest {
                             is AiStudioScreenIntent.NewSession ->
                                 state = state.copy(panes = persistentListOf(PaneUi(0)))
 
-                            is AiStudioScreenIntent.Suggestions.DraftChanged -> state = state.withDraft(intent.paneId, intent.text)
+                            is AiStudioScreenIntent.Suggestions.DraftChanged ->
+                                state = state.withDraft(intent.paneId, intent.text)
 
                             else -> Unit
                         }

@@ -10,6 +10,8 @@ public data class ComposerScope(
     public val target: EngineTarget? = null,
     public val workspace: WorkspaceRef? = null,
     public val inputSupport: PromptInputSupport? = null,
+    /** Logical project owning learned skills; a worktree keeps its original project here. */
+    public val project: WorkspaceRef? = workspace,
 )
 
 /** Host-authored command offered by the calling screen; [insert] replaces the typed token. */

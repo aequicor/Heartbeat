@@ -227,4 +227,5 @@ internal fun StudioSession.toUi(): SessionUi = SessionUi(
     isOrganism = isOrganism,
     isAwaitingChecklist = isAwaitingChecklist,
     isReady = isReady,
+    executionWorkspace = treeAccess?.workspace?.value,
 )

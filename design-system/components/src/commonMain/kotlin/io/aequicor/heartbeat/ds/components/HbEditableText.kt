@@ -27,6 +27,7 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -62,7 +63,8 @@ private const val REJECTION_GRACE_FRAMES = 2
  * Accessibility receives the same hidden text as the screen, even on bridges that expose password values.
  *
  * [onCaretChange] reports the caret (selection start) after every user edit or owner-driven replacement, so an
- * owner can resolve token triggers at the caret; it is not called while the value and selection stay unchanged.
+ * owner can resolve token triggers at the caret, including edits that keep the same caret offset.
+ * [caretRequest] moves the caret once after the requested replacement text has arrived.
  */
 @Composable
 internal fun HbEditableText(
@@ -78,6 +80,8 @@ internal fun HbEditableText(
     leadingContent: (@Composable () -> Unit)? = null,
     trailingContent: (@Composable () -> Unit)? = null,
     onCaretChange: ((Int) -> Unit)? = null,
+    caretRequest: HbComposerCaretRequest? = null,
+    onCaretRequestApply: (Long) -> Unit = {},
 ) {
     val state = rememberEditorState(value, isSecret)
     val bridge = remember(state) { ControlledEditorBridge(value, state.selection) }
@@ -85,13 +89,23 @@ internal fun HbEditableText(
     val caretListener by rememberUpdatedState(onCaretChange)
     // The first composition reports nothing: owners see caret changes, not the initial position.
     var reportedCaret by remember { mutableIntStateOf(state.selection.min) }
+    var reportedText by remember { mutableStateOf(state.text.toString()) }
+    var appliedCaretRequest by remember { mutableStateOf<HbComposerCaretRequest?>(null) }
     // Reading text also observes rejected proposals and edits that bypass InputTransformation, such as undo.
     val editingText = state.text.toString()
-    SideEffect(value, editingText, state.selection, bridge.revision) {
+    SideEffect(value, editingText, state.selection, bridge.revision, caretRequest) {
         bridge.reconcile(state, value, onValueChange)
+        val isRequestedTextCurrent = caretRequest?.text == value && state.text.toString() == value
+        if (caretRequest != null && caretRequest != appliedCaretRequest && isRequestedTextCurrent) {
+            state.edit { selection = TextRange(caretRequest.caret.coerceIn(0, length)) }
+            appliedCaretRequest = caretRequest
+            onCaretRequestApply(caretRequest.id)
+        }
         val caret = state.selection.min
-        if (caret != reportedCaret) {
+        val text = state.text.toString()
+        if (caret != reportedCaret || text != reportedText) {
             reportedCaret = caret
+            reportedText = text
             caretListener?.invoke(caret)
         }
     }

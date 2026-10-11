@@ -220,6 +220,55 @@ class AutocompleteComposerAssistsTest {
         assertEquals(3, calls)
     }
 
+    @Test
+    fun `native skills match either their displayed name or their native id`() = runTest {
+        val service = service(
+            skills = emptyList(),
+            assists = listOf(skill("checks", "verification"), skill("verify-script", "Quality")),
+        )
+        val suggestions = service.suggest(
+            ComposerTrigger.Mention(0..3, "ver"),
+            ComposerScope(target = target, workspace = project),
+        )
+        assertEquals(listOf("verification", "Quality"), suggestions.map { it.label })
+    }
+
+    @Test
+    fun `heartbeat substring match stays before a native prefix match`() = runTest {
+        val service = service(assists = listOf(skill("erify", "erify")))
+        val suggestions = service.suggest(
+            ComposerTrigger.Mention(0..2, "er"),
+            ComposerScope(target = target, workspace = project),
+        )
+        assertEquals(listOf("verify", "erify"), suggestions.map { it.label })
+    }
+
+    @Test
+    fun `worktree suggestions use source project skills and execution workspace files`() = runTest {
+        val checkout = WorkspaceRef("checkout")
+        val scopes = mutableListOf<WorkspaceRef?>()
+        val service = service(
+            toggles = mapOf(AutocompleteEnabled to true, AgentLearningEnabled to true, AttachmentsEnabled to true),
+            files = object : ProjectFileIndex {
+                override suspend fun search(workspace: WorkspaceRef?, query: String, limit: Int): List<ProjectFile> {
+                    scopes += workspace
+                    return emptyList()
+                }
+            },
+        )
+        val suggestions = service.suggest(
+            ComposerTrigger.Mention(0..3, "ver"),
+            ComposerScope(
+                target = target,
+                workspace = checkout,
+                project = project,
+                inputSupport = PromptInputSupport(resourceMediaTypes = setOf("text/markdown")),
+            ),
+        )
+        assertEquals(listOf("verify"), suggestions.map { it.label })
+        assertEquals<List<WorkspaceRef?>>(listOf(checkout), scopes)
+    }
+
     private fun command(insert: String, label: String, description: String = "") = EngineAssist(
         id = insert.removePrefix("/").removeSuffix(" "),
         label = label,

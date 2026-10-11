@@ -55,14 +55,15 @@ internal class AutocompleteComposerAssists(
             .filter { it.suggestion.origin == ComposerAssistOrigin.Heartbeat }
             .map { it.suggestion.label.lowercase() }
             .toSet()
-        return merged
+        return merged.asSequence()
             .filterNot {
                 it.suggestion.origin != ComposerAssistOrigin.Heartbeat &&
                     it.suggestion.label.lowercase() in heartbeatNames
             }
-            .sortedBy { it.rank }
+            .sortedWith(compareBy({ it.suggestion.origin != ComposerAssistOrigin.Heartbeat }, { it.rank }))
             .map { it.suggestion }
             .take(SUGGESTION_LIMIT)
+            .toList()
     }
 
     private fun HostCommand.matches(query: String): Boolean = queryRank(query, id) >= 0 || queryRank(query, label) >= 0
@@ -80,7 +81,7 @@ internal class AutocompleteComposerAssists(
 
     private suspend fun learned(trigger: ComposerTrigger.Mention, scope: ComposerScope): List<Ranked> {
         if (!toggles.get(AgentLearningEnabled)) return emptyList()
-        return learnedSkills.skills(scope.workspace).mapNotNull { skill ->
+        return learnedSkills.skills(scope.project).mapNotNull { skill ->
             rank(trigger.query, skill.title)?.let {
                 Ranked(
                     ComposerSuggestion.Skill(
@@ -103,6 +104,7 @@ internal class AutocompleteComposerAssists(
             is ComposerTrigger.Mention -> EngineAssist.Kind.Skill
         }
         return engineAssists.assists(target, scope.workspace)
+            .asSequence()
             .filter { it.kind == kind }
             .mapNotNull { assist -> rank(trigger.query, assist.label, assist.id)?.let { assist to it } }
             .map { (assist, rank) ->
@@ -126,6 +128,7 @@ internal class AutocompleteComposerAssists(
                 }
                 Ranked(suggestion, rank)
             }
+            .toList()
     }
 
     private suspend fun files(trigger: ComposerTrigger.Mention, scope: ComposerScope): List<Ranked> {
@@ -145,7 +148,7 @@ internal class AutocompleteComposerAssists(
                     ComposerSuggestion.File(
                         id = "file:${file.relativePath}",
                         label = file.relativePath,
-                        description = describeSize(file.sizeBytes) + (reason?.let { " · $it" } ?: ""),
+                        description = describeSize(file.sizeBytes) + reason?.let { " · $it" }.orEmpty(),
                         origin = ComposerAssistOrigin.Heartbeat,
                         relativePath = file.relativePath,
                         location = file.location,
@@ -164,10 +167,8 @@ internal class AutocompleteComposerAssists(
         else -> "$sizeBytes B"
     }
 
-    private fun rank(query: String, vararg candidates: String): Int? {
-        val best = candidates.minOf { queryRank(query, it) }
-        return best.takeIf { it >= 0 }
-    }
+    private fun rank(query: String, vararg candidates: String): Int? =
+        candidates.asSequence().map { queryRank(query, it) }.filter { it >= 0 }.minOrNull()
 
     private data class Ranked(val suggestion: ComposerSuggestion, val rank: Int)
 
