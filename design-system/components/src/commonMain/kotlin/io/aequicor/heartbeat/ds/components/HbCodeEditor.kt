@@ -38,6 +38,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -62,7 +63,8 @@ private val log = Log.tag("HbCodeEditor")
  *
  * [language] is a fence-style language name (`kotlin`, `json`…); null or an unknown name shows plain text.
  * [errorLines] (1-based) are marked in the gutter with the error fill and a `!`; the gutter is hidden from
- * accessibility, so callers list diagnostics as text next to the editor. [isError] also tints the field outline.
+ * accessibility, so callers list diagnostics as text next to the editor. [isError] tints the field outline and
+ * marks the field invalid for accessibility services.
  * Tab indents the caret or the selected lines, Shift+Tab outdents them, and Ctrl/⌘+Tab (with Shift — backwards)
  * moves focus, because Tab is part of the text. Touch keyboards have no Tab key, so indentation is typed there.
  * A read-only editor stays focusable, selectable and scrollable. The caller owns the text; logs never contain it.
@@ -107,7 +109,10 @@ public fun HbCodeEditor(
                 onValueChange = onValueChange,
                 interactionSource = interactionSource,
                 modifier = Modifier.horizontalScroll(horizontal).widthIn(min = viewport).fillMaxHeight()
-                    .semantics { contentDescription = accessibleLabel },
+                    .semantics {
+                        contentDescription = accessibleLabel
+                        if (isError) error(accessibleLabel)
+                    },
                 placeholder = placeholder,
                 contentPadding = PaddingValues(horizontal = padding, vertical = padding),
                 textStyle = HbTheme.typography.code.copy(color = colors.textPrimary),
@@ -123,8 +128,9 @@ public fun HbCodeEditor(
 }
 
 /**
- * Line numbers aligned with the text: one text node in the same code style, rebuilt only when the text or the
- * marked lines change; the scroll offset is read during placement, so scrolling does not recompose the editor.
+ * Line numbers aligned with the text: one text node in the same code style, rebuilt only when the line count or the
+ * marked lines change, so typing within a line keeps it; the scroll offset is read during placement, so scrolling
+ * does not recompose the editor.
  */
 @Composable
 private fun LineGutter(
@@ -136,7 +142,8 @@ private fun LineGutter(
 ) {
     val colors = HbTheme.colors
     val style = HbTheme.typography.code
-    val numbers = remember(text, errorLines, colors) { gutterText(hbCodeLineCount(text), errorLines, colors) }
+    val lines = hbCodeLineCount(text)
+    val numbers = remember(lines, errorLines, colors) { gutterText(lines, errorLines, colors) }
     Box(modifier.clipToBounds().clearAndSetSemantics {}) {
         BasicText(
             numbers,
