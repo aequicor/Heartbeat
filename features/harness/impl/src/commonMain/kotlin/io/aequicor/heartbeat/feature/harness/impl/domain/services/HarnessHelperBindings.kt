@@ -23,7 +23,8 @@ internal data class HarnessHelperBinding(
 /**
  * Immutable helper identity with one bound native session. Repeating an initial bind after session binding is
  * idempotent; changing any ownership or attachment identity fails. Survives workflow result retention because
- * the helper chat can receive a later recovery request. Only proven cascade or profile wipe may remove proof.
+ * the helper chat can receive a later recovery request: binding a session renews a sliding retention, so only a
+ * helper idle beyond it (or profile wipe) loses its proof, and a later prompt to it is then refused, never owned.
  */
 internal interface HarnessHelperBindings {
     suspend fun bind(binding: HarnessHelperBinding)

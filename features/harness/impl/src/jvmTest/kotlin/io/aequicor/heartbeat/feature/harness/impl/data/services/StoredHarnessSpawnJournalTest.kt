@@ -189,7 +189,7 @@ class StoredHarnessSpawnJournalTest {
         assertEquals(record.origin, StoredHarnessRequestAncestry(stores).lookup(dispatchSession, record.request))
         assertEquals(
             HarnessHelperBinding(helper, record.action, harness, record.attachRequest),
-            StoredHarnessHelperBindings(stores).lookup(helper),
+            StoredHarnessHelperBindings(stores, HelperBindingTestRetentions()).lookup(helper),
         )
         assertTrue(journal.pending().isEmpty())
         journal.recordGranted(record)

@@ -7,6 +7,10 @@ import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import androidx.sqlite.execSQL
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.datastore.DatabaseSpec
+import io.aequicor.heartbeat.core.datastore.Expiry
+import io.aequicor.heartbeat.core.datastore.RecordRetention
+import io.aequicor.heartbeat.core.datastore.RecordRetentions
+import io.aequicor.heartbeat.core.datastore.Retention
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.impl.data.HarnessTestStores
@@ -27,11 +31,13 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.days
 
 class StoredHarnessHelperBindingsTest {
     private val directory = Files.createTempDirectory("harness-helper-bindings")
     private val path = directory.resolve("ancestry.db")
     private var database: HarnessAncestryDatabase? = null
+    private val retentions = HelperBindingTestRetentions()
     private val binding = HarnessHelperBinding(
         HelperId("helper"),
         ActionId("owner"),
@@ -52,7 +58,7 @@ class StoredHarnessHelperBindingsTest {
             .addMigrations(*HarnessAncestryDatabaseSpec.migrations.toTypedArray())
             .build()
         database = current
-        return StoredHarnessHelperBindings(HelperBindingTestStores(current))
+        return StoredHarnessHelperBindings(HelperBindingTestStores(current), retentions)
     }
 
     @Test
@@ -131,6 +137,45 @@ class StoredHarnessHelperBindingsTest {
     }
 
     @Test
+    fun `every session binding renews the sliding retention without changing identity`() = runTest {
+        val repository = open()
+        repository.bind(binding)
+        val dao = checkNotNull(database).helpers()
+        assertEquals(expiry(0), dao.lookup(binding.helper.value)?.retention?.expiresAt)
+        retentions.now = 10.days.inWholeMilliseconds
+        // Replaying the initial bind with a later stamp is idempotent, not an ownership conflict.
+        repository.bind(binding)
+        assertEquals(expiry(0), dao.lookup(binding.helper.value)?.retention?.expiresAt)
+        repository.bindSession(binding.helper, binding.owner, dispatchSession)
+        retentions.now = 20.days.inWholeMilliseconds
+        repository.bindSession(binding.helper, binding.owner, dispatchSession)
+        assertEquals(expiry(20.days.inWholeMilliseconds), dao.lookup(binding.helper.value)?.retention?.expiresAt)
+        assertEquals(binding.copy(session = dispatchSession), repository.lookup(binding.helper))
+    }
+
+    @Test
+    fun `retention migration keeps helper ownership and starts a full retention window`() = runTest {
+        val migration = MigrationTestHelper(
+            Path.of("schemas"),
+            path,
+            BundledSQLiteDriver(),
+            HarnessAncestryDatabase::class,
+            HarnessAncestryDatabaseConstructor::initialize,
+        )
+        migration.createDatabase(3).use { connection ->
+            connection.execSQL("INSERT INTO helper_bindings VALUES ('helper', 'owner', 'harness', 'attach', NULL)")
+        }
+        val before = System.currentTimeMillis()
+        migration.runMigrationsAndValidate(4, HarnessAncestryDatabaseSpec.migrations).close()
+        val repository = open()
+        assertEquals(binding, repository.lookup(binding.helper))
+        val retention = checkNotNull(checkNotNull(database).helpers().lookup(binding.helper.value)).retention
+        assertTrue(retention.createdAt >= before / 1000 * 1000)
+        assertEquals(retention.createdAt + HELPER_BINDING_RETENTION.inWholeMilliseconds, retention.expiresAt)
+        assertNull(retention.event)
+    }
+
+    @Test
     fun `corrupt stored native session refuses lookup without exposing raw data`() = runTest {
         open().bind(binding)
         database?.close()
@@ -142,6 +187,18 @@ class StoredHarnessHelperBindingsTest {
         assertNull(error.cause)
         assertTrue(!error.message.orEmpty().contains("private"))
     }
+}
+
+private fun expiry(writtenAt: Long): Long = writtenAt + HELPER_BINDING_RETENTION.inWholeMilliseconds
+
+/** Stamps rows at a controllable time; only expiring retention is used by helper bindings. */
+internal class HelperBindingTestRetentions : RecordRetentions {
+    var now = 0L
+    override fun stamp(retention: Retention): RecordRetention = RecordRetention(
+        now,
+        (retention.expiry as? Expiry.After)?.let { now + it.ttl.inWholeMilliseconds },
+        retention.event?.name,
+    )
 }
 
 private class HelperBindingTestStores(private val database: HarnessAncestryDatabase) :

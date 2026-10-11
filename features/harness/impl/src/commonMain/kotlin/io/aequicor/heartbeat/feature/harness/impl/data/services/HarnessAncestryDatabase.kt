@@ -43,7 +43,7 @@ internal abstract class HarnessAncestryDao {
 
 @Database(
     entities = [HarnessAncestryRecord::class, HarnessHelperBindingRecord::class, HarnessSpawnEntity::class],
-    version = SPAWN_JOURNAL_VERSION,
+    version = HELPER_RETENTION_VERSION,
 )
 @ConstructedBy(HarnessAncestryDatabaseConstructor::class)
 internal abstract class HarnessAncestryDatabase : RoomDatabase() {
@@ -60,7 +60,7 @@ internal expect object HarnessAncestryDatabaseConstructor : RoomDatabaseConstruc
 internal val HarnessAncestryDatabaseSpec = DatabaseSpec(
     "harness_ancestry",
     HarnessAncestryDatabaseConstructor::initialize,
-    listOf(HarnessHelperBindingMigration, HarnessSpawnJournalMigration),
+    listOf(HarnessHelperBindingMigration, HarnessSpawnJournalMigration, HarnessHelperRetentionMigration),
 )
 
 /** Adds ownership without rewriting or weakening any historical request ancestry. */
@@ -83,4 +83,22 @@ internal object HarnessSpawnJournalMigration : Migration(2, SPAWN_JOURNAL_VERSIO
     }
 }
 
+/** Gives helper ownership core-managed retention; existing proofs start a full retention window now. */
+internal object HarnessHelperRetentionMigration : Migration(SPAWN_JOURNAL_VERSION, HELPER_RETENTION_VERSION) {
+    override fun migrate(connection: SQLiteConnection) {
+        val now = "CAST(strftime('%s', 'now') AS INTEGER) * 1000"
+        connection.execSQL("ALTER TABLE helper_bindings ADD COLUMN hb_created_at INTEGER NOT NULL DEFAULT 0")
+        connection.execSQL("ALTER TABLE helper_bindings ADD COLUMN hb_expires_at INTEGER")
+        connection.execSQL("ALTER TABLE helper_bindings ADD COLUMN hb_event TEXT")
+        connection.execSQL(
+            "UPDATE helper_bindings SET hb_created_at = $now, " +
+                "hb_expires_at = $now + ${HELPER_BINDING_RETENTION.inWholeMilliseconds}",
+        )
+        connection.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_helper_bindings_hb_expires_at ON helper_bindings (hb_expires_at)",
+        )
+    }
+}
+
 private const val SPAWN_JOURNAL_VERSION = 3
+private const val HELPER_RETENTION_VERSION = 4
