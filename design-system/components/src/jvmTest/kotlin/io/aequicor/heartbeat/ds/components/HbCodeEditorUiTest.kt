@@ -125,12 +125,18 @@ class HbCodeEditorUiTest {
     }
 
     @Test
-    fun `an editor in error is announced as invalid`() = runSkikoComposeUiTest {
+    fun `an editor in error announces its message instead of the label`() = runSkikoComposeUiTest {
         var isError by mutableStateOf(false)
         setContent { CodeEditorHost(SOURCE, {}, isError = isError) }
         codeEditor().assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.Error))
         runOnIdle { isError = true }
-        codeEditor().assert(SemanticsMatcher.expectValue(SemanticsProperties.Error, LABEL))
+        codeEditor().assert(SemanticsMatcher.expectValue(SemanticsProperties.Error, ERROR))
+    }
+
+    @Test
+    fun `the keyboard hint follows the label for accessibility services`() = runSkikoComposeUiTest {
+        setContent { CodeEditorHost(SOURCE, {}) }
+        codeEditor().assert(SemanticsMatcher.expectValue(SemanticsProperties.ContentDescription, listOf(LABEL, HINT)))
     }
 }
 
@@ -150,6 +156,8 @@ private fun CodeEditorHost(
             language = "kotlin",
             isReadOnly = isReadOnly,
             isError = isError,
+            errorMessage = ERROR,
+            keyboardHint = HINT,
         )
     }
 }
@@ -182,5 +190,7 @@ private fun SemanticsNodeInteraction.assertCodeSelection(expected: TextRange) {
 }
 
 private const val LABEL = "Script"
+private const val ERROR = "Line 2 does not compile"
+private const val HINT = "Ctrl+Tab moves to the next field"
 private const val SOURCE = "val a = 1\nval b = 2"
 private const val EDGE = 4

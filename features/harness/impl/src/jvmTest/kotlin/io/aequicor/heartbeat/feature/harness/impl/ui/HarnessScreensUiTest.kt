@@ -69,6 +69,25 @@ class HarnessScreensUiTest {
         }
 
     @Test
+    fun `a restored draft cannot be discarded while it is being saved`() =
+        runSkikoComposeUiTest(size = Size(900f, 900f)) {
+            val intents = mutableListOf<HarnessItemIntent>()
+            val state = HarnessItemState(
+                phase = PhaseUi.Ready,
+                harnessName = "compose_ui",
+                name = "rule",
+                text = "Use only tokens",
+                isDirty = true,
+                isDraftRestored = true,
+                isSaving = true,
+            )
+            setContent { HbTheme { HarnessItemContent(state, intents::add, {}) } }
+
+            onNodeWithTag("harness-item-draft-discard").assertIsNotEnabled()
+            runOnIdle { assertEquals(emptyList(), intents) }
+        }
+
+    @Test
     fun `cancel and Escape close the conflict question without reloading or overwriting`() =
         runSkikoComposeUiTest(size = Size(900f, 900f)) {
             val intents = mutableListOf<HarnessItemIntent>()

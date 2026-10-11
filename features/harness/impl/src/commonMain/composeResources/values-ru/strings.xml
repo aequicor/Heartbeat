@@ -91,6 +91,8 @@
     <string name="harness_error_input">Схема входа должна быть JSON-объектом со свойствами string, number, boolean или enum.</string>
     <string name="harness_error_too_long">Текст длиннее, чем допускает этот элемент.</string>
     <string name="harness_error_placeholder">Плейсхолдеры шаблона должны иметь вид {{name}}: строчные латинские буквы, цифры и _.</string>
+    <string name="harness_error_compile">Код не компилируется: сообщения компилятора — под редактором.</string>
+    <string name="harness_editor_keys">Tab — отступ. Ctrl+Tab — к следующему полю, Ctrl+Shift+Tab — к предыдущему.</string>
     <string name="harness_error_compile_timeout">Компиляция заняла слишком много времени. Повторите.</string>
     <string name="harness_conflict_title">Элемент изменился</string>
     <string name="harness_conflict_text">Пока вы редактировали, агент или другое окно сохранили более новую версию.</string>

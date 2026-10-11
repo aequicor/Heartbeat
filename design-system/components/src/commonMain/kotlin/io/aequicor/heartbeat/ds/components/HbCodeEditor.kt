@@ -36,8 +36,8 @@ import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
@@ -64,10 +64,13 @@ private val log = Log.tag("HbCodeEditor")
  * [language] is a fence-style language name (`kotlin`, `json`…); null or an unknown name shows plain text.
  * [errorLines] (1-based) are marked in the gutter with the error fill and a `!`; the gutter is hidden from
  * accessibility, so callers list diagnostics as text next to the editor. [isError] tints the field outline and
- * marks the field invalid for accessibility services.
- * Tab indents the caret or the selected lines, Shift+Tab outdents them, and Ctrl/⌘+Tab (with Shift — backwards)
- * moves focus, because Tab is part of the text. Touch keyboards have no Tab key, so indentation is typed there.
- * A read-only editor stays focusable, selectable and scrollable. The caller owns the text; logs never contain it.
+ * marks the field invalid for accessibility services, announced with [errorMessage] (what is wrong, not the label).
+ * Tab indents the caret or the selected lines, Shift+Tab outdents them, and Ctrl+Tab (Ctrl+Shift+Tab — backwards)
+ * moves focus, because Tab is part of the text; ⌘+Tab works too where the system does not take it (macOS uses it
+ * to switch apps, so Ctrl+Tab is the key to tell users). [keyboardHint] is the caller's localized description of
+ * these keys, read by accessibility services after the label. Touch keyboards have no Tab key, so indentation is
+ * typed there. A read-only editor stays focusable, selectable and scrollable. The caller owns the text; logs never
+ * contain it.
  */
 @Composable
 public fun HbCodeEditor(
@@ -80,6 +83,8 @@ public fun HbCodeEditor(
     isError: Boolean = false,
     errorLines: ImmutableSet<Int> = persistentSetOf(),
     placeholder: String = "",
+    errorMessage: String? = null,
+    keyboardHint: String? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -110,8 +115,8 @@ public fun HbCodeEditor(
                 interactionSource = interactionSource,
                 modifier = Modifier.horizontalScroll(horizontal).widthIn(min = viewport).fillMaxHeight()
                     .semantics {
-                        contentDescription = accessibleLabel
-                        if (isError) error(accessibleLabel)
+                        this[SemanticsProperties.ContentDescription] = listOfNotNull(accessibleLabel, keyboardHint)
+                        if (isError) error(errorMessage.orEmpty())
                     },
                 placeholder = placeholder,
                 contentPadding = PaddingValues(horizontal = padding, vertical = padding),
@@ -182,7 +187,8 @@ private fun syntaxTransformation(language: String?, colors: HbColors): OutputTra
 
 /**
  * Applies editor keys to the live state; edits are reported to the owner like typing. Only the changed range is
- * replaced, so undo steps over one indentation command and nothing else.
+ * replaced, so undo steps over one indentation command and nothing else. Ctrl+Tab (or ⌘+Tab, where the system
+ * passes it on) leaves the editor, since plain Tab is taken by indentation.
  */
 private fun codeKey(
     event: KeyEvent,
@@ -231,6 +237,8 @@ private fun HbCodeEditorLightPreview() {
             language = "kotlin",
             isError = true,
             errorLines = persistentSetOf(2),
+            errorMessage = "Line 2 does not compile",
+            keyboardHint = "Ctrl+Tab moves to the next field",
         )
     }
 }

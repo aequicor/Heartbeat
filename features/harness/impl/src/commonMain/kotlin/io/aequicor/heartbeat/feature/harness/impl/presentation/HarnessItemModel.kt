@@ -53,23 +53,43 @@ internal data class EditorDraft(val text: String, val description: String, val i
     override fun toString(): String = "EditorDraft(revision=$baseRevision, ***)"
 }
 
-/** Profile-lifetime cache of unsaved editor texts: leaving the editor keeps them until saved or discarded. */
+/** Identity of an item's draft. */
+internal data class ItemDraftKey(val harness: HarnessId, val item: ItemId)
+
+/**
+ * Profile-lifetime cache of unsaved editor texts: leaving the editor keeps them until saved or discarded. Drafts of
+ * harnesses and items no longer in the library are dropped whenever an editor sees the library.
+ */
 @SingleIn(ProfileScope::class)
 @Inject
 internal class HarnessDrafts {
-    private val drafts = MutableStateFlow<Map<String, EditorDraft>>(emptyMap())
+    private val drafts = MutableStateFlow<Map<ItemDraftKey, EditorDraft>>(emptyMap())
 
-    fun get(key: String): EditorDraft? = drafts.value[key]
+    fun get(key: ItemDraftKey): EditorDraft? = drafts.value[key]
 
     @HighFrequency
-    fun put(key: String, draft: EditorDraft) {
+    fun put(key: ItemDraftKey, draft: EditorDraft) {
         drafts.update { it + (key to draft) }
         log.v { "Item draft kept" }
     }
 
-    fun remove(key: String) {
+    fun remove(key: ItemDraftKey) {
         drafts.update { it - key }
         log.v { "Item draft dropped" }
+    }
+
+    /** Drops the drafts of deleted harnesses and items. */
+    @HighFrequency
+    fun retainExisting(library: HarnessState.Ready) {
+        val items = library.harnesses.flatMapTo(mutableSetOf()) { entry ->
+            entry.harness.items.map { ItemDraftKey(entry.harness.id, it.id) }
+        }
+        val before = drafts.value.size
+        drafts.update { current ->
+            if (current.keys.all { it in items }) current else current.filterKeys { it in items }
+        }
+        val dropped = before - drafts.value.size
+        if (dropped > 0) log.v { "Drafts of deleted items dropped count=$dropped" }
     }
 }
 
@@ -147,7 +167,7 @@ internal class HarnessItemModel(
     private val drafts = editing.drafts
     private val harnessId = HarnessId(harness)
     private val itemId = ItemId(item)
-    private val draftKey = Json.encodeToString(listOf(harness, item))
+    private val draftKey = ItemDraftKey(harnessId, itemId)
 
     val store = factory.create<HarnessItemState, HarnessItemIntent, HarnessItemAction>(
         "HarnessItem",
@@ -172,12 +192,12 @@ internal class HarnessItemModel(
 
             is HarnessItemIntent.ChangeInput -> edit { it.copy(input = intent.input) }
 
-            HarnessItemIntent.Discard -> {
+            // A save in flight finishes against the draft it started from, so discarding waits for it.
+            HarnessItemIntent.Discard -> updateState {
+                if (isSaving) return@updateState this
                 drafts.remove(draftKey)
-                updateState {
-                    copy(isDirty = false, isDraftRestored = false, isConflict = false, diagnostics = persistentListOf())
-                        .reflectItem(machine.state.value)
-                }
+                copy(isDirty = false, isDraftRestored = false, isConflict = false, diagnostics = persistentListOf())
+                    .reflectItem(machine.state.value)
             }
 
             HarnessItemIntent.Save -> save(isOverwrite = false)
@@ -190,7 +210,10 @@ internal class HarnessItemModel(
         }
     }
 
-    /** Called on every keystroke: the draft is kept after the state update, and old diagnostics no longer apply. */
+    /**
+     * Called on every keystroke: the draft is kept within the state update, and the diagnostics of the previous text
+     * are cleared because their lines no longer match.
+     */
     // PipelineContext is FlowMVI's coroutine-backed receiver for store updates.
     @Suppress("SuspendFunWithCoroutineScopeReceiver")
     @HighFrequency
@@ -263,7 +286,7 @@ internal class HarnessItemModel(
         return when (check) {
             is CodeCheck.Failed -> {
                 val diagnostics = check.diagnostics.toUi()
-                ({ copy(isSaving = false, diagnostics = diagnostics) })
+                ({ copy(isSaving = false).withDiagnostics(diagnostics, shown) })
             }
 
             CodeCheck.TimedOut -> failed(ItemErrorUi.CompileTimedOut)
@@ -273,7 +296,7 @@ internal class HarnessItemModel(
             null, is CodeCheck.Compiled -> {
                 val warnings = (check as? CodeCheck.Compiled)?.warnings.orEmpty().toUi()
                 val submitted = submit(edited, revision, shown)
-                ({ submitted().copy(diagnostics = warnings) })
+                ({ submitted().withDiagnostics(warnings, shown) })
             }
         }
     }
@@ -321,6 +344,7 @@ internal class HarnessItemModel(
 
     private fun HarnessItemState.reflectItem(state: HarnessState): HarnessItemState {
         val ready = state as? HarnessState.Ready ?: return copy(phase = state.phase())
+        drafts.retainExisting(ready)
         val entry = ready.harnesses.firstOrNull { it.harness.id == harnessId }
         val item = entry?.harness?.items?.firstOrNull { it.id == itemId } ?: return copy(phase = PhaseUi.NotFound)
         val draft = drafts.get(draftKey)
@@ -402,6 +426,12 @@ private fun parseInput(text: String): JsonObject? = if (text.isBlank()) {
 
 private fun prettyInput(input: JsonObject): String =
     if (input.isEmpty()) "" else Json { prettyPrint = true }.encodeToString(JsonObject.serializer(), input)
+
+/** Diagnostics of the saved text apply only while the editor still shows that text; edits since cleared them. */
+private fun HarnessItemState.withDiagnostics(
+    diagnostics: ImmutableList<DiagnosticUi>,
+    shown: HarnessItemState,
+): HarnessItemState = copy(diagnostics = if (text == shown.text) diagnostics else persistentListOf())
 
 private fun List<HarnessCodeDiagnostic>.toUi(): ImmutableList<DiagnosticUi> = map {
     DiagnosticUi(it.line, it.column, it.message, it.severity == HarnessDiagnosticSeverity.Error)

@@ -40,7 +40,6 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -199,7 +198,85 @@ class HarnessScreenModelsTest {
         runCurrent()
         assertEquals(5L, (library.sent.last() as HarnessIntent.Internal.Update).expectedRevision)
         assertTrue(!screen.states.value.isDirty)
-        assertEquals(null, drafts.get(Json.encodeToString(listOf(harness.id.value, rule.id.value))))
+        assertEquals(null, drafts.get(ItemDraftKey(harness.id, rule.id)))
+    }
+
+    @Test
+    fun `diagnostics of a save do not mark text typed while it compiled`() = runTest {
+        val library = RecordingLibrary(ready)
+        val compiling = CompletableDeferred<Unit>()
+        val host = EditorHost(
+            HarnessCompilationResult.Failure(
+                listOf(HarnessCodeDiagnostic(HarnessDiagnosticSeverity.Error, "Unresolved", 1, 3)),
+            ),
+            compiling,
+        )
+        val model = HarnessItemModel(
+            harness.id.value,
+            script.id.value,
+            library,
+            HarnessItemEditing(library, HarnessCodeChecks(host) { it }, HarnessDrafts()),
+            storeFactory(),
+            backgroundScope,
+        )
+        val screen = subscribe(model.store)
+        screen.intent(HarnessItemIntent.ChangeText("broken("))
+        screen.intent(HarnessItemIntent.Save)
+        runCurrent()
+        screen.intent(HarnessItemIntent.ChangeText("hooks.toString()"))
+        runCurrent()
+        compiling.complete(Unit)
+        runCurrent()
+
+        val state = screen.states.value
+        assertTrue(!state.isSaving && state.isDirty)
+        assertEquals("hooks.toString()", state.text)
+        assertTrue(state.diagnostics.isEmpty(), "the diagnostics belong to the text that was saved")
+    }
+
+    @Test
+    fun `discarding waits for the save in flight`() = runTest {
+        val library = RecordingLibrary(ready)
+        val saving = CompletableDeferred<Unit>()
+        library.submitted = saving
+        val drafts = HarnessDrafts()
+        val model = itemModel(library, rule, drafts)
+        val screen = subscribe(model.store)
+        screen.intent(HarnessItemIntent.ChangeText("Use only tokens"))
+        screen.intent(HarnessItemIntent.Save)
+        runCurrent()
+        screen.intent(HarnessItemIntent.Discard)
+        runCurrent()
+
+        assertTrue(screen.states.value.isSaving && screen.states.value.isDirty)
+        assertEquals("Use only tokens", screen.states.value.text)
+        assertEquals("Use only tokens", drafts.get(ItemDraftKey(harness.id, rule.id))?.text)
+        saving.complete(Unit)
+        runCurrent()
+    }
+
+    @Test
+    fun `drafts of deleted items and harnesses are dropped`() = runTest {
+        val library = RecordingLibrary(ready)
+        val drafts = HarnessDrafts()
+        val editor = subscribe(itemModel(library, rule, drafts).store)
+        editor.intent(HarnessItemIntent.ChangeText("Use only tokens"))
+        runCurrent()
+        val other = subscribe(itemModel(library, script, drafts).store)
+        other.intent(HarnessItemIntent.ChangeText("hooks.hashCode()"))
+        runCurrent()
+
+        library.state.value = ready.copy(
+            harnesses = ready.harnesses.map { it.copy(harness = it.harness.copy(items = listOf(script))) },
+        )
+        runCurrent()
+        assertEquals(PhaseUi.NotFound, editor.states.value.phase)
+        assertEquals(null, drafts.get(ItemDraftKey(harness.id, rule.id)))
+        assertEquals("hooks.hashCode()", drafts.get(ItemDraftKey(harness.id, script.id))?.text)
+
+        library.state.value = ready.copy(harnesses = emptyList())
+        runCurrent()
+        assertEquals(null, drafts.get(ItemDraftKey(harness.id, script.id)))
     }
 
     @Test
@@ -297,12 +374,16 @@ private fun TestScope.itemModel(
     backgroundScope,
 )
 
-private class EditorHost(private val result: HarnessCompilationResult?) : HarnessScriptHost {
+private class EditorHost(
+    private val result: HarnessCompilationResult?,
+    private val compiling: CompletableDeferred<Unit>? = null,
+) : HarnessScriptHost {
     val requests = mutableListOf<HarnessCompilationRequest>()
     override val isAvailable = true
 
     override suspend fun compile(request: HarnessCompilationRequest): HarnessCompilationResult {
         requests += request
+        compiling?.await()
         return result ?: HarnessCompilationResult.Success(
             object : CompiledHarnessCode {
                 override val kind = request.kind

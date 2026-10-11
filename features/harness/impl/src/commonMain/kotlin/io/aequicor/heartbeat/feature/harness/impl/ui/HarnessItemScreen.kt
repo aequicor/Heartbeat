@@ -42,6 +42,8 @@ import io.aequicor.heartbeat.feature.harness.impl.resources.harness_diagnostics
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_discard
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_dismiss
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_draft_restored
+import io.aequicor.heartbeat.feature.harness.impl.resources.harness_editor_keys
+import io.aequicor.heartbeat.feature.harness.impl.resources.harness_error_compile
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_error_compile_timeout
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_error_input
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_error_placeholder
@@ -104,6 +106,8 @@ internal fun HarnessItemContent(
                         language = "json",
                         isReadOnly = state.isReadOnly,
                         isError = state.error == ItemErrorUi.InvalidInput,
+                        errorMessage = stringResource(Res.string.harness_error_input),
+                        keyboardHint = stringResource(Res.string.harness_editor_keys),
                     )
                 }
             }
@@ -132,7 +136,9 @@ private fun LazyListScope.notices(state: HarnessItemState, onIntent: (HarnessIte
                 HbButton(
                     stringResource(Res.string.harness_discard),
                     { onIntent(HarnessItemIntent.Discard) },
+                    Modifier.testTag("harness-item-draft-discard"),
                     style = HbButtonStyle.Secondary,
+                    enabled = !state.isSaving,
                     size = HbButtonSize.Small,
                 )
             }
@@ -170,6 +176,8 @@ private fun SourceEditor(
         isReadOnly = state.isReadOnly,
         isError = state.diagnostics.any { it.isError },
         errorLines = errorLines,
+        errorMessage = stringResource(Res.string.harness_error_compile),
+        keyboardHint = stringResource(Res.string.harness_editor_keys),
     )
 }
 

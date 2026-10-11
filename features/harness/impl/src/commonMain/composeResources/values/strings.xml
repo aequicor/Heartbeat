@@ -87,6 +87,8 @@
     <string name="harness_error_input">The input schema must be a JSON object with string, number, boolean or enum properties.</string>
     <string name="harness_error_too_long">The text is longer than this item allows.</string>
     <string name="harness_error_placeholder">Template placeholders must look like {{name}} with lowercase letters, digits and _.</string>
+    <string name="harness_error_compile">The code does not compile: see the compiler messages below the editor.</string>
+    <string name="harness_editor_keys">Tab indents. Ctrl+Tab moves to the next field, Ctrl+Shift+Tab to the previous one.</string>
     <string name="harness_error_compile_timeout">Compilation took too long. Try again.</string>
     <string name="harness_conflict_title">The item changed</string>
     <string name="harness_conflict_text">The agent or another window saved a newer version while you were editing.</string>
