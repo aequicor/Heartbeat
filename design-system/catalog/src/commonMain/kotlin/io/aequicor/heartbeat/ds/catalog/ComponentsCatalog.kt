@@ -187,6 +187,7 @@ private fun CodeEditorExample(modifier: Modifier = Modifier) {
             language = "kotlin",
             isError = true,
             errorLines = persistentSetOf(2),
+            errorMessage = hbString(HbString.CodeErrorSample),
         )
         HbCodeEditor(
             LONG_CODE_SAMPLE,

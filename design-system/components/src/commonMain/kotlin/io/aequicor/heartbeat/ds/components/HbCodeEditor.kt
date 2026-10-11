@@ -65,6 +65,8 @@ private val log = Log.tag("HbCodeEditor")
  * [errorLines] (1-based) are marked in the gutter with the error fill and a `!`; the gutter is hidden from
  * accessibility, so callers list diagnostics as text next to the editor. [isError] tints the field outline and
  * marks the field invalid for accessibility services, announced with [errorMessage] (what is wrong, not the label).
+ * Pass a localized [errorMessage] whenever [isError] is set: without it the field is marked invalid with no
+ * description, because the design system has no generic text that could say what is wrong.
  * Tab indents the caret or the selected lines, Shift+Tab outdents them, and Ctrl+Tab (Ctrl+Shift+Tab — backwards)
  * moves focus, because Tab is part of the text; ⌘+Tab works too where the system does not take it (macOS uses it
  * to switch apps, so Ctrl+Tab is the key to tell users). [keyboardHint] is the caller's localized description of

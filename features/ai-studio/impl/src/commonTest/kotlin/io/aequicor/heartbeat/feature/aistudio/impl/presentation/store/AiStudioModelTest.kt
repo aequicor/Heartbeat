@@ -647,9 +647,24 @@ class AiStudioModelTest {
         assertEquals(listOf(submitted.submissionId to setOf("compose")), harnesses.claims)
         assertTrue(0 !in screen.states.value.harnessChoices.panes)
 
+        assertTrue(harnesses.released.isEmpty(), "the turn of a sent submission owns its claim")
+    }
+
+    @Test
+    fun `a rejected submission releases its harness claim`() = runTest {
+        val harnesses = FakeStudioHarnesses()
+        val fixture = Fixture(this, ready.copy(panes = listOf(StudioPane(0))), harnesses = harnesses)
+        fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.SelectHarness(0, "compose", true))
+        fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(0, "Build the screen"))
+        fixture.model.store.intent(AiStudioScreenIntent.Submit(0))
+        runCurrent()
+        val submitted = fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.Submit>().single()
+
+        // A session created for a request the pane no longer owns runs no turn that could release the claim.
         fixture.machine.outputs.emit(AiStudioOutput.SubmitRejected(0, submitted.submissionId, "chat"))
         runCurrent()
-        assertTrue(harnesses.released.isEmpty(), "the turn of a sent submission owns its claim")
+        assertEquals(listOf(submitted.submissionId), harnesses.released)
     }
 
     @Test

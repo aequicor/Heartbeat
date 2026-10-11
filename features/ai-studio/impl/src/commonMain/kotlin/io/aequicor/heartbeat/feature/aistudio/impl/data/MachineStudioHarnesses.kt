@@ -117,6 +117,8 @@ internal class MachineStudioHarnesses(private val machines: MachineRegistry, pri
     /**
      * Failures leave the chat without the harness instead of failing the turn. The first prompt waits at most
      * [SUBMIT_DEADLINE] for all connections, and a library that leaves one write unanswered gets no further writes.
+     * The deadline bounds only the wait, not the write: an Attach the library already took may still be applied
+     * after the first prompt, so that prompt can run without the harness that later turns of the chat have.
      */
     override suspend fun beforeSubmit(submissionId: String, session: SessionRef) {
         val claimed = claims.getAndUpdate { it - submissionId }[submissionId] ?: return

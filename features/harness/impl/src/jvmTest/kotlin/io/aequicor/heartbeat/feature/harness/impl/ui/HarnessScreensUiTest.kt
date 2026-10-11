@@ -1,10 +1,15 @@
 package io.aequicor.heartbeat.feature.harness.impl.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
@@ -110,4 +115,18 @@ class HarnessScreensUiTest {
                 )
             }
         }
+
+    @Test
+    fun `editor keys are announced only for an editable item`() = runSkikoComposeUiTest(size = Size(900f, 900f)) {
+        val keys = hasContentDescription("Ctrl+Tab", substring = true)
+        var state by mutableStateOf(
+            HarnessItemState(phase = PhaseUi.Ready, harnessName = "compose_ui", name = "rule", text = "Use tokens"),
+        )
+        setContent { HbTheme { HarnessItemContent(state, {}, {}) } }
+
+        onAllNodes(keys).assertCountEquals(1)
+        state = state.copy(isReadOnly = true)
+        waitForIdle()
+        onAllNodes(keys).assertCountEquals(0)
+    }
 }

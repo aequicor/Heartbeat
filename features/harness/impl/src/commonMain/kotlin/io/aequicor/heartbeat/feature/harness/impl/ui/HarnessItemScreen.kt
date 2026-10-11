@@ -107,7 +107,8 @@ internal fun HarnessItemContent(
                         isReadOnly = state.isReadOnly,
                         isError = state.error == ItemErrorUi.InvalidInput,
                         errorMessage = stringResource(Res.string.harness_error_input),
-                        keyboardHint = stringResource(Res.string.harness_editor_keys),
+                        // A read-only editor takes no Tab edits, so its keys are not announced.
+                        keyboardHint = stringResource(Res.string.harness_editor_keys).takeUnless { state.isReadOnly },
                     )
                 }
             }
@@ -177,7 +178,7 @@ private fun SourceEditor(
         isError = state.diagnostics.any { it.isError },
         errorLines = errorLines,
         errorMessage = stringResource(Res.string.harness_error_compile),
-        keyboardHint = stringResource(Res.string.harness_editor_keys),
+        keyboardHint = stringResource(Res.string.harness_editor_keys).takeUnless { state.isReadOnly },
     )
 }
 
