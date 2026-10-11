@@ -28,6 +28,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -177,12 +178,21 @@ internal class StoreRegistry(
     }
 
     /**
+     * Physical closes outlive the app scope on purpose (see [closeDatabases]); this registry-owned scope keeps them
+     * named and reports an unexpected failure instead of leaving an orphan root coroutine.
+     */
+    private val closingScope = CoroutineScope(
+        SupervisorJob() + dispatchers.io + CoroutineName("datastore close") +
+            CoroutineExceptionHandler { _, error -> log.e(error) { "Database close failed unexpectedly" } },
+    )
+
+    /**
      * Runs once per owner, after construction and query drain. Physical Room close can wait for its invalidation
      * barrier, so it runs on IO outside the cancelled owner's job. The retained completion owns this cleanup;
      * even app shutdown cannot cancel it. Only this executor's actual close completion permits file deletion.
      */
     internal fun closeDatabases(opened: List<OpenDatabase>, completion: CompletableDeferred<Unit>) {
-        val cleanup = CoroutineScope(dispatchers.io).launch {
+        val cleanup = closingScope.launch {
             var failure: Exception? = null
             for (open in opened) {
                 val error = closeDatabase(open)

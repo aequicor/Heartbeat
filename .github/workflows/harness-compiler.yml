@@ -2,7 +2,7 @@ name: Packaged harness compiler
 
 on:
   push:
-    branches: [master, codex/harness-runtime]
+    branches: [master]
     paths:
       - 'features/harness/**'
       - 'platform-main/desktop/**'

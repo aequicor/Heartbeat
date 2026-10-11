@@ -30,4 +30,8 @@ paths:
   рендерера не передают — fence остаётся кодом. Рисует процесс-воркер фичи: в упакованном jlink-рантайме нет `java`,
   поэтому `Main`/`DevelopmentMain` до любой инициализации передают аргумент `--heartbeat-plantuml-worker` в
   `runPackagedPlantUmlWorker` (как `runPackagedBuildWorker`), а `compose-desktop.pro` сохраняет его `main`.
+  Исключение для пробы компилятора харнесса: упакованный desktop с аргументом `--heartbeat-harness-probe`
+  (`HarnessCompilerProbe`) до создания графа вызывает `HarnessHostProbe` из `harness:impl` по имени класса
+  (`Class.forName`), без compile-зависимости на impl; `compose-desktop.pro` сохраняет этот класс. Новые такие
+  входы не добавляй — проба нужна только релизной проверке компилятора в CI.
 - Модули: `platform-main:shared` (общий вход `createAppRoot` + `App`, статический iOS framework `Shared`), `platform-main:android`, `platform-main:desktop`, Xcode-проект `platform-main/ios` (build phase — `:platform-main:shared:embedAndSignAppleFrameworkForXcode`). Пакеты — `io.aequicor.heartbeat.platform.<модуль>`; applicationId `io.aequicor` не меняй без согласования (id в сторах).
