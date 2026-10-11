@@ -1,11 +1,26 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 1fdda94..28f51c2 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -152,7 +152,9 @@ elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
+     set(CEF_PLATFORM "linux32")
+   endif()
+ elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
+-  if(CMAKE_SIZEOF_VOID_P MATCHES 8)
++  if(CMAKE_GENERATOR_PLATFORM STREQUAL "ARM64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "^(ARM64|arm64|aarch64)$")
++    set(CEF_PLATFORM "windowsarm64")
++  elseif(CMAKE_SIZEOF_VOID_P MATCHES 8)
+     set(CEF_PLATFORM "windows64")
+   else()
+     set(CEF_PLATFORM "windows32")
+diff --git a/java/org/cef/browser/CefRequestContext.java b/java/org/cef/browser/CefRequestContext.java
+index 38ccef0..bde1b57 100644
 --- a/java/org/cef/browser/CefRequestContext.java
 +++ b/java/org/cef/browser/CefRequestContext.java
-@@ -40,6 +40,20 @@
-      */
-     public static final CefRequestContext createContext(CefRequestContextHandler handler) {
+@@ -42,8 +42,29 @@ public abstract class CefRequestContext {
          return CefRequestContext_N.createNative(handler);
-+    }
-+
+     }
+ 
 +    /** Creates a persistent context. The settings are copied during this call. */
 +    public static CefRequestContext createContext(
 +            org.cef.CefRequestContextSettings settings, CefRequestContextHandler handler) {
@@ -18,16 +33,28 @@
 +            CefRequestContext shared, CefRequestContextHandler handler) {
 +        if (shared == null) throw new IllegalArgumentException("shared context required");
 +        return CefRequestContext_N.createSharedNative(shared, handler);
-     }
- 
++    }
++
      public abstract void dispose();
+ 
++    /**
++     * Flushes this context's cookies, releases its native ownership on the CEF UI thread,
++     * then calls completion from a subsequent UI task. All sharing browser wrappers must
++     * already be closed. Completion does not guarantee that every OS file handle is closed.
++     */
++    public abstract void dispose(org.cef.callback.CefCompletionCallback callback);
++
+     /**
+      * Returns true if this object is the global context.
+      */
+diff --git a/java/org/cef/browser/CefRequestContext_N.java b/java/org/cef/browser/CefRequestContext_N.java
+index 6e26e7d..952de5c 100644
 --- a/java/org/cef/browser/CefRequestContext_N.java
 +++ b/java/org/cef/browser/CefRequestContext_N.java
-@@ -57,6 +57,28 @@
-         if (result != null) result.handler = handler;
+@@ -58,6 +58,28 @@ class CefRequestContext_N extends CefRequestContext implements CefNative {
          return result;
      }
-+
+ 
 +    static CefRequestContext_N createNative(
 +            org.cef.CefRequestContextSettings settings, CefRequestContextHandler handler) {
 +        CefRequestContext_N result = N_CreatePersistentContext(settings.cache_path,
@@ -49,33 +76,89 @@
 +            boolean excludeDefaultSchemes, CefRequestContextHandler handler);
 +    private static native CefRequestContext_N N_CreateSharedContext(
 +            CefRequestContext shared, CefRequestContextHandler handler);
- 
++
      @Override
      public void dispose() {
---- /dev/null
-+++ b/java/org/cef/CefRequestContextSettings.java
-@@ -0,0 +1,13 @@
-+// Copyright (c) 2026 The Heartbeat Authors. BSD-3-Clause.
-+package org.cef;
+         try {
+@@ -77,6 +99,16 @@ class CefRequestContext_N extends CefRequestContext implements CefNative {
+         return false;
+     }
+ 
++    @Override
++    public void dispose(org.cef.callback.CefCompletionCallback callback) {
++        if (callback == null) throw new IllegalArgumentException("callback required");
++        if (!N_FlushAndDispose(callback)) {
++            throw new IllegalStateException("Request context flush was not accepted");
++        }
++    }
 +
-+/** Initialization values copied to CEF 152's cef_request_context_settings_t. */
-+public final class CefRequestContextSettings {
-+    /** Absolute directory below CefSettings.root_cache_path, or empty for incognito. */
-+    public String cache_path = "";
-+    /** Persist session cookies as well as cookies with an expiry date. */
-+    public boolean persist_session_cookies = false;
-+    public String accept_language_list = "";
-+    public String cookieable_schemes_list = "";
-+    public boolean cookieable_schemes_exclude_defaults = false;
-+}
++    private native boolean N_FlushAndDispose(org.cef.callback.CefCompletionCallback callback);
++
+     @Override
+     public boolean hasPreference(String name) {
+         try {
+diff --git a/native/CefRequestContext_N.cpp b/native/CefRequestContext_N.cpp
+index db6b2dd..9201a50 100644
 --- a/native/CefRequestContext_N.cpp
 +++ b/native/CefRequestContext_N.cpp
-@@ -44,6 +44,44 @@
+@@ -4,9 +4,53 @@
  
-   SetCefForJNIObject(env, jContext, context.get(), "CefRequestContext");
-   return jContext.Release();
+ #include "CefRequestContext_N.h"
+ #include "include/cef_request_context.h"
++#include "include/cef_cookie.h"
++#include "include/cef_task.h"
++#include "include/wrapper/cef_closure_task.h"
++#include "completion_callback.h"
+ #include "jni_util.h"
+ #include "request_context_handler.h"
+ 
++namespace {
++
++// Keep the Java wrapper, not another native context reference. After FinishDispose,
++// the completion task retains only the callback; it cannot keep the profile alive.
++class FlushAndReleaseContext : public CefCompletionCallback {
++ public:
++  FlushAndReleaseContext(JNIEnv* env, jobject context, jobject callback)
++      : context_(env, context), callback_(new CompletionCallback(env, callback)) {}
++
++  void OnComplete() override {
++    CefPostTask(TID_UI, base::BindOnce(&FlushAndReleaseContext::FinishDispose,
++                                     CefRefPtr<FlushAndReleaseContext>(this)));
++  }
++
++ private:
++  void FinishDispose() {
++    ScopedJNIEnv env;
++    if (!env) return;
++    SetCefForJNIObject<CefRequestContext>(env, context_, nullptr, "CefRequestContext");
++    CefPostTask(TID_UI, base::BindOnce(&CefCompletionCallback::OnComplete, callback_));
++  }
++
++  ScopedJNIObjectGlobal context_;
++  CefRefPtr<CefCompletionCallback> callback_;
++  IMPLEMENT_REFCOUNTING(FlushAndReleaseContext);
++};
++
++}  // namespace
++
++JNIEXPORT jboolean JNICALL
++Java_org_cef_browser_CefRequestContext_1N_N_1FlushAndDispose(
++    JNIEnv* env, jobject obj, jobject callback) {
++  auto context = GetCefFromJNIObject<CefRequestContext>(env, obj, "CefRequestContext");
++  if (!context) return JNI_FALSE;
++  auto manager = context->GetCookieManager(nullptr);
++  if (!manager) return JNI_FALSE;
++  return manager->FlushStore(new FlushAndReleaseContext(env, obj, callback))
++      ? JNI_TRUE : JNI_FALSE;
 +}
 +
+ JNIEXPORT jobject JNICALL
+ Java_org_cef_browser_CefRequestContext_1N_N_1GetGlobalContext(JNIEnv* env,
+                                                               jclass cls) {
+@@ -46,6 +90,44 @@ Java_org_cef_browser_CefRequestContext_1N_N_1CreateContext(JNIEnv* env,
+   return jContext.Release();
+ }
+ 
 +// Heartbeat extension: separate JNI wrappers own separate CEF references. Closing
 +// a browser disposes only its wrapper, never the profile's anchor context.
 +JNIEXPORT jobject JNICALL
@@ -112,35 +195,59 @@
 +  if (!result) return nullptr;
 +  SetCefForJNIObject(env, result, context.get(), "CefRequestContext");
 +  return result.Release();
- }
- 
++}
++
  JNIEXPORT jboolean JNICALL
+ Java_org_cef_browser_CefRequestContext_1N_N_1IsGlobal(JNIEnv* env,
+                                                       jobject obj) {
+diff --git a/native/CefRequestContext_N.h b/native/CefRequestContext_N.h
+index 407cc77..b25c7e9 100644
 --- a/native/CefRequestContext_N.h
 +++ b/native/CefRequestContext_N.h
-@@ -25,6 +25,13 @@
- Java_org_cef_browser_CefRequestContext_1N_N_1CreateContext(JNIEnv*,
+@@ -1,5 +1,6 @@
+ /* DO NOT EDIT THIS FILE - it is machine generated */
+ #include <jni.h>
++
+ /* Header for class org_cef_browser_CefRequestContext_N */
+ 
+ #ifndef _Included_org_cef_browser_CefRequestContext_N
+@@ -7,6 +8,8 @@
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
++JNIEXPORT jboolean JNICALL
++Java_org_cef_browser_CefRequestContext_1N_N_1FlushAndDispose(JNIEnv*, jobject, jobject);
+ /*
+  * Class:     org_cef_browser_CefRequestContext_N
+  * Method:    N_GetGlobalContext
+@@ -26,6 +29,13 @@ Java_org_cef_browser_CefRequestContext_1N_N_1CreateContext(JNIEnv*,
                                                             jclass,
                                                             jobject);
-+
+ 
 +JNIEXPORT jobject JNICALL
 +Java_org_cef_browser_CefRequestContext_1N_N_1CreatePersistentContext(
 +    JNIEnv*, jclass, jstring, jboolean, jstring, jstring, jboolean, jobject);
 +JNIEXPORT jobject JNICALL
 +Java_org_cef_browser_CefRequestContext_1N_N_1CreateSharedContext(
 +    JNIEnv*, jclass, jobject, jobject);
- 
++
  /*
   * Class:     org_cef_browser_CefRequestContext_N
---- a/CMakeLists.txt
-+++ b/CMakeLists.txt
-@@ -152,7 +152,9 @@
-     set(CEF_PLATFORM "linux32")
-   endif()
- elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
--  if(CMAKE_SIZEOF_VOID_P MATCHES 8)
-+  if(CMAKE_GENERATOR_PLATFORM STREQUAL "ARM64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "^(ARM64|arm64|aarch64)$")
-+    set(CEF_PLATFORM "windowsarm64")
-+  elseif(CMAKE_SIZEOF_VOID_P MATCHES 8)
-     set(CEF_PLATFORM "windows64")
-   else()
-     set(CEF_PLATFORM "windows32")
+  * Method:    N_IsGlobal
+
+--- /dev/null
++++ b/java/org/cef/CefRequestContextSettings.java
+@@ -0,0 +1,13 @@
++// Copyright (c) 2026 The Heartbeat Authors. BSD-3-Clause.
++package org.cef;
++
++/** Initialization values copied to CEF 152's cef_request_context_settings_t. */
++public final class CefRequestContextSettings {
++    /** Absolute directory below CefSettings.root_cache_path, or empty for incognito. */
++    public String cache_path = "";
++    /** Persist session cookies as well as cookies with an expiry date. */
++    public boolean persist_session_cookies = false;
++    public String accept_language_list = "";
++    public String cookieable_schemes_list = "";
++    public boolean cookieable_schemes_exclude_defaults = false;
++}

@@ -1,0 +1,90 @@
+"""Packaging/verification contracts without downloading CEF or requiring a C++ SDK."""
+import hashlib
+import io
+import json
+from pathlib import Path
+import tarfile
+import tempfile
+import unittest
+from unittest.mock import patch
+import zipfile
+
+import build_runtime as runtime
+
+
+class RuntimePackagingTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+    def write(self, relative, data=b"fixture"):
+        path = self.root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return path
+
+    def test_windows_archive_matches_jcefmaven_resource_and_is_reproducible(self):
+        source = self.root / "source"
+        for name in ["jcef.dll", "libcef.dll", "jcef_helper.exe", "icudtl.dat", "resources.pak", "locales/en-US.pak"]:
+            self.write("source/jcef_build/native/Release/" + name)
+        self.write("source/LICENSE.txt")
+        cef = runtime.lock()["cefVersion"]
+        self.write(f"source/third_party/cef/cef_binary_{cef}_windows64/LICENSE.txt")
+        self.write("source/heartbeat-api-classes/org/cef/CefRequestContextSettings.class")
+        runtime.package(source, "windows-amd64", self.root / "first")
+        name = f"jcef-natives-windows-amd64-{runtime.VERSION}.jar"
+        with zipfile.ZipFile(self.root / "first" / name) as jar:
+            archive = f"jcef-natives-windows-amd64-{runtime.RELEASE_TAG}.tar.gz"
+            self.assertEqual([archive], jar.namelist())
+            with tarfile.open(fileobj=io.BytesIO(jar.read(archive)), mode="r:gz") as tar:
+                self.assertIn("jcef_helper.exe", tar.getnames())
+                self.assertTrue(all(member.mtime == 0 for member in tar.getmembers()))
+                meta = json.load(tar.extractfile("build_meta.json"))
+                self.assertEqual(runtime.RELEASE_TAG, meta["release_tag"])
+        # Packaging starts with a fresh stage; preserve the original to compare bytes.
+        (source / "heartbeat-native-stage").rename(source / "previous-stage")
+        runtime.package(source, "windows-amd64", self.root / "second")
+        self.assertEqual(runtime.sha256(self.root / "first" / name), runtime.sha256(self.root / "second" / name))
+
+    def artifacts(self):
+        for target in runtime.TARGETS:
+            api = f"jcef-api-{runtime.VERSION}.jar"
+            native = f"jcef-natives-{target}-{runtime.VERSION}.jar"
+            self.write(f"inputs/{target}/{api}", b"same API")
+            self.write(f"inputs/{target}/{native}", target.encode())
+            manifest = dict(runtime.lock(), version=runtime.VERSION, platform=target, releaseTag=runtime.RELEASE_TAG,
+                            files={api: hashlib.sha256(b"same API").hexdigest(),
+                                   native: hashlib.sha256(target.encode()).hexdigest()})
+            self.write(f"inputs/{target}/manifest-{target}.json", json.dumps(manifest).encode())
+
+    def test_collection_writes_complete_verified_release_lock(self):
+        self.artifacts()
+        runtime.collect(self.root / "inputs", self.root / "release")
+        lock = json.loads((self.root / "release/source-lock.json").read_text())
+        self.assertEqual(set(runtime.TARGETS), set(lock["nativeArtifacts"]))
+        self.assertEqual(runtime.VERSION, lock["artifactVersion"])
+        self.assertEqual(5, len(list((self.root / "release").glob("*.jar"))))
+        for artifact in [lock["apiArtifact"], *lock["nativeArtifacts"].values()]:
+            self.assertEqual(artifact["sha256"], runtime.sha256(self.root / "release" / artifact["file"]))
+
+    def test_collection_rejects_corrupt_or_different_api(self):
+        self.artifacts()
+        self.write(f"inputs/windows-arm64/jcef-api-{runtime.VERSION}.jar", b"different API")
+        with self.assertRaisesRegex(ValueError, "Conflicting or corrupt"):
+            runtime.collect(self.root / "inputs", self.root / "release")
+
+    def test_collection_rejects_missing_architecture(self):
+        self.artifacts()
+        (self.root / "inputs/windows-arm64/manifest-windows-arm64.json").unlink()
+        with self.assertRaisesRegex(ValueError, "Exactly four"):
+            runtime.collect(self.root / "inputs", self.root / "release")
+
+    def test_patch_lock_rejects_unreviewed_patch(self):
+        with patch.object(runtime, "sha256", return_value="bad"):
+            with self.assertRaisesRegex(ValueError, "patch differs"):
+                runtime.lock()
+
+
+if __name__ == "__main__":
+    unittest.main()

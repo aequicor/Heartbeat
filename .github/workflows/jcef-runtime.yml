@@ -1,0 +1,127 @@
+name: Patched JCEF runtime
+
+on:
+  push:
+    branches: [feat/embedded-webview-browser]
+    paths:
+      - native/jcef/**
+      - .github/workflows/jcef-runtime.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: JCEF ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: windows-amd64
+            runner: windows-2022
+            java-arch: x64
+            msvc-arch: amd64
+          - target: windows-arm64
+            runner: windows-11-arm
+            java-arch: aarch64
+            msvc-arch: arm64
+          - target: macosx-amd64
+            runner: macos-15-intel
+            java-arch: x64
+          - target: macosx-arm64
+            runner: macos-15
+            java-arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-java@v5
+        with:
+          distribution: microsoft
+          java-version: '21.0.10'
+          architecture: ${{ matrix.java-arch }}
+      - name: Python dependencies
+        run: python -m pip install six==1.17.0
+      - name: Verify packaging and release lock contracts
+        run: python -m unittest discover -s native/jcef -p "test_*.py" -v
+      - name: macOS build tools
+        if: runner.os == 'macOS'
+        run: brew install ninja ant
+      - name: Check out and patch locked JCEF sources
+        run: python native/jcef/build_runtime.py prepare
+      - name: Compile Windows JNI with the target architecture toolchain
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do set "VS_INSTALL=%%i"
+          call "%VS_INSTALL%\Common7\Tools\VsDevCmd.bat" -arch=${{ matrix.msvc-arch }} -host_arch=${{ matrix.msvc-arch }}
+          if errorlevel 1 exit /b %errorlevel%
+          python native/jcef/build_runtime.py build --target ${{ matrix.target }}
+      - name: Compile macOS JNI
+        if: runner.os == 'macOS'
+        run: python native/jcef/build_runtime.py build --target ${{ matrix.target }}
+      - name: Package and hash matching Java and native artifacts
+        run: python native/jcef/build_runtime.py package --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jcef-${{ matrix.target }}
+          path: build/jcef-artifacts/*
+          if-no-files-found: error
+          compression-level: 0
+      - name: Verify Chromium profile persistence across processes
+        run: >-
+          python native/jcef/verification/run_probe.py
+          --jcef-api build/jcef-artifacts/jcef-api-152.0.6-hb1.jar
+          --native-dir build/jcef-source/heartbeat-native-stage
+          --extra-classpath build/jcef-artifacts/jcef-natives-${{ matrix.target }}-152.0.6-hb1.jar
+          --extra-classpath build/jcef-source/third_party/jogamp/jar/jogl-all.jar
+          --extra-classpath build/jcef-source/third_party/jogamp/jar/gluegen-rt.jar
+          --output build/jcef-verification
+      - name: Native verification reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-verification-${{ matrix.target }}
+          path: |
+            build/jcef-verification/*.json
+            build/jcef-verification/*.log
+            build/jcef-verification/*.png
+          if-no-files-found: warn
+      - name: Native build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jcef-diagnostics-${{ matrix.target }}
+          path: |
+            build/jcef-source/jcef_build/CMakeCache.txt
+            build/jcef-source/jcef_build/CMakeFiles/CMakeConfigureLog.yaml
+            build/jcef-source/native/jcef_version.h
+
+  collect:
+    name: Verify all four matching runtime artifacts
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: jcef-*
+          path: build/jcef-platform-artifacts
+      - run: python native/jcef/build_runtime.py collect --source build/jcef-platform-artifacts --output build/jcef-release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jcef-release-152.0.6-hb1
+          path: build/jcef-release/*
+          if-no-files-found: error
+          compression-level: 0

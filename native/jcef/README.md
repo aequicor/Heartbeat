@@ -1,66 +1,86 @@
-# Контексты запросов JCEF
+# Patched JCEF runtime
 
-`request-context-settings.patch` применяется к Java-CEF
-`17e805ad387d89839fdd2b864466b6510b2a783c` с CEF
-`152.0.6+g708dc14+chromium-152.0.7977.83`. Версии и SHA-256 патча закреплены
-в `source-lock.json`. Для изменённых файлов сохраняется upstream-лицензия BSD.
+Heartbeat builds Java-CEF `17e805ad387d89839fdd2b864466b6510b2a783c` with CEF
+`152.0.6+g708dc14+chromium-152.0.7977.83`. `source-lock.json` pins the source and
+SHA-256 of `request-context-settings.patch`. Upstream files retain their BSD license.
 
-Патч добавляет все пять полей настроек контекста CEF 152 и создание контекста
-с общим хранилищем. Каждой вкладке нужен **отдельный Java-wrapper**, созданный
-из опорного контекста профиля: JCEF освобождает wrapper браузера при закрытии.
-Передавать один wrapper нескольким браузерам нельзя. Опорный контекст должен
-освобождаться после завершения callbacks закрытия всех браузеров профиля.
+The patch exposes all five CEF request-context settings and independently owned
+Java wrappers sharing a profile context. Each browser needs its own wrapper:
+closing a browser disposes that wrapper. Close every browser first, then call
+`anchor.dispose(CefCompletionCallback)` to flush profile cookies and release the
+anchor on the CEF UI thread. Completion runs on a subsequent UI task; callers
+must still account for asynchronous OS file handle release before deleting data.
 
-## Воспроизводимая сборка
+## Build and verify
 
-Нужны чистый checkout указанного SHA с submodules, JDK 21, CMake и платформенный
-C++ SDK. Windows требует Visual Studio 2022 C++ и Windows SDK, macOS — Xcode
-с command-line tools. Сначала проверить SHA-256 патча по lock-файлу, затем
-в checkout JCEF выполнить `git apply --check` и `git apply` с путём к патчу.
+[Patched JCEF runtime](../../.github/workflows/jcef-runtime.yml) runs on pushes to
+`feat/embedded-webview-browser` affecting this directory or the workflow, and via
+`workflow_dispatch`. Four native hosted runners build and test matching Java/JNI:
 
-Для каждой архитектуры использовать отдельный чистый `jcef_build`:
+| Target | Runner | Toolchain |
+| --- | --- | --- |
+| Windows x64 | `windows-2022` | MSVC native x64, Microsoft JDK 21 x64 |
+| Windows ARM64 | `windows-11-arm` | MSVC native ARM64, Microsoft JDK 21 ARM64 |
+| macOS x64 | `macos-15-intel` | Xcode command-line tools, Microsoft JDK 21 x64 |
+| macOS ARM64 | `macos-15` | Xcode command-line tools, Microsoft JDK 21 ARM64 |
 
-| Хост | Команда конфигурации |
-| --- | --- |
-| Windows x64 | `cmake -S . -B jcef_build -G "Visual Studio 17 2022" -A x64` |
-| Windows ARM64 | `cmake -S . -B jcef_build -G "Visual Studio 17 2022" -A ARM64` |
-| macOS x64 | `cmake -S . -B jcef_build -G Xcode -DPROJECT_ARCH=x86_64` |
-| macOS ARM64 | `cmake -S . -B jcef_build -G Xcode -DPROJECT_ARCH=arm64` |
+Runner labels and architectures are listed in the
+[official hosted runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+Windows ARM64 uses the installed native Visual Studio toolchain selected with
+`vswhere`; it does not link against an x64 JDK. The workflow installs Ninja/Ant
+on macOS and pins JDK 21.0.10 and Python dependency `six==1.17.0`.
 
-Затем выполнить `cmake --build jcef_build --config Release`. Java-классы собрать
-из того же пропатченного checkout: из каталога `tools` запустить `compile.bat win64`
-на Windows или `compile.sh macosx64` / `compile.sh macosarm64` на macOS.
-Нельзя смешивать пропатченный Java API с исходной native-библиотекой.
-При кросс-компиляции нужны JNI-библиотеки JDK целевой архитектуры.
+For a local build, install Python 3.13, Git, JDK 21.0.10, CMake, Ninja and the native
+C++ SDK. macOS also requires Ant. Run Windows commands from the matching MSVC
+Developer Command Prompt. Use a fresh source directory for each architecture:
 
-## Текущее состояние и условия поставки
+```shell
+python -m pip install six==1.17.0
+python -m unittest discover -s native/jcef -p "test_*.py" -v
+python native/jcef/build_runtime.py prepare
+python native/jcef/build_runtime.py build --target windows-amd64
+python native/jcef/build_runtime.py package --target windows-amd64
+```
 
-**Постоянный общий профиль Chromium ещё не подключён.** Приложение использует
-закреплённый upstream-runtime и отдельные временные контексты вкладок. Кнопка
-очистки закрывает эти вкладки и их временные контексты. Скрытие панели, изменение
-размеров и переключение чатов сохраняют живые вкладки до закрытия профиля.
+Substitute another target from the table when running on its matching host.
+`prepare` checks the source SHA and patch hash before applying the patch. Upstream
+CMake downloads the exact CEF distribution and verifies its published SHA-1;
+packaging records SHA-256 for every produced artifact and native runtime file.
+The Java API is compiled from the same patched source as JNI with `--release 8`.
+On macOS upstream Ant also compiles its private AWT bridge, shipped in that
+platform's native jar. Keep the native jar on the Java classpath.
 
-Проверено в Windows:
+The native probe in [verification](verification/README.md) exercises persistence
+in separate processes, profile isolation, sibling-tab ownership and clearing.
+Its reports are CI artifacts. A successful build alone does not establish native
+behavior or replace Heartbeat's actual Compose/native UI checks.
 
-- Патч целиком применяется к чистым закреплённым исходникам; его SHA-256 совпадает.
-- Добавленные Java-классы компилируются с закреплённым JCEF API.
-- Тест настоящего **upstream** JCEF проходит цепочку отказ доступа → ручной клик →
-  cookie → чтение текста/PDF, снимок и DOM-клик, отклонение неподдерживаемого MIME,
-  изоляцию временных контекстов и повторное подключение той же native-поверхности.
+## Artifacts and publication
 
-Пропатченные native-артефакты не собраны; `nativeArtifacts` намеренно пуст.
-На текущем Windows-хосте нет CMake/C++ SDK; macOS-хост недоступен. C++-часть патча
-не скомпилирована, команды матрицы не считаются проверенными сборками.
+Each matrix job uploads `jcef-<target>` containing two jars and a platform manifest.
+The collection job requires all four targets, rejects inconsistent API jars and
+mismatched checksums/source versions, then uploads `jcef-release-152.0.6-hb1`:
 
-До поставки постоянного профиля требуется:
+- `jcef-api-152.0.6-hb1.jar`
+- `jcef-natives-<target>-152.0.6-hb1.jar` for each target
+- `SHA256SUMS`, `runtime-manifest.json`, and completed `source-lock.json`
 
-1. Собрать и проверить согласованные Java/native-артефакты для всех четырёх целей,
-   упаковать ресурсы CEF и записать реальные SHA-256. Одновременно обновить Gradle
-   coordinates и verification metadata. Проверка поставки должна отклонять
-   отсутствующую цель или несовпадение checksum.
-2. Подключить опорный контекст к каталогу профиля, принадлежащему DataStores;
-   очищать данные только после native shutdown и интегрировать удаление профиля.
-3. В двух отдельных процессах проверить сохранение cookies/localStorage/IndexedDB,
-   изоляцию профилей, очистку и сохранение другой вкладки при закрытии одной.
-4. Проверить macOS/iOS, DPI-варианты координат, фокус и наложение диалогов настоящего
-   окна Heartbeat. Тест JFrame не заменяет эту проверку Compose/native-интеграции.
+The native jar contains a tar.gz resource named exactly as jcefmaven expects:
+`jcef-natives-<target>-<release_tag>.tar.gz`. Both API `build_meta.json` and native
+metadata use the unique release tag
+`jcef-17e805a+cef-152.0.6+g708dc14+chromium-152.0.7977.83+heartbeat-hb1`.
+This prevents reuse of an unpatched extraction cache. Native archives include
+resources, locales, helper executables/apps and licenses. macOS symlinks and
+executable modes are preserved. Jar entries and archive timestamps are normalized;
+CI checks that all four shared API builds are byte-identical.
+
+Publication is a separate reviewed action: upload the verified five jars and
+manifests as immutable assets of the GitHub release tag `152.0.6-hb1`, copy the
+completed source lock into this directory, and pin actual jar hashes in Gradle
+verification metadata. Coordinates are `io.aequicor.heartbeat.jcef:<artifact>:152.0.6-hb1`;
+Gradle consumes release assets using an Ivy artifact pattern. JOGL/gluegen Java
+API dependencies remain explicit dependencies of the application.
+
+Never substitute upstream JNI for this Java API. Never populate missing hashes
+with placeholders. Until successful native CI outputs are collected, empty
+`nativeArtifacts` means publication and the native release gate are incomplete.
