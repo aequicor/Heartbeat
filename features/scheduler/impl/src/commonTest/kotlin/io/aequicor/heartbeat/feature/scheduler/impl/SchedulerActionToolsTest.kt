@@ -33,13 +33,16 @@ class SchedulerActionToolsTest {
         fixture: ActionsFixture,
         toggles: Toggles = Toggles(),
         hosts: Set<ScheduledSessionHost> = setOf(FakeHost(priority = 1, owned = setOf(SESSION))),
-    ) = SchedulerActionTools(
-        lazyOf(fixture.actions),
-        WakeScheduler(fixture.machine, lazyOf(hosts)),
-        fixture.machine,
-        toggles,
-        fixture.clock,
-    )
+    ): SchedulerActionTools {
+        persistEffects(fixture.machine, fixture.persistence)
+        return SchedulerActionTools(
+            lazyOf(fixture.actions),
+            WakeScheduler(fixture.machine, lazyOf(hosts), fixture.persistence),
+            fixture.machine,
+            toggles,
+            fixture.clock,
+        )
+    }
 
     @Test
     fun `an action with a wake note is not started without an owning host`() = runTest {

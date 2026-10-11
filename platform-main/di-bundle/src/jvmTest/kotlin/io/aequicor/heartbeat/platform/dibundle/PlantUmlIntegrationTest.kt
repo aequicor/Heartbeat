@@ -51,7 +51,7 @@ class PlantUmlIntegrationTest {
     }
 
     @Test
-    fun `an enabled renderer draws in-process`() = runTest {
+    fun `an enabled renderer draws in its worker process`() = runTest {
         val toggle = toggles.toggleControl.registered.filterIsInstance<FeatureToggle.Flag>()
             .single { it.key == "plantuml.enabled" }
         toggles.toggleControl.setOverride(toggle, true)
