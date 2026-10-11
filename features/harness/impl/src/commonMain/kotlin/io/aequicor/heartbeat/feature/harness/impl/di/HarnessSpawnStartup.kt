@@ -7,7 +7,6 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartup
-import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.harnessScriptFailure
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSpawnOperations
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -33,7 +32,7 @@ internal class HarnessSpawnStartup(
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
-                    log.w(harnessScriptFailure(error)) { "Helper recovery snapshot is unavailable" }
+                    log.w(error) { "Helper recovery snapshot is unavailable" }
                 }
                 delay(5.seconds)
             }

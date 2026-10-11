@@ -6,10 +6,12 @@ import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import androidx.sqlite.execSQL
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.datastore.DatabaseSpec
+import io.aequicor.heartbeat.core.datastore.stringKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
+import io.aequicor.heartbeat.feature.harness.impl.data.HarnessLibrarySpec
 import io.aequicor.heartbeat.feature.harness.impl.data.HarnessTestStores
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.dispatchSession
@@ -131,6 +133,25 @@ class StoredHarnessRequestAncestryTest {
         val restarted = StoredHarnessRequestAncestry(AncestryTestStores(current, values))
         assertEquals(HarnessCallOrigin(true), restarted.lookup(dispatchSession, REQUEST))
         assertNull(restarted.lookup(dispatchSession, RequestId("unrelated")))
+    }
+
+    @Test
+    fun `rows written before the marker are adopted for a profile with earlier harness data`() = runTest {
+        val current = Room.inMemoryDatabaseBuilder<HarnessAncestryDatabase>()
+            .setDriver(BundledSQLiteDriver())
+            .build()
+        database = current
+        val legacy = HarnessCallOrigin(true, mapOf(OWNER to 2))
+        current.ancestry().restrict(
+            HarnessAncestryRecord(dispatchSession.ancestryKey(), REQUEST.value, HarnessAncestryCodec.encode(legacy)),
+        )
+        val empty = StoredHarnessRequestAncestry(AncestryTestStores(current, values))
+        assertNull(empty.lookup(dispatchSession, REQUEST))
+        values.keyValue(HarnessLibrarySpec).set(stringKey("index"), "[]")
+        val stores = AncestryTestStores(current, values)
+        assertEquals(legacy, StoredHarnessRequestAncestry(stores).lookup(dispatchSession, REQUEST))
+        assertEquals(1, stores.opens)
+        assertTrue(values.keyValue(HarnessAncestryMarkerSpec).get(HarnessAncestryMarkerKey) != null)
     }
 }
 

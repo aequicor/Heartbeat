@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -15,6 +16,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 class HarnessProjectSnapshotsTest {
@@ -78,5 +80,39 @@ class HarnessProjectSnapshotsTest {
         branch.cancel()
         runCurrent()
         assertNull(snapshots.projects.value)
+    }
+
+    @Test
+    fun `backoff survives emissions and resets only after a stable collection`() = runTest {
+        val snapshots = HarnessProjectSnapshots(testScheduler.timeSource)
+        val project = LocalWorkspace(WorkspaceRef("project"), "Private project")
+        var collections = 0
+        snapshots.observe(
+            backgroundScope,
+            flow {
+                collections++
+                emit(listOf(project))
+                if (collections == 3) delay(5.minutes)
+                throw IllegalStateException("private catalog failure")
+            },
+        )
+        assertEquals(1, collections)
+        advanceTimeBy(1.seconds)
+        runCurrent()
+        assertEquals(2, collections)
+        // An emission right before failing does not forgive the streak: the next delay doubles.
+        advanceTimeBy(1.seconds)
+        runCurrent()
+        assertEquals(2, collections)
+        advanceTimeBy(1.seconds)
+        runCurrent()
+        assertEquals(3, collections)
+        // After a healthy period the next failure retries after the base delay again.
+        advanceTimeBy(5.minutes)
+        runCurrent()
+        assertNull(snapshots.projects.value)
+        advanceTimeBy(1.seconds)
+        runCurrent()
+        assertEquals(4, collections)
     }
 }

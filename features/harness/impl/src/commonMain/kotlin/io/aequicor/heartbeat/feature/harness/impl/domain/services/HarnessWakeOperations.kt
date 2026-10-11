@@ -5,7 +5,6 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRequestOrigins
-import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.harnessScriptFailure
 import io.aequicor.heartbeat.feature.scheduler.api.WakeId
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
 import io.aequicor.heartbeat.feature.scheduler.api.deliveryRequestId
@@ -46,7 +45,8 @@ internal class HarnessWakeOperations(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                log.w(harnessScriptFailure(error)) { "Wake submission did not complete" }
+                // Host code only (quotas, ancestry storage, scheduler port): the original failure is logged as is.
+                log.w(error) { "Wake submission did not complete" }
                 val failure = IllegalStateException("Harness wake submission failed")
                 result.completeExceptionally(failure)
             }

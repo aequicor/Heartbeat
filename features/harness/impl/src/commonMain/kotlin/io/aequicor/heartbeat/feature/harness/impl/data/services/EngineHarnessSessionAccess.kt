@@ -15,9 +15,10 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessAccessS
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDeliveryPermit
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSchedulerAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessTarget
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Duration
 
 /** Shared authority and read-only routing for session services and scheduling. */
 internal interface HarnessSessionAccess {
@@ -43,7 +44,7 @@ internal class EngineHarnessSessionAccess(
         runtime.value.publishedInstances.value.any { it === owner.access && it.request == owner.request }
 
     override suspend fun permit(owner: HarnessInstanceTarget, target: HarnessTarget?): HarnessDeliveryPermit? {
-        val decision = withTimeoutOrNull(2.seconds) {
+        val decision = withTimeoutOrNull(HARNESS_ADMISSION_WAIT) {
             access.value.permits(owner.request.harness.id, target).first { it != HarnessAccess.Unknown }
         }
         return (decision as? HarnessAccess.Permitted)?.permit
@@ -75,3 +76,9 @@ internal data class HarnessSessionRoute(
     }
     override fun toString(): String = "HarnessSessionRoute(***)"
 }
+
+/**
+ * Longest wait of one harness admission step for restored provenance or a durable attachment. It keeps a margin
+ * below the scheduler's [SchedulerLimits.HELPER_ADMISSION_DEADLINE], so the step still answers inside that window.
+ */
+internal val HARNESS_ADMISSION_WAIT: Duration = SchedulerLimits.HELPER_ADMISSION_DEADLINE * 3 / 4

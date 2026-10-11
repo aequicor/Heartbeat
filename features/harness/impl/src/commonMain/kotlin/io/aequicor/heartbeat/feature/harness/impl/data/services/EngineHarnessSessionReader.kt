@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.harness.impl.data.services
 
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
@@ -20,13 +21,17 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessTarget
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * Listing exhausts one indexed snapshot; it does not imply complete native discovery. A publisher permit fences
  * the entire read against library/project changes; one synchronous authority view decides every session, and a
  * fresh view rechecks the exposed ones. A session with unreadable or inconsistent routing is skipped, never fatal.
  * History coverage, cursors and checkpoint pass through unchanged. Missing model metadata never selects defaults.
+ * A skipped session is reported once per profile (bounded), not on every listing.
  */
+@SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
 @Inject
 internal class EngineHarnessSessionReader(
@@ -34,6 +39,7 @@ internal class EngineHarnessSessionReader(
     private val access: HarnessSessionAccess,
 ) : HarnessSessionReader {
     private val log = Log.tag("HarnessSessionReader")
+    private val reported = MutableStateFlow<Set<SessionRef>>(emptySet())
 
     override suspend fun list(owner: HarnessInstanceTarget): List<ScriptSession> {
         val publisher = publisher(owner)
@@ -74,8 +80,26 @@ internal class EngineHarnessSessionReader(
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
-        log.w(error) { "Skip a session with unavailable routing from a harness listing" }
+        if (isFirstReport(session)) {
+            log.w(error) { "Skip a session with unavailable routing from harness listings" }
+        } else {
+            log.v { "skip a session with still unavailable routing" }
+        }
         null
+    }
+
+    private fun isFirstReport(session: SessionRef): Boolean {
+        var isFirst = false
+        log.v { "remember a skipped session for a single report" }
+        reported.update { current ->
+            isFirst = session !in current
+            when {
+                !isFirst -> current
+                current.size < MAX_REPORTED_SESSIONS -> current + session
+                else -> current - current.first() + session
+            }
+        }
+        return isFirst
     }
 
     override suspend fun history(
@@ -106,3 +130,5 @@ internal class EngineHarnessSessionReader(
         return checkNotNull(access.permit(owner, null)) { "Harness session access is unavailable" }
     }
 }
+
+private const val MAX_REPORTED_SESSIONS = 256

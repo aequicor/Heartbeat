@@ -5,7 +5,6 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
-import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.harnessScriptFailure
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -30,10 +29,10 @@ internal class HarnessOwnedContext {
         return try {
             json.decodeFromString(HarnessOwnership.serializer(), value)
         } catch (error: SerializationException) {
-            log.w(harnessScriptFailure(error)) { "Reject malformed ownership" }
+            log.w(error) { "Reject malformed ownership" }
             null
         } catch (error: IllegalArgumentException) {
-            log.w(harnessScriptFailure(error)) { "Reject invalid ownership" }
+            log.w(error) { "Reject invalid ownership" }
             null
         }
     }

@@ -23,7 +23,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Pins a public machine handle and subscribes before Attach. Only committed attachments or the exact durable
@@ -41,7 +40,7 @@ internal class MachineHarnessHelperAttachments(
     override suspend fun ensureAttached(binding: HarnessHelperBinding): Boolean {
         checkNotNull(binding.session) { "Helper attachment has no bound session" }
         val machine = machines.find(HarnessMachineKey) ?: return false
-        return withTimeoutOrNull(1500.milliseconds) { attach(machine, binding) } == true
+        return withTimeoutOrNull(HARNESS_ADMISSION_WAIT) { attach(machine, binding) } == true
     }
 
     private suspend fun attach(machine: Library, binding: HarnessHelperBinding): Boolean {
