@@ -101,10 +101,11 @@ diff --git a/native/CefRequestContext_N.cpp b/native/CefRequestContext_N.cpp
 index db6b2dd..9201a50 100644
 --- a/native/CefRequestContext_N.cpp
 +++ b/native/CefRequestContext_N.cpp
-@@ -4,9 +4,53 @@
+@@ -4,9 +4,54 @@
  
  #include "CefRequestContext_N.h"
  #include "include/cef_request_context.h"
++#include "include/base/cef_callback.h"
 +#include "include/cef_cookie.h"
 +#include "include/cef_task.h"
 +#include "include/wrapper/cef_closure_task.h"
@@ -155,7 +156,7 @@ index db6b2dd..9201a50 100644
  JNIEXPORT jobject JNICALL
  Java_org_cef_browser_CefRequestContext_1N_N_1GetGlobalContext(JNIEnv* env,
                                                                jclass cls) {
-@@ -46,6 +90,44 @@ Java_org_cef_browser_CefRequestContext_1N_N_1CreateContext(JNIEnv* env,
+@@ -46,6 +91,44 @@ Java_org_cef_browser_CefRequestContext_1N_N_1CreateContext(JNIEnv* env,
    return jContext.Release();
  }
  
