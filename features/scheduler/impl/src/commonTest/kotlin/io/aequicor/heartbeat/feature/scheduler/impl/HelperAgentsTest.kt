@@ -374,6 +374,7 @@ internal class HelperHostFake : ScheduledSessionHost by FakeHost(100) {
     val metadata = mutableMapOf<HelperId, HelperMetadata>()
     val prompts = mutableListOf<HelperPrompt>()
     val cancellations = mutableListOf<RequestId>()
+    val revocations = mutableListOf<RequestId>()
     val results = mutableMapOf<RequestId, HelperResult>()
     var createdRequest: RequestId? = null
     var beforeMetadata: suspend () -> Unit = {}
@@ -383,6 +384,7 @@ internal class HelperHostFake : ScheduledSessionHost by FakeHost(100) {
     var cancellation: suspend (RequestId) -> HelperCancellation = {
         HelperCancellation.Terminal(HelperResult(it, HelperOutcome.Cancelled, ""))
     }
+    var revocation: suspend (RequestId) -> HelperCancellation = { HelperCancellation.Unconfirmed(it) }
     var progress: HelperProgress? = null
 
     override suspend fun canHostHelper(parent: io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef?) = true
@@ -424,6 +426,11 @@ internal class HelperHostFake : ScheduledSessionHost by FakeHost(100) {
     override suspend fun cancelHelper(helper: HelperId, request: RequestId): HelperCancellation {
         cancellations += request
         return cancellation(request)
+    }
+
+    override suspend fun revokeUnsubmittedHelper(helper: HelperId, request: RequestId): HelperCancellation {
+        revocations += request
+        return revocation(request)
     }
 
     override suspend fun isHelper(session: io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef): Boolean =

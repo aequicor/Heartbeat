@@ -111,6 +111,15 @@ public interface ScheduledSessionHost : ScheduledHelperCatalog {
     public suspend fun cancelHelper(helper: HelperId, request: RequestId): HelperCancellation =
         throw UnsupportedOperationException("Helper cancellation is unavailable")
 
+    /**
+     * Non-destructive barrier after an uncertain prompt call: revokes this request only while it has not reached
+     * native submission and never stops submitted or accepted work. NotSubmitted also prevents any delayed
+     * submission; Terminal reports an already confirmed result; Unconfirmed means native work may exist, so the
+     * caller observes the exact result instead. The default proves nothing and returns Unconfirmed.
+     */
+    public suspend fun revokeUnsubmittedHelper(helper: HelperId, request: RequestId): HelperCancellation =
+        HelperCancellation.Unconfirmed(request)
+
     /** Reads a durable helper marker; parentless helpers must also be recognised. */
     public suspend fun isHelper(session: SessionRef): Boolean = false
 }

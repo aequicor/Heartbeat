@@ -30,7 +30,7 @@ import kotlinx.coroutines.withContext
  * Runtime ownership of one capacity reservation. Closing is irreversible; uncertain work keeps the reservation.
  * The mutex registers operations only; host IO runs in profile jobs outside it, so caller cancellation cannot
  * orphan an accepted prompt. Cleanup revokes pending submission through the host barrier before cancelling
- * its observation job.
+ * its observation job. The lease alone reports unconfirmed cleanup, so supervisors keep their own retries on trace.
  */
 internal class ManagedHelperLease(
     private val identity: HelperLeaseIdentity,
@@ -111,13 +111,24 @@ internal class ManagedHelperLease(
         return result
     }
 
-    suspend fun cancel(id: HelperId, requested: RequestId): HelperCancellation {
+    suspend fun cancel(id: HelperId, requested: RequestId): HelperCancellation =
+        barrier(id, requested) { cancelAtHost(id, requested) }
+
+    /** Revokes [requested] only before native submission; submitted or accepted work keeps running. */
+    suspend fun revokeUnsubmitted(id: HelperId, requested: RequestId): HelperCancellation =
+        barrier(id, requested) { checkedBarrier(requested, host.revokeUnsubmittedHelper(id, requested)) }
+
+    private suspend fun barrier(
+        id: HelperId,
+        requested: RequestId,
+        atHost: suspend () -> HelperCancellation,
+    ): HelperCancellation {
         currentCoroutineContext().ensureActive()
         val task = lock.withLock {
             check(!isClosing && helper == id) { "Helper lease is closing or unavailable" }
             val pending = submission.takeIf { lastPrompt?.request == requested }
             owned {
-                val barrier = cancelAtHost(id, requested)
+                val barrier = atHost()
                 if (barrier !is HelperCancellation.Unconfirmed) pending?.cancelAndJoin()
                 barrier
             }.also {
@@ -154,6 +165,12 @@ internal class ManagedHelperLease(
         val pending = current.second
         if (id != null && pending != null && result(id, pending) == null) {
             if (cancelAtHost(id, pending) is HelperCancellation.Unconfirmed) {
+                val failures = nextCleanupFailure()
+                if (isReportedCleanup(failures)) {
+                    log.w { "helper may still run; capacity retained (failures=$failures)" }
+                } else {
+                    log.v { "helper may still run (failures=$failures)" }
+                }
                 return HelperReleaseResult.Unconfirmed
             }
         }
@@ -171,15 +188,22 @@ internal class ManagedHelperLease(
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        // Supervisors retry cleanup with backoff; the first failure and a periodic summary are warnings.
-        val failures = lock.withLock { ++cleanupFailures }
-        if (failures == 1 || failures % CLEANUP_FAILURE_SUMMARY_EVERY == 0) {
+        val failures = nextCleanupFailure()
+        if (isReportedCleanup(failures)) {
             log.w(e) { "helper termination is unconfirmed; capacity retained (failures=$failures)" }
         } else {
             log.v { "helper termination still unconfirmed (failures=$failures)" }
         }
         HelperReleaseResult.Unconfirmed
     }
+
+    /**
+     * The lease is the single reporter of an unconfirmed cleanup, whether its barrier failed or native work may
+     * still run. Supervisors retry with backoff; the first failure and a periodic summary are warnings.
+     */
+    private suspend fun nextCleanupFailure(): Int = lock.withLock { ++cleanupFailures }
+
+    private fun isReportedCleanup(failures: Int) = failures == 1 || failures % CLEANUP_FAILURE_SUMMARY_EVERY == 0
 
     private suspend fun adoptCreated(id: HelperId) {
         val metadata = checkNotNull(host.helperMetadata(id)) { "Host did not persist helper metadata" }
@@ -194,8 +218,10 @@ internal class ManagedHelperLease(
         }
     }
 
-    private suspend fun cancelAtHost(id: HelperId, requested: RequestId): HelperCancellation {
-        val result = host.cancelHelper(id, requested)
+    private suspend fun cancelAtHost(id: HelperId, requested: RequestId): HelperCancellation =
+        checkedBarrier(requested, host.cancelHelper(id, requested))
+
+    private suspend fun checkedBarrier(requested: RequestId, result: HelperCancellation): HelperCancellation {
         when (result) {
             is HelperCancellation.NotSubmitted -> {
                 check(result.request == requested) { "Host cancelled a different helper request" }

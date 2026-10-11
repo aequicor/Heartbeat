@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
+import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperLease
 
@@ -16,4 +17,10 @@ internal interface ScheduledHelperLeases : HelperAgents {
         existing: HelperId? = null,
         expectedRequest: RequestId? = null,
     ): HelperLease?
+
+    /**
+     * Barrier after an uncertain prompt call: revokes [request] only before native submission and never stops
+     * submitted or accepted work. Unconfirmed means the exact result must be observed instead.
+     */
+    suspend fun revokeUnsubmitted(helper: HelperId, request: RequestId): HelperCancellation
 }

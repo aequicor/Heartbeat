@@ -127,6 +127,9 @@ internal class StudioScheduledSessionHost(
     override suspend fun cancelHelper(helper: HelperId, request: RequestId): HelperCancellation =
         helpers.value.cancel(helper, request)
 
+    override suspend fun revokeUnsubmittedHelper(helper: HelperId, request: RequestId): HelperCancellation =
+        helpers.value.revokeUnsubmitted(helper, request)
+
     override suspend fun owns(session: SessionRef): Boolean = chats.chatOf(session) != null
 
     override suspend fun wake(request: WakeRequest, prompt: WakePrompt) {

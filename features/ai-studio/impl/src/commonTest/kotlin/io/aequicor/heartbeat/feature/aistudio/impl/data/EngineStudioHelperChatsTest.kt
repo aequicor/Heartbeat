@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperOutcome
 import io.aequicor.heartbeat.feature.scheduler.api.HelperProgress
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
@@ -102,6 +103,50 @@ class EngineStudioHelperChatsTest {
         assertIs<HelperSubmission.Accepted>(prompt.await())
         assertEquals(cancelled.result, fixture.host.result(HelperChat, HelperInput.request))
         fixture.finish.complete(Unit)
+    }
+
+    @Test
+    fun `revoking an unsubmitted request never stops a submitting or accepted turn`() = runTest {
+        val fixture = HelperFixture(backgroundScope)
+        fixture.beforeAck = CompletableDeferred()
+        val prompt = async { fixture.host.prompt(HelperChat, HelperInput) }
+        runCurrent()
+        assertEquals(StudioHelperPhase.Submitting, fixture.attempts.receipt(HelperChat, HelperInput.request)?.phase)
+        assertEquals(
+            HelperCancellation.Unconfirmed(HelperInput.request),
+            fixture.host.revokeUnsubmitted(HelperChat, HelperInput.request),
+        )
+        fixture.beforeAck?.complete(Unit)
+        assertIs<HelperSubmission.Accepted>(prompt.await())
+        assertEquals(
+            HelperCancellation.Unconfirmed(HelperInput.request),
+            fixture.host.revokeUnsubmitted(HelperChat, HelperInput.request),
+        )
+        assertEquals(0, fixture.stops)
+        assertEquals(StudioHelperPhase.Accepted, fixture.attempts.receipt(HelperChat, HelperInput.request)?.phase)
+        fixture.finish.complete(Unit)
+        runCurrent()
+        val finished = assertIs<HelperCancellation.Terminal>(
+            fixture.host.revokeUnsubmitted(HelperChat, HelperInput.request),
+        )
+        assertEquals(HelperOutcome.Completed, finished.result.outcome)
+        assertEquals(0, fixture.stops)
+    }
+
+    @Test
+    fun `revoking a request still in preparation prevents its delayed submission`() = runTest {
+        val fixture = HelperFixture(backgroundScope)
+        fixture.beforeBegin = CompletableDeferred()
+        val prompt = async { fixture.host.prompt(HelperChat, HelperInput) }
+        runCurrent()
+        assertEquals(
+            HelperCancellation.NotSubmitted(HelperInput.request),
+            fixture.host.revokeUnsubmitted(HelperChat, HelperInput.request),
+        )
+        fixture.beforeBegin?.complete(Unit)
+        assertIs<HelperSubmission.NotSubmitted>(prompt.await())
+        assertEquals(0, fixture.sends)
+        assertEquals(0, fixture.stops)
     }
 
     @Test

@@ -136,12 +136,13 @@ internal class ScheduledHelperActions(
     }
 
     /**
-     * After a failed prompt, the exact cancellation barrier decides: a request proven not submitted finishes at
-     * once instead of holding its slot until the timeout; a terminal one finishes with its result; otherwise
-     * (unconfirmed or an unavailable barrier) the exact result is observed. Null means observe.
+     * After a failed prompt, a non-destructive barrier decides: a request proven not submitted finishes at once
+     * instead of holding its slot until the timeout; a terminal one finishes with its result; otherwise (possibly
+     * submitted or accepted, or an unavailable barrier) the turn keeps running and its exact result is observed.
+     * Null means observe; only the timeout stops the helper.
      */
     private suspend fun failedPromptPayload(record: ActionRecord, helper: HelperId, request: RequestId): String? = try {
-        when (val barrier = helpers.cancel(helper, request)) {
+        when (val barrier = helpers.revokeUnsubmitted(helper, request)) {
             is HelperCancellation.NotSubmitted -> "status: failed (helper was not submitted)"
             is HelperCancellation.Terminal -> barrier.result.payload()
             is HelperCancellation.Unconfirmed -> null
@@ -306,11 +307,11 @@ internal class ScheduledHelperActions(
         val outcome = if (attempt.isCancelled) "wait cancelled" else null
         if (outcome == null && attempt.await() == HelperReleaseResult.Released) return true
         val failures = entry.countFailure()
-        val reason = outcome ?: "unconfirmed"
-        if (isReported(failures)) {
-            log.w { "action ${entry.record.id}: helper cleanup $reason; slot retained (failures=$failures)" }
+        if (outcome != null && isReported(failures)) {
+            log.w { "action ${entry.record.id}: helper cleanup $outcome; slot retained (failures=$failures)" }
         } else {
-            log.v { "action ${entry.record.id}: helper cleanup still $reason (failures=$failures)" }
+            // The lease itself reports an unconfirmed cleanup; repeating it here would double each warning.
+            log.v { "action ${entry.record.id}: helper cleanup ${outcome ?: "unconfirmed"} (failures=$failures)" }
         }
         return false
     }

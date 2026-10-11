@@ -213,6 +213,9 @@ internal class ProfileHelperAgents(
     override suspend fun cancel(helper: HelperId, request: RequestId): HelperCancellation =
         bound(helper).cancel(helper, request)
 
+    override suspend fun revokeUnsubmitted(helper: HelperId, request: RequestId): HelperCancellation =
+        bound(helper).revokeUnsubmitted(helper, request)
+
     @HighFrequency
     override suspend fun progress(helper: HelperId, request: RequestId): HelperProgress? {
         val (host, metadata) = resolve(helper)

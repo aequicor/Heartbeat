@@ -53,6 +53,8 @@ class HelperHostTest {
             host.promptHelper(helper, HelperPrompt(request, "Private prompt"))
         }
         assertFailsWith<UnsupportedOperationException> { host.cancelHelper(helper, request) }
+        // Without proof a legacy host cannot revoke: the caller keeps observing instead of stopping work.
+        assertEquals(HelperCancellation.Unconfirmed(request), host.revokeUnsubmittedHelper(helper, request))
     }
 
     @Test

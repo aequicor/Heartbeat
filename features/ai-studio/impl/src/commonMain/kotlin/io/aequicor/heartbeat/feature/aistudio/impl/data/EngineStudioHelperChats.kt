@@ -131,26 +131,37 @@ internal class EngineStudioHelperChats(
         }
     }
 
-    suspend fun cancel(helper: HelperId, request: RequestId): HelperCancellation {
+    /**
+     * Tombstones a request still before its native boundary; Submitting and Accepted turns are never stopped here
+     * and answer Unconfirmed, so the caller observes their exact result.
+     */
+    suspend fun revokeUnsubmitted(helper: HelperId, request: RequestId): HelperCancellation =
+        revoke(helper, request) { HelperCancellation.Unconfirmed(request) }
+
+    suspend fun cancel(helper: HelperId, request: RequestId): HelperCancellation = revoke(helper, request) {
+        // Stop does not await prompt's acceptance: its ACK may never arrive.
+        val terminal = runs.value.stopHelper(helper, request)
+        if (terminal == null) {
+            HelperCancellation.Unconfirmed(request)
+        } else {
+            attempts.terminal(helper, request, terminal)
+            HelperCancellation.Terminal(
+                checkNotNull(attempts.receipt(helper, request)?.terminal).result(request),
+            )
+        }
+    }
+
+    private suspend fun revoke(
+        helper: HelperId,
+        request: RequestId,
+        native: suspend () -> HelperCancellation,
+    ): HelperCancellation {
         checkNotNull(records.helperMetadata(helper)) { "Unknown helper" }
         val receipt = attempts.cancelBeforeSubmission(helper, request)
         return when {
             receipt.phase == StudioHelperPhase.NotSubmitted -> HelperCancellation.NotSubmitted(request)
-
             receipt.terminal != null -> HelperCancellation.Terminal(receipt.terminal.result(request))
-
-            else -> {
-                // Stop does not await prompt's acceptance: its ACK may never arrive.
-                val terminal = runs.value.stopHelper(helper, request)
-                if (terminal == null) {
-                    HelperCancellation.Unconfirmed(request)
-                } else {
-                    attempts.terminal(helper, request, terminal)
-                    HelperCancellation.Terminal(
-                        checkNotNull(attempts.receipt(helper, request)?.terminal).result(request),
-                    )
-                }
-            }
+            else -> native()
         }
     }
 

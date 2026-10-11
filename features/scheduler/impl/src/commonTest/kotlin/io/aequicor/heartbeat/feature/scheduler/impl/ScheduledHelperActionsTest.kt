@@ -201,10 +201,11 @@ class ScheduledHelperActionsTest {
     }
 
     @Test
-    fun `an uncertain prompt failure reports the helper as started and finishes with its exact result`() = runTest {
+    fun `an uncertain prompt failure keeps a possibly accepted turn running and finishes with its result`() = runTest {
         val host = HelperHostFake().apply {
             beforePrompt = { throw IllegalStateException("Lost acceptance") }
-            cancellation = { HelperCancellation.Unconfirmed(it) }
+            // The host's receipt is Submitting or Accepted: revocation cannot prove that nothing was sent.
+            revocation = { HelperCancellation.Unconfirmed(it) }
         }
         // The profile supervises its jobs: a failed host call stays in its own operation.
         val profile = TestScopeHandle(
@@ -223,15 +224,40 @@ class ScheduledHelperActionsTest {
         runCurrent()
         assertTrue(fixture.reservations().isEmpty())
         assertTrue(events.single { it.key == EventKeys.actionFinished(action) }.payload.orEmpty().contains("after all"))
-        // Only the exact barrier after the failed prompt; the confirmed result needs no further cleanup.
+        // Only the non-destructive barrier after the failed prompt: the accepted turn was never stopped.
+        assertEquals(listOf(request), host.revocations)
+        assertTrue(host.cancellations.isEmpty())
+    }
+
+    @Test
+    fun `a possibly accepted turn after a failed prompt is stopped only by its timeout`() = runTest {
+        val host = HelperHostFake().apply {
+            beforePrompt = { throw IllegalStateException("Lost acceptance") }
+            cancellation = { HelperCancellation.Terminal(HelperResult(it, HelperOutcome.Cancelled, "")) }
+        }
+        val profile = TestScopeHandle(
+            CoroutineScope(backgroundScope.coroutineContext + SupervisorJob(backgroundScope.coroutineContext[Job])),
+        )
+        val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(host), profile = profile)
+        assertNull(fixture.actions.startAgent(action, spawn))
+        runCurrent()
+        advanceTimeBy(5.hours)
+        runCurrent()
+        assertEquals(listOf(request), host.revocations)
+        assertTrue(host.cancellations.isEmpty())
+        assertEquals(1, fixture.reservations().size)
+        advanceTimeBy(1.hours)
+        runCurrent()
         assertEquals(listOf(request), host.cancellations)
+        assertTrue(fixture.reservations().isEmpty())
+        assertTrue(fixture.journal.records.isEmpty())
     }
 
     @Test
     fun `a failed prompt proven not submitted frees its slot at once instead of awaiting the timeout`() = runTest {
         val host = HelperHostFake().apply {
             beforePrompt = { throw IllegalStateException("Prompt refused before its journal") }
-            cancellation = { HelperCancellation.NotSubmitted(it) }
+            revocation = { HelperCancellation.NotSubmitted(it) }
         }
         val profile = TestScopeHandle(
             CoroutineScope(backgroundScope.coroutineContext + SupervisorJob(backgroundScope.coroutineContext[Job])),
@@ -241,7 +267,8 @@ class ScheduledHelperActionsTest {
         backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) { fixture.bus.events.toList(events) }
         assertNull(fixture.actions.startAgent(action, spawn))
         runCurrent()
-        assertEquals(listOf(request), host.cancellations)
+        assertEquals(listOf(request), host.revocations)
+        assertTrue(host.cancellations.isEmpty())
         assertTrue(fixture.reservations().isEmpty())
         assertTrue(fixture.journal.records.isEmpty())
         val payload = events.single { it.key == EventKeys.actionFinished(action) }.payload.orEmpty()
