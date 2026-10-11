@@ -144,6 +144,47 @@ class CodexSessionTreesTest {
         fixture.runtime.close()
     }
 
+    @Test
+    fun `idle execution process kept for subagents retires after the retention limit`() = runTest {
+        val fixture = Fixture(this)
+        val delegate = fixture.wire.handler
+        fixture.wire.handler = { message ->
+            val id = (message["params"] as? JsonObject)?.text("threadId").orEmpty()
+            when (message.text("method")) {
+                "thread/read" -> fixture.wire.reply(
+                    message,
+                    json("thread" to if (id == "child") thread(id, "thread", "active") else thread(id, null)),
+                )
+
+                "thread/turns/list" -> fixture.wire.reply(
+                    message,
+                    json("data" to JsonArray(if (id == "thread") listOf(spawn("child")) else emptyList())),
+                )
+
+                else -> delegate(message)
+            }
+        }
+        val session = fixture.open()
+        session.feature(SendsPrompts).send(Prompt)
+        fixture.event("item/completed", "turnId" to "native-turn".json(), "item" to spawn("child").items().single())
+        fixture.event("turn/completed", "turn" to json("id" to "native-turn".json(), "status" to "completed".json()))
+        runCurrent()
+        session.close()
+        runCurrent()
+        val execution = fixture.wire.peers.single()
+        val reads = { fixture.wire.written.count { it.text("method") == "thread/read" } }
+        val before = reads()
+        advanceTimeBy(HALF_HOUR)
+        runCurrent()
+        assertFalse(execution.isClosed)
+        // Rechecks back off to the maximum interval instead of polling every few seconds.
+        assertTrue(reads() - before < HALF_HOUR / CodexSessionChildren.RECHECK_MILLIS)
+        advanceTimeBy(CodexSessionChildren.MAX_RETENTION_MILLIS)
+        runCurrent()
+        assertTrue(execution.isClosed)
+        fixture.runtime.close()
+    }
+
     private fun spawn(child: String): JsonObject = Json.parseToJsonElement(
         """{"id":"native-turn","status":"completed","itemsView":"full","items":[
         {"id":"spawn","type":"subAgentActivity","kind":"started","agentThreadId":"$child"}]}""",
@@ -253,5 +294,6 @@ class CodexSessionTreesTest {
 
     private companion object {
         const val CHILD_RECHECK = 5_001L
+        const val HALF_HOUR = 30 * 60 * 1_000L
     }
 }

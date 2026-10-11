@@ -2,16 +2,23 @@ package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionEffect
+import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionIntent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.OwnedTurnAccess
-import io.aequicor.heartbeat.feature.aiengine.facade.api.OwnedTurnStop
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -25,7 +32,7 @@ internal class CodexTurnSettlement(
     private val journal: CodexTurnJournal,
     private val scope: ScopeHandle,
     private val nativeTurns: Map<String, TurnId>,
-    private val execute: suspend (ActiveSessionEffect) -> Unit,
+    private val rechecks: CodexRecheckAttempts,
     private val settleTerminal: suspend (Turn, TurnOutcome) -> Unit,
 ) {
     private val log = Log.tag("CodexTurnSettlement")
@@ -40,28 +47,53 @@ internal class CodexTurnSettlement(
 
     /**
      * Explicit reconciliation of an Unavailable session: an unbound turn of this process settles through its owner's
-     * exit, anything else rereads native state. A session still Unavailable afterwards reports its failure.
+     * exit, anything else rereads native state through the machine's Recheck. A session still Unavailable afterwards
+     * reports its failure.
+     *
+     * Destructive for an unbound turn (for example after a turn/start timeout): its exit is proven by the owned stop,
+     * which terminates the chat's whole execution process (app-server), together with any native subagents in it.
      */
     suspend fun synchronize() {
         runtime.ensureOpen()
         val state = session.machine.state.value as? ActiveSessionState.Unavailable ?: return
-        log.i { "Codex session synchronization requested" }
+        log.v { "Codex session synchronization requested" }
         val active = state.activeTurn
         if (active != null && session.isActiveExecutionOwned && active.id !in nativeTurns.values) {
             settle(active)
         } else {
-            execute(ActiveSessionEffect.Recheck(active?.id))
+            recheck()
         }
         settling?.join()
         (session.machine.state.value as? ActiveSessionState.Unavailable)?.let { fail(it.failure) }
     }
 
-    /** Explicit cancellation of an unresolved turn: it settles only through its owner's proven exit. */
+    /**
+     * Reconciliation through the machine: sends [ActiveSessionIntent.Public.Recheck] and waits for the attempt, so an
+     * explicit request is one more machine recheck, never a reconcile that bypasses it. The caller reads the state.
+     */
+    private suspend fun recheck() = coroutineScope {
+        val done = async(start = CoroutineStart.UNDISPATCHED) { rechecks.next() }
+        if (scope.isClosed) {
+            done.cancel()
+            fail(EngineFailure.Session(SessionFailureReason.NotResumable))
+        }
+        if (session.machine.send(ActiveSessionIntent.Public.Recheck) != SendResult.Accepted) {
+            done.cancel()
+            fail(EngineFailure.Session(SessionFailureReason.Changed))
+        }
+        done.await()
+    }
+
+    /**
+     * Explicit cancellation of an unresolved turn: the machine accepts no Cancel while Unavailable, so the session is
+     * synchronized first. True only when [turn] is no longer current afterwards; a turn that is running again is left
+     * to the caller's machine Cancel, so its interrupt is still sent.
+     */
     suspend fun cancel(turn: TurnId): Boolean {
         val state = session.machine.state.value as? ActiveSessionState.Unavailable ?: return false
         if (state.activeTurn?.id != turn) return false
         synchronize()
-        return true
+        return session.machine.state.value.codexCurrentTurn()?.id != turn
     }
 
     private suspend fun settleNow(active: Turn) {
@@ -93,13 +125,13 @@ internal class CodexTurnSettlement(
         }
     }
 
+    /** The owned stop reports its own result once, including why an unconfirmed exit keeps the turn waiting. */
     private suspend fun stopOwner(active: Turn) {
-        val result = runtime.ownedTurns.stop(
+        runtime.ownedTurns.stop(
             session.ref,
             checkNotNull(active.request),
             OwnedTurnAccess(session.target, session.route.workspace, active.id),
         )
-        if (result !is OwnedTurnStop.Confirmed) log.i { "Codex unobserved turn keeps waiting: owner exit unconfirmed" }
     }
 
     /** No execution process of this runtime ran the restored turn and no identity exists to stop another one. */
@@ -118,4 +150,23 @@ internal class CodexTurnSettlement(
         log.i { "Codex restored turn closed: no recorded execution process owns it" }
         settleTerminal(active, TurnOutcome.Unknown)
     }
+}
+
+/** Completion of machine-driven reconciliation attempts, which explicit synchronization awaits. */
+internal class CodexRecheckAttempts(scope: ScopeHandle) {
+    private val log = Log.tag("CodexRecheckAttempts")
+    private val attempts = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    init {
+        // A closed session runs no further attempt; its waiters must not hang.
+        scope.onClose { finished() }
+    }
+
+    /** Called after every Recheck effect ends, successfully or not, including one cancelled before it started. */
+    fun finished() {
+        log.v { "Codex recheck attempt finished" }
+        attempts.tryEmit(Unit)
+    }
+
+    suspend fun next() = attempts.first()
 }

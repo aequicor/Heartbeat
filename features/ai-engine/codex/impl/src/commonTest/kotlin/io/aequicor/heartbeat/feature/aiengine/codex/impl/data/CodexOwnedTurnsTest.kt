@@ -129,6 +129,25 @@ class CodexOwnedTurnsTest {
     }
 
     @Test
+    fun `cold stop closes a restored request without a recorded owner instead of holding it busy`() = runTest {
+        val records = MemoryCodexTurnRecords()
+        val first = Fixture(this, turns = records)
+        val original = first.open()
+        val turn = original.feature(SendsPrompts).send(Prompt)
+        assertNull(records.get(original.ref)?.active?.processOwner)
+        first.runtime.close()
+        val (second, launch) = fixture(records)
+        val result = assertIs<OwnedTurnStop.Confirmed>(second.stop(original))
+        assertEquals(turn, result.turn.id)
+        assertEquals(TurnOutcome.Unknown, result.turn.outcome)
+        assertEquals(0, launch.stops)
+        assertFalse(second.runtime.ownedTurns.isReserved(original.ref.nativeId))
+        val restored = second.runtime.attach(original.ref, ResumeSessionRequest(second.target))
+        assertEquals(result.turn, assertIs<ActiveSessionState.Ready>(restored.state.value).lastTurn)
+        second.runtime.close()
+    }
+
+    @Test
     fun `stop fence left by a restart is completed before the thread reopens`() = runTest {
         val records = MemoryCodexTurnRecords()
         val (first, firstLaunch) = fixture(records)

@@ -71,6 +71,7 @@ internal class CodexSession(
         private set
     private val inputs = mutableMapOf<TurnId, CodexPromptInputs>()
     private val scope = runtime.host.scopes.child(runtime.profile, "codex-${Uuid.random()}")
+    private val recheckAttempts = CodexRecheckAttempts(scope)
     private val nativeTurns = mutableMapOf<String, TurnId>()
     private val nativeHistory = CodexNativeHistory(ref, history, runtime.host)
     private var isCreatedHere = false
@@ -113,7 +114,8 @@ internal class CodexSession(
         scope,
         EffectHandler { effect, _ ->
             // Handoff to the profile-owned scope. State changes must not cancel accepted native work.
-            scope.coroutineScope.launch { execute(effect) }
+            val job = scope.coroutineScope.launch { execute(effect) }
+            if (effect is ActiveSessionEffect.Recheck) job.invokeOnCompletion { recheckAttempts.finished() }
         },
     )
 
@@ -125,7 +127,7 @@ internal class CodexSession(
         { codexTurnOutcome(it, route.binding) },
     ) { nativeTurn = it }
 
-    val settlement = CodexTurnSettlement(this, journal, scope, nativeTurns, ::execute, ::settleTerminal)
+    val settlement = CodexTurnSettlement(this, journal, scope, nativeTurns, recheckAttempts, ::settleTerminal)
     val children = CodexSessionChildren(this, scope)
 
     private val leases = mutableSetOf<CodexLease>()
@@ -312,7 +314,10 @@ internal class CodexSession(
         val prepared = inputs.remove(effect.turn.id) ?: protocolFailure()
         val input = JsonArray(prepared.parts)
         val origin = connection
-        journal.admit(effect.turn, trust, origin.rpc.processOwner(), submission.settled)
+        // A refused admission is already reported once with its reason; it settles as a proven rejection.
+        journal.admit(effect.turn, trust, origin.rpc.processOwner(), submission.settled)?.let {
+            return recover(effect, it)
+        }
         submission.ensureAllowed()
         confirmSubmission(effect)
         submission.nativeMayStart(origin)

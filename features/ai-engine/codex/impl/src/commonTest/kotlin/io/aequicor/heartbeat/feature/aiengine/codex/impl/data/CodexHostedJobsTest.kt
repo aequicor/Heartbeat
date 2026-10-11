@@ -92,6 +92,49 @@ class CodexHostedJobsTest {
     }
 
     @Test
+    fun `renewed login drains its own work and completed foreign entries never refuse`() = runTest {
+        val drains = CodexHostedDrains()
+        val ref = SessionRef(CodexEngine.Id, SessionSourceId("codex.local"), "thread")
+        val turn = TurnId("turn")
+        fun route(binding: String, revision: String) = ExecutionRoute(
+            CodexEngine.Id,
+            EngineBindingId(binding),
+            AuthSourceId("codex"),
+            AuthRevision.Known(revision),
+        )
+        val ownCleanup = CompletableDeferred<Unit>()
+        val foreignCleanup = CompletableDeferred<Unit>()
+        drains.retain(ref, route("binding", "old"), "owner", pendingJobs(turn, ownCleanup))
+        val foreign = pendingJobs(turn, foreignCleanup)
+        drains.retain(ref, route("foreign", "old"), "owner", foreign)
+        foreign.revoke(turn)
+        foreignCleanup.complete(Unit)
+        runCurrent()
+        // The renewed revision still waits for its own pending cleanup.
+        assertFalse(drains.drain(ref, route("binding", "new"), "owner", turn))
+        ownCleanup.complete(Unit)
+        runCurrent()
+        assertTrue(drains.drain(ref, route("binding", "new"), "owner", turn))
+        assertTrue(drains.isEmpty)
+    }
+
+    private fun kotlinx.coroutines.test.TestScope.pendingJobs(
+        turn: TurnId,
+        cleanup: CompletableDeferred<Unit>,
+    ): CodexHostedJobs {
+        val jobs = CodexHostedJobs(backgroundScope, timeoutMillis = 100)
+        CoroutineScope(backgroundScope.coroutineContext + assertNotNull(jobs.parent(turn))).launch {
+            try {
+                awaitCancellation()
+            } finally {
+                withContext(NonCancellable) { cleanup.await() }
+            }
+        }
+        runCurrent()
+        return jobs
+    }
+
+    @Test
     fun `cancelled drain retains a noncancellable child and the next wait still joins it`() = runTest {
         val jobs = CodexHostedJobs(backgroundScope)
         val turn = TurnId("turn")

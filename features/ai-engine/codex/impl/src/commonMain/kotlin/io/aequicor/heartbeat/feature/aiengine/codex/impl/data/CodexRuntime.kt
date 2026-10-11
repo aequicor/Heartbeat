@@ -294,10 +294,16 @@ internal class CodexRuntime(
         val route = ExecutionRoute(identity.engine, target.binding, identity.source, identity.revision, workspace)
         val fence = CodexTurnJournal(host.turns, ref, route, null).pendingStop() ?: return
         gate()
-        log.i { "Codex interrupted turn stop resumed before reopening" }
         val isDrained = host.hostedDrains.drain(ref, route, turnOwnership, fence.turn.id)
         val journal = CodexTurnJournal(host.turns, ref, route, turnOwnership)
-        if (isDrained) CodexStoredTurnStop(journal, launch).stop(checkNotNull(fence.turn.request), fence.turn.id)
+        val isStopped = isDrained &&
+            CodexStoredTurnStop(journal, launch).stop(checkNotNull(fence.turn.request), fence.turn.id) != null
+        val result = when {
+            isStopped -> "confirmed"
+            !isDrained -> "hosted work still draining"
+            else -> "process exit unconfirmed"
+        }
+        log.i { "Codex interrupted turn stop resumed before reopening: $result" }
     }
 
     private suspend fun openNative(

@@ -27,12 +27,19 @@ internal class CodexHostedDrains {
         if (pending.isNotEmpty()) retained.getOrPut(ref) { mutableListOf() }.add(Entry(route, ownership, pending))
     }
 
-    /** A native terminal receipt cannot release capacity while an earlier runtime's hosted child still runs. */
+    /**
+     * A native terminal receipt cannot release capacity while an earlier runtime's hosted child still runs. Already
+     * drained entries are pruned first, so they never refuse; the route is compared without its credential revision,
+     * like turn ownership, so a renewed CLI login still drains its own work.
+     */
     suspend fun drain(ref: SessionRef, route: ExecutionRoute, ownership: String?, turn: TurnId): Boolean {
+        prune()
         val entries = retained[ref]?.toList().orEmpty()
         var isDrained = true
         for (entry in entries) {
-            if (entry.route != route || entry.ownership != ownership || !drainHostedParent(entry.parents[turn])) {
+            if (!entry.route.isSameOwner(route) || entry.ownership != ownership ||
+                !drainHostedParent(entry.parents[turn])
+            ) {
                 isDrained = false
             }
         }

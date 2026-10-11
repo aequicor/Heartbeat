@@ -10,6 +10,9 @@ import io.aequicor.heartbeat.core.datastore.Retention
 import io.aequicor.heartbeat.core.datastore.StorageOwner
 import io.aequicor.heartbeat.core.datastore.StoreKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
@@ -101,6 +104,45 @@ class CodexTurnRecordsTest {
         assertNull(reopened.restore())
         reopened.begin(turn, TrustLevel.Ask)
         assertEquals(turn, reopened.restore()?.active?.turn)
+    }
+
+    @Test
+    fun `unresolved previous turn is a domain refusal distinct from an unavailable journal`() = runTest {
+        val stores = TurnStores()
+        val fixture = Fixture(this)
+        val session = fixture.open()
+        val journal = CodexTurnJournal(StoredCodexTurnRecords(stores), session.ref, session.route, "owner")
+        journal.begin(Turn(TurnId("first"), Prompt.id, fixture.target), TrustLevel.Ask)
+        val next = Turn(TurnId("next"), Prompt.id, fixture.target)
+        val refusal = assertFailsWith<EngineException> { journal.begin(next, TrustLevel.Ask) }
+        assertEquals(EngineFailure.Session(SessionFailureReason.Busy), refusal.failure)
+        assertEquals(
+            EngineFailure.Request(RequestFailureReason.Invalid, next.request),
+            journal.admit(next, TrustLevel.Ask, null, null),
+        )
+        stores.isFailing = true
+        val failure = assertFailsWith<EngineException> { journal.finish(TurnId("first"), TurnOutcome.Cancelled) }
+        assertEquals(EngineFailure.Session(SessionFailureReason.NotResumable), failure.failure)
+    }
+
+    @Test
+    fun `unowned restored request closes as unknown while an owned or fenced one never does`() = runTest {
+        val fixture = Fixture(this)
+        val session = fixture.open()
+        val records = MemoryCodexTurnRecords()
+        val journal = CodexTurnJournal(records, session.ref, session.route, "owner")
+        val owned = Turn(TurnId("owned"), Prompt.id, fixture.target)
+        val process = CodexExecutionOwner("launch", CodexProcessIdentity(123, "2026-10-06T00:00:00Z"))
+        journal.begin(owned, TrustLevel.Ask, process)
+        assertNull(journal.closeUnowned(Prompt.id, owned.id))
+        assertEquals(owned, records.get(session.ref)?.active?.turn)
+        journal.finish(owned.id, TurnOutcome.Completed)
+        val orphan = Turn(TurnId("orphan"), Prompt.id, fixture.target)
+        journal.begin(orphan, TrustLevel.Ask)
+        val closed = journal.closeUnowned(Prompt.id, orphan.id)
+        assertEquals(TurnOutcome.Unknown, closed?.turn?.outcome)
+        assertNull(records.get(session.ref)?.active)
+        assertEquals(closed, journal.closeUnowned(Prompt.id, orphan.id))
     }
 }
 

@@ -137,7 +137,7 @@ internal class CodexOwnedTurns(
             pending != null && claim.boundary == CodexSubmissionBoundary.NotSent ->
                 journal.cancelBeforeSubmission(pending, pending.trust)
 
-            else -> CodexStoredTurnStop(journal, launch).stop(checkNotNull(turn.request), turn.id)
+            else -> stopStored(journal, turn, reservation)
         }
         if (result == null) {
             unconfirmed(
@@ -149,6 +149,16 @@ internal class CodexOwnedTurns(
             )
         }
         return result
+    }
+
+    /** No execution of this runtime runs a cold or restored turn: without a recorded owner it is an orphan. */
+    private suspend fun stopStored(journal: CodexTurnJournal, turn: Turn, reservation: Reservation): CodexTurnRecord? {
+        val request = checkNotNull(turn.request)
+        val claim = reservation.claim
+        val isRestored = reservation.session == null ||
+            (claim != null && !claim.isOriginExecuting && claim.submission == null)
+        return CodexStoredTurnStop(journal, launch).stop(request, turn.id)
+            ?: if (isRestored) journal.closeUnowned(request, turn.id) else null
     }
 
     /** One line per stop that leaves the request's capacity held, with the reason it could not be proven. */

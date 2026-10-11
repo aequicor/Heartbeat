@@ -45,9 +45,10 @@ internal class CodexTurnJournal(
             val known = previous?.let(::rebound)
             val before = known?.completing(settled) ?: CodexTurnSnapshot(ref, route, owner)
             isCompleted = known != null && before.last != known.last
-            check(
-                before.active == null && before.stopping == null && before.last?.turn?.id != turn.id,
-            ) { "Previous turn is unresolved" }
+            // A domain refusal, not a journal failure: the caller reports it once with this reason.
+            if (before.active != null || before.stopping != null || before.last?.turn?.id == turn.id) {
+                fail(EngineFailure.Session(SessionFailureReason.Busy))
+            }
             before.copy(active = CodexTurnRecord(turn, null, trust, processOwner))
         }
         if (isCompleted) log.i { "Codex turn record completed from the observed terminal outcome" }
@@ -118,6 +119,23 @@ internal class CodexTurnJournal(
             before.copy(stopping = active)
         }
         snapshot.stopping?.takeIf { it.matches(request, turn) }
+    }
+
+    /**
+     * Closes as Unknown an active request that no recorded process owns, under the restored-orphan rule: the caller
+     * proved that no execution of this runtime runs it and drained its hosted work. A recorded owner or a pending
+     * fence is never closed here; an already settled request returns its receipt.
+     */
+    suspend fun closeUnowned(request: RequestId, turn: TurnId): CodexTurnRecord? = guarded {
+        if (records.get(ref) == null) return@guarded null
+        val snapshot = records.update(ref) { previous ->
+            val before = checkNotNull(previous).also(::validate)
+            if (before.stopping != null) return@update before
+            val active = before.active?.takeIf { it.matches(request, turn) && it.processOwner == null }
+                ?: return@update before
+            before.copy(active = null, last = active.copy(turn = active.turn.copy(outcome = TurnOutcome.Unknown)))
+        }
+        snapshot.last?.takeIf { snapshot.stopping == null && it.matches(request, turn) }
     }
 
     /**
@@ -222,19 +240,26 @@ internal class CodexTurnJournal(
 
 private val admissionLog = Log.tag("CodexTurnAdmission")
 
-/** Nothing reached the native process yet: a refused begin is a proven rejection, never an unknown outcome. */
+/**
+ * Nothing reached the native process yet: a refused begin is a proven rejection, never an unknown outcome.
+ * Returns that rejection after reporting it once with its reason, or null when the turn was admitted.
+ */
 internal suspend fun CodexTurnJournal.admit(
     turn: Turn,
     trust: TrustLevel,
     processOwner: CodexExecutionOwner?,
     settled: Turn?,
-) {
-    try {
-        begin(turn, trust, processOwner, settled)
-    } catch (e: EngineException) {
-        admissionLog.w(e) { "Codex submission refused: turn journal unavailable" }
-        fail(EngineFailure.Request(RequestFailureReason.Invalid, turn.request))
+): EngineFailure? = try {
+    begin(turn, trust, processOwner, settled)
+    null
+} catch (e: EngineException) {
+    if ((e.failure as? EngineFailure.Session)?.reason == SessionFailureReason.Busy) {
+        admissionLog.w(e) { "Codex submission refused: previous turn is unresolved" }
+    } else {
+        // The journal failure itself was already reported with its cause by the journal guard.
+        admissionLog.d { "Codex submission refused: turn journal unavailable" }
     }
+    EngineFailure.Request(RequestFailureReason.Invalid, turn.request)
 }
 
 /** A rejected turn never started natively; a failed write is completed by the next begin from its outcome. */
@@ -249,7 +274,8 @@ internal suspend fun CodexTurnJournal.finishRejected(turn: TurnId, outcome: Turn
 internal fun CodexTurnRecord.matches(request: RequestId, turn: TurnId?): Boolean =
     this.turn.request == request && (turn == null || this.turn.id == turn)
 
-private fun ExecutionRoute.isSameOwner(other: ExecutionRoute): Boolean =
+/** Same owner of unresolved work: the credential revision is not part of it. */
+internal fun ExecutionRoute.isSameOwner(other: ExecutionRoute): Boolean =
     copy(revision = AuthRevision.Unknown) == other.copy(revision = AuthRevision.Unknown)
 
 private fun CodexTurnRecord.sameStop(other: CodexTurnRecord): Boolean =

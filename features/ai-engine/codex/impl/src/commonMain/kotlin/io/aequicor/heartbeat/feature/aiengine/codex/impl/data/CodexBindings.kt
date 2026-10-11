@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineRequirement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReportsProviderUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
@@ -91,6 +92,7 @@ public object CodexBindings {
                 StopsOwnedTurns.id,
                 RequestsPermissions.id,
                 AppliesTrustLevels.id,
+                ReconcilesSession.id,
                 SessionHistory.id,
                 SessionTrees.id,
             ),

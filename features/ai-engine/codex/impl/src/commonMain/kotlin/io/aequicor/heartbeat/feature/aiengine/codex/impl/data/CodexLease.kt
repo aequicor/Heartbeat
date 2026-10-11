@@ -85,6 +85,11 @@ internal class CodexLease(private val session: CodexSession) :
 
     override suspend fun send(request: PromptRequest): TurnId = command { session.send(request) }
     override suspend fun cancel(turn: TurnId) = command { session.cancel(turn) }
+
+    /**
+     * Destructive for a turn whose native id was never bound (for example after a turn/start timeout): settling it
+     * stops the chat's execution process (app-server); see [CodexTurnSettlement.synchronize].
+     */
     override suspend fun synchronize() = command { session.settlement.synchronize() }
     override suspend fun respond(decision: PermissionDecision) = command { session.respond(decision) }
     override suspend fun page(request: HistoryPageRequest): HistoryPage = command { session.history.page(request) }
