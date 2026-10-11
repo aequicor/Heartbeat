@@ -1,9 +1,11 @@
 package io.aequicor.heartbeat.feature.scheduler.impl
 
 import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.BackgroundCapacityIntent
 import io.aequicor.heartbeat.feature.scheduler.api.BackgroundCapacityState
+import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.impl.data.ActionJournal
 import io.aequicor.heartbeat.feature.scheduler.impl.data.ActionRecord
 import io.aequicor.heartbeat.feature.scheduler.impl.data.BackgroundActionCaller
@@ -89,7 +91,7 @@ class BackgroundCapacityTest {
         val state = CapacitySpecMachine()
         val machine = object : BackgroundCapacityMachine by state {
             override suspend fun send(intent: BackgroundCapacityIntent) = state.send(intent).also {
-                if (intent is BackgroundCapacityIntent.Public.Acquire) {
+                if (intent is BackgroundCapacityIntent.Internal.Acquire) {
                     throw CancellationException("Lost acknowledgement")
                 }
             }
@@ -152,7 +154,16 @@ class BackgroundCapacityTest {
 
     @Test
     fun `concurrent first acquisitions await one durable restore and never resurrect released records`() = runTest {
-        val persisted = (1..7).map { ActionRecord(ActionId("old$it"), "agent", START) }
+        val persisted = (1..7).map {
+            ActionRecord(
+                ActionId("old$it"),
+                "agent",
+                START,
+                helper = HelperId("helper$it"),
+                parent = SESSION,
+                request = RequestId("request$it"),
+            )
+        }
         val gate = CompletableDeferred<Unit>()
         var reads = 0
         val journal = object : ActionJournal by MemoryJournal(persisted) {

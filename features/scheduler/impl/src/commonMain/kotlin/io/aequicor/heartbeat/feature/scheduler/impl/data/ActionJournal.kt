@@ -24,7 +24,7 @@ import kotlin.time.Instant
 /**
  * A started action; [payload] keeps its confirmed terminal result until matching wakes settle. Never logged.
  * New helpers persist [parent]/[request] before creation and [helper] before prompting. Legacy records lacking
- * these identities retain quota after restart: absence of identity cannot prove native termination.
+ * these identities never held a helper lease and are reported as interrupted after restart.
  */
 @Serializable
 internal data class ActionRecord(
@@ -37,6 +37,9 @@ internal data class ActionRecord(
     val request: RequestId? = null,
     val initiator: RequestInitiator? = null,
 ) {
+    /** A helper journaled before its prompt by this version; only such a record can hold a recovered slot. */
+    val hasHelperIdentity: Boolean get() = helper != null && parent != null && request != null
+
     override fun toString(): String = "ActionRecord(id=$id, kind=$kind, completed=${payload != null})"
 }
 

@@ -23,6 +23,8 @@ public data class HelperPrompt(
     val isRecovery: Boolean = false,
     /** Trusted immutable context, persisted before the host resolves the helper's native session. */
     val handoff: HelperHandoff? = null,
+    /** Host text for the agent only, never shown in the transcript; part of the immutable attempt. */
+    val directives: List<String> = emptyList(),
 ) {
     override fun toString(): String = "HelperPrompt(request=$request, isRecovery=$isRecovery)"
 }
@@ -123,7 +125,8 @@ public interface HelperAgents {
      * a cleanup-only lease: creation and prompting are forbidden, and release settles that exact slot. A helper
      * and a restored reservation can each have only one live lease. If a prior caller lost the handoff, retrying
      * its exact identity returns the already closing lease so cleanup can continue after an unconfirmed barrier.
-     * That lease cannot create or prompt. Never reuse an acquisition id after release.
+     * That lease cannot create or prompt. Once its release is confirmed, a new (non-restored) id is forgotten and a
+     * retry follows normal admission. Never reuse an acquisition id after release.
      */
     public suspend fun acquire(
         owner: ActionId,

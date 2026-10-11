@@ -121,14 +121,20 @@ internal class ProfileHelperAgents(
         return created
     }
 
-    /** Lost handoff keeps a closing lease reachable even when its first native barrier was unconfirmed. */
+    /**
+     * Lost handoff keeps a closing lease reachable even when its first native barrier was unconfirmed. A confirmed
+     * release forgets it (see [released]); only a restored reservation, which cannot be acquired anew, keeps it.
+     */
     private suspend fun abandon(attempt: HelperAcquisition) {
         if (attempt.isClaimed) lock.withLock { recovering.remove(attempt.existing) }
         val lease = attempt.lease
         when {
             lease != null -> {
                 lease.scheduleRelease()
-                lock.withLock { lostHandoffs[attempt.id] = attempt }
+                lock.withLock {
+                    // Release may already be confirmed; the lease marks itself before notifying under this lock.
+                    if (attempt.isRestored || !lease.isReleased()) lostHandoffs[attempt.id] = attempt
+                }
             }
 
             attempt.isRestored -> capacity.returnHelperClaim(attempt.id)
@@ -259,6 +265,14 @@ internal class ProfileHelperAgents(
 
     override suspend fun unbind(id: HelperId, lease: ManagedHelperLease) {
         lock.withLock { if (bindings[id] === lease) bindings.remove(id) }
+    }
+
+    /** A new acquisition of a released, non-restored id follows normal admission; nothing stays for the profile. */
+    override suspend fun released(lease: ManagedHelperLease) {
+        lock.withLock {
+            val isRemoved = lostHandoffs.values.removeAll { it.lease === lease && !it.isRestored }
+            if (isRemoved) log.v { "Forgot a released lost helper handoff" }
+        }
     }
 
     private suspend fun resolve(id: HelperId): Pair<ScheduledSessionHost, HelperMetadata> {

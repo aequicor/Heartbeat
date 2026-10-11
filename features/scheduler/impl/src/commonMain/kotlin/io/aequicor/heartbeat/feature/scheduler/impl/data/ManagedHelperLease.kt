@@ -129,6 +129,9 @@ internal class ManagedHelperLease(
 
     override suspend fun release(): HelperReleaseResult = scheduleRelease().await()
 
+    /** Whether a confirmed release already returned this slot; read before retaining a lost handoff. */
+    suspend fun isReleased(): Boolean = lock.withLock { isReleased }
+
     /** Registers cleanup even when the acquiring caller lost the lease at a cancellation boundary. */
     suspend fun scheduleRelease(): Deferred<HelperReleaseResult> = lock.withLock {
         cleanup?.takeIf { !it.isCompleted || isReleased }?.let { return@withLock it }
@@ -160,6 +163,7 @@ internal class ManagedHelperLease(
             capacity.release(identity.reservation)
             if (id != null) service.unbind(id, this@ManagedHelperLease)
             lock.withLock { isReleased = true }
+            service.released(this@ManagedHelperLease)
         }
         log.i { "helper lease released for $owner" }
         HelperReleaseResult.Released
@@ -232,4 +236,7 @@ internal data class HelperLeaseIdentity(
 internal interface HelperLeaseRegistry {
     suspend fun bind(id: HelperId, lease: ManagedHelperLease)
     suspend fun unbind(id: HelperId, lease: ManagedHelperLease)
+
+    /** Called once the lease confirmed its release; the registry forgets runtime handles it no longer needs. */
+    suspend fun released(lease: ManagedHelperLease)
 }

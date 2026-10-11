@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.EventNamespace
 import io.aequicor.heartbeat.feature.scheduler.api.HelperHandoff
+import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperLease
 import io.aequicor.heartbeat.feature.scheduler.api.HelperOutcome
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
@@ -23,7 +24,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -32,12 +32,14 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 /**
  * Legacy scheduled helpers use the same lease as workflow helpers, adopting their scheduled reservation.
  * A timeout asks the lease to stop the exact attempt; neither its slot nor its result is released before proof.
- * Persisted identities allow that barrier to be retried after restart without submitting another prompt.
+ * Persisted identities allow that barrier to be retried after restart without submitting another prompt; records
+ * from versions without those identities are reported as interrupted. Failed recovery retries back off.
  */
 @SingleIn(ProfileScope::class)
 @Inject
@@ -62,6 +64,7 @@ internal class ScheduledHelperActions(
         val entry = register(record)
         var lease: HelperLease? = null
         var isWatching = false
+        var isPromptAttempted = false
         try {
             lease = helpers.adoptScheduled(record.id, request.parent)
                 ?: return "no chat host could start a helper agent"
@@ -69,31 +72,25 @@ internal class ScheduledHelperActions(
             val saved = record.copy(helper = helper)
             journal.add(saved)
             entry.record = saved
-            val submission = withTimeoutOrNull(remaining(record)) {
-                helpers.prompt(
-                    helper,
-                    HelperPrompt(
-                        request.prompt.request,
-                        request.prompt.visible,
-                        handoff = record.initiator?.let { HelperHandoff(initiator = it) },
-                    ),
-                )
-            }
-            val payload = when (submission) {
-                is HelperSubmission.Accepted -> null
-                is HelperSubmission.NotSubmitted -> "status: failed (helper was not submitted)"
-                null -> "status: timed out after $MAX_HELPER_TIME"
-            }
-            val owned = lease
-            scope.coroutineScope.launch { watch(entry, owned, payload) }
+            isPromptAttempted = true
+            launchWatch(entry, lease, submitFirst(record, request, helper))
             isWatching = true
             log.i { "action ${record.id}: supervised helper started" }
             return null
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            log.w(e) { "action ${record.id}: helper startup failed" }
-            return "helper could not be started"
+            val owned = lease
+            if (!isPromptAttempted || owned == null) {
+                log.w(e) { "action ${record.id}: helper startup failed" }
+                return "helper could not be started"
+            }
+            // A failed prompt call may still have been accepted: report the action as started, never invite a
+            // duplicate helper, and let the exact result (or its cleanup barrier) finish the action.
+            log.w(e) { "action ${record.id}: helper submission outcome unknown; supervising its exact result" }
+            launchWatch(entry, owned, null)
+            isWatching = true
+            return null
         } finally {
             if (!isWatching) {
                 val owned = lease
@@ -112,10 +109,30 @@ internal class ScheduledHelperActions(
         }
     }
 
+    /** Returns the initial payload of a refused or timed-out first prompt, or null once it was accepted. */
+    private suspend fun submitFirst(record: ActionRecord, request: SpawnRequest, helper: HelperId): String? {
+        val submission = withTimeoutOrNull(remaining(record)) {
+            helpers.prompt(
+                helper,
+                HelperPrompt(
+                    request.prompt.request,
+                    request.prompt.visible,
+                    handoff = record.initiator?.let { HelperHandoff(initiator = it) },
+                    directives = listOf(request.prompt.directive),
+                ),
+            )
+        }
+        return when (submission) {
+            is HelperSubmission.Accepted -> null
+            is HelperSubmission.NotSubmitted -> "status: failed (helper was not submitted)"
+            null -> "status: timed out after $MAX_HELPER_TIME"
+        }
+    }
+
     /** Retries existing cleanup and reacquires reservations for durable helpers before reconciling their attempt. */
     suspend fun recover() = recoveryLock.withLock {
         capacity.restore()
-        lock.withLock { running.values.toList() }.forEach { it.wake() }
+        lock.withLock { running.values.toList() }.forEach { it.retryNow() }
         journal.readAll().filter { it.kind == "agent" && it.payload == null }.forEach { record ->
             if (!results.isOwned(record.id)) {
                 results.begin(record)
@@ -130,22 +147,28 @@ internal class ScheduledHelperActions(
     private suspend fun restore(entry: Entry) {
         val record = entry.record
         try {
-            if (record.helper == null && record.parent != null && record.request != null) {
+            if (record.parent == null || record.request == null) {
+                // Versions before helper leases kept no native identity or slot; report the run as interrupted.
+                log.i { "action ${record.id}: legacy helper interrupted by restart" }
+                results.complete(record, "status: interrupted (the app closed before the agent finished)")
+                return
+            }
+            if (record.helper == null) {
                 // This version journals the empty helper before any prompt; no identity means no submission.
                 results.complete(record, "status: interrupted (helper was not submitted)")
                 return
             }
-            if (record.parent == null || record.helper == null || record.request == null) {
-                // Old records have no native identity: absence of proof cannot become a completion event.
-                log.w { "action ${record.id}: legacy helper identity unavailable; reservation retained" }
-                awaitCancellation()
-            }
             var lease: HelperLease? = null
             while (lease == null) {
                 lease = restoredLease(entry)
-                if (lease == null) entry.awaitReconciliation()
+                if (lease == null) entry.backOff()
             }
-            settle(entry, lease, "status: interrupted (helper termination confirmed after restart)")
+            entry.recovered().takeIf { it > 0 }?.let { failures ->
+                log.i { "action ${record.id}: helper reconciliation recovered after $failures failures" }
+            }
+            val payload = exactResult(entry)?.payload()
+                ?: "status: interrupted (helper termination confirmed after restart)"
+            settle(entry, lease, payload)
         } finally {
             withContext(NonCancellable) { retire(entry) }
         }
@@ -153,21 +176,49 @@ internal class ScheduledHelperActions(
 
     private suspend fun restoredLease(entry: Entry): HelperLease? {
         // A host may cancel its own metadata read. Keep the profile-owned supervisor alive for a later retry.
-        val attempt = scope.coroutineScope.async { adoptOrNull(entry.record) }
+        val attempt = scope.coroutineScope.async { adoptOrNull(entry) }
         attempt.join()
-        return if (attempt.isCancelled) null else attempt.await()
+        if (attempt.isCancelled) {
+            val failures = entry.countFailure()
+            if (isReported(failures)) {
+                log.w { "action ${entry.record.id}: helper reconciliation wait cancelled (failures=$failures)" }
+            } else {
+                log.v { "action ${entry.record.id}: helper reconciliation wait cancelled again (failures=$failures)" }
+            }
+            return null
+        }
+        return attempt.await()
     }
 
-    private suspend fun adoptOrNull(record: ActionRecord): HelperLease? = try {
+    private suspend fun adoptOrNull(entry: Entry): HelperLease? = try {
+        val record = entry.record
         helpers.adoptScheduled(record.id, checkNotNull(record.parent), checkNotNull(record.helper), record.request)
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        log.w(e) { "action ${record.id}: helper reconciliation unavailable; reservation retained" }
+        // The first failure and a periodic summary are warnings; repeats in between stay on trace.
+        val failures = entry.countFailure()
+        if (isReported(failures)) {
+            log.w(e) { "action ${entry.record.id}: helper reconciliation unavailable (failures=$failures)" }
+        } else {
+            log.v { "action ${entry.record.id}: helper reconciliation still unavailable (failures=$failures)" }
+        }
         null
     }
 
-    private fun launchWatch(entry: Entry, lease: HelperLease, payload: String) {
+    private fun isReported(failures: Int) = failures == 1 || failures % FAILURE_SUMMARY_EVERY == 0
+
+    /** A result confirmed before restart is delivered as is; only its absence makes the run interrupted. */
+    private suspend fun exactResult(entry: Entry): HelperResult? = try {
+        helpers.result(checkNotNull(entry.record.helper), checkNotNull(entry.record.request))
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e) { "action ${entry.record.id}: restored helper result unavailable; reconciling as interrupted" }
+        null
+    }
+
+    private fun launchWatch(entry: Entry, lease: HelperLease, payload: String?) {
         scope.coroutineScope.launch { watch(entry, lease, payload) }
     }
 
@@ -253,9 +304,18 @@ internal class ScheduledHelperActions(
 
     private class Entry(var record: ActionRecord) {
         val signal = Channel<Unit>(Channel.CONFLATED)
+        private val retry = Channel<Unit>(Channel.CONFLATED)
         var watcher: kotlinx.coroutines.Job? = null
+        private var failures = 0
 
+        /** A session event: shortens waits for native proof, but never a failure backoff. */
         fun wake() {
+            signal.trySend(Unit)
+        }
+
+        /** An explicit recovery pass retries immediately, including after failures. */
+        fun retryNow() {
+            retry.trySend(Unit)
             signal.trySend(Unit)
         }
 
@@ -264,11 +324,29 @@ internal class ScheduledHelperActions(
             // Expiry only retries authoritative proof; it never completes work or releases capacity.
             withTimeoutOrNull(RECONCILIATION_INTERVAL) { signal.receive() }
         }
+
+        /** Consecutive failed recovery attempts, reset once reconciliation succeeds. */
+        fun countFailure(): Int = ++failures
+
+        /** Exponential delay after a failed attempt; only an explicit recovery pass shortens it. */
+        suspend fun backOff() {
+            val exponent = (failures - 1).coerceIn(0, MAX_BACKOFF_EXPONENT)
+            withTimeoutOrNull((RECONCILIATION_INTERVAL * (1 shl exponent)).coerceAtMost(MAX_BACKOFF)) {
+                retry.receive()
+            }
+            signal.tryReceive()
+        }
+
+        /** Returns how many failed attempts preceded this success. */
+        fun recovered(): Int = failures.also { failures = 0 }
     }
 
     private companion object {
         val MAX_HELPER_TIME = 6.hours
         val RECONCILIATION_INTERVAL = 5.seconds
+        val MAX_BACKOFF = 5.minutes
+        const val MAX_BACKOFF_EXPONENT = 6
+        const val FAILURE_SUMMARY_EVERY = 20
     }
 }
 

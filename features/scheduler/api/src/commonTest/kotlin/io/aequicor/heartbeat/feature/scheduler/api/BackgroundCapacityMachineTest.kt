@@ -14,7 +14,7 @@ class BackgroundCapacityMachineTest {
     fun `a new helper reserves capacity immediately`() {
         BackgroundCapacityMachineSpec.assertTransition(
             BackgroundCapacityState.Ready(),
-            BackgroundCapacityIntent.Public.Acquire(first),
+            BackgroundCapacityIntent.Internal.Acquire(first),
             BackgroundCapacityState.Ready(active = listOf(first)),
             outputs = listOf(BackgroundCapacityOutput.Granted(listOf(first.id))),
         )
@@ -28,7 +28,7 @@ class BackgroundCapacityMachineTest {
         )) {
             BackgroundCapacityMachineSpec.assertTransition(
                 state,
-                BackgroundCapacityIntent.Public.Acquire(first),
+                BackgroundCapacityIntent.Internal.Acquire(first),
                 state,
                 outputs = listOf(BackgroundCapacityOutput.Rejected(first.id, BackgroundCapacityRejection.Duplicate)),
             )
@@ -41,7 +41,7 @@ class BackgroundCapacityMachineTest {
         val pending = helper("h5")
         BackgroundCapacityMachineSpec.assertTransition(
             BackgroundCapacityState.Ready(active),
-            BackgroundCapacityIntent.Public.Acquire(pending),
+            BackgroundCapacityIntent.Internal.Acquire(pending),
             BackgroundCapacityState.Ready(active, listOf(pending)),
             outputs = listOf(BackgroundCapacityOutput.Queued(pending.id)),
         )
@@ -55,14 +55,14 @@ class BackgroundCapacityMachineTest {
         val waiting = helper("h7", "next")
         BackgroundCapacityMachineSpec.assertTransition(
             state,
-            BackgroundCapacityIntent.Public.Acquire(waiting),
+            BackgroundCapacityIntent.Internal.Acquire(waiting),
             state.copy(queued = listOf(waiting)),
             outputs = listOf(BackgroundCapacityOutput.Queued(waiting.id)),
         )
         val refused = scheduled("a3")
         BackgroundCapacityMachineSpec.assertTransition(
             state,
-            BackgroundCapacityIntent.Public.Acquire(refused),
+            BackgroundCapacityIntent.Internal.Acquire(refused),
             state,
             outputs = listOf(BackgroundCapacityOutput.Rejected(refused.id, BackgroundCapacityRejection.ProfileLimit)),
         )
@@ -75,13 +75,13 @@ class BackgroundCapacityMachineTest {
         val state = BackgroundCapacityState.Ready(active)
         BackgroundCapacityMachineSpec.assertTransition(
             state,
-            BackgroundCapacityIntent.Public.Acquire(next),
+            BackgroundCapacityIntent.Internal.Acquire(next),
             state,
             outputs = listOf(BackgroundCapacityOutput.Rejected(next.id, BackgroundCapacityRejection.SessionLimit)),
         )
         BackgroundCapacityMachineSpec.assertTransition(
             state,
-            BackgroundCapacityIntent.Public.Acquire(first),
+            BackgroundCapacityIntent.Internal.Acquire(first),
             state.copy(active = active + first),
             outputs = listOf(BackgroundCapacityOutput.Granted(listOf(first.id))),
         )
@@ -94,7 +94,7 @@ class BackgroundCapacityMachineTest {
         val eligible = helper("next", "next")
         BackgroundCapacityMachineSpec.assertTransition(
             BackgroundCapacityState.Ready(active, listOf(blocked, eligible)),
-            BackgroundCapacityIntent.Public.Release(active.last().id),
+            BackgroundCapacityIntent.Internal.Release(active.last().id),
             BackgroundCapacityState.Ready(active.dropLast(1) + eligible, listOf(blocked)),
             outputs = listOf(BackgroundCapacityOutput.Granted(listOf(eligible.id))),
         )
@@ -106,7 +106,7 @@ class BackgroundCapacityMachineTest {
         val queued = listOf(helper("h5"), helper("h6"))
         BackgroundCapacityMachineSpec.assertTransition(
             BackgroundCapacityState.Ready(active, queued),
-            BackgroundCapacityIntent.Public.Release(active.first().id),
+            BackgroundCapacityIntent.Internal.Release(active.first().id),
             BackgroundCapacityState.Ready(active.drop(1) + queued.first(), queued.drop(1)),
             outputs = listOf(BackgroundCapacityOutput.Granted(listOf(queued.first().id))),
         )
@@ -118,7 +118,7 @@ class BackgroundCapacityMachineTest {
         val pending = helper("h5")
         BackgroundCapacityMachineSpec.assertTransition(
             BackgroundCapacityState.Ready(active, listOf(pending)),
-            BackgroundCapacityIntent.Public.Release(pending.id),
+            BackgroundCapacityIntent.Internal.Release(pending.id),
             BackgroundCapacityState.Ready(active),
         )
     }
@@ -127,7 +127,7 @@ class BackgroundCapacityMachineTest {
     fun `repeated release is an accepted no-op`() {
         BackgroundCapacityMachineSpec.assertTransition(
             BackgroundCapacityState.Ready(active = listOf(first)),
-            BackgroundCapacityIntent.Public.Release(ActionId("gone")),
+            BackgroundCapacityIntent.Internal.Release(ActionId("gone")),
             BackgroundCapacityState.Ready(active = listOf(first)),
         )
     }
@@ -149,20 +149,20 @@ class BackgroundCapacityMachineTest {
         val next = scheduled("next")
         BackgroundCapacityMachineSpec.assertTransition(
             restored,
-            BackgroundCapacityIntent.Public.Acquire(next),
+            BackgroundCapacityIntent.Internal.Acquire(next),
             restored,
             outputs = listOf(BackgroundCapacityOutput.Rejected(next.id, BackgroundCapacityRejection.ProfileLimit)),
         )
         val pending = helper("waiting")
         BackgroundCapacityMachineSpec.assertTransition(
             restored,
-            BackgroundCapacityIntent.Public.Acquire(pending),
+            BackgroundCapacityIntent.Internal.Acquire(pending),
             restored.copy(queued = listOf(pending)),
             outputs = listOf(BackgroundCapacityOutput.Queued(pending.id)),
         )
         BackgroundCapacityMachineSpec.assertTransition(
             restored.copy(queued = listOf(pending)),
-            BackgroundCapacityIntent.Public.Release(existing.first().id),
+            BackgroundCapacityIntent.Internal.Release(existing.first().id),
             BackgroundCapacityState.Ready(existing.drop(1), listOf(pending)),
         )
     }
@@ -173,7 +173,7 @@ class BackgroundCapacityMachineTest {
         val next = scheduled("next")
         BackgroundCapacityMachineSpec.assertTransition(
             state,
-            BackgroundCapacityIntent.Public.Acquire(next),
+            BackgroundCapacityIntent.Internal.Acquire(next),
             state,
             outputs = listOf(BackgroundCapacityOutput.Rejected(next.id, BackgroundCapacityRejection.SessionLimit)),
         )

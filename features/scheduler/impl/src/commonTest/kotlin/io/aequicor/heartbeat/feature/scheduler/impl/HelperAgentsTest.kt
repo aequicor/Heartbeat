@@ -2,11 +2,13 @@ package io.aequicor.heartbeat.feature.scheduler.impl
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.BackgroundCapacityState
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperOutcome
+import io.aequicor.heartbeat.feature.scheduler.api.HelperProgress
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperReleaseResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
@@ -30,6 +32,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class HelperAgentsTest {
@@ -58,6 +61,23 @@ class HelperAgentsTest {
         assertEquals(0, fixture.active)
         assertFailsWith<IllegalStateException> { fixture.service.prompt(helper, prompt) }
         assertTrue(fixture.service.isHelper(OTHER))
+    }
+
+    @Test
+    fun `progress is relayed only for the exact request and the helper's durable session`() = runTest {
+        val fixture = HelpersFixture(this)
+        val lease = fixture.service.acquire(owner)
+        val helper = fixture.service.create(lease, PROJECT, TARGET, "Private title", TrustLevel.Ask)
+        fixture.service.prompt(helper, prompt)
+        val observed = HelperProgress(prompt.request, OTHER, TurnId("turn"))
+        fixture.host.progress = observed
+        assertEquals(observed, fixture.service.progress(helper, prompt.request))
+        fixture.host.progress = null
+        assertNull(fixture.service.progress(helper, prompt.request))
+        fixture.host.progress = observed.copy(session = SESSION)
+        assertFailsWith<IllegalStateException> { fixture.service.progress(helper, prompt.request) }
+        fixture.host.progress = observed.copy(request = RequestId("foreign"))
+        assertFailsWith<IllegalStateException> { fixture.service.progress(helper, prompt.request) }
     }
 
     @Test
@@ -363,6 +383,7 @@ internal class HelperHostFake : ScheduledSessionHost by FakeHost(100) {
     var cancellation: suspend (RequestId) -> HelperCancellation = {
         HelperCancellation.Terminal(HelperResult(it, HelperOutcome.Cancelled, ""))
     }
+    var progress: HelperProgress? = null
 
     override suspend fun canHostHelper(parent: io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef?) = true
 
@@ -397,6 +418,8 @@ internal class HelperHostFake : ScheduledSessionHost by FakeHost(100) {
         beforeResult()
         return results[request]
     }
+
+    override suspend fun helperProgress(helper: HelperId, request: RequestId): HelperProgress? = progress
 
     override suspend fun cancelHelper(helper: HelperId, request: RequestId): HelperCancellation {
         cancellations += request

@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.EventKey
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
 import io.aequicor.heartbeat.feature.scheduler.api.EventNamespace
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
+import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerBus
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEnabled
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
@@ -45,7 +46,8 @@ import kotlin.time.Instant
 /**
  * The agent's side of the scheduler: sleep until an event or a deadline, publish a named signal, cancel and list own
  * wakes. Every finished turn publishes the session's `turn_finished` key, so other sessions can wait for it. All tools
- * address only the calling session, never decoded from arguments. Notes and payloads are never logged.
+ * address only the calling session, never decoded from arguments. A helper never sleeps: its host owns waiting,
+ * cancellation and recovery. Notes and payloads are never logged.
  */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
@@ -56,6 +58,8 @@ internal class SchedulerAgentTools(
     private val toggles: FeatureToggles,
     private val clock: Clock,
     private val network: NetworkStatus,
+    // Lazy: helper hosts depend on the hosted tools that include this contribution.
+    private val helpers: Lazy<HelperAgents>,
 ) : AgentToolContribution {
     override val group: String = "scheduler"
     override val title: String = "Планировщик"
@@ -103,6 +107,10 @@ internal class SchedulerAgentTools(
     }
 
     private suspend fun sleep(context: AgentToolContext, arguments: JsonObject): AgentToolResult {
+        if (helpers.value.isHelper(context.session)) {
+            log.i { "sleep refused for a helper session" }
+            return failure("a helper agent cannot sleep: its host owns waiting, cancellation and recovery")
+        }
         val note = arguments.text(Arguments.NOTE).orEmpty()
         if (note.length > SchedulerLimits.MAX_NOTE) return failure("the note is too long")
         val now = clock.now()

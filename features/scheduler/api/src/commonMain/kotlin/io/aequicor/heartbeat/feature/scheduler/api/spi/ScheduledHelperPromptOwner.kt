@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.scheduler.api.HelperHandoff
 import io.aequicor.heartbeat.feature.scheduler.api.HelperMetadata
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
 import kotlinx.coroutines.flow.Flow
 
 /** Exact durable helper preparation, created by its host after opening and before any native prompt.
@@ -29,6 +30,8 @@ public data class HelperPromptAttempt(
  * ownership, failed IO and unavailable initial decisions refuse submission. False is sticky for one attempt.
  * The host collects again after journaling Submitting and immediately before entering the native sender.
  * Implementations must finish durable ancestry and attachment writes before emitting true, then recheck authority.
+ * Each collection must emit its first decision within [SchedulerLimits.HELPER_ADMISSION_DEADLINE]; a later one
+ * refuses the attempt.
  * This is host coordination, not a session hook; implementations must not derive authority from prompt text.
  */
 public interface ScheduledHelperPromptOwner {

@@ -28,16 +28,16 @@ public val BackgroundCapacityMachineSpec: MachineSpec<
         on<BackgroundCapacityIntent.Internal.Restore> {
             stay { state.restore(intent.reservations) }
         }
-        on<BackgroundCapacityIntent.Public.Acquire>(guard = { state.contains(intent.request.id) }) {
+        on<BackgroundCapacityIntent.Internal.Acquire>(guard = { state.contains(intent.request.id) }) {
             output { BackgroundCapacityOutput.Rejected(intent.request.id, BackgroundCapacityRejection.Duplicate) }
         }
-        on<BackgroundCapacityIntent.Public.Acquire>(
+        on<BackgroundCapacityIntent.Internal.Acquire>(
             guard = { !state.contains(intent.request.id) && state.hasRoom(intent.request) },
         ) {
             stay { state.copy(active = state.active + intent.request) }
             output { BackgroundCapacityOutput.Granted(listOf(intent.request.id)) }
         }
-        on<BackgroundCapacityIntent.Public.Acquire>(
+        on<BackgroundCapacityIntent.Internal.Acquire>(
             guard = {
                 !state.contains(intent.request.id) && !state.hasRoom(intent.request) &&
                     intent.request.kind == BackgroundCapacityKind.Helper
@@ -46,7 +46,7 @@ public val BackgroundCapacityMachineSpec: MachineSpec<
             stay { state.copy(queued = state.queued + intent.request) }
             output { BackgroundCapacityOutput.Queued(intent.request.id) }
         }
-        on<BackgroundCapacityIntent.Public.Acquire>(
+        on<BackgroundCapacityIntent.Internal.Acquire>(
             guard = {
                 !state.contains(intent.request.id) && !state.hasRoom(intent.request) &&
                     intent.request.kind == BackgroundCapacityKind.Scheduled
@@ -63,7 +63,7 @@ public val BackgroundCapacityMachineSpec: MachineSpec<
                 )
             }
         }
-        on<BackgroundCapacityIntent.Public.Release> {
+        on<BackgroundCapacityIntent.Internal.Release> {
             stay { state.release(intent.id) }
             output {
                 val granted = state.release(intent.id).active.map { it.id } - state.active.map { it.id }.toSet()

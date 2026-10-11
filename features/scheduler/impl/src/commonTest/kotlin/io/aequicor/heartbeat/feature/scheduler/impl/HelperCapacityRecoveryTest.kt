@@ -26,6 +26,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotSame
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -208,6 +209,32 @@ class HelperCapacityRecoveryTest {
         assertEquals(0, fixture.active)
         assertSame(closing, fixture.service.acquire(owner, existing = helper, reservation = reservation))
         assertEquals(HelperReleaseResult.Released, closing.release())
+    }
+
+    @Test
+    fun `a released lost handoff of a new acquisition is forgotten`() = runTest {
+        val fixture = HelpersFixture(this)
+        fixture.host.metadata[helper] = HelperMetadata(helper, owner, null, null, request)
+        fixture.host.cancellation = { HelperCancellation.Unconfirmed(it) }
+        var reads = 0
+        fixture.host.beforeMetadata = {
+            if (++reads == 2) currentCoroutineContext().cancel()
+        }
+        val waiting = async { fixture.service.acquire(owner, existing = helper, reservation = reservation) }
+        assertFailsWith<CancellationException> { waiting.await() }
+        runCurrent()
+        assertEquals(1, fixture.active)
+        fixture.host.beforeMetadata = {}
+        val closing = fixture.service.acquire(owner, existing = helper, reservation = reservation)
+        fixture.host.cancellation = { HelperCancellation.Terminal(HelperResult(it, HelperOutcome.Cancelled, "")) }
+        assertEquals(HelperReleaseResult.Released, closing.release())
+        assertEquals(0, fixture.active)
+        fixture.host.metadata[helper] = HelperMetadata(helper, owner, null, null, null)
+        val next = fixture.service.acquire(owner, existing = helper, reservation = reservation)
+        assertNotSame(closing, next)
+        assertEquals(1, fixture.active)
+        assertEquals(HelperReleaseResult.Released, next.release())
+        assertEquals(0, fixture.active)
     }
 
     @Test

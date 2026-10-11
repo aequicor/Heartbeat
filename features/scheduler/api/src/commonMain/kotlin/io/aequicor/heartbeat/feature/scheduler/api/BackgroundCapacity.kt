@@ -52,22 +52,29 @@ public sealed interface BackgroundCapacityState : MachineState {
     ) : BackgroundCapacityState
 }
 
-/** Capacity commands; release is sent only after native work is settled or confirmed cancelled. */
+/**
+ * Capacity commands; release is sent only after native work is settled or confirmed cancelled. Every command
+ * belongs to the scheduler's profile admission service, which holds the full machine: a slot is never acquired or
+ * released through the machine registry.
+ */
 public sealed interface BackgroundCapacityIntent : MachineIntent {
-    /** Recovery accounts for work already running; it must never grant permission to start more native work. */
+    /** Commands of the profile admission service only. */
     public sealed interface Internal : BackgroundCapacityIntent {
-        /** Restores existing work even above current limits. Repeated identical reservations are idempotent. */
+        /**
+         * Restores existing work even above current limits. Repeated identical reservations are idempotent.
+         * Recovery accounts for work already running; it must never grant permission to start more native work.
+         */
         public data class Restore(val reservations: List<BackgroundReservation>) : Internal
-    }
 
-    /** Commands used by the profile admission service. */
-    public sealed interface Public : BackgroundCapacityIntent {
         /** Grants, queues helpers, or refuses scheduled actions according to the same atomic bounds. */
-        public data class Acquire(val request: BackgroundReservation) : Public
+        public data class Acquire(val request: BackgroundReservation) : Internal
 
         /** Removes an active or queued acquisition and admits waiting helpers; repeated release is a no-op. */
-        public data class Release(val id: ActionId) : Public
+        public data class Release(val id: ActionId) : Internal
     }
+
+    /** No public commands: other features use the scheduler's helper and action services instead. */
+    public sealed interface Public : BackgroundCapacityIntent
 }
 
 /** This machine has no IO effects. */

@@ -18,8 +18,11 @@ import io.aequicor.heartbeat.feature.scheduler.api.spi.SpawnRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.WakePrompt
 import io.aequicor.heartbeat.feature.scheduler.impl.data.ActionRecord
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.toList
@@ -29,10 +32,12 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ScheduledHelperActionsTest {
@@ -48,6 +53,7 @@ class ScheduledHelperActionsTest {
         val initiator = RequestInitiator(SESSION, RequestId("source-R"))
         assertNull(fixture.actions.startAgent(action, spawn, initiator))
         assertEquals(HelperHandoff(initiator = initiator), host.prompts.single().handoff)
+        assertEquals(listOf("Directive"), host.prompts.single().directives)
         assertEquals(initiator, fixture.journal.records.single().initiator)
         host.results[request] = HelperResult(request, HelperOutcome.Completed, "done")
         fixture.bus.publish(EventKeys.turnFinished(OTHER), EventOrigin.Host)
@@ -148,18 +154,105 @@ class ScheduledHelperActionsTest {
     }
 
     @Test
-    fun `ownerless old records retain a profile slot and never synthesize completion proof`() = runTest {
-        val record = ActionRecord(action, "agent", START)
-        val fixture = ActionsFixture(this, SpecMachine(), journal = MemoryJournal(listOf(record)))
+    fun `legacy records without helper identity are reported interrupted and hold no slot`() = runTest {
+        val legacy = ActionRecord(action, "agent", START)
+        val parentless = ActionRecord(ActionId("parentless"), "agent", START, helper = helper, request = request)
+        val fixture = ActionsFixture(
+            this,
+            SpecMachine(),
+            journal = MemoryJournal(listOf(legacy, parentless)),
+            toggles = Toggles(enabled = false),
+        )
         val events = mutableListOf<BusEvent>()
         backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) { fixture.bus.events.toList(events) }
         fixture.actions.start()
         runCurrent()
+        assertTrue(fixture.reservations().isEmpty())
+        assertEquals(
+            listOf(EventKeys.actionFinished(action), EventKeys.actionFinished(parentless.id)),
+            events.map { it.key },
+        )
+        assertTrue(events.all { it.payload.orEmpty().contains("interrupted") })
+        assertTrue(fixture.journal.records.all { it.payload.orEmpty().contains("interrupted") })
         fixture.actions.recover()
         runCurrent()
-        assertEquals(listOf(record), fixture.journal.records)
+        assertEquals(2, events.size)
+        assertTrue(fixture.reservations().isEmpty())
+    }
+
+    @Test
+    fun `restart delivers a result confirmed before restart instead of an interruption`() = runTest {
+        val record = ActionRecord(action, "agent", START, helper = helper, parent = SESSION, request = request)
+        val host = HelperHostFake().apply {
+            metadata[helper] = HelperMetadata(helper, action, SESSION, OTHER, request)
+            results[request] = HelperResult(request, HelperOutcome.Completed, "finished before restart")
+        }
+        val fixture = ActionsFixture(this, SpecMachine(), journal = MemoryJournal(listOf(record)), hosts = setOf(host))
+        val events = mutableListOf<BusEvent>()
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) { fixture.bus.events.toList(events) }
+        fixture.actions.start()
+        runCurrent()
+        assertTrue(host.cancellations.isEmpty())
+        assertTrue(fixture.reservations().isEmpty())
+        val payload = events.single { it.key == EventKeys.actionFinished(action) }.payload.orEmpty()
+        assertTrue(payload.contains("finished before restart"))
+        assertFalse(payload.contains("interrupted"))
+    }
+
+    @Test
+    fun `an uncertain prompt failure reports the helper as started and finishes with its exact result`() = runTest {
+        val host = HelperHostFake().apply { beforePrompt = { throw IllegalStateException("Lost acceptance") } }
+        // The profile supervises its jobs: a failed host call stays in its own operation.
+        val profile = TestScopeHandle(
+            CoroutineScope(backgroundScope.coroutineContext + SupervisorJob(backgroundScope.coroutineContext[Job])),
+        )
+        val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(host), profile = profile)
+        val events = mutableListOf<BusEvent>()
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) { fixture.bus.events.toList(events) }
+        assertNull(fixture.actions.startAgent(action, spawn))
+        runCurrent()
+        assertEquals(1, host.prompts.size)
         assertEquals(1, fixture.reservations().size)
         assertTrue(events.isEmpty())
+        host.results[request] = HelperResult(request, HelperOutcome.Completed, "accepted after all")
+        fixture.bus.publish(EventKeys.turnFinished(OTHER), EventOrigin.Host)
+        runCurrent()
+        assertTrue(fixture.reservations().isEmpty())
+        assertTrue(events.single { it.key == EventKeys.actionFinished(action) }.payload.orEmpty().contains("after all"))
+        assertTrue(host.cancellations.isEmpty())
+    }
+
+    @Test
+    fun `failing recovery backs off and ignores session events until the delay passes`() = runTest {
+        val record = ActionRecord(action, "agent", START, helper = helper, parent = SESSION, request = request)
+        var lookups = 0
+        val host = HelperHostFake().apply {
+            metadata[helper] = HelperMetadata(helper, action, SESSION, OTHER, request)
+            beforeMetadata = {
+                lookups++
+                throw IllegalStateException("Host metadata unavailable")
+            }
+        }
+        val fixture = ActionsFixture(this, SpecMachine(), journal = MemoryJournal(listOf(record)), hosts = setOf(host))
+        fixture.actions.start()
+        runCurrent()
+        assertEquals(1, lookups)
+        repeat(3) {
+            fixture.bus.publish(EventKeys.turnFinished(OTHER), EventOrigin.Host)
+            runCurrent()
+        }
+        assertEquals(1, lookups)
+        // Attempts follow 5 s, 10 s and 20 s delays instead of one every 5 s.
+        advanceTimeBy(40.seconds)
+        runCurrent()
+        assertEquals(4, lookups)
+        host.beforeMetadata = { lookups++ }
+        advanceTimeBy(40.seconds)
+        runCurrent()
+        assertEquals(5, lookups)
+        assertEquals(listOf(request), host.cancellations)
+        assertTrue(fixture.reservations().isEmpty())
+        assertTrue(fixture.journal.records.isEmpty())
     }
 
     @Test

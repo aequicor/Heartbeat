@@ -8,6 +8,7 @@ import kotlinx.serialization.Serializable
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
 /** Identity of a scheduled wake, chosen by the caller; `[a-z0-9_-]`, at most 64 characters. */
@@ -198,6 +199,13 @@ public object SchedulerLimits {
 
     /** How long a delivery waits for a busy session before the wake is dropped as [WakeFailure.Busy]. */
     public val DELIVERY_TIMEOUT: Duration = 1.hours
+
+    /**
+     * How long a host waits for the combined first decision of the helper prompt owners, both before preparation
+     * and in the recheck immediately before native submission. A missing decision refuses that attempt, so an
+     * owner's own budget for durable writes before emitting must stay below this deadline.
+     */
+    public val HELPER_ADMISSION_DEADLINE: Duration = 2.seconds
 }
 
 private const val MAX_ID = 64

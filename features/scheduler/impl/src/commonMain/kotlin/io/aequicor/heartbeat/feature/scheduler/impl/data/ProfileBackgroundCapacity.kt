@@ -61,14 +61,10 @@ internal class ProfileBackgroundCapacity(
         val reservations = helperRecords.map {
             BackgroundReservation(it.reservation, it.owner, it.parent, BackgroundCapacityKind.Helper)
         } + graphs.reservations() + journal.readAll().filter {
-            it.kind == "agent" && it.payload == null && (it.helper != null || it.parent == null || it.request == null)
+            // Only a journaled helper identity can prove running work; legacy records are reported interrupted.
+            it.kind == "agent" && it.payload == null && it.hasHelperIdentity
         }.map { record ->
-            BackgroundReservation(
-                record.id,
-                record.id,
-                record.parent,
-                if (record.parent == null) BackgroundCapacityKind.Helper else BackgroundCapacityKind.Scheduled,
-            )
+            BackgroundReservation(record.id, record.id, record.parent, BackgroundCapacityKind.Scheduled)
         }
         check(reservations.map { it.id }.distinct().size == reservations.size) {
             "Conflicting background recovery reservation"
@@ -153,7 +149,7 @@ internal class ProfileBackgroundCapacity(
             withContext(NonCancellable) {
                 val reservation = BackgroundReservation(next, next, parent, BackgroundCapacityKind.Scheduled)
                 machine.send(BackgroundCapacityIntent.Internal.Restore(listOf(reservation)))
-                machine.send(BackgroundCapacityIntent.Public.Release(previous))
+                machine.send(BackgroundCapacityIntent.Internal.Release(previous))
             }
             true
         }
@@ -162,7 +158,7 @@ internal class ProfileBackgroundCapacity(
     /** Idempotent; the caller must have confirmed that the native work is terminal before releasing. */
     suspend fun release(id: ActionId) {
         lock.withLock {
-            machine.send(BackgroundCapacityIntent.Public.Release(id))
+            machine.send(BackgroundCapacityIntent.Internal.Release(id))
             helperClaims.remove(id)
         }
     }
@@ -184,7 +180,7 @@ internal class ProfileBackgroundCapacity(
                         }
                         // Cancellation can arrive after commit but before the machine acknowledges the send.
                         isSubmitted = true
-                        check(machine.send(BackgroundCapacityIntent.Public.Acquire(request)) == SendResult.Accepted) {
+                        check(machine.send(BackgroundCapacityIntent.Internal.Acquire(request)) == SendResult.Accepted) {
                             "Background capacity unavailable"
                         }
                         val updated = machine.state.value as BackgroundCapacityState.Ready
