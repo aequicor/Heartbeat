@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionOwner
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.HarnessEntry
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
+import io.aequicor.heartbeat.feature.harness.api.HarnessLoad
 import io.aequicor.heartbeat.feature.harness.api.HarnessMutation
 import io.aequicor.heartbeat.feature.harness.api.HarnessName
 import io.aequicor.heartbeat.feature.harness.api.HarnessReceipt
@@ -124,6 +125,46 @@ class HarnessSessionProofsTest {
         proofs.remember(CONTEXT.copy(workspace = PROJECT))
         assertFalse(proofs.isResolved(dispatchSession))
         proofs.remember(CONTEXT)
+        assertFalse(proofs.allows(harness.id, dispatchSession))
+    }
+
+    @Test
+    fun `library without a loaded snapshot is unknown only while an instance is published`() {
+        var isPublished = false
+        var library: HarnessState = HarnessState.Idle()
+        val proofs = HarnessSessionProofs({ library }, { null }, { null }, { isPublished })
+        proofs.remember(CONTEXT)
+        val unloaded = listOf(HarnessState.Idle(), HarnessState.Loading(HarnessLoad(1, 0)), HarnessState.Failed())
+        for (state in unloaded) {
+            library = state
+            isPublished = false
+            assertTrue(proofs.isResolved(dispatchSession))
+            assertFalse(proofs.allows(runtimeRequest(1).harness.id, dispatchSession))
+            isPublished = true
+            assertFalse(proofs.isResolved(dispatchSession))
+        }
+    }
+
+    @Test
+    fun `proof cache is bounded and evicts known routes before a conflict`() {
+        val harness = runtimeRequest(1).harness
+        val library = HarnessState.Ready(listOf(HarnessEntry(harness)), isRuntimeAvailable = true)
+        val proofs = HarnessSessionProofs({ library }, { null }, { null })
+        proofs.remember(CONTEXT.copy(workspace = null))
+        proofs.remember(CONTEXT.copy(workspace = PROJECT))
+        val oldest = dispatchSession.copy(nativeId = "oldest")
+        proofs.remember(CONTEXT.copy(session = oldest, workspace = null))
+        assertTrue(proofs.allows(harness.id, oldest))
+        repeat(512) {
+            proofs.remember(CONTEXT.copy(session = dispatchSession.copy(nativeId = "s$it"), workspace = null))
+        }
+        // The oldest known route was forgotten; its next trusted callback simply proves it again.
+        assertFalse(proofs.isResolved(oldest))
+        proofs.remember(CONTEXT.copy(session = oldest, workspace = null))
+        assertTrue(proofs.allows(harness.id, oldest))
+        // The older conflict survived every eviction and still cannot be overwritten by a single late route.
+        proofs.remember(CONTEXT.copy(workspace = null))
+        assertFalse(proofs.isResolved(dispatchSession))
         assertFalse(proofs.allows(harness.id, dispatchSession))
     }
 

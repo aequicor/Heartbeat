@@ -42,9 +42,10 @@ internal class HarnessSessionHook(
     override val isObserving: Boolean get() = gate.isEnabled
     override val isIntercepting: Boolean get() = gate.isEnabled
 
+    /** The admitting generation is captured before any suspension; a lookup cannot carry it into a new one. */
     @HighFrequency
     override suspend fun observe(event: SessionLifecycle) {
-        if (!gate.isEnabled) return
+        val epoch = gate.currentEpoch ?: return
         log.v { "forward trusted session observation" }
         prepare(event.context)
         val at = clock.now()
@@ -63,7 +64,8 @@ internal class HarnessSessionHook(
                 at,
             )
         }
-        if (gate.isEnabled) dispatch.events.value.emit(projected, origins.value.origin(event.context))
+        val origin = origins.value.origin(event.context)
+        if (gate.currentEpoch == epoch) dispatch.events.value.emit(projected, origin, epoch)
     }
 
     @HighFrequency

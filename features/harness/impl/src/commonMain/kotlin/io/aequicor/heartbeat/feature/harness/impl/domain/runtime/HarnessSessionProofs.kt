@@ -20,11 +20,14 @@ import kotlinx.coroutines.flow.update
  * Session-workspace evidence comes only from trusted facade callbacks, never script arguments or event payload.
  * Open/Closed notifications are lossy and therefore do not grant or revoke authority here; the facade already
  * checks owner and accepted-turn lifetime. Every read resolves current library/project snapshots again.
+ * Every trusted entry point remembers its route before reading it, so the proof cache is bounded: the oldest
+ * known routes are forgotten first, while a conflict is kept as long as any known route can be evicted instead.
  */
 internal class HarnessSessionProofs(
     private val library: () -> HarnessState,
     private val worktrees: () -> WorktreeState?,
     private val knownProjects: () -> Set<WorkspaceRef>?,
+    private val hasPublished: () -> Boolean = { true },
 ) : HarnessSessionAdmission {
     private val sessions = MutableStateFlow<Map<SessionRef, SessionWorkspaceProof>>(emptyMap())
     private val log = Log.tag("HarnessSessionProofs")
@@ -42,19 +45,19 @@ internal class HarnessSessionProofs(
         val proposed = SessionWorkspaceProof.Known(workspace)
         sessions.update { previous ->
             val existing = previous[session]
-            previous + (
-                session to when {
-                    existing == null || existing == proposed -> proposed
-                    else -> SessionWorkspaceProof.Conflicting
-                }
-            )
+            val next = if (existing == null || existing == proposed) proposed else SessionWorkspaceProof.Conflicting
+            if (existing == next) previous else (previous + (session to next)).bounded()
         }
     }
 
     override fun allows(harness: HarnessId, session: SessionRef): Boolean = harness in selected(session).active
 
-    /** False means hook applicability is unknown and tool interception must conservatively require a decision. */
-    fun isResolved(session: SessionRef): Boolean = selected(session).isResolved
+    /**
+     * False means hook applicability is unknown and tool interception must conservatively require a decision.
+     * Without any published instance no script can observe the session, so nothing is unknown (for example while
+     * the library is idle, loading or failed).
+     */
+    fun isResolved(session: SessionRef): Boolean = selected(session).isResolved || !hasPublished()
 
     private fun selected(session: SessionRef): SessionSelection {
         val state = library()
@@ -94,6 +97,15 @@ internal class HarnessSessionProofs(
         }
     }
 }
+
+/** Drops one oldest known route (or the oldest conflict when only conflicts remain) above the bound. */
+private fun Map<SessionRef, SessionWorkspaceProof>.bounded(): Map<SessionRef, SessionWorkspaceProof> {
+    if (size <= MAX_REMEMBERED_SESSIONS) return this
+    val evicted = entries.firstOrNull { it.value is SessionWorkspaceProof.Known }?.key ?: keys.first()
+    return this - evicted
+}
+
+private const val MAX_REMEMBERED_SESSIONS = 512
 
 private sealed interface SessionWorkspaceProof {
     data class Known(val workspace: WorkspaceRef?) : SessionWorkspaceProof {

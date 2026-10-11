@@ -110,6 +110,38 @@ class HarnessToolDispatchTest {
     }
 
     @Test
+    fun `finished turns are bounded while a turn with a running call stays closed`() = runTest {
+        val fixture = HarnessDispatchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val release = CompletableDeferred<Unit>()
+        val entered = CompletableDeferred<Unit>()
+        fixture.onEvaluate = { script ->
+            script.agent.tool(ItemName("check"), "Check", JsonObject(emptyMap())) {
+                entered.complete(Unit)
+                withContext(NonCancellable) { release.await() }
+                ScriptToolResult("late")
+            }
+        }
+        fixture.activate()
+        val tools = HarnessToolDispatch(fixture.runtime, fixture.sessions)
+        val binding = tools.bindings(dispatchSession).single()
+        val result = async { tools.execute(binding, toolCall()) }
+        entered.await()
+        val cleanup = async { tools.finishTurn(dispatchSession, TurnId("turn")) }
+        advanceTimeBy(500)
+        runCurrent()
+        assertFalse(cleanup.await())
+        repeat(100) { assertTrue(tools.finishTurn(dispatchSession, TurnId("idle$it"))) }
+        // 64 recent idle turns plus the one whose actual call is still running.
+        assertEquals(65, tools.retainedTurnCount)
+        assertTrue(tools.execute(binding, toolCall()).isError)
+        release.complete(Unit)
+        runCurrent()
+        assertTrue(result.await().isError)
+        assertTrue(tools.finishTurn(dispatchSession, TurnId("next")))
+        assertEquals(64, tools.retainedTurnCount)
+    }
+
+    @Test
     fun `instructions preserve exact declared scope and enforce aggregate character limit`() = runTest {
         val fixture = HarnessDispatchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
         val observed = mutableListOf<AgentToolScope>()

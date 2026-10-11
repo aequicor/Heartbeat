@@ -6,10 +6,12 @@ import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
+import io.aequicor.heartbeat.feature.harness.api.HarnessMachineKey
 import io.aequicor.heartbeat.feature.harness.api.event.HarnessLifecycleEvent
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsMachineKey
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsOutput
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsState
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRuntime
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessSessionProofs
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerBus
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEnabled
@@ -33,6 +35,7 @@ internal class HarnessEventInputFactory(
     private val bus: SchedulerBus,
     private val projects: HarnessProjectSnapshots,
     private val clock: Clock,
+    private val runtime: Lazy<HarnessRuntime>,
 ) {
     @OptIn(ExperimentalCoroutinesApi::class)
     fun create(): HarnessEventInputs = HarnessEventInputs(
@@ -52,12 +55,17 @@ internal class HarnessEventInputFactory(
         },
     ) { scope -> projects.observe(scope, workspaces.value.observe()) }
 
-    /** Caller supplies the short hook deadline. Waiting never substitutes an unknown checkout for its project. */
+    /**
+     * Caller supplies the short hook deadline. Waiting never substitutes an unknown checkout for its project.
+     * Library and publication changes are observed too: a load or the last retirement can resolve the session.
+     */
     @OptIn(ExperimentalCoroutinesApi::class)
     suspend fun awaitProof(context: SessionHookContext, proofs: HarnessSessionProofs) {
         combine(
             machines.observe(WorktreeMachineKey).flatMapLatest { it?.state ?: flowOf(null) },
             projects.projects,
-        ) { _, _ -> proofs.isResolved(context.session) }.first { it }
+            machines.observe(HarnessMachineKey).flatMapLatest { it?.state ?: flowOf(null) },
+            runtime.value.publishedInstances,
+        ) { _, _, _, _ -> proofs.isResolved(context.session) }.first { it }
     }
 }

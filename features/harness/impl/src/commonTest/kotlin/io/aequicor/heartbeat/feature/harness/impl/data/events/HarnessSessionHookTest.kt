@@ -89,12 +89,47 @@ class HarnessSessionHookTest {
     @Test
     fun `unknown project requires Ask while text hooks fail open`() = runTest {
         val fixture = HookFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        fixture.runtime.activate()
         fixture.addUnknownProject()
         val call = fixture.runtime.call.copy(
             context = fixture.runtime.context.copy(workspace = WorkspaceRef("unknown")),
         )
         assertIs<ToolHookVerdict.Ask>(fixture.hook.beforeTool(call))
         assertNull(fixture.hook.beforePrompt(call.context, "private"))
+    }
+
+    @Test
+    fun `unloaded library without published scripts never asks or waits for a proof`() = runTest {
+        val fixture = HookFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        fixture.isLibraryLoaded = false
+        fixture.prepare = { awaitCancellation() }
+        val call = fixture.runtime.call.copy(
+            context = fixture.runtime.context.copy(workspace = WorkspaceRef("unknown")),
+        )
+        assertEquals(ToolHookVerdict.Continue, fixture.hook.beforeTool(call))
+        assertEquals(0L, testScheduler.currentTime)
+        fixture.runtime.activate()
+        assertIs<ToolHookVerdict.Ask>(fixture.hook.beforeTool(call))
+    }
+
+    @Test
+    fun `session event admitted before a generation change is not delivered into the next one`() = runTest {
+        val fixture = HookFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        var calls = 0
+        fixture.runtime.onEvaluate = { script -> script.events.on<SessionEvent> { calls++ } }
+        fixture.runtime.activate()
+        val context = fixture.runtime.context.copy(request = RequestId("exact"))
+        fixture.ancestry.beforeLookup = {
+            fixture.gate.close()
+            fixture.gate.open()
+        }
+        fixture.hook.observe(SessionLifecycle.Opened(context))
+        runCurrent()
+        assertEquals(0, calls)
+        fixture.ancestry.beforeLookup = {}
+        fixture.hook.observe(SessionLifecycle.Opened(context))
+        runCurrent()
+        assertEquals(1, calls)
     }
 
     @Test
@@ -133,12 +168,21 @@ class HarnessSessionHookTest {
 private class HookFixture(scope: CoroutineScope, dispatcher: CoroutineDispatcher) {
     val runtime = HarnessDispatchFixture(scope, dispatcher)
     val gate = HarnessEventGate().apply { open() }
-    val origins = HarnessRequestOrigins(MemoryHarnessRequestAncestry())
+    val ancestry = MemoryHarnessRequestAncestry()
+    val origins = HarnessRequestOrigins(ancestry)
     var library = HarnessState.Ready(listOf(HarnessEntry(runtime.request.harness)), isRuntimeAvailable = true)
+    var isLibraryLoaded = true
     val proofs = HarnessSessionProofs(
-        { if (gate.isEnabled) library else HarnessState.Idle(isSuspended = true) },
+        {
+            when {
+                !gate.isEnabled -> HarnessState.Idle(isSuspended = true)
+                isLibraryLoaded -> library
+                else -> HarnessState.Idle()
+            }
+        },
         { WorktreeState.Ready() },
         { null },
+        { runtime.runtime.publishedInstances.value.isNotEmpty() },
     )
     var prepare: suspend (SessionHookContext) -> Unit = {}
     val hook = HarnessSessionHook(
@@ -146,7 +190,7 @@ private class HookFixture(scope: CoroutineScope, dispatcher: CoroutineDispatcher
         lazyOf(proofs),
         HarnessSessionHookDispatchers(
             lazy { HarnessHookDispatch(runtime.runtime, proofs) },
-            lazy { HarnessEventDispatch(runtime.runtime, proofs) },
+            lazy { HarnessEventDispatch(runtime.runtime, proofs) { gate.currentEpoch } },
             { prepare(it) },
         ),
         lazyOf(origins),

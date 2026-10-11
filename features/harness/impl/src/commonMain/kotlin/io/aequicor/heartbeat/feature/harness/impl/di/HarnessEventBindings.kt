@@ -53,10 +53,12 @@ public object HarnessEventBindings {
         registry: MachineRegistry,
         projects: HarnessProjectSnapshots,
         gate: HarnessEventGate,
+        runtime: Lazy<HarnessRuntime>,
     ): HarnessSessionProofs = HarnessSessionProofs(
         { if (gate.isEnabled) machine.value.state.value else HarnessState.Idle(isSuspended = true) },
         { registry.find(WorktreeMachineKey)?.state?.value },
         { projects.projects.value },
+        { runtime.value.publishedInstances.value.isNotEmpty() },
     )
 
     @Provides

@@ -8,12 +8,14 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 class HarnessProjectSnapshotsTest {
     @Test
@@ -34,6 +36,31 @@ class HarnessProjectSnapshotsTest {
         runCurrent()
         assertNull(snapshots.projects.value)
         assertTrue(backgroundScope.coroutineContext[Job]!!.isActive)
+    }
+
+    @Test
+    fun `failed catalog is collected again with growing delay`() = runTest {
+        val snapshots = HarnessProjectSnapshots()
+        val project = LocalWorkspace(WorkspaceRef("project"), "Private project")
+        var collections = 0
+        snapshots.observe(
+            backgroundScope,
+            flow {
+                collections++
+                if (collections <= 2) throw IllegalStateException("private catalog failure")
+                emit(listOf(project))
+                awaitCancellation()
+            },
+        )
+        assertNull(snapshots.projects.value)
+        advanceTimeBy(1.seconds)
+        runCurrent()
+        assertEquals(2, collections)
+        assertNull(snapshots.projects.value)
+        advanceTimeBy(2.seconds)
+        runCurrent()
+        assertEquals(3, collections)
+        assertEquals(setOf(project.ref), snapshots.projects.value)
     }
 
     @Test

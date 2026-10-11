@@ -43,6 +43,9 @@ internal class HarnessToolDispatch(
     private val calls = MutableStateFlow(CallState())
     private val log = Log.tag("HarnessTools")
 
+    /** Closed turns still retained; bounded by running calls plus [RETAINED_IDLE_TURNS]. */
+    internal val retainedTurnCount: Int get() = calls.value.closed.size
+
     @HighFrequency
     suspend fun bindings(session: SessionRef): List<HarnessToolBinding> = bindingsWhere {
         sessions.allows(it, session)
@@ -141,7 +144,7 @@ internal class HarnessToolDispatch(
     /** Closes admission before cancelling; a false result reports actual jobs still retaining their lease. */
     suspend fun finishTurn(session: SessionRef, turn: TurnId): Boolean {
         val key = Turn(session, turn)
-        calls.update { it.copy(closed = it.closed + key) }
+        calls.update { it.close(key) }
         val owned = calls.value.active.filter { it.turn == key }.map { it.handle }
         owned.forEach { it.cancel() }
         val isStopped = withTimeoutOrNull(500.milliseconds) {
@@ -177,5 +180,18 @@ internal class HarnessToolDispatch(
     private data class ActualCall(val turn: Turn, val handle: HarnessInvocationHandle) {
         override fun toString(): String = "ActualHarnessCall(***)"
     }
-    private data class CallState(val closed: Set<Turn> = emptySet(), val active: Set<ActualCall> = emptySet())
+    private data class CallState(val closed: Set<Turn> = emptySet(), val active: Set<ActualCall> = emptySet()) {
+        /**
+         * A turn with running calls stays closed until they stop. An idle closed turn only backs up the facade's
+         * finished-turn check and the call lifetime against a late call, so only the most recent ones are kept.
+         */
+        fun close(turn: Turn): CallState {
+            val next = closed + turn
+            val idle = next.filter { candidate -> active.none { it.turn == candidate } }
+            val excess = idle.size - RETAINED_IDLE_TURNS
+            return copy(closed = if (excess > 0) next - idle.take(excess).toSet() else next)
+        }
+    }
 }
+
+private const val RETAINED_IDLE_TURNS = 64
