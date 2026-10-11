@@ -122,8 +122,11 @@ private class ScopedOwner(
     override val isDetachedSupported: Boolean get() = isDetached
     override suspend fun specifications(workspace: WorkspaceRef?) = listOf(AgentToolSpec(name, name, EMPTY, action))
     override suspend fun instructions(workspace: WorkspaceRef?): String = "$name:${workspace?.value}"
-    override suspend fun instructions(scope: AgentToolScope): String =
+    override suspend fun instructions(scope: AgentToolScope): String = if (scope.declared?.contains(name) == false) {
+        ""
+    } else {
         "$name:${scope.target?.model?.value ?: scope.workspace?.value}"
+    }
     override suspend fun requiresDecision(context: AgentToolContext, spec: AgentToolSpec, arguments: JsonObject) =
         isDecisionDemanded
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {

@@ -138,7 +138,11 @@ class ManagedActiveSession(
         }
     }
 
-    /** Nothing can accept or finish these submissions any more; their tools and hook bindings are released. */
+    /**
+     * Nothing can accept or finish these submissions through this handle any more; their tools and hook bindings
+     * are released. This is fail-closed: a submission whose acceptance ended as OutcomeUnknown may still run
+     * natively, and such a turn loses its hosted tools and hooks instead of keeping them without an owner.
+     */
     private suspend fun releaseUnaccepted() {
         val abandoned = unaccepted.getAndUpdate { emptySet() }
         hookHandle?.abandonUnaccepted()

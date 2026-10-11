@@ -110,8 +110,15 @@ internal class KoogNativeSession(
      */
     private var areDetachedToolsEnabled = false
 
-    // The opt-in of the running turn, captured at its acceptance; a later lease changes only later turns.
+    /**
+     * Whether the holder opted into session hooks, chosen like [areDetachedToolsEnabled]. Hooks leave content
+     * independent of tools to this engine, so only such a session receives it in a turn without hosted tools.
+     */
+    private var areSessionHooksEnabled = false
+
+    // The opt-ins of the running turn, captured at its acceptance; a later lease changes only later turns.
     private var isTurnDetached = false
+    private var isTurnHooked = false
     private val log = Log.tag("KoogSession")
     val history = snapshot.history
     private val mutex = Mutex()
@@ -139,12 +146,16 @@ internal class KoogNativeSession(
 
     /**
      * Issues a lease. Without other holders [areDetachedToolsEnabled] decides hosted tools for later turns of a
-     * session without a project, even while a turn accepted for an earlier lease still runs; a lease on a session
-     * that is already held keeps the holders' choice.
+     * session without a project, and [areSessionHooksEnabled] whether turns without hosted tools still receive
+     * instructions independent of tools, even while a turn accepted for an earlier lease still runs; a lease on a
+     * session that is already held keeps the holders' choice.
      */
-    fun attach(areDetachedToolsEnabled: Boolean): ActiveSession {
+    fun attach(areDetachedToolsEnabled: Boolean, areSessionHooksEnabled: Boolean): ActiveSession {
         checkOpen()
-        if (handles.isEmpty()) this.areDetachedToolsEnabled = areDetachedToolsEnabled
+        if (handles.isEmpty()) {
+            this.areDetachedToolsEnabled = areDetachedToolsEnabled
+            this.areSessionHooksEnabled = areSessionHooksEnabled
+        }
         val state = MutableStateFlow(current)
         handles += state
         return object : ActiveSession {
@@ -288,6 +299,7 @@ internal class KoogNativeSession(
         history.append { SessionEvent.ItemUpserted(it, user) }
         active = turn
         isTurnDetached = areDetachedToolsEnabled
+        isTurnHooked = areSessionHooksEnabled
         publish(ActiveSessionState.Running(turn))
         job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             runTurn(turn, client, provider, origin, model.value, request.trust ?: TrustLevel.Ask)
@@ -312,8 +324,9 @@ internal class KoogNativeSession(
 
     /**
      * Hosted instructions only accompany the tools they describe. A turn sending no hosted tool still receives the
-     * content independent of tools, since Koog declares per-turn instructions. Blank text adds no system message;
-     * a failing contribution leaves the turn without it.
+     * content independent of tools when its session opted into hooks: Koog declares per-turn instructions, so those
+     * hooks leave the content to this turn. Service sessions without hooks get none, as on engines delivering via
+     * hooks. Blank text adds no system message; a failing contribution leaves the turn without it.
      */
     private suspend fun turnInstructions(
         workspace: KoogWorkspace?,
@@ -322,6 +335,8 @@ internal class KoogNativeSession(
     ): String? {
         val text = if (workspace != null && !tools.isEmpty()) {
             workspace.instructions
+        } else if (!isTurnHooked) {
+            ""
         } else {
             try {
                 workspaces.instructions(context)

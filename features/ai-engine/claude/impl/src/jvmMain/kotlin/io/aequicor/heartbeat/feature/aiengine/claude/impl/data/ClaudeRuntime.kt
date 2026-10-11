@@ -150,7 +150,7 @@ internal class ClaudeRuntime(
         val session = ClaudeSession(ref, route, request.target, environment)
         session.persist()
         sessions[ref] = session
-        session.lease(request.areDetachedToolsEnabled)
+        session.lease(request.areDetachedToolsEnabled, request.areSessionHooksEnabled)
     }
 
     override suspend fun attach(ref: SessionRef, request: ResumeSessionRequest): ActiveSession = mutex.withLock {
@@ -167,7 +167,7 @@ internal class ClaudeRuntime(
         }
         log.i { "Attaching existing Claude session" }
         // A session kept in memory or restored from the catalog without holders takes this request's choice.
-        session.lease(request.areDetachedToolsEnabled)
+        session.lease(request.areDetachedToolsEnabled, request.areSessionHooksEnabled)
     }
 
     suspend fun stored(ref: SessionRef): EngineSession = mutex.withLock {

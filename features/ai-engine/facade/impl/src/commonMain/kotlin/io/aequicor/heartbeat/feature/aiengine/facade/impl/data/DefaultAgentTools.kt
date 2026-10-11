@@ -120,8 +120,9 @@ internal class DefaultAgentTools(
     override suspend fun instructions(scope: AgentToolScope): String {
         val declared = declared(scope)
         val scoped = scope.copy(declared = declared.allowed.map { it.second.name }.toSet())
-        // Owners whose tools the policy removed still contribute what does not need them (learned rules); they
-        // honor the declared names, so disabled tools are never mentioned.
+        // Owners whose tools the policy removed still contribute what does not need them (learned rules), also
+        // when the adapter already passes only the allowed names as declared; they honor the declared names
+        // (allowed within the session's own), so disabled tools are never mentioned.
         val owners = declared.available.mapTo(linkedSetOf()) { it.first }
         owners += contributions.filter {
             it.hasIndependentInstructions && !it.isAdapterOperated &&
@@ -393,9 +394,10 @@ internal class DefaultAgentTools(
             catalogued + available.map { it.second.name },
             isExecuting,
         )
-        // Names the session froze at creation bound both lists; the policy narrows only the allowed one.
+        // Names the session froze at creation and the policy both narrow the allowed list only: an owner whose
+        // tools are all filtered out still answers for instructions independent of them.
         val session = available.filter { (_, spec) -> scope.declared?.contains(spec.name) != false }
-        return Declared(session, session.filter { (_, spec) -> policy != null && spec.name !in policy.hostedDenied })
+        return Declared(available, session.filter { (_, spec) -> policy != null && spec.name !in policy.hostedDenied })
     }
 
     /** Settings list only catalog names, so a tool missing from its owner's catalog cannot be turned off there. */
@@ -418,7 +420,10 @@ internal class DefaultAgentTools(
 
     private data class BoundTurn(val turn: TurnId, val target: EngineTarget?)
 
-    /** Declarations of the session before the effective policy, and the ones it allows. */
+    /**
+     * Declarations available to the session's workspace before its declared names and the effective policy, and
+     * the ones both allow.
+     */
     private data class Declared(
         val available: List<Pair<AgentToolContribution, AgentToolSpec>>,
         val allowed: List<Pair<AgentToolContribution, AgentToolSpec>>,

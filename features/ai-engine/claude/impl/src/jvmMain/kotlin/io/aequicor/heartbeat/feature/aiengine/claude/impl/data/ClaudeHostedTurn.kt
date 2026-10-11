@@ -38,8 +38,9 @@ internal class ClaudeHostedTurn(
     /**
      * Hosted tools for this turn. A project session fails on any error; for a session without a project the tools
      * are optional, so an unavailable bridge or a failing contribution leaves a plain chat turn. Instructions that
-     * need no tool (harness content) are delivered every turn even without hosted tools: the engine declares that
-     * it refreshes them, so session hooks do not repeat them in the prompt.
+     * need no tool (harness content) reach a turn without hosted tools only when the session opted into hooks: the
+     * engine declares that it refreshes them, so those hooks leave them to this turn instead of the prompt. Other
+     * sessions without hosted tools (judges, research, transfers) get none, as on engines delivering via hooks.
      */
     suspend fun prepare(): ClaudeHostedTools? {
         val project = context.workspace
@@ -74,11 +75,16 @@ internal class ClaudeHostedTurn(
         return ClaudeHostedTools(capability.endpoint, instructions, isProject = project != null)
     }
 
-    /** No tool is declared, so only content independent of tools remains; nothing when it is blank. */
-    private suspend fun instructionsOnly(scope: AgentToolScope): ClaudeHostedTools? =
-        environment.tools.instructions(scope.copy(declared = emptySet())).takeIf { it.isNotBlank() }?.let {
+    /**
+     * No tool is declared, so only content independent of tools remains; nothing when it is blank or the session
+     * did not opt into the hooks this content stands in for.
+     */
+    private suspend fun instructionsOnly(scope: AgentToolScope): ClaudeHostedTools? {
+        if (!context.areSessionHooksEnabled) return null
+        return environment.tools.instructions(scope.copy(declared = emptySet())).takeIf { it.isNotBlank() }?.let {
             ClaudeHostedTools(null, it, isProject = scope.workspace != null)
         }
+    }
 
     private fun scope(project: WorkspaceRef?) =
         AgentToolScope(project, context.target, session = context.ref, isRefreshedPerTurn = true)
@@ -112,7 +118,8 @@ internal class ClaudeHostedTurn(
 
 /**
  * Trusted identity and request captured before starting the native process. [target] is the turn's model;
- * [areDetachedToolsEnabled] admits hosted tools without a project for the caller that opted in.
+ * [areDetachedToolsEnabled] admits hosted tools without a project for the caller that opted in;
+ * [areSessionHooksEnabled] admits instructions independent of tools to a turn without hosted tools.
  */
 internal data class ClaudeTurnContext(
     val ref: SessionRef,
@@ -120,6 +127,7 @@ internal data class ClaudeTurnContext(
     val request: PromptRequest,
     val target: EngineTarget? = null,
     val areDetachedToolsEnabled: Boolean = false,
+    val areSessionHooksEnabled: Boolean = false,
 )
 
 /** Session-owned state updates and serialized persistence; callbacks never replace turn ownership. */

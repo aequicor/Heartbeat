@@ -104,7 +104,8 @@ class SessionLauncher(
     suspend fun stop(ref: SessionRef, request: RequestId, access: OwnedTurnAccess): OwnedTurnStop {
         val target = access.target
         if (ref.engine != target.engine) fail(InvalidRequest)
-        log.i { "stop owned turn engine=${ref.engine.value} binding=${target.binding.value}" }
+        // Helpers poll stops until confirmed: only a confirmed stop is a significant transition.
+        log.v { "stop owned turn engine=${ref.engine.value} binding=${target.binding.value}" }
         val resolved = routes.resolve(target.engine, target.binding, access.workspace)
         val stopper = pool.runtime(resolved).features.resolve(StopsOwnedTurns).orFail()
         // Starting a metadata runtime may suspend while a binding is disabled or its source changes.
@@ -119,7 +120,11 @@ class SessionLauncher(
                 fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
             }
         }
-        log.i { "stop owned turn result=${result.label()} engine=${ref.engine.value}" }
+        if (result is OwnedTurnStop.Confirmed) {
+            log.i { "stop owned turn result=${result.label()} engine=${ref.engine.value}" }
+        } else {
+            log.v { "stop owned turn result=${result.label()} engine=${ref.engine.value}" }
+        }
         return result
     }
 

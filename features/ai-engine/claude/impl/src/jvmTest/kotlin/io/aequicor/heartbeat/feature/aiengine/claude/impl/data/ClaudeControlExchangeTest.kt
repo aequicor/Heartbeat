@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -214,6 +215,31 @@ internal class ClaudeControlExchangeTest {
     }
 
     @Test
+    fun `a backlog beyond the memory budget fails the turn by line length`() = runTest {
+        supervisorScope {
+            val pipe = Pipe()
+            val release = CompletableDeferred<Unit>()
+            val work = async {
+                ClaudeControlExchange(pipe, { it }, { release.await() }).run(INIT, USER)
+            }
+            runCurrent()
+            pipe.initialized(pipe.sent.single())
+            runCurrent()
+            // Small frames whose lines were long: the budget counts what the duplex read, not a reserialization.
+            pipe.reportedChars = (MAX_QUEUED_EVENT_CHARS / 2).toInt() + 1
+            // The observer takes the first frame and stays inside it; only later frames wait in the backlog.
+            pipe.frames.send(frame("{\"type\":\"assistant\",\"index\":0}"))
+            runCurrent()
+            pipe.frames.send(frame("{\"type\":\"assistant\",\"index\":1}"))
+            runCurrent()
+            assertFalse(work.isCompleted)
+            pipe.frames.send(frame("{\"type\":\"assistant\",\"index\":2}"))
+            val error = assertFailsWith<EngineException> { work.await() }
+            assertEquals(EngineFailure.Engine(EngineFailureReason.Unavailable), error.failure)
+        }
+    }
+
+    @Test
     fun `duplicate inbound ids never replace pending permission`() = runTest {
         supervisorScope {
             val pipe = Pipe()
@@ -305,7 +331,12 @@ internal class ClaudeControlExchangeTest {
         val frames = Channel<JsonObject>(Channel.UNLIMITED)
         val sent = mutableListOf<JsonObject>()
         var closes = 0
+
+        /** Line length the pipe reports for later frames; null measures the frame itself. */
+        var reportedChars: Int? = null
         override suspend fun receive(): JsonObject? = frames.receiveCatching().getOrNull()
+        override suspend fun receiveSized(): ClaudeInbound? =
+            receive()?.let { ClaudeInbound(it, reportedChars ?: it.toString().length) }
         override suspend fun send(frame: JsonObject) {
             sent += frame
         }

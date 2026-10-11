@@ -228,7 +228,7 @@ class ClaudeHostedTest {
     }
 
     @Test
-    fun `instructions independent of tools reach every turn without hosted tools`() = runTest {
+    fun `instructions independent of tools reach hooked turns without hosted tools`() = runTest {
         val fixture = ClaudeFixture(backgroundScope)
         val bridge = TestAgentBridge()
         val scopes = mutableListOf<AgentToolScope>()
@@ -241,9 +241,9 @@ class ClaudeHostedTest {
         }
         val runtime = fixture.runtime(tools, bridge)
         val requests = listOf(
-            CreateSessionRequest(testTarget),
-            CreateSessionRequest(testTarget, areDetachedToolsEnabled = true),
-            CreateSessionRequest(testTarget, workspace),
+            CreateSessionRequest(testTarget, areSessionHooksEnabled = true),
+            CreateSessionRequest(testTarget, areDetachedToolsEnabled = true, areSessionHooksEnabled = true),
+            CreateSessionRequest(testTarget, workspace, areSessionHooksEnabled = true),
         )
         requests.forEachIndexed { index, request ->
             runtime.create(request).features.available(SendsPrompts).send(prompt("turn-$index"))
@@ -256,6 +256,34 @@ class ClaudeHostedTest {
         assertTrue(bridge.attached.isEmpty())
         assertEquals(3, scopes.size)
         assertTrue(scopes.all { it.declared == emptySet<String>() && it.isRefreshedPerTurn })
+        runtime.close()
+    }
+
+    @Test
+    fun `service sessions without hook opt-in get no instructions without hosted tools`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val bridge = TestAgentBridge()
+        val scopes = mutableListOf<AgentToolScope>()
+        val tools = object : ProfileAgentTools by TestAgentTools() {
+            override suspend fun specifications(scope: AgentToolScope): List<AgentToolSpec> = emptyList()
+            override suspend fun instructions(scope: AgentToolScope): String {
+                scopes += scope
+                return "Harness content"
+            }
+        }
+        val runtime = fixture.runtime(tools, bridge)
+        // Judges, research chats and transfers (which keep their project) never opt into hooks.
+        val requests = listOf(
+            CreateSessionRequest(testTarget),
+            CreateSessionRequest(testTarget, areDetachedToolsEnabled = true),
+            CreateSessionRequest(testTarget, workspace),
+        )
+        requests.forEachIndexed { index, request ->
+            runtime.create(request).features.available(SendsPrompts).send(prompt("turn-$index"))
+            runCurrent()
+            assertNull(fixture.transport.hostedCalls.last())
+        }
+        assertTrue(scopes.isEmpty())
         runtime.close()
     }
 

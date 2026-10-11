@@ -273,7 +273,7 @@ class KoogCodingSessionTest {
     }
 
     @Test
-    fun `instructions independent of tools reach turns that send no hosted tools`() = runTest {
+    fun `instructions independent of tools reach hooked turns that send no hosted tools`() = runTest {
         val f = fixture()
         f.isSearchEnabled = false
         val scopes = mutableListOf<AgentToolScope>()
@@ -283,12 +283,14 @@ class KoogCodingSessionTest {
                 return if (scope.declared?.isEmpty() == true) "Harness content" else "Remember lessons"
             }
         }
-        val plain = f.runtime().create(CreateSessionRequest(f.target))
+        val plain = f.runtime().create(CreateSessionRequest(f.target, areSessionHooksEnabled = true))
         plain.features.require(SendsPrompts).send(f.request("plain"))
         f.executor.complete()
         runCurrent()
         f.modelSupportsTools = false
-        val chat = f.runtime().create(CreateSessionRequest(f.target, areDetachedToolsEnabled = true))
+        val chat = f.runtime().create(
+            CreateSessionRequest(f.target, areDetachedToolsEnabled = true, areSessionHooksEnabled = true),
+        )
         chat.features.require(SendsPrompts).send(f.request("no tools"))
         f.executor.complete()
         runCurrent()
@@ -297,6 +299,33 @@ class KoogCodingSessionTest {
             assertEquals("Harness content", assertIs<Message.System>(prompt.messages.first()).textContent())
         }
         assertTrue(scopes.all { it.isRefreshedPerTurn && it.workspace == null })
+    }
+
+    @Test
+    fun `service sessions without hook opt-in get no instructions without hosted tools`() = runTest {
+        val f = fixture()
+        f.isSearchEnabled = false
+        val scopes = mutableListOf<AgentToolScope>()
+        f.hostedTools = object : ProfileAgentTools by DetachedTools() {
+            override suspend fun instructions(scope: AgentToolScope): String {
+                scopes += scope
+                return "Harness content"
+            }
+        }
+        // Judges, research chats and transfers never opt into hooks.
+        val judge = f.runtime().create(CreateSessionRequest(f.target))
+        judge.features.require(SendsPrompts).send(f.request("judge"))
+        f.executor.complete()
+        runCurrent()
+        f.modelSupportsTools = false
+        val chat = f.runtime().create(CreateSessionRequest(f.target, areDetachedToolsEnabled = true))
+        chat.features.require(SendsPrompts).send(f.request("no tools"))
+        f.executor.complete()
+        runCurrent()
+        assertEquals(2, f.executor.prompts.size)
+        assertTrue(f.executor.prompts.all { prompt -> prompt.messages.none { it is Message.System } })
+        // Opening detached tools still describes them; content independent of tools is never asked for.
+        assertTrue(scopes.none { it.declared?.isEmpty() == true })
     }
 
     @Test

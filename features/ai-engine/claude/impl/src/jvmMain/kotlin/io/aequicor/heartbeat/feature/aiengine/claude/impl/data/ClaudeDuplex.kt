@@ -23,13 +23,21 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal interface ClaudeDuplex {
     suspend fun send(frame: JsonObject)
     suspend fun receive(): JsonObject?
+
+    /** [receive] with the length of the frame's line; the default measures the frame by serializing it again. */
+    suspend fun receiveSized(): ClaudeInbound? = receive()?.let { ClaudeInbound(it, it.toString().length) }
     suspend fun closeInput()
+}
+
+/** A received frame and the length of the line it was parsed from, for memory budgets. */
+internal data class ClaudeInbound(val frame: JsonObject, val chars: Int) {
+    override fun toString(): String = "ClaudeInbound(chars=$chars)"
 }
 
 /** Bounded queues separate blocking pipes from the protocol's suspending handlers. */
 internal class ClaudeDuplexPipe(scope: CoroutineScope, input: BufferedWriter, output: BufferedReader) : ClaudeDuplex {
     private val writes = Channel<Write>(QUEUE_SIZE)
-    private val frames = Channel<JsonObject>(QUEUE_SIZE)
+    private val frames = Channel<ClaudeInbound>(QUEUE_SIZE)
     private val isClosed = AtomicBoolean(false)
     private val isInputClosed = AtomicBoolean(false)
     private val inputClosed = CompletableDeferred<Unit>()
@@ -66,7 +74,7 @@ internal class ClaudeDuplexPipe(scope: CoroutineScope, input: BufferedWriter, ou
                 val line = output.readFrame() ?: break
                 currentCoroutineContext().ensureActive()
                 if (line.isNotBlank()) {
-                    val frame = parseFrame(line)
+                    val frame = ClaudeInbound(parseFrame(line), line.length)
                     // Backpressure must not leave a control cancellation hidden behind an event backlog.
                     if (!frames.trySend(frame).isSuccess) protocolFailure()
                 }
@@ -83,7 +91,9 @@ internal class ClaudeDuplexPipe(scope: CoroutineScope, input: BufferedWriter, ou
         enqueue(text)
     }
 
-    override suspend fun receive(): JsonObject? {
+    override suspend fun receive(): JsonObject? = receiveSized()?.frame
+
+    override suspend fun receiveSized(): ClaudeInbound? {
         currentCoroutineContext().ensureActive()
         val received = frames.receiveCatching()
         received.exceptionOrNull()?.let { throw it }

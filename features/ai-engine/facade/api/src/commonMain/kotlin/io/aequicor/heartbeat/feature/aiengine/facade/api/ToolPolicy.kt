@@ -41,8 +41,10 @@ public fun interface AgentToolPolicyProvider {
 
 /**
  * Effective catalog names. Off wins over On; nativeOn includes unchanged adapter defaults.
- * Generation is stable for equal effective policies in a scope, and changes after every effective change,
- * including a return to an earlier policy. It is profile-local and is not a persistent revision.
+ * Generation changes after every effective change in a scope, including a return to an earlier policy, and is
+ * stable for equal effective policies while the profile still remembers the scope. The memory is bounded: a scope
+ * not resolved for long may get a new generation for an equal policy, so a changed generation means only a possible
+ * change and the consumer's reload may be redundant. It is profile-local and is not a persistent revision.
  */
 public data class ResolvedToolPolicy(
     val nativeOn: Set<String> = emptySet(),

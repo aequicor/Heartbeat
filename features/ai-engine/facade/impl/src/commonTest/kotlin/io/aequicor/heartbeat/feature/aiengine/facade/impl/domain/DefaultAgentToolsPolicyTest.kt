@@ -95,6 +95,37 @@ internal class DefaultAgentToolsPolicyTest {
     }
 
     @Test
+    fun `adapters declaring only allowed names still receive instructions that need no tool`() = runTest {
+        val seen = mutableListOf<Set<String>?>()
+        val owner = object : Owner() {
+            override suspend fun instructions(scope: AgentToolScope): String {
+                seen += scope.declared
+                return listOfNotNull(
+                    "Learned rule",
+                    "Use read".takeIf { scope.declared?.contains("read") != false },
+                    "Use edit".takeIf { scope.declared?.contains("edit") != false },
+                ).joinToString("\n")
+            }
+        }
+        var denied = setOf("read", "edit")
+        val tools = DefaultAgentTools(
+            setOf(owner),
+            policies = ToolPolicyResolver { _, _, _ -> ResolvedToolPolicy(hostedDenied = denied) },
+        )
+        // Adapters declare what the policy allowed, so all tools disabled leave an empty declared set.
+        val allowed = scope.copy(declared = tools.specifications(scope).mapTo(mutableSetOf()) { it.name })
+        assertEquals(emptySet<String>(), allowed.declared)
+        assertEquals("Learned rule", tools.instructions(allowed))
+        denied = setOf("edit")
+        val partial = scope.copy(declared = tools.specifications(scope).mapTo(mutableSetOf()) { it.name })
+        assertEquals("Learned rule\nUse read", tools.instructions(partial))
+        // A frozen session that declared read keeps it out of reach once the policy also denies it.
+        denied = setOf("read")
+        assertEquals("Learned rule", tools.instructions(partial))
+        assertEquals(listOf<Set<String>?>(emptySet(), setOf("read"), emptySet()), seen)
+    }
+
+    @Test
     fun `policy is checked again after permission and a newly disabled tool never executes`() = runTest {
         var denied = emptySet<String>()
         val entered = CompletableDeferred<Unit>()

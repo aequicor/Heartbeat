@@ -34,6 +34,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import java.io.BufferedWriter
 import java.io.File
 import java.io.StringReader
+import java.io.StringWriter
 import java.io.Writer
 import java.nio.file.FileSystems
 import java.nio.file.Files
@@ -48,6 +49,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ClaudeProcessTest {
@@ -175,6 +178,24 @@ class ClaudeProcessTest {
             assertEquals(EngineFailure.Engine(EngineFailureReason.Unavailable), error.failure)
         } finally {
             Files.deleteIfExists(program)
+        }
+    }
+
+    @Test
+    fun `received frames carry the length of their line`() = runTest {
+        withContext(nativeDispatcher) {
+            coroutineScope {
+                val line = "{ \"type\" : \"assistant\" }"
+                val pipe = ClaudeDuplexPipe(this, BufferedWriter(StringWriter()), StringReader(line + "\n").buffered())
+                try {
+                    val inbound = assertNotNull(pipe.receiveSized())
+                    assertEquals(line.length, inbound.chars)
+                    assertTrue(inbound.chars > inbound.frame.toString().length)
+                    assertNull(pipe.receiveSized())
+                } finally {
+                    pipe.revoke()
+                }
+            }
         }
     }
 

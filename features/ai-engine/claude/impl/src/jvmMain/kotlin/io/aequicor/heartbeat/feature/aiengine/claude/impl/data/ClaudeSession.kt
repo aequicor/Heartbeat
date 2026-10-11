@@ -102,6 +102,13 @@ internal class ClaudeSession(
      */
     @Volatile
     private var areDetachedToolsEnabled: Boolean = false
+
+    /**
+     * Whether the holder opted into session hooks, chosen like [areDetachedToolsEnabled]. Hooks leave content
+     * independent of tools to this engine, so only such a session receives it without hosted tools.
+     */
+    @Volatile
+    private var areSessionHooksEnabled: Boolean = false
     private val storage = Mutex()
     val contextUsage = ClaudeContextUsage()
     private val leases = mutableSetOf<Lease>()
@@ -143,12 +150,16 @@ internal class ClaudeSession(
 
     /**
      * Attaches a handle. Without other holders [areDetachedToolsEnabled] decides hosted tools for later turns of a
-     * session without a project; an attach to a session that is already held keeps the holders' choice.
+     * session without a project, and [areSessionHooksEnabled] whether turns without hosted tools still receive
+     * instructions independent of tools; an attach to a session that is already held keeps the holders' choice.
      */
-    fun lease(areDetachedToolsEnabled: Boolean): ActiveSession = synchronized(lock) {
+    fun lease(areDetachedToolsEnabled: Boolean, areSessionHooksEnabled: Boolean): ActiveSession = synchronized(lock) {
         ensureOpen()
         if (isEvicted) throw EngineException(EngineFailure.Session(SessionFailureReason.NotResumable))
-        if (leases.isEmpty()) this.areDetachedToolsEnabled = areDetachedToolsEnabled
+        if (leases.isEmpty()) {
+            this.areDetachedToolsEnabled = areDetachedToolsEnabled
+            this.areSessionHooksEnabled = areSessionHooksEnabled
+        }
         Lease(current).also { leases.add(it) }
     }
 
@@ -251,7 +262,8 @@ internal class ClaudeSession(
                 ensureOpen()
                 val previous = (current as? ActiveSessionState.Ready)?.lastTurn
                 // The opt-in is fixed at acceptance: a holder attaching before the process starts changes later turns.
-                val submission = Submission(request, text, turn, previous, areDetachedToolsEnabled)
+                val submission =
+                    Submission(request, text, turn, previous, areDetachedToolsEnabled, areSessionHooksEnabled)
                 update(ActiveSessionState.Submitting(request, turn))
                 operation = scope.launch {
                     execute(submission, accepted)
@@ -358,6 +370,7 @@ internal class ClaudeSession(
                 submission.request,
                 submission.turn.target,
                 submission.areDetachedToolsEnabled,
+                submission.areSessionHooksEnabled,
             ),
             observer,
             history,
@@ -770,13 +783,14 @@ private const val MAX_PROMPT_CHARS = 1024 * 1024
 /** Reported by the transport only before a child process exists. */
 private val LAUNCH_FAILURE = EngineFailure.Engine(EngineFailureReason.RequirementsNotMet)
 
-/** An accepted turn; [areDetachedToolsEnabled] is the session's opt-in when the turn was accepted. */
+/** An accepted turn; the opt-ins are the session's choices when the turn was accepted. */
 private data class Submission(
     val request: PromptRequest,
     val text: String,
     val turn: Turn,
     val previous: Turn?,
     val areDetachedToolsEnabled: Boolean,
+    val areSessionHooksEnabled: Boolean,
 ) {
     override fun toString(): String = "Submission(***)"
 }

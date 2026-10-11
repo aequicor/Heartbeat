@@ -26,18 +26,42 @@ internal class NativeToolGate(
 ) {
     private val log = Log.tag("NativeToolGate")
 
-    suspend fun prepare(context: AgentToolContext, call: NativeToolCall): NativePreflight = guarded {
-        if (!isEnabled(context, call)) return@guarded denied("Native tool is disabled or its policy is unavailable")
-        val hook = beforeTool(context, call)
-        if (hook is ToolHookVerdict.Deny) {
-            return@guarded denied("Blocked by a session hook: ${hook.reason.take(HOOK_CHARS)}")
+    suspend fun prepare(context: AgentToolContext, call: NativeToolCall): NativePreflight {
+        // What decided the outcome, for the one central log line: policy, hook, trust or error.
+        var source = "policy"
+        val result = guarded(onFailure = { source = "error" }) { preflight(context, call) { source = it } }
+        log.i {
+            "Native tool preflight name=${call.name} action=${call.action} outcome=${result.outcome()} source=$source"
         }
-        val isApprovalRequired = hook is ToolHookVerdict.Ask || !call.covered(context.trust)
-        currentCoroutineContext().ensureActive()
-        if (!isEnabled(context, call)) return@guarded denied("Native tool became unavailable")
-        if (!isApprovalRequired) return@guarded NativePreflight.Ready(NativeVerdict.Allow)
-        approval(call, hook)
-    }.also { log.i { "Native tool preflight name=${call.name} action=${call.action} outcome=${it.outcome()}" } }
+        return result
+    }
+
+    /** Reports to [decidedBy] the source of the check that decides the outcome, as each check begins. */
+    private suspend fun preflight(
+        context: AgentToolContext,
+        call: NativeToolCall,
+        decidedBy: (String) -> Unit,
+    ): NativePreflight {
+        if (!isEnabled(context, call)) return denied("Native tool is disabled or its policy is unavailable")
+        decidedBy("hook")
+        val hook = beforeTool(context, call)
+        if (hook !is ToolHookVerdict.Deny) {
+            currentCoroutineContext().ensureActive()
+            decidedBy("policy")
+        }
+        return when {
+            hook is ToolHookVerdict.Deny -> denied("Blocked by a session hook: ${hook.reason.take(HOOK_CHARS)}")
+
+            !isEnabled(context, call) -> denied("Native tool became unavailable")
+
+            hook is ToolHookVerdict.Ask -> approval(call, hook).also { decidedBy("hook") }
+
+            else -> {
+                decidedBy("trust")
+                if (call.covered(context.trust)) NativePreflight.Ready(NativeVerdict.Allow) else approval(call, hook)
+            }
+        }
+    }
 
     private suspend fun beforeTool(context: AgentToolContext, call: NativeToolCall): ToolHookVerdict {
         val hooked = hooks.context(context.session, context.request, context.turn)?.let { bound ->
@@ -68,25 +92,33 @@ internal class NativeToolGate(
     }
 
     suspend fun confirm(context: AgentToolContext, call: NativeToolCall, approval: AgentToolApproval): NativeVerdict {
-        val result = guarded {
+        // What decided the outcome, for the one central log line: user, policy or error.
+        var source = "policy"
+        val result = guarded(onFailure = { source = "error" }) {
             if (!isEnabled(context, call)) return@guarded denied("Native tool became unavailable")
+            source = "user"
             if (!context.permissions.request(approval)) return@guarded denied("The user declined this action")
             currentCoroutineContext().ensureActive()
             if (isEnabled(context, call)) {
                 NativePreflight.Ready(NativeVerdict.Allow)
             } else {
+                source = "policy"
                 denied("Native tool became unavailable")
             }
         }
-        log.i { "Native tool confirmation name=${call.name} action=${call.action} outcome=${result.outcome()}" }
+        log.i {
+            "Native tool confirmation name=${call.name} action=${call.action} outcome=${result.outcome()} " +
+                "source=$source"
+        }
         return (result as NativePreflight.Ready).verdict
     }
 
-    private suspend fun guarded(block: suspend () -> NativePreflight): NativePreflight = try {
+    private suspend fun guarded(onFailure: () -> Unit, block: suspend () -> NativePreflight): NativePreflight = try {
         block()
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
+        onFailure()
         log.w(IllegalStateException("Native authorization failed (${e::class.simpleName.orEmpty()})")) {
             "Native tool authorization failed"
         }

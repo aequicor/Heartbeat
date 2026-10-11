@@ -101,7 +101,8 @@ internal class ClaudeControlExchange(
     private suspend fun read(scope: CoroutineScope) {
         try {
             while (true) {
-                val frame = duplex.receive() ?: break
+                val inbound = duplex.receiveSized() ?: break
+                val frame = inbound.frame
                 validate(frame)
                 when (frame.text("type")) {
                     "control_response" -> response(frame)
@@ -114,7 +115,7 @@ internal class ClaudeControlExchange(
                         val isResult = frame.text("type") == "result" &&
                             (frame["parent_tool_use_id"] == null || frame["parent_tool_use_id"] == JsonNull)
                         if (isResult) revoke()
-                        enqueue(frame)
+                        enqueue(frame, inbound.chars)
                         if (isResult) duplex.closeInput()
                     }
                 }
@@ -125,9 +126,12 @@ internal class ClaudeControlExchange(
         }
     }
 
-    /** A lagging observer is not a protocol violation; only a backlog beyond the memory budget fails the turn. */
-    private fun enqueue(frame: JsonObject) {
-        val size = frame.toString().length.toLong()
+    /**
+     * A lagging observer is not a protocol violation; only a backlog beyond the memory budget fails the turn. The
+     * budget counts line characters of frames kept parsed, which take several times more memory than their text.
+     */
+    private fun enqueue(frame: JsonObject, chars: Int) {
+        val size = chars.toLong()
         if (queuedChars.addAndGet(size) > MAX_QUEUED_EVENT_CHARS) {
             log.w { "Claude event backlog exceeded its memory budget" }
             throw EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))
@@ -224,4 +228,4 @@ private const val INITIALIZE_TIMEOUT_MS = 60_000L
 private const val MAX_HANDLERS = 32
 private const val MAX_REQUESTS = 4_096
 private const val MAX_ID_CHARS = 256
-private const val MAX_QUEUED_EVENT_CHARS = 64L * 1024 * 1024
+internal const val MAX_QUEUED_EVENT_CHARS = 16L * 1024 * 1024
