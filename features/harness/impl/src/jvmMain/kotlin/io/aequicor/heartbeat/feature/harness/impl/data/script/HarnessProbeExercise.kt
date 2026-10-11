@@ -14,11 +14,14 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.future.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.FileTime
 import java.security.MessageDigest
+import kotlin.time.Duration.Companion.seconds
 
 /** Runs only fixed fixtures with private empty service implementations, never a profile or external agent. */
 internal suspend fun exerciseHarnessHost(environment: HarnessProbeEnvironment, parent: CoroutineScope) {
@@ -37,6 +40,13 @@ internal suspend fun exerciseHarnessHost(environment: HarnessProbeEnvironment, p
         checkProbe(diagnostics.isNotEmpty() && diagnostics.size <= MAX_HARNESS_DIAGNOSTICS, "DiagnosticsCount")
         checkProbe(diagnostics.all { it.message.length <= MAX_HARNESS_DIAGNOSTIC_CHARS }, "DiagnosticsLength")
     }
+    val started = environment.workers?.processes
+    if (started != null) {
+        checkProbe(started.isNotEmpty(), "CompilerWorker")
+        // The closed host killed its idle worker; the kill completes asynchronously.
+        val exited = withTimeoutOrNull(WORKER_EXIT_TIMEOUT) { started.forEach { it.onExit().await() } }
+        checkProbe(exited != null, "CompilerWorkerExit")
+    }
     val files = cacheFiles(environment.directory)
     checkProbe(files.count { it.fileName.toString().endsWith(".jar") } == 2, "CacheArtifacts")
     checkProbe(files.count { it.fileName.toString().endsWith(".json") } == 2, "CacheMetadata")
@@ -46,6 +56,7 @@ internal suspend fun exerciseHarnessHost(environment: HarnessProbeEnvironment, p
         compileAndEvaluate(host, scope, HarnessCodeKind.Script)
         compileAndEvaluate(host, scope, HarnessCodeKind.Workflow)
     }
+    if (started != null) checkProbe(environment.workers.processes == started, "CacheReloadCompiler")
     checkProbe(cacheFiles(environment.directory).toSet() == files.toSet(), "CacheReloadFiles")
     checkProbe(files.all { cacheSnapshot(it) == stored[it] }, "CacheReloadWrites")
 }
@@ -106,6 +117,7 @@ private fun cacheSnapshot(path: Path): Pair<List<Byte>, FileTime> =
     MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(path)).toList() to Files.getLastModifiedTime(path)
 
 private const val CACHE_MARKER_MILLIS = 946684800000L
+private val WORKER_EXIT_TIMEOUT = 10.seconds
 private val SCRIPT_SOURCE = """
     import io.aequicor.heartbeat.feature.harness.api.HarnessId
     import io.aequicor.heartbeat.feature.harness.api.ItemName

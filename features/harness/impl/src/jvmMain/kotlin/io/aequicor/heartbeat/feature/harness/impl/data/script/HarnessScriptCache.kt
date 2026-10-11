@@ -1,8 +1,10 @@
 package io.aequicor.heartbeat.feature.harness.impl.data.script
 
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeDiagnostic
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeKind
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCompilationRequest
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okio.ByteString.Companion.encodeUtf8
@@ -13,10 +15,11 @@ import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.security.MessageDigest
 import java.util.jar.JarInputStream
-import kotlin.script.experimental.jvm.impl.KJvmCompiledScript
-import kotlin.script.experimental.jvmhost.saveToJar
 
-/** Called under the host cache mutex. Cache metadata contains diagnostics, never raw source. */
+/**
+ * Called under the host cache mutex, except for the per-compilation files of [newOutput] and [discardOutput]. Cache
+ * metadata contains diagnostics, never raw source.
+ */
 internal class HarnessScriptCache(private val directory: Path) {
     fun itemKey(request: HarnessCompilationRequest): String =
         Json.encodeToString(listOf(request.harness.value, request.item.value)).encodeUtf8().sha256().hex()
@@ -38,18 +41,22 @@ internal class HarnessScriptCache(private val directory: Path) {
         }
     }
 
+    /** A new temporary file for a compiler's jar; [store] moves it into the cache, [discardOutput] removes it. */
+    fun newOutput(): Path {
+        Files.createDirectories(directory)
+        return Files.createTempFile(directory, TEMPORARY_PREFIX, ".jar")
+    }
+
+    /** Moves the compiled [jar] (from [newOutput]) into the cache with its metadata. */
     fun store(
         itemKey: String,
         key: String,
         kind: HarnessCodeKind,
-        code: KJvmCompiledScript,
+        jar: Path,
         warnings: List<HarnessCodeDiagnostic>,
     ): CachedHarnessCode {
-        Files.createDirectories(directory)
-        val jar = Files.createTempFile(directory, "compiler-", ".jar")
-        val metadata = Files.createTempFile(directory, "compiler-", ".json")
+        val metadata = Files.createTempFile(directory, TEMPORARY_PREFIX, ".json")
         try {
-            code.saveToJar(jar.toFile())
             val header = HarnessCacheHeader(key, kind, jar.fileDigest(), warnings)
             Files.writeString(metadata, Json.encodeToString(header))
             val artifact = readArtifact(jar, kind)
@@ -63,16 +70,37 @@ internal class HarnessScriptCache(private val directory: Path) {
                 if (!isTransferred) artifact.close()
             }
         } finally {
-            Files.deleteIfExists(jar)
             Files.deleteIfExists(metadata)
         }
     }
 
-    /** Temporary outputs survive only a crash between their write and the atomic move; none is live at startup. */
+    /** Removes an [output] that was not stored; one that cannot be removed is purged by the next host. */
+    fun discardOutput(output: Path) {
+        try {
+            Files.deleteIfExists(output)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(error.safeHarnessFailure()) { "compiler output remains in the cache until the next start" }
+        }
+    }
+
+    /**
+     * Temporary outputs survive only a crash between their write and the atomic move; none is live at startup. An
+     * output that cannot be removed is logged, and the purge goes on with the next one.
+     */
     fun purgeTemporary() {
         if (!Files.isDirectory(directory)) return
-        Files.newDirectoryStream(directory, "compiler-*").use { entries ->
-            entries.forEach { Files.deleteIfExists(it) }
+        Files.newDirectoryStream(directory, "$TEMPORARY_PREFIX*").use { entries ->
+            entries.forEach { entry ->
+                try {
+                    Files.deleteIfExists(entry)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    log.w(error.safeHarnessFailure()) { "stale compiler output remains in the cache" }
+                }
+            }
         }
     }
 
@@ -130,6 +158,8 @@ internal fun Path.fileDigest(): String {
 }
 
 private const val CACHE_VERSION = 1
+private const val TEMPORARY_PREFIX = "compiler-"
+private val log = Log.tag("HarnessScriptCache")
 private const val MAX_ARTIFACT_BYTES = 16 * 1024 * 1024
 private const val MAX_ARTIFACT_ENTRIES = 4096
 

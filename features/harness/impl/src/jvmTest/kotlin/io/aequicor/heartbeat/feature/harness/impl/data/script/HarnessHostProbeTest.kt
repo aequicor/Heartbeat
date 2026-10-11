@@ -51,7 +51,7 @@ class HarnessHostProbeTest {
         val entered = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
         val owner = AtomicReference<Job>()
-        val completion = runHarnessProbe(directory.toString(), "probe-test") { _, _, scope, _ ->
+        val completion = runHarnessProbe(directory.toString(), "probe-test", workers = null) { _, _, scope, _ ->
             owner.set(checkNotNull(scope.coroutineContext[Job]))
             object : HarnessScriptHost {
                 override val isAvailable = true

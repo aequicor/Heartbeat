@@ -60,7 +60,7 @@
 
 # Kotlin 2.4.20 compiler-embeddable keeps optional IDE/build-tool entry points in the same jar.
 # Its published runtime POM does not require these integrations. The release compiler probe verifies the
-# supported in-process K2 + StringScriptSource path; keep each missing type explicit so additions still fail.
+# supported K2 + StringScriptSource path in the compiler worker; keep each missing type explicit so additions still fail.
 
 # Static-analysis and Objective-C ownership annotations bundled references do not affect JVM execution.
 -dontwarn kotlin.annotations.jvm.Mutable,kotlin.annotations.jvm.ReadOnly

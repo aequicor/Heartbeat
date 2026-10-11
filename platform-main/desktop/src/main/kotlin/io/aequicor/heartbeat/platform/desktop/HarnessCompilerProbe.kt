@@ -11,9 +11,10 @@ import java.util.concurrent.CompletionStage
 import java.util.concurrent.TimeUnit
 
 /**
- * Exercises the compiler shipped in the release image, before opening any user profile. The feature owns
- * compilation and evaluation; this host checks that native window services and the event thread still work
- * afterwards. Reflection preserves the desktop module's dependency boundary, as for the packaged workers.
+ * Exercises the compiler shipped in the release image, before opening any user profile: the feature compiles in its
+ * worker process, started through this launcher's private worker mode ([runPackagedHarnessCompilerWorker]), and
+ * evaluates in this one. This host checks that native window services and the event thread still work afterwards.
+ * Reflection preserves the desktop module's dependency boundary, as for the packaged workers.
  */
 internal fun handleHarnessCompilerProbe(arguments: Array<String>): Boolean {
     if (arguments.firstOrNull() != HARNESS_PROBE_ARGUMENT) return false
@@ -36,8 +37,8 @@ internal fun handleHarnessCompilerProbe(arguments: Array<String>): Boolean {
         isSuccessful = true
         Log.tag("HarnessHost").i { "Packaged harness compiler and desktop event thread verified" }
     } finally {
-        // A timed-out detached compiler can still hold Windows file handles. Its process-level deadline owns
-        // termination; removing the directory here would race its writes and could mask the original failure.
+        // A timed-out probe can still own a compilation whose worker writes into this directory until its budget
+        // kills it; removing the directory here would race those writes and could mask the original failure.
         if (pending?.isDone != false) {
             cleanHarnessProbe(directory, isSuccessful)
         } else {

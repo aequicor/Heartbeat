@@ -39,6 +39,7 @@ import javax.swing.SwingUtilities
 fun main(arguments: Array<String>) {
     if (runPackagedBuildWorker(arguments)) return
     if (runPackagedPlantUmlWorker(arguments)) return
+    if (runPackagedHarnessCompilerWorker(arguments)) return
     if (handleWindowRuntimeProbe(arguments)) return
     if (handleComputerUseIndicatorProbe(arguments)) return
     if (handleHarnessCompilerProbe(arguments)) return

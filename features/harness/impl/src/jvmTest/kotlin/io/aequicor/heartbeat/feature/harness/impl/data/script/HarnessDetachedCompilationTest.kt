@@ -3,34 +3,30 @@ package io.aequicor.heartbeat.feature.harness.impl.data.script
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.ItemId
+import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeDiagnostic
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeKind
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCompilationRequest
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCompilationResult
+import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessDiagnosticSeverity
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
+import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.CoroutineContext
-import kotlin.script.experimental.api.CompiledScript
-import kotlin.script.experimental.api.ResultWithDiagnostics
-import kotlin.script.experimental.api.ScriptCompilationConfiguration
-import kotlin.script.experimental.api.ScriptDiagnostic
-import kotlin.script.experimental.api.SourceCode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
-import kotlin.time.Duration.Companion.seconds
 
 class HarnessDetachedCompilationTest {
     @Test
@@ -66,48 +62,6 @@ class HarnessDetachedCompilationTest {
     }
 
     @Test
-    fun `compiler exceeding its budget is interrupted and releases the profile permit`() = runTest {
-        val directory = Files.createTempDirectory("harness-budget")
-        val io = StandardTestDispatcher(testScheduler)
-        val thread = ManualCompilerDispatcher()
-        val job = SupervisorJob()
-        val compiler = FakeCompiler()
-        val host = JvmHarnessScriptHost(
-            directory,
-            "test",
-            CoroutineScope(job + io),
-            ManualCompilerDispatcher().provider(io),
-            compiler,
-            thread,
-            60.seconds,
-        )
-        try {
-            // The first compiler never gets a thread: it stands for a run that does not return.
-            val stuck = async { host.compile(request()) }
-            runCurrent()
-            val next = async { host.compile(request(ItemId("other"))) }
-            runCurrent()
-            assertEquals(1, thread.pending.size)
-            advanceTimeBy(60_000)
-            runCurrent()
-            assertEquals(HarnessCompilationResult.TimedOut, stuck.await())
-            assertEquals(2, thread.pending.size)
-            thread.pending.removeLast().run()
-            runCurrent()
-            assertIs<HarnessCompilationResult.Failure>(next.await())
-            assertEquals(1, compiler.calls.get())
-            // The abandoned run was cancelled before it got a thread, so it never enters the compiler.
-            thread.drain()
-            assertEquals(1, compiler.calls.get())
-        } finally {
-            job.cancel()
-            thread.drain()
-            job.join()
-            directory.toFile().deleteRecursively()
-        }
-    }
-
-    @Test
     fun `stale temporary compiler outputs are purged once by a new host`() = runTest {
         val directory = Files.createTempDirectory("harness-stale")
         val dispatcher = ManualCompilerDispatcher()
@@ -120,6 +74,8 @@ class HarnessDetachedCompilationTest {
             FakeCompiler(),
         )
         try {
+            // A non-empty directory cannot be deleted: the purge logs it and goes on with the other outputs.
+            Files.createDirectories(directory.resolve("compiler-0")).resolve("kept").let { Files.writeString(it, "") }
             Files.writeString(directory.resolve("compiler-1.jar"), "partial")
             Files.writeString(directory.resolve("compiler-2.json"), "partial")
             Files.writeString(directory.resolve("unrelated.txt"), "kept")
@@ -129,7 +85,7 @@ class HarnessDetachedCompilationTest {
             runCurrent()
             assertIs<HarnessCompilationResult.Failure>(waiting.await())
             val names = Files.list(directory).use { files -> files.map { it.fileName.toString() }.toList() }
-            assertEquals(listOf("unrelated.txt"), names)
+            assertEquals(listOf("compiler-0", "unrelated.txt"), names.sorted())
         } finally {
             job.cancel()
             dispatcher.drain()
@@ -238,11 +194,10 @@ private class ManualCompilerDispatcher : CoroutineDispatcher() {
 /** Counts compiler entries and fails without producing bytecode. */
 private class FakeCompiler : HarnessKotlinCompiler {
     val calls = AtomicInteger()
-    override fun compile(
-        source: SourceCode,
-        configuration: ScriptCompilationConfiguration,
-    ): ResultWithDiagnostics<CompiledScript> {
+    override suspend fun compile(kind: HarnessCodeKind, source: String, output: Path): HarnessCompilerOutcome {
         calls.incrementAndGet()
-        return ResultWithDiagnostics.Failure(ScriptDiagnostic(ScriptDiagnostic.unspecifiedError, "fake failure"))
+        return HarnessCompilerOutcome.Failed(
+            listOf(HarnessCodeDiagnostic(HarnessDiagnosticSeverity.Error, "fake failure")),
+        )
     }
 }

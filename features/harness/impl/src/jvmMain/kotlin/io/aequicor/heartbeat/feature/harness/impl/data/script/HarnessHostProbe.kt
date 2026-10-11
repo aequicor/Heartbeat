@@ -25,13 +25,19 @@ import java.util.concurrent.atomic.AtomicReference
 /** Standalone release-image probe, invoked before profile DI or any user data is opened. */
 public object HarnessHostProbe {
     /**
-     * Compiles and evaluates fixed local fixtures, checks a fresh host's disk cache and bounded diagnostics.
-     * Completion proves that every owned coroutine, artifact lease and executor has finished. A compiler wait
+     * Compiles fixed local fixtures in the compiler worker process and evaluates them, checks a fresh host's disk
+     * cache and bounded diagnostics, and that every worker has exited once its host closed. Completion proves that
+     * every owned coroutine, artifact lease and executor has finished. A compiler wait
      * timeout is a failure, but never shortens this resource barrier. Errors contain no source or filesystem paths.
      */
     @JvmStatic
-    public fun run(cacheDirectory: String, appVersion: String): CompletionStage<String> =
-        runHarnessProbe(cacheDirectory, appVersion, ::JvmHarnessScriptHost)
+    public fun run(cacheDirectory: String, appVersion: String): CompletionStage<String> {
+        val workers = HarnessProbeWorkers()
+        return runHarnessProbe(cacheDirectory, appVersion, workers) { directory, version, scope, dispatchers ->
+            val compiler = ProcessHarnessCompiler(scope, dispatchers.io, dispatchers.default, workers)
+            JvmHarnessScriptHost(directory, version, scope, dispatchers, compiler)
+        }
+    }
 }
 
 internal typealias HarnessProbeHostFactory = (Path, String, CoroutineScope, DispatcherProvider) -> HarnessScriptHost
@@ -40,6 +46,7 @@ internal typealias HarnessProbeHostFactory = (Path, String, CoroutineScope, Disp
 internal fun runHarnessProbe(
     cacheDirectory: String,
     appVersion: String,
+    workers: HarnessProbeWorkers?,
     factory: HarnessProbeHostFactory,
 ): CompletionStage<String> {
     val directory = try {
@@ -66,7 +73,7 @@ internal fun runHarnessProbe(
         failure.remember(error)
     }
     val scope = CoroutineScope(root + dispatcher + errors)
-    val environment = HarnessProbeEnvironment(directory, appVersion, dispatchers, factory)
+    val environment = HarnessProbeEnvironment(directory, appVersion, dispatchers, factory, workers)
     val completed = CompletableFuture<String>()
     val worker = scope.launch { exerciseProbe(environment, scope, failure) }
     worker.invokeOnCompletion { error ->

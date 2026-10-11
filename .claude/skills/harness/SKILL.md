@@ -70,7 +70,8 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
 
 ## После апгрейда Kotlin
 
-Скрипты компилируются в процессе приложения (`kotlin-scripting-jvm-host`, K2). После смены версии Kotlin:
+Скрипты компилирует K2 (`kotlin-scripting-jvm-host`) в процессе-воркере (`data/script/worker`, запуск —
+`ProcessHarnessCompiler`), а исполняются они в процессе приложения. После смены версии Kotlin:
 
 ```bash
 ./gradlew :features:harness:impl:jvmTest
@@ -78,8 +79,8 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
 ```
 
 Затем запусти собранное приложение с `--heartbeat-harness-probe` и проверь код выхода 0: проба компилирует и
-исполняет скрипт и workflow в релизной раскладке (ProGuard, jlink). Ненулевой код — смотри `HarnessHostProbe.kt`
-и keep-правила.
+исполняет скрипт и workflow в релизной раскладке (ProGuard, jlink), компилятор — в упакованном воркере.
+Ненулевой код — смотри `HarnessHostProbe.kt` и keep-правила.
 
 ## Проверка
 
