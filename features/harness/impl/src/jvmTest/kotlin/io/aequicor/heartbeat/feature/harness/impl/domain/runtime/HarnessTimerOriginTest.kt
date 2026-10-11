@@ -25,11 +25,13 @@ class HarnessTimerOriginTest {
                 assertEquals(origins.current(), currentCoroutineContext()[HarnessOriginContext]?.origin)
             }
         }
-        fixture.timers.single().every(30.seconds) { observed["neutral"] = origins.current() }
+        withContext(origins.context(HarnessCallOrigin())) {
+            fixture.timers.single().every(30.seconds) { observed["neutral"] = origins.current() }
+        }
         runCurrent()
         advanceTimeBy(30.seconds)
         runCurrent()
         assertEquals(mapOf("restricted" to restricted, "neutral" to HarnessCallOrigin()), observed)
-        assertEquals(HarnessCallOrigin(), origins.current())
+        assertEquals(DETACHED_ORIGIN, origins.current())
     }
 }

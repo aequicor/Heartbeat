@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.services
 
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
+import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.dispatchSession
 import io.aequicor.heartbeat.feature.scheduler.api.ScheduledWake
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
@@ -112,6 +113,35 @@ class HarnessWakeQuotasTest {
         repeat(6) { quota.acknowledged(WakeId("w$it")) }
         now += 1.seconds
         quota.reserve(next) { SchedulerState.Ready() }
+    }
+
+    @Test
+    fun `uncertain reservations settle against the scheduler snapshot instead of leaking`() = runTest {
+        val quota = HarnessWakeQuotas(clock)
+        val accepted = ownedWake("accepted")
+        val lost = ownedWake("lost")
+        for (wake in listOf(accepted, lost)) {
+            quota.reserve(HarnessWakeReservation(wake.id, HARNESS, dispatchSession, true)) { SchedulerState.Ready() }
+            quota.uncertain(wake.id)
+        }
+        val next = HarnessWakeReservation(WakeId("next"), HARNESS, dispatchSession, false)
+        // A durable id is counted once by the snapshot, but the lost one still holds the second session slot.
+        assertFailsWith<IllegalStateException> { quota.reserve(next) { SchedulerState.Ready(listOf(accepted)) } }
+        now += 1.minutes
+        quota.reserve(next) { SchedulerState.Ready(listOf(accepted)) }
+        quota.rejected(next.id)
+        // The released attempt still holds its rate debit for one window from settlement, then ages out.
+        repeat(HarnessLimits.SENDS_PER_MINUTE - 1) { index ->
+            val id = WakeId("rate$index")
+            quota.reserve(
+                HarnessWakeReservation(id, HARNESS, dispatchSession.copy(nativeId = "r$index"), true),
+            ) { SchedulerState.Ready() }
+            quota.acknowledged(id)
+        }
+        val limited = HarnessWakeReservation(WakeId("limited"), HARNESS, dispatchSession, true)
+        assertFailsWith<IllegalStateException> { quota.reserve(limited) { SchedulerState.Ready() } }
+        now += 1.minutes
+        quota.reserve(limited) { SchedulerState.Ready() }
     }
 
     @Test

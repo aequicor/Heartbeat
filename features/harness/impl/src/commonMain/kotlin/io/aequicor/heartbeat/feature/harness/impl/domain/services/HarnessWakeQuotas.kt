@@ -15,14 +15,17 @@ import kotlin.time.Instant
 
 /**
  * Profile-owned reservations bridge the gap before a scheduler receipt. Durable wakes, including delivering
- * ones, count together with uncertain reservations by exact id. Send rate is shared by all items of a harness.
- * A send awaiting its receipt never ages out. Acknowledgement starts the minute window conservatively after
- * acceptance; uncertain attempts retain both debits until an authoritative receipt. Caller timestamps are not used.
+ * ones, count together with uncertain reservations by exact id. The delivery rate (script sends and wakes) is
+ * shared by all items of a harness. A rate debit awaiting its receipt never ages out. Acknowledgement starts the
+ * minute window conservatively after acceptance; uncertain attempts retain both debits until the next reservation
+ * reconciles them with the scheduler snapshot: a durable id is acknowledged there, an absent one is released after
+ * [UNCERTAIN_GRACE] while its rate debit still runs one more window. Caller timestamps are not used.
  * The snapshot supplier is called inside the mutex; a snapshot taken before waiting could miss a concurrent ACK.
  */
 internal class HarnessWakeQuotas(private val clock: Clock) {
     private val mutex = Mutex()
     private val reservations = mutableMapOf<WakeId, SessionRef>()
+    private val uncertain = mutableMapOf<WakeId, Instant>()
     private val sends = mutableMapOf<WakeId, HarnessSendStamp>()
     private val log = Log.tag("HarnessServices")
 
@@ -33,8 +36,8 @@ internal class HarnessWakeQuotas(private val clock: Clock) {
         val harness = reservation.harness
         val session = reservation.session
         val at = clock.now()
-        val isSend = reservation.isSend
         val ready = checkNotNull(snapshot()) { "Scheduler is not ready" }
+        reconcile(ready, at)
         val pending = ready.wakes.filter { it.request.ownerFeature == HARNESS_WAKE_OWNER }
             .associate { it.id to it.session } + reservations
         check(id !in pending) { "Wake identity already reserved" }
@@ -43,7 +46,7 @@ internal class HarnessWakeQuotas(private val clock: Clock) {
             "Harness session wake quota reached"
         }
         sends.entries.removeAll { (_, stamp) -> stamp.at?.let { at - it >= 1.minutes } == true }
-        if (isSend) {
+        if (reservation.isRateLimited) {
             check(sends.values.count { it.harness == harness } < HarnessLimits.SENDS_PER_MINUTE) {
                 "Harness send rate quota reached"
             }
@@ -56,6 +59,7 @@ internal class HarnessWakeQuotas(private val clock: Clock) {
     @HighFrequency
     suspend fun acknowledged(id: WakeId) = mutex.withLock {
         log.v { "transfer harness wake reservation" }
+        uncertain.remove(id)
         if (reservations.remove(id) != null) {
             sends[id]?.let { sends[id] = it.copy(at = clock.now()) }
         }
@@ -66,9 +70,38 @@ internal class HarnessWakeQuotas(private val clock: Clock) {
     @HighFrequency
     suspend fun rejected(id: WakeId) = mutex.withLock {
         log.v { "release rejected harness wake reservation" }
+        uncertain.remove(id)
         reservations.remove(id)
         sends.remove(id)
         Unit
+    }
+
+    /** The scheduler may or may not have accepted [id]; both debits stay until a later snapshot settles it. */
+    @HighFrequency
+    suspend fun uncertain(id: WakeId) = mutex.withLock {
+        log.v { "retain uncertain harness wake reservation" }
+        if (id in reservations) uncertain[id] = clock.now()
+        Unit
+    }
+
+    /** Runs under [mutex]; never releases an id the scheduler still holds, so durable capacity is counted once. */
+    @HighFrequency
+    private fun reconcile(ready: SchedulerState.Ready, at: Instant) {
+        val settled = uncertain.filter { (id, since) ->
+            ready.wakes.any { it.id == id } || at - since >= UNCERTAIN_GRACE
+        }.keys
+        if (settled.isEmpty()) return
+        log.v { "settle uncertain harness wake reservations" }
+        settled.forEach { id ->
+            uncertain.remove(id)
+            reservations.remove(id)
+            sends[id]?.let { sends[id] = it.copy(at = at) }
+        }
+    }
+
+    private companion object {
+        /** Longer than any scheduler receipt wait, so a late but genuine acceptance is visible in its snapshot. */
+        val UNCERTAIN_GRACE = 1.minutes
     }
 }
 
@@ -83,7 +116,7 @@ internal data class HarnessWakeReservation(
     val id: WakeId,
     val harness: HarnessId,
     val session: SessionRef,
-    val isSend: Boolean,
+    val isRateLimited: Boolean,
 ) {
     override fun toString(): String = "HarnessWakeReservation(***)"
 }

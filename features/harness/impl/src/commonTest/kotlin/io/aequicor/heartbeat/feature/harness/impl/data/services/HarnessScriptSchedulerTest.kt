@@ -6,14 +6,17 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
+import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceTarget
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.dispatchSession
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.scriptRequest
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessTarget
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import io.aequicor.heartbeat.feature.scheduler.api.WakeCondition
 import io.aequicor.heartbeat.feature.scheduler.api.WakeId
 import io.aequicor.heartbeat.feature.scheduler.api.deliveryRequestId
@@ -30,6 +33,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 class HarnessScriptSchedulerTest {
@@ -56,9 +60,9 @@ class HarnessScriptSchedulerTest {
     @Test
     fun `wake uses actual catalog route and private owned request with durable captured ancestry`() = runTest {
         val fixture = HarnessScriptSchedulerFixture(this)
-        fixture.activate()
-        val origin = HarnessCallOrigin(true, mapOf(HarnessId("ancestor") to 2))
-        fixture.runtime.origins.origin = origin
+        val active = fixture.activate()
+        val ancestor = HarnessId("ancestor")
+        fixture.runtime.origins.origin = HarnessCallOrigin(sendChain = mapOf(ancestor to 2))
         val id = fixture.script.scheduler.wake(dispatchSession, condition, "```" + "private reminder" + "```")
         val request = fixture.port.scheduled.single()
         assertEquals(id, request.id)
@@ -70,15 +74,52 @@ class HarnessScriptSchedulerTest {
         assertNull(request.target)
         assertEquals("harness", request.ownerFeature)
         assertEquals("```" + "private reminder" + "```", request.note)
-        assertEquals(origin, HarnessOwnedContext().decode(request.ownerContext)?.origin())
-        assertEquals(origin, fixture.ancestry.lookup(dispatchSession, id.deliveryRequestId()))
+        // The delivered wake is an agent turn of this harness, so it extends only this harness's chain.
+        val inherited = HarnessCallOrigin(sendChain = mapOf(ancestor to 2, active.request.harness.id to 1))
+        assertEquals(inherited, HarnessOwnedContext().decode(request.ownerContext)?.origin())
+        assertEquals(inherited, fixture.ancestry.lookup(dispatchSession, id.deliveryRequestId()))
+    }
+
+    @Test
+    fun `hook origins and exhausted chains cannot wake a session`() = runTest {
+        val fixture = HarnessScriptSchedulerFixture(this)
+        val active = fixture.activate()
+        val reads = fixture.externalReads
+        val forbidden = listOf(
+            HarnessCallOrigin(isHookRestricted = true),
+            HarnessCallOrigin(sendChain = mapOf(active.request.harness.id to HarnessLimits.SEND_CHAIN)),
+        )
+        for (origin in forbidden) {
+            fixture.runtime.origins.origin = origin
+            assertFailsWith<IllegalStateException> { fixture.script.scheduler.wake(dispatchSession, condition, "loop") }
+        }
+        assertEquals(reads, fixture.externalReads)
+        assertTrue(fixture.port.scheduled.isEmpty())
+    }
+
+    @Test
+    fun `wakes and sends share the harness delivery rate`() = runTest {
+        val fixture = HarnessScriptSchedulerFixture(this)
+        val active = fixture.activate()
+        val owner = HarnessInstanceTarget(active.request, active)
+        fixture.runtime.origins.origin = HarnessCallOrigin()
+        repeat(HarnessLimits.SENDS_PER_MINUTE / 2) {
+            fixture.script.scheduler.wake(dispatchSession, condition, "wake")
+            fixture.sender.send(owner, dispatchSession, "send", HarnessCallOrigin())
+            // Delivery is terminal; only the harness-wide rate debit remains.
+            fixture.port.ready = SchedulerState.Ready()
+        }
+        assertFailsWith<IllegalStateException> { fixture.script.scheduler.wake(dispatchSession, condition, "over") }
+        advanceTimeBy(1.minutes)
+        fixture.script.scheduler.wake(dispatchSession, condition, "next minute")
+        assertEquals(HarnessLimits.SENDS_PER_MINUTE + 1, fixture.port.scheduled.size)
     }
 
     @Test
     fun `changed route while storing ancestry rejects handoff and returns quota`() = runTest {
         val fixture = HarnessScriptSchedulerFixture(this)
         fixture.activate()
-        fixture.runtime.origins.origin = HarnessCallOrigin(true)
+        fixture.runtime.origins.origin = HarnessCallOrigin()
         val stored = CompletableDeferred<Unit>()
         val proceed = CompletableDeferred<Unit>()
         fixture.ancestry.beforeRestrict = {
@@ -107,7 +148,7 @@ class HarnessScriptSchedulerTest {
     fun `scope revision or instance replacement during admission prevents side effects`() = runTest {
         val fixture = HarnessScriptSchedulerFixture(this)
         fixture.activate()
-        fixture.runtime.origins.origin = HarnessCallOrigin(true)
+        fixture.runtime.origins.origin = HarnessCallOrigin()
         fixture.ancestry.beforeRestrict = { fixture.admissionRevision++ }
         assertFailsWith<IllegalStateException> { fixture.script.scheduler.wake(dispatchSession, condition, "revoked") }
         assertTrue(fixture.port.scheduled.isEmpty())

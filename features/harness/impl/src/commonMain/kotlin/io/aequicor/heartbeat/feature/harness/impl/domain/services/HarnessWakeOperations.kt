@@ -62,16 +62,20 @@ internal class HarnessWakeOperations(
         val harness = submission.harness
         val request = submission.request
         val origin = submission.origin
-        val isSend = submission.isSend
-        quotas.reserve(HarnessWakeReservation(request.id, harness, request.session, isSend), port::snapshot)
+        quotas.reserve(
+            HarnessWakeReservation(request.id, harness, request.session, submission.isRateLimited),
+            port::snapshot,
+        )
         var hasSubmissionStarted = false
+        var receipt: HarnessWakeReceipt? = null
         try {
             check(isAdmitted()) { "Harness wake admission was revoked" }
             origins.register(request.session, request.id.deliveryRequestId(), origin)
             check(isAdmitted()) { "Harness wake admission was revoked" }
             currentCoroutineContext().ensureActive()
             hasSubmissionStarted = true
-            when (port.schedule(request, clock.now())) {
+            receipt = port.schedule(request, clock.now())
+            when (receipt) {
                 HarnessWakeReceipt.Scheduled -> quotas.acknowledged(request.id)
 
                 HarnessWakeReceipt.Rejected -> {
@@ -82,18 +86,24 @@ internal class HarnessWakeOperations(
                 HarnessWakeReceipt.Unknown -> error("Harness wake acceptance is uncertain")
             }
         } finally {
-            // Even a lost ancestry ACK cannot mean scheduler acceptance before this boundary.
-            if (!hasSubmissionStarted) withContext(NonCancellable) { quotas.rejected(request.id) }
+            // Even a lost ancestry ACK cannot mean scheduler acceptance before this boundary. After it, a missing
+            // or uncertain receipt keeps the debits until a later scheduler snapshot settles them.
+            withContext(NonCancellable) {
+                when {
+                    !hasSubmissionStarted -> quotas.rejected(request.id)
+                    receipt == null || receipt == HarnessWakeReceipt.Unknown -> quotas.uncertain(request.id)
+                }
+            }
         }
     }
 }
 
-/** One immutable host-owned scheduling operation. */
+/** One immutable host-owned scheduling operation; [isRateLimited] counts it toward the harness delivery rate. */
 internal data class HarnessWakeSubmission(
     val harness: HarnessId,
     val request: WakeRequest,
     val origin: HarnessCallOrigin,
-    val isSend: Boolean,
+    val isRateLimited: Boolean,
 ) {
     override fun toString(): String = "HarnessWakeSubmission(***)"
 }

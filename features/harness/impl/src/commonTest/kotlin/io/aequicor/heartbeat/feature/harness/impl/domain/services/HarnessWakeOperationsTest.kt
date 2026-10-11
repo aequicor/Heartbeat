@@ -226,6 +226,34 @@ class HarnessWakeOperationsTest {
     }
 
     @Test
+    fun `failed or cancelled receipt wait keeps capacity only until the scheduler snapshot settles it`() = runTest {
+        val port = WakePortFixture()
+        val quota = HarnessWakeQuotas(clock)
+        val operations = HarnessWakeOperations(
+            backgroundScope,
+            port,
+            quota,
+            HarnessRequestOrigins(MemoryHarnessRequestAncestry()),
+            clock,
+        )
+        port.receipt.completeExceptionally(IllegalStateException("private transport failure"))
+        assertFailsWith<IllegalStateException> {
+            operations.schedule(HarnessWakeSubmission(OWNER, wake("broken"), HarnessCallOrigin(), false)) { true }
+        }
+        port.receipt = CompletableDeferred<HarnessWakeReceipt>().also { it.complete(HarnessWakeReceipt.Unknown) }
+        assertFailsWith<IllegalStateException> {
+            operations.schedule(HarnessWakeSubmission(OWNER, wake("unknown"), HarnessCallOrigin(), false)) { true }
+        }
+        assertFailsWith<IllegalStateException> {
+            quota.reserve(HarnessWakeReservation(WakeId("blocked"), OWNER, dispatchSession, false), port::snapshot)
+        }
+        now += 1.minutes
+        quota.reserve(HarnessWakeReservation(WakeId("free1"), OWNER, dispatchSession, false), port::snapshot)
+        quota.reserve(HarnessWakeReservation(WakeId("free2"), OWNER, dispatchSession, false), port::snapshot)
+        assertEquals(2, port.calls)
+    }
+
+    @Test
     fun `revoked admission never reaches scheduler`() = runTest {
         val port = WakePortFixture()
         val operations = HarnessWakeOperations(

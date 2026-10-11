@@ -45,8 +45,11 @@ internal class EngineHarnessScheduler(
     HarnessSessionSender {
     private val ownership = HarnessOwnedContext()
 
-    override suspend fun wake(owner: HarnessInstanceTarget, request: HarnessScriptWake): WakeId =
-        submit(owner, request, isSend = false)
+    /** A delivered wake is a full agent turn: it obeys the same hook ban, send chain and rate as a send. */
+    override suspend fun wake(owner: HarnessInstanceTarget, request: HarnessScriptWake): WakeId {
+        val inherited = request.origin.forSend(owner.request.harness.id)
+        return submit(owner, request.copy(origin = inherited), isSend = false)
+    }
 
     override suspend fun send(
         owner: HarnessInstanceTarget,
@@ -59,6 +62,7 @@ internal class EngineHarnessScheduler(
         return submit(owner, request, isSend = true)
     }
 
+    /** [request] already carries the incremented chain; only [isSend] makes the note visible in the chat. */
     private suspend fun submit(owner: HarnessInstanceTarget, request: HarnessScriptWake, isSend: Boolean): WakeId {
         check(sessions.isCurrent(owner)) { "Script activation is unavailable" }
         val route = sessions.session(request.session)
@@ -79,7 +83,7 @@ internal class EngineHarnessScheduler(
             ownerContext = ownership.encode(harness.id, request.origin),
         )
         return operations.value.schedule(
-            HarnessWakeSubmission(harness.id, wake, request.origin, isSend),
+            HarnessWakeSubmission(harness.id, wake, request.origin, isRateLimited = true),
         ) { permit.isCurrent() && sessions.isCurrent(owner) && route.isCurrent() }
     }
 

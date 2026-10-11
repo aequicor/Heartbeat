@@ -12,7 +12,12 @@ import kotlinx.coroutines.ThreadContextElement
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 
-/** Each profile owns its carrier; installing a coroutine origin never changes another profile's thread local. */
+/**
+ * Each profile owns its carrier; installing a coroutine origin never changes another profile's thread local.
+ * Every host path into author code installs a carrier explicitly. Code without one ran on a thread or scope the
+ * script created itself (a raw thread, a fresh CoroutineScope, a Java callback), so it fails closed: it is treated
+ * as hook-restricted and can never schedule an agent turn, spawn a helper or start a workflow.
+ */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
 @Inject
@@ -21,7 +26,7 @@ internal class JvmHarnessCallOrigins : HarnessCallOrigins {
     private val threadKey = object : CoroutineContext.Key<OriginThreadContext> {}
 
     @HighFrequency
-    override fun current(): HarnessCallOrigin = local.get() ?: HarnessCallOrigin()
+    override fun current(): HarnessCallOrigin = local.get() ?: DETACHED
 
     @HighFrequency
     override fun context(origin: HarnessCallOrigin): CoroutineContext =
@@ -49,3 +54,6 @@ private class OriginThreadContext(
 
     override fun toString(): String = "HarnessOriginThreadContext(***)"
 }
+
+/** Origin of author code that escaped every host carrier; restrictions are monotone, so this only narrows. */
+private val DETACHED = HarnessCallOrigin(isHookRestricted = true)

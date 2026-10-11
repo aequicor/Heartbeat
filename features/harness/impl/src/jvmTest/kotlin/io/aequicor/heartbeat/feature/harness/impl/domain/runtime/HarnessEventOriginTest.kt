@@ -33,11 +33,14 @@ class HarnessEventOriginTest {
         }
         runCurrent()
         assertEquals(listOf(restricted), observed)
-        assertEquals(HarnessCallOrigin(), origins.current())
+        assertEquals(DETACHED_ORIGIN, origins.current())
 
         fixture.events.emit(SystemEvent.Started(Instant.fromEpochMilliseconds(2)))
         runCurrent()
         assertEquals(listOf(restricted, HarnessCallOrigin()), observed)
-        assertEquals(HarnessCallOrigin(), origins.current())
+        assertEquals(DETACHED_ORIGIN, origins.current())
     }
 }
+
+/** What the JVM carrier reports to code that runs outside every host carrier. */
+internal val DETACHED_ORIGIN = HarnessCallOrigin(isHookRestricted = true)

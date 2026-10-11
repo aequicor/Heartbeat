@@ -2,11 +2,13 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.runtime
 
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.impl.data.runtime.JvmHarnessCallOrigins
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.forSend
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
@@ -17,6 +19,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -63,9 +66,9 @@ class HarnessCallOriginsTest {
                 }
                 assertOrigin(origins, expected)
             }
-            assertEquals(HarnessCallOrigin(), origins.current())
+            assertEquals(DETACHED_ORIGIN, origins.current())
             withContext(reused) {
-                assertEquals(HarnessCallOrigin(), origins.current())
+                assertEquals(DETACHED_ORIGIN, origins.current())
                 assertEquals(null, currentCoroutineContext()[HarnessOriginContext])
             }
         } finally {
@@ -95,12 +98,17 @@ class HarnessCallOriginsTest {
                 }
             }
             // The callback has returned; this child belongs to the cached activation scope, not that callback.
-            assertEquals(HarnessCallOrigin(), origins.current())
+            assertEquals(DETACHED_ORIGIN, origins.current())
             assertFalse(observed.isCompleted)
             release.complete(Unit)
             child.join()
             assertEquals(hook, observed.await())
-            assertEquals(base, cachedScope.coroutineContext[HarnessOriginContext]?.origin)
+            // The hook never leaked into the cached scope; a neutral host carrier sees only its base ancestry.
+            withContext(origins.context(HarnessCallOrigin())) {
+                assertEquals(base, cachedScope.coroutineContext[HarnessOriginContext]?.origin)
+            }
+            // Escaped author code reading the cached scope without any carrier is restricted.
+            assertTrue(cachedScope.coroutineContext[HarnessOriginContext]?.origin?.isHookRestricted == true)
         } finally {
             owner.cancelAndJoin()
         }
@@ -114,16 +122,39 @@ class HarnessCallOriginsTest {
         val secondOrigin = HarnessCallOrigin(sendChain = mapOf(HarnessId("second") to 2))
         withContext(first.context(hook)) {
             assertEquals(hook, first.current())
-            assertEquals(HarnessCallOrigin(), second.current())
+            assertEquals(DETACHED_ORIGIN, second.current())
             withContext(second.context(secondOrigin)) {
                 assertEquals(hook, first.current())
                 assertEquals(secondOrigin, second.current())
             }
             assertEquals(hook, first.current())
-            assertEquals(HarnessCallOrigin(), second.current())
+            assertEquals(DETACHED_ORIGIN, second.current())
         }
-        assertEquals(HarnessCallOrigin(), first.current())
-        assertEquals(HarnessCallOrigin(), second.current())
+        assertEquals(DETACHED_ORIGIN, first.current())
+        assertEquals(DETACHED_ORIGIN, second.current())
+    }
+
+    @Test
+    fun `author threads and fresh scopes without a carrier fail closed`() = runTest {
+        val origins = JvmHarnessCallOrigins()
+        val owner = HarnessId("owner")
+        val unrestricted = HarnessCallOrigin(sendChain = mapOf(owner to 1))
+        withContext(origins.context(unrestricted)) {
+            assertEquals(unrestricted, origins.current())
+            val fromThread = CompletableDeferred<HarnessCallOrigin>()
+            thread { fromThread.complete(origins.current()) }.join()
+            assertEquals(DETACHED_ORIGIN, fromThread.await())
+            val executor = Executors.newSingleThreadExecutor()
+            try {
+                val fromScope = CoroutineScope(executor.asCoroutineDispatcher()).async { origins.current() }.await()
+                assertEquals(DETACHED_ORIGIN, fromScope)
+            } finally {
+                executor.shutdown()
+                assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS))
+            }
+        }
+        // A detached origin can never schedule a turn, whatever chain the escaped code believed it had.
+        assertFailsWith<IllegalStateException> { DETACHED_ORIGIN.forSend(owner) }
     }
 
     private suspend fun assertOrigin(origins: HarnessCallOrigins, expected: HarnessCallOrigin) {
