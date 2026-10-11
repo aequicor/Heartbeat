@@ -113,4 +113,13 @@ class HarnessContentToolsTest {
         assertTrue(full.text.contains("8".repeat(2_000)))
         assertFalse(full.isError)
     }
+
+    @Test
+    fun `failed library activation leaves hosted instructions and content closed but intact`() = runTest {
+        val failing = HarnessContentTools(toggles, lazy { HarnessActiveAccess { _, _ -> error("unavailable") } })
+        assertEquals("", failing.instructions(scope.copy(isRefreshedPerTurn = true)))
+        assertTrue(failing.instructions(scope).isNotEmpty())
+        val args = buildJsonObject { put("name", "skill") }
+        assertTrue(failing.execute(context, HarnessTools.SKILL_LOAD, args).isError)
+    }
 }

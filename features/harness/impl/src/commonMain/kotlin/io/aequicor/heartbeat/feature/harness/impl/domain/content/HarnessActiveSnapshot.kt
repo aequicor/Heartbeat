@@ -39,11 +39,19 @@ internal data class HarnessActiveSnapshot(
         }
     }
 
-    /** Null while worktrees are restoring or the folder is neither a checkout nor a saved project. */
+    /**
+     * Null only while worktrees or the project catalog are still restoring. Once both are known, a folder that is
+     * neither a checkout nor a saved project (a removed project, a deleted checkout) proves "no project".
+     */
     private fun sourceOf(workspace: WorkspaceRef): SourceProject? {
         val restored = worktrees as? WorktreeState.Ready ?: return null
-        val source = restored.sourceProjectOf(workspace) ?: workspace.takeIf { projects?.contains(it) == true }
-        return source?.let(::SourceProject)
+        val checkout = restored.sourceProjectOf(workspace)
+        val catalog = projects
+        return when {
+            checkout != null -> SourceProject(checkout)
+            catalog != null -> SourceProject(workspace.takeIf { it in catalog })
+            else -> null
+        }
     }
 
     override fun toString(): String = "HarnessActiveSnapshot(***)"

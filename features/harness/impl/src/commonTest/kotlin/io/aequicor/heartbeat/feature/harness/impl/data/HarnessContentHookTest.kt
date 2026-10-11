@@ -4,6 +4,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionOwner
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.harness.api.HarnessItem
+import io.aequicor.heartbeat.feature.harness.api.HarnessTools
+import io.aequicor.heartbeat.feature.harness.api.ItemId
+import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.impl.data.delivery.HarnessContentHook
 import io.aequicor.heartbeat.feature.harness.impl.data.delivery.KeyValueHarnessDeliveryStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessActiveAccess
@@ -14,6 +18,7 @@ import kotlinx.coroutines.test.runTest
 import okio.ByteString.Companion.encodeUtf8
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -72,5 +77,22 @@ class HarnessContentHookTest {
         refreshed = false
         assertNull(hook.preparePrompt(context, "/compact", null))
         assertEquals(0, reads)
+    }
+
+    @Test
+    fun `truncated frozen context never points at a tool the session may not declare`() = runTest {
+        val clock = RunDeliveryClock()
+        val storage = KeyValueHarnessDeliveryStorage(RunDeliveryTestStore(clock), clock)
+        val delivery = HarnessContextDelivery(storage, backgroundScope) { it.encodeUtf8().sha256().hex() }
+        val items = (0..8).map { HarnessItem.Instruction(ItemId("i$it"), ItemName("i$it"), "$it".repeat(2_000)) }
+        val hook = HarnessContentHook(
+            { true },
+            { false },
+            lazy { HarnessActiveAccess { _, _ -> listOf(harness.copy(items = items)) } },
+            lazy { delivery },
+        )
+        val block = assertNotNull(hook.preparePrompt(context, "hello", "native")).text
+        assertTrue(block.endsWith("Контекст усечён."))
+        assertFalse(block.contains(HarnessTools.CONTEXT))
     }
 }

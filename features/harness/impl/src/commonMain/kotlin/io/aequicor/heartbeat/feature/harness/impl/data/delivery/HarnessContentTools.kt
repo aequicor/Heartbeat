@@ -10,13 +10,16 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
+import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessTools
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessActiveAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessContent
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessScriptInstructionAccess
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -42,7 +45,7 @@ internal class HarnessContentTools(
         if (!toggles.get(HarnessEnabled)) return ""
         val guide = harnessContentGuide(scope.declared)
         if (!scope.isRefreshedPerTurn) return guide.joinToString("\n")
-        val active = access.value.active(scope.workspace, scope.session)
+        val active = active(scope.workspace, scope.session) ?: return ""
         if (!toggles.get(HarnessEnabled)) return ""
         val declared = scope.declared
         val isFullContextReadable = declared == null || HarnessTools.CONTEXT in declared
@@ -53,7 +56,7 @@ internal class HarnessContentTools(
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
         if (!toggles.get(HarnessEnabled)) return unavailable()
-        val content = HarnessContent(access.value.active(context.workspace, context.session))
+        val content = HarnessContent(active(context.workspace, context.session) ?: return unavailable())
         if (!toggles.get(HarnessEnabled)) return unavailable()
         return try {
             val text = when (name) {
@@ -92,6 +95,16 @@ internal class HarnessContentTools(
     }
 
     private fun unavailable() = AgentToolResult("Harness content is unavailable", isError = true)
+
+    /** An unavailable library closes only harness content; other contributions keep their instructions. */
+    private suspend fun active(workspace: WorkspaceRef?, session: SessionRef?): List<Harness>? = try {
+        access.value.active(workspace, session)
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        log.w(error) { "Harness activation unavailable; harness content is closed" }
+        null
+    }
 }
 
 private fun JsonObject.string(key: String): String {

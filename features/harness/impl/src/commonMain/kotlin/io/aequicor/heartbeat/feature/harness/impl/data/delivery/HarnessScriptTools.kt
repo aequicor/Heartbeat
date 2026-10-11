@@ -4,6 +4,7 @@ import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
@@ -15,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
+import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptToolCall
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessActiveAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessOriginContext
@@ -23,6 +25,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRuntime
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessSessionProofs
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessToolBinding
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessToolDispatch
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 
@@ -37,6 +40,7 @@ internal class HarnessScriptTools(
     private val proofs: Lazy<HarnessSessionProofs>,
     private val origins: Lazy<HarnessRequestOrigins>,
 ) : AgentToolContribution {
+    private val log = Log.tag("HarnessTools")
     override val group: String = "harness"
     override val title: String = "Харнессы"
     override val isDetachedSupported: Boolean = true
@@ -47,7 +51,7 @@ internal class HarnessScriptTools(
 
     override suspend fun specifications(scope: AgentToolScope): List<AgentToolSpec> {
         if (!toggles.get(HarnessEnabled)) return emptyList()
-        val active = access.value.active(scope.workspace, scope.session).mapTo(linkedSetOf()) { it.id }
+        val active = activeIds(scope.workspace, scope.session) ?: return emptyList()
         return dispatch.value.bindings(active).map { it.specification }
     }
 
@@ -77,9 +81,22 @@ internal class HarnessScriptTools(
 
     private suspend fun binding(context: AgentToolContext, name: String): HarnessToolBinding? {
         if (!toggles.get(HarnessEnabled)) return null
-        val active = access.value.active(context.workspace, context.session).mapTo(linkedSetOf()) { it.id }
+        val active = activeIds(context.workspace, context.session) ?: return null
         proofs.value.remember(context.session, context.workspace)
         return dispatch.value.bindings(active).singleOrNull { it.specification.name == name }
+    }
+
+    /**
+     * Facade contributions are not isolated from each other: an unavailable library must close only harness tools,
+     * never fail the declarations of every hosted tool of the session.
+     */
+    private suspend fun activeIds(workspace: WorkspaceRef?, session: SessionRef?): Set<HarnessId>? = try {
+        access.value.active(workspace, session).mapTo(linkedSetOf()) { it.id }
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        log.w(error) { "Harness activation unavailable; harness tools are closed" }
+        null
     }
 
     private fun unavailable() = AgentToolResult("Harness tool changed or is unavailable", isError = true)

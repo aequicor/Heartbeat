@@ -63,7 +63,9 @@ class HarnessActiveSnapshotTest {
         )
         assertEquals(listOf(scoped), restored.select(checkout, dispatchSession))
         assertEquals(emptyList(), restored.select(null, dispatchSession))
-        assertNull(restored.select(WorkspaceRef("unknown"), dispatchSession))
+        // Both catalogs are known: a removed project or deleted checkout proves "no project" without waiting.
+        assertEquals(emptyList(), restored.select(WorkspaceRef("unknown"), dispatchSession))
+        assertNull(restored.copy(projects = null).select(WorkspaceRef("unknown"), dispatchSession))
     }
 
     @Test

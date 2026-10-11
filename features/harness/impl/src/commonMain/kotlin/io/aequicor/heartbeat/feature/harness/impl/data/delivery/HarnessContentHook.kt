@@ -5,7 +5,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionPromptAddition
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
-import io.aequicor.heartbeat.feature.harness.api.HarnessTools
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessActiveAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessContent
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessContextDelivery
@@ -38,7 +37,8 @@ internal class HarnessContentHook(
             AgentToolScope(context.workspace, declared = emptySet(), session = context.session),
         )
         if (!enabled()) return null
-        val isFullContextReadable = active.none { HarnessTools.CONTEXT in it.tools.hostedOff }
-        return delivery.value.prepare(context, contextRevision, HarnessContent(active, isFullContextReadable), dynamic)
+        // A hook cannot prove that this frozen session declared harness_context (or that profile policy keeps it):
+        // a truncated block therefore ends with the neutral notice instead of pointing at a possibly missing tool.
+        return delivery.value.prepare(context, contextRevision, HarnessContent(active, false), dynamic)
     }
 }

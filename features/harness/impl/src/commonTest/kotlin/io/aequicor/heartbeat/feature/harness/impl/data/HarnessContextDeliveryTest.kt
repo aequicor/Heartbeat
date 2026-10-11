@@ -11,8 +11,10 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessName
 import io.aequicor.heartbeat.feature.harness.impl.data.delivery.KeyValueHarnessDeliveryStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessDeliveryMarker
+import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessDeliverySnapshot
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessDeliveryStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessStorageUncertain
+import io.aequicor.heartbeat.feature.harness.impl.domain.content.HARNESS_CONTEXT_PROTOCOL
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessContent
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessContextDelivery
 import io.aequicor.heartbeat.feature.harness.impl.domain.harness
@@ -160,6 +162,21 @@ class HarnessContextDeliveryTest {
         retry.receipt!!.accepted(context, "native")
         assertNull(delivery.prepare(context, "native", content))
         assertEquals(digest(content.canonical("native", "")), storage.snapshot(context.session).activeSetSha)
+    }
+
+    @Test
+    fun `a generation change during composition recomposes instead of dropping the context block`() = runTest {
+        var superseded = 0
+        val racing = object : HarnessDeliveryStorage by storage {
+            override suspend fun begin(session: SessionRef, expectedGeneration: String): HarnessDeliverySnapshot? {
+                if (superseded++ == 0) storage.reset(session, isDeliveryPending = true)
+                return storage.begin(session, expectedGeneration)
+            }
+        }
+        val delivery = HarnessContextDelivery(racing, backgroundScope, ::digest)
+        val addition = assertNotNull(delivery.prepare(context, "native", content))
+        assertEquals(2, superseded)
+        assertTrue(addition.text.contains(HARNESS_CONTEXT_PROTOCOL))
     }
 }
 

@@ -80,15 +80,29 @@ class HarnessScriptToolsTest {
         toggles.enabled.value = true
         assertTrue(tools.execute(context.copy(authorization = approval), spec.name, args).isError)
     }
+
+    @Test
+    fun `failed library activation closes only harness tools instead of failing the contribution`() = runTest {
+        val fixture = HarnessDispatchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        fixture.onEvaluate = { script ->
+            script.agent.tool(ItemName("check"), "Check", args) { ScriptToolResult("done") }
+        }
+        fixture.activate()
+        val failing = HarnessActiveAccess { _, _ -> error("Harness library is unavailable") }
+        val tools = tools(fixture, SchedulerAccessToggles(), MemoryHarnessRequestAncestry(), failing)
+        assertTrue(tools.specifications(AgentToolScope(null, session = dispatchSession)).isEmpty())
+        assertTrue(tools.execute(context, "check", args).isError)
+    }
 }
 
 private fun tools(
     fixture: HarnessDispatchFixture,
     toggles: SchedulerAccessToggles,
     ancestry: MemoryHarnessRequestAncestry,
+    access: HarnessActiveAccess = HarnessActiveAccess { _, _ -> listOf(fixture.request.harness) },
 ): HarnessScriptTools = HarnessScriptTools(
     toggles,
-    lazy { HarnessActiveAccess { _, _ -> listOf(fixture.request.harness) } },
+    lazy { access },
     lazy { fixture.runtime },
     lazy { HarnessToolDispatch(fixture.runtime, fixture.sessions) },
     lazy {

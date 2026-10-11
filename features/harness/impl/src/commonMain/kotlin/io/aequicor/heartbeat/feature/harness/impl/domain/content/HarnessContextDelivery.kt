@@ -74,12 +74,37 @@ internal class HarnessContextDelivery(
         }
     }
 
+    /**
+     * A begin rejected because the delivery generation changed meanwhile recomposes from a fresh snapshot, a
+     * bounded number of times, instead of sending the turn without its context block.
+     */
     private suspend fun compose(command: DeliveryCommand.Prepare): SessionPromptAddition? {
         val context = command.context
         if (context.session in dirty) {
             storage.reset(context.session, isDeliveryPending = true)
             dirty.remove(context.session)
         }
+        var attempt = composeOnce(command)
+        var remaining = COMPOSE_ATTEMPTS - 1
+        while (attempt == DeliveryAttempt.Superseded && remaining > 0) {
+            log.v { "Harness delivery generation changed; recomposing" }
+            remaining--
+            attempt = composeOnce(command)
+        }
+        return when (attempt) {
+            DeliveryAttempt.Unchanged -> null
+
+            is DeliveryAttempt.Ready -> attempt.addition
+
+            DeliveryAttempt.Superseded -> {
+                log.w(DeliveryFailure("superseded")) { "Harness context delivery kept being superseded" }
+                null
+            }
+        }
+    }
+
+    private suspend fun composeOnce(command: DeliveryCommand.Prepare): DeliveryAttempt {
+        val context = command.context
         val snapshot = storage.snapshot(context.session)
         val content = command.content
         val active = content.markers.map { it.harness }.toSet()
@@ -87,16 +112,15 @@ internal class HarnessContextDelivery(
         val hash = digest(content.canonical(command.revision, command.instructions))
         val isAccepted = command.revision != null && snapshot.activeSetSha == hash
         val isEmpty = active.isEmpty() && !snapshot.isDeliveryPending
-        if (disabled.isEmpty() && (isEmpty || isAccepted)) return null
+        if (disabled.isEmpty() && (isEmpty || isAccepted)) return DeliveryAttempt.Unchanged
         val prefix = listOf(HARNESS_CONTEXT_PROTOCOL) + disabled.sortedBy { it.value }.map {
             "Харнесс ${it.value} отключён; его прежние инструкции больше не действуют."
         }
         val emptyNotice = if (active.isEmpty()) listOf("Все харнессы отключены.") else emptyList()
         val block = content.block(prefix + emptyNotice, command.instructions)
-        return storage.begin(context.session, snapshot.generation)?.let { begun ->
-            val token = DeliveryToken(context, command.revision, begun.generation, hash, content.markers, disabled)
-            SessionPromptAddition(block.text, receipt(token))
-        }
+        val begun = storage.begin(context.session, snapshot.generation) ?: return DeliveryAttempt.Superseded
+        val token = DeliveryToken(context, command.revision, begun.generation, hash, content.markers, disabled)
+        return DeliveryAttempt.Ready(SessionPromptAddition(block.text, receipt(token)))
     }
 
     private fun receipt(token: DeliveryToken): SessionPromptReceipt = object : SessionPromptReceipt {
@@ -131,6 +155,16 @@ internal class HarnessContextDelivery(
         dirty.remove(token.context.session)
     }
 }
+
+private sealed interface DeliveryAttempt {
+    data object Unchanged : DeliveryAttempt
+    data object Superseded : DeliveryAttempt
+    data class Ready(val addition: SessionPromptAddition) : DeliveryAttempt {
+        override fun toString(): String = "Ready(***)"
+    }
+}
+
+private const val COMPOSE_ATTEMPTS = 3
 
 private sealed interface DeliveryCommand {
     data class Prepare(
