@@ -49,6 +49,16 @@ internal class PiToolPlans(
         return PiDesiredTools(scope, policy, specifications(scope), search)
     }
 
+    /** Unavailable declarations keep the running tool set rather than refusing a prompt to a healthy process. */
+    suspend fun hasGrown(launched: Set<String>): Boolean = try {
+        (desired().names - launched).isNotEmpty()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e.withoutDetails()) { "Pi tool declarations unavailable; keeping the running tool set" }
+        false
+    }
+
     suspend fun launch(): PiLaunchPlan {
         val desired = desired()
         return PiLaunchPlan(

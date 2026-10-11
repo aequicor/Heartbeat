@@ -12,6 +12,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  * Captured handles remain across retries; a denied kill or timed-out wait never becomes proof of termination.
  * Descendants are a snapshot, not OS process-tree containment: detached, previously unobserved children are not
  * covered by this barrier. Cold recovery additionally needs durable ownership of the original process.
+ * Enumeration resolves the root's PID, which the OS may reuse after exit: only a listing taken while the root
+ * stayed alive is adopted, and after its exit only handles captured earlier are signalled.
  */
 internal class PiProcessStop(
     private val process: Process,
@@ -21,11 +23,13 @@ internal class PiProcessStop(
     private val log = Log.tag("PiProcessStop")
     private val lock = Any()
     private val children = mutableSetOf<ProcessHandle>()
-    private var isCaptured = false
+
+    // Whether the latest listing of the live root succeeded; a root that exited unobserved has nothing to list.
+    private var isCaptured = true
 
     /** Requests termination, retaining evidence for a later suspending wait. Safe to call from close hooks. */
     fun request() = synchronized(lock) {
-        isCaptured = attempt { children += process.descendants().use { it.toList() } }
+        if (process.isAlive) capture()
         children.toList().asReversed().forEach { child -> attempt { if (child.isAlive) child.destroyForcibly() } }
         // A denied child inspection/kill must not prevent requesting termination of our known root.
         attempt {
@@ -34,6 +38,17 @@ internal class PiProcessStop(
             if (root.isAlive) root.destroyForcibly()
         }
         Unit
+    }
+
+    /** Called under [lock] while the root was alive; an exit during the listing voids it. */
+    private fun capture() {
+        var listed: List<ProcessHandle> = emptyList()
+        isCaptured = attempt { listed = process.descendants().use { it.toList() } }
+        if (process.isAlive) {
+            children += listed
+        } else if (listed.isNotEmpty()) {
+            log.d { "Pi process exited during descendant inspection; its listing was discarded" }
+        }
     }
 
     private fun attempt(action: () -> Unit): Boolean = try {

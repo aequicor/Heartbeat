@@ -211,14 +211,25 @@ class PiOwnedTurnsTest {
     }
 
     @Test
-    fun `legacy active turn without process identity is never falsely confirmed`() = runTest {
-        val fixture = runtimeFixture(this)
+    fun `live turn without process identity is settled only by its own process exit`() = runTest {
+        val records = MemoryPiTurnRecords()
+        val fixture = runtimeFixture(this, records)
         fixture.processes.configure = { it.promptAck.complete(JsonObject(emptyMap())) }
         val session = fixture.runtime.createOwnedSession()
         val turn = session.send(prompt("request"))
+        val process = fixture.processes.connections.single()
+        process.stopProof = { false }
         assertEquals(OwnedTurnStop.Unconfirmed, fixture.stop(session, "request", turn))
-        assertEquals(0, fixture.processes.stopCalls)
         assertFailsWith<EngineException> { session.send(prompt("later")) }
+        process.stopProof = { true }
+        val result = assertIs<OwnedTurnStop.Confirmed>(fixture.stop(session, "request", turn))
+        assertEquals(TurnOutcome.Unknown, result.turn.outcome)
+        assertEquals(2, process.stopRequests)
+        assertEquals(0, fixture.processes.stopCalls)
+        assertNull(records.get(session.ref)?.active)
+        assertIs<ActiveSessionState.Ready>(session.state.value)
+        session.send(prompt("later"))
+        assertEquals(2, fixture.processes.connections.size)
         fixture.runtime.close()
     }
 

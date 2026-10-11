@@ -57,6 +57,21 @@ class PiProcessOwnershipTest {
     }
 
     @Test
+    fun `descendants exiting while listed are skipped without losing stop evidence`() = runTest {
+        val root = TestProcess(10)
+        val exited = TestProcess(11).apply { alive = false }
+        val exiting = TestProcess(12).apply {
+            startedAt = null
+            onIdentity = { alive = false }
+        }
+        root.observed = listOf(exited, exiting, TestProcess(13))
+        val tracker = tracker(root)
+        assertEquals(listOf(13L), assertNotNull(tracker.capture()).observedChildren.map { it.pid })
+        root.observed = emptyList()
+        assertEquals(listOf(13L), assertNotNull(tracker.capture()).observedChildren.map { it.pid })
+    }
+
+    @Test
     fun `real JVM process identity matches the OS without any termination call`() = runTest {
         val handle = ProcessHandle.current()
         val owner = assertNotNull(PiProcessOwnership({ handle }, dispatchers()).capture())
@@ -79,6 +94,7 @@ class PiProcessOwnershipTest {
         var observed: List<ProcessHandle> = emptyList()
         var alive = true
         var canEnumerate = true
+        var onIdentity: () -> Unit = {}
         override fun pid(): Long = id
         override fun parent(): Optional<ProcessHandle> = Optional.empty()
         override fun children(): Stream<ProcessHandle> = observed.stream()
@@ -87,7 +103,10 @@ class PiProcessOwnershipTest {
             return observed.stream()
         }
         override fun info(): ProcessHandle.Info = object : ProcessHandle.Info {
-            override fun startInstant(): Optional<Instant> = Optional.ofNullable(startedAt)
+            override fun startInstant(): Optional<Instant> {
+                onIdentity()
+                return Optional.ofNullable(startedAt)
+            }
             override fun command(): Optional<String> = error("Unused")
             override fun commandLine(): Optional<String> = error("Unused")
             override fun arguments(): Optional<Array<String>> = error("Unused")

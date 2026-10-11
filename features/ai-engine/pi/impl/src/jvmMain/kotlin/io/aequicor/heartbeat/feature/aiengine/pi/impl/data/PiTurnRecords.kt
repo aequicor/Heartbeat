@@ -43,9 +43,12 @@ internal data class PiTurnSnapshot(
     val last: PiTurnRecord? = null,
     /** Retained through terminal native events until all observed process exits are confirmed. */
     val stopping: PiTurnRecord? = null,
-    /** Incomplete descendant discovery cannot be repaired by an empty snapshot after the parent exited. */
+    /** Inspection whose discoveries are not yet recorded; a newer inspection may replace it before signals. */
     val stopInspection: String? = null,
-    /** Completed native assistant message fingerprints; null is a permanently ambiguous repeated message. */
+    /**
+     * Completed native assistant message fingerprints, oldest first and bounded by PI_MAX_ANSWER_KEYS; null is an
+     * ambiguous repeated message. Older history reopens without turn correlation.
+     */
     val answerTurns: Map<String, TurnId?> = emptyMap(),
 ) {
     init {
@@ -68,6 +71,18 @@ internal data class PiTurnSnapshot(
     override fun toString(): String = "PiTurnSnapshot(***)"
 }
 
+internal val PiTurnSnapshot.isUnresolved: Boolean get() = active != null || stopping != null
+
+/**
+ * Unresolved work stays bound to its exact route and credential fingerprint. Settled receipts alone remain
+ * readable through another binding of the same source or after key rotation, and the next turn rebinds them.
+ */
+internal fun PiTurnSnapshot.checkOwner(ref: SessionRef, route: ExecutionRoute, ownership: String) {
+    check(this.ref == ref && (!isUnresolved || (this.route == route && this.ownership == ownership))) {
+        "Pi turn ownership changed"
+    }
+}
+
 /** Atomic read–modify–write; transformers contain no IO and cannot wait for the native process. */
 internal interface PiTurnRecords {
     suspend fun get(ref: SessionRef): PiTurnSnapshot?
@@ -80,6 +95,9 @@ internal class MemoryPiTurnRecords : PiTurnRecords {
     override suspend fun update(ref: SessionRef, transform: (PiTurnSnapshot?) -> PiTurnSnapshot): PiTurnSnapshot =
         transform(values[ref]).also { values[ref] = it }
 }
+
+/** Bound of stored answer correlations: the record is re-encoded on every turn boundary. */
+internal const val PI_MAX_ANSWER_KEYS = 256
 
 internal val PiTurnsSpec = KeyValueSpec("ai_pi_turns")
 

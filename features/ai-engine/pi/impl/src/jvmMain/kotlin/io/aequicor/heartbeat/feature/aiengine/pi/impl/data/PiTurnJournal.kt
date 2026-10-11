@@ -32,7 +32,7 @@ internal class PiTurnJournal(
 
     suspend fun begin(turn: Turn, trust: TrustLevel, processOwner: PiExecutionOwner? = null) = guarded {
         records.update(ref) { previous ->
-            val before = previous?.also(::validate) ?: PiTurnSnapshot(ref, route, ownership)
+            val before = owned(previous)
             check(
                 before.active == null && before.stopping == null && before.last?.turn?.id != turn.id,
             ) { "Previous turn is unresolved" }
@@ -45,7 +45,7 @@ internal class PiTurnJournal(
         check(submission.isStopRequested && submission.boundary.await() == PiSubmissionBoundary.NotSent)
         val turn = submission.turn
         val snapshot = records.update(ref) { previous ->
-            val before = previous?.also(::validate) ?: PiTurnSnapshot(ref, route, ownership)
+            val before = owned(previous)
             check(before.stopping == null && (before.active == null || before.active.turn == turn))
             if (before.last?.turn?.id == turn.id) {
                 check(before.last.turn.request == turn.request && before.last.turn.target == turn.target)
@@ -68,10 +68,14 @@ internal class PiTurnJournal(
                 val before = checkNotNull(previous).also(::validate)
                 val active = before.active?.takeIf { it.turn.id == turn } ?: return@update before
                 check(answers.values.all { it == null || it == turn })
-                val merged = before.answerTurns.toMutableMap()
+                val merged = LinkedHashMap(before.answerTurns)
                 answers.forEach { (key, observed) ->
-                    merged[key] = if (key !in merged || merged[key] == observed) observed else null
+                    val known = if (key !in merged || merged[key] == observed) observed else null
+                    // Re-inserting moves the key to the newest end; the oldest correlations are dropped first.
+                    merged.remove(key)
+                    merged[key] = known
                 }
+                merged.keys.take((merged.size - PI_MAX_ANSWER_KEYS).coerceAtLeast(0)).forEach(merged::remove)
                 before.copy(
                     active = null,
                     last = active.copy(turn = active.turn.copy(outcome = outcome)),
@@ -95,11 +99,15 @@ internal class PiTurnJournal(
         snapshot.stopping?.takeIf { it.matches(request, turn) }
     }
 
-    /** A pending inspection survives cancellation/crash and fails closed rather than forgetting unknown children. */
+    /**
+     * A new inspection replaces one interrupted by cancellation, crash or a failed listing: an inspection sends
+     * signals only after [observeStop] recorded its discoveries and cleared the marker, so the replaced one never
+     * will. The marker still keeps a stale waiter from confirming while newer discoveries are unrecorded.
+     */
     suspend fun inspectStop(stop: PiTurnRecord, inspection: String): Boolean = guarded {
         val snapshot = records.update(ref) { previous ->
             val before = checkNotNull(previous).also(::validate)
-            if (before.stopping?.sameStop(stop) != true || before.stopInspection != null) return@update before
+            if (before.stopping?.sameStop(stop) != true) return@update before
             before.copy(stopInspection = inspection)
         }
         snapshot.stopInspection == inspection
@@ -145,10 +153,12 @@ internal class PiTurnJournal(
         snapshot.last?.takeIf { snapshot.stopping == null && it.sameStop(stop) && it.isProcessStopped }
     }
 
-    private fun validate(snapshot: PiTurnSnapshot) {
-        check(snapshot.ref == ref && snapshot.route == route && snapshot.ownership == ownership) {
-            "Pi turn ownership changed"
-        }
+    private fun validate(snapshot: PiTurnSnapshot) = snapshot.checkOwner(ref, route, ownership)
+
+    /** Settled receipts move to this route and credential with the next owned request. */
+    private fun owned(previous: PiTurnSnapshot?): PiTurnSnapshot {
+        val before = previous?.also(::validate) ?: return PiTurnSnapshot(ref, route, ownership)
+        return if (before.isUnresolved) before else before.copy(route = route, ownership = ownership)
     }
 
     private suspend fun <T> guarded(block: suspend () -> T): T = try {

@@ -77,6 +77,7 @@ internal class PiSession(
     private val validate: suspend () -> Unit,
     private val released: suspend (PiSession) -> Unit = {},
     private val restored: PiTurnSnapshot? = null,
+    private val stopRestored: suspend (PiSession, Turn) -> Boolean = { _, _ -> false },
 ) : PiActiveSession,
     SendsPrompts,
     CancelsTurns,
@@ -93,6 +94,7 @@ internal class PiSession(
     private val journal = PiJournal(promptResources::originals)
     private val mutex = Mutex()
     internal var connection: PiConnection? = null
+        private set
     private var connector: PiConnector? = null
     private var persistedTranscript: suspend (String) -> String? = { null }
     private var nativeRef: SessionRef? = null
@@ -109,11 +111,18 @@ internal class PiSession(
     private var generation = 0
     private var isTurnStarted = false
     internal var turn: Turn? = restored?.active?.turn
+        private set
+
+    // False while the turn was left by an earlier process: this one never ran it.
     private var isExecutionOwned = restored?.active == null
     private val answers by lazy { PiAnswerCorrelations(environment.turns, ref, route, ownership) }
     private val turnJournal get() = PiTurnJournal(environment.turns, ref, route, ownership)
     private val settlements = PiTurnSettlements({ turnJournal }, ::failed) { answers.pending(it) }
     private val isAdmissionBlocked get() = commands.isPending || settlements.isPublishing || stopping.claim != null
+
+    /** Claiming a stop revokes admission irreversibly: only a turn whose exit can be proven or caused qualifies. */
+    internal val isTurnStoppable
+        get() = if (isExecutionOwned) connection != null else restored?.active?.processOwner != null
 
     // Policy for future tool approvals; pending requests keep their original decision. Confined to main.
     private var trust: TrustLevel = DefaultTrust
@@ -359,10 +368,13 @@ internal class PiSession(
         mutex.withLock {
             validate()
             ensureOpen()
-            if (isAdmissionBlocked) piFailure(EngineFailure.Session(SessionFailureReason.Busy))
+            // A turn of an earlier process settles only through its stored identity; a retry resumes its stop.
+            val earlier = turn?.takeIf { !isExecutionOwned }
+            if (earlier == null && isAdmissionBlocked) piFailure(EngineFailure.Session(SessionFailureReason.Busy))
             if (machine.send(ActiveSessionIntent.Public.Recheck) != SendResult.Accepted) {
                 piFailure(EngineFailure.Request(RequestFailureReason.Invalid))
             }
+            if (earlier != null) stopRestored(this@PiSession, earlier)
             val snapshot = connected().command("get_state")
             reconcile(snapshot)
         }
@@ -384,7 +396,8 @@ internal class PiSession(
             isHandleClosed = true
             // Nobody can answer approvals of a detached handle; declining them lets the native turn settle.
             dismissApprovals()
-            if (turn == null || connection?.isOpen != true) release()
+            // A turn left by an earlier process never settles through this one, which runs nothing.
+            if (turn == null || !isExecutionOwned || connection?.isOpen != true) release()
         }
     }
 
@@ -456,18 +469,18 @@ internal class PiSession(
     /** Only growth needs a restart, between turns and under the send mutex, on the same saved transcript. */
     private suspend fun refreshTools() {
         val process = connection?.takeIf { it.isOpen } ?: return
-        if ((toolPlans.desired().names - launchedTools).isEmpty()) return
+        if (!toolPlans.hasGrown(launchedTools)) return
         // get_state may advertise an allocated path before Pi writes its first assistant message.
         // Only a transcript found in profile storage is safe to reattach after closing this process.
         val file = nativeRef?.nativeId?.let { persistedTranscript(it) } ?: return
         sessionFile = file
         log.i { "Restarting Pi between turns to expose additional tools" }
         process.close()
-        connected()
+        connected(isRecovery = false)
     }
 
     /** Returns the live connection, restarting Pi on the same native transcript after process loss. */
-    private suspend fun connected(): PiConnection {
+    private suspend fun connected(isRecovery: Boolean = true): PiConnection {
         connection?.takeIf { it.isOpen }?.let { return it }
         val previous = connection
         if (previous != null && !previous.stopAndAwait()) {
@@ -481,7 +494,7 @@ internal class PiSession(
             sessionPermissions.clear()
             val file = sessionFile ?: piFailure(EngineFailure.Session(SessionFailureReason.NotResumable))
             val factory = connector ?: piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable))
-            log.i { "Restarting Pi process for session recovery" }
+            if (isRecovery) log.i { "Restarting Pi process for session recovery" }
             val (fresh, snapshot) = sessionConfiguration.reconnect(
                 file,
                 nativeRef?.nativeId,
@@ -523,7 +536,11 @@ internal class PiSession(
         isDelivered: Boolean,
     ) {
         if (entry?.isStopRequested == true) return
-        if (effect is ActiveSessionEffect.Cancel && turn?.id != effect.turn) return
+        if (effect is ActiveSessionEffect.Cancel && turn?.id != effect.turn) {
+            // The turn settled while its abort failed: nothing is left to interrupt.
+            cancellationAck?.complete(Unit)
+            return
+        }
         val failure = if (effect is ActiveSessionEffect.Submit && isDelivered && original !is EngineFailure.Request) {
             EngineFailure.Request(RequestFailureReason.OutcomeUnknown, effect.request.id)
         } else {
@@ -551,15 +568,12 @@ internal class PiSession(
     }
 
     private suspend fun submit(effect: ActiveSessionEffect.Submit, entry: PiSubmission) {
-        try {
-            validate()
-        } catch (e: EngineException) {
-            throw PromptNotSentException(e.failure, e)
-        }
+        notSent { validate() }
         entry.ensureAllowed()
-        val origin = rpc()
+        val origin = notSent { rpc() }
         val accepted = entry.accepted
-        turnJournal.begin(effect.turn, entry.trust, origin.processOwner())
+        // A refused or unwritten request record is definite: the prompt below was never sent.
+        notSent { turnJournal.begin(effect.turn, entry.trust, origin.processOwner()) }
         entry.ensureAllowed()
         promptResources.submit(origin, sessionConfiguration, effect.request) {
             validate()
@@ -619,7 +633,8 @@ internal class PiSession(
 
     private fun decide(decision: PermissionDecision) {
         if (sessionPermissions.decisions.add(decision.request)) {
-            val parent = hostedJobs.lifetime(decision.turn)?.takeIf { it.isActive } ?: return
+            val parent = hostedJobs.lifetime(decision.turn)?.takeIf { it.isActive }
+                ?: return log.i { "Pi permission decision dropped: the turn no longer accepts answers" }
             profile.coroutineScope.launch(
                 dispatchers.main + parent,
             ) { sessionPermissions.answer(decision, hostedTools) }
@@ -663,7 +678,8 @@ internal class PiSession(
         }
     }
 
-    private suspend fun failed(failure: EngineFailure): Unit = withContext(dispatchers.main) {
+    private suspend fun failed(failure: EngineFailure): Unit = withContext(NonCancellable + dispatchers.main) {
+        // Revocation may cancel the caller itself, e.g. an answer delivered under the turn's hosted lifetime.
         hostedTools.revoke()
         if (state.value != ActiveSessionState.Closed) {
             machine.send(ActiveSessionIntent.Internal.Failed(turn?.id, failure))
@@ -700,16 +716,17 @@ internal class PiSession(
         cancellationAck?.completeExceptionally(
             EngineException(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, record.turn.request)),
         )
-        if (stop.boundary is PiSubmissionBoundary.NativeMayStart ||
+        val isCurrent = turn?.id == record.turn.id
+        val isOriginRunning = stop.boundary is PiSubmissionBoundary.NativeMayStart ||
             (stop.submission == null && stop.turn.outcome == null)
-        ) {
+        // The live process never ran a turn left by an earlier one; it stays usable.
+        if (isOriginRunning && (!isCurrent || isExecutionOwned)) {
             stop.origin?.close()
             if (connection === stop.origin) {
                 generation++
                 connection = null
             }
         }
-        val isCurrent = turn?.id == record.turn.id
         if (isCurrent) {
             turn = null
             isExecutionOwned = true
@@ -726,6 +743,13 @@ internal class PiSession(
 
     private fun rpc(): PiConnection = connection
         ?: piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable))
+}
+
+/** Failures before the final native admission check are definite rather than an unknown delivery. */
+private inline fun <T> notSent(block: () -> T): T = try {
+    block()
+} catch (e: EngineException) {
+    throw PromptNotSentException(e.failure, e)
 }
 
 /** Live native settings are available between requests of the current turn, including a pending approval. */

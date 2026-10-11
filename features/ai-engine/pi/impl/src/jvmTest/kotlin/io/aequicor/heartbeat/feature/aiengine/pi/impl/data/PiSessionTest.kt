@@ -528,6 +528,8 @@ class PiSessionTest {
         fixture.session.respond(decision)
         runCurrent()
         assertTrue(fixture.connection.sent.isEmpty())
+        // Delivery runs under the turn's hosted lifetime, which the failure revokes before reporting it.
+        assertIs<ActiveSessionState.Unavailable>(fixture.session.state.value)
         // Pi still waits for the dialog, so closing the session must still decline it.
         fixture.session.close()
         assertEquals(listOf(answer("t", "cancelled", true)), fixture.connection.sent)

@@ -74,6 +74,8 @@ internal class RuntimeProcesses : PiProcesses {
     var configure: (FakeConnection) -> Unit = {}
     var stopResult = true
     var stopCalls = 0
+    var exited: (PiExecutionOwner) -> Boolean = { false }
+    override suspend fun hasExited(owner: PiExecutionOwner): Boolean = exited(owner)
     var beforeStop: suspend () -> Unit = {}
     override suspend fun stop(
         owner: PiExecutionOwner,

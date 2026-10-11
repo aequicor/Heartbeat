@@ -11,7 +11,8 @@ import kotlin.uuid.Uuid
 /**
  * Captures the live root and all descendants visible before each prompt, retaining earlier observations if a
  * wrapper child is later reparented. Inspection is read-only and never resolves a process by a stored PID.
- * Any incomplete inspection returns null; callers may still execute but cannot promise a recoverable stop.
+ * A descendant that exits while it is listed is skipped: it cannot outlive the turn. Any other incomplete
+ * inspection returns null; callers may still execute but cannot promise a recoverable stop.
  */
 internal class PiProcessOwnership(private val root: () -> ProcessHandle, private val dispatchers: DispatcherProvider) {
     private val log = Log.tag("PiProcessOwnership")
@@ -31,7 +32,7 @@ internal class PiProcessOwnership(private val root: () -> ProcessHandle, private
                 log.w(IllegalStateException("Process inspection failed (${error::class.simpleName.orEmpty()})")) {
                     "Pi process ownership unavailable"
                 }
-                incomplete()
+                incomplete(isReported = true)
             }
         }
     }
@@ -41,14 +42,20 @@ internal class PiProcessOwnership(private val root: () -> ProcessHandle, private
         val process = root()
         val identity = process.identity() ?: return incomplete()
         val descendants = process.descendants().use { it.toList() }
-        val current = descendants.map { it.identity() ?: return incomplete() }
+        val current = descendants.mapNotNull { child ->
+            // Only a live descendant without a start instant is a gap; one that exited while listed is gone.
+            child.identity() ?: if (child.isAlive) return incomplete() else null
+        }
         children += current
         if (!process.isAlive) return incomplete()
         return PiExecutionOwner(launchId, identity, children.toList())
     }
 
     /** A later empty snapshot cannot repair an earlier gap in the same launch's observed descendants. */
-    private fun incomplete(): PiExecutionOwner? {
+    private fun incomplete(isReported: Boolean = false): PiExecutionOwner? {
+        if (isComplete && !isReported) {
+            log.w { "Pi process ownership incomplete: turns of this launch cannot be stopped after a restart" }
+        }
         isComplete = false
         return null
     }

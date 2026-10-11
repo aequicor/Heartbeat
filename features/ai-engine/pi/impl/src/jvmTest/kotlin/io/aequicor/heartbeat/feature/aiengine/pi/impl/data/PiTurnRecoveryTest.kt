@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RestoresSessionTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
@@ -41,6 +42,18 @@ class PiTurnRecoveryTest {
         assertFalse("prompt" in fixture.connection.commands)
         assertNull(records.get(fixture.session.ref)?.active)
         assertIs<TurnOutcome.Failed>(records.get(fixture.session.ref)?.last?.turn?.outcome)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `unwritable request record is a definite failure before any prompt`() = runTest {
+        val records = GatedPiTurnRecords()
+        val fixture = fixture(this, turns = records)
+        records.beforeWrite = { if (it.active != null) error("Disk unavailable") }
+        val failure = assertFailsWith<EngineException> { fixture.session.send(prompt("request")) }
+        assertEquals(EngineFailure.Session(SessionFailureReason.NotResumable), failure.failure)
+        assertFalse("prompt" in fixture.connection.commands)
+        assertNull(records.get(fixture.session.ref)?.active)
         fixture.session.shutdown()
     }
 

@@ -21,7 +21,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -103,16 +102,19 @@ class PiStoredTurnStopTest {
     }
 
     @Test
-    fun `incomplete discovery survives serialization and cannot become an empty successful retry`() = runTest {
+    fun `interrupted discovery survives serialization and a retry replaces it before any signal`() = runTest {
         val setup = setup()
         val stop = assertNotNull(setup.journal.fenceStop(prompt("request").id, null))
         assertTrue(setup.journal.inspectStop(stop, "interrupted"))
         val snapshot = Json.decodeFromString<PiTurnSnapshot>(Json.encodeToString(setup.journal.restore()))
         assertEquals("interrupted", snapshot.stopInspection)
-        assertFalse(setup.journal.inspectStop(stop, "retry"))
         assertNull(setup.journal.stopped(stop, Owner))
-        assertNull(PiStoredTurnStop(setup.journal, StopLaunch { true }).stop(prompt("request").id))
-        assertNotNull(setup.journal.restore()?.stopping)
+        assertTrue(setup.journal.inspectStop(stop, "retry"))
+        // The replaced inspection can no longer record discoveries, so it never reaches its signals.
+        assertNull(setup.journal.observeStop(stop, "interrupted", Owner))
+        val result = PiStoredTurnStop(setup.journal, StopLaunch { true }).stop(prompt("request").id)
+        assertTrue(result?.isProcessStopped == true)
+        assertNull(setup.journal.restore()?.stopping)
     }
 
     @Test

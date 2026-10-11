@@ -98,6 +98,8 @@ internal class PiProcessLauncher(
         record: suspend (PiExecutionOwner) -> PiExecutionOwner?,
     ): Boolean = PiStoredProcessStop(dispatchers).stop(owner, beginInspection, record)
 
+    override suspend fun hasExited(owner: PiExecutionOwner): Boolean = PiStoredProcessStop(dispatchers).hasExited(owner)
+
     /** Stored transcript of the native session [nativeId] of this profile, or null when Pi has none. */
     override suspend fun transcript(nativeId: String): String? = withContext(dispatchers.io) {
         val owner = stores.owner as? StorageOwner.Profile

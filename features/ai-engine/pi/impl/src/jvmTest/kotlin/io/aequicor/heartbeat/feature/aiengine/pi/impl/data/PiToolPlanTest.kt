@@ -87,6 +87,19 @@ class PiToolPlanTest {
     }
 
     @Test
+    fun `unavailable tool declarations keep the running process for the prompt`() = runTest {
+        val tools = PlanTools()
+        val fixture = fixture(this, tools = tools) { _, connection ->
+            connection.promptAck.complete(JsonObject(emptyMap()))
+        }
+        tools.isFailing = true
+        fixture.session.send(prompt("kept"))
+        assertEquals(1, fixture.connections.size)
+        assertTrue("prompt" in fixture.connection.commands)
+        fixture.session.shutdown()
+    }
+
+    @Test
     fun `growth without a persisted transcript is deferred without killing the process`() = runTest {
         val tools = PlanTools()
         val fixture = fixture(this, tools = tools) { _, connection ->
@@ -108,8 +121,9 @@ class PiToolPlanTest {
 private class PlanTools : ProfileAgentTools by TestNativeTools {
     var policy = ResolvedToolPolicy(nativeOn = setOf("read"))
     var names = emptyList<String>()
+    var isFailing = false
     val instructions = mutableListOf<AgentToolScope>()
-    override suspend fun nativeTools(scope: ToolPolicyScope) = policy
+    override suspend fun nativeTools(scope: ToolPolicyScope) = if (isFailing) error("Catalog unavailable") else policy
     override suspend fun specifications(workspace: WorkspaceRef?) = names.map {
         AgentToolSpec(it, "Tool $it", JsonObject(emptyMap()))
     }

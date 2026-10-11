@@ -13,6 +13,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 
+private val log = Log.tag("PiSessionRecovery")
+
 /** Called only after the previous process's exit; a concurrent shutdown discards the fresh connection. */
 internal suspend fun PiSessionConfiguration.reconnect(
     file: String,
@@ -36,7 +38,7 @@ internal suspend fun PiSessionConfiguration.reconnect(
         isConfigured = true
         return fresh to snapshot
     } catch (error: EngineException) {
-        Log.tag("PiSession").w(error) { "Pi session recovery could not reattach the transcript" }
+        log.w(error) { "Pi session recovery could not reattach the transcript" }
         throw error
     } finally {
         if (!isConfigured) {

@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -17,6 +18,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class PiStopBarrierTest {
     @Test
@@ -38,6 +40,22 @@ class PiStopBarrierTest {
         val settled = assertIs<ActiveSessionState.Ready>(fixture.session.state.value).lastTurn
         assertEquals(turn, settled?.id)
         assertEquals(TurnOutcome.Unknown, settled?.outcome)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `failed abort of a turn that already settled still releases the cancel caller`() = runTest {
+        val fixture = fixture(this)
+        val turn = fixture.runningTurn()
+        val cancelling = async { fixture.session.cancel(turn) }
+        runCurrent()
+        fixture.connection.event(record("""{"type":"agent_settled"}"""))
+        fixture.connection.abortAck.completeExceptionally(
+            EngineException(EngineFailure.Transport(TransportFailureReason.Timeout)),
+        )
+        runCurrent()
+        assertTrue(cancelling.isCompleted)
+        cancelling.await()
         fixture.session.shutdown()
     }
 

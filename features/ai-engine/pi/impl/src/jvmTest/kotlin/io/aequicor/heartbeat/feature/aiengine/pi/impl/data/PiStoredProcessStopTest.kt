@@ -152,34 +152,69 @@ class PiStoredProcessStopTest {
     }
 
     @Test
-    fun `incomplete descendant identity leaves inspection pending and sends no signal`() = runTest {
+    fun `live descendant of unknown identity refuses the attempt until a retry can identify it`() = runTest {
         val root = StopProcess(1)
         val child = StopProcess(2).apply { startedAt = null }
         root.observed = listOf(child)
-        var isPending = false
+        var records = 0
         val stop = stopper { if (it == 1L) root else child }
-        suspend fun begin(): Boolean {
-            if (isPending) return false
-            isPending = true
-            return true
-        }
         assertFalse(
-            stop.stop(Owner, ::begin) {
-                isPending = false
+            stop.stop(Owner, { true }) {
+                records++
                 it
             },
         )
-        assertTrue(isPending)
+        assertEquals(0, records)
         assertEquals(0, root.signals)
+        child.startedAt = Instant.parse("2026-10-06T00:00:01Z")
+        val waiting = async { stop.stop(Owner, { true }) { it } }
+        runCurrent()
+        assertEquals(1, root.signals)
+        assertEquals(1, child.signals)
         root.exit()
-        root.observed = emptyList()
-        assertFalse(
-            stop.stop(Owner, ::begin) {
-                isPending = false
-                it
-            },
-        )
+        child.exit()
+        assertTrue(waiting.await())
+    }
+
+    @Test
+    fun `descendants exiting during inspection are gone rather than a changed parent`() = runTest {
+        val root = StopProcess(1)
+        val child = StopProcess(2).apply { onEnumerate = { exit() } }
+        // Alive when listed, it exits while its start instant is read.
+        val grandchild = StopProcess(3).apply {
+            startedAt = null
+            onIdentity = { exit() }
+        }
+        child.observed = listOf(grandchild)
+        val owner = Owner.copy(observedChildren = listOf(PiProcessIdentity(2, START)))
+        val processes = listOf(root, child, grandchild)
+        var saved: PiExecutionOwner? = null
+        val waiting = async {
+            stopper { pid -> processes.first { it.pid() == pid } }.stop(owner, { true }) { discovered ->
+                discovered.also { saved = it }
+            }
+        }
+        runCurrent()
+        assertEquals(owner, saved)
+        assertEquals(1, root.signals)
         assertEquals(0, child.signals)
+        assertEquals(0, grandchild.signals)
+        root.exit()
+        assertTrue(waiting.await())
+    }
+
+    @Test
+    fun `exit proof needs every stored identity gone and never signals`() = runTest {
+        val root = StopProcess(1)
+        val owner = Owner.copy(observedChildren = listOf(PiProcessIdentity(2, START)))
+        assertTrue(stopper { null }.hasExited(owner))
+        assertTrue(stopper { StopProcess(it, "2026-10-07T00:00:00Z") }.hasExited(owner))
+        assertFalse(stopper { if (it == 1L) root else null }.hasExited(owner))
+        root.startedAt = null
+        assertFalse(stopper { if (it == 1L) root else null }.hasExited(owner))
+        root.exit()
+        assertTrue(stopper { if (it == 1L) root else null }.hasExited(owner))
+        assertEquals(0, root.signals)
     }
 
     @Test
@@ -210,6 +245,7 @@ class PiStoredProcessStopTest {
         var observed: List<ProcessHandle> = emptyList()
         var signals = 0
         var onEnumerate: () -> Unit = {}
+        var onIdentity: () -> Unit = {}
         private val exited = CompletableFuture<ProcessHandle>()
         fun exit() {
             exited.complete(this)
@@ -222,7 +258,10 @@ class PiStoredProcessStopTest {
             return observed.stream()
         }
         override fun info(): ProcessHandle.Info = object : ProcessHandle.Info {
-            override fun startInstant(): Optional<Instant> = Optional.ofNullable(startedAt)
+            override fun startInstant(): Optional<Instant> {
+                onIdentity()
+                return Optional.ofNullable(startedAt)
+            }
             override fun command(): Optional<String> = error("Unused")
             override fun commandLine(): Optional<String> = error("Unused")
             override fun arguments(): Optional<Array<String>> = error("Unused")

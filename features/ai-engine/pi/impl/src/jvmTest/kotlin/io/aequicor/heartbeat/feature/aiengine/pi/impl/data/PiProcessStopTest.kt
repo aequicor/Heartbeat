@@ -19,6 +19,7 @@ import java.util.Optional
 import java.util.concurrent.CompletableFuture
 import java.util.stream.Stream
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -101,6 +102,19 @@ class PiProcessStopTest {
         assertFalse(stop.awaitStopped())
     }
 
+    @Test
+    fun `a dead or dying root never lends its reusable PID tree to the stop`() = runTest {
+        // After exit the OS may hand the PID to another process: its descendants are foreign.
+        val foreign = StopChild()
+        val dead = StopProcess(foreign).apply { exit() }
+        assertTrue(PiProcessStop(dead, dispatchers()).awaitStopped())
+        assertEquals(0, dead.enumerations)
+        val dying = StopProcess(foreign).apply { onEnumerate = { exit() } }
+        assertTrue(PiProcessStop(dying, dispatchers()).awaitStopped())
+        assertEquals(1, dying.enumerations)
+        assertFalse(foreign.isStopRequested)
+    }
+
     private fun TestScope.dispatchers(): DispatcherProvider = object : DispatcherProvider {
         override val main: CoroutineDispatcher = StandardTestDispatcher(testScheduler)
         override val io: CoroutineDispatcher = main
@@ -114,6 +128,8 @@ private class StopProcess(private val child: StopChild? = null) : Process() {
     var isStopRequested = false
     var isChildVisible = true
     var isEnumerationAllowed = true
+    var enumerations = 0
+    var onEnumerate: () -> Unit = {}
     fun exit() {
         exited.complete(this)
     }
@@ -123,7 +139,9 @@ private class StopProcess(private val child: StopChild? = null) : Process() {
     override fun destroy(): Unit = error("Process.destroy may block on its pipes; use the OS handle")
     override fun destroyForcibly(): Process = apply { destroy() }
     override fun descendants(): Stream<ProcessHandle> {
+        enumerations++
         check(isEnumerationAllowed) { "Enumeration denied" }
+        onEnumerate()
         return if (isChildVisible && child != null) Stream.of(child) else Stream.empty()
     }
     override fun getInputStream(): InputStream = ByteArrayInputStream(byteArrayOf())

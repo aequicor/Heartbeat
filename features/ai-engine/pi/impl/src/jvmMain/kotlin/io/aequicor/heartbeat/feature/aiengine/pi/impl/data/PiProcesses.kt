@@ -15,6 +15,9 @@ internal interface PiProcesses {
         beginInspection: suspend () -> Boolean,
         record: suspend (PiExecutionOwner) -> PiExecutionOwner?,
     ): Boolean = false
+
+    /** Read-only: true only when no stored identity still names a live process; never signals. */
+    suspend fun hasExited(owner: PiExecutionOwner): Boolean = false
     suspend fun start(
         source: AuthSource.ManagedKey,
         workspace: String?,

@@ -10,9 +10,10 @@ import java.time.Instant
 
 /**
  * Cold stop of exact persisted OS identities. Missing/reused PIDs prove the original process is gone; an unknown
- * start instant or denied inspection does not. Signals use ProcessHandle, never Process.destroy's blocking pipe
- * cleanup. Descendant observation is a snapshot, not OS containment. Persisting before signalling preserves
- * discovered identities if the application dies between killing a wrapper and observing its children's exit.
+ * start instant of a live process or denied inspection does not. Signals use ProcessHandle, never Process.destroy's
+ * blocking pipe cleanup. Descendant observation is a snapshot, not OS containment. Persisting before signalling
+ * preserves discovered identities if the application dies between killing a wrapper and observing its children's
+ * exit. A process exiting while it is inspected is gone; only a live replacement of its PID voids an inspection.
  */
 internal class PiStoredProcessStop(
     private val dispatchers: DispatcherProvider,
@@ -50,33 +51,53 @@ internal class PiStoredProcessStop(
         }
     }
 
+    /** Read-only exit proof for reopening; a live process of unknown identity or denied inspection is no proof. */
+    suspend fun hasExited(owner: PiExecutionOwner): Boolean = withContext(dispatchers.io) {
+        try {
+            (listOf(owner.root) + owner.observedChildren).none { matching(it) != null }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(IllegalStateException("Process inspection failed (${error::class.simpleName.orEmpty()})")) {
+                "Pi process exit could not be proven"
+            }
+            false
+        }
+    }
+
     private fun discover(owner: PiExecutionOwner): PiExecutionOwner {
         val observed = owner.observedChildren.toMutableSet()
         for (identity in listOf(owner.root) + owner.observedChildren) {
             // beginInspection writes to storage; a handle obtained before that await may now have a reused PID.
             val process = matching(identity) ?: continue
-            val descendants = process.descendants().use { stream ->
-                stream.map { child -> if (child.isAlive) checkNotNull(child.identity()) else null }.toList()
-            }
+            val descendants = process.descendants().use { stream -> stream.toList().mapNotNull { it.liveIdentity() } }
             // descendants() resolves the current PID tree, unlike ProcessHandle.isAlive's identity check.
-            // Refuse the entire observation if the parent changed while enumeration was in flight.
-            checkNotNull(matching(identity)) { "Parent changed during descendant inspection" }
-            observed += descendants.filterNotNull()
+            // Refuse the entire observation if another live process took the parent's PID during enumeration.
+            check(!isReplaced(identity)) { "Parent changed during descendant inspection" }
+            observed += descendants
         }
         return owner.copy(observedChildren = observed.toList())
     }
 
     private fun matching(identity: PiProcessIdentity): ProcessHandle? {
         val process = lookup(identity.pid) ?: return null
-        if (!process.isAlive) return null
-        val current = checkNotNull(process.identity()) { "Live process start instant unavailable" }
-        return process.takeIf {
-            current.pid == identity.pid && Instant.parse(current.startedAt) == Instant.parse(identity.startedAt)
-        }
+        val current = process.liveIdentity() ?: return null
+        return process.takeIf { current.isSame(identity) }
     }
 
-    private fun ProcessHandle.identity(): PiProcessIdentity? =
-        info().startInstant().orElse(null)?.let { PiProcessIdentity(pid(), it.toString()) }
+    private fun isReplaced(identity: PiProcessIdentity): Boolean =
+        lookup(identity.pid)?.liveIdentity()?.isSame(identity) == false
+
+    /** Null once exited, including an exit while its start instant is read; a live unknown instant is refused. */
+    private fun ProcessHandle.liveIdentity(): PiProcessIdentity? {
+        if (!isAlive) return null
+        val identity = info().startInstant().orElse(null)?.let { PiProcessIdentity(pid(), it.toString()) }
+        check(identity != null || !isAlive) { "Live process start instant unavailable" }
+        return identity
+    }
+
+    private fun PiProcessIdentity.isSame(other: PiProcessIdentity): Boolean =
+        pid == other.pid && Instant.parse(startedAt) == Instant.parse(other.startedAt)
 
     private companion object {
         const val STOP_TIMEOUT = 5_000L

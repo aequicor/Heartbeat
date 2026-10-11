@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.datastore.KeyValueStore
 import io.aequicor.heartbeat.core.datastore.Retention
 import io.aequicor.heartbeat.core.datastore.StorageOwner
 import io.aequicor.heartbeat.core.datastore.StoreKey
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
@@ -54,6 +55,42 @@ class PiTurnRecordsTest {
         assertFailsWith<EngineException> { changed.restore() }
         assertFailsWith<EngineException> { changed.finish(turn.id, TurnOutcome.Unknown) }
         assertEquals(turn, journal.restore()?.active?.turn)
+    }
+
+    @Test
+    fun `settled receipts survive key rotation and another binding until the next turn rebinds them`() = runTest {
+        val session = fixture(this).session
+        val records = MemoryPiTurnRecords()
+        val first = Turn(TurnId("first"), prompt("first").id, RuntimeTarget)
+        val original = PiTurnJournal(records, session.ref, session.route, "owner")
+        original.begin(first, TrustLevel.Ask)
+        original.finish(first.id, TurnOutcome.Completed, mapOf("answer" to first.id))
+        val route = session.route.copy(binding = EngineBindingId("other"))
+        val rotated = PiTurnJournal(records, session.ref, route, "rotated")
+        assertEquals(first.id, rotated.restoreForOpening()?.last?.turn?.id)
+        val answers = PiAnswerCorrelations(records, session.ref, route, "rotated")
+        assertEquals(mapOf("answer" to first.id), answers.restore())
+        rotated.begin(Turn(TurnId("next"), prompt("next").id, RuntimeTarget), TrustLevel.Ask)
+        assertEquals(route, records.get(session.ref)?.route)
+        assertEquals("rotated", records.get(session.ref)?.ownership)
+        // The unresolved request belongs to its exact owner again.
+        assertFailsWith<EngineException> { original.restore() }
+    }
+
+    @Test
+    fun `answer correlations keep only the newest bounded window`() = runTest {
+        val session = fixture(this).session
+        val records = MemoryPiTurnRecords()
+        val journal = PiTurnJournal(records, session.ref, session.route, "owner")
+        repeat(PI_MAX_ANSWER_KEYS + 2) { index ->
+            val turn = Turn(TurnId("turn-$index"), prompt("request-$index").id, RuntimeTarget)
+            journal.begin(turn, TrustLevel.Ask)
+            journal.finish(turn.id, TurnOutcome.Completed, mapOf("answer-$index" to turn.id))
+        }
+        val answers = records.get(session.ref)?.answerTurns.orEmpty()
+        assertEquals(PI_MAX_ANSWER_KEYS, answers.size)
+        assertFalse("answer-0" in answers)
+        assertEquals(TurnId("turn-${PI_MAX_ANSWER_KEYS + 1}"), answers["answer-${PI_MAX_ANSWER_KEYS + 1}"])
     }
 
     @Test

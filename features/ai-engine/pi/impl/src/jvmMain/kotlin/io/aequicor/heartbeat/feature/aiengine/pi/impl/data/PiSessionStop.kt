@@ -17,10 +17,12 @@ internal class PiSessionStop(
     var claim: PiStopClaim? = null
         private set
 
+    /** Revokes nothing for a turn whose exit can be neither proven nor caused; the caller gets no claim. */
     fun begin(request: RequestId, expected: TurnId?): PiStopClaim? {
         claim?.let { return it.takeIf { old -> old.turn.matches(request, expected) } }
         val pending = session.submissions.pending?.takeIf { it.turn.matches(request, expected) }
-        val selected = pending?.turn ?: session.turn?.takeIf { it.matches(request, expected) }
+        val current = session.turn?.takeIf { it.matches(request, expected) && session.isTurnStoppable }
+        val selected = pending?.turn ?: current
         return selected?.let { turn ->
             val stop = PiStopClaim(turn, session.connection, pending)
             claim = stop

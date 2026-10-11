@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.StopsOwnedTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -47,7 +48,7 @@ internal class PiOwnedTurns(
             )
             runtime.validateStop(access)
             val reservation = commands.withLock { reserve(ref, request, route, access) }
-                ?: return@withContext OwnedTurnStop.Unconfirmed
+                ?: return@withContext unconfirmed("the session is attaching or stopping another request")
             reservation.mutex.withLock { perform(ref, request, access, reservation) }
         }
 
@@ -103,11 +104,16 @@ internal class PiOwnedTurns(
         val selected = select(snapshot, request, access, reservation)
         if (selected == null) {
             if (reservations[ref] === reservation) reservations.remove(ref)
-            return OwnedTurnStop.Unconfirmed
+            return unconfirmed("no stoppable turn matches the request")
         }
         reservation.isValidated = true
         val result = stopSelected(ref, journal, selected, reservation)
-        return if (result == null) OwnedTurnStop.Unconfirmed else complete(ref, reservation, result)
+        return result?.let { complete(ref, reservation, it) } ?: unconfirmed("termination is not confirmed yet")
+    }
+
+    private fun unconfirmed(reason: String): OwnedTurnStop.Unconfirmed {
+        log.i { "Pi owned turn stop unconfirmed: $reason" }
+        return OwnedTurnStop.Unconfirmed
     }
 
     private fun select(
@@ -139,11 +145,18 @@ internal class PiOwnedTurns(
             runtime.environment.hostedDrains.drain(ref, reservation.route, runtime.credential, turn.id)
         if (!isDrained) return null
         val pending = claim?.submission
-        return if (pending != null && claim.boundary == PiSubmissionBoundary.NotSent) {
-            journal.cancelBeforeSubmission(pending)
-        } else {
-            PiStoredTurnStop(journal, processes).stop(checkNotNull(turn.request), turn.id)
+        val record = journal.restore()?.active?.takeIf { it.turn.id == turn.id }
+        return when {
+            pending != null && claim.boundary == PiSubmissionBoundary.NotSent -> journal.cancelBeforeSubmission(pending)
+            claim != null && record != null && record.processOwner == null -> stopLive(journal, turn, claim)
+            else -> PiStoredTurnStop(journal, processes).stop(checkNotNull(turn.request), turn.id)
         }
+    }
+
+    /** Without stored identity only the live process's own confirmed exit settles the turn, as Unknown. */
+    private suspend fun stopLive(journal: PiTurnJournal, turn: Turn, claim: PiStopClaim): PiTurnRecord? {
+        val origin = claim.origin ?: return null
+        return if (origin.stopAndAwait()) journal.finish(turn.id, TurnOutcome.Unknown) else null
     }
 
     private suspend fun complete(

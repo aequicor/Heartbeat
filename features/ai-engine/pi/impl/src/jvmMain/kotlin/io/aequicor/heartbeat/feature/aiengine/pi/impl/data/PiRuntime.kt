@@ -20,12 +20,15 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.OwnedTurnAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.OwnedTurnStop
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.StopsOwnedTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
@@ -175,10 +178,34 @@ internal class PiRuntime(
                 ?: piFailure(EngineFailure.Session(SessionFailureReason.NotFound))
             log.i { "Attaching stored Pi session" }
             val launchRequest = CreateSessionRequest(request.target, request.workspace, request.areDetachedToolsEnabled)
+            settleExited(ref, launchRequest)
             return launch(launchRequest, PiTranscript(ref, file))
         } finally {
             withContext(NonCancellable) { mutex.withLock { attaching.remove(ref) } }
         }
+    }
+
+    /**
+     * A turn interrupted by an earlier runtime whose whole stored process tree is gone settles as Unknown before
+     * reopening; the reserved ref keeps owned stops and other attaches out meanwhile. Anything else stays for recheck.
+     */
+    private suspend fun settleExited(ref: SessionRef, request: CreateSessionRequest) {
+        val journal = PiTurnJournal(environment.turns, ref, route(request), credential)
+        val snapshot = journal.restore() ?: return
+        val active = snapshot.active?.takeIf { snapshot.stopping == null } ?: return
+        val owner = active.processOwner ?: return
+        if (!processes.hasExited(owner)) return
+        journal.finish(active.turn.id, TurnOutcome.Unknown)
+        log.i { "Interrupted Pi turn settled as unknown: its process exited" }
+    }
+
+    /** Recheck of a turn left by an earlier process: the exact owned stop proves or causes its exit. */
+    private suspend fun stopRestored(session: PiSession, turn: Turn): Boolean {
+        val ref = session.attachedRef ?: return false
+        val request = turn.request ?: return false
+        val route = session.route
+        val access = OwnedTurnAccess(turn.target.copy(binding = route.binding), route.workspace, turn.id)
+        return ownedTurns.stop(ref, request, access) is OwnedTurnStop.Confirmed
     }
 
     private suspend fun launch(request: CreateSessionRequest, transcript: PiTranscript?): PiActiveSession {
@@ -249,13 +276,7 @@ internal class PiRuntime(
             val configuration = settings.snapshot()
             validateTarget(request.target, configuration)
             val directory = resolvePiWorkspace(request.workspace, workspaces, configuration.workspaces)
-            val route = ExecutionRoute(
-                identity.engine,
-                request.target.binding,
-                identity.source,
-                identity.revision,
-                request.workspace,
-            )
+            val route = route(request)
             val restored = transcript?.let {
                 PiTurnJournal(environment.turns, it.ref, route, credential).restoreForOpening()
             }
@@ -268,9 +289,13 @@ internal class PiRuntime(
                     ::validate,
                     ::forgotten,
                     restored,
+                    ::stopRestored,
                 )
             } to directory
         }
+
+    private fun route(request: CreateSessionRequest) =
+        ExecutionRoute(identity.engine, request.target.binding, identity.source, identity.revision, request.workspace)
 
     // Under the runtime mutex: it mutates the same bookkeeping as attach and releaseBorrow, and a racing
     // removal could resurrect a consumer count of an already released process.

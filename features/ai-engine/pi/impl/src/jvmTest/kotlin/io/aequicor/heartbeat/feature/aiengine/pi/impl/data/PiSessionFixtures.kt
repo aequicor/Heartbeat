@@ -47,6 +47,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -351,6 +353,8 @@ private class ReducerLauncher(private val acceptIntent: (MachineIntent) -> Boole
             if (scope.isClosed) return SendResult.NotRunning
             if (!acceptIntent(intent)) return SendResult.Ignored
             val resolved = spec.resolve(state.value, intent) ?: return SendResult.Ignored
+            // Like the production runtime, a cancelled sender cannot dispatch.
+            currentCoroutineContext().ensureActive()
             state.value = resolved.to
             resolved.effects.forEach { effect ->
                 scope.coroutineScope.launch {

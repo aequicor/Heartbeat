@@ -33,7 +33,7 @@ internal class PiNativeApproval(
             val response = call.result?.let { result ->
                 val note = environment.tools.afterHosted(context, call.tool, call.arguments, result)
                 "value" to JsonPrimitive(note.orEmpty())
-            } ?: ("confirmed" to JsonPrimitive(authorize(id, call, turn, context) == NativeVerdict.Allow))
+            } ?: ("confirmed" to JsonPrimitive(authorize(id, call, turn, context).isAllowed))
             currentCoroutineContext().ensureActive()
             // Recheck after the gate, before sending Allow to the captured process.
             if (!isCurrent()) return
@@ -74,19 +74,27 @@ internal class PiNativeApproval(
     ): NativeVerdict {
         val classified = classify(call) ?: return NativeVerdict.Deny("Unknown native tool")
         val (native, isHostTermination) = classified
+        var isAsked = false
         val bound = context.copy(
             permissions = AgentToolPermissions { approval ->
                 if (!isCurrent()) return@AgentToolPermissions false
                 val request = approvalRequest(id, turn.id, call, isHostTermination)
                     ?.copy(description = approval.description) ?: return@AgentToolPermissions false
+                isAsked = true
                 hosted.approval(turn, request, PiApprovalAllow)
             },
         )
-        return if (call.tool in SearchTools) {
+        val verdict = if (call.tool in SearchTools) {
             environment.tools.authorizeHosted(bound, call.tool, call.arguments)
         } else {
             environment.tools.authorizeNative(bound, native)
         }
+        // Audit without the target: automatic allowances follow trust or policy and leave no user decision.
+        log.i {
+            val source = if (isAsked) "user" else "trust or policy"
+            "Pi native ${call.tool} ${if (verdict.isAllowed) "allowed" else "denied"} by $source"
+        }
+        return verdict
     }
     private suspend fun classify(call: PiApprovalCall): Pair<NativeToolCall, Boolean>? {
         val action = if (call.tool in SearchTools) {
@@ -115,3 +123,5 @@ internal class PiNativeApproval(
         return native to isHostTermination
     }
 }
+
+private val NativeVerdict.isAllowed: Boolean get() = this == NativeVerdict.Allow

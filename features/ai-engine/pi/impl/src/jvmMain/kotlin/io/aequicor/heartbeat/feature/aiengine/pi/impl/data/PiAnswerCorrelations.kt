@@ -47,11 +47,7 @@ internal class PiAnswerCorrelations(
     /** Merged by PiTurnJournal.finish in the same atomic update as the terminal receipt. */
     fun pending(turn: TurnId): Map<String, TurnId?> = if (current == turn) observed.toMap() else emptyMap()
 
-    private fun validate(snapshot: PiTurnSnapshot) {
-        check(snapshot.ref == ref && snapshot.route == route && snapshot.ownership == ownership) {
-            "Pi answer ownership changed"
-        }
-    }
+    private fun validate(snapshot: PiTurnSnapshot) = snapshot.checkOwner(ref, route, ownership)
 
     private suspend fun <T> guarded(block: suspend () -> T): T = try {
         block()
