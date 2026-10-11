@@ -65,6 +65,18 @@ internal class PiSessionConfiguration(
         return configuration.value
     }
 
+    /** Reapplies the confirmed model and effort to a replacement process before it can receive a prompt. */
+    suspend fun restore(connection: PiConnection): JsonObject {
+        connection.command("set_model", modelFields(target.model))
+        appliedThinking?.let {
+            connection.command(
+                "set_thinking_level",
+                JsonObject(mapOf("level" to JsonPrimitive(it))),
+            )
+        }
+        return connection.command("get_state")
+    }
+
     /** Pi clamps thinking to the model; prompt overrides and resets are confirmed before delivery. */
     suspend fun prepareEffort(requested: String?) {
         val level = requested?.let(::piThinkingLevel) ?: nativeThinking ?: return

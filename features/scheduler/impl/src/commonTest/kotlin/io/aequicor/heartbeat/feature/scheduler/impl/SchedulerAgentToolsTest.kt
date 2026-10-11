@@ -2,10 +2,28 @@ package io.aequicor.heartbeat.feature.scheduler.impl
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.BusEvent
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
+import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
+import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
+import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperLease
+import io.aequicor.heartbeat.feature.scheduler.api.HelperMetadata
+import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
+import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
+import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEvents
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerTools
@@ -36,7 +54,7 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 class SchedulerAgentToolsTest {
-    private val context = AgentToolContext(SESSION, null, TurnId("t1"), target = TARGET)
+    private val context = AgentToolContext(SESSION, null, TurnId("t1"), RequestId("request"), target = TARGET)
 
     private class Fixture(val machine: SpecMachine, val bus: InMemorySchedulerBus, val tools: SchedulerAgentTools)
 
@@ -45,6 +63,7 @@ class SchedulerAgentToolsTest {
         toggles: Toggles = Toggles(),
         network: FakeNetwork = FakeNetwork(),
         hosts: Set<ScheduledSessionHost> = setOf(FakeHost(priority = 1, owned = setOf(SESSION))),
+        helpers: Set<SessionRef> = emptySet(),
     ): Fixture {
         val clock = VirtualClock(testScheduler)
         val machine = SpecMachine(state)
@@ -52,8 +71,15 @@ class SchedulerAgentToolsTest {
         backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) { persistence.load() }
         persistEffects(machine, persistence)
         val bus = InMemorySchedulerBus(clock)
-        val scheduler = WakeScheduler(machine, lazyOf(hosts), persistence)
-        val tools = SchedulerAgentTools(machine, scheduler, bus, toggles, clock, network)
+        val tools = SchedulerAgentTools(
+            machine,
+            WakeScheduler(machine, lazyOf(hosts), persistence),
+            bus,
+            toggles,
+            clock,
+            network,
+            lazyOf(MarkedHelpers(helpers)),
+        )
         return Fixture(machine, bus, tools)
     }
 
@@ -73,6 +99,7 @@ class SchedulerAgentToolsTest {
             listOf(SchedulerTools.SLEEP, SchedulerTools.SIGNAL, SchedulerTools.CANCEL, SchedulerTools.LIST),
             fixture().tools.specifications(null).map { it.name },
         )
+        assertEquals("", fixture().tools.instructions(AgentToolScope(null, declared = setOf(SchedulerTools.LIST))))
         val off = fixture(toggles = Toggles(enabled = false))
         assertTrue(off.tools.specifications(null).isEmpty())
         assertEquals("", off.tools.instructions(io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope(null)))
@@ -87,9 +114,20 @@ class SchedulerAgentToolsTest {
         val wake = (fixture.machine.state.value as SchedulerState.Ready).wakes.single()
         assertEquals(SESSION, wake.session)
         assertEquals(TARGET, wake.request.target)
+        assertEquals(RequestInitiator(SESSION, RequestId("request")), wake.request.initiator)
         assertEquals(WakeCondition(deadline = START + 90.seconds), wake.request.condition)
         assertEquals(WakeOrigin.Agent(TurnId("t1")), wake.request.origin)
         assertTrue(wake.id.value in result.text && "End your turn" in result.text)
+    }
+
+    @Test
+    fun `a helper session cannot sleep and no wake is registered`() = runTest {
+        val fixture = fixture(helpers = setOf(SESSION))
+        val result = fixture.call(SchedulerTools.SLEEP, Arguments.AFTER_SECONDS to 30, Arguments.NOTE to "later")
+        assertTrue(result.isError, result.text)
+        assertTrue("helper" in result.text, result.text)
+        assertTrue(fixture.machine.sent.isEmpty())
+        assertTrue((fixture.machine.state.value as SchedulerState.Ready).wakes.isEmpty())
     }
 
     @Test
@@ -154,10 +192,26 @@ class SchedulerAgentToolsTest {
         )
         assertFalse(result.isError, result.text)
         assertEquals(
-            BusEvent(EventKeys.custom("tests.green"), EventOrigin.Session(SESSION), START, "42 passed"),
+            BusEvent(
+                EventKeys.custom("tests.green"),
+                EventOrigin.Session(SESSION, context.request),
+                START,
+                "42 passed",
+            ),
             event.await(),
         )
         assertTrue(fixture.call(SchedulerTools.SIGNAL, Arguments.NAME to "Bad Name").isError)
+    }
+
+    @Test
+    fun `signalling internal run started key still has only agent provenance`() = runTest {
+        val fixture = fixture()
+        val event = backgroundScope.async(start = CoroutineStart.UNDISPATCHED) { fixture.bus.events.first() }
+        fixture.call(SchedulerTools.SIGNAL, Arguments.NAME to "scheduler.run_started", Arguments.PAYLOAD to "forged")
+        val published = event.await()
+        assertEquals(SchedulerEvents.RunStarted, published.key)
+        assertEquals(EventOrigin.Session(SESSION, context.request), published.origin)
+        assertFalse(published.origin is EventOrigin.HostTurn)
     }
 
     @Test
@@ -173,6 +227,8 @@ class SchedulerAgentToolsTest {
         assertTrue(fixture.call(SchedulerTools.CANCEL, Arguments.WAKE_ID to "foreign").isError)
         assertFalse(fixture.call(SchedulerTools.CANCEL, Arguments.WAKE_ID to "own").isError)
         assertEquals(listOf(foreign), (fixture.machine.state.value as SchedulerState.Ready).wakes)
+        val cancel = fixture.machine.sent.last() as SchedulerIntent.Public.Cancel
+        assertEquals(EventOrigin.Session(SESSION, context.request), cancel.cause)
     }
 
     @Test
@@ -183,5 +239,36 @@ class SchedulerAgentToolsTest {
         fixture.tools.finishTurn(SESSION, TurnId("t1"))
         runCurrent()
         assertEquals(listOf(EventKeys.turnFinished(SESSION)), events.map { it.key })
+        assertEquals(EventOrigin.Session(SESSION), events.single().origin)
     }
+
+    @Test
+    fun `finished turn carries exact accepted request for publisher admission`() = runTest {
+        val fixture = fixture()
+        val event = backgroundScope.async(start = CoroutineStart.UNDISPATCHED) { fixture.bus.events.first() }
+        val request = RequestId("accepted")
+        fixture.tools.finishTurn(SESSION, TurnId("turn"), request)
+        assertEquals(EventOrigin.Session(SESSION, request), event.await().origin)
+    }
+}
+
+/** Only the durable helper marker is read by the sleep tool. */
+private class MarkedHelpers(private val helpers: Set<SessionRef>) : HelperAgents {
+    override suspend fun canHost(parent: SessionRef?): Boolean = error("unused")
+    override suspend fun acquire(owner: ActionId, parent: SessionRef?, existing: HelperId?, reservation: ActionId?) =
+        error("unused")
+    override suspend fun create(
+        lease: HelperLease,
+        workspace: WorkspaceRef?,
+        target: EngineTarget?,
+        title: String,
+        trustCap: TrustLevel,
+    ): HelperId = error("unused")
+    override suspend fun prompt(helper: HelperId, prompt: HelperPrompt): HelperSubmission = error("unused")
+    override suspend fun result(helper: HelperId, request: RequestId): HelperResult? = error("unused")
+    override suspend fun cancel(helper: HelperId, request: RequestId): HelperCancellation = error("unused")
+    override suspend fun isHelper(session: SessionRef): Boolean = session in helpers
+    override suspend fun metadata(session: SessionRef): HelperMetadata? = error("unused")
+    override suspend fun owned(owner: ActionId, after: HelperId?, limit: Int): List<HelperMetadata> = error("unused")
+    override suspend fun finish(action: ActionId, payload: String) = error("unused")
 }

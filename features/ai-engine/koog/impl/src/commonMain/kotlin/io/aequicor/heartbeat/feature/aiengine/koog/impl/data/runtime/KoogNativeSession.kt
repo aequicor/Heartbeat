@@ -110,8 +110,15 @@ internal class KoogNativeSession(
      */
     private var areDetachedToolsEnabled = false
 
-    // The opt-in of the running turn, captured at its acceptance; a later lease changes only later turns.
+    /**
+     * Whether the holder opted into session hooks, chosen like [areDetachedToolsEnabled]. Hooks leave content
+     * independent of tools to this engine, so only such a session receives it in a turn without hosted tools.
+     */
+    private var areSessionHooksEnabled = false
+
+    // The opt-ins of the running turn, captured at its acceptance; a later lease changes only later turns.
     private var isTurnDetached = false
+    private var isTurnHooked = false
     private val log = Log.tag("KoogSession")
     val history = snapshot.history
     private val mutex = Mutex()
@@ -139,12 +146,16 @@ internal class KoogNativeSession(
 
     /**
      * Issues a lease. Without other holders [areDetachedToolsEnabled] decides hosted tools for later turns of a
-     * session without a project, even while a turn accepted for an earlier lease still runs; a lease on a session
-     * that is already held keeps the holders' choice.
+     * session without a project, and [areSessionHooksEnabled] whether turns without hosted tools still receive
+     * instructions independent of tools, even while a turn accepted for an earlier lease still runs; a lease on a
+     * session that is already held keeps the holders' choice.
      */
-    fun attach(areDetachedToolsEnabled: Boolean): ActiveSession {
+    fun attach(areDetachedToolsEnabled: Boolean, areSessionHooksEnabled: Boolean): ActiveSession {
         checkOpen()
-        if (handles.isEmpty()) this.areDetachedToolsEnabled = areDetachedToolsEnabled
+        if (handles.isEmpty()) {
+            this.areDetachedToolsEnabled = areDetachedToolsEnabled
+            this.areSessionHooksEnabled = areSessionHooksEnabled
+        }
         val state = MutableStateFlow(current)
         handles += state
         return object : ActiveSession {
@@ -288,6 +299,7 @@ internal class KoogNativeSession(
         history.append { SessionEvent.ItemUpserted(it, user) }
         active = turn
         isTurnDetached = areDetachedToolsEnabled
+        isTurnHooked = areSessionHooksEnabled
         publish(ActiveSessionState.Running(turn))
         job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             runTurn(turn, client, provider, origin, model.value, request.trust ?: TrustLevel.Ask)
@@ -301,7 +313,7 @@ internal class KoogNativeSession(
         val project = route.workspace
         return when {
             project != null -> project.takeIf { workspaces.hasHostedTools || isCodingEnabled }
-                ?.let { workspaces.open(it, context) }
+                ?.let { workspaces.open(it, context, isTurnHooked) }
                 ?.withCodingTools(isCodingEnabled)
 
             isTurnDetached -> openDetached(context)
@@ -310,9 +322,38 @@ internal class KoogNativeSession(
         }
     }
 
+    /**
+     * Hosted instructions only accompany the tools they describe. A turn sending no hosted tool still receives the
+     * content independent of tools when its session opted into hooks: Koog declares per-turn instructions, so those
+     * hooks leave the content to this turn. Service sessions without hooks get none, as on engines delivering via
+     * hooks; with hosted tools they get only the tool guide (see [koogToolScope]). Blank text adds no system
+     * message; a failing contribution leaves the turn without it.
+     */
+    private suspend fun turnInstructions(
+        workspace: KoogWorkspace?,
+        tools: KoogToolbox,
+        context: AgentToolContext,
+    ): String? {
+        val text = if (workspace != null && !tools.isEmpty()) {
+            workspace.instructions
+        } else if (!isTurnHooked) {
+            ""
+        } else {
+            try {
+                workspaces.instructions(context)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.w(e.sanitized()) { "Instructions without hosted tools unavailable; the turn continues" }
+                ""
+            }
+        }
+        return text.takeIf { it.isNotBlank() }
+    }
+
     /** Detached hosted tools are optional: a failing contribution leaves a plain chat turn. */
     private suspend fun openDetached(context: AgentToolContext): KoogWorkspace? = try {
-        workspaces.openDetached(context)
+        workspaces.openDetached(context, isTurnHooked)
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
@@ -347,15 +388,13 @@ internal class KoogNativeSession(
                     client = reopenClient(selectedModel, client)
                     clientModel = selectedModel
                 }
-                val tools = turnTools(client, provider, selectedModel, workspace)
+                val tools = turnTools(client, provider, selectedModel, workspace, context)
                 val textModel = provider.textModel(
                     selectedModel,
                     tools = !tools.isEmpty(),
                     attachments = history.items.hasResourceInputs(),
                 )
-                // Hosted instructions only accompany the tools they describe; blank ones add no system message.
-                val instructions = workspace?.instructions?.takeIf { it.isNotBlank() && !tools.isEmpty() }
-                val prompt = input ?: initialPrompt(provider, instructions)
+                val prompt = input ?: initialPrompt(provider, turnInstructions(workspace, tools, context))
                 val round = streamWithEffort(turn, client, provider, origin, textModel, tools, prompt, requestSelection)
                 val next = toolExecution.nextPrompt(turn, tools, round, prompt)
                 if (next == null) {
@@ -416,9 +455,10 @@ internal class KoogNativeSession(
         provider: KoogProvider,
         model: String,
         workspace: KoogWorkspace?,
+        context: AgentToolContext,
     ): KoogToolbox {
         val offered = buildList {
-            if (access.searchToolsEnabled()) addAll(koogSearchToolset(search))
+            if (access.searchToolsEnabled()) addAll(koogSearchToolset(search, access.tools, context))
             workspace?.let { addAll(it.tools) }
         }
         if (offered.isEmpty() || !acceptsTools(client, provider, model)) return KoogToolbox(emptyList())

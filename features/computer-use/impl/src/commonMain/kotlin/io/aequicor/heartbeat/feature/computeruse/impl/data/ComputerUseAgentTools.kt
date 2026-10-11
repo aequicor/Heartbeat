@@ -15,8 +15,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureEncoding
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureId
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureOwner
@@ -87,6 +89,10 @@ internal class ComputerUseAgentTools(
     private val stoppedTurns: ComputerUseStoppedTurns,
     private val frames: FrameStore,
 ) : AgentToolContribution {
+    override val group: String = "computer"
+    override val title: String = "Управление компьютером"
+    override val catalog: List<ToolCatalogEntry> get() = toolSpecs.toolCatalog()
+
     private val log = Log.tag("ComputerUseAgentTools")
     private val requests = Mutex()
 

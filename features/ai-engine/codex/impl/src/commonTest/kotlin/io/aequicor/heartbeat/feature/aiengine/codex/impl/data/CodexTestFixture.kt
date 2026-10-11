@@ -62,30 +62,57 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-internal class FakeWire : CodexWire {
-    val incoming = Channel<JsonObject>(Channel.UNLIMITED)
-    val written = mutableListOf<JsonObject>()
-    var handler: suspend (JsonObject) -> Unit = { message ->
-        if (message["id"] != null && message["method"] != null) reply(message, JsonObject(emptyMap()))
+/** Shared journal keeps existing assertions readable while each execution process has an independent channel. */
+internal class FakeWire private constructor(
+    private val journal: WireJournal,
+    val off: CodexNativeOff = CodexNativeOff(),
+) : CodexWire {
+    constructor() : this(WireJournal()) {
+        journal.root = this
+        journal.handler = { message ->
+            if (message["id"] != null && message["method"] != null) reply(message, JsonObject(emptyMap()))
+        }
     }
+    val incoming = Channel<JsonObject>(Channel.UNLIMITED)
+    val written get() = journal.written
+    val peers get() = journal.peers.toList()
+    var handler: suspend (JsonObject) -> Unit
+        get() = journal.handler
+        set(value) {
+            journal.handler = value
+        }
+    var owner: CodexExecutionOwner? = null
+    var captureOwner: suspend () -> CodexExecutionOwner? = { owner }
+    override suspend fun processOwner(): CodexExecutionOwner? = captureOwner()
     var isClosed = false
     override val messages = incoming.receiveAsFlow()
+    fun fork(off: CodexNativeOff = CodexNativeOff()): FakeWire = FakeWire(journal, off).also { journal.peers += it }
+    fun origin(request: JsonObject): FakeWire = journal.origins.lastOrNull { it.first === request }?.second ?: this
     override suspend fun write(message: JsonObject) {
         written += message
+        journal.origins += message to this
         handler(message)
     }
     suspend fun reply(request: JsonObject, result: JsonObject) {
-        incoming.send(
-            json("id" to checkNotNull(request["id"]), "result" to result),
-        )
+        val source = origin(request)
+        if (request.text("method") in setOf("thread/start", "thread/resume")) {
+            (result["thread"] as? JsonObject)?.text("id")?.let { journal.threads[it] = source }
+        }
+        source.incoming.send(json("id" to checkNotNull(request["id"]), "result" to result))
     }
     suspend fun error(request: JsonObject) {
-        incoming.send(
+        origin(request).incoming.send(
             json("id" to checkNotNull(request["id"]), "error" to json("code" to JsonPrimitive(INVALID_PARAMS))),
         )
     }
     suspend fun event(method: String, params: JsonObject, id: JsonElement? = null) {
-        incoming.send(
+        val thread = params.text("threadId")
+        val target = if (this === journal.root && thread != null) {
+            journal.threads[thread] ?: journal.peers.lastOrNull() ?: this
+        } else {
+            this
+        }
+        target.incoming.send(
             JsonObject(
                 mapOf("method" to method.json(), "params" to params) +
                     if (id == null) emptyMap() else mapOf("id" to id),
@@ -97,6 +124,14 @@ internal class FakeWire : CodexWire {
         incoming.close()
     }
 
+    private class WireJournal {
+        var root: FakeWire? = null
+        val peers = mutableListOf<FakeWire>()
+        val written = mutableListOf<JsonObject>()
+        val origins = mutableListOf<Pair<JsonObject, FakeWire>>()
+        val threads = mutableMapOf<String, FakeWire>()
+        var handler: suspend (JsonObject) -> Unit = {}
+    }
     private companion object {
         const val INVALID_PARAMS = -32602
     }
@@ -110,10 +145,13 @@ internal class Fixture(
         override suspend fun fetch(url: String, native: EngineFeatures?): ResourceContent = error("unavailable")
     },
     searchTools: Boolean = true,
-    configuration: CodexLocalConfiguration = CodexLocalConfiguration(),
+    configuration: CodexLocalConfiguration = CodexLocalConfiguration(homeDirectory = "/test/codex"),
     tools: io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools =
-        io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools,
+        AllowedSearchTools,
     manifests: CodexToolManifests = MemoryCodexToolManifests(),
+    turns: CodexTurnRecords = MemoryCodexTurnRecords(),
+    launch: PreparedCodexLaunch? = null,
+    hostedDrains: CodexHostedDrains = CodexHostedDrains(),
 ) {
     val dispatcher = StandardTestDispatcher(test.testScheduler)
     val dispatchers = object : DispatcherProvider {
@@ -125,6 +163,7 @@ internal class Fixture(
     val wire = FakeWire()
     val rpc = CodexRpc(wire, test.backgroundScope)
     val target = EngineTarget(CodexEngine.Id, EngineBindingId("binding"), ModelId("model"))
+    var codexHome: String? = null
     var account = json("type" to "chatgpt".json(), "email" to "local@example.invalid".json())
     var threadTurns: List<JsonObject> = emptyList()
 
@@ -140,6 +179,8 @@ internal class Fixture(
             json("turn" to json("id" to "native-turn".json())),
         )
     }
+    var beforeSearchLookup: suspend () -> Unit = {}
+    val launcher = FakeLauncher()
     var isSearchEnabled = true
     var isQuestionnaireEnabled = true
     var isUsageEnabled = true
@@ -152,9 +193,15 @@ internal class Fixture(
             @Suppress("UNCHECKED_CAST")
             override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = when (toggle) {
                 is FeatureToggle.Flag -> when (toggle) {
-                    SearchEngineTools -> isSearchEnabled
+                    SearchEngineTools -> {
+                        beforeSearchLookup()
+                        isSearchEnabled
+                    }
+
                     QuestionnaireEnabled -> isQuestionnaireEnabled
+
                     EngineUsageEnabled -> isUsageEnabled
+
                     else -> true
                 }
 
@@ -162,7 +209,7 @@ internal class Fixture(
             } as T
         },
         dispatchers,
-        FakeLauncher(),
+        launcher,
         object : ScopeFactory {
             override fun child(parent: ScopeHandle, name: String, restored: SavedBundle?): OwnedScope = FakeScope(
                 test.backgroundScope,
@@ -178,6 +225,8 @@ internal class Fixture(
         },
         tools = tools,
         manifests = manifests,
+        turns = turns,
+        hostedDrains = hostedDrains,
         resources = ResourceResolver { resources.resolve(it) },
     )
     val runtime = CodexRuntime(
@@ -185,6 +234,11 @@ internal class Fixture(
         rpc,
         environment,
         searchTools,
+        launch ?: object : PreparedCodexLaunch {
+            override suspend fun open(): CodexWire = wire.fork()
+            override suspend fun open(off: CodexNativeOff): CodexWire = wire.fork(off)
+            override suspend fun version(): String = "0.160.0"
+        },
     )
     init {
         wire.handler = { message ->
@@ -193,7 +247,23 @@ internal class Fixture(
 
                 "model/list" -> wire.reply(message, json("data" to JsonArray(modelList)))
 
-                "config/read" -> wire.reply(message, json("config" to nativeConfig))
+                "config/read" -> {
+                    val off = wire.origin(message).off
+                    wire.reply(
+                        message,
+                        json(
+                            "config" to off.applyTo(nativeConfig),
+                            "layers" to JsonArray(
+                                listOf(
+                                    json(
+                                        "name" to json("type" to "sessionFlags".json()),
+                                        "config" to off.applyTo(JsonObject(emptyMap())),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    )
+                }
 
                 "thread/start" -> wire.reply(
                     message,
@@ -220,9 +290,12 @@ internal class Fixture(
 
                 "turn/start" -> onTurn(message)
 
-                "turn/interrupt" -> wire.reply(message, JsonObject(emptyMap()))
+                "turn/interrupt", "thread/name/set" -> wire.reply(message, JsonObject(emptyMap()))
 
-                "initialize" -> wire.reply(message, JsonObject(emptyMap()))
+                "initialize" -> wire.reply(
+                    message,
+                    JsonObject(codexHome?.let { mapOf("codexHome" to it.json()) }.orEmpty()),
+                )
             }
         }
     }
@@ -260,6 +333,7 @@ internal class FakeScope(override val coroutineScope: CoroutineScope) : OwnedSco
 }
 
 internal class FakeLauncher : MachineLauncher {
+    var beforeSend: suspend (MachineIntent) -> Unit = {}
     override fun <S : MachineState, I : MachineIntent, E : MachineEffect, O : MachineOutput> launch(
         spec: MachineSpec<S, I, E, O>,
         scope: ScopeHandle,
@@ -269,6 +343,7 @@ internal class FakeLauncher : MachineLauncher {
         override val state = MutableStateFlow(spec.initial)
         override val outputs = MutableSharedFlow<O>(extraBufferCapacity = 16)
         override suspend fun send(intent: I): SendResult {
+            beforeSend(intent)
             val resolution = spec.resolve(state.value, intent) ?: return SendResult.Ignored
             state.value = resolution.to
             resolution.outputs.forEach { outputs.emit(it) }
@@ -288,3 +363,14 @@ internal class FakeLauncher : MachineLauncher {
 internal fun <T : EngineFeature> ActiveSession.feature(key: EngineFeatureKey<T>): T =
     (features.resolve(key) as FeatureAccess.Available).feature
 internal val Prompt = PromptRequest(RequestId("prompt"), listOf(ContentPart.Text("hello")))
+
+/** Explicit search authorization for transport fixtures; production NoAgentTools continues to deny. */
+internal object AllowedSearchTools : io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools by
+io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools {
+    override suspend fun authorizeHosted(
+        context: io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext,
+        name: String,
+        arguments: JsonObject,
+    ): io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict =
+        io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict.Allow
+}

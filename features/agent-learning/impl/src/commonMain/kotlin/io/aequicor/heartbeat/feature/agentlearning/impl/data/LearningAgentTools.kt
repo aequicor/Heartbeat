@@ -27,7 +27,6 @@ import io.aequicor.heartbeat.feature.agentlearning.impl.domain.applicable
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.isRatedSafe
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.learningPrompt
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.parseRemember
-import io.aequicor.heartbeat.feature.agentlearning.impl.domain.singleLine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
@@ -35,9 +34,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.singleLine
+import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
+import io.aequicor.heartbeat.feature.worktreemode.api.sourceProjectOf
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -68,6 +71,10 @@ internal class LearningAgentTools(
     private val workspaces: LocalWorkspaces,
     private val platform: PlatformInfo,
 ) : AgentToolContribution {
+    override val group: String = "learning"
+    override val title: String = "Обучение"
+    override val catalog: List<ToolCatalogEntry> get() = listOf(REMEMBER_SPEC, LOAD_SKILL_SPEC).toolCatalog()
+
     private val log = Log.tag("LearningAgentTools")
 
     override val isDetachedSupported: Boolean get() = true
@@ -81,7 +88,7 @@ internal class LearningAgentTools(
         val project = projectOf(scope.workspace) as? Project.Known ?: return ""
         val applicable = registry()?.instructions.orEmpty().applicable(project.ref, scope.target)
         log.i { "learned instructions for the session: ${applicable.size}" }
-        return learningPrompt(platform.host, applicable)
+        return learningPrompt(platform.host, applicable, scope.declared)
     }
 
     override suspend fun requiresDecision(
@@ -227,8 +234,8 @@ internal class LearningAgentTools(
     private suspend fun projectOf(workspace: WorkspaceRef?): Project {
         if (workspace == null) return Project.Known(null)
         val worktrees = machines.find(WorktreeMachineKey)?.state?.value as? WorktreeState.Ready
-        worktrees?.tasks?.values?.firstOrNull { it.executionWorkspace == workspace }?.let {
-            return Project.Known(it.project)
+        worktrees?.sourceProjectOf(workspace)?.let {
+            return Project.Known(it)
         }
         val isSaved = workspaces.isAvailable && workspaces.observe().first().any { it.ref == workspace }
         return if (isSaved) Project.Known(workspace) else Project.Unknown

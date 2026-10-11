@@ -41,6 +41,21 @@ internal fun <F : EngineFeature> EngineFeatures.available(key: EngineFeatureKey<
     assertIs<FeatureAccess.Available<F>>(resolve(key)).feature
 
 internal class FakeClaudeTransport : ClaudeTransport {
+    var versionValue: String? = null
+    override suspend fun version(): String? = versionValue
+    var duplexGeneration: suspend (List<String>, suspend (ClaudeDuplex) -> Unit) -> Int = { _, _ ->
+        error("Unexpected gated native turn")
+    }
+    override suspend fun duplex(
+        arguments: List<String>,
+        workspace: WorkspaceRef?,
+        hosted: ClaudeHostedTools?,
+        session: suspend (ClaudeDuplex) -> Unit,
+    ): Int {
+        calls += arguments
+        hostedCalls += hosted
+        return duplexGeneration(arguments, session)
+    }
     var pinnedTransport: ClaudeTransport? = null
     override suspend fun pinned(
         launch: io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext?,
@@ -83,6 +98,7 @@ internal class FakeClaudeTransport : ClaudeTransport {
 internal class TestClaudeToggles : FeatureToggles {
     var isEnabled = true
     var isUsageEnabled = true
+    var isNativeEnabled = true
 
     // Tests read only ClaudeEngine.Enabled, a Boolean flag, so T is always Boolean here.
     @Suppress("UNCHECKED_CAST")
@@ -91,6 +107,8 @@ internal class TestClaudeToggles : FeatureToggles {
             EngineUsageEnabled
         ) {
             isUsageEnabled
+        } else if (toggle == io.aequicor.heartbeat.feature.aiengine.facade.api.HarnessNativeTools) {
+            isNativeEnabled
         } else {
             isEnabled
         }
@@ -123,6 +141,7 @@ internal class ClaudeFixture(val scope: CoroutineScope) {
     suspend fun runtime(
         tools: ProfileAgentTools = NoAgentTools,
         bridge: AgentToolBridge = UnavailableAgentToolBridge,
+        native: ClaudeNativeSupport = MissingClaudeNativeSupport,
     ): ClaudeRuntime {
         val revision = account.inspect().check.revision
         return ClaudeRuntime(
@@ -134,6 +153,7 @@ internal class ClaudeFixture(val scope: CoroutineScope) {
             catalog = catalog,
             tools = tools,
             bridge = bridge,
+            native = native,
             resources = ResourceResolver { resources.resolve(it) },
             inputSupport = { inputSupport },
         )

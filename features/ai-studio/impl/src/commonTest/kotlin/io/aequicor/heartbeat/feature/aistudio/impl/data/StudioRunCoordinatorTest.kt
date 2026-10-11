@@ -8,15 +8,21 @@ import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeAdmission
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDeferredException
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDroppedException
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -30,6 +36,152 @@ import kotlin.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioRunCoordinatorTest {
+    @Test
+    fun `owner cancellation at begin clears the unsubmitted receipt and leaves the chat reusable`() = runTest {
+        val events = mutableListOf<String>()
+        val coordinator = StudioRunCoordinator(RunProfile(this), RunClock)
+        val host = RunHost(events)
+        val inbox = StudioWakeInbox(ChecklistTestStores())
+        val request = runRequest("cancelled")
+        var isCancelling = false
+        val admission = flow {
+            if (isCancelling) throw CancellationException("Owner cancelled")
+            emit(ScheduledWakeAdmission.Allow)
+        }
+        host.execute = { actual ->
+            isCancelling = true
+            actual.submission?.begin()
+            events += "submitted"
+            RunOutcome.Completed
+        }
+        assertFailsWith<CancellationException> {
+            coordinator.run(
+                host,
+                request,
+                beforeExecute = { inbox.submitting(request.request) },
+                onCancelledBeforeSubmission = { inbox.cancelledBeforeSubmission(request.request) },
+                admission = admission,
+            )
+        }
+        assertNull(inbox.receipt(request.request))
+        assertFalse("submitted" in events)
+        assertEquals(listOf("started", "execute", "finished"), events)
+        host.execute = { RunOutcome.Completed }
+        assertEquals(RunOutcome.Completed, coordinator.run(host, runRequest("next")))
+    }
+
+    @Test
+    fun `owner drop after submission leaves accepted work owned by the profile`() = runTest {
+        val events = mutableListOf<String>()
+        val coordinator = StudioRunCoordinator(RunProfile(this), RunClock)
+        val host = RunHost(events)
+        val admission = MutableStateFlow(ScheduledWakeAdmission.Allow)
+        val finished = CompletableDeferred<Unit>()
+        host.execute = { request ->
+            request.submission?.begin()
+            events += "submitted"
+            finished.await()
+            RunOutcome.Completed
+        }
+        val caller = async { coordinator.run(host, runRequest("wake"), admission = admission) }
+        runCurrent()
+        assertTrue("submitted" in events)
+        admission.value = ScheduledWakeAdmission.Drop
+        runCurrent()
+        assertFalse(caller.isCompleted)
+        assertFalse("finished" in events)
+        finished.complete(Unit)
+        assertEquals(RunOutcome.Completed, caller.await())
+    }
+
+    @Test
+    fun `owner drop while waiting for a busy chat never reserves another execution`() = runTest {
+        val events = mutableListOf<String>()
+        val coordinator = StudioRunCoordinator(RunProfile(this), RunClock)
+        val host = RunHost(events)
+        val finished = CompletableDeferred<Unit>()
+        host.execute = {
+            finished.await()
+            RunOutcome.Completed
+        }
+        val active = async { coordinator.run(host, runRequest("same")) }
+        runCurrent()
+        val admission = MutableStateFlow(ScheduledWakeAdmission.Allow)
+        val waiting = async {
+            assertFailsWith<ScheduledWakeDroppedException> {
+                coordinator.run(host, runRequest("same"), waitForIdle = true, admission = admission)
+            }
+        }
+        runCurrent()
+        admission.value = ScheduledWakeAdmission.Drop
+        runCurrent()
+        waiting.await()
+        assertEquals(1, events.count { it == "started" })
+        assertFalse(active.isCompleted)
+        finished.complete(Unit)
+        active.await()
+    }
+
+    @Test
+    fun `owner drop during preparation clears receipt and permanently revokes this attempt`() = runTest {
+        val events = mutableListOf<String>()
+        val coordinator = StudioRunCoordinator(RunProfile(this), RunClock)
+        val host = RunHost(events)
+        val inbox = StudioWakeInbox(ChecklistTestStores())
+        val admission = MutableStateFlow(ScheduledWakeAdmission.Allow)
+        val prepared = CompletableDeferred<Unit>()
+        val request = runRequest("dropped")
+        host.execute = { actual ->
+            prepared.await()
+            actual.submission?.begin()
+            events += "submitted"
+            RunOutcome.Completed
+        }
+        val caller = async {
+            assertFailsWith<ScheduledWakeDroppedException> {
+                coordinator.run(
+                    host,
+                    request,
+                    cancelBeforeSubmission = true,
+                    beforeExecute = { inbox.submitting(request.request) },
+                    onCancelledBeforeSubmission = { inbox.cancelledBeforeSubmission(request.request) },
+                    admission = admission,
+                )
+            }
+        }
+        runCurrent()
+        assertEquals(WakeReceipt.Submitting, inbox.receipt(request.request))
+        admission.value = ScheduledWakeAdmission.Drop
+        runCurrent()
+        caller.await()
+        assertNull(inbox.receipt(request.request))
+        admission.value = ScheduledWakeAdmission.Allow
+        prepared.complete(Unit)
+        runCurrent()
+        assertFalse("submitted" in events)
+        assertEquals(listOf("started", "execute", "finished"), events)
+        assertEquals(RunOutcome.Completed, coordinator.run(host, runRequest("next")))
+    }
+
+    @Test
+    fun `drop at the native boundary refuses even before the admission collector runs`() = runTest {
+        val events = mutableListOf<String>()
+        val coordinator = StudioRunCoordinator(RunProfile(this), RunClock)
+        val host = RunHost(events)
+        val admission = MutableStateFlow(ScheduledWakeAdmission.Allow)
+        host.execute = { request ->
+            admission.value = ScheduledWakeAdmission.Drop
+            request.submission?.begin()
+            events += "submitted"
+            RunOutcome.Completed
+        }
+        assertFailsWith<ScheduledWakeDroppedException> {
+            coordinator.run(host, runRequest("wake"), admission = admission)
+        }
+        assertFalse("submitted" in events)
+        assertEquals(listOf("started", "execute", "finished"), events)
+    }
+
     @Test
     fun `cancelling gated scheduled preparation releases the reservation without later submission`() = runTest {
         val events = mutableListOf<String>()
@@ -47,7 +199,7 @@ class StudioRunCoordinatorTest {
                 host,
                 runRequest("wake"),
                 cancelBeforeSubmission = true,
-                isExecutionEnabled = MutableStateFlow(true),
+                admission = MutableStateFlow(ScheduledWakeAdmission.Allow),
             )
         }
         runCurrent()
@@ -84,7 +236,7 @@ class StudioRunCoordinatorTest {
             cancelBeforeSubmission = true,
             beforeExecute = { inbox.submitting(request.request) },
             onCancelledBeforeSubmission = { inbox.cancelledBeforeSubmission(request.request) },
-            isExecutionEnabled = enabled,
+            admission = enabled.asAdmission(),
         )
         val first = async { assertFailsWith<ScheduledWakeDeferredException> { runWake() } }
         runCurrent()
@@ -116,14 +268,14 @@ class StudioRunCoordinatorTest {
             RunOutcome.Completed
         }
         assertFailsWith<ScheduledWakeDeferredException> {
-            coordinator.run(host, runRequest("wake"), cancelBeforeSubmission = true, isExecutionEnabled = enabled)
+            coordinator.run(host, runRequest("wake"), cancelBeforeSubmission = true, admission = enabled.asAdmission())
         }
         assertEquals(listOf("started", "execute", "finished"), events)
         host.start = {}
         enabled.value = true
         assertEquals(
             RunOutcome.Completed,
-            coordinator.run(host, runRequest("next"), cancelBeforeSubmission = true, isExecutionEnabled = enabled),
+            coordinator.run(host, runRequest("next"), cancelBeforeSubmission = true, admission = enabled.asAdmission()),
         )
         assertEquals(1, events.count { it == "submitted" })
     }
@@ -147,7 +299,7 @@ class StudioRunCoordinatorTest {
                 runRequest("wake"),
                 cancelBeforeSubmission = true,
                 onCancelledBeforeSubmission = { cleanupCount++ },
-                isExecutionEnabled = enabled,
+                admission = enabled.asAdmission(),
             )
         }
         assertEquals(listOf("started", "execute", "finished"), events)
@@ -178,7 +330,7 @@ class StudioRunCoordinatorTest {
                 cancelBeforeSubmission = true,
                 beforeExecute = { inbox.submitting(request.request) },
                 onCancelledBeforeSubmission = { inbox.cancelledBeforeSubmission(request.request) },
-                isExecutionEnabled = enabled,
+                admission = enabled.asAdmission(),
             )
         }
         runCurrent()
@@ -393,7 +545,7 @@ class StudioRunCoordinatorTest {
         val enabled = MutableStateFlow(true)
         val wake = async {
             assertFailsWith<ScheduledWakeDeferredException> {
-                coordinator.run(host, runRequest("wake"), waitForIdle = true, isExecutionEnabled = enabled)
+                coordinator.run(host, runRequest("wake"), waitForIdle = true, admission = enabled.asAdmission())
             }
         }
         runCurrent()
@@ -407,13 +559,13 @@ class StudioRunCoordinatorTest {
         enabled.value = true
         assertEquals(
             RunOutcome.Completed,
-            coordinator.run(host, runRequest("wake"), waitForIdle = true, isExecutionEnabled = enabled),
+            coordinator.run(host, runRequest("wake"), waitForIdle = true, admission = enabled.asAdmission()),
         )
         assertEquals(listOf("first", "manual", "wake"), executed)
     }
 }
 
-private class RunHost(private val events: MutableList<String>) : StudioRunHost {
+internal class RunHost(private val events: MutableList<String>) : StudioRunHost {
     var execute: suspend (StudioTurnRequest) -> RunOutcome = { RunOutcome.Completed }
     var cleanup: suspend () -> Unit = {}
     var start: suspend () -> Unit = {}
@@ -431,21 +583,25 @@ private class RunHost(private val events: MutableList<String>) : StudioRunHost {
     }
 }
 
-private class RunProfile(override val coroutineScope: CoroutineScope) : ScopeHandle {
+internal class RunProfile(override val coroutineScope: CoroutineScope) : ScopeHandle {
     override val name = "test/profile"
     override val savedState: ScopeSavedState get() = error("Unused")
     override val isClosed = false
     override fun onClose(action: () -> Unit): DisposableHandle = DisposableHandle {}
 }
 
-private object RunClock : Clock {
+internal object RunClock : Clock {
     override fun now() = Instant.DISTANT_PAST
 }
 
-private fun runRequest(request: String) = StudioTurnRequest(
+internal fun runRequest(request: String) = StudioTurnRequest(
     "chat",
     "Implement the task",
     RunSettings("model", ReasoningEffort.Medium, ApprovalMode.Ask),
     WorktreeRunKind.Coding,
     RequestId(request),
 )
+
+private fun Flow<Boolean>.asAdmission(): Flow<ScheduledWakeAdmission> = map {
+    if (it) ScheduledWakeAdmission.Allow else ScheduledWakeAdmission.Defer
+}

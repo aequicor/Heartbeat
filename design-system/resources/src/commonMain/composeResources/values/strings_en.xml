@@ -215,4 +215,5 @@
     <string name="en_diagram_copy_source">Copy source</string>
     <string name="en_diagram_source_copied">Source copied</string>
     <string name="en_diagram_copy_failed">Could not copy</string>
+    <string name="en_code_error_sample">Line 2 does not compile</string>
 </resources>

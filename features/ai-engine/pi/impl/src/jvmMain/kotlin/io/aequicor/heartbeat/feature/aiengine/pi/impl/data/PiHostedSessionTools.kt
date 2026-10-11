@@ -8,9 +8,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeAttachme
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
@@ -22,10 +22,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
@@ -38,16 +36,18 @@ internal class PiHostedSessionTools(
     private val send: suspend (ActiveSessionIntent) -> SendResult,
 ) {
     private val log = Log.tag("PiHostedSessionTools")
-    private val pending = mutableMapOf<PermissionRequestId, CompletableDeferred<Boolean>>()
+    private val pending = mutableMapOf<PermissionRequestId, Pair<CompletableDeferred<Boolean>, PermissionOptionId>>()
     private var attachment: AgentToolBridgeAttachment? = null
-    var lifetime: CompletableJob? = null
+    val jobs = PiHostedJobs(environment.profile.coroutineScope)
+    private var active: Turn? = null
+    var lifetime: Job? = null
         private set
 
     @Volatile
     private var snapshot: AgentToolContext? = null
 
     /** Immutable authority is captured on HTTP ingress without queuing on Main. */
-    private fun context(): AgentToolContext? = snapshot?.takeIf {
+    fun context(): AgentToolContext? = snapshot?.takeIf {
         it.lifetime?.isActive == true && !isInterrupting()
     }
 
@@ -58,7 +58,7 @@ internal class PiHostedSessionTools(
             turn.id,
             turn.request,
             trust,
-            AgentToolPermissions { approval(turn, it) },
+            AgentToolPermissions { approval(turn, hostedApproval(turn, it), HostedAllow) },
             lifetime = lifetime,
             target = turn.target,
         )
@@ -68,79 +68,55 @@ internal class PiHostedSessionTools(
         snapshot = snapshot?.copy(trust = trust)
     }
 
-    fun beginTurn() {
+    fun beginTurn(turn: Turn) {
         revoke()
-        lifetime = SupervisorJob(environment.profile.coroutineScope.coroutineContext[Job])
+        active = turn
+        lifetime = jobs.parent(turn.id)
     }
 
     fun revoke() {
-        lifetime?.cancel()
+        active?.let { jobs.revoke(it.id) }
+        active = null
         lifetime = null
         snapshot = null
     }
 
-    /**
-     * Tools and instructions for the process about to start. A session without a project gets detached tools only
-     * when its caller opted in. Instructions are fixed for the process: a later model switch keeps those of [target].
-     * Detached tools are optional: an unavailable bridge or a failing contribution starts the chat without them,
-     * while a project session fails.
-     */
-    suspend fun prepare(
-        workspace: WorkspaceRef?,
-        target: EngineTarget,
-        areDetachedToolsEnabled: Boolean,
-    ): PiHostedTools? {
-        if (workspace != null) return attach(workspace, target)
-        if (!areDetachedToolsEnabled) return null
-        if (!environment.bridge.isAvailable) {
-            log.i { "Hosted tools bridge is unavailable; the chat starts without hosted tools" }
-            return null
-        }
+    /** Rebuilds a process capability with the exact frozen declarations and their scoped instructions. */
+    suspend fun prepare(scope: AgentToolScope, specs: List<AgentToolSpec>): PiHostedTools? {
+        attachment?.close()
+        attachment = null
+        if (specs.isEmpty()) return null
         return try {
-            attach(null, target)
+            val declared = scope.copy(declared = specs.map { it.name }.toSet())
+            val instructions = environment.tools.instructions(declared)
+            if (!environment.bridge.isAvailable) piFailure(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+            val capability = environment.bridge.attach(declared, ::context)
+            attachment = capability
+            PiHostedTools(capability.endpoint, specs, instructions)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            // Contribution failures may quote instructions or arguments; only the type is logged.
+            if (scope.workspace != null) throw e
             log.w(e.withoutDetails()) { "Hosted tools failed to attach; the chat starts without them" }
             null
         }
     }
 
-    private suspend fun attach(workspace: WorkspaceRef?, target: EngineTarget): PiHostedTools? {
-        val specs = environment.tools.specifications(workspace)
-        if (specs.isEmpty()) return null
-        val instructions = environment.tools.instructions(AgentToolScope(workspace, target))
-        if (!environment.bridge.isAvailable) piFailure(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
-        val capability = environment.bridge.attach(workspace, ::context)
-        attachment = capability
-        return PiHostedTools(capability.endpoint, specs, instructions)
-    }
-
-    suspend fun approval(turn: Turn, action: AgentToolApproval): Boolean {
-        val waiting = withContext(environment.dispatchers.main) {
-            if (!canApprove(turn)) return@withContext null
-            val request = PermissionRequest(
-                PermissionRequestId(UUID.randomUUID().toString()),
-                turn.id,
-                action.title,
-                listOf(PermissionOption(Allow, "Разрешить"), PermissionOption(Deny, "Запретить")),
-                description = action.description,
-            )
-            val answer = CompletableDeferred<Boolean>()
-            pending[request.id] = answer
-            permissions[request.id] = request
-            if (send(ActiveSessionIntent.Internal.PermissionNeeded(request)) != SendResult.Accepted) {
-                pending.remove(request.id)
-                permissions.remove(request.id)
-                return@withContext null
-            }
-            request to answer
-        } ?: return false
+    /** Waits outside the process reader; native approvals retain their original UI id and option labels. */
+    suspend fun approval(turn: Turn, request: PermissionRequest, allow: PermissionOptionId): Boolean {
+        var isRegistered = false
         return try {
-            waiting.second.await()
+            val answer = withContext(environment.dispatchers.main) {
+                if (!canApprove(turn) || request.id in pending || jobs.isClosed(turn.id)) return@withContext null
+                CompletableDeferred<Boolean>().also {
+                    pending[request.id] = it to allow
+                    permissions[request.id] = request
+                    isRegistered = true
+                }
+            } ?: return false
+            send(ActiveSessionIntent.Internal.PermissionNeeded(request)) == SendResult.Accepted && answer.await()
         } finally {
-            withContext(NonCancellable) { resolve(waiting.first) }
+            if (isRegistered) withContext(NonCancellable) { resolve(request) }
         }
     }
 
@@ -154,12 +130,12 @@ internal class PiHostedSessionTools(
 
     fun answer(decision: PermissionDecision): Boolean {
         val answer = pending.remove(decision.request) ?: return false
-        answer.complete(decision.option == Allow)
+        answer.first.complete(decision.option == answer.second)
         return true
     }
 
     fun dismiss() {
-        pending.values.forEach { it.complete(false) }
+        pending.values.forEach { it.first.complete(false) }
         pending.clear()
     }
 
@@ -169,9 +145,15 @@ internal class PiHostedSessionTools(
         revoke()
         dismiss()
     }
-
-    private companion object {
-        val Allow = PermissionOptionId("hosted.allow")
-        val Deny = PermissionOptionId("hosted.deny")
-    }
 }
+
+private fun hostedApproval(turn: Turn, action: AgentToolApproval): PermissionRequest = PermissionRequest(
+    PermissionRequestId(UUID.randomUUID().toString()),
+    turn.id,
+    action.title,
+    listOf(PermissionOption(HostedAllow, "Разрешить"), PermissionOption(HostedDeny, "Запретить")),
+    description = action.description,
+)
+
+private val HostedAllow = PermissionOptionId("hosted.allow")
+private val HostedDeny = PermissionOptionId("hosted.deny")

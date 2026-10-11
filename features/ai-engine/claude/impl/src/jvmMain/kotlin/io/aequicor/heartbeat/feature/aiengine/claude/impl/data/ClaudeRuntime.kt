@@ -59,6 +59,7 @@ internal class ClaudeRuntime(
     private val catalog: ClaudeCatalog,
     tools: ProfileAgentTools = NoAgentTools,
     bridge: AgentToolBridge = UnavailableAgentToolBridge,
+    native: ClaudeNativeSupport = MissingClaudeNativeSupport,
     resources: ResourceResolver = ResourceResolver { null },
     resourceHistory: PromptResourceHistory = PromptResourceHistory.None,
     inputSupport: (ModelId) -> PromptInputSupport = { model ->
@@ -95,6 +96,7 @@ internal class ClaudeRuntime(
         catalog = catalog,
         tools = tools,
         bridge = bridge,
+        native = native,
         onReleased = ::released,
         onUsage = providerUsage::receive,
         resources = resources,
@@ -148,7 +150,7 @@ internal class ClaudeRuntime(
         val session = ClaudeSession(ref, route, request.target, environment)
         session.persist()
         sessions[ref] = session
-        session.lease(request.areDetachedToolsEnabled)
+        session.lease(request.areDetachedToolsEnabled, request.areSessionHooksEnabled)
     }
 
     override suspend fun attach(ref: SessionRef, request: ResumeSessionRequest): ActiveSession = mutex.withLock {
@@ -165,7 +167,7 @@ internal class ClaudeRuntime(
         }
         log.i { "Attaching existing Claude session" }
         // A session kept in memory or restored from the catalog without holders takes this request's choice.
-        session.lease(request.areDetachedToolsEnabled)
+        session.lease(request.areDetachedToolsEnabled, request.areSessionHooksEnabled)
     }
 
     suspend fun stored(ref: SessionRef): EngineSession = mutex.withLock {

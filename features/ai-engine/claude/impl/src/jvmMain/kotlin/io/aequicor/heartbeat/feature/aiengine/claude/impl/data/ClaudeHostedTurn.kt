@@ -37,51 +37,83 @@ internal class ClaudeHostedTurn(
 
     /**
      * Hosted tools for this turn. A project session fails on any error; for a session without a project the tools
-     * are optional, so an unavailable bridge or a failing contribution leaves a plain chat turn.
+     * are optional, so an unavailable bridge or a failing contribution leaves a plain chat turn. Instructions that
+     * need no tool (harness content) reach a turn without hosted tools only when the session opted into hooks: the
+     * engine declares that it refreshes them, so those hooks leave them to this turn instead of the prompt. Other
+     * sessions without hosted tools (judges, research, transfers) get none, as on engines delivering via hooks.
      */
     suspend fun prepare(): ClaudeHostedTools? {
         val project = context.workspace
         if (project != null) return attach(project)
-        if (!context.areDetachedToolsEnabled) return null
+        if (!context.areDetachedToolsEnabled) return optional { instructionsOnly(scope(null)) }
         if (!environment.bridge.isAvailable) {
             log.i { "Hosted tools bridge is unavailable; the chat turn continues without hosted tools" }
-            return null
+            return optional { instructionsOnly(scope(null)) }
         }
-        return try {
-            attach(null)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.w(e.redacted()) { "Hosted tools failed to attach; the chat turn continues without them" }
-            attachment?.close()
-            attachment = null
-            null
-        }
+        return optional { attach(null) }
+    }
+
+    private suspend fun optional(block: suspend () -> ClaudeHostedTools?): ClaudeHostedTools? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e.redacted()) { "Hosted context failed to prepare; the chat turn continues without it" }
+        attachment?.close()
+        attachment = null
+        null
     }
 
     private suspend fun attach(project: WorkspaceRef?): ClaudeHostedTools? {
-        if (environment.tools.specifications(project).isEmpty()) return null
-        val capability = environment.bridge.attach(project) {
-            if (isActive()) {
-                observer.acceptHostedCall()
-                callbacks.persist()
-                AgentToolContext(
-                    context.ref,
-                    project,
-                    observer.turn.id,
-                    context.request.id,
-                    context.request.trust ?: TrustLevel.Ask,
-                    permissions,
-                    lifetime = lifetime,
-                    target = context.target,
-                )
-            } else {
-                null
-            }
-        }
+        val scope = scope(project)
+        val specs = environment.tools.specifications(scope)
+        if (specs.isEmpty()) return instructionsOnly(scope)
+        val declared = scope.copy(declared = specs.mapTo(mutableSetOf()) { it.name })
+        val capability = environment.bridge.attach(declared) { toolContext() }
         attachment = capability
-        val instructions = environment.tools.instructions(AgentToolScope(project, context.target))
+        val instructions = environment.tools.instructions(declared)
         return ClaudeHostedTools(capability.endpoint, instructions, isProject = project != null)
+    }
+
+    /**
+     * No tool is declared, so only content independent of tools remains; nothing when it is blank or the session
+     * did not opt into the hooks this content stands in for.
+     */
+    private suspend fun instructionsOnly(scope: AgentToolScope): ClaudeHostedTools? {
+        if (!context.areSessionHooksEnabled) return null
+        return environment.tools.instructions(scope.copy(declared = emptySet())).takeIf { it.isNotBlank() }?.let {
+            ClaudeHostedTools(null, it, isProject = scope.workspace != null)
+        }
+    }
+
+    /**
+     * Claude rebuilds instructions every turn, yet reports it only for a session that opted into hooks: per-turn
+     * content (harness context and its scripts) stands in for those hooks, so a session without them (transfers,
+     * organic cells) gets the tool guide only, as on frozen engines.
+     */
+    private fun scope(project: WorkspaceRef?) = AgentToolScope(
+        project,
+        context.target,
+        session = context.ref,
+        isRefreshedPerTurn = context.areSessionHooksEnabled,
+    )
+
+    /** Native and hosted calls establish Accepted before publishing a permission, independently of stdout. */
+    suspend fun toolContext(): AgentToolContext? {
+        if (!isActive()) return null
+        observer.acceptHostedCall()
+        callbacks.persist()
+        if (!isActive()) return null
+        return AgentToolContext(
+            context.ref,
+            context.workspace,
+            observer.turn.id,
+            context.request.id,
+            context.request.trust ?: TrustLevel.Ask,
+            permissions,
+            lifetime = lifetime,
+            target = context.target,
+        )
     }
 
     private fun isActive(): Boolean = isOpen.get() && !observer.isFinished && callbacks.isCurrent()
@@ -95,7 +127,8 @@ internal class ClaudeHostedTurn(
 
 /**
  * Trusted identity and request captured before starting the native process. [target] is the turn's model;
- * [areDetachedToolsEnabled] admits hosted tools without a project for the caller that opted in.
+ * [areDetachedToolsEnabled] admits hosted tools without a project for the caller that opted in;
+ * [areSessionHooksEnabled] admits instructions independent of tools to a turn without hosted tools.
  */
 internal data class ClaudeTurnContext(
     val ref: SessionRef,
@@ -103,6 +136,7 @@ internal data class ClaudeTurnContext(
     val request: PromptRequest,
     val target: EngineTarget? = null,
     val areDetachedToolsEnabled: Boolean = false,
+    val areSessionHooksEnabled: Boolean = false,
 )
 
 /** Session-owned state updates and serialized persistence; callbacks never replace turn ownership. */

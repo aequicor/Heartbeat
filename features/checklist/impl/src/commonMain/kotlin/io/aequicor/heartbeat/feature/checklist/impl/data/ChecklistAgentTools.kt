@@ -10,7 +10,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.checklist.api.Checklist
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistCompletionMode
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistEnabled
@@ -38,6 +40,10 @@ internal class ChecklistAgentTools(
     private val storage: Lazy<ChecklistStorage>,
     private val toggles: FeatureToggles,
 ) : AgentToolContribution {
+    override val group: String = "checklist"
+    override val title: String = "Чек-листы"
+    override val catalog: List<ToolCatalogEntry> get() = checklistToolSpecs().toolCatalog()
+
     private val log = Log.tag("ChecklistTools")
     override val isDetachedSupported: Boolean = true
 

@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.organicai.impl.domain
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Fence
+import io.aequicor.heartbeat.feature.aiengine.facade.api.cut
 import io.aequicor.heartbeat.feature.organicai.api.DeathCause
 import io.aequicor.heartbeat.feature.organicai.api.Letter
 import io.aequicor.heartbeat.feature.organicai.api.Organism

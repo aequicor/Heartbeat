@@ -5,7 +5,6 @@ import com.arkivanov.essenty.lifecycle.LifecycleRegistry
 import com.arkivanov.essenty.lifecycle.destroy
 import com.arkivanov.essenty.lifecycle.resume
 import dev.zacsweers.metro.createGraphFactory
-import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.statemachine.MachineRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
@@ -89,7 +88,7 @@ class ResearchChatIntegrationTest {
                 reopened.destroy()
             }
         } finally {
-            (app.appScope as OwnedScope).close()
+            app.closeAndAwaitStorages()
             Dispatchers.resetMain()
             File(persisted.storageRoot).deleteRecursively()
         }

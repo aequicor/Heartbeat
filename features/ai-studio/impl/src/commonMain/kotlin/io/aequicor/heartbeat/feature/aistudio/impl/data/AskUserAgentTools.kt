@@ -11,7 +11,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioChatResolver
 import io.aequicor.heartbeat.feature.questionnaire.api.Answer
 import io.aequicor.heartbeat.feature.questionnaire.api.Choice
@@ -58,6 +60,10 @@ internal class AskUserAgentTools(
     private val chats: Lazy<StudioChatResolver>,
     private val toggles: FeatureToggles,
 ) : AgentToolContribution {
+    override val group: String = "questionnaire"
+    override val title: String = "Вопросы пользователю"
+    override val catalog: List<ToolCatalogEntry> get() = listOf(SPEC).toolCatalog()
+
     private val log = Log.tag("AskUserTools")
 
     override val isDetachedSupported: Boolean = true

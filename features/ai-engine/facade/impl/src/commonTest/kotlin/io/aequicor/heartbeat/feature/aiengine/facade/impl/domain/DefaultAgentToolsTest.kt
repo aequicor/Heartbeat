@@ -8,11 +8,17 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HookedToolCall
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionOwner
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.SessionHooks
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.DefaultAgentTools
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -33,6 +39,29 @@ import kotlin.test.assertTrue
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class DefaultAgentToolsTest {
+    @Test
+    fun `a hook still forces confirmation when durable authorization covers the command`() = runTest {
+        val owner = ToolOwner(AgentToolAction.Command)
+        owner.existing = AgentToolApproval("tool", "Tool", binding = "1")
+        val hooks = object : SessionHooks {
+            override fun context(session: SessionRef, request: RequestId?, turn: TurnId?) =
+                SessionHookContext(session, null, request, turn, SessionOwner("test"))
+            override suspend fun beforeTool(call: HookedToolCall): ToolHookVerdict = ToolHookVerdict.Ask("Review")
+        }
+        val tools = DefaultAgentTools(setOf(owner), hooks)
+        var asked = 0
+        val context = toolContext(
+            TrustLevel.Full,
+            AgentToolPermissions {
+                asked++
+                false
+            },
+        )
+        assertTrue(tools.execute(context, "tool", EMPTY_ARGS).isError)
+        assertEquals(1, asked)
+        assertEquals(0, owner.calls)
+    }
+
     @Test
     fun `one gate implements all nine action and trust combinations`() = runTest {
         for (trust in TrustLevel.entries) {

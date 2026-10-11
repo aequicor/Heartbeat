@@ -2,7 +2,6 @@ package io.aequicor.heartbeat.platform.dibundle
 
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.createGraphFactory
-import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.statemachine.SendResult
@@ -87,7 +86,7 @@ class AttachmentsIntegrationTest {
             assertEquals(file, reopened.catalog.get(file.id))
             assertContentEquals(bytes, assertNotNull(reopened.resolver.resolve(file.resource)).bytes)
         } finally {
-            (app.appScope as OwnedScope).close()
+            app.closeAndAwaitStorages()
             Dispatchers.resetMain()
             File(persisted.storageRoot).deleteRecursively()
         }

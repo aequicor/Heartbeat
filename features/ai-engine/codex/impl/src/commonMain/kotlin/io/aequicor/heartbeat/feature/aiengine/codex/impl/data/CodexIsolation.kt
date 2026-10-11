@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import kotlinx.serialization.json.JsonNull
@@ -20,62 +21,80 @@ internal val CodexDisabledCapabilities: List<String> = listOf(
  * Supplied on start and resume only when hosted declarations exist; the dispatcher remains the authority for
  * the current turn's trust level, so these thread-wide instructions never cache an approval decision.
  */
-internal fun codexHostedInstructions(workflow: String): String = """
+internal fun codexHostedInstructions(workflow: String, actions: Set<AgentToolAction>): String {
+    val capabilities = when {
+        AgentToolAction.Edit in actions && AgentToolAction.Command in actions ->
+            "hosted tools can edit workspace files and run commands within their declared scope."
+
+        AgentToolAction.Edit in actions -> "hosted tools can edit workspace files within their declared scope."
+
+        AgentToolAction.Command in actions -> "hosted tools can run commands within their declared scope."
+
+        else -> "the currently available hosted tools provide read access within their declared scope."
+    }
+    return """
     Heartbeat hosted tools and permissions:
     The read-only sandbox applies only to Codex's built-in tools. Native network restrictions and
     approvalPolicy=never also apply only to native execution. Heartbeat's declared hosted tools are a separate,
-    authorized execution path: hosted tools can edit workspace files and run commands within their declared scope.
-    Use the available hosted tools for project changes, Git operations, builds, and other actions they support.
+    authorized execution path: $capabilities
+    Use only the available hosted tools and the actions their declarations support.
     Heartbeat applies the user's current approval mode to each hosted call: Ask requests confirmation for
     mutations; AutoEdits automatically approves file edits; Full automatically approves edits and commands.
     Call the appropriate hosted tool directly for the user's task; Heartbeat asks for confirmation when required.
     Do not treat the native read-only sandbox as evidence that hosted edits are forbidden or request a new
     writable session solely because of it. Report an access limitation if the hosted tool actually returns one.
     Respect hosted tool refusals and scope limits; do not bypass them through native tools or sandbox changes.
-    """.trimIndent().let { permissions ->
-    listOf(permissions, workflow).filter(String::isNotBlank).joinToString("\n\n")
+        """.trimIndent().let { permissions ->
+        listOf(permissions, workflow).filter(String::isNotBlank).joinToString("\n\n")
+    }
 }
 
 /**
  * Empty MCP tables merge with disk configuration. Each configured server must be explicitly disabled instead.
  * Only names and effective feature booleans are consumed; credentials are never exposed or logged.
  */
-internal suspend fun codexIsolationConfig(
-    rpc: CodexRpc,
-    cwd: String?,
-    search: Boolean,
-    questions: Boolean,
-    subagents: Boolean = false,
-): JsonObject {
-    val effective = rpc.request(
+internal suspend fun codexIsolationConfig(rpc: CodexRpc, cwd: String?, settings: CodexIsolationSettings): JsonObject {
+    val response = rpc.request(
         "config/read",
         buildJsonObject {
-            put("includeLayers", false)
+            put("includeLayers", true)
             put("cwd", cwd?.json() ?: JsonNull)
         },
-    ).obj("config")
+    )
+    settings.off.validateConfig(response)
+    val effective = response.obj("config")
     val features = effective["features"] as? JsonObject
     // Config requirements can override CLI flags. A conflicting managed configuration fails closed.
     if (CodexDisabledCapabilities.any { features?.get(it) != JsonPrimitive(false) }) {
         fail(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
     }
     val servers = effective["mcp_servers"] as? JsonObject
-    return buildJsonObject {
-        put(
-            "mcp_servers",
-            buildJsonObject {
-                servers?.keys?.forEach { name -> put(name, buildJsonObject { put("enabled", false) }) }
-            },
-        )
-        put(
-            "features",
-            buildJsonObject {
-                CodexDisabledCapabilities.forEach { put(it, false) }
-                put("multi_agent", subagents)
-                // Default-mode questions need an explicit opt-in and a host capable of collecting answers.
-                put("default_mode_request_user_input", questions)
-            },
-        )
-        if (search) put("web_search", "live")
-    }
+    return settings.off.applyTo(
+        buildJsonObject {
+            put(
+                "mcp_servers",
+                buildJsonObject {
+                    servers?.keys?.forEach { name -> put(name, buildJsonObject { put("enabled", false) }) }
+                },
+            )
+            put(
+                "features",
+                buildJsonObject {
+                    CodexDisabledCapabilities.forEach { put(it, false) }
+                    put("multi_agent", settings.areSubagentsEnabled)
+                    // Default-mode questions need an explicit opt-in and a host capable of collecting answers.
+                    put("default_mode_request_user_input", settings.areQuestionsEnabled)
+                },
+            )
+            if (settings.isSearchEnabled) put("web_search", "live")
+        },
+    )
 }
+
+/** Isolation settings captured for one native thread configuration. */
+internal data class CodexIsolationSettings(
+    val isSearchEnabled: Boolean,
+    val areQuestionsEnabled: Boolean,
+    val areSubagentsEnabled: Boolean = false,
+    val off: CodexNativeOff = CodexNativeOff(),
+)

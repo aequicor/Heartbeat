@@ -10,7 +10,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -22,10 +25,12 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarness
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ApprovalUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.EffortUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.HarnessChoicesUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionConfigurationUi
@@ -38,6 +43,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_effort_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_default
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_low
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_menu_permanent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan_prompt
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_remember
@@ -295,6 +301,49 @@ class StudioComposerUiTest {
             onNodeWithContentDescription(addLabel).performClick()
             onNodeWithText(autoLabel).assertIsNotEnabled()
             onNodeWithText(planLabel).assertIsDisplayed()
+        }
+
+    @Test
+    fun `a chat without a project shows its connected harness and unchecking disconnects it`() =
+        runSkikoComposeUiTest(size = Size(900f, 700f)) {
+            val events = mutableListOf<AiStudioScreenIntent>()
+            val pane = PaneUi(0, sessionId = "chat")
+            val state = AiStudioScreenState(
+                panes = persistentListOf(pane),
+                harnessChoices = HarnessChoicesUi(
+                    options = persistentListOf(StudioHarness("compose", "Compose UI", false, emptySet())),
+                    chats = persistentMapOf("chat" to persistentSetOf("compose")),
+                ),
+            )
+            setContent { NativeComposerFixture(state.paneContent(pane), events::add) }
+
+            onNodeWithTag("harness-chip-0-compose").assertIsDisplayed().performClick()
+            runOnIdle {
+                assertEquals(
+                    listOf<AiStudioScreenIntent>(AiStudioScreenIntent.SelectHarness(0, "compose", false)),
+                    events,
+                )
+            }
+        }
+
+    @Test
+    fun `a harness active by its scope has a disabled chip that explains why`() =
+        runSkikoComposeUiTest(size = Size(900f, 700f)) {
+            val pane = PaneUi(0, sessionId = "chat")
+            val state = AiStudioScreenState(
+                panes = persistentListOf(pane),
+                harnessChoices = HarnessChoicesUi(
+                    options = persistentListOf(StudioHarness("compose", "Compose UI", true, emptySet())),
+                ),
+            )
+            var permanent = ""
+            setContent {
+                permanent = stringResource(Res.string.harness_menu_permanent)
+                NativeComposerFixture(state.paneContent(pane), {})
+            }
+
+            onNodeWithTag("harness-chip-0-compose").assertIsDisplayed().assertIsNotEnabled()
+                .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, permanent))
         }
 }
 

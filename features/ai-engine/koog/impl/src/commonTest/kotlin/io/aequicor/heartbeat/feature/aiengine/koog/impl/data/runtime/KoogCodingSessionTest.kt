@@ -236,7 +236,7 @@ class KoogCodingSessionTest {
         val f = fixture()
         f.isSearchEnabled = false
         f.hostedTools = object : ProfileAgentTools by DetachedTools() {
-            override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
+            override suspend fun specifications(scope: AgentToolScope): List<AgentToolSpec> =
                 error("Contribution failed")
         }
         val chat = f.runtime().create(CreateSessionRequest(f.target, areDetachedToolsEnabled = true))
@@ -270,6 +270,92 @@ class KoogCodingSessionTest {
         runCurrent()
         assertEquals(listOf("remember"), f.executor.tools.last().map { it.name })
         assertTrue(f.executor.prompts.last().messages.none { it is Message.System })
+    }
+
+    @Test
+    fun `instructions independent of tools reach hooked turns that send no hosted tools`() = runTest {
+        val f = fixture()
+        f.isSearchEnabled = false
+        val scopes = mutableListOf<AgentToolScope>()
+        f.hostedTools = object : ProfileAgentTools by DetachedTools() {
+            override suspend fun instructions(scope: AgentToolScope): String {
+                scopes += scope
+                return if (scope.declared?.isEmpty() == true) "Harness content" else "Remember lessons"
+            }
+        }
+        val plain = f.runtime().create(CreateSessionRequest(f.target, areSessionHooksEnabled = true))
+        plain.features.require(SendsPrompts).send(f.request("plain"))
+        f.executor.complete()
+        runCurrent()
+        f.modelSupportsTools = false
+        val chat = f.runtime().create(
+            CreateSessionRequest(f.target, areDetachedToolsEnabled = true, areSessionHooksEnabled = true),
+        )
+        chat.features.require(SendsPrompts).send(f.request("no tools"))
+        f.executor.complete()
+        runCurrent()
+        assertEquals(listOf(emptyList(), emptyList<ToolDescriptor>()), f.executor.tools)
+        for (prompt in f.executor.prompts) {
+            assertEquals("Harness content", assertIs<Message.System>(prompt.messages.first()).textContent())
+        }
+        assertTrue(scopes.all { it.isRefreshedPerTurn && it.workspace == null })
+    }
+
+    @Test
+    fun `service sessions without hook opt-in get no instructions without hosted tools`() = runTest {
+        val f = fixture()
+        f.isSearchEnabled = false
+        val scopes = mutableListOf<AgentToolScope>()
+        f.hostedTools = object : ProfileAgentTools by DetachedTools() {
+            override suspend fun instructions(scope: AgentToolScope): String {
+                scopes += scope
+                return "Harness content"
+            }
+        }
+        // Judges, research chats and transfers never opt into hooks.
+        val judge = f.runtime().create(CreateSessionRequest(f.target))
+        judge.features.require(SendsPrompts).send(f.request("judge"))
+        f.executor.complete()
+        runCurrent()
+        f.modelSupportsTools = false
+        val chat = f.runtime().create(CreateSessionRequest(f.target, areDetachedToolsEnabled = true))
+        chat.features.require(SendsPrompts).send(f.request("no tools"))
+        f.executor.complete()
+        runCurrent()
+        assertEquals(2, f.executor.prompts.size)
+        assertTrue(f.executor.prompts.all { prompt -> prompt.messages.none { it is Message.System } })
+        // Opening detached tools still describes them; content independent of tools is never asked for.
+        assertTrue(scopes.none { it.declared?.isEmpty() == true })
+    }
+
+    @Test
+    fun `hosted turns refresh per-turn content only for sessions that opted into hooks`() = runTest {
+        val f = fixture()
+        f.isSearchEnabled = false
+        val scopes = mutableListOf<AgentToolScope>()
+        // Like harness content: a refreshed scope gets the active content (and runs scripts), others the guide.
+        f.hostedTools = object : ProfileAgentTools by DetachedTools() {
+            override suspend fun instructions(scope: AgentToolScope): String {
+                scopes += scope
+                return if (scope.isRefreshedPerTurn) "Harness content" else "Harness guide"
+            }
+        }
+        // Transfers keep their project and organic cells their detached tools, both without hooks.
+        val requests = listOf(
+            CreateSessionRequest(f.target, WorkspaceRef("project")),
+            CreateSessionRequest(f.target, WorkspaceRef("project"), areSessionHooksEnabled = true),
+            CreateSessionRequest(f.target, areDetachedToolsEnabled = true),
+            CreateSessionRequest(f.target, areDetachedToolsEnabled = true, areSessionHooksEnabled = true),
+        )
+        for ((index, request) in requests.withIndex()) {
+            f.runtime().create(request).features.require(SendsPrompts).send(f.request("turn-$index"))
+            f.executor.complete()
+            runCurrent()
+        }
+        assertEquals(listOf(false, true), f.openedHooks)
+        val detached = f.executor.prompts.drop(2).map { assertIs<Message.System>(it.messages.first()).textContent() }
+        assertEquals(listOf("Harness guide", "Harness content"), detached)
+        assertEquals(listOf(false, true), scopes.map { it.isRefreshedPerTurn })
     }
 
     @Test
@@ -470,6 +556,8 @@ private class DetachedTools : ProfileAgentTools {
     )
     override suspend fun instructions(workspace: WorkspaceRef?): String = "Remember lessons"
     override suspend fun instructions(scope: AgentToolScope): String {
+        // Like the dispatcher: without declared tools only instructions independent of tools remain.
+        if (scope.declared?.isEmpty() == true) return ""
         scopes += scope
         return "Remember lessons"
     }

@@ -70,8 +70,9 @@ public fun HbSettingsSection(
  * One setting: a [title], an optional [description] in 12sp secondary text and the control in [trailingContent]
  * (switch, button, value). Dense on desktop ([io.aequicor.heartbeat.ds.tokens.HbDimensions.settingsRowHeight]),
  * touch-sized on mobile. With [onClick] the whole row is a button with quiet hover and pressed fills and a
- * keyboard-only focus ring; without it only the trailing control is interactive. The title never ends with an
- * ellipsis: it fades and shows its full text in a tooltip.
+ * keyboard-only focus ring; without it only the trailing control is interactive. [role] names the click for
+ * accessibility: one of several exclusive options is a [Role.RadioButton] with [isSelected], inside a section marked
+ * `selectableGroup()`. The title never ends with an ellipsis: it fades and shows its full text in a tooltip.
  */
 @Composable
 public fun HbSettingsRow(
@@ -82,6 +83,7 @@ public fun HbSettingsRow(
     enabled: Boolean = true,
     isSelected: Boolean = false,
     leadingContent: (@Composable () -> Unit)? = null,
+    role: Role = Role.Button,
     trailingContent: @Composable RowScope.() -> Unit = {},
 ) {
     val interactions = remember { MutableInteractionSource() }
@@ -92,7 +94,7 @@ public fun HbSettingsRow(
     val action = if (onClick == null) {
         Modifier
     } else {
-        Modifier.hbFocusOutline(isFocused, shape).clickable(interactions, null, enabled, role = Role.Button) {
+        Modifier.hbFocusOutline(isFocused, shape).clickable(interactions, null, enabled, role = role) {
             log.i { "settings row pressed" }
             onClick()
         }

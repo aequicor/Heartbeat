@@ -4,7 +4,10 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotSelected
@@ -124,4 +127,15 @@ internal class SandboxInteractionTest {
             onNodeWithTag("components-catalog").performScrollToNode(hasText("Create something"))
             onNodeWithText("Create something").assertIsDisplayed()
         }
+
+    @Test
+    fun `catalog error editor announces what is wrong`() = runSkikoComposeUiTest(size = Size(1280f, 900f)) {
+        setContent { UIKitSandboxApp(initialDarkTheme = false) }
+        onNodeWithText("EN").performClick()
+        onNodeWithText("Components").performClick()
+        val error = SemanticsMatcher.expectValue(SemanticsProperties.Error, "Line 2 does not compile")
+        onNodeWithTag("components-catalog").performScrollToNode(error)
+        onNode(error).assertExists()
+        onAllNodes(SemanticsMatcher.expectValue(SemanticsProperties.Error, "")).assertCountEquals(0)
+    }
 }

@@ -47,22 +47,26 @@ class MachineSessionHost(
     private val log = Log.tag("MachineSessionHost")
 
     // NonCancellable: once assembled, the handle is registered and must reach the caller to be closed later.
-    override suspend fun open(native: ActiveSession, route: ExecutionRoute, model: ModelId): ActiveSession =
-        withContext(dispatchers.main + NonCancellable) {
-            val id = context.token("h_")
-            log.i { "open handle id=$id engine=${route.engine.value}" }
-            val owned = scopes.child(profile, "aiengine-$id")
-            try {
-                assembler.assemble(native, route, model, OwnedHandle(id, owned))
-            } catch (e: CancellationException) {
-                owned.close()
-                throw e
-            } catch (e: Exception) {
-                log.w(e) { "handle assembly failed id=$id" }
-                owned.close()
-                throw e
-            }
+    override suspend fun open(
+        native: ActiveSession,
+        route: ExecutionRoute,
+        model: ModelId,
+        areSessionHooksEnabled: Boolean,
+    ): ActiveSession = withContext(dispatchers.main + NonCancellable) {
+        val id = context.token("h_")
+        log.i { "open handle id=$id engine=${route.engine.value}" }
+        val owned = scopes.child(profile, "aiengine-$id")
+        try {
+            assembler.assemble(native, route, model, OwnedHandle(id, owned), areSessionHooksEnabled)
+        } catch (e: CancellationException) {
+            owned.close()
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "handle assembly failed id=$id" }
+            owned.close()
+            throw e
         }
+    }
 
     private inner class OwnedHandle(override val id: String, private val owned: OwnedScope) : SessionHandleScope {
         override val scope: CoroutineScope get() = owned.coroutineScope

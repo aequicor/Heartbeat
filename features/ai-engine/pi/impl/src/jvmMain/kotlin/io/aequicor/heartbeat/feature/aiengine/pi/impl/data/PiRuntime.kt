@@ -20,11 +20,17 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsComposerAssists
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
+import io.aequicor.heartbeat.feature.aiengine.facade.api.OwnedTurnAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.OwnedTurnStop
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.StopsOwnedTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
@@ -57,16 +63,16 @@ internal data class PiRuntimeServices(
 
 internal class PiRuntime(
     private val credentials: PiRuntimeCredentials,
-    private val environment: PiSessionEnvironment,
+    internal val environment: PiSessionEnvironment,
     private val services: PiRuntimeServices,
 ) : EngineRuntime,
     PiSessions {
     private val log = Log.tag("PiRuntime")
     override val identity get() = credentials.identity
     private val source get() = credentials.source
-    private val credential get() = credentials.fingerprint
+    internal val credential get() = credentials.fingerprint
     private val profile get() = environment.profile
-    private val dispatchers get() = environment.dispatchers
+    internal val dispatchers get() = environment.dispatchers
     private val settings get() = services.settings
     private val processes get() = services.processes
     private val workspaces get() = services.workspaces
@@ -76,6 +82,8 @@ internal class PiRuntime(
     // Reserved before transcript lookup and process startup; only accessed under mutex.
     private val attaching = mutableSetOf<SessionRef>()
 
+    private val ownedTurns = PiOwnedTurns(this, processes, sessions, attaching, mutex)
+
     // Live handles per served session and sessions whose last handle is detaching; the callback reads them
     // without the mutex, so both are concurrent.
     private val consumers = ConcurrentHashMap<PiSession, Int>()
@@ -83,14 +91,16 @@ internal class PiRuntime(
 
     @Volatile override var isClosed: Boolean = false
         private set
-    override val features: EngineFeatures = PiFeatures(
-        listOf(
-            CreatesSessions to this,
-            AttachesSessions to this,
-            NativeWebFetch to services.nativeWeb,
-            ListsComposerAssists to PiComposerAssists(services.workspaces, environment.dispatchers),
-        ),
-    )
+    override val features: EngineFeatures =
+        PiFeatures(
+            listOf(
+                CreatesSessions to this,
+                AttachesSessions to this,
+                NativeWebFetch to services.nativeWeb,
+                StopsOwnedTurns to ownedTurns,
+                ListsComposerAssists to PiComposerAssists(services.workspaces, environment.dispatchers),
+            ),
+        )
 
     suspend fun validate() {
         if (isClosed || profile.isClosed) {
@@ -101,6 +111,18 @@ internal class PiRuntime(
         }
         if (settings.source(identity.source) != source || processes.credentialFingerprint(source) != credential) {
             authenticationFailure(AuthFailureReason.SourceChanged, identity.source)
+        }
+    }
+
+    internal fun ensureOpen() {
+        if (isClosed || profile.isClosed) piFailure(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
+    }
+
+    internal suspend fun validateStop(access: OwnedTurnAccess) {
+        validate()
+        val configuration = settings.snapshot()
+        if (configuration.bindings[access.target.binding.value] != source) {
+            authenticationFailure(AuthFailureReason.AuthMismatch, identity.source)
         }
     }
 
@@ -117,7 +139,8 @@ internal class PiRuntime(
      * Pi transcripts and [SessionRef] carry no credential binding. The caller explicitly chooses the target:
      * its binding must resolve to this runtime's exact source, revision and current credential fingerprint
      * through [prepare] and [validate]. Another binding of that same source is allowed; no fallback binding
-     * or credentials are selected from the transcript. Foreign sources must use their own validated runtime.
+     * or credentials are selected from the transcript. Owned turns additionally require their persisted route
+     * and credential fingerprint. Foreign sources must use their own validated runtime.
      */
     override suspend fun attach(ref: SessionRef, request: ResumeSessionRequest): PiActiveSession {
         if (ref.engine != identity.engine || ref.source != PiSessionSource ||
@@ -128,6 +151,7 @@ internal class PiRuntime(
         val shared = mutex.withLock {
             validate()
             validateTarget(request.target, settings.snapshot())
+            if (ownedTurns.isReserved(ref.nativeId)) busy()
             val served = sessions.firstOrNull { it.attachedRef == ref }
             when {
                 served != null && served !in draining -> {
@@ -157,21 +181,71 @@ internal class PiRuntime(
                 ?: piFailure(EngineFailure.Session(SessionFailureReason.NotFound))
             log.i { "Attaching stored Pi session" }
             val launchRequest = CreateSessionRequest(request.target, request.workspace, request.areDetachedToolsEnabled)
+            settleInterrupted(ref, launchRequest)
             return launch(launchRequest, PiTranscript(ref, file))
         } finally {
             withContext(NonCancellable) { mutex.withLock { attaching.remove(ref) } }
         }
     }
 
+    /**
+     * Settles what an earlier runtime left before reopening; the reserved ref keeps owned stops and other attaches
+     * out meanwhile. A durable stop fence is resumed: it was requested by the turn's owner, and nobody else would
+     * retry it once its session is gone. A turn whose whole stored process tree is gone settles as Unknown.
+     * Neither happens while hosted work of the earlier runtime still drains; anything else stays for recheck.
+     * A turn stored without process identity can be neither proven nor caused to exit: it stays unavailable, and
+     * reopening never guesses its outcome from a fresh process.
+     */
+    private suspend fun settleInterrupted(ref: SessionRef, request: CreateSessionRequest) {
+        val route = route(request)
+        val journal = PiTurnJournal(environment.turns, ref, route, credential)
+        val snapshot = journal.restore() ?: return
+        val stopping = snapshot.stopping
+        if (stopping != null) {
+            val stopRequest = stopping.turn.request ?: return
+            if (!isDrained(ref, route, stopping.turn.id)) return
+            val stopped = PiStoredTurnStop(journal, processes).stop(stopRequest, stopping.turn.id)
+            if (stopped != null) {
+                log.i { "Deferred Pi turn stop confirmed before reopening" }
+            } else {
+                log.i { "Deferred Pi turn stop is still unconfirmed" }
+            }
+            return
+        }
+        val active = snapshot.active ?: return
+        val owner = active.processOwner ?: return
+        if (!processes.hasExited(owner) || !isDrained(ref, route, active.turn.id)) return
+        journal.finish(active.turn.id, TurnOutcome.Unknown)
+        log.i { "Interrupted Pi turn settled as unknown: its process exited" }
+    }
+
+    /** The profile barrier for hosted work an earlier runtime left running for [turn]. */
+    private suspend fun isDrained(ref: SessionRef, route: ExecutionRoute, turn: TurnId): Boolean {
+        val isDrained = withContext(dispatchers.main) {
+            environment.hostedDrains.drain(ref, route, credential, turn)
+        }
+        if (!isDrained) log.i { "Interrupted Pi turn stays unresolved: earlier hosted work is still draining" }
+        return isDrained
+    }
+
+    /** Recheck of a turn left by an earlier process: the exact owned stop proves or causes its exit. */
+    private suspend fun stopRestored(session: PiSession, turn: Turn): Boolean {
+        val ref = session.attachedRef ?: return false
+        val request = turn.request ?: return false
+        val route = session.route
+        val access = OwnedTurnAccess(turn.target.copy(binding = route.binding), route.workspace, turn.id)
+        return ownedTurns.stop(ref, request, access) is OwnedTurnStop.Confirmed
+    }
+
     private suspend fun launch(request: CreateSessionRequest, transcript: PiTranscript?): PiActiveSession {
-        val session = prepare(request)
+        val session = prepare(request, transcript)
         var isRegistered = false
         try {
-            val hosted = session.first.prepareHostedTools()
             // Startup stays outside the lock so close() and unrelated creations can proceed.
             session.first.start(
-                { event, failed -> processes.start(source, session.second, event, failed, hosted) },
+                { plan, event, failed -> processes.start(source, session.second, event, failed, plan) },
                 transcript,
+                processes::transcript,
             )
             // A started process must be registered or shut down even when its caller is cancelled.
             withContext(NonCancellable) {
@@ -225,32 +299,38 @@ internal class PiRuntime(
         piFailure(EngineFailure.Session(SessionFailureReason.NotResumable))
     }
 
-    private suspend fun prepare(request: CreateSessionRequest): Pair<PiSession, String?> = mutex.withLock {
-        validate()
-        val configuration = settings.snapshot()
-        validateTarget(request.target, configuration)
-        val directory = resolvePiWorkspace(request.workspace, workspaces, configuration.workspaces)
-        withContext(dispatchers.main) {
-            PiSession(
-                request,
-                ExecutionRoute(
-                    identity.engine,
-                    request.target.binding,
-                    identity.source,
-                    identity.revision,
-                    request.workspace,
-                ),
-                environment,
-                ::validate,
-                ::forgotten,
-            )
-        } to directory
-    }
+    private suspend fun prepare(request: CreateSessionRequest, transcript: PiTranscript?): Pair<PiSession, String?> =
+        mutex.withLock {
+            validate()
+            val configuration = settings.snapshot()
+            validateTarget(request.target, configuration)
+            val directory = resolvePiWorkspace(request.workspace, workspaces, configuration.workspaces)
+            val route = route(request)
+            val restored = transcript?.let {
+                PiTurnJournal(environment.turns, it.ref, route, credential).restoreForOpening()
+            }
+            withContext(dispatchers.main) {
+                PiSession(
+                    request,
+                    route,
+                    environment,
+                    credential,
+                    ::validate,
+                    ::forgotten,
+                    restored,
+                    ::stopRestored,
+                )
+            } to directory
+        }
+
+    private fun route(request: CreateSessionRequest) =
+        ExecutionRoute(identity.engine, request.target.binding, identity.source, identity.revision, request.workspace)
 
     // Under the runtime mutex: it mutates the same bookkeeping as attach and releaseBorrow, and a racing
     // removal could resurrect a consumer count of an already released process.
     private suspend fun forgotten(session: PiSession) {
         mutex.withLock {
+            ownedTurns.forget(session)
             sessions.remove(session)
             draining.remove(session)
             consumers.remove(session)
@@ -312,7 +392,7 @@ private fun EngineFeature.hasNoSupportedInput(): Boolean = when (this) {
  * same native process, while its close only ends the borrow. The process is closed when its last consumer is
  * gone, so a borrower never cuts short a session it does not own.
  */
-private class PiSessionView(private val origin: PiSession, private val release: suspend () -> Unit) : PiActiveSession {
+internal class PiSessionView(val origin: PiSession, private val release: suspend () -> Unit) : PiActiveSession {
 
     // The borrow ends exactly once, and only the close that took the last borrow owns the origin close: a
     // repeated close after a failure retries the idempotent origin close (the contract keeps `Closing`

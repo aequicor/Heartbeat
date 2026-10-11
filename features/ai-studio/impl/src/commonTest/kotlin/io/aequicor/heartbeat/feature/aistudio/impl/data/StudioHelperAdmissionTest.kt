@@ -1,0 +1,97 @@
+package io.aequicor.heartbeat.feature.aistudio.impl.data
+
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.scheduler.api.ActionId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
+import kotlin.test.assertSame
+import kotlin.time.Instant
+
+class StudioHelperAdmissionTest {
+    private val record = StudioChatRecord(
+        "helper",
+        "Helper",
+        Instant.fromEpochMilliseconds(0),
+        helper = StudioHelperIdentity(ActionId("wf_owner"), null, null, TrustLevel.Ask),
+    )
+
+    @Test
+    fun `manual helper send journals before native begin and refuses an unresolved old request`() = runTest {
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        val admission = StudioHelperAdmission(attempts, emptyHelperAdmissions())
+        val request = runRequest("manual").copy(id = record.id)
+        val admitted = admission.prepare(record, request)
+        assertEquals(StudioHelperPhase.Preparing, attempts.receipt(HelperId(record.id), request.request)?.phase)
+        assertNotNull(admitted.submission).begin()
+        assertEquals(StudioHelperPhase.Submitting, attempts.receipt(HelperId(record.id), request.request)?.phase)
+        assertFailsWith<IllegalStateException> {
+            admission.prepare(record, runRequest("another").copy(id = record.id))
+        }
+        assertFailsWith<IllegalStateException> { admission.prepare(record, request) }
+    }
+
+    @Test
+    fun `a wake redelivered after its revoked preparation is admitted again`() = runTest {
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        val admission = StudioHelperAdmission(attempts, emptyHelperAdmissions())
+        val wake = runRequest("wake_w1").copy(id = record.id, submission = StudioRunSubmission())
+        // The owner deferred the first delivery before native submission.
+        assertNotNull(admission.prepare(record, wake).submission).cancel()
+        assertEquals(StudioHelperPhase.NotSubmitted, attempts.receipt(HelperId(record.id), wake.request)?.phase)
+        val redelivered = admission.prepare(record, wake.copy(submission = StudioRunSubmission()))
+        assertEquals(StudioHelperPhase.Preparing, attempts.receipt(HelperId(record.id), wake.request)?.phase)
+        assertNotNull(redelivered.submission).begin()
+        assertEquals(StudioHelperPhase.Submitting, attempts.receipt(HelperId(record.id), wake.request)?.phase)
+        assertFailsWith<IllegalStateException> { admission.prepare(record, wake) }
+    }
+
+    @Test
+    fun `a wake deferred on its event and redelivered at its deadline is not lost`() = runTest {
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        val admission = StudioHelperAdmission(attempts, emptyHelperAdmissions())
+        val byEvent = runRequest("wake_w1").copy(id = record.id, prompt = "event", submission = StudioRunSubmission())
+        assertNotNull(admission.prepare(record, byEvent).submission).cancel()
+        val byDeadline = byEvent.copy(prompt = "deadline", submission = StudioRunSubmission())
+        val redelivered = admission.prepare(record, byDeadline)
+        assertNotNull(redelivered.submission).begin()
+        assertEquals(StudioHelperPhase.Submitting, attempts.receipt(HelperId(record.id), byEvent.request)?.phase)
+    }
+
+    @Test
+    fun `a helper gate belonging to another chat or request is rejected`() = runTest {
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        val request = runRequest("manual").copy(id = record.id)
+        val helper = HelperId(record.id)
+        attempts.prepare(helper, HelperPrompt(request.request, request.prompt))
+        val gate = StudioHelperSubmission(attempts, emptyHelperAdmissions(), helper, request.request)
+        val matching = request.copy(submission = gate)
+        assertSame(matching, StudioHelperAdmission(attempts, emptyHelperAdmissions()).prepare(record, matching))
+        assertFailsWith<IllegalStateException> {
+            StudioHelperAdmission(attempts, emptyHelperAdmissions()).prepare(record.copy(id = "foreign"), matching)
+        }
+    }
+
+    @Test
+    fun `ordinary chats remain ordinary and prior scheduled admission still prevents helper native send`() = runTest {
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        val admission = StudioHelperAdmission(attempts, emptyHelperAdmissions())
+        val prior = StudioRunSubmission()
+        val request = runRequest("wake").copy(id = record.id, submission = prior)
+        assertSame(request, admission.prepare(record.copy(helper = null), request))
+        val admitted = admission.prepare(record, request)
+        prior.cancel()
+        assertFailsWith<kotlinx.coroutines.CancellationException> { checkNotNull(admitted.submission).begin() }
+        admitted.submission?.cancel()
+        assertEquals(StudioHelperPhase.NotSubmitted, attempts.receipt(HelperId(record.id), request.request)?.phase)
+    }
+}
+
+internal fun emptyHelperAdmissions(): StudioHelperPromptAdmissions = StudioHelperPromptAdmissions(
+    lazy { error("neutral helper must not read handoff metadata") },
+    lazy { error("neutral helper must not resolve owners") },
+)

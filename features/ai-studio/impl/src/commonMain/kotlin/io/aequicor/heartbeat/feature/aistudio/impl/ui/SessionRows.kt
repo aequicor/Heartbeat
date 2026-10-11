@@ -49,6 +49,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.action_rename
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.action_restore
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.action_unpin
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_actions
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_awaiting_permission
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_branch
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_running
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_title_field
@@ -73,8 +74,13 @@ internal class SessionRows(
     @Composable
     fun SessionRow(session: SessionUi, section: String, modifier: Modifier = Modifier, level: Int = 0) {
         val rowKey = "$section:${session.id}"
+        val indentation = sessionIndentation(level, session.depth)
         if (renaming?.origin == rowKey) {
-            RenameField(renaming.title, onIntent, modifier.padding(start = HbTheme.spacing.xl * level))
+            RenameField(
+                renaming.title,
+                onIntent,
+                modifier.padding(start = HbTheme.spacing.xl * indentation),
+            )
             return
         }
         val status = sessionStatus(session)
@@ -87,7 +93,7 @@ internal class SessionRows(
                 if (status.isNotEmpty()) stateDescription = status
             },
             isSelected = isSelected,
-            level = level,
+            level = indentation,
             minHeight = HbTheme.dimensions.navigationRowHeight,
             onSecondaryClick = { onMenu(rowKey) },
             selectedBackground = HbTheme.surfaces.selected,
@@ -138,6 +144,13 @@ private fun SessionIndicator(session: SessionUi) {
     val foreground = if (session.isUnread) HbTheme.surfaces.accent else HbTheme.colors.textSecondary
     Box(Modifier.size(HbTheme.dimensions.navigationRowHeight), contentAlignment = Alignment.Center) {
         when {
+            session.isAwaitingPermission -> HbIcon(
+                HbIcons.Lock,
+                stringResource(Res.string.session_awaiting_permission),
+                Modifier.testTag("session-permission-${session.id}"),
+                tint = HbTheme.surfaces.accent,
+            )
+
             session.isRunning -> HbActivityIndicator(Modifier.testTag("session-running-${session.id}"))
 
             session.scheduledWait != null -> HbIcon(
@@ -162,7 +175,8 @@ private fun SessionIndicator(session: SessionUi) {
 
 @Composable
 private fun sessionStatus(session: SessionUi): String = listOfNotNull(
-    stringResource(Res.string.session_running).takeIf { session.isRunning },
+    stringResource(Res.string.session_awaiting_permission).takeIf { session.isAwaitingPermission },
+    stringResource(Res.string.session_running).takeIf { session.isRunning && !session.isAwaitingPermission },
     session.waitStatusLabel(),
     stringResource(Res.string.session_unread).takeIf { session.isUnread },
     session.branch?.let { stringResource(Res.string.session_branch, it) },
@@ -171,7 +185,7 @@ private fun sessionStatus(session: SessionUi): String = listOfNotNull(
 @Composable
 internal fun sessionMenu(session: SessionUi, isOpenBesideAllowed: Boolean): ImmutableList<HbMenuItem> = listOfNotNull(
     HbMenuItem(MENU_RENAME, stringResource(Res.string.action_rename), HbIcons.Edit, isFocusRestoredOnSelect = false),
-    if (session.isArchived) {
+    if (session.isArchived || session.isNestedInSidebar || session.depth > 0) {
         null
     } else if (session.isPinned) {
         HbMenuItem(MENU_PIN, stringResource(Res.string.action_unpin), HbIcons.Unpin)
@@ -233,6 +247,12 @@ internal fun RenameField(title: String, onIntent: (AiStudioScreenIntent) -> Unit
     )
 }
 
+/** Deep helper chains remain navigable even in the compact sidebar; the model retains the full tree depth. */
+internal fun sessionIndentation(sectionLevel: Int, depth: Int): Int =
+    sectionLevel.coerceIn(0, MAX_SESSION_INDENTATION) +
+        depth.coerceIn(0, MAX_SESSION_INDENTATION - sectionLevel.coerceIn(0, MAX_SESSION_INDENTATION))
+
+private const val MAX_SESSION_INDENTATION = 4
 private const val MENU_RENAME = "rename"
 private const val MENU_PIN = "pin"
 private const val MENU_UNREAD = "unread"

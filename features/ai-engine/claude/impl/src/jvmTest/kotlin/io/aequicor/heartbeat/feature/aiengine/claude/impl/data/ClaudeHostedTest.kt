@@ -228,6 +228,100 @@ class ClaudeHostedTest {
     }
 
     @Test
+    fun `instructions independent of tools reach hooked turns without hosted tools`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val bridge = TestAgentBridge()
+        val scopes = mutableListOf<AgentToolScope>()
+        val tools = object : ProfileAgentTools by TestAgentTools() {
+            override suspend fun specifications(scope: AgentToolScope): List<AgentToolSpec> = emptyList()
+            override suspend fun instructions(scope: AgentToolScope): String {
+                scopes += scope
+                return "Harness content"
+            }
+        }
+        val runtime = fixture.runtime(tools, bridge)
+        val requests = listOf(
+            CreateSessionRequest(testTarget, areSessionHooksEnabled = true),
+            CreateSessionRequest(testTarget, areDetachedToolsEnabled = true, areSessionHooksEnabled = true),
+            CreateSessionRequest(testTarget, workspace, areSessionHooksEnabled = true),
+        )
+        requests.forEachIndexed { index, request ->
+            runtime.create(request).features.available(SendsPrompts).send(prompt("turn-$index"))
+            runCurrent()
+            val hosted = assertNotNull(fixture.transport.hostedCalls.last())
+            assertNull(hosted.endpoint)
+            assertEquals("Harness content", hosted.instructions)
+            assertEquals(request.workspace != null, hosted.isProject)
+        }
+        assertTrue(bridge.attached.isEmpty())
+        assertEquals(3, scopes.size)
+        assertTrue(scopes.all { it.declared == emptySet<String>() && it.isRefreshedPerTurn })
+        runtime.close()
+    }
+
+    @Test
+    fun `service sessions without hook opt-in get no instructions without hosted tools`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val bridge = TestAgentBridge()
+        val scopes = mutableListOf<AgentToolScope>()
+        val tools = object : ProfileAgentTools by TestAgentTools() {
+            override suspend fun specifications(scope: AgentToolScope): List<AgentToolSpec> = emptyList()
+            override suspend fun instructions(scope: AgentToolScope): String {
+                scopes += scope
+                return "Harness content"
+            }
+        }
+        val runtime = fixture.runtime(tools, bridge)
+        // Judges, research chats and transfers (which keep their project) never opt into hooks.
+        val requests = listOf(
+            CreateSessionRequest(testTarget),
+            CreateSessionRequest(testTarget, areDetachedToolsEnabled = true),
+            CreateSessionRequest(testTarget, workspace),
+        )
+        requests.forEachIndexed { index, request ->
+            runtime.create(request).features.available(SendsPrompts).send(prompt("turn-$index"))
+            runCurrent()
+            assertNull(fixture.transport.hostedCalls.last())
+        }
+        assertTrue(scopes.isEmpty())
+        runtime.close()
+    }
+
+    @Test
+    fun `hosted turns refresh per-turn content only for sessions that opted into hooks`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val bridge = TestAgentBridge()
+        val scopes = mutableListOf<AgentToolScope>()
+        // Like harness content: a refreshed scope gets the active content (and runs scripts), others the guide.
+        val tools = object : ProfileAgentTools by TestAgentTools() {
+            override suspend fun instructions(scope: AgentToolScope): String {
+                scopes += scope
+                return if (scope.isRefreshedPerTurn) "Harness content" else "Harness guide"
+            }
+        }
+        val runtime = fixture.runtime(tools, bridge)
+        // Transfers keep their project and organic cells their detached tools, both without hooks.
+        val requests = listOf(
+            CreateSessionRequest(testTarget, workspace) to false,
+            CreateSessionRequest(testTarget, areDetachedToolsEnabled = true) to false,
+            CreateSessionRequest(testTarget, workspace, areSessionHooksEnabled = true) to true,
+            CreateSessionRequest(testTarget, areDetachedToolsEnabled = true, areSessionHooksEnabled = true) to true,
+        )
+        requests.forEachIndexed { index, (request, isHooked) ->
+            scopes.clear()
+            runtime.create(request).features.available(SendsPrompts).send(prompt("turn-$index"))
+            runCurrent()
+            val hosted = assertNotNull(fixture.transport.hostedCalls.last())
+            assertNotNull(hosted.endpoint)
+            assertEquals(if (isHooked) "Harness content" else "Harness guide", hosted.instructions)
+            assertTrue(scopes.isNotEmpty())
+            assertTrue(scopes.all { it.isRefreshedPerTurn == isHooked && it.declared == setOf("run_command") })
+        }
+        assertEquals(listOf(workspace, null, workspace, null), bridge.attached)
+        runtime.close()
+    }
+
+    @Test
     fun `chat without a project answers when its hosted tools fail`() = runTest {
         val fixture = ClaudeFixture(backgroundScope)
         val failing = object : AgentToolBridge {
@@ -266,12 +360,14 @@ class ClaudeHostedTest {
                 claudeArguments(search = true),
                 config,
                 config.resolveSibling("prompt.txt"),
-                search = true,
-                isProviderSearchKept = true,
+                claudeToolFlags(claudeArguments(search = true)),
             )
             assertFalse("--tools=" in args)
             assertTrue("--tools=WebSearch" in args)
-            assertTrue("--allowedTools=mcp__heartbeat_tools__*,mcp__heartbeat_search__*,WebSearch" in args)
+            assertEquals(
+                setOf("WebSearch") + ClaudeSearchTools.values + "mcp__heartbeat_tools__*",
+                claudeToolFlags(args).allowed,
+            )
             assertTrue("--strict-mcp-config" in args)
         } finally {
             Files.deleteIfExists(config)
@@ -552,12 +648,12 @@ class ClaudeHostedTest {
                 claudeArguments(search = true),
                 config,
                 directory.resolve("prompt.txt"),
-                true,
+                ClaudeToolFlags(allowed = ClaudeSearchTools.values.toSet()),
             )
             assertTrue("--tools=" in args)
             assertTrue("--strict-mcp-config" in args)
             assertTrue("--permission-mode=dontAsk" in args)
-            assertTrue("--allowedTools=mcp__heartbeat_tools__*,mcp__heartbeat_search__*" in args)
+            assertEquals(ClaudeSearchTools.values.toSet() + "mcp__heartbeat_tools__*", claudeToolFlags(args).allowed)
             assertFalse(args.any { "dangerously-skip-permissions" in it || "WebSearch" in it || "host-token" in it })
         } finally {
             Files.deleteIfExists(config)
@@ -574,6 +670,10 @@ private class TestAgentTools : ProfileAgentTools {
         AgentToolSpec("run_command", "Run command", JsonObject(emptyMap())),
     )
     override suspend fun instructions(workspace: WorkspaceRef?) = "Use the hosted tools for coding."
+
+    // Like the dispatcher: without declared tools only instructions independent of tools remain.
+    override suspend fun instructions(scope: AgentToolScope) =
+        if (scope.declared?.isEmpty() == true) "" else instructions(scope.workspace)
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject) = AgentToolResult(
         "done",
     )

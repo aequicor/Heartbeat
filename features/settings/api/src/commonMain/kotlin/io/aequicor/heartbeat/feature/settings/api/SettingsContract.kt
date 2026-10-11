@@ -27,6 +27,10 @@ public enum class SettingsSection {
     @SerialName("agent_learning")
     AgentLearning,
 
+    /** Harnesses the agent built: their approval level, scope, items, tools and workflow runs. */
+    @SerialName("harness")
+    Harness,
+
     /** Device-local feature flags. */
     @SerialName("feature_flags")
     FeatureFlags,
@@ -68,6 +72,7 @@ public val SettingsSection.deepLinkName: String
         SettingsSection.Search -> "search"
         SettingsSection.ComputerUse -> "computer_use"
         SettingsSection.AgentLearning -> "agent_learning"
+        SettingsSection.Harness -> "harness"
         SettingsSection.FeatureFlags -> "feature_flags"
     }
 

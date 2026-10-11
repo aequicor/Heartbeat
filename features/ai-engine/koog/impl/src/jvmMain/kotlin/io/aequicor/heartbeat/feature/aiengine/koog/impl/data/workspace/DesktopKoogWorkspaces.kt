@@ -4,13 +4,14 @@ import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.KoogWorkspace
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.KoogWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.detachedKoogWorkspace
+import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.independentKoogInstructions
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.koogHostedTools
+import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.koogToolScope
 
 /** Desktop Koog uses the same project tools and trust gate as native adapters. */
 @Inject
@@ -21,13 +22,21 @@ internal class DesktopKoogWorkspaces(private val tools: ProfileAgentTools) : Koo
     // Opening without a trusted accepted turn never grants coding authority.
     override suspend fun open(ref: WorkspaceRef): KoogWorkspace? = null
 
-    override suspend fun open(ref: WorkspaceRef, context: AgentToolContext): KoogWorkspace? {
+    override suspend fun open(
+        ref: WorkspaceRef,
+        context: AgentToolContext,
+        areSessionHooksEnabled: Boolean,
+    ): KoogWorkspace? {
         require(context.workspace == ref)
-        val specs = tools.specifications(ref)
+        val scope = context.koogToolScope(areSessionHooksEnabled)
+        val specs = tools.specifications(scope)
         if (specs.isEmpty()) return null
-        val instructions = tools.instructions(AgentToolScope(ref, context.target))
+        val instructions = tools.instructions(scope.copy(declared = specs.mapTo(mutableSetOf()) { it.name }))
         return KoogWorkspace(koogHostedTools(specs, tools, context), instructions)
     }
 
-    override suspend fun openDetached(context: AgentToolContext): KoogWorkspace? = detachedKoogWorkspace(tools, context)
+    override suspend fun openDetached(context: AgentToolContext, areSessionHooksEnabled: Boolean): KoogWorkspace? =
+        detachedKoogWorkspace(tools, context, areSessionHooksEnabled)
+
+    override suspend fun instructions(context: AgentToolContext): String = independentKoogInstructions(tools, context)
 }

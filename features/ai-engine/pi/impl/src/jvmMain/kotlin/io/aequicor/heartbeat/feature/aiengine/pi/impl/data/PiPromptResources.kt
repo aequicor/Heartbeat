@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
@@ -40,10 +41,20 @@ internal class PiPromptResources(private val environment: PiSessionEnvironment) 
         environment.resourceHistory.remember(ref, "request:" + request.id.value, request.parts)
     }
 
-    suspend fun submit(rpc: PiConnection, configuration: PiSessionConfiguration, request: PromptRequest) {
+    suspend fun submit(
+        rpc: PiConnection,
+        configuration: PiSessionConfiguration,
+        request: PromptRequest,
+        confirm: suspend () -> Unit,
+    ) {
         val input = prepared ?: piFailure(EngineFailure.Request(RequestFailureReason.Invalid, request.id))
         prepared = null
         configuration.prepareEffort(request.reasoningEffort)
+        try {
+            confirm()
+        } catch (error: EngineException) {
+            throw PromptNotSentException(error.failure, error)
+        }
         rpc.command(
             "prompt",
             JsonObject(
@@ -67,6 +78,10 @@ internal class PiPromptResources(private val environment: PiSessionEnvironment) 
         }
     }
 }
+
+/** The prompt never reached Pi, so the failure is definite rather than an unknown delivery. */
+internal class PromptNotSentException(val failure: EngineFailure, cause: EngineException) :
+    Exception(failure.code, cause)
 
 /** Native user timestamps survive branch reloads; runtime-generated normalized item IDs do not. */
 internal fun piResourceKey(message: JsonObject): String? = if (message.string("role") == "user") {

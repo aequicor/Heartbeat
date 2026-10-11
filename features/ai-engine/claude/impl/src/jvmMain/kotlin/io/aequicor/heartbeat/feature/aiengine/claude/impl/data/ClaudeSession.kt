@@ -38,6 +38,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionOrigin
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSummary
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
@@ -101,6 +102,13 @@ internal class ClaudeSession(
      */
     @Volatile
     private var areDetachedToolsEnabled: Boolean = false
+
+    /**
+     * Whether the holder opted into session hooks, chosen like [areDetachedToolsEnabled]. Hooks leave content
+     * independent of tools to this engine, so only such a session receives it without hosted tools.
+     */
+    @Volatile
+    private var areSessionHooksEnabled: Boolean = false
     private val storage = Mutex()
     val contextUsage = ClaudeContextUsage()
     private val leases = mutableSetOf<Lease>()
@@ -142,12 +150,16 @@ internal class ClaudeSession(
 
     /**
      * Attaches a handle. Without other holders [areDetachedToolsEnabled] decides hosted tools for later turns of a
-     * session without a project; an attach to a session that is already held keeps the holders' choice.
+     * session without a project, and [areSessionHooksEnabled] whether turns without hosted tools still receive
+     * instructions independent of tools; an attach to a session that is already held keeps the holders' choice.
      */
-    fun lease(areDetachedToolsEnabled: Boolean): ActiveSession = synchronized(lock) {
+    fun lease(areDetachedToolsEnabled: Boolean, areSessionHooksEnabled: Boolean): ActiveSession = synchronized(lock) {
         ensureOpen()
         if (isEvicted) throw EngineException(EngineFailure.Session(SessionFailureReason.NotResumable))
-        if (leases.isEmpty()) this.areDetachedToolsEnabled = areDetachedToolsEnabled
+        if (leases.isEmpty()) {
+            this.areDetachedToolsEnabled = areDetachedToolsEnabled
+            this.areSessionHooksEnabled = areSessionHooksEnabled
+        }
         Lease(current).also { leases.add(it) }
     }
 
@@ -250,7 +262,8 @@ internal class ClaudeSession(
                 ensureOpen()
                 val previous = (current as? ActiveSessionState.Ready)?.lastTurn
                 // The opt-in is fixed at acceptance: a holder attaching before the process starts changes later turns.
-                val submission = Submission(request, text, turn, previous, areDetachedToolsEnabled)
+                val submission =
+                    Submission(request, text, turn, previous, areDetachedToolsEnabled, areSessionHooksEnabled)
                 update(ActiveSessionState.Submitting(request, turn))
                 operation = scope.launch {
                     execute(submission, accepted)
@@ -282,18 +295,11 @@ internal class ClaudeSession(
             log.i { "Submitting Claude prompt effort=${submission.request.reasoningEffort ?: "default"}" }
             val tools = hosted.prepare()
             val isResume = launch != ClaudeLaunch.Prepared
+            val plan = promptArguments(submission.request, isResume, submission.areDetachedToolsEnabled)
             launch = ClaudeLaunch.Attempted
             persist()
             isTransportInvoked = true
-            val exit = transport.run(
-                promptArguments(submission.request, isResume, submission.areDetachedToolsEnabled),
-                submission.text,
-                route.workspace,
-                hosted = tools,
-            ) {
-                receive(observer, it)
-                false
-            }
+            val exit = executePlan(plan, submission, observer, hosted, tools)
             log.i { "Claude prompt process ended exit=$exit" }
             if (observer.isFinished) {
                 finishObserved(observer, isConfirmed = exit == 0)
@@ -321,6 +327,41 @@ internal class ClaudeSession(
         }
     }
 
+    private suspend fun executePlan(
+        plan: ClaudeTurnPlan,
+        submission: Submission,
+        observer: ClaudeTurnObserver,
+        hosted: ClaudeHostedTurn,
+        tools: ClaudeHostedTools?,
+    ): Int = if (plan.native != null) {
+        val gate = ClaudeNativeGate(
+            ref.nativeId,
+            plan.gated,
+            plan.native,
+            environment.tools,
+            hosted::toolContext,
+        )
+        try {
+            transport.duplex(plan.arguments, route.workspace, tools) { duplex ->
+                ClaudeControlExchange(
+                    duplex,
+                    gate::handle,
+                    { receive(observer, it.toString()) },
+                    gate::validate,
+                    gate::close,
+                    gate::initialized,
+                ).run(gate.initialization(), claudeUserFrame(submission.request, submission.text))
+            }
+        } finally {
+            gate.close()
+        }
+    } else {
+        transport.run(plan.arguments, submission.text, route.workspace, hosted = tools) {
+            receive(observer, it)
+            false
+        }
+    }
+
     private suspend fun hostedTurn(submission: Submission, observer: ClaudeTurnObserver): ClaudeHostedTurn =
         ClaudeHostedTurn(
             ClaudeTurnContext(
@@ -329,6 +370,7 @@ internal class ClaudeSession(
                 submission.request,
                 submission.turn.target,
                 submission.areDetachedToolsEnabled,
+                submission.areSessionHooksEnabled,
             ),
             observer,
             history,
@@ -364,21 +406,55 @@ internal class ClaudeSession(
         request: PromptRequest,
         isResume: Boolean,
         detachedTools: Boolean,
-    ): List<String> {
+    ): ClaudeTurnPlan {
+        val policy = environment.tools.nativeTools(ToolPolicyScope(ref.engine, route.workspace, ref, target))
+        val isSearchEnabled = toggles.get(SearchEngineTools)
+        val requestedFlags = claudeToolFlags(
+            policy,
+            isSearchEnabled,
+            subagents = (route.workspace != null || detachedTools) &&
+                toggles.get(io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSubagentsEnabled),
+            providerSearch = route.workspace == null,
+        )
+        val gated = requestedFlags.native.intersect(ClaudeNativeCatalog.filter { it.isGated }.map { it.name }.toSet())
+        val native = if (gated.isNotEmpty()) nativeWorkspace() else null
+        val flags = if (native == null) requestedFlags.copy(native = requestedFlags.native - gated) else requestedFlags
         val arguments = claudeArguments(
             target.model,
             ref.nativeId,
             isResume,
-            search = toggles.get(SearchEngineTools),
+            search = flags.allowed.any { it in ClaudeSearchTools.values },
             effort = request.reasoningEffort,
-            subagents = (route.workspace != null || detachedTools) &&
-                toggles.get(io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSubagentsEnabled),
+            tools = flags,
         )
-        return if (request.parts.any { it !is ContentPart.Text }) {
-            arguments + listOf("--input-format", "stream-json")
+        val inputFlags = if (native != null || request.parts.any { it !is ContentPart.Text }) {
+            listOf("--input-format", "stream-json")
         } else {
-            arguments
+            emptyList()
         }
+        val gateFlags = if (native != null) {
+            listOf("--permission-prompt-tool=stdio", "--permission-mode=default")
+        } else {
+            emptyList()
+        }
+        return ClaudeTurnPlan(arguments + inputFlags + gateFlags, native, gated)
+    }
+
+    /** The gate for additional native tools, or null with the reason they are removed from this turn. */
+    private suspend fun nativeWorkspace(): ClaudeNativeWorkspace? {
+        val workspace = route.workspace
+        val reason = when {
+            !toggles.get(io.aequicor.heartbeat.feature.aiengine.facade.api.HarnessNativeTools) ->
+                "native tools toggle is off"
+
+            workspace == null -> "session has no project"
+
+            !supportsClaudeNativeGate(transport.version()) -> "CLI does not support the native gate"
+
+            else -> environment.native.open(workspace)?.let { return it } ?: "project directory is unavailable"
+        }
+        log.d { "Gated native tools removed from the turn: $reason" }
+        return null
     }
 
     private suspend fun receive(observer: ClaudeTurnObserver, line: String) {
@@ -707,13 +783,14 @@ private const val MAX_PROMPT_CHARS = 1024 * 1024
 /** Reported by the transport only before a child process exists. */
 private val LAUNCH_FAILURE = EngineFailure.Engine(EngineFailureReason.RequirementsNotMet)
 
-/** An accepted turn; [areDetachedToolsEnabled] is the session's opt-in when the turn was accepted. */
+/** An accepted turn; the opt-ins are the session's choices when the turn was accepted. */
 private data class Submission(
     val request: PromptRequest,
     val text: String,
     val turn: Turn,
     val previous: Turn?,
     val areDetachedToolsEnabled: Boolean,
+    val areSessionHooksEnabled: Boolean,
 ) {
     override fun toString(): String = "Submission(***)"
 }
@@ -728,6 +805,7 @@ internal data class ClaudeSessionEnvironment(
     val catalog: ClaudeCatalog,
     val tools: ProfileAgentTools,
     val bridge: AgentToolBridge,
+    val native: ClaudeNativeSupport = MissingClaudeNativeSupport,
     /** Called outside session locks when a session may have become released (last handle closed or turn ended). */
     val onReleased: (ClaudeSession) -> Unit = {},
     /** Native account-level quota events are shared across sessions of this runtime. */

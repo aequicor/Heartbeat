@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolImage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
@@ -47,6 +48,53 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class DesktopAgentToolBridgeTest {
+    @Test
+    fun `MCP handshake uses stored session scope and calls cannot substitute another session`() = runBlocking {
+        val profile = BridgeProfile()
+        val captured = mutableListOf<AgentToolScope>()
+        val original = context()
+        var active = original
+        var calls = 0
+        val tools = object : ProfileAgentTools {
+            override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> = error("Use scope")
+            override suspend fun instructions(workspace: WorkspaceRef?): String = error("Use scope")
+            override suspend fun specifications(scope: AgentToolScope): List<AgentToolSpec> {
+                captured += scope
+                return emptyList()
+            }
+            override suspend fun instructions(scope: AgentToolScope): String {
+                captured += scope
+                return "Scoped instructions"
+            }
+            override suspend fun execute(
+                context: AgentToolContext,
+                name: String,
+                arguments: JsonObject,
+            ): AgentToolResult {
+                calls++
+                return AgentToolResult("done")
+            }
+        }
+        val scope = AgentToolScope(PROJECT, session = original.session)
+        val capability = DesktopAgentToolBridge(tools, profile).attach(scope) { active }
+        try {
+            val endpoint = capability.endpoint
+            assertTrue(post(endpoint.url, LIST, endpoint.token).body().contains("\"tools\":[]"))
+            val initialize = """{"jsonrpc":"2.0","id":3,"method":"initialize"}"""
+            assertTrue(post(endpoint.url, initialize, endpoint.token).body().contains("Scoped instructions"))
+            assertEquals(listOf(scope, scope), captured)
+            active = original.copy(session = original.session.copy(nativeId = "foreign"))
+            assertTrue(post(endpoint.url, CALL, endpoint.token).body().contains("\"isError\":true"))
+            assertEquals(0, calls)
+            active = original
+            assertTrue(post(endpoint.url, CALL, endpoint.token).body().contains("\"isError\":false"))
+            assertEquals(1, calls)
+        } finally {
+            capability.close()
+            profile.close()
+        }
+    }
+
     @Test
     fun `execute and MCP deliver image content without truncating it to the text limit`() = runBlocking {
         val profile = BridgeProfile()

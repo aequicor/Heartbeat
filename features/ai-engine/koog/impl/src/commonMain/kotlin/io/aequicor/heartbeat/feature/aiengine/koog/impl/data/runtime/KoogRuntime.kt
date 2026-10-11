@@ -94,7 +94,7 @@ internal class KoogRuntime(
             koogCall { records.save(record) }
             checkOpen()
             log.i { "Created native session" }
-            native(record).attach(request.areDetachedToolsEnabled)
+            native(record).attach(request.areDetachedToolsEnabled, request.areSessionHooksEnabled)
         }
     }
 
@@ -120,7 +120,7 @@ internal class KoogRuntime(
             }
             checkOpen()
             log.i { "Attached native session" }
-            session.attach(request.areDetachedToolsEnabled)
+            session.attach(request.areDetachedToolsEnabled, request.areSessionHooksEnabled)
         }
     }
 

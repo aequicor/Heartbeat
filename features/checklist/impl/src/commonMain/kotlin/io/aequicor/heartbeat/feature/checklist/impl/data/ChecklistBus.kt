@@ -123,12 +123,16 @@ internal class ChecklistBus(
     }
 
     private suspend fun received(event: BusEvent) {
-        if (event.origin != EventOrigin.Host) return
+        if (event.origin != EventOrigin.Host &&
+            (event.key != SchedulerEvents.RunStarted || event.origin !is EventOrigin.HostTurn)
+        ) {
+            return
+        }
         val payload = event.payload ?: return
         try {
             when (event.key) {
                 ChecklistEvents.Acknowledged -> acknowledge(Json.decodeFromString(payload))
-                SchedulerEvents.RunStarted -> started(Json.decodeFromString(payload))
+                SchedulerEvents.RunStarted -> started(Json.decodeFromString(payload), event.origin)
                 SchedulerEvents.WakeResult -> delivered(Json.decodeFromString(payload))
             }
         } catch (e: IllegalArgumentException) {
@@ -143,7 +147,12 @@ internal class ChecklistBus(
         }
     }
 
-    private suspend fun started(started: RunStartedEvent) {
+    private suspend fun started(started: RunStartedEvent, origin: EventOrigin) {
+        if (origin is EventOrigin.HostTurn &&
+            (origin.session != started.session || origin.request != started.request)
+        ) {
+            return
+        }
         val state = machine.state.value as? ChecklistState.Ready ?: return
         val key = EventKeys.sessionSegment(started.session)
         if (started.revision > (state.journal.generationRevisions[key] ?: -1)) {
@@ -174,7 +183,7 @@ private fun Checklist.wake() = WakeRequest(
     target = target,
     condition = WakeCondition(setOf(ChecklistEvents.changed(id, ChecklistStatus.Completed))),
     note = "The user completed checklist $id. Read its frozen answers using checklist_get and continue the task.",
-    origin = WakeOrigin.Agent(turn),
+    origin = WakeOrigin.Feature(ChecklistEvents.OWNER, "Checklist"),
     isDeduplicationRequired = true,
     ownerFeature = ChecklistEvents.OWNER,
 )

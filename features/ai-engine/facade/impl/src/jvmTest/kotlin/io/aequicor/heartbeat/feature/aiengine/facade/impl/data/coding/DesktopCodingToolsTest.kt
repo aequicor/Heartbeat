@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.coding
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
@@ -11,9 +12,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.DefaultAgentTools
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -33,8 +36,7 @@ class DesktopCodingToolsTest {
         directory.toFile().deleteRecursively()
     }
 
-    @Test
-    fun `a command with a hidden executable suffix is refused before asking or executing`() = runTest {
+    private fun TestScope.contribution(): DesktopCodingTools {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val dispatchers = object : DispatcherProvider {
             override val main = dispatcher
@@ -47,7 +49,24 @@ class DesktopCodingToolsTest {
             override suspend fun register(directory: String) = error("Registration is not part of tool execution")
             override suspend fun resolve(ref: WorkspaceRef): String? = directory.toString().takeIf { ref == workspace }
         }
-        val contribution = DesktopCodingTools(projects, dispatchers)
+        return DesktopCodingTools(projects, dispatchers)
+    }
+
+    @Test
+    fun `instructions drop only the guidance of tools the session does not declare`() = runTest {
+        val contribution = contribution()
+        val names = contribution.specifications(workspace).map { it.name }.toSet()
+        assertTrue("run_command" in contribution.instructions(AgentToolScope(workspace)))
+        val withoutShell = contribution.instructions(AgentToolScope(workspace, declared = names - "run_command"))
+        assertTrue("Read AGENTS.md and CLAUDE.md" in withoutShell)
+        assertFalse("run_command" in withoutShell)
+        assertEquals("", contribution.instructions(AgentToolScope(workspace, declared = emptySet())))
+    }
+
+    @Test
+    fun `a command with a hidden executable suffix is refused before asking or executing`() = runTest {
+        val contribution = contribution()
+        assertEquals(contribution.specifications(workspace).toolCatalog().toSet(), contribution.catalog.toSet())
         val tools = DefaultAgentTools(setOf(contribution))
         val suffix = if (System.getProperty("os.name").startsWith("Windows")) {
             "; Set-Content hidden-action.txt changed"

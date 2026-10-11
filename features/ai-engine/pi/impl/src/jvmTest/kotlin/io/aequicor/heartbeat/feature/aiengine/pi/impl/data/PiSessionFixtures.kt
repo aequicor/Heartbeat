@@ -47,6 +47,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -73,6 +75,7 @@ internal suspend fun fixture(
     targetModel: ModelId = ModelId("anthropic/test"),
     project: WorkspaceRef? = WorkspaceRef("hosted-workspace"),
     areDetachedToolsEnabled: Boolean = false,
+    turns: PiTurnRecords = MemoryPiTurnRecords(),
     configure: (Int, FakeConnection) -> Unit = { _, _ -> },
 ): Fixture {
     val target = EngineTarget(PiEngineId, EngineBindingId("binding"), targetModel)
@@ -86,18 +89,21 @@ internal suspend fun fixture(
             test,
             isUsageEnabled,
             acceptIntent = acceptIntent,
-            tools = tools,
+            tools = if (tools === NoAgentTools) TestNativeTools else tools,
             bridge = bridge,
             resources = resources,
+            turns = turns,
         ),
+        "test-ownership",
         validate,
         { released += it },
+        transcript?.let { PiTurnJournal(turns, it.ref, route, "test-ownership").restore() },
     )
     val connections = mutableListOf<FakeConnection>()
-    session.prepareHostedTools()
     session.start(
-        { event, failed ->
+        { plan, event, failed ->
             FakeConnection().also {
+                it.plan = plan
                 it.event = event
                 it.failed = failed
                 configure(connections.size, it)
@@ -105,6 +111,7 @@ internal suspend fun fixture(
             }
         },
         transcript,
+        { connections.last().takeIf { it.isTranscriptPersisted }?.sessionFile },
     )
     return Fixture(session, connections, released)
 }
@@ -117,6 +124,7 @@ internal fun piTestEnvironment(
     tools: ProfileAgentTools = NoAgentTools,
     bridge: AgentToolBridge = UnavailableAgentToolBridge,
     resources: ResourceResolver = ResourceResolver { null },
+    turns: PiTurnRecords = MemoryPiTurnRecords(),
 ): PiSessionEnvironment {
     val dispatcher = StandardTestDispatcher(test.testScheduler)
     val dispatchers = object : DispatcherProvider {
@@ -134,9 +142,11 @@ internal fun piTestEnvironment(
         FakeScope(test.backgroundScope),
         dispatchers,
         DefaultPiTestToggles(isUsageEnabled, areEnginesEnabled),
+        TestNativeClassifier,
         tools = tools,
         bridge = bridge,
         resources = resources,
+        turns = turns,
     )
 }
 
@@ -210,6 +220,7 @@ internal data class Fixture(
 internal val TestWorkspace: Path = Files.createTempDirectory("pi-workspace").also { it.toFile().deleteOnExit() }
 
 internal class FakeConnection : PiConnection {
+    var plan: PiLaunchPlan? = null
     var event: suspend (JsonObject) -> Unit = {}
     var failed: suspend (EngineFailure) -> Unit = {}
     val promptAck = CompletableDeferred<JsonObject>()
@@ -219,7 +230,14 @@ internal class FakeConnection : PiConnection {
     val fields = mutableListOf<JsonObject>()
     val sent = mutableListOf<JsonObject>()
     var isClosed = false
+    var stopProof: suspend () -> Boolean = { true }
+    var stopRequests = 0
+    var owner: PiExecutionOwner? = null
+    var captureOwner: suspend () -> PiExecutionOwner? = { owner }
+    override suspend fun processOwner(): PiExecutionOwner? = captureOwner()
     var sessionId = "native"
+    var isTranscriptPersisted = true
+    var sessionFile: String? = "native.jsonl"
     var model = "test"
     var modelMetadata = JsonObject(emptyMap())
     override var contextWindows: Map<String, Long> = emptyMap()
@@ -241,6 +259,7 @@ internal class FakeConnection : PiConnection {
         {"type":"compaction","id":"summary","parentId":"reply","summary":"Earlier"},
         {"type":"message","id":"later","parentId":"summary","message":{"role":"user","content":"Later"}}]}"""
     var sendFailure: EngineException? = null
+    var beforeSend: suspend () -> Unit = {}
     override var isOpen = true
     override val workingDirectory: Path = TestWorkspace
     override suspend fun command(type: String, fields: JsonObject): JsonObject {
@@ -258,6 +277,7 @@ internal class FakeConnection : PiConnection {
         }
     }
     override suspend fun send(record: JsonObject) {
+        beforeSend()
         sendFailure?.let {
             sendFailure = null
             throw it
@@ -267,6 +287,12 @@ internal class FakeConnection : PiConnection {
     override fun close() {
         isClosed = true
         isOpen = false
+    }
+
+    override suspend fun stopAndAwait(): Boolean {
+        stopRequests++
+        close()
+        return stopProof()
     }
 
     private fun state(): JsonObject {
@@ -279,7 +305,11 @@ internal class FakeConnection : PiConnection {
             ),
         )
         return Json.parseToJsonElement(
-            """{"sessionId":"$sessionId","sessionFile":"native.jsonl","isStreaming":$isStreaming,"isCompacting":false,
+            """{"sessionId":"$sessionId","sessionFile":${sessionFile?.let {
+                JsonPrimitive(
+                    it,
+                )
+            }},"isStreaming":$isStreaming,"isCompacting":false,
                "thinkingLevel":"$thinkingLevel",
                "model":$selectedModel}""",
         ).jsonObject
@@ -323,6 +353,8 @@ private class ReducerLauncher(private val acceptIntent: (MachineIntent) -> Boole
             if (scope.isClosed) return SendResult.NotRunning
             if (!acceptIntent(intent)) return SendResult.Ignored
             val resolved = spec.resolve(state.value, intent) ?: return SendResult.Ignored
+            // Like the production runtime, a cancelled sender cannot dispatch.
+            currentCoroutineContext().ensureActive()
             state.value = resolved.to
             resolved.effects.forEach { effect ->
                 scope.coroutineScope.launch {
