@@ -8,7 +8,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.scheduler.api.GraphAction
 import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskPhase
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
@@ -33,6 +35,11 @@ import kotlin.time.Duration.Companion.seconds
 @Inject
 internal class TaskGraphTools(private val machine: TaskGraphMachine, private val driver: TaskGraphDriver) :
     AgentToolContribution {
+    override val group: String = "scheduler"
+    override val title: String = "Планировщик"
+
+    // Policy and settings know only catalog names: every declared graph tool must be listed to be turned off.
+    override val catalog: List<ToolCatalogEntry> get() = TaskGraphToolSpecs.all.toolCatalog()
     override val isDetachedSupported: Boolean get() = true
 
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> = when {

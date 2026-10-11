@@ -24,14 +24,18 @@ import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.ProfileSessionHoo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -199,6 +203,38 @@ class ProfileSessionHooksTest {
     }
 
     @Test
+    fun `a hook's own cancellation or error falls back and keeps its observation lane alive`() = runTest {
+        val hook = object : SessionHook {
+            override val isObserving = true
+            override val isIntercepting = true
+            val events = mutableListOf<SessionLifecycle>()
+            override suspend fun observe(event: SessionLifecycle) {
+                if (event is SessionLifecycle.Opened) throw CancellationException("hook stopped itself")
+                events += event
+            }
+            override suspend fun beforeTool(call: HookedToolCall): ToolHookVerdict =
+                throw CancellationException("hook stopped itself")
+            override suspend fun beforePrompt(context: SessionHookContext, text: String): String =
+                throw AssertionError("fatal hook error")
+            override suspend fun afterTool(call: HookedToolCall, result: AgentToolResult): String =
+                withTimeout(1) { awaitCancellation() }
+        }
+        // Like the profile scope: a supervisor keeps a failed hook's Error inside its own work.
+        val profile = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+        try {
+            val dispatcher = testSessionHooks(hook, scope = profile).opened()
+            assertIs<ToolHookVerdict.Ask>(dispatcher.beforeTool(call()))
+            assertNull(dispatcher.beforePrompt(CONTEXT, "text"))
+            assertNull(dispatcher.afterTool(call(), AgentToolResult("result")))
+            dispatcher.observe(SessionLifecycle.TurnStarted(CONTEXT))
+            runCurrent()
+            assertEquals(listOf("TurnStarted"), hook.events.map { it::class.simpleName })
+        } finally {
+            profile.cancel()
+        }
+    }
+
+    @Test
     fun `caller cancellation propagates and cancels a suspended hook`() = runTest {
         var isCancelled = false
         val hook = object : SessionHook {
@@ -241,14 +277,17 @@ private class HangingHook : SessionHook {
     override suspend fun beforeTool(call: HookedToolCall): ToolHookVerdict = awaitCancellation()
 }
 
-internal fun TestScope.testSessionHooks(vararg hooks: SessionHook): ProfileSessionHooks {
+internal fun TestScope.testSessionHooks(
+    vararg hooks: SessionHook,
+    scope: CoroutineScope = backgroundScope,
+): ProfileSessionHooks {
     val dispatcher = StandardTestDispatcher(testScheduler)
     val provider = object : DispatcherProvider {
         override val io: CoroutineDispatcher = dispatcher
         override val main: CoroutineDispatcher = dispatcher
         override val default: CoroutineDispatcher = dispatcher
     }
-    return ProfileSessionHooks(lazy { hooks.toSet() }, provider, backgroundScope)
+    return ProfileSessionHooks(lazy { hooks.toSet() }, provider, scope)
 }
 
 private fun ProfileSessionHooks.opened(): ProfileSessionHooks = apply {

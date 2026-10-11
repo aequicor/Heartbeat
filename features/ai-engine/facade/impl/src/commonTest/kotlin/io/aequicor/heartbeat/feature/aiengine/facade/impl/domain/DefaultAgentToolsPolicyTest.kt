@@ -77,6 +77,24 @@ internal class DefaultAgentToolsPolicyTest {
     }
 
     @Test
+    fun `owners whose tools are all disabled still give instructions that need no tool`() = runTest {
+        val owner = object : Owner() {
+            override suspend fun instructions(scope: AgentToolScope): String = listOfNotNull(
+                "Learned rule",
+                "Use read".takeIf { scope.declared?.contains("read") != false },
+            ).joinToString("\n")
+        }
+        val tools = DefaultAgentTools(
+            setOf(owner),
+            policies = ToolPolicyResolver { _, _, _ ->
+                ResolvedToolPolicy(hostedDenied = setOf("read", "edit"))
+            },
+        )
+        assertTrue(tools.specifications(scope).isEmpty())
+        assertEquals("Learned rule", tools.instructions(scope))
+    }
+
+    @Test
     fun `policy is checked again after permission and a newly disabled tool never executes`() = runTest {
         var denied = emptySet<String>()
         val entered = CompletableDeferred<Unit>()

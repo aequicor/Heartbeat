@@ -37,7 +37,7 @@ internal class NativeToolGate(
         if (!isEnabled(context, call)) return@guarded denied("Native tool became unavailable")
         if (!isApprovalRequired) return@guarded NativePreflight.Ready(NativeVerdict.Allow)
         approval(call, hook)
-    }
+    }.also { log.i { "Native tool preflight name=${call.name} action=${call.action} outcome=${it.outcome()}" } }
 
     private suspend fun beforeTool(context: AgentToolContext, call: NativeToolCall): ToolHookVerdict {
         val hooked = hooks.context(context.session, context.request, context.turn)?.let { bound ->
@@ -78,6 +78,7 @@ internal class NativeToolGate(
                 denied("Native tool became unavailable")
             }
         }
+        log.i { "Native tool confirmation name=${call.name} action=${call.action} outcome=${result.outcome()}" }
         return (result as NativePreflight.Ready).verdict
     }
 
@@ -112,3 +113,9 @@ internal sealed interface NativePreflight {
 }
 
 private fun denied(reason: String): NativePreflight = NativePreflight.Ready(NativeVerdict.Deny(reason))
+
+/** Log form without reasons: they may quote hook text, paths or commands. */
+private fun NativePreflight.outcome(): String = when (this) {
+    is NativePreflight.Ask -> "ask"
+    is NativePreflight.Ready -> if (verdict == NativeVerdict.Allow) "allow" else "deny"
+}

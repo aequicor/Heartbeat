@@ -41,6 +41,8 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -76,6 +78,7 @@ internal class DefaultAgentTools(
     private val callsLock = Mutex()
     private val calls = mutableMapOf<Pair<SessionRef, TurnId>, MutableSet<Job>>()
     private val finishedTurns = mutableSetOf<Pair<SessionRef, TurnId>>()
+    private val uncatalogued = MutableStateFlow(emptySet<String>())
 
     // Entries stay after the turn: a delayed call must still resolve to its finished facade turn.
     private val boundTurns = mutableMapOf<Pair<SessionRef, RequestId>, BoundTurn>()
@@ -115,10 +118,11 @@ internal class DefaultAgentTools(
     override suspend fun instructions(workspace: WorkspaceRef?): String = instructions(AgentToolScope(workspace))
 
     override suspend fun instructions(scope: AgentToolScope): String {
-        val declarations = declarations(scope)
-        val allowed = declarations.map { it.second.name }.toSet()
-        val scoped = scope.copy(declared = allowed)
-        val owners = declarations.mapTo(linkedSetOf()) { it.first }
+        val declared = declared(scope)
+        val scoped = scope.copy(declared = declared.allowed.map { it.second.name }.toSet())
+        // Owners whose tools the policy removed still contribute what does not need them (learned rules); they
+        // honor the declared names, so disabled tools are never mentioned.
+        val owners = declared.available.mapTo(linkedSetOf()) { it.first }
         owners += contributions.filter {
             it.hasIndependentInstructions && !it.isAdapterOperated &&
                 (scope.workspace != null || it.isDetachedSupported)
@@ -238,28 +242,35 @@ internal class DefaultAgentTools(
 
     override suspend fun finishTurn(session: SessionRef, turn: TurnId, request: RequestId?) {
         log.i { "Revoke hosted tools and await outstanding calls" }
-        val (acceptedRequest, pending) = callsLock.withLock {
-            val key = session to turn
-            val bound = boundTurns.entries.singleOrNull {
-                it.key.first == session && it.value.turn == turn
-            }?.key?.second
-            check(request == null || bound == null || request == bound) { "Cleanup request does not match its turn" }
-            finishedTurns.add(key)
-            (bound ?: request) to calls[key]?.toList().orEmpty()
-        }
-        pending.forEach { it.cancel() }
-        pending.forEach { it.cancelAndJoin() }
-        // One owner's failed cleanup must neither skip the others nor fail the turn that already ended.
-        contributions.forEach { contribution ->
-            try {
-                contribution.finishTurn(session, turn, acceptedRequest)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                log.w(e) { "Hosted tool cleanup failed for the finished turn" }
+        try {
+            // A cancelled cleanup still closes the barrier: no later call may register for the finished turn.
+            val (bound, pending) = withContext(NonCancellable) {
+                callsLock.withLock {
+                    val key = session to turn
+                    finishedTurns.add(key)
+                    val bound = boundTurns.entries.singleOrNull {
+                        it.key.first == session && it.value.turn == turn
+                    }?.key?.second
+                    bound to calls[key]?.toList().orEmpty()
+                }
             }
+            pending.forEach { it.cancel() }
+            pending.forEach { it.cancelAndJoin() }
+            // One owner's failed cleanup must neither skip the others nor fail the turn that already ended.
+            contributions.forEach { contribution ->
+                try {
+                    contribution.finishTurn(session, turn, bound ?: request)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    log.w(e) { "Hosted tool cleanup failed for the finished turn" }
+                }
+            }
+            // The facade binding is authoritative: cleanup used it before the mismatch is reported.
+            check(request == null || bound == null || request == bound) { "Cleanup request does not match its turn" }
+        } finally {
+            hooks.releaseTurn(session, turn)
         }
-        hooks.releaseTurn(session, turn)
     }
 
     private suspend fun executeAuthorized(
@@ -279,6 +290,7 @@ internal class DefaultAgentTools(
             }
             val verdict = call?.let { hooks.beforeTool(it) } ?: ToolHookVerdict.Continue
             if (verdict is ToolHookVerdict.Deny) {
+                log.i { "Hosted tool denied by a session hook name=${spec.name}" }
                 return AgentToolResult(
                     "Blocked by a session hook: ${verdict.reason.take(HOOK_NOTE_CHARS)}",
                     isError = true,
@@ -359,11 +371,18 @@ internal class DefaultAgentTools(
         scope: AgentToolScope,
         isExecuting: Boolean = false,
         isAdapterOperated: Boolean = false,
-    ): List<Pair<AgentToolContribution, AgentToolSpec>> {
+    ): List<Pair<AgentToolContribution, AgentToolSpec>> = declared(scope, isExecuting, isAdapterOperated).allowed
+
+    private suspend fun declared(
+        scope: AgentToolScope,
+        isExecuting: Boolean = false,
+        isAdapterOperated: Boolean = false,
+    ): Declared {
         val available = owners(scope.workspace).filter { it.isAdapterOperated == isAdapterOperated }
             .flatMap { owner -> owner.specifications(scope).map { owner to it } }
         check(available.map { it.second.name }.distinct().size == available.size) { "Duplicate hosted tool name" }
-        val names = catalog().flatMap { it.tools }.map { it.name }.toSet() + available.map { it.second.name }
+        val catalogued = catalog().flatMap { it.tools }.map { it.name }.toSet()
+        reportUncatalogued(available.map { it.second.name }.filterNot { it in catalogued })
         val policy = policies.resolve(
             ToolPolicyScope(
                 scope.target?.engine ?: scope.session?.engine,
@@ -371,11 +390,21 @@ internal class DefaultAgentTools(
                 scope.session,
                 scope.target,
             ),
-            names,
+            catalogued + available.map { it.second.name },
             isExecuting,
-        ) ?: return emptyList()
-        return available.filter { (_, spec) ->
-            spec.name !in policy.hostedDenied && (scope.declared?.contains(spec.name) != false)
+        )
+        // Names the session froze at creation bound both lists; the policy narrows only the allowed one.
+        val session = available.filter { (_, spec) -> scope.declared?.contains(spec.name) != false }
+        return Declared(session, session.filter { (_, spec) -> policy != null && spec.name !in policy.hostedDenied })
+    }
+
+    /** Settings list only catalog names, so a tool missing from its owner's catalog cannot be turned off there. */
+    private fun reportUncatalogued(names: List<String>) {
+        if (names.isEmpty()) return
+        val known = uncatalogued.getAndUpdate { it + names }
+        val fresh = names.filterNot { it in known }
+        if (fresh.isNotEmpty()) {
+            log.w { "Hosted tools are missing from their contribution catalog names=${fresh.joinToString(",")}" }
         }
     }
 
@@ -388,6 +417,12 @@ internal class DefaultAgentTools(
     private fun List<String>.joined(): String = filter { it.isNotBlank() }.joinToString("\n\n")
 
     private data class BoundTurn(val turn: TurnId, val target: EngineTarget?)
+
+    /** Declarations of the session before the effective policy, and the ones it allows. */
+    private data class Declared(
+        val available: List<Pair<AgentToolContribution, AgentToolSpec>>,
+        val allowed: List<Pair<AgentToolContribution, AgentToolSpec>>,
+    )
 }
 
 private const val HOOK_NOTE_CHARS = 2_000

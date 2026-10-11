@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionLifecycle
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionPromptPreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.hostDirective
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.SessionHooks
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -23,12 +24,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/** Observes only this handle's submissions, even when its native session has other handles. */
+/**
+ * Observes only this handle's submissions, even when its native session has other handles. Tool cleanup of
+ * submissions never seen accepted belongs to [ManagedActiveSession] for every handle, hooked or not.
+ */
 internal class SessionHookHandle(
     private val hooks: SessionHooks,
     private val context: SessionHookContext,
     private val contextRevision: () -> String? = { null },
-    private val finishUnaccepted: (TurnId) -> Unit,
 ) {
     private val log = Log.tag("SessionHooks")
     private val lock = Mutex()
@@ -61,7 +64,9 @@ internal class SessionHookHandle(
         val addition = if (text.startsWith('/')) null else hooks.preparePrompt(bound, text, contextRevision())
         lock.withLock { turns[turn.id] = OwnedTurn(bound, addition = addition) }
         hooks.bindTurn(bound)
-        return if (addition == null || addition.text.isBlank()) request else request.append(addition.text)
+        // A host directive: the engine reads it, history and handoff strip it, and hook text cannot forge one.
+        val hookText = addition?.text?.takeIf { it.isNotBlank() } ?: return request
+        return request.append(hostDirective(hookText))
     }
 
     /** The machine refused submission before starting native work. */
@@ -72,6 +77,14 @@ internal class SessionHookHandle(
 
     fun closed() {
         hooks.observe(SessionLifecycle.Closed(context))
+    }
+
+    /** The handle closed: its unaccepted submissions can no longer be accepted through it. */
+    suspend fun abandonUnaccepted() {
+        val abandoned = lock.withLock {
+            turns.filterValues { !it.isAccepted }.also { turns.keys.removeAll(it.keys) }
+        }
+        abandoned.values.forEach { owned -> owned.addition?.receipts?.forEach { it.discarded() } }
     }
 
     @HighFrequency
@@ -93,10 +106,9 @@ internal class SessionHookHandle(
             log.v { "Observe finished hook turn" }
             turn.outcome?.let { hooks.observe(SessionLifecycle.TurnFinished(owned.context, it)) }
         } else {
+            // Reconciliation ended an ambiguous submission; the handle releases its tools and hook binding.
+            log.v { "Discard receipts of a recovered unaccepted hook turn" }
             owned.addition?.receipts?.forEach { it.discarded() }
-            // Reconciliation ended an ambiguous submission; the caller never received its facade turn id.
-            log.v { "Release recovered unaccepted hook turn" }
-            finishUnaccepted(turn.id)
         }
     }
 
@@ -122,6 +134,7 @@ private data class OwnedTurn(
     override fun toString(): String = "OwnedTurn"
 }
 
+/** Appends to the last text part, after any host directives it already ends with. */
 private fun PromptRequest.append(addition: String): PromptRequest {
     val last = parts.indexOfLast { it is ContentPart.Text }
     return if (last < 0) {

@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
@@ -45,16 +46,29 @@ internal class DesktopCodingTools(
         it.descriptor.specification(action)
     }
 
-    override suspend fun instructions(workspace: WorkspaceRef?): String = if (tools(workspace).isEmpty()) {
-        ""
-    } else {
-        "Use the hosted project tools to read and edit the current workspace. " +
-            "Read AGENTS.md and CLAUDE.md when present before changes. " +
-            "Use run_command for foreground Git and other non-interactive commands. " +
-            "It returns only after exit or termination on timeout; a returned result leaves no managed job to " +
-            "wait for with scheduler_sleep. Handle the result and continue the task. " +
-            "When configure_build/run_build are available, builds and tests MUST use run_build, not run_command. " +
-            "File paths are confined to this workspace; direct .git edits are unavailable."
+    override suspend fun instructions(workspace: WorkspaceRef?): String = instructions(AgentToolScope(workspace))
+
+    /** Guidance for the declared tools only: a disabled run_command removes its lines, not the project rules. */
+    override suspend fun instructions(scope: AgentToolScope): String {
+        val declared = tools(scope.workspace).map { it.descriptor.name }
+            .filter { scope.declared?.contains(it) != false }
+        if (declared.isEmpty()) return ""
+        return buildList {
+            add("Use the hosted project tools to read and edit the current workspace.")
+            add("Read AGENTS.md and CLAUDE.md when present before changes.")
+            if (SHELL_TOOL in declared) {
+                add("Use run_command for foreground Git and other non-interactive commands.")
+                add(
+                    "It returns only after exit or termination on timeout; a returned result leaves no managed job " +
+                        "to wait for with scheduler_sleep. Handle the result and continue the task.",
+                )
+                add(
+                    "When configure_build/run_build are available, builds and tests MUST use run_build, " +
+                        "not run_command.",
+                )
+            }
+            add("File paths are confined to this workspace; direct .git edits are unavailable.")
+        }.joinToString(" ")
     }
 
     override fun approval(spec: AgentToolSpec, arguments: JsonObject): AgentToolApproval = AgentToolApproval(
@@ -92,3 +106,4 @@ internal class DesktopCodingTools(
 }
 
 private const val MAX_APPROVAL_CHARS = 4_000
+private const val SHELL_TOOL = "run_command"

@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.hostDirective
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.SessionHooks
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.composeSessionPrompt
 import kotlinx.coroutines.test.runTest
@@ -66,11 +67,11 @@ class SessionPromptReceiptTest {
                 return composeSessionPrompt(listOf(SessionPromptAddition("whole", receipt)))
             }
         }
-        val handle = SessionHookHandle(hooks, context, { revision }) {}
-        val other = SessionHookHandle(hooks, context.copy(owner = SessionOwner("other"))) {}
+        val handle = SessionHookHandle(hooks, context) { revision }
+        val other = SessionHookHandle(hooks, context.copy(owner = SessionOwner("other")))
         val turn = Turn(TurnId("turn"), RequestId("request"), TestTarget)
         val prepared = handle.prepare(PromptRequest(checkNotNull(turn.request), listOf(ContentPart.Text("user"))), turn)
-        assertEquals("user\n\nwhole", (prepared.parts.single() as ContentPart.Text).text)
+        assertEquals("user\n\n" + hostDirective("whole"), (prepared.parts.single() as ContentPart.Text).text)
         other.accepted(turn)
         handle.accepted(turn.copy(request = RequestId("foreign")))
         assertTrue(receipt.accepted.isEmpty())
@@ -91,7 +92,7 @@ class SessionPromptReceiptTest {
                 contextRevision: String?,
             ): SessionPromptPreparation? = composeSessionPrompt(listOf(SessionPromptAddition("whole", receipt)))
         }
-        val handle = SessionHookHandle(hooks, context) {}
+        val handle = SessionHookHandle(hooks, context)
         val turn = Turn(TurnId("turn"), RequestId("request"), TestTarget)
         handle.prepare(PromptRequest(checkNotNull(turn.request), listOf(ContentPart.Text("user"))), turn)
         handle.refused(turn.id)

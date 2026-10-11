@@ -195,12 +195,18 @@ class SessionPolicy(
         tools.bindTurn(session, request, turn.id, turn.target)
     }
 
-    /** Completes tool cleanup for a submission whose final outcome was recovered before send returned an id. */
+    /**
+     * Completes tool cleanup for a submission whose sender never received its turn id: its outcome was recovered
+     * before send returned, or its handle closed first. No host can finish such a turn.
+     */
     fun finishUnaccepted(session: SessionRef, turn: TurnId) {
         // Like accepted native work, cleanup survives closing the handle that observed the outcome.
         context.scope.launch {
-            tools.finishTurn(session, turn)
-            hooks.releaseTurn(session, turn, isRejected = true)
+            try {
+                tools.finishTurn(session, turn)
+            } finally {
+                hooks.releaseTurn(session, turn, isRejected = true)
+            }
         }
     }
 

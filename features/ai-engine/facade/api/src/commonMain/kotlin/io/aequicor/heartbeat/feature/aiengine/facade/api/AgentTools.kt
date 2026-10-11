@@ -254,14 +254,20 @@ public interface ProfileAgentTools {
     public suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult
 
     /**
-     * Authorizes an adapter-classified native call under the same turn barrier as hosted calls. Checks policy,
-     * then hooks, then adapter trust coverage and permission; rechecks policy after the decision. Cancellation
-     * revokes the decision. Adapters must recheck their captured turn before answering the native process.
+     * Noninteractive preflight of an adapter-classified native call under the same turn barrier as hosted calls:
+     * checks policy, then hooks, then the adapter's trust coverage, and never asks the user itself. A call needing
+     * a decision returns [NativePreparation.Ask], whose one-shot confirmation asks the user and rechecks policy
+     * around the decision. Cancellation revokes the result. Adapters with separate pre-tool and permission
+     * callbacks use this form; they must recheck their captured turn before answering the native process.
      */
     public suspend fun prepareNative(context: AgentToolContext, call: NativeToolCall): NativePreparation =
         NativePreparation.Deny("Native authorization is unavailable")
 
-    /** Performs the noninteractive preflight and, when necessary, its one-shot interactive continuation. */
+    /**
+     * Complete authorization in one call for adapters with a single permission callback: [prepareNative] and,
+     * when it asks, its one-shot confirmation, so policy is rechecked after the user decision. Cancellation
+     * revokes the decision. Adapters must recheck their captured turn before answering the native process.
+     */
     public suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict =
         NativeVerdict.Deny("Native authorization is unavailable")
 

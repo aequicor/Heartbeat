@@ -27,7 +27,17 @@ internal fun interface KoogWorkspaces {
 
     /** Detached hosted tools of a session without a project, opened against the accepted native turn. */
     suspend fun openDetached(context: AgentToolContext): KoogWorkspace? = null
+
+    /**
+     * Instructions independent of tools (harness content) for a turn that sends no hosted tool. Koog declares that
+     * it refreshes instructions every turn, so session hooks leave this content to the system prompt.
+     */
+    suspend fun instructions(context: AgentToolContext): String = ""
 }
+
+/** Content of [tools] that needs none of its tools: instructions for an empty declared set. */
+internal suspend fun independentKoogInstructions(tools: ProfileAgentTools, context: AgentToolContext): String =
+    tools.instructions(context.koogToolScope().copy(declared = emptySet()))
 
 /** Hosted tools that serve sessions without a project; available on every platform with the common dispatcher. */
 internal suspend fun detachedKoogWorkspace(tools: ProfileAgentTools, context: AgentToolContext): KoogWorkspace? {

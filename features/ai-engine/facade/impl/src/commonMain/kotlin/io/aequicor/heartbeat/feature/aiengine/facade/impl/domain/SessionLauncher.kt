@@ -115,9 +115,11 @@ class SessionLauncher(
             val isExpectedRoute = result.turn.target.engine == target.engine &&
                 result.turn.target.binding == target.binding
             if (result.turn.request != request || !isExpectedRoute || !isExpectedTurn) {
+                log.w { "stop confirmed a different turn than requested engine=${ref.engine.value}" }
                 fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
             }
         }
+        log.i { "stop owned turn result=${result.label()} engine=${ref.engine.value}" }
         return result
     }
 
@@ -245,3 +247,8 @@ class ProfileEngineFacade(
     override val sessions: SessionCatalog,
     override val providerUsage: ProviderUsageCatalog,
 ) : EngineFacade
+
+private fun OwnedTurnStop.label(): String = when (this) {
+    is OwnedTurnStop.Confirmed -> "confirmed outcome=${turn.outcome?.let { it::class.simpleName }.orEmpty()}"
+    OwnedTurnStop.Unconfirmed -> "unconfirmed"
+}

@@ -59,9 +59,10 @@ class TurnCleanupRequestTest {
         assertFailsWith<IllegalStateException> {
             tools.finishTurn(SESSION, TurnId("turn"), RequestId("different"))
         }
-        assertEquals(emptyList(), requests)
-        tools.finishTurn(SESSION, TurnId("turn"), RequestId("accepted"))
+        // The mismatch is reported after cleanup, which used the canonical request rather than the claimed one.
         assertEquals(listOf<RequestId?>(RequestId("accepted")), requests)
+        tools.finishTurn(SESSION, TurnId("turn"), RequestId("accepted"))
+        assertEquals(listOf<RequestId?>(RequestId("accepted"), RequestId("accepted")), requests)
     }
 
     @Test

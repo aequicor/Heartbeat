@@ -24,6 +24,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.SessionHooks
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.BufferOverflow
@@ -125,6 +127,11 @@ internal class ProfileSessionHooks(
             }.invokeOnCompletion { events.close() }
         }
 
+        /**
+         * Runs [block] for the profile with a deadline. Anything ending the hook without an answer, including a
+         * cancellation of its own (an inner timeout, an awaited cancelled job) and an [Error], yields [fallback];
+         * only cancellation of the caller propagates.
+         */
         @HighFrequency
         suspend fun <T> bounded(timeout: Long, fallback: T, block: suspend () -> T): T {
             // Work belongs to the profile, not the waiting caller: non-cooperative code cannot extend its deadline.
@@ -132,6 +139,7 @@ internal class ProfileSessionHooks(
                 try {
                     block()
                 } catch (e: CancellationException) {
+                    // Also a hook's own cancellation: it ends only this work, and the caller falls back below.
                     throw e
                 } catch (e: Exception) {
                     log.w(HookFailure(e::class.simpleName.orEmpty())) { "Session hook failed" }
@@ -139,12 +147,20 @@ internal class ProfileSessionHooks(
                 }
             }
             return try {
-                val result = withTimeoutOrNull(timeout) { ResultValue(work.await()) }
-                if (result != null) {
-                    result.value
-                } else {
-                    log.w(HookFailure("Timeout")) { "Session hook timed out" }
-                    fallback
+                val isDone = withTimeoutOrNull(timeout) { work.join() } != null
+                when {
+                    !isDone -> {
+                        log.w(HookFailure("Timeout")) { "Session hook timed out" }
+                        fallback
+                    }
+
+                    // A profile supervisor keeps an Error inside the failed work instead of crashing the session.
+                    work.isCancelled -> {
+                        log.w(HookFailure(work.endingType())) { "Session hook ended without an answer" }
+                        fallback
+                    }
+
+                    else -> work.await()
                 }
             } finally {
                 work.cancel()
@@ -153,9 +169,8 @@ internal class ProfileSessionHooks(
     }
 }
 
-private data class ResultValue<T>(val value: T) {
-    override fun toString(): String = "ResultValue"
-}
+@OptIn(ExperimentalCoroutinesApi::class)
+private fun Deferred<*>.endingType(): String = getCompletionExceptionOrNull()?.let { it::class.simpleName }.orEmpty()
 
 /** Does not retain the original throwable, message, cause or script source. */
 private class HookFailure(type: String) : Exception(type)

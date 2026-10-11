@@ -7,6 +7,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPolicyProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HarnessNativeTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
@@ -16,8 +18,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineRegistry
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.TestEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.registration
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -27,6 +34,7 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+@OptIn(ExperimentalCoroutinesApi::class)
 internal class ProfileToolPoliciesTest {
     private val scope = ToolPolicyScope(engine = TestEngine, workspace = WorkspaceRef("project"))
     private val catalog = listOf(
@@ -157,6 +165,65 @@ internal class ProfileToolPoliciesTest {
     }
 
     @Test
+    fun `slow providers of one session do not serialize lookups of other sessions`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        var entered = 0
+        val resolver = create(
+            lazyOf(
+                setOf(
+                    AgentToolPolicyProvider {
+                        entered++
+                        gate.await()
+                        null
+                    },
+                ),
+            ),
+        )
+        val lookups = listOf("one", "two").map { id ->
+            async { resolver.resolve(scope.copy(session = session(id)), emptySet(), false) }
+        }
+        runCurrent()
+        assertEquals(2, entered)
+        gate.complete(Unit)
+        assertTrue(lookups.awaitAll().all { it != null })
+    }
+
+    @Test
+    fun `a lookup that started earlier cannot replace a newer snapshot`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        var calls = 0
+        val resolver = create(
+            lazyOf(
+                setOf(
+                    AgentToolPolicyProvider {
+                        if (++calls == 1) {
+                            gate.await()
+                            ToolPolicy(native = mapOf("read" to ToolSwitch.Off))
+                        } else {
+                            ToolPolicy()
+                        }
+                    },
+                ),
+            ),
+        )
+        val stale = async { resolver.resolve(scope, emptySet(), false)!! }
+        runCurrent()
+        val newer = resolver.resolve(scope, emptySet(), false)!!
+        gate.complete(Unit)
+        val outdated = stale.await()
+        assertEquals(setOf("read"), outdated.nativeOff)
+        assertNotEquals(newer.generation, outdated.generation)
+        assertEquals(newer, resolver.resolve(scope, emptySet(), false))
+    }
+
+    @Test
+    fun `remembered scopes are bounded for a long lived profile`() = runTest {
+        val resolver = create(lazyOf(emptySet()))
+        repeat(300) { resolver.resolve(scope.copy(session = session("session-$it")), emptySet(), false) }
+        assertEquals(256, resolver.snapshotCount())
+    }
+
+    @Test
     fun `native enable toggle changes effective generation`() = runTest {
         var isEnabled = false
         val toggles = object : FeatureToggles {
@@ -175,6 +242,8 @@ internal class ProfileToolPoliciesTest {
         assertEquals(setOf("read", "edit"), after.nativeOn)
         assertNotEquals(before.generation, after.generation)
     }
+
+    private fun session(id: String) = SessionRef(TestEngine, SessionSourceId("local"), id)
 
     private fun resolver(policies: List<ToolPolicy>, isEnabled: Boolean = true) = create(
         lazyOf(policies.map { policy -> AgentToolPolicyProvider { policy } }.toSet()),

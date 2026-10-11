@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.KoogWorkspace
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.KoogWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.detachedKoogWorkspace
+import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.independentKoogInstructions
 
 /** Mobile Koog sessions have no local project, files or commands; an opted-in chat keeps detached hosted tools. */
 @Inject
@@ -18,4 +19,6 @@ internal class UnsupportedKoogWorkspaces(private val tools: ProfileAgentTools) :
 
     // Hosted tools without a project need no local files or processes.
     override suspend fun openDetached(context: AgentToolContext): KoogWorkspace? = detachedKoogWorkspace(tools, context)
+
+    override suspend fun instructions(context: AgentToolContext): String = independentKoogInstructions(tools, context)
 }

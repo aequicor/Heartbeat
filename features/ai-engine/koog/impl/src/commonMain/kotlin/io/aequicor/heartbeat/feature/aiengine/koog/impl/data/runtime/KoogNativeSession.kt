@@ -310,6 +310,31 @@ internal class KoogNativeSession(
         }
     }
 
+    /**
+     * Hosted instructions only accompany the tools they describe. A turn sending no hosted tool still receives the
+     * content independent of tools, since Koog declares per-turn instructions. Blank text adds no system message;
+     * a failing contribution leaves the turn without it.
+     */
+    private suspend fun turnInstructions(
+        workspace: KoogWorkspace?,
+        tools: KoogToolbox,
+        context: AgentToolContext,
+    ): String? {
+        val text = if (workspace != null && !tools.isEmpty()) {
+            workspace.instructions
+        } else {
+            try {
+                workspaces.instructions(context)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.w(e.sanitized()) { "Instructions without hosted tools unavailable; the turn continues" }
+                ""
+            }
+        }
+        return text.takeIf { it.isNotBlank() }
+    }
+
     /** Detached hosted tools are optional: a failing contribution leaves a plain chat turn. */
     private suspend fun openDetached(context: AgentToolContext): KoogWorkspace? = try {
         workspaces.openDetached(context)
@@ -353,9 +378,7 @@ internal class KoogNativeSession(
                     tools = !tools.isEmpty(),
                     attachments = history.items.hasResourceInputs(),
                 )
-                // Hosted instructions only accompany the tools they describe; blank ones add no system message.
-                val instructions = workspace?.instructions?.takeIf { it.isNotBlank() && !tools.isEmpty() }
-                val prompt = input ?: initialPrompt(provider, instructions)
+                val prompt = input ?: initialPrompt(provider, turnInstructions(workspace, tools, context))
                 val round = streamWithEffort(turn, client, provider, origin, textModel, tools, prompt, requestSelection)
                 val next = toolExecution.nextPrompt(turn, tools, round, prompt)
                 if (next == null) {

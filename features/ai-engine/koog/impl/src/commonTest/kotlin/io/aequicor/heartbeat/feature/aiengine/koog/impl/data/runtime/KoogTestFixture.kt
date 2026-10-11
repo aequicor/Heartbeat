@@ -198,6 +198,8 @@ internal class KoogTestFixture(test: TestScope) {
             }
             override suspend fun openDetached(context: AgentToolContext): KoogWorkspace? =
                 hostedTools?.let { detachedKoogWorkspace(it, context) }
+            override suspend fun instructions(context: AgentToolContext): String =
+                hostedTools?.let { independentKoogInstructions(it, context) }.orEmpty()
         },
         profile,
     )

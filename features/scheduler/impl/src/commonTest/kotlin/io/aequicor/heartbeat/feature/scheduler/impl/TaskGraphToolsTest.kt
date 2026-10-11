@@ -31,6 +31,16 @@ class TaskGraphToolsTest {
         )
 
     @Test
+    fun `every declared graph tool is in the catalog so policy can turn it off`() = runTest {
+        val f = GraphFixture(this)
+        val tools = TaskGraphTools(f.machine, f.driver)
+        val catalog = tools.catalog.map { it.name }.toSet()
+        assertEquals(TaskGraphToolSpecs.all.map { it.name }.toSet(), catalog)
+        assertTrue(tools.specifications(PROJECT).all { it.name in catalog })
+        assertEquals("scheduler", tools.group)
+    }
+
+    @Test
     fun `causal metadata does not change the literal legacy approval binding`() = runTest {
         val f = GraphFixture(this)
         val tools = TaskGraphTools(f.machine, f.driver)

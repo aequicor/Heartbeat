@@ -273,6 +273,33 @@ class KoogCodingSessionTest {
     }
 
     @Test
+    fun `instructions independent of tools reach turns that send no hosted tools`() = runTest {
+        val f = fixture()
+        f.isSearchEnabled = false
+        val scopes = mutableListOf<AgentToolScope>()
+        f.hostedTools = object : ProfileAgentTools by DetachedTools() {
+            override suspend fun instructions(scope: AgentToolScope): String {
+                scopes += scope
+                return if (scope.declared?.isEmpty() == true) "Harness content" else "Remember lessons"
+            }
+        }
+        val plain = f.runtime().create(CreateSessionRequest(f.target))
+        plain.features.require(SendsPrompts).send(f.request("plain"))
+        f.executor.complete()
+        runCurrent()
+        f.modelSupportsTools = false
+        val chat = f.runtime().create(CreateSessionRequest(f.target, areDetachedToolsEnabled = true))
+        chat.features.require(SendsPrompts).send(f.request("no tools"))
+        f.executor.complete()
+        runCurrent()
+        assertEquals(listOf(emptyList(), emptyList<ToolDescriptor>()), f.executor.tools)
+        for (prompt in f.executor.prompts) {
+            assertEquals("Harness content", assertIs<Message.System>(prompt.messages.first()).textContent())
+        }
+        assertTrue(scopes.all { it.isRefreshedPerTurn && it.workspace == null })
+    }
+
+    @Test
     fun `session without project or with toggle off stays a plain chat`() = runTest {
         val f = fixture()
         f.isSearchEnabled = false
@@ -470,6 +497,8 @@ private class DetachedTools : ProfileAgentTools {
     )
     override suspend fun instructions(workspace: WorkspaceRef?): String = "Remember lessons"
     override suspend fun instructions(scope: AgentToolScope): String {
+        // Like the dispatcher: without declared tools only instructions independent of tools remain.
+        if (scope.declared?.isEmpty() == true) return ""
         scopes += scope
         return "Remember lessons"
     }
