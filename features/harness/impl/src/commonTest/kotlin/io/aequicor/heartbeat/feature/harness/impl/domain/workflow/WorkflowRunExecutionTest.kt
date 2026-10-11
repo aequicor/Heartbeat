@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsEffect
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsIntent
+import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepKey
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepPhase
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowFailure
@@ -16,6 +17,8 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStep
 import io.aequicor.heartbeat.feature.harness.impl.data.RunDeliveryTestStore
 import io.aequicor.heartbeat.feature.harness.impl.data.run.KeyValueHarnessRunStorage
 import io.aequicor.heartbeat.feature.harness.impl.data.run.StoredWorkflowHelperJournal
+import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
+import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessStorageUncertain
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessExecutionLane
@@ -46,6 +49,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -97,6 +101,45 @@ internal class WorkflowRunExecutionTest {
         assertEquals(listOf(terminal.id.action), fixture.finished)
         assertTrue(machine.sent.single() is HarnessRunsIntent.Internal.Restored)
         owner.cancel()
+    }
+
+    @Test
+    fun `uncertain outbox mark retries only the mark without publishing the result again`() = runTest {
+        val fixture = ExecutionFixture(StandardTestDispatcher(testScheduler))
+        val terminal = fixture.workflow.initial.copy(
+            status = WorkflowStatus.Failed(WorkflowFailure.Cancelled),
+            finishedAt = fixture.workflow.clock.now(),
+        )
+        assertTrue(fixture.workflow.storage.save(terminal, null))
+        var marks = 0
+        val flaky = object : HarnessRunStorage by fixture.workflow.storage {
+            override suspend fun markPublished(id: RunId) {
+                marks++
+                if (marks == 1) throw HarnessStorageUncertain()
+                fixture.workflow.storage.markPublished(id)
+            }
+        }
+        val execution = fixture.execution(flaky)
+        assertFailsWith<HarnessStorageUncertain> { execution.publish(terminal) }
+        execution.publish(terminal)
+        assertEquals(listOf(terminal.id.action), fixture.finished)
+        assertEquals(2, marks)
+        assertTrue(fixture.workflow.storage.isPublished(terminal.id))
+    }
+
+    @Test
+    fun `claim checkpoints every newer driver generation and fences older owners`() = runTest {
+        val fixture = ExecutionFixture(StandardTestDispatcher(testScheduler))
+        val run = fixture.workflow.initial
+        assertTrue(fixture.workflow.storage.save(run, null))
+        val newer = run.copy(driverGeneration = run.driverGeneration + 2)
+        assertFalse(fixture.execution.pause(newer))
+        assertEquals(newer.driverGeneration, fixture.workflow.storage.find(run.id)?.driverGeneration)
+        val older = run.copy(driverGeneration = run.driverGeneration + 1)
+        assertFailsWith<WorkflowExecutionUnavailable> { fixture.execution.pause(older) }
+        assertFailsWith<WorkflowExecutionUnavailable> { fixture.execution.execute(older) { true } }
+        assertEquals(newer.driverGeneration, fixture.workflow.storage.find(run.id)?.driverGeneration)
+        assertTrue(fixture.finished.isEmpty())
     }
 
     @Test
@@ -160,7 +203,7 @@ private class ExecutionFixture(private val dispatcher: CoroutineDispatcher) {
         }
     }
 
-    fun execution(storage: KeyValueHarnessRunStorage) = WorkflowRunExecution(
+    fun execution(storage: HarnessRunStorage) = WorkflowRunExecution(
         storage,
         WorkflowCodeExecutor(UnusedHost, HarnessExecutionLane(dispatcher), NeutralOrigins, workflow.clock) { it },
         WorkflowHelperPorts(grants, resources, helpers, bindings),

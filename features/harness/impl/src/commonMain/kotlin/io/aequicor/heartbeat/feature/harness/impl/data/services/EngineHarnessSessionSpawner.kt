@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSpawnOw
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSpawnRecord
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSpawnSubmission
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessTarget
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.spawnRetryDelay
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperHandoff
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
@@ -28,7 +29,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 /** Captures routing and ancestry before native work; all later checks refer to that same publication and route. */
@@ -90,17 +90,26 @@ internal class EngineHarnessSessionSpawner(
 
     override fun retire(owner: HarnessInstanceTarget) {
         val identity = owner.spawnOwner()
-        profile.coroutineScope.launch {
-            while (isActive) {
-                try {
-                    if (operations.value.retire(identity)) return@launch
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: Exception) {
+        profile.coroutineScope.launch { retireUntilConfirmed(identity) }
+    }
+
+    /** First failure warns; a persistent one stays verbose while the retry backs off. */
+    private suspend fun retireUntilConfirmed(identity: HarnessSpawnOwner) {
+        var failures = 0
+        while (currentCoroutineContext().isActive) {
+            try {
+                if (operations.value.retire(identity)) return
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                if (failures == 0) {
                     log.w(harnessScriptFailure(error)) { "Retry script helper retirement" }
+                } else {
+                    log.v { "script helper retirement still fails" }
                 }
-                delay(5.seconds)
+                failures++
             }
+            delay(spawnRetryDelay(failures))
         }
     }
 }

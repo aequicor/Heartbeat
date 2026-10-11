@@ -112,6 +112,9 @@ private class RuntimeRunRecords : HarnessRunStorage {
         return records
     }
     override suspend fun save(run: WorkflowRun, expectedGeneration: Long?): Boolean = error("Not used")
+    override suspend fun discard(run: WorkflowRun): Boolean = error("Not used")
+    override suspend fun isPublished(id: RunId): Boolean = error("Not used")
+    override suspend fun markPublished(id: RunId) = error("Not used")
 }
 
 private fun runtimeRun(): WorkflowRun {

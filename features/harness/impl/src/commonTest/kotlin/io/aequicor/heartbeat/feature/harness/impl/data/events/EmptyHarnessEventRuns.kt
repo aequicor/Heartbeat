@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.harness.impl.data.events
 
+import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
 
@@ -7,4 +8,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
 internal object EmptyHarnessEventRuns : HarnessRunStorage {
     override suspend fun load(): List<WorkflowRun> = emptyList()
     override suspend fun save(run: WorkflowRun, expectedGeneration: Long?): Boolean = error("Read-only event fixture")
+    override suspend fun discard(run: WorkflowRun): Boolean = error("Read-only event fixture")
+    override suspend fun isPublished(id: RunId): Boolean = error("Read-only event fixture")
+    override suspend fun markPublished(id: RunId) = error("Read-only event fixture")
 }

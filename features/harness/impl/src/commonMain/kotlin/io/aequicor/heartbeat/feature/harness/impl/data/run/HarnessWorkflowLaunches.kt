@@ -198,7 +198,7 @@ internal class HarnessWorkflowLaunches(
         )
         // The journal record precedes every side effect: after a crash past this point Restore drives the run,
         // so neither the run nor a caller wake about a run that never existed can be lost or orphaned.
-        check(storage.save(run, null)) { "Workflow journal rejected the run" }
+        record(run)
         var isStartSent = false
         val isAccepted = try {
             if (wake != null) {
@@ -224,6 +224,19 @@ internal class HarnessWorkflowLaunches(
         return WorkflowLaunchResult(id, wake != null, isAccepted == true)
     }
 
+    /** A failed or uncertain create is withdrawn: discard removes only this exact unclaimed record, if any. */
+    private suspend fun record(run: WorkflowRun) {
+        val isSaved = try {
+            storage.save(run, null)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            withdraw(run, null)
+            throw error
+        }
+        check(isSaved) { "Workflow journal rejected the run" }
+    }
+
     /** Undoes a start that will never run: its scheduled caller wake and its never-claimed journal record. */
     private suspend fun withdraw(run: WorkflowRun, wake: WakeRequest?) {
         try {
@@ -231,14 +244,14 @@ internal class HarnessWorkflowLaunches(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            log.w(harnessScriptFailure(error)) { "Workflow caller wake was not withdrawn" }
+            log.w(error) { "Workflow caller wake was not withdrawn" }
         }
         try {
             if (!storage.discard(run)) log.w { "Workflow journal record was already claimed; it stays" }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            log.w(harnessScriptFailure(error)) { "Workflow journal record was not withdrawn" }
+            log.w(error) { "Workflow journal record was not withdrawn" }
         }
     }
 

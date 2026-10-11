@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.harness.impl.data
 import io.aequicor.heartbeat.feature.harness.api.HarnessEntry
 import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
+import io.aequicor.heartbeat.feature.harness.impl.data.delivery.HarnessActivationUnavailable
 import io.aequicor.heartbeat.feature.harness.impl.data.delivery.MachineHarnessActiveAccess
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessProjectSnapshots
 import io.aequicor.heartbeat.feature.harness.impl.data.services.SchedulerAccessMachine
@@ -17,6 +18,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class MachineHarnessActiveAccessTest {
     private val registry = SchedulerAccessRegistry()
@@ -47,5 +49,33 @@ class MachineHarnessActiveAccessTest {
         registry.observations = 0
         assertEquals(emptyList(), access.active(null, null))
         assertEquals(0, registry.observations)
+    }
+
+    @Test
+    fun `proven unavailability probes instead of waiting again until a read succeeds`() = runTest {
+        val first = async { assertFailsWith<HarnessActivationUnavailable> { access.active(null, null) } }
+        advanceTimeBy(1_001)
+        first.await()
+        val probe = async { assertFailsWith<HarnessActivationUnavailable> { access.active(null, null) } }
+        advanceTimeBy(51)
+        runCurrent()
+        assertTrue(probe.isCompleted)
+        val entry = harness.copy(scope = HarnessScope.Profile)
+        registry.library.value = SchedulerAccessMachine(HarnessState.Ready(listOf(HarnessEntry(entry))))
+        assertEquals(listOf(entry), access.active(null, null))
+        // Recovered evidence restores the bounded cold-start wait for the next gap.
+        registry.library.value = null
+        val waiting = async { access.active(null, null) }
+        advanceTimeBy(500)
+        runCurrent()
+        assertFalse(waiting.isCompleted)
+        registry.library.value = SchedulerAccessMachine(HarnessState.Ready(listOf(HarnessEntry(entry))))
+        assertEquals(listOf(entry), waiting.await())
+    }
+
+    @Test
+    fun `failed library fails at once as already reported unavailability`() = runTest {
+        registry.library.value = SchedulerAccessMachine(HarnessState.Failed())
+        assertFailsWith<HarnessActivationUnavailable> { access.active(null, null) }
     }
 }

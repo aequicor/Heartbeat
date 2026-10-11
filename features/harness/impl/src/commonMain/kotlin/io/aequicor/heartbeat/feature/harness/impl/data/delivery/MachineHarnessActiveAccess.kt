@@ -2,8 +2,10 @@ package io.aequicor.heartbeat.feature.harness.impl.data.delivery
 
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -14,7 +16,9 @@ import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessProjectSnap
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessActiveAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessActiveSnapshot
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -23,7 +27,14 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration.Companion.milliseconds
 
-/** Registry reads do not start engines or the library and therefore cannot recurse into tool contributions. */
+/**
+ * Registry reads do not start engines or the library and therefore cannot recurse into tool contributions.
+ * A cold start waits a bounded time for committed evidence. Once that evidence proved unavailable, later reads
+ * only probe the current snapshot instead of waiting again, until a read succeeds. Unavailability is reported
+ * once per transition: a WARN when it starts, VERBOSE for repeats, and consumers receive
+ * [HarnessActivationUnavailable], which they must not report again.
+ */
+@SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
 @Inject
 internal class MachineHarnessActiveAccess(
@@ -31,6 +42,9 @@ internal class MachineHarnessActiveAccess(
     private val toggles: FeatureToggles,
     private val projects: HarnessProjectSnapshots,
 ) : HarnessActiveAccess {
+    private val log = Log.tag("HarnessActive")
+    private val unavailability = MutableStateFlow(false)
+
     override suspend fun active(workspace: WorkspaceRef?, session: SessionRef?): List<Harness> =
         resolve { select(workspace, session) }
 
@@ -40,8 +54,9 @@ internal class MachineHarnessActiveAccess(
     @OptIn(ExperimentalCoroutinesApi::class)
     private suspend fun resolve(selection: HarnessActiveSnapshot.() -> List<Harness>?): List<Harness> {
         if (!toggles.get(HarnessEnabled)) return emptyList()
-        return checkNotNull(
-            withTimeoutOrNull(1_000.milliseconds) {
+        val wait = if (unavailability.value) UNAVAILABLE_PROBE else COLD_START_WAIT
+        val selected = try {
+            withTimeoutOrNull(wait) {
                 combine(
                     toggles.observe(HarnessEnabled),
                     machines.observe(HarnessMachineKey).flatMapLatest { it?.state ?: flowOf(null) },
@@ -50,7 +65,36 @@ internal class MachineHarnessActiveAccess(
                 ) { enabled, library, worktrees, catalog ->
                     HarnessActiveSnapshot(enabled, library, worktrees, catalog).selection()
                 }.filterNotNull().first()
-            },
-        ) { "Harness activation is unavailable" }
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            fail(error)
+        } ?: fail(HarnessActivationUnavailable())
+        if (unavailability.compareAndSet(expect = true, update = false)) {
+            log.i { "harness activation is available again" }
+        }
+        return selected
+    }
+
+    /** Reports the transition once and throws the already reported marker instead of the original error. */
+    private fun fail(error: Exception): Nothing {
+        if (unavailability.compareAndSet(expect = false, update = true)) {
+            log.w(error) { "Harness activation unavailable; harness tools and content are closed" }
+        } else {
+            log.v { "harness activation still unavailable" }
+        }
+        throw error as? HarnessActivationUnavailable ?: HarnessActivationUnavailable()
     }
 }
+
+/** Already reported by the access that threw it; consumers close harness output and log only VERBOSE. */
+internal class HarnessActivationUnavailable : IllegalStateException("Harness activation is unavailable")
+
+/** True for unavailability the access has already reported; any other failure is the consumer's to report. */
+internal fun Throwable.isReportedUnavailability(): Boolean = this is HarnessActivationUnavailable
+
+private val COLD_START_WAIT = 1_000.milliseconds
+
+/** Enough for hot flows to emit their current combination; never a wait for new evidence. */
+private val UNAVAILABLE_PROBE = 50.milliseconds

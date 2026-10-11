@@ -3,7 +3,6 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.workflow
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
-import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.harnessScriptFailure
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -34,7 +33,10 @@ internal class ProfileWorkflowDrivers(
     private val slots = MutableStateFlow<Map<RunId, WorkflowDriverSlot>>(emptyMap())
     private val log = Log.tag("HarnessWorkflow")
 
-    /** Runs that currently have a driver slot and follower. */
+    /**
+     * Runs that currently have a driver slot and follower. Only tests observe it to prove that terminal runs retire
+     * their slots; production code must not branch on this snapshot.
+     */
     val activeRuns: Set<RunId> get() = slots.value.keys
 
     suspend fun drive(run: WorkflowRun) = offer(WorkflowDriverRequest(run, isPause = false))
@@ -122,7 +124,8 @@ internal class ProfileWorkflowDrivers(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            if (!isReported) log.w(harnessScriptFailure(error)) { "Workflow driver awaits durable IO" }
+            // Host infrastructure failure: author code failures are journaled typed results and never reach here.
+            if (!isReported) log.w(error) { "Workflow driver awaits durable IO" }
             null
         }
     }

@@ -29,11 +29,11 @@ internal interface HarnessRunStorage {
      * Removes the exact initial record of a start the run machine definitively rejected. A record that a driver
      * has already advanced is kept and false is returned; an absent record counts as discarded.
      */
-    suspend fun discard(run: WorkflowRun): Boolean = false
+    suspend fun discard(run: WorkflowRun): Boolean
 
     /** Whether the terminal result of [id] has already reached the durable scheduler outbox. */
-    suspend fun isPublished(id: RunId): Boolean = false
+    suspend fun isPublished(id: RunId): Boolean
 
     /** Records outbox delivery of a terminal run, so a restart does not publish its finish again. */
-    suspend fun markPublished(id: RunId) = Unit
+    suspend fun markPublished(id: RunId)
 }

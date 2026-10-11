@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.runtime
 
 import io.aequicor.heartbeat.feature.harness.api.HarnessActivationRequest
 import io.aequicor.heartbeat.feature.harness.api.HarnessEffect
+import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRemovalResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRuntimeControl
@@ -48,5 +49,19 @@ internal class ProfileHarnessRuntimeControl(
             HarnessRemovalResult.Ready -> runtime.removeCached(effect)
             HarnessRemovalResult.Retry, HarnessRemovalResult.Obsolete -> latest
         }
+    }
+
+    /** The committed harness is absent from the library, so the ordinary deactivation barrier also clears caches. */
+    override suspend fun cleanupRemoved(effect: HarnessEffect.Remove): Boolean {
+        val generation = runtime.committedRemovalGeneration(effect) ?: return true
+        val code = effect.harness.items.filter { it is HarnessItem.Script || it is HarnessItem.Workflow }
+        return deactivate(
+            HarnessEffect.Deactivate(
+                code.map { HarnessActivationRequest(effect.harness, it, generation) },
+                true,
+                setOf(effect.harness.id),
+                generation,
+            ),
+        )
     }
 }

@@ -95,7 +95,12 @@ internal class HarnessScriptTools(
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
-        log.w(error) { "Harness activation unavailable; harness tools are closed" }
+        // The access reports its own unavailability once per transition; hosted calls must not repeat it.
+        if (error.isReportedUnavailability()) {
+            log.v { "harness activation unavailable; harness tools are closed" }
+        } else {
+            log.w(error) { "Harness activation unavailable; harness tools are closed" }
+        }
         null
     }
 

@@ -117,7 +117,7 @@ internal class HarnessInvocation(
             options.onStarted(handle)
             return withContext(controlDispatcher) {
                 task.start()
-                awaitStart(started, result, timeout) ?: select {
+                awaitStart(dispatcher, started, result, timeout) ?: select {
                     result.onAwait { it }
                     onTimeout(timeout) { HarnessInvocationResult.TimedOut }
                 }
@@ -132,20 +132,36 @@ internal class HarnessInvocation(
     /**
      * Waiting for the shared lane is not author execution: the budget starts only once the task actually runs, so
      * other harnesses' blocked callbacks cannot time out (and eventually disable) this one. A call that never
-     * started within a further [timeout] is an expected revocation, not a failure of its author code.
+     * started within a further [timeout] is an expected revocation only while foreign work holds the lane; when the
+     * instance's own unfinished callback or background job holds its serialized worker, it is this instance's
+     * timeout and counts as a failure.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     private suspend fun <T> awaitStart(
+        dispatcher: CoroutineDispatcher,
         started: CompletableDeferred<Unit>,
         result: CompletableDeferred<HarnessInvocationResult<T>>,
         timeout: Duration,
     ): HarnessInvocationResult<T>? = select {
         result.onAwait { it }
         started.onAwait { null }
-        onTimeout(timeout) {
-            log.w { "Harness execution lane stayed exhausted; the callback never started" }
-            HarnessInvocationResult.Cancelled(isExpected = true)
+        onTimeout(timeout) { notStarted(dispatcher) }
+    }
+
+    /** One warning per exhausted lane period; repeated starvation and self-blocked calls stay verbose. */
+    @HighFrequency
+    private fun notStarted(dispatcher: CoroutineDispatcher): HarnessInvocationResult<Nothing> {
+        val lane = dispatcher as? HarnessLaneDispatcher
+        if (lane?.isBusy == true) {
+            log.v { "callback never started behind unfinished work of its own instance" }
+            return HarnessInvocationResult.TimedOut
         }
+        if (lane?.markStarved() != false) {
+            log.w { "Harness execution lane stayed exhausted; the callback never started" }
+        } else {
+            log.v { "harness execution lane still exhausted; the callback never started" }
+        }
+        return HarnessInvocationResult.Cancelled(isExpected = true)
     }
 
     /**

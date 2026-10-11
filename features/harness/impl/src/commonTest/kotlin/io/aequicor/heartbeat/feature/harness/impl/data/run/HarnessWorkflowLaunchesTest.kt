@@ -5,7 +5,9 @@ import io.aequicor.heartbeat.core.di.ScopeSavedState
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.harness.api.Harness
+import io.aequicor.heartbeat.feature.harness.api.HarnessActivationRequest
 import io.aequicor.heartbeat.feature.harness.api.HarnessEntry
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
@@ -22,13 +24,20 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsOutput
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsState
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowOrigin
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRejection
+import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
 import io.aequicor.heartbeat.feature.harness.impl.data.RunDeliveryClock
 import io.aequicor.heartbeat.feature.harness.impl.data.RunDeliveryTestStore
+import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessSessionAccess
+import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessSessionRoute
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
+import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
+import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessStorageUncertain
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessActiveAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessExecutionLane
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceAccess
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceTarget
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessOriginContext
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRequestOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.MemoryHarnessRequestAncestry
@@ -39,7 +48,10 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCompilati
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationContext
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessScriptHost
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessAccessSnapshot
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDeliveryPermit
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSpawnFixture
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessTarget
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessWakeOperations
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessWakePort
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessWakeQuotas
@@ -99,11 +111,64 @@ class HarnessWorkflowLaunchesTest {
         assertEquals(listOf(result.run), fixture.storage.load().map { it.id })
         assertTrue(fixture.port.cancelled.isEmpty())
     }
+
+    @Test
+    fun `uncertain journal create is withdrawn before any wake or Start`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        // The record is committed, but the acknowledgement is lost.
+        fixture.afterSave = { throw HarnessStorageUncertain() }
+        assertFailsWith<IllegalStateException> { fixture.launches.start(fixture.prepare()) }
+        assertTrue(fixture.storage.load().isEmpty())
+        assertTrue(fixture.port.scheduled.isEmpty())
+        assertTrue(fixture.runs.sent.none { it is HarnessRunsIntent.Internal.StartRun })
+    }
+
+    @Test
+    fun `script workflow starts parentless and only while its instance stays current`() = runTest {
+        val fixture = LaunchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val sessions = ScriptSessions()
+        val scripts = EngineHarnessScriptWorkflows(sessions, lazy { fixture.launches })
+        val owner = HarnessInstanceTarget(HarnessActivationRequest(HARNESS, WORKFLOW, 0), ScriptInstance)
+        val run = scripts.start(owner, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin())
+        val stored = fixture.storage.load().single()
+        assertEquals(run, stored.id)
+        assertEquals(null, stored.caller)
+        assertEquals(WorkflowOrigin.Script, stored.origin)
+        assertFailsWith<IllegalStateException> {
+            scripts.start(owner, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin(isHookRestricted = true))
+        }
+        sessions.isCurrent = false
+        assertFailsWith<IllegalStateException> {
+            scripts.start(owner, WORKFLOW.name, JsonObject(emptyMap()), HarnessCallOrigin())
+        }
+        assertEquals(1, fixture.storage.load().size)
+    }
+}
+
+private class ScriptSessions : HarnessSessionAccess {
+    var isCurrent = true
+    override fun isCurrent(owner: HarnessInstanceTarget): Boolean = isCurrent
+    override suspend fun permit(owner: HarnessInstanceTarget, target: HarnessTarget?): HarnessDeliveryPermit? =
+        error("Not used")
+    override fun snapshot(): HarnessAccessSnapshot = error("Not used")
+    override suspend fun session(session: SessionRef): HarnessSessionRoute = error("Not used")
+}
+
+private object ScriptInstance : HarnessInstanceAccess {
+    override val scope: CoroutineScope get() = error("Not used")
+    override val dispatcher: CoroutineDispatcher get() = error("Not used")
+    override val isActive = true
+    override suspend fun awaitPublication(): Boolean = true
 }
 
 private class LaunchFixture(scope: CoroutineScope, dispatcher: CoroutineDispatcher) {
     val clock = RunDeliveryClock()
-    val storage = KeyValueHarnessRunStorage(RunDeliveryTestStore(clock), clock, Dispatchers.Unconfined)
+    private val stored = KeyValueHarnessRunStorage(RunDeliveryTestStore(clock), clock, Dispatchers.Unconfined)
+    var afterSave: () -> Unit = {}
+    val storage = object : HarnessRunStorage by stored {
+        override suspend fun save(run: WorkflowRun, expectedGeneration: Long?): Boolean =
+            stored.save(run, expectedGeneration).also { afterSave() }
+    }
     val runs = LaunchRuns()
     val port = LaunchWakePort { storage.load().size }
     var active: List<Harness> = listOf(HARNESS)

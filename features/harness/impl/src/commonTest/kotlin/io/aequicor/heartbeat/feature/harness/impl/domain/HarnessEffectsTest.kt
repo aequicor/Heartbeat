@@ -73,9 +73,12 @@ class HarnessEffectsTest {
     }
 
     @Test
-    fun `code that never drains rolls the deletion back instead of keeping it pending`() = runTest {
+    fun `code that never drains commits the deletion without reactivating it`() = runTest {
         val storage = MemoryLibrary()
-        val runtime = RecordingRuntime().apply { canRemove = false }
+        val runtime = RecordingRuntime().apply {
+            canRemove = false
+            isRemovedCleanupDone = false
+        }
         val feedback = RecordingFeedback()
         val work = backgroundScope.launch {
             HarnessEffects(storage, runtime).handle(HarnessEffect.Remove(harness, receipt), feedback)
@@ -86,9 +89,37 @@ class HarnessEffectsTest {
         assertTrue(feedback.sent.isEmpty())
         advanceTimeBy(5.seconds)
         runCurrent()
+        assertEquals(1, storage.removed)
+        assertEquals(listOf<HarnessIntent>(HarnessIntent.Internal.Removed(receipt)), feedback.sent)
+        assertTrue(runtime.activated.isEmpty())
+        // The committed deletion keeps finishing its cleanup behind the original fence.
+        assertTrue(work.isActive)
+        assertEquals(1, runtime.cleanedUp.size)
+        runtime.isRemovedCleanupDone = true
+        advanceTimeBy(5.seconds)
+        runCurrent()
         assertTrue(work.isCompleted)
-        assertEquals(0, storage.removed)
-        assertEquals(listOf<HarnessIntent>(HarnessIntent.Internal.RemoveFailed(receipt)), feedback.sent)
+        assertEquals(2, runtime.cleanedUp.size)
+        assertTrue(runtime.activated.isEmpty())
+    }
+
+    @Test
+    fun `expired deletion with an uncertain write retries the exact removal`() = runTest {
+        val storage = MemoryLibrary().apply { beforeRemove = { if (removed == 1) throw HarnessStorageUncertain() } }
+        val runtime = RecordingRuntime().apply { canRemove = false }
+        val feedback = RecordingFeedback()
+        backgroundScope.launch {
+            HarnessEffects(storage, runtime).handle(HarnessEffect.Remove(harness, receipt), feedback)
+        }
+        advanceTimeBy(REMOVAL_DRAIN_LIMIT + 1.seconds)
+        runCurrent()
+        assertEquals(1, storage.removed)
+        assertTrue(feedback.sent.isEmpty())
+        advanceTimeBy(5.seconds)
+        runCurrent()
+        assertEquals(2, storage.removed)
+        assertEquals(listOf<HarnessIntent>(HarnessIntent.Internal.Removed(receipt)), feedback.sent)
+        assertTrue(runtime.activated.isEmpty())
     }
 
     @Test

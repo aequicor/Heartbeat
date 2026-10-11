@@ -100,7 +100,7 @@ internal class WorkflowHelperDriver(
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
-        log.w(harnessScriptFailure(error)) { "Workflow admission unavailable while settling a branch" }
+        log.w(error) { "Workflow admission unavailable while settling a branch" }
         false
     }
 

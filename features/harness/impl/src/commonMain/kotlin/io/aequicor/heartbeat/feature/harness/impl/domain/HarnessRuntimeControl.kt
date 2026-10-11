@@ -20,6 +20,12 @@ internal interface HarnessRuntimeControl {
 
     /** Revokes this exact deletion attempt; obsolete effects must stop without touching storage or feedback. */
     suspend fun remove(effect: HarnessEffect.Remove): HarnessRemovalResult
+
+    /**
+     * Completes cleanup of a deletion committed before its code drained, behind the fence captured by [remove]:
+     * true once code, helpers and workflows are quiescent and the removed items' caches are gone; false to retry.
+     */
+    suspend fun cleanupRemoved(effect: HarnessEffect.Remove): Boolean
 }
 
 /** Ready proves cleanup only for the exact still-pending receipt; Retry retains the same generation fence. */

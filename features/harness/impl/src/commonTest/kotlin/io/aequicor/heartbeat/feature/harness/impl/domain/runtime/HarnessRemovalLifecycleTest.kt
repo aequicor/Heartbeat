@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.runtime
 
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
+import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRemovalResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
@@ -77,6 +78,33 @@ class HarnessRemovalLifecycleTest {
     }
 
     @Test
+    fun `deletion committed before code drained finishes cleanup only after the last owner drains`() = runTest {
+        val fixture = HarnessRuntimeFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        var areHelpersReleased = false
+        val control = ProfileHarnessRuntimeControl(fixture.runtime, RemovalTestRuns()) { areHelpersReleased }
+        val instance = fixture.activate()
+        val gate = CompletableDeferred<Unit>()
+        val call = async { fixture.runtime.invoke(instance, 30.seconds) { gate.await() } }
+        runCurrent()
+        val removal = fixture.removal()
+        assertEquals(HarnessRemovalResult.Retry, control.remove(removal))
+        // The library committed the deletion past its drain limit: the receipt is gone, code is still running.
+        fixture.pendingRemoval = null
+        fixture.isItemPresent = false
+        assertFalse(control.cleanupRemoved(removal))
+        gate.complete(Unit)
+        call.await()
+        runCurrent()
+        assertTrue(instance.isClosed)
+        assertFalse(control.cleanupRemoved(removal))
+        assertTrue(fixture.removedCache.isEmpty())
+        areHelpersReleased = true
+        assertTrue(control.cleanupRemoved(removal))
+        assertEquals(listOf(fixture.desired.item.id), fixture.removedCache)
+        assertEquals(1, fixture.code.size)
+    }
+
+    @Test
     fun `deletion becoming obsolete during journal read never begins cache IO`() = runTest {
         val fixture = HarnessRuntimeFixture(backgroundScope, StandardTestDispatcher(testScheduler))
         val runs = RemovalTestRuns()
@@ -105,4 +133,7 @@ private class RemovalTestRuns : HarnessRunStorage {
         return emptyList()
     }
     override suspend fun save(run: WorkflowRun, expectedGeneration: Long?): Boolean = error("Not used")
+    override suspend fun discard(run: WorkflowRun): Boolean = error("Not used")
+    override suspend fun isPublished(id: RunId): Boolean = error("Not used")
+    override suspend fun markPublished(id: RunId) = error("Not used")
 }

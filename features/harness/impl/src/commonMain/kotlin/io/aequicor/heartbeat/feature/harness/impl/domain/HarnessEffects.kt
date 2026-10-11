@@ -76,26 +76,25 @@ internal class HarnessEffects(private val storage: HarnessLibraryStorage, privat
 
     /**
      * Removal waits for author code to drain only for [REMOVAL_DRAIN_LIMIT]. A callback that never returns would
-     * otherwise keep the receipt pending (and every library mutation Busy) until restart; instead the deletion is
-     * rolled back through RemoveFailed, which restores the harness at a new generation. Retired code keeps its own
-     * artifact lease until it actually drains.
+     * otherwise keep the receipt pending (and every library mutation Busy) until restart. Rolling back would
+     * reactivate the very code that hangs, so after the limit the deletion is committed instead: the runtime,
+     * helper and workflow fences installed by the attempts stay raised, retired code keeps its own artifact lease
+     * until it actually drains, and this effect then finishes the cleanup behind the same fence.
      */
     private suspend fun remove(effect: HarnessEffect.Remove, machine: EffectScope<HarnessIntent>) {
         val drain = RemovalDrain()
         val removed = durable {
             when (awaitRemoval(effect, drain)) {
                 HarnessRemovalResult.Ready -> storage.remove(effect.harness, effect.receipt)
-                HarnessRemovalResult.Retry, HarnessRemovalResult.Obsolete -> null
-            }
-        }
-        when {
-            removed != null -> machine.send(HarnessIntent.Internal.Removed(removed))
 
-            drain.isExpired -> {
-                log.w { "runtime removal did not drain in time; rolling back the deletion" }
-                machine.send(HarnessIntent.Internal.RemoveFailed(effect.receipt))
+                // Retry is returned only once the drain limit expired with the exact receipt still pending.
+                HarnessRemovalResult.Retry -> storage.remove(effect.harness, effect.receipt)
+
+                HarnessRemovalResult.Obsolete -> null
             }
-        }
+        } ?: return
+        machine.send(HarnessIntent.Internal.Removed(removed))
+        if (drain.isExpired) awaitCleanup { durable { runtime.cleanupRemoved(effect) } }
     }
 
     /** First uncertainty is a warning; repeats are verbose and back off, while the exact operation is retained. */
@@ -144,7 +143,10 @@ internal class HarnessEffects(private val storage: HarnessLibraryStorage, privat
         var result = runtime.remove(effect)
         while (result == HarnessRemovalResult.Retry) {
             if (drain.waited >= REMOVAL_DRAIN_LIMIT) {
-                drain.isExpired = true
+                if (!drain.isExpired) {
+                    log.w { "runtime removal did not drain in time; committing the deletion behind retained fences" }
+                    drain.isExpired = true
+                }
                 return result
             }
             if (drain.waited == Duration.ZERO) {

@@ -68,15 +68,34 @@ internal class HarnessRuntime(
     val publishedInstances: StateFlow<List<HarnessInstance>> = publication.asStateFlow()
 
     /**
-     * Cancelling a waiter does not revoke an approved profile-owned activation. A temporarily exhausted lane
-     * delays a new activation for a bounded time instead of failing it on a momentary snapshot.
+     * Cancelling a waiter does not revoke an approved profile-owned activation. An exhausted lane delays a new
+     * activation until a worker frees up instead of failing it on a momentary snapshot; fences and admission are
+     * rechecked after the wait.
      */
     suspend fun activate(request: HarnessActivationRequest): Boolean {
         log.v { "prepare harness activation" }
-        if (lane.isExhausted) withTimeoutOrNull(HarnessInvocationBudget.Evaluation) { lane.awaitCapacity() }
-        val preparation = mutex.withLock { reservePreparation(request) } ?: return false
+        var preparation: HarnessPreparation? = null
+        while (preparation == null) {
+            preparation = mutex.withLock {
+                existingPreparation(request)
+                    ?: if (lane.isExhausted) null else reservePreparation(request) ?: return false
+            }
+            if (preparation == null) awaitLaneCapacity()
+        }
         preparation.job?.start()
         return preparation.result.await()
+    }
+
+    /** Waiting is expected; a lane that stays exhausted is reported once per exhausted period. */
+    private suspend fun awaitLaneCapacity() {
+        if (!lane.isExhausted) return
+        if (withTimeoutOrNull(HarnessInvocationBudget.Evaluation) { lane.awaitCapacity() } != null) return
+        if (lane.markStarved()) {
+            log.w { "Harness execution lane stays exhausted; activation waits for a free worker" }
+        } else {
+            log.v { "harness execution lane still exhausted; activation waits" }
+        }
+        lane.awaitCapacity()
     }
 
     /** Returns only an admitted current generation; retaining the handle never bypasses invoke's recheck. */
@@ -150,6 +169,14 @@ internal class HarnessRuntime(
         removals[effect.harness.id]?.takeIf { it.receipt == effect.receipt }?.generation
     }
 
+    /**
+     * The fence captured for [effect] even after its receipt stopped being pending, so cleanup of a deletion that
+     * was committed before its code drained keeps exactly the original barrier.
+     */
+    suspend fun committedRemovalGeneration(effect: HarnessEffect.Remove): Long? = mutex.withLock {
+        removals[effect.harness.id]?.takeIf { it.receipt == effect.receipt }?.generation
+    }
+
     private fun removalStatusLocked(effect: HarnessEffect.Remove): HarnessRemovalResult {
         if (environment.admission.removalGeneration(effect) == null) return HarnessRemovalResult.Obsolete
         val fence = removals[effect.harness.id]?.takeIf { it.receipt == effect.receipt }
@@ -185,14 +212,20 @@ internal class HarnessRuntime(
         return removalStatus(effect)
     }
 
-    private fun reservePreparation(request: HarnessActivationRequest): HarnessPreparation? {
+    /** An already published or preparing exact request never waits for lane capacity. */
+    private fun existingPreparation(request: HarnessActivationRequest): HarnessPreparation? {
         val key = request.key()
         val active = current[key]
         if (active?.request == request && active.isActive) return HarnessPreparation.completed(request)
+        return pending[key]?.takeIf { it.request == request }
+    }
+
+    /** Called under [mutex] only after [existingPreparation] found no exact published or pending request. */
+    private fun reservePreparation(request: HarnessActivationRequest): HarnessPreparation? {
+        val key = request.key()
         val previous = pending[key]
-        if (previous?.request == request) return previous
-        val isValid = host.isAvailable && environment.scope.isActive && !lane.isExhausted &&
-            !isFenced(request) && request.generation >= (generations[key] ?: Long.MIN_VALUE) &&
+        val isValid = host.isAvailable && environment.scope.isActive && !isFenced(request) &&
+            request.generation >= (generations[key] ?: Long.MIN_VALUE) &&
             environment.admission.canPublish(request) && request.compilation() != null
         if (!isValid) return null
         generations.raise(key, request.generation)

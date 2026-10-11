@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.runtime
 
 import io.aequicor.heartbeat.feature.harness.api.HarnessEffect
+import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRemovalResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
@@ -95,4 +96,7 @@ class HarnessSpawnLifecycleTest {
 private object NoSpawnRuns : HarnessRunStorage {
     override suspend fun load(): List<WorkflowRun> = emptyList()
     override suspend fun save(run: WorkflowRun, expectedGeneration: Long?): Boolean = error("Not used")
+    override suspend fun discard(run: WorkflowRun): Boolean = error("Not used")
+    override suspend fun isPublished(id: RunId): Boolean = error("Not used")
+    override suspend fun markPublished(id: RunId) = error("Not used")
 }

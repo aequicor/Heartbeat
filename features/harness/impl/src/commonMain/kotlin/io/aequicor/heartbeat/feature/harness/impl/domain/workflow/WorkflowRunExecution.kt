@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.workflow
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsIntent
+import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepPhase
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowFailure
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
@@ -16,6 +17,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.uuid.Uuid
@@ -44,6 +47,9 @@ internal class WorkflowRunExecution(
     private val resources = ports.resources
     private val helpers = ports.helpers
     private val bindings = ports.bindings
+
+    /** Results delivered to the outbox whose durable mark is not yet confirmed; cleared once the mark commits. */
+    private val delivered = MutableStateFlow<Set<RunId>>(emptySet())
 
     /**
      * Revoked author work has joined. Stop native work but preserve Running replay state and its requests.
@@ -133,14 +139,22 @@ internal class WorkflowRunExecution(
             is WorkflowStatus.Failed -> "Workflow failed: ${status.reason}"
             WorkflowStatus.Running -> return
         }
-        if (storage.isPublished(run.id)) return
-        val bounded = if (payload.length <= SchedulerLimits.MAX_PAYLOAD) {
-            payload
-        } else {
-            payload.take(SchedulerLimits.MAX_PAYLOAD - RESULT_SUFFIX.length) + RESULT_SUFFIX
+        if (storage.isPublished(run.id)) {
+            delivered.update { it - run.id }
+            return
         }
-        helpers.finish(run.id.action, bounded)
+        // An uncertain mark retries only the mark: this owner already delivered the result to the outbox.
+        if (run.id !in delivered.value) {
+            val bounded = if (payload.length <= SchedulerLimits.MAX_PAYLOAD) {
+                payload
+            } else {
+                payload.take(SchedulerLimits.MAX_PAYLOAD - RESULT_SUFFIX.length) + RESULT_SUFFIX
+            }
+            helpers.finish(run.id.action, bounded)
+            delivered.update { it + run.id }
+        }
         storage.markPublished(run.id)
+        delivered.update { it - run.id }
         log.d { "Workflow result published" }
     }
 

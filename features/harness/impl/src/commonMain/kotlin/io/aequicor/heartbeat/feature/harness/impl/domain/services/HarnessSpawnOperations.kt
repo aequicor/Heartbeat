@@ -26,6 +26,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -228,16 +230,24 @@ internal class HarnessSpawnOperations(
     private suspend fun cleanup(entry: HarnessSpawnEntry) {
         // A late Room write cannot resurrect a row after settle. A blocked monitor owns no journal writes.
         entry.producer?.join()
+        var failures = 0
         while (currentCoroutineContext().isActive) {
-            if (tryCleanup(entry)) {
-                registry.withLock { entries.remove(entry.record.reservation) }
-                return
+            when (tryCleanup(entry, isReported = failures > 0)) {
+                true -> {
+                    registry.withLock { entries.remove(entry.record.reservation) }
+                    return
+                }
+
+                false -> Unit
+
+                null -> failures++
             }
-            delay(5.seconds)
+            delay(spawnRetryDelay(failures))
         }
     }
 
-    private suspend fun tryCleanup(entry: HarnessSpawnEntry): Boolean = try {
+    /** Null is a failed attempt: the first is a warning, repeats are verbose while the caller backs off. */
+    private suspend fun tryCleanup(entry: HarnessSpawnEntry, isReported: Boolean): Boolean? = try {
         if (entry.isRestored && entry.lease == null) {
             entry.lease = helpers.value.acquire(
                 entry.record.action,
@@ -256,8 +266,12 @@ internal class HarnessSpawnOperations(
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
-        log.w(harnessScriptFailure(error)) { "Helper cleanup remains unresolved" }
-        false
+        if (isReported) {
+            log.v { "helper cleanup still unresolved" }
+        } else {
+            log.w(harnessScriptFailure(error)) { "Helper cleanup remains unresolved" }
+        }
+        null
     }
 
     private fun isFenced(owner: HarnessSpawnOwner): Boolean =
@@ -277,6 +291,20 @@ internal data class HarnessSpawnSubmission(
 }
 
 private fun revokedHelper() = IllegalStateException("Harness helper was revoked")
+
+/**
+ * Retry cadence for helper cleanup and retirement: transient failures retry every five seconds, a failure that
+ * persists for half a minute backs off exponentially up to one attempt per minute.
+ */
+internal fun spawnRetryDelay(failures: Int): Duration {
+    val excess = (failures - SPAWN_RETRY_STEADY_FAILURES).coerceIn(0, SPAWN_RETRY_MAX_DOUBLINGS)
+    return (SPAWN_RETRY_DELAY * (1 shl excess)).coerceAtMost(SPAWN_RETRY_MAX_DELAY)
+}
+
+private val SPAWN_RETRY_DELAY = 5.seconds
+private val SPAWN_RETRY_MAX_DELAY = 1.minutes
+private const val SPAWN_RETRY_STEADY_FAILURES = 6
+private const val SPAWN_RETRY_MAX_DOUBLINGS = 4
 
 private fun <K> MutableMap<K, Long>.raise(key: K, generation: Long) {
     this[key] = maxOf(this[key] ?: Long.MIN_VALUE, generation)
