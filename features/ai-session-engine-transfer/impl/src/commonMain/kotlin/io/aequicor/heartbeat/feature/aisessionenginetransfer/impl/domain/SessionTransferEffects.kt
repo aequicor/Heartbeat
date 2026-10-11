@@ -4,10 +4,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
-import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
-import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.isRejection
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.ConversationSegment
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.Handoff
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.HandoffStatus
@@ -152,27 +149,6 @@ internal class SessionTransferEffects(
             log.w(e) { "target session handle release failed" }
         }
     }
-}
-
-/**
- * Failures proving the engine did not take the handoff, so a rollback cannot hide a delivered transcript.
- * Timeouts, service unavailability, protocol violations, crashes, closed handles and unclassified failures
- * may follow a delivery.
- */
-internal fun EngineFailure.isRejection(): Boolean = when (this) {
-    is EngineFailure.Authentication, is EngineFailure.RateLimited, is EngineFailure.QuotaExceeded,
-    is EngineFailure.ContextLimitExceeded, is EngineFailure.Access, is EngineFailure.Session,
-    is EngineFailure.History,
-    -> true
-
-    is EngineFailure.Request -> reason != RequestFailureReason.OutcomeUnknown
-
-    is EngineFailure.Engine -> reason != EngineFailureReason.Crashed
-
-    // A gateway or a dropped stream can report the service as unavailable after the upstream took the prompt.
-    is EngineFailure.Transport -> reason == TransportFailureReason.NetworkUnavailable
-
-    is EngineFailure.Lifecycle, is EngineFailure.Unknown -> false
 }
 
 private fun TransferRequest.failed(failure: TransferFailure) = SessionTransferIntent.Internal.Failed(transfer, failure)

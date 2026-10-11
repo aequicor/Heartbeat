@@ -45,10 +45,10 @@ internal class StudioHelperAttempts(
 
     /**
      * Prepares a host delivery whose stable request may arrive again after its previous preparation ended before
-     * native send: revoked (a deferred or cancelled scheduled wake) or abandoned in Preparing by a closed profile.
-     * Only such a receipt of the same immutable prompt is prepared anew; a tombstone written before the prompt
-     * arrived stays final. Callers are serialized by the chat's execution reservation, so the earlier sender has
-     * already left; Submitting and later phases are never prepared again.
+     * native send: rolled back by its own gate (a deferred or cancelled scheduled wake) or abandoned in Preparing by
+     * a closed profile. Only such a receipt of the same immutable prompt is prepared anew; a tombstone written before
+     * the prompt arrived and a final external revocation stay final. Callers are serialized by the chat's execution
+     * reservation, so the earlier sender has already left; Submitting and later phases are never prepared again.
      */
     suspend fun prepareDelivery(helper: HelperId, prompt: HelperPrompt): StudioHelperPreparation =
         prepare(helper, prompt, isRedelivery = true)
@@ -143,15 +143,24 @@ internal class StudioHelperAttempts(
             true
         }
 
-    /** Unknown ids also receive a durable tombstone, so a prompt arriving later cannot enter begin. */
-    suspend fun cancelBeforeSubmission(helper: HelperId, request: RequestId): StudioHelperReceipt = lock.withLock {
+    /**
+     * Unknown ids also receive a durable tombstone, so a prompt arriving later cannot enter begin. An external
+     * barrier is [isFinal]: its revocation is never prepared again, even by a redelivery of the same request.
+     * Only the exact gate that prepared the request passes false, rolling back its own preparation.
+     */
+    suspend fun cancelBeforeSubmission(
+        helper: HelperId,
+        request: RequestId,
+        isFinal: Boolean = true,
+    ): StudioHelperReceipt = lock.withLock {
         val records = read(helper)
         val receipt = records[request.value]
-        if (receipt != null && receipt.phase != StudioHelperPhase.Preparing) return@withLock receipt
-        val cancelled = receipt?.copy(phase = StudioHelperPhase.NotSubmitted)
-            ?: StudioHelperReceipt(request, StudioHelperPhase.NotSubmitted, null)
+        val isFinalized = receipt?.phase == StudioHelperPhase.NotSubmitted && isFinal && !receipt.isFinal
+        if (receipt != null && receipt.phase != StudioHelperPhase.Preparing && !isFinalized) return@withLock receipt
+        val cancelled = receipt?.copy(phase = StudioHelperPhase.NotSubmitted, isFinal = isFinal || receipt.isFinal)
+            ?: StudioHelperReceipt(request, StudioHelperPhase.NotSubmitted, null, isFinal = isFinal)
         write(helper, records + (request.value to cancelled))
-        log.v { "Journaled helper cancellation before submission" }
+        log.v { "Journaled helper cancellation before submission final=${cancelled.isFinal}" }
         cancelled
     }
 
@@ -225,9 +234,12 @@ internal class StudioHelperAttempts(
         }
     }
 
-    /** The same immutable prompt whose earlier preparation never crossed the native submission boundary. */
+    /**
+     * The same immutable prompt whose earlier preparation never crossed the native submission boundary and was not
+     * revoked by an external barrier.
+     */
     private fun StudioHelperReceipt.isRedeliveryOf(prompt: HelperPrompt, fingerprint: String): Boolean =
-        phase in REPREPARABLE_PHASES && this.fingerprint == fingerprint && handoff == prompt.handoff
+        phase in REPREPARABLE_PHASES && !isFinal && this.fingerprint == fingerprint && handoff == prompt.handoff
 
     private companion object {
         val NATIVE_PHASES = setOf(StudioHelperPhase.Submitting, StudioHelperPhase.Accepted, StudioHelperPhase.Terminal)

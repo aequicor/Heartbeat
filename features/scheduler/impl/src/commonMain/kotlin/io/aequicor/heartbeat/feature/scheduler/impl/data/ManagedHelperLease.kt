@@ -54,6 +54,7 @@ internal class ManagedHelperLease(
     private var unverifiedHelper: HelperId? = null
     private var isClosing = false
     private var isReleased = false
+    private var cleanupFailures = 0
 
     suspend fun create(input: HelperCreateRequest): HelperId {
         currentCoroutineContext().ensureActive()
@@ -170,7 +171,13 @@ internal class ManagedHelperLease(
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        log.w(e) { "helper termination is unconfirmed; capacity retained" }
+        // Supervisors retry cleanup with backoff; the first failure and a periodic summary are warnings.
+        val failures = lock.withLock { ++cleanupFailures }
+        if (failures == 1 || failures % CLEANUP_FAILURE_SUMMARY_EVERY == 0) {
+            log.w(e) { "helper termination is unconfirmed; capacity retained (failures=$failures)" }
+        } else {
+            log.v { "helper termination still unconfirmed (failures=$failures)" }
+        }
         HelperReleaseResult.Unconfirmed
     }
 
@@ -240,3 +247,6 @@ internal interface HelperLeaseRegistry {
     /** Called once the lease confirmed its release; the registry forgets runtime handles it no longer needs. */
     suspend fun released(lease: ManagedHelperLease)
 }
+
+/** Every this many unconfirmed cleanups of one lease, the failure is reported again as a warning. */
+private const val CLEANUP_FAILURE_SUMMARY_EVERY = 20

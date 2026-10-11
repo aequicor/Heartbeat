@@ -28,7 +28,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class EngineStudioHelperChatsTest {
@@ -171,6 +173,30 @@ class EngineStudioHelperChatsTest {
     }
 
     @Test
+    fun `an isolated acceptance journal failure is repaired before answering the prompt`() = runTest {
+        val fixture = HelperFixture(backgroundScope)
+        fixture.isObserverFailing = true
+        assertEquals(
+            HelperSubmission.Accepted(HelperInput.request, HelperSession),
+            fixture.host.prompt(HelperChat, HelperInput),
+        )
+        val receipt = assertNotNull(fixture.attempts.receipt(HelperChat, HelperInput.request))
+        assertEquals(StudioHelperPhase.Accepted, receipt.phase)
+        assertEquals(TurnId(HelperInput.request.value), receipt.turn)
+        fixture.finish.complete(Unit)
+    }
+
+    @Test
+    fun `external cancellation of a scheduled delivery is never prepared again`() = runTest {
+        val fixture = HelperFixture(backgroundScope)
+        assertTrue(fixture.attempts.prepareDelivery(HelperChat, HelperInput).isNew)
+        assertIs<HelperCancellation.NotSubmitted>(fixture.host.cancel(HelperChat, HelperInput.request))
+        assertFalse(fixture.attempts.prepareDelivery(HelperChat, HelperInput).isNew)
+        assertFalse(fixture.attempts.begin(HelperChat, HelperInput.request))
+        assertEquals(0, fixture.sends)
+    }
+
+    @Test
     fun `duplicate prompt while ACK is pending shares one submission`() = runTest {
         val fixture = HelperFixture(backgroundScope)
         fixture.beforeAck = CompletableDeferred()
@@ -204,6 +230,7 @@ private class HelperFixture(private val scope: CoroutineScope) :
     var progress: HelperProgress? = null
     var progressReads = 0
     var refusal: EngineException? = null
+    var isObserverFailing = false
 
     fun restart() = EngineStudioHelperChats(
         this,
@@ -223,7 +250,7 @@ private class HelperFixture(private val scope: CoroutineScope) :
         helper: HelperId,
         prompt: HelperPrompt,
         submission: StudioHelperSubmission,
-        onAccepted: suspend () -> Unit,
+        onAccepted: suspend (SessionRef, TurnId) -> Unit,
     ) {
         beforeBegin?.await()
         submission.begin()
@@ -233,8 +260,9 @@ private class HelperFixture(private val scope: CoroutineScope) :
         }
         sends++
         beforeAck?.await()
-        attempts.accepted(helper, prompt.request, HelperSession, TurnId(prompt.request.value))
-        onAccepted()
+        // A failed turn observer leaves acceptance unjournaled; the acceptance callback must still repair it.
+        if (!isObserverFailing) attempts.accepted(helper, prompt.request, HelperSession, TurnId(prompt.request.value))
+        onAccepted(HelperSession, TurnId(prompt.request.value))
         finish.await()
         if (attempts.receipt(helper, prompt.request)?.terminal == null) {
             attempts.terminal(helper, prompt.request, terminal(prompt.request))

@@ -121,7 +121,7 @@ internal class BackgroundActions(
 
     /** Replays completed results and reports scheduler operations interrupted by a restart. */
     suspend fun recover() {
-        helperActions.recover()
+        helperActions.recover(isExplicit = true)
         results.recover()
     }
 

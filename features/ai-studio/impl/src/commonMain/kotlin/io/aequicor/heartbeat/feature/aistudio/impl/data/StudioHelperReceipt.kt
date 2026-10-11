@@ -57,8 +57,14 @@ internal data class StudioHelperReceipt(
     val preparedSession: SessionRef? = null,
     /** Unique sender claim; only that sender can prove its own native call was never entered. */
     val submissionClaim: String? = null,
+    /**
+     * An external barrier (helper cancel, settled helper prompt) revoked this request for good: unlike a gate's own
+     * rollback, a later delivery of the same request is never prepared again.
+     */
+    val isFinal: Boolean = false,
 ) {
     init {
+        require(!isFinal || phase == StudioHelperPhase.NotSubmitted)
         require(fingerprint != null || phase == StudioHelperPhase.NotSubmitted)
         require(fingerprint != null || (handoff == null && preparedSession == null && submissionClaim == null))
         require(preparedSession == null || session == null || preparedSession == session)

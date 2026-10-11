@@ -126,7 +126,8 @@ class ScheduledHelperActionsTest {
         assertEquals(listOf(record), fixture.journal.records)
         assertTrue(events.isEmpty())
         host.results[request] = HelperResult(request, HelperOutcome.Completed, "finished before restart")
-        fixture.bus.publish(EventKeys.turnFinished(OTHER), EventOrigin.Host)
+        // Unconfirmed cleanup backs off: the retry follows its delay, not a session event.
+        advanceTimeBy(5.seconds)
         runCurrent()
         assertEquals(listOf(request), host.cancellations)
         assertTrue(fixture.reservations().isEmpty())
@@ -201,7 +202,10 @@ class ScheduledHelperActionsTest {
 
     @Test
     fun `an uncertain prompt failure reports the helper as started and finishes with its exact result`() = runTest {
-        val host = HelperHostFake().apply { beforePrompt = { throw IllegalStateException("Lost acceptance") } }
+        val host = HelperHostFake().apply {
+            beforePrompt = { throw IllegalStateException("Lost acceptance") }
+            cancellation = { HelperCancellation.Unconfirmed(it) }
+        }
         // The profile supervises its jobs: a failed host call stays in its own operation.
         val profile = TestScopeHandle(
             CoroutineScope(backgroundScope.coroutineContext + SupervisorJob(backgroundScope.coroutineContext[Job])),
@@ -219,7 +223,53 @@ class ScheduledHelperActionsTest {
         runCurrent()
         assertTrue(fixture.reservations().isEmpty())
         assertTrue(events.single { it.key == EventKeys.actionFinished(action) }.payload.orEmpty().contains("after all"))
-        assertTrue(host.cancellations.isEmpty())
+        // Only the exact barrier after the failed prompt; the confirmed result needs no further cleanup.
+        assertEquals(listOf(request), host.cancellations)
+    }
+
+    @Test
+    fun `a failed prompt proven not submitted frees its slot at once instead of awaiting the timeout`() = runTest {
+        val host = HelperHostFake().apply {
+            beforePrompt = { throw IllegalStateException("Prompt refused before its journal") }
+            cancellation = { HelperCancellation.NotSubmitted(it) }
+        }
+        val profile = TestScopeHandle(
+            CoroutineScope(backgroundScope.coroutineContext + SupervisorJob(backgroundScope.coroutineContext[Job])),
+        )
+        val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(host), profile = profile)
+        val events = mutableListOf<BusEvent>()
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) { fixture.bus.events.toList(events) }
+        assertNull(fixture.actions.startAgent(action, spawn))
+        runCurrent()
+        assertEquals(listOf(request), host.cancellations)
+        assertTrue(fixture.reservations().isEmpty())
+        assertTrue(fixture.journal.records.isEmpty())
+        val payload = events.single { it.key == EventKeys.actionFinished(action) }.payload.orEmpty()
+        assertTrue(payload.contains("not submitted"))
+    }
+
+    @Test
+    fun `unconfirmed cleanup backs off and ignores session events and other reservations`() = runTest {
+        val host = HelperHostFake().apply { cancellation = { HelperCancellation.Unconfirmed(it) } }
+        val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(host))
+        assertNull(fixture.actions.startAgent(action, spawn))
+        advanceTimeBy(6.hours)
+        runCurrent()
+        assertEquals(1, host.cancellations.size)
+        repeat(3) {
+            fixture.bus.publish(EventKeys.turnFinished(OTHER), EventOrigin.Host)
+            runCurrent()
+        }
+        // Another reservation runs a recovery pass; it must not cut the cleanup backoff short.
+        val second = spawn.copy(prompt = WakePrompt(RequestId("second"), "Task", "Directive"))
+        assertNull(fixture.actions.startAgent(ActionId("second"), second))
+        runCurrent()
+        assertEquals(1, host.cancellations.count { it == request })
+        // Retries follow 5 s, 10 s and 20 s delays instead of one every 5 s or per event.
+        advanceTimeBy(36.seconds)
+        runCurrent()
+        assertEquals(4, host.cancellations.count { it == request })
+        assertEquals(1, fixture.reservations().count { it.id == action })
     }
 
     @Test

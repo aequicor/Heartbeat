@@ -110,7 +110,7 @@ internal class StudioGraphExecutions(
                 recoveryRequests = recover,
                 recoveryCheckpoint = checkpoint,
                 causes = bound.causes,
-                onTurnAccepted = { active ->
+                onTurnAccepted = { active, _ ->
                     val inspector = (active.features.resolve(RestoresSessionTurns) as? FeatureAccess.Available)?.feature
                     val receipt = inspector?.checkpoint(request.prompt.request)
                     if (receipt != null) update(execution) { it.copy(checkpoint = receipt) }

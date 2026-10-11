@@ -8,11 +8,13 @@ import io.aequicor.heartbeat.core.datastore.StoreKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperHandoff
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
@@ -150,18 +152,24 @@ class StudioHelperAttemptsTest {
 
     @Test
     fun `unknown native outcome keeps the helper request unresolved`() = runTest {
-        val journal = StudioHelperAttempts(ChecklistTestStores())
-        journal.prepare(helper, prompt)
-        val gate = StudioHelperSubmission(journal, emptyHelperAdmissions(), helper, prompt.request)
-        val unknown = EngineException(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, prompt.request))
-        assertFailsWith<EngineException> {
-            gate.withPreparation(session, null) {
-                gate.begin()
-                gate.send<TurnId> { throw unknown }
+        listOf(
+            EngineFailure.Request(RequestFailureReason.OutcomeUnknown, prompt.request),
+            // A closed profile or a timed out transport can follow a delivered prompt.
+            EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed),
+            EngineFailure.Transport(TransportFailureReason.Timeout),
+        ).forEach { failure ->
+            val journal = StudioHelperAttempts(ChecklistTestStores())
+            journal.prepare(helper, prompt)
+            val gate = StudioHelperSubmission(journal, emptyHelperAdmissions(), helper, prompt.request)
+            assertFailsWith<EngineException> {
+                gate.withPreparation(session, null) {
+                    gate.begin()
+                    gate.send<TurnId> { throw EngineException(failure) }
+                }
             }
+            assertEquals(StudioHelperPhase.Submitting, journal.receipt(helper, prompt.request)?.phase, failure.code)
+            assertEquals(prompt.request, journal.unresolved(helper), failure.code)
         }
-        assertEquals(StudioHelperPhase.Submitting, journal.receipt(helper, prompt.request)?.phase)
-        assertEquals(prompt.request, journal.unresolved(helper))
     }
 
     @Test
@@ -193,7 +201,7 @@ class StudioHelperAttemptsTest {
         assertTrue(journal.prepareDelivery(helper, prompt).isNew)
         // A preparation abandoned by a closed profile, then one revoked before native send.
         assertTrue(journal.prepareDelivery(helper, prompt).isNew)
-        journal.cancelBeforeSubmission(helper, prompt.request)
+        journal.cancelBeforeSubmission(helper, prompt.request, isFinal = false)
         assertTrue(journal.prepareDelivery(helper, prompt).isNew)
         assertEquals(StudioHelperPhase.Preparing, journal.receipt(helper, prompt.request)?.phase)
         assertFalse(journal.prepare(helper, prompt).isNew)
@@ -203,6 +211,22 @@ class StudioHelperAttemptsTest {
         val tombstone = RequestId("cancelled-before-arrival")
         journal.cancelBeforeSubmission(helper, tombstone)
         assertFalse(journal.prepareDelivery(helper, prompt.copy(request = tombstone)).isNew)
+    }
+
+    @Test
+    fun `an external barrier finalizes a gate rollback so redelivery cannot prepare it again`() = runTest {
+        val stores = ChecklistTestStores()
+        val journal = StudioHelperAttempts(stores)
+        assertTrue(journal.prepareDelivery(helper, prompt).isNew)
+        val rolledBack = journal.cancelBeforeSubmission(helper, prompt.request, isFinal = false)
+        assertFalse(rolledBack.isFinal)
+        val revoked = journal.cancelBeforeSubmission(helper, prompt.request)
+        assertEquals(StudioHelperPhase.NotSubmitted, revoked.phase)
+        assertTrue(revoked.isFinal)
+        assertEquals(revoked, journal.cancelBeforeSubmission(helper, prompt.request, isFinal = false))
+        assertFalse(journal.prepareDelivery(helper, prompt).isNew)
+        assertFalse(journal.begin(helper, prompt.request, "sender"))
+        assertTrue(assertNotNull(StudioHelperAttempts(stores).receipt(helper, prompt.request)).isFinal)
     }
 
     @Test

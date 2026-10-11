@@ -7,6 +7,8 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperProgress
@@ -35,8 +37,9 @@ internal class EngineStudioHelperRuns(
         helper: HelperId,
         prompt: HelperPrompt,
         submission: StudioHelperSubmission,
-        onAccepted: suspend () -> Unit,
+        onAccepted: suspend (SessionRef, TurnId) -> Unit,
     ) {
+        var accepted: Pair<SessionRef, TurnId>? = null
         val record = access.value.helperRecord(helper)
         val settings = hostRunSettings(
             record,
@@ -52,9 +55,13 @@ internal class EngineStudioHelperRuns(
                 settings,
                 WorktreeRunKind.Coding,
                 prompt.request,
-                onAccepted = onAccepted,
+                onAccepted = {
+                    val (session, turn) = checkNotNull(accepted) { "Helper acceptance has no native identity" }
+                    onAccepted(session, turn)
+                },
                 directives = prompt.directives,
                 submission = submission,
+                onTurnAccepted = { active, turn -> accepted = active.ref to turn },
             ),
             waitForIdle = true,
         )

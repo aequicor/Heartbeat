@@ -79,7 +79,8 @@ internal data class StudioTurnRequest(
     /** Graph recovery adopts a matching live/finished turn before considering a continuation. */
     val recoveryRequests: List<RequestId> = emptyList(),
     val recoveryCheckpoint: String? = null,
-    val onTurnAccepted: suspend (ActiveSession) -> Unit = {},
+    /** Exact accepted native identity, before [onAccepted]; failures here are not isolated. */
+    val onTurnAccepted: suspend (ActiveSession, TurnId) -> Unit = { _, _ -> },
     /** The graph journal records the native outcome before execution is reported complete. */
     val onOutcome: suspend (TurnOutcome) -> Unit = {},
     /** Immutable saved causal requests; host relays them to the actual native identity before prompt hooks. */
@@ -181,7 +182,7 @@ internal class StudioTurnExecutor(
             progress.active = active
             progress.turn = turn
             observe("acceptance") { observer.acceptedTurn(request, active, turn) }
-            request.onTurnAccepted(active)
+            request.onTurnAccepted(active, turn)
             notifyAccepted(request)
             if (progress.isIsolated) worktrees.accepted(request.id, request.request, active.ref, turn)
             if (host.shouldStop(request.id)) host.requestStop(request.id, active, turn)

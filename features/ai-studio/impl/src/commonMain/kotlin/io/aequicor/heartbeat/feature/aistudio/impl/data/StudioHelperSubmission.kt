@@ -2,11 +2,10 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
-import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.isRejection
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -75,13 +74,13 @@ internal class StudioHelperSubmission(
     }
 
     /**
-     * Enters the native send. An engine refusal other than an unknown outcome proves the request was never
-     * accepted, so the receipt becomes NotSubmitted instead of an unresolved submission holding the helper.
+     * Enters the native send. Only an engine failure that proves rejection ([isRejection]) retires the receipt as
+     * NotSubmitted; a failure that may follow delivery (closed profile, timeout, crash) keeps acceptance unresolved.
      */
     suspend fun <T> send(native: suspend () -> T): T = try {
         native()
     } catch (e: EngineException) {
-        if (!e.isAcceptanceUnknown) {
+        if (e.failure.isRejection()) {
             val isRetired = withContext(NonCancellable) { retire() }
             log.i { "Helper native send refused before acceptance; not submitted=$isRetired" }
         }
@@ -90,7 +89,8 @@ internal class StudioHelperSubmission(
 
     override suspend fun cancel(): Boolean {
         prior?.cancel()
-        val receipt = attempts.cancelBeforeSubmission(helper, request)
+        // This gate's own rollback: a later delivery of the same request may prepare it again.
+        val receipt = attempts.cancelBeforeSubmission(helper, request, isFinal = false)
         val isRevoked = receipt.phase == StudioHelperPhase.NotSubmitted
         log.v { "Helper preparation revocation confirmed=$isRevoked" }
         cancelled.value = isRevoked
@@ -111,7 +111,3 @@ internal class StudioHelperSubmission(
     /** Only this sender's own claim can be retired, and only while no native acceptance was journaled. */
     private suspend fun retire(): Boolean = attempts.cancelBeforeNative(helper, request, boundSession, claim)
 }
-
-/** Only an explicitly unknown outcome leaves acceptance uncertain; other engine failures precede acceptance. */
-private val EngineException.isAcceptanceUnknown: Boolean
-    get() = (failure as? EngineFailure.Request)?.reason == RequestFailureReason.OutcomeUnknown

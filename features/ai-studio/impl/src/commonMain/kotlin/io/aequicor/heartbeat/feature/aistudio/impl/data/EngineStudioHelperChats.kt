@@ -7,6 +7,8 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperProgress
@@ -28,7 +30,8 @@ internal interface StudioHelperRuns {
         helper: HelperId,
         prompt: HelperPrompt,
         submission: StudioHelperSubmission,
-        onAccepted: suspend () -> Unit,
+        /** Exact accepted native identity; called after native acceptance, failures are isolated by the run. */
+        onAccepted: suspend (SessionRef, TurnId) -> Unit,
     )
 
     suspend fun helperTerminal(helper: HelperId, request: RequestId): StudioHelperTerminal?
@@ -76,7 +79,13 @@ internal class EngineStudioHelperChats(
                 helper,
                 prompt,
                 StudioHelperSubmission(attempts, admissions, helper, prompt.request),
-            ) {
+            ) { session, turn ->
+                // The turn observer's journal write is isolated from the run; repeat it rather than leaving the
+                // receipt Submitting, and the caller unanswered, for the whole turn.
+                if (attempts.receipt(helper, prompt.request)?.phase == StudioHelperPhase.Submitting) {
+                    log.d { "Helper acceptance missing after native acceptance; journaling it again" }
+                    attempts.accepted(helper, prompt.request, session, turn)
+                }
                 val receipt = checkNotNull(attempts.receipt(helper, prompt.request))
                 answer.complete(checkNotNull(receipt.submission()) { "Missing helper acceptance receipt" })
             }

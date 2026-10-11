@@ -67,7 +67,7 @@ class EngineStudioHelperRunsTest {
             helper,
             prompt,
             StudioHelperSubmission(fixture.attempts, emptyHelperAdmissions(), helper, prompt.request),
-        ) {}
+        ) { _, _ -> }
         val executed = host.executed.single()
         assertEquals("Visible task", executed.prompt)
         assertEquals(listOf("Return a summary"), executed.directives)
