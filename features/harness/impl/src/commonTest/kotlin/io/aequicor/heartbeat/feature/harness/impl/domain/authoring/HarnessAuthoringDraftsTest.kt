@@ -158,10 +158,14 @@ class HarnessAuthoringDraftsTest {
 
     @Test
     fun `approval level decides only for texts while code and native enabling always ask`() {
-        assertTrue(HarnessApproval.Ask.requiresDecision(TrustLevel.Full, isAlwaysAsked = false))
-        assertFalse(HarnessApproval.ByTrust.requiresDecision(TrustLevel.Full, isAlwaysAsked = false))
-        assertTrue(HarnessApproval.ByTrust.requiresDecision(TrustLevel.AutoEdits, isAlwaysAsked = false))
-        assertFalse(HarnessApproval.AcceptAll.requiresDecision(TrustLevel.Ask, isAlwaysAsked = false))
+        HarnessApproval.entries.forEach { level ->
+            assertFalse(level.requiresDecision(TrustLevel.Full, isAlwaysAsked = false))
+        }
+        listOf(TrustLevel.Ask, TrustLevel.AutoEdits).forEach { trust ->
+            assertTrue(HarnessApproval.Ask.requiresDecision(trust, isAlwaysAsked = false))
+            assertTrue(HarnessApproval.ByTrust.requiresDecision(trust, isAlwaysAsked = false))
+            assertFalse(HarnessApproval.AcceptAll.requiresDecision(trust, isAlwaysAsked = false))
+        }
         TrustLevel.entries.forEach { trust ->
             HarnessApproval.entries.forEach { level -> assertTrue(level.requiresDecision(trust, isAlwaysAsked = true)) }
         }

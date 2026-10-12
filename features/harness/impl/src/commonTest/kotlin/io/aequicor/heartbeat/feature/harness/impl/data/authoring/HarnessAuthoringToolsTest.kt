@@ -93,7 +93,23 @@ class HarnessAuthoringToolsTest {
         val script = put("script", "verify", "hooks.toString()")
         assertTrue(tools.requiresDecision(context, spec(HarnessTools.ITEM_PUT), script))
         library.approval = HarnessApproval.Ask
-        assertTrue(tools.requiresDecision(context, spec(HarnessTools.ITEM_PUT), skill))
+        assertFalse(tools.requiresDecision(context, spec(HarnessTools.ITEM_PUT), skill))
+        assertTrue(tools.requiresDecision(autoEdits, spec(HarnessTools.ITEM_PUT), skill))
+    }
+
+    @Test
+    fun `full trust saves instructions with the default profile approval without asking`() = runTest {
+        val arguments = put("instruction", "rule", "Use design tokens")
+        listOf(TrustLevel.Ask, TrustLevel.AutoEdits).forEach { trust ->
+            assertTrue(tools.requiresDecision(context.copy(trust = trust), spec(HarnessTools.ITEM_PUT), arguments))
+        }
+        assertFalse(tools.requiresDecision(context, spec(HarnessTools.ITEM_PUT), arguments))
+        val approval = tools.approval(context, spec(HarnessTools.ITEM_PUT), arguments)
+        val result = tools.execute(context.copy(authorization = approval), HarnessTools.ITEM_PUT, arguments)
+        assertFalse(result.isError, result.text)
+        val update = assertIs<HarnessIntent.Internal.Update>(library.sent.single())
+        val item = assertIs<HarnessItem.Instruction>(assertIs<HarnessChange.PutItem>(update.change).item)
+        assertEquals("Use design tokens", item.text)
     }
 
     @Test
@@ -172,6 +188,10 @@ class HarnessAuthoringToolsTest {
             put("title", "Compose UI")
             put("scope", "project")
         }
+        listOf(TrustLevel.Ask, TrustLevel.AutoEdits).forEach { trust ->
+            assertTrue(tools.requiresDecision(context.copy(trust = trust), spec(HarnessTools.CREATE), arguments))
+        }
+        assertFalse(tools.requiresDecision(context, spec(HarnessTools.CREATE), arguments))
         val approval = tools.approval(context, spec(HarnessTools.CREATE), arguments)
         val result = tools.execute(context.copy(authorization = approval), HarnessTools.CREATE, arguments)
         assertFalse(result.isError, result.text)

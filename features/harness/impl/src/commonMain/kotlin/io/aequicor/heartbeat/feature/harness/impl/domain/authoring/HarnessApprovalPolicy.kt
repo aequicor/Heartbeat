@@ -9,17 +9,14 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
 
 /**
- * Agent edits follow the profile level: Ask always asks, ByTrust asks unless the turn has Full trust (AutoEdits
- * still asks), AcceptAll never asks. Code, anything that can make a tool usable again and membership changes of a
- * harness with an enabled script always ask, whatever the level: see [reEnabled], [isWiderThan],
+ * Full turn trust approves ordinary agent edits even when the profile defaults to Ask. Otherwise Ask and ByTrust
+ * require a decision (including AutoEdits), while AcceptAll approves them. Code, anything that can make a tool
+ * usable again and membership changes of a harness with an enabled script always ask, whatever the level:
+ * see [reEnabled], [isWiderThan],
  * [hasEnabledScript] and the callers' membership checks.
  */
 internal fun HarnessApproval.requiresDecision(trust: TrustLevel, isAlwaysAsked: Boolean): Boolean =
-    isAlwaysAsked || when (this) {
-        HarnessApproval.Ask -> true
-        HarnessApproval.ByTrust -> trust != TrustLevel.Full
-        HarnessApproval.AcceptAll -> false
-    }
+    isAlwaysAsked || (trust != TrustLevel.Full && this != HarnessApproval.AcceptAll)
 
 /** Wire name of the level inside opaque approval bindings. */
 internal val HarnessApproval.key: String
