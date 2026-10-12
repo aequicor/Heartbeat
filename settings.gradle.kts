@@ -18,6 +18,17 @@ pluginManagement {
 
 dependencyResolutionManagement {
     repositories {
+        exclusiveContent {
+            forRepository {
+                ivy {
+                    name = "HeartbeatJcef"
+                    url = uri("https://github.com/aequicor/Heartbeat/releases/download")
+                    patternLayout { artifact("[revision]/[artifact]-[revision].[ext]") }
+                    metadataSources { artifact() }
+                }
+            }
+            filter { includeGroup("io.aequicor.heartbeat.jcef") }
+        }
         google {
             mavenContent {
                 includeGroupAndSubgroups("androidx")

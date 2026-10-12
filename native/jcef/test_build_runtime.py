@@ -33,9 +33,17 @@ class RuntimePackagingTest(unittest.TestCase):
         self.write(f"source/third_party/cef/cef_binary_{cef}_windows64/LICENSE.txt")
         self.write("source/heartbeat-api-classes/org/cef/CefRequestContextSettings.class")
         runtime.package(source, "windows-amd64", self.root / "first")
-        runtime.verify_package(source, "windows-amd64", self.root / "first")
         name = f"jcef-natives-windows-amd64-{runtime.VERSION}.jar"
         api_name = f"jcef-api-{runtime.VERSION}.jar"
+        # Synthetic DLL/class bytes have their own published lock, independent of real release assets.
+        fixture_lock = dict(runtime.lock(),
+                            apiArtifact={"file": api_name, "sha256": runtime.sha256(self.root / "first" / api_name)},
+                            nativeArtifacts={"windows-amd64": {
+                                "file": name, "sha256": runtime.sha256(self.root / "first" / name)}})
+        locked_fixture = patch.object(runtime, "lock", return_value=fixture_lock)
+        locked_fixture.start()
+        self.addCleanup(locked_fixture.stop)
+        runtime.verify_package(source, "windows-amd64", self.root / "first")
         published = dict(runtime.lock(),
                          apiArtifact={"file": api_name, "sha256": "not the published API"},
                          nativeArtifacts={"windows-amd64": {"file": name, "sha256": "native"}})

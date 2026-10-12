@@ -71,7 +71,9 @@ val jcefNative = when (piTarget) {
 jcefNative?.let { dependencies { runtimeOnly(it) } }
 // JBR SDKs may bundle an older jcef module. Limit roots to the app's standard JDK modules so the
 // pinned classpath API/native pair wins consistently in development and packaged distributions.
-val jcefJdkModules = listOf("java.se", "jdk.unsupported", "jdk.httpserver", "jdk.crypto.ec", "jdk.zipfs", "jdk.attach")
+val jcefJdkModules = listOf(
+    "java.se", "jdk.unsupported", "jdk.httpserver", "jdk.crypto.ec", "jdk.zipfs", "jdk.attach", "jdk.compiler",
+)
 val jcefJvmArgs = listOf("--limit-modules=${jcefJdkModules.joinToString(",")}") + if (piOs == "darwin") {
     listOf(
         "--add-opens=java.desktop/sun.awt=ALL-UNNAMED",
@@ -200,6 +202,7 @@ afterEvaluate {
     }
     tasks.withType<AbstractJPackageTask>().configureEach {
         dependsOn(verifyWindowRuntime)
+        dependsOn(":features:browser:impl:verifyBrowserRuntime")
         if (!name.contains("Release")) {
             launcherMainClass.set("io.aequicor.heartbeat.platform.desktop.DevelopmentMainKt")
         }
