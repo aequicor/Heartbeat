@@ -49,6 +49,7 @@ fun main(arguments: Array<String>) {
 
 /** Shared desktop host; its entry point determines credential storage, never a runtime environment override. */
 internal fun launchHeartbeat(isDevelopment: Boolean) {
+    configureDesktopRendering()
     val classes = checkoutClasses()
     // Launches from the checkout's compiled classes log from DEBUG up; any jar, installed or not, logs as release.
     // `heartbeat.trace` (system property or HEARTBEAT_TRACE) adds the VERBOSE level for deep debugging.

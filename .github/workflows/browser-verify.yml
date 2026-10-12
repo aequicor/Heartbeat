@@ -66,6 +66,7 @@ jobs:
           bash gradlew :features:browser:api:jvmTest :features:browser:impl:jvmTest
           :features:research-chat:api:jvmTest :features:research-chat:impl:jvmTest
           :features:ai-studio:impl:jvmTest :platform-main:di-bundle:jvmTest
+          :design-system:components:jvmTest
           :features:plant-uml-support:impl:jvmTest
           :platform-main:desktop:test --continue
       - name: Preserve complete JVM reports before focused native runs
@@ -95,6 +96,16 @@ jobs:
         run: >-
           bash gradlew :features:browser:impl:jvmTest
           -Pheartbeat.browser.composeNativeTest=true --tests '*DesktopBrowserComposeNativeTest'
+      - name: Publish native and Compose diagnostics immediately
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-macos-native-ui
+          path: |
+            features/browser/impl/build/test-results/jvmTest/*.xml
+            features/browser/impl/build/native-ui/*
+            build/ci-diagnostics/native/**
+          if-no-files-found: error
       - name: Static analysis with type resolution
         if: ${{ !cancelled() }}
         run: >-
@@ -107,6 +118,7 @@ jobs:
           :features:plant-uml-support:impl:detektMainJvm
           :features:ai-studio:impl:detekt :features:ai-studio:impl:detektMainJvm
           :design-system:layouts:detekt :design-system:layouts:detektMainJvm
+          :design-system:components:detekt :design-system:components:detektMainJvm
           :design-system:tokens:detekt :design-system:tokens:detektMainJvm --continue
       - name: Compile iOS application graph on macOS
         if: ${{ !cancelled() }}

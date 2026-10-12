@@ -28,8 +28,6 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
@@ -77,12 +75,11 @@ public fun HbDialog(
         withFrameNanos { }
         focus.requestFocus()
     }
-    Dialog(
+    HbPlatformDialog(
         onDismissRequest = {
             log.i { "dialog dismissed" }
             dismiss()
         },
-        properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
         HbColumn(
             modifier
@@ -125,3 +122,7 @@ public fun HbDialog(
         }
     }
 }
+
+/** The platform owns modal input interception and dimming above any embedded native surface. */
+@Composable
+internal expect fun HbPlatformDialog(onDismissRequest: () -> Unit, content: @Composable () -> Unit)

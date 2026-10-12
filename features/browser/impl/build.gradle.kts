@@ -83,6 +83,13 @@ compose.resources { packageOfResClass = "io.aequicor.heartbeat.feature.browser.i
 
 tasks.withType<Test>().configureEach {
     dependsOn(verifyBrowserRuntime)
+    // Match the desktop host: same-canvas dialogs are obscured by the native Chromium surface.
+    systemProperty("compose.layers.type", "WINDOW")
+    // Direct3D's immediate reshape rendering reenters WINDOW layers; match configureDesktopRendering.
+    if (providers.systemProperty("os.name").get().startsWith("Windows")) {
+        val architecture = providers.systemProperty("os.arch").get().lowercase()
+        systemProperty("skiko.renderApi", if (architecture in listOf("aarch64", "arm64")) "SOFTWARE_FAST" else "OPENGL")
+    }
     // Exercise native embedding on the same JBR used by the desktop application.
     javaLauncher.set(javaToolchains.launcherFor {
         languageVersion.set(JavaLanguageVersion.of(libs.versions.desktop.jdk.get().toInt()))
