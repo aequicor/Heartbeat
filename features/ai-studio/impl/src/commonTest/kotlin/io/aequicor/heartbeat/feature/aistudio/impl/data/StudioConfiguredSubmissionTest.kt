@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
@@ -81,6 +82,22 @@ class StudioConfiguredSubmissionTest {
     }
 
     @Test
+    fun `changing the effort during the handoff summary turn keeps the chat's trust`() = runTest {
+        val fixture = SubmissionFixture(this)
+        fixture.access.otherSessions["chat"] = fixture.session
+        fixture.submit("prompt")
+        runCurrent()
+        fixture.submit("${HANDOFF_REQUEST_PREFIX}1")
+        runCurrent()
+
+        fixture.configuration.controller.configure(fixture.access, "chat", StudioSettingChange.Effort("high"))
+        runCurrent()
+
+        assertEquals(ApprovalMode.AutoEdits, fixture.storedApproval())
+        assertEquals("high", fixture.access.records.getValue("chat").configuration?.reasoningEffort)
+    }
+
+    @Test
     fun `the carried seed reaches the turns until one marks it delivered, even when marking fails`() = runTest {
         val fixture = SubmissionFixture(this)
         fixture.access.records["chat"] = fixture.access.records.getValue("chat").copy(pendingSeed = "the essence")
@@ -110,7 +127,7 @@ class StudioConfiguredSubmissionTest {
 }
 
 private class SubmissionFixture(test: TestScope) {
-    private val configuration = StudioConfigurationFixture(test)
+    val configuration = StudioConfigurationFixture(test)
     private val target: EngineTarget = configuration.target
     val access = configuration.access
     val native = ConfigurationNative(configuration.initial.copy(trust = TrustLevel.AutoEdits))

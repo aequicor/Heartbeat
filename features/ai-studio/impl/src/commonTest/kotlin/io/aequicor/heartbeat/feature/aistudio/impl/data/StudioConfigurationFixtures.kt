@@ -146,6 +146,9 @@ internal class ConfigurationAccess(private val target: EngineTarget, private val
     var consumedSeeds = 0
     var seedFailure: Exception? = null
 
+    // Sessions of other kinds that a configuration change attaches to, ahead of [sessions].
+    val otherSessions = mutableMapOf<String, ActiveSession>()
+
     fun add(id: String, session: ConfigurationSession) {
         sessions[id] = session
         records[id] = StudioChatRecord(
@@ -163,7 +166,7 @@ internal class ConfigurationAccess(private val target: EngineTarget, private val
         anchors[id] ?: FeedbackAnchor(records.getValue(id).ref)
     override suspend fun configurationSession(id: String, target: EngineTarget): ActiveSession {
         attached += id
-        return sessions.getValue(id)
+        return otherSessions[id] ?: sessions.getValue(id)
     }
 
     override suspend fun saveConfiguration(id: String, settings: StudioSessionSettings) {

@@ -139,6 +139,7 @@ internal class StudioConfigurationController(
             ?: SessionConfiguration(target.model)
         val requested = change.feedback(target, actual)
         if (change.matches(target, actual)) return null
+        val stored = actual
         val operation = Uuid.random().toString()
         val report = FeedbackRecord(
             id = operation,
@@ -163,13 +164,16 @@ internal class StudioConfigurationController(
             } else {
                 applyIdle(access, session, selected, actual, nativeChange)
             }
+            val isChatTrustKept = keepsChatTrust(id, session, nativeChange)
+            if (isChatTrustKept) actual = actual.copy(trust = stored.trust)
             val confirmedTarget = target.copy(model = actual.model)
             val settings = actual.studio(confirmedTarget)
             // Reflect the native acknowledgement even if persisting the preference subsequently fails.
             access.configurationState(id, StudioSessionConfiguration(settings, operation))
             publish(report.copy(revision = 1, outcome = FeedbackOutcome.Applied(actual)))
             persist(access, id, settings)
-            val latest = capability?.configuration?.value ?: actual
+            val native = capability?.configuration?.value ?: actual
+            val latest = if (isChatTrustKept) native.copy(trust = stored.trust) else native
             val latestTarget = target.copy(model = latest.model)
             observe(access, id, session, confirmedTarget)
             latest.studio(latestTarget)
@@ -182,6 +186,13 @@ internal class StudioConfigurationController(
             actual.studio(target.copy(model = actual.model))
         }
     }
+
+    /** A retired session runs with a narrowed trust that is not the chat's; changing anything else keeps the chat's. */
+    private suspend fun keepsChatTrust(
+        id: String,
+        session: ActiveSession,
+        change: SessionConfigurationChange,
+    ): Boolean = change !is SessionConfigurationChange.Trust && lock.withLock { retired[id] === session }
 
     private suspend fun applyIdle(
         access: StudioConfigurationAccess,
