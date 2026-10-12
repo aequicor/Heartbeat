@@ -6,14 +6,12 @@ import dev.zacsweers.metro.IntoSet
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ProfileScope
-import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessEventAncestry
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessEventInputFactory
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessEventSourcePorts
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessEventSources
-import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessProjectSnapshots
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessSessionHook
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessSessionHookDispatchers
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessEnabledWork
@@ -27,7 +25,6 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRequestO
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRuntime
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessSessionProofs
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessToolDispatch
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
 import kotlin.time.Clock
 
 /** Builds only ports until enable/first callback; no constructor dereferences the facade or library lazies. */
@@ -40,24 +37,16 @@ public object HarnessEventBindings {
 
     @Provides
     @SingleIn(ProfileScope::class)
-    internal fun projects(): HarnessProjectSnapshots = HarnessProjectSnapshots()
-
-    @Provides
-    @SingleIn(ProfileScope::class)
     internal fun origins(ancestry: HarnessRequestAncestry): HarnessRequestOrigins = HarnessRequestOrigins(ancestry)
 
     @Provides
     @SingleIn(ProfileScope::class)
     internal fun proofs(
         machine: Lazy<HarnessMachine>,
-        registry: MachineRegistry,
-        projects: HarnessProjectSnapshots,
         gate: HarnessEventGate,
         runtime: Lazy<HarnessRuntime>,
     ): HarnessSessionProofs = HarnessSessionProofs(
         { if (gate.isEnabled) machine.value.state.value else HarnessState.Idle(isSuspended = true) },
-        { registry.find(WorktreeMachineKey)?.state?.value },
-        { projects.projects.value },
         { runtime.value.publishedInstances.value.isNotEmpty() },
     )
 

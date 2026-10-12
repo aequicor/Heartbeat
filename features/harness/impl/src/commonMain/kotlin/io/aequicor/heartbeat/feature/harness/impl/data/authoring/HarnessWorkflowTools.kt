@@ -65,7 +65,7 @@ internal class HarnessWorkflowTools(
     private val origins: Lazy<HarnessRequestOrigins>,
 ) : AgentToolContribution {
     private val log = Log.tag("HarnessTools")
-    override val group: String = "harness"
+    override val group: String = HarnessTools.GROUP
     override val title: String = "Харнессы"
     override val isDetachedSupported: Boolean = true
     override val catalog get() = HARNESS_WORKFLOW_SPECS.toolCatalog()

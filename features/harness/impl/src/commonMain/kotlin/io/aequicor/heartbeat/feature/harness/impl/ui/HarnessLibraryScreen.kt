@@ -35,7 +35,6 @@ import io.aequicor.heartbeat.feature.harness.impl.presentation.HarnessLibraryMod
 import io.aequicor.heartbeat.feature.harness.impl.presentation.HarnessLibraryState
 import io.aequicor.heartbeat.feature.harness.impl.presentation.HarnessRowUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.PhaseUi
-import io.aequicor.heartbeat.feature.harness.impl.presentation.ScopeUi
 import io.aequicor.heartbeat.feature.harness.impl.resources.Res
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_approval_accept_all
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_approval_accept_all_hint
@@ -54,9 +53,6 @@ import io.aequicor.heartbeat.feature.harness.impl.resources.harness_items
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_list_section
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_no_code
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_save_failed
-import io.aequicor.heartbeat.feature.harness.impl.resources.harness_scope_attached
-import io.aequicor.heartbeat.feature.harness.impl.resources.harness_scope_profile
-import io.aequicor.heartbeat.feature.harness.impl.resources.harness_scope_projects
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_title
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_use
 import kotlinx.collections.immutable.persistentListOf
@@ -183,7 +179,7 @@ private fun HarnessRow(row: HarnessRowUi, onIntent: (HarnessLibraryIntent) -> Un
     HbSettingsRow(
         row.title,
         modifier.fillMaxWidth().testTag("harness-row-${row.id}"),
-        description = listOf(row.name, row.scopeLabel(), items).joinToString(" · "),
+        description = listOf(row.name, items).joinToString(" · "),
         onClick = { onIntent(HarnessLibraryIntent.Open(row.id)) },
     ) {
         HbRow(gap = HbTheme.spacing.s) {
@@ -196,13 +192,6 @@ private fun HarnessRow(row: HarnessRowUi, onIntent: (HarnessLibraryIntent) -> Un
             )
         }
     }
-}
-
-@Composable
-internal fun HarnessRowUi.scopeLabel(): String = when (scope) {
-    ScopeUi.Attached -> stringResource(Res.string.harness_scope_attached)
-    ScopeUi.Profile -> stringResource(Res.string.harness_scope_profile)
-    ScopeUi.Projects -> pluralStringResource(Res.plurals.harness_scope_projects, projectCount, projectCount)
 }
 
 private fun ApprovalUi.title(): StringResource = when (this) {
@@ -221,8 +210,8 @@ private val previewState = HarnessLibraryState(
     phase = PhaseUi.Ready,
     approval = ApprovalUi.ByTrust,
     harnesses = persistentListOf(
-        HarnessRowUi("1", "compose_ui", "Compose UI", ScopeUi.Projects, 1, 6, isEnabled = true, hasFailures = false),
-        HarnessRowUi("2", "release", "Release", ScopeUi.Attached, 0, 2, isEnabled = false, hasFailures = true),
+        HarnessRowUi("1", "compose_ui", "Compose UI", 6, isEnabled = true, hasFailures = false),
+        HarnessRowUi("2", "release", "Release", 2, isEnabled = false, hasFailures = true),
     ),
     isCodeSupported = true,
 )

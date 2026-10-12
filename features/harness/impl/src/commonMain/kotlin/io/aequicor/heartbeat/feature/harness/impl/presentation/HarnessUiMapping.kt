@@ -5,7 +5,6 @@ import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessApproval
 import io.aequicor.heartbeat.feature.harness.api.HarnessEntry
 import io.aequicor.heartbeat.feature.harness.api.HarnessItem
-import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.ItemStatus
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepPhase
@@ -32,18 +31,10 @@ internal fun ApprovalUi.toDomain(): HarnessApproval = when (this) {
     ApprovalUi.AcceptAll -> HarnessApproval.AcceptAll
 }
 
-internal fun HarnessScope.toUi(): ScopeUi = when (this) {
-    HarnessScope.Attached -> ScopeUi.Attached
-    HarnessScope.Profile -> ScopeUi.Profile
-    is HarnessScope.Projects -> ScopeUi.Projects
-}
-
 internal fun HarnessEntry.toRow(): HarnessRowUi = HarnessRowUi(
     id = harness.id.value,
     name = harness.name.value,
     title = harness.title,
-    scope = harness.scope.toUi(),
-    projectCount = (harness.scope as? HarnessScope.Projects)?.projects?.size ?: 0,
     itemCount = harness.items.size,
     isEnabled = harness.isEnabled,
     hasFailures = itemStatus.values.any { it is ItemStatus.Failed },

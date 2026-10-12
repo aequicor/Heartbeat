@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessEffect
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
@@ -34,6 +35,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -55,6 +57,8 @@ class MachineStudioHarnessesTest {
         val library = SpecHarnessLibrary(backgroundScope)
         val harnesses = MachineStudioHarnesses(HarnessRegistry(library), HarnessToggleOn)
         harnesses.claim("submission", setOf("compose", "verify"))
+        assertEquals(mapOf("harness" to setOf("compose", "verify")), harnesses.preselected("submission"))
+        assertEquals(emptyMap(), harnesses.preselected("other"))
 
         harnesses.beforeSubmit("submission", session)
 
@@ -147,6 +151,25 @@ class MachineStudioHarnessesTest {
         assertTrue(harnesses.connect(session, "compose", isSelected = false))
         assertTrue(library.sent.last() is HarnessIntent.Public.Detach)
         assertTrue(library.attached(session).isEmpty())
+    }
+
+    @Test
+    fun `legacy scopes are offered as ordinary choices and never count as connected`() = runTest {
+        val library = SpecHarnessLibrary(backgroundScope)
+        val profile = libraryEntry("compose").let { it.copy(harness = it.harness.copy(scope = HarnessScope.Profile)) }
+        val projects = libraryEntry("verify").let {
+            it.copy(harness = it.harness.copy(scope = HarnessScope.Projects(setOf(WorkspaceRef("project")))))
+        }
+        library.state.value = HarnessState.Ready(
+            harnesses = listOf(profile, projects),
+            attachments = mapOf(other to setOf(HarnessId("verify"))),
+        )
+        val harnesses = MachineStudioHarnesses(HarnessRegistry(library), HarnessToggleOn)
+
+        val choices = harnesses.choices.first()
+
+        assertEquals(listOf("compose", "verify"), choices.harnesses.map { it.id })
+        assertEquals(mapOf(other to setOf("verify")), choices.attached)
     }
 }
 

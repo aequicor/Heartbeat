@@ -8,20 +8,20 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlin.time.Instant
 
-/** Permanent activation scope; project references are normalized by the host before saving. */
+/** Legacy stored scope, retained for decoding existing harnesses; activation uses explicit chat connections. */
 @Serializable
 public sealed interface HarnessScope {
-    /** Active only for explicit session attachments and helpers of this harness. */
+    /** Value of new harnesses; like the legacy values, activation comes only from chat connections and helpers. */
     @Serializable
     @SerialName("attached")
     public data object Attached : HarnessScope
 
-    /** Active throughout the profile. */
+    /** Legacy value: no longer activates chats automatically. */
     @Serializable
     @SerialName("profile")
     public data object Profile : HarnessScope
 
-    /** Active in at least one selected source project, including its worktrees. */
+    /** Legacy project list: no longer activates chats automatically. */
     @Serializable
     @SerialName("projects")
     public data class Projects(val projects: Set<WorkspaceRef>) : HarnessScope {

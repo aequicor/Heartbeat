@@ -3,9 +3,13 @@ package io.aequicor.heartbeat.feature.harness.impl.data
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.HarnessEntry
+import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
+import io.aequicor.heartbeat.feature.harness.api.HarnessTools
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptToolResult
 import io.aequicor.heartbeat.feature.harness.impl.data.delivery.HarnessScriptTools
@@ -82,6 +86,30 @@ class HarnessScriptToolsTest {
     }
 
     @Test
+    fun `a session being opened declares tools of the harnesses its creator chose`() = runTest {
+        val fixture = HarnessDispatchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        fixture.onEvaluate = { script ->
+            script.agent.tool(ItemName("check"), "Check", args) { ScriptToolResult("done") }
+        }
+        fixture.activate()
+        val owner = fixture.request.harness
+        val connectedOnly = object : HarnessActiveAccess {
+            override suspend fun active(workspace: WorkspaceRef?, session: SessionRef?) =
+                if (session == dispatchSession) listOf(owner) else emptyList()
+
+            override suspend fun opening(harnesses: Set<HarnessId>) = listOf(owner).filter { it.id in harnesses }
+        }
+        val tools = tools(fixture, SchedulerAccessToggles(), MemoryHarnessRequestAncestry(), connectedOnly)
+        val chosen = mapOf(HarnessTools.GROUP to setOf(owner.id.value))
+        assertEquals(1, tools.specifications(AgentToolScope(null, preselected = chosen)).size)
+        assertTrue(tools.specifications(AgentToolScope(null)).isEmpty())
+        // Once the session exists only its connections count, never the creator's earlier choice.
+        val other = dispatchSession.copy(nativeId = "other")
+        assertTrue(tools.specifications(AgentToolScope(null, session = other, preselected = chosen)).isEmpty())
+        assertEquals(1, tools.specifications(AgentToolScope(null, session = dispatchSession)).size)
+    }
+
+    @Test
     fun `failed library activation closes only harness tools instead of failing the contribution`() = runTest {
         val fixture = HarnessDispatchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
         fixture.onEvaluate = { script ->
@@ -108,8 +136,6 @@ private fun tools(
     lazy {
         HarnessSessionProofs(
             { HarnessState.Ready(listOf(HarnessEntry(fixture.request.harness)), isRuntimeAvailable = true) },
-            { null },
-            { null },
         )
     },
     lazy { HarnessRequestOrigins(ancestry) },

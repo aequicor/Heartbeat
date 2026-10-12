@@ -269,6 +269,5 @@
     <string name="session_waiting_event">Waiting for an event</string>
     <string name="session_checklist_ready">Ready</string>
     <string name="harness_menu_section">Harnesses</string>
-    <string name="harness_menu_permanent">Active by its scope in this chat</string>
     <string name="harness_connect_failed">The harness change was not applied to this chat. Try again.</string>
 </resources>

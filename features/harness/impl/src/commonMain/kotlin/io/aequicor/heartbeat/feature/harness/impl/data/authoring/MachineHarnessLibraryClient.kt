@@ -4,10 +4,7 @@ import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
-import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.SendResult
-import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
-import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
 import io.aequicor.heartbeat.feature.harness.api.HarnessOutput
 import io.aequicor.heartbeat.feature.harness.api.HarnessRejection
@@ -15,9 +12,6 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.LibraryOutcome
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
-import io.aequicor.heartbeat.feature.worktreemode.api.sourceProjectOf
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -28,11 +22,7 @@ import kotlin.time.Duration.Companion.seconds
 
 @ContributesBinding(ProfileScope::class)
 @Inject
-internal class MachineHarnessLibraryClient(
-    private val machine: Lazy<HarnessMachine>,
-    private val machines: MachineRegistry,
-    private val workspaces: LocalWorkspaces,
-) : HarnessLibraryClient {
+internal class MachineHarnessLibraryClient(private val machine: Lazy<HarnessMachine>) : HarnessLibraryClient {
     private val log = Log.tag("HarnessTools")
 
     override val current: HarnessState.Ready?
@@ -62,16 +52,6 @@ internal class MachineHarnessLibraryClient(
             outcome.cancel()
         }
     }
-
-    override suspend fun sourceProject(workspace: WorkspaceRef?): WorkspaceRef? {
-        if (workspace == null) return null
-        log.v { "Resolve the source project of a session workspace" }
-        val worktrees = machines.find(WorktreeMachineKey)?.state?.value as? WorktreeState.Ready
-        return worktrees?.sourceProjectOf(workspace) ?: workspace.takeIf { isSavedProject(it) }
-    }
-
-    private suspend fun isSavedProject(workspace: WorkspaceRef): Boolean = workspaces.isAvailable &&
-        withTimeoutOrNull(LOAD_TIMEOUT) { workspaces.observe().first() }.orEmpty().any { it.ref == workspace }
 }
 
 private fun HarnessOutput.outcomeOf(intent: HarnessIntent.Command): LibraryOutcome? {

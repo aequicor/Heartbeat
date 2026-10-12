@@ -28,8 +28,8 @@ private val GUIDE = """
     A harness is a reusable environment for a task or project. Build it when the user asks, e.g. "set up a harness
     for native Compose UI work". Steps:
     1. Read harness_tools_catalog to see Heartbeat and native tools; decide what the task needs.
-    2. harness_create(name, title, description, scope, attach). Scope: attached (default, only connected chats),
-       profile (every chat) or project (this chat's source project; worktrees count as the project).
+    2. harness_create(name, title, description, attach). The harness is connected only to chats selected
+       from the composer’s + menu or by the agent with harness_attach.
     3. harness_item_put for each item:
        - instruction: a short rule every session follows (≤ ${HarnessLimits.INSTRUCTION_CHARS} chars);
        - skill: markdown knowledge loaded on demand by name (≤ ${HarnessLimits.SKILL_CHARS} chars), e.g. design
@@ -42,11 +42,11 @@ private val GUIDE = """
     5. Check with harness_get, then tell the user what was set up.
 
     Approval: texts follow the profile approval level; code, switching a tool on and giving a turned-off tool
-    back (removing an off switch, disconnecting, deleting or narrowing a harness that turns tools off, connecting or
-    widening one that switches native tools on) always ask the user. A harness with an enabled script asks for every
-    connection, disconnection, scope change and deletion, and deleting an enabled script asks too.
-    Off switches and Deny/Ask hooks apply in every chat a harness covers; everything else comes from the first
-    ${HarnessLimits.ACTIVE_PER_SESSION} covering harnesses of a chat by name.
+    back (removing an off switch, disconnecting or deleting a harness that turns tools off, connecting one that
+    switches native tools on) always ask the user. A harness with an enabled script asks for every
+    connection, disconnection and deletion, and deleting an enabled script asks too.
+    Off switches and Deny/Ask hooks apply in every chat a harness is connected to; everything else comes from the
+    first ${HarnessLimits.ACTIVE_PER_SESSION} connected harnesses of a chat by name.
     Never store secrets, tokens or personal data in a harness. Keep instructions short: the whole harness block
     shares $HARNESS_CONTEXT_CHARS characters per chat; skills are not in the block, only their index.
     Limits: ${HarnessLimits.HARNESSES} harnesses, ${HarnessLimits.ITEMS} items each, ${HarnessLimits.SCRIPT_TOOLS}
@@ -180,7 +180,7 @@ private val EXAMPLES = """
     Worked example: harness compose_ui for native Compose UI.
 
     harness_create(name="compose_ui", title="Compose UI", description="Native Compose screens with the design
-    system", scope="project")
+    system")
 
     instruction "tokens": "Use only design-system tokens and Hb* components; no raw colors, dp or sp literals."
     skill "design_system" (description "Load before writing a screen"): markdown with token names, layouts,

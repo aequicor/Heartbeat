@@ -9,9 +9,6 @@ internal enum class PhaseUi { Loading, Failed, NotFound, Ready }
 /** How agent edits of texts and metadata are accepted. Code and native enabling always ask. */
 internal enum class ApprovalUi { Ask, ByTrust, AcceptAll }
 
-/** Permanent activation scope as shown in settings. */
-internal enum class ScopeUi { Attached, Profile, Projects }
-
 /** Item kinds, in the order of the detail screen groups. */
 internal enum class ItemKindUi { Instruction, Skill, Template, Script, Workflow }
 
@@ -24,8 +21,6 @@ internal data class HarnessRowUi(
     val id: String,
     val name: String,
     val title: String,
-    val scope: ScopeUi,
-    val projectCount: Int,
     val itemCount: Int,
     val isEnabled: Boolean,
     val hasFailures: Boolean,
@@ -41,10 +36,6 @@ internal data class ItemRowUi(
     val isEnabled: Boolean,
     val status: ItemStatusUi,
 )
-
-/** A saved project that a harness scope can select. */
-@Immutable
-internal data class ProjectChoiceUi(val key: String, val name: String, val isSelected: Boolean)
 
 /** A chat explicitly connected to the harness; [label] names the engine and a short chat id. */
 @Immutable

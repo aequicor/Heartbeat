@@ -11,7 +11,6 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.impl.data.HarnessTestStores
 import io.aequicor.heartbeat.feature.harness.impl.data.events.EmptyHarnessEventRuns
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessEventAncestry
-import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessProjectSnapshots
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessEventGate
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.MemoryHarnessRequestAncestry
@@ -126,7 +125,7 @@ class HarnessScheduledHelperPromptOwnerTest {
         val realOwner = HarnessScheduledHelperPromptOwner(
             lazyOf(bindings),
             lazyOf(MachineHarnessHelperAttachments(registry, toggles)),
-            lazyOf(MachineHarnessSchedulerAccess(registry, toggles, HarnessProjectSnapshots(), gate)),
+            lazyOf(MachineHarnessSchedulerAccess(registry, toggles, gate)),
             HarnessEventAncestry(lazyOf(storage), lazyOf(EmptyHarnessEventRuns)),
             lazyOf(storage),
         )

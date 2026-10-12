@@ -65,6 +65,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolChoices
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
@@ -476,7 +477,7 @@ internal class EngineStudioRepository(
     override suspend fun openHelper(record: StudioChatRecord): ActiveSession {
         log.v { "Open the helper's existing native session" }
         checkNotNull(record.ref) { "Helper has no native session" }
-        return open(record.id, checkNotNull(record.target))
+        return open(record.id, checkNotNull(record.target), emptyMap())
     }
 
     override suspend fun liveHelper(helper: HelperId): ActiveSession? = handlesLock.withLock {
@@ -505,9 +506,9 @@ internal class EngineStudioRepository(
         return record(id).worktreeTaskId != null
     }
 
-    override suspend fun openTurn(id: String, settings: RunSettings): ActiveSession {
+    override suspend fun openTurn(id: String, settings: RunSettings, preselected: ToolChoices): ActiveSession {
         log.i { "Open the conversation's fixed execution workspace" }
-        val active = open(id, target(id, settings))
+        val active = open(id, target(id, settings), preselected)
         update(id) {
             copy(
                 updatedAt = clock.now(),
@@ -570,7 +571,7 @@ internal class EngineStudioRepository(
 
     override suspend fun configurationSession(id: String, target: EngineTarget): ActiveSession {
         log.v { "Resolve configuration handle id=$id engine=${target.engine.value}" }
-        return open(id, target)
+        return open(id, target, emptyMap())
     }
 
     override suspend fun configurationAnchor(id: String): FeedbackAnchor = lock.withLock {
@@ -632,7 +633,7 @@ internal class EngineStudioRepository(
         nativeSession.mirrorHistory(historyMirror, id, history, isFinal = false)
     }
 
-    private suspend fun open(id: String, target: EngineTarget): ActiveSession = conversationLocks.withLock(id) {
+    private suspend fun open(id: String, target: EngineTarget, chosen: ToolChoices) = conversationLocks.withLock(id) {
         val record = record(id)
         check(record.worktreeTaskId == null || record.executionWorkspace != null) {
             "The conversation worktree is not ready"
@@ -663,7 +664,7 @@ internal class EngineStudioRepository(
         }
         val active = if (record.ref == null) {
             facade.engines.features(target.engine).requireFeature(CreatesSessions)
-                .create(studioCreateRequest(target, workspace))
+                .create(studioCreateRequest(target, workspace, chosen))
         } else {
             check(
                 record.target?.engine == target.engine && record.target.binding == target.binding,
@@ -922,8 +923,17 @@ internal fun ApprovalMode.toTrust(): TrustLevel = when (this) {
 }
 
 /** Studio presents tool calls and permissions, so its own sessions opt into profile instructions and hooks. */
-private fun studioCreateRequest(target: EngineTarget, workspace: WorkspaceRef?): CreateSessionRequest =
-    CreateSessionRequest(target, workspace, areDetachedToolsEnabled = true, areSessionHooksEnabled = true)
+private fun studioCreateRequest(
+    target: EngineTarget,
+    workspace: WorkspaceRef?,
+    preselected: ToolChoices,
+): CreateSessionRequest = CreateSessionRequest(
+    target,
+    workspace,
+    areDetachedToolsEnabled = true,
+    areSessionHooksEnabled = true,
+    preselected = preselected,
+)
 
 /** Resuming another segment retains the same Studio ownership contract. */
 private fun studioResumeRequest(target: EngineTarget, workspace: WorkspaceRef?): ResumeSessionRequest =

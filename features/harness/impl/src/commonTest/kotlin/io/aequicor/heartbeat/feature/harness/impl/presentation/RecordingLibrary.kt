@@ -3,7 +3,6 @@ package io.aequicor.heartbeat.feature.harness.impl.presentation
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.core.statemachine.SendResult
-import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
 import io.aequicor.heartbeat.feature.harness.api.HarnessOutput
@@ -53,8 +52,6 @@ internal class RecordingLibrary(initial: HarnessState) :
         submitted?.await()
         return outcome
     }
-
-    override suspend fun sourceProject(workspace: WorkspaceRef?): WorkspaceRef? = workspace
 }
 
 internal fun TestScope.storeFactory() = HeartbeatStoreFactory(TestDispatchers(StandardTestDispatcher(testScheduler)))

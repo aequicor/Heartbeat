@@ -36,7 +36,6 @@ internal data class HarnessEventInputs(
     val engines: Flow<List<EngineInfo>>,
     val bindings: Flow<List<EngineBinding>>,
     val workflows: HarnessEventSubscription<HarnessLifecycleEvent.WorkflowFinished>,
-    val prepare: (CoroutineScope) -> Unit,
 ) {
     override fun toString(): String = "HarnessEventInputs(***)"
 }
@@ -68,7 +67,6 @@ internal class HarnessEventSources(
         log.v { "start harness event sources" }
         val owned = CoroutineScope(scope.coroutineContext + ports.origins.context(HarnessCallOrigin()))
         val streams = inputs()
-        streams.prepare(owned)
         val scheduling = MutableStateFlow(false)
         ports.gate.open()
         owned.launch(start = CoroutineStart.UNDISPATCHED) {

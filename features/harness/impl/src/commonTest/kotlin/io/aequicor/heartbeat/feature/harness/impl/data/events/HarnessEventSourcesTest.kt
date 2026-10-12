@@ -152,7 +152,6 @@ class HarnessEventSourcesTest {
         assertEquals(0, fixture.factoryCalls)
         fixture.start()
         assertEquals(1, fixture.factoryCalls)
-        assertEquals(1, fixture.preparations)
         assertEquals(List(6) { 1 }, fixture.subscriptions())
     }
 
@@ -298,7 +297,6 @@ class HarnessEventSourcesTest {
         runCurrent()
         assertEquals(2, fixture.started().size)
         assertEquals(fixture.now, fixture.started().last().second.at)
-        assertEquals(2, fixture.preparations)
     }
 }
 
@@ -315,16 +313,13 @@ private class SourcesFixture(private val test: TestScope) {
     val originsObserved = mutableListOf<HarnessCallOrigin>()
     var now = Instant.fromEpochMilliseconds(1_000)
     var factoryCalls = 0
-    var preparations = 0
     val gate = HarnessEventGate()
     var dispatchEpoch: () -> Long? = { gate.currentEpoch }
     val ancestry = MemoryHarnessRequestAncestry()
     val sources = HarnessEventSources(
         {
             factoryCalls++
-            HarnessEventInputs(bus, schedulerInput, scheduling, engines, bindings, HarnessFlowEvents(workflows)) {
-                preparations++
-            }
+            HarnessEventInputs(bus, schedulerInput, scheduling, engines, bindings, HarnessFlowEvents(workflows))
         },
         HarnessEventSourcePorts(
             dispatch.runtime,

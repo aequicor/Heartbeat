@@ -137,13 +137,12 @@ internal data class SidebarInput(
 
 /**
  * Harness choices of a pane: a chat shows its committed connections, a new chat the choice kept on its pane.
- * Harnesses active by profile or project scope are shown selected and cannot be toggled.
+ * Only explicit connections are selected, regardless of a harness's stored legacy scope.
  */
-internal fun AiStudioScreenState.harnessChoices(pane: PaneUi, projectId: String?): ImmutableList<HarnessChoiceUi> {
+internal fun AiStudioScreenState.harnessChoices(pane: PaneUi): ImmutableList<HarnessChoiceUi> {
     val selected = if (pane.sessionId != null) harnessChoices.chats[pane.sessionId] else harnessChoices.panes[pane.id]
     return harnessChoices.options.map { harness ->
-        val isPermanent = harness.isProfile || (projectId != null && projectId in harness.projects)
-        HarnessChoiceUi(harness.id, harness.title, isPermanent || selected?.contains(harness.id) == true, isPermanent)
+        HarnessChoiceUi(harness.id, harness.title, selected?.contains(harness.id) == true)
     }.toImmutableList()
 }
 
@@ -174,7 +173,7 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         isRememberEnabled = isRememberEnabled,
         isCompactEnabled = isCompactEnabled,
         isOrganismEnabled = isOrganismEnabled,
-        harnesses = harnessChoices(pane, session?.projectId ?: pane.projectId),
+        harnesses = harnessChoices(pane),
         isHarnessFailed = harnessChoices.isFailed(pane.sessionId),
         organism = organism,
         subSession = selectedSubSession(pane.sessionId, session),
