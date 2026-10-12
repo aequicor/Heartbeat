@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
 import io.aequicor.heartbeat.feature.browser.api.normalizeBrowserUrl
+import io.aequicor.heartbeat.feature.browser.impl.domain.ApprovedTab
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserRequestKind
 import io.aequicor.heartbeat.feature.browser.impl.domain.ExternalBrowserAgentPolicy
 import io.aequicor.heartbeat.feature.browser.impl.domain.ExternalBrowserControl
@@ -95,7 +96,7 @@ internal class ExternalBrowserSession(
 
             ExternalOperation.NewTab -> newTab(owner, args.text("url"))
 
-            ExternalOperation.RequestTab -> requestTab(owner)
+            ExternalOperation.RequestTab -> requestTab(owner, args)
 
             ExternalOperation.CloseTab -> owned(owner, args).let { entry ->
                 forget(entry.id)
@@ -120,6 +121,9 @@ internal class ExternalBrowserSession(
             ExternalOperation.Drag,
             -> error("Not a tab operation")
         }
+
+    override suspend fun address(owner: String, tabId: String): String? =
+        lock.withLock { entries[tabId]?.takeIf { it.owner == owner }?.url }
 
     private suspend fun tabs(owner: String): JsonObject {
         val own = lock.withLock { entries.values.filter { it.owner == owner } }
@@ -150,8 +154,12 @@ internal class ExternalBrowserSession(
         return if (url == null) describe(entry) else open(entry, url)
     }
 
-    private suspend fun requestTab(owner: String): JsonObject {
+    private suspend fun requestTab(owner: String, args: JsonObject): JsonObject {
         val active = browser.activeTab() ?: error("No web page is open in the external browser")
+        // The user approved one tab showing one page; anything else needs a new approval.
+        check(args.text(ApprovedTab.ID) == active.id && args.text(ApprovedTab.URL) == active.url) {
+            "The active tab changed since the approval; ask again"
+        }
         val existing = lock.withLock { entries[active.id] }
         check(existing == null || existing.owner == owner) { "Another chat controls this tab" }
         val tab = browser.control(active.id)

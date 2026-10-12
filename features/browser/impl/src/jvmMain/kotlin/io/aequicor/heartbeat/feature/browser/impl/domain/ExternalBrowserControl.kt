@@ -25,6 +25,15 @@ internal enum class ExternalOperation {
 internal interface ExternalBrowserControl {
     /** Runs [operation] for [owner]; failures come back as [BrowserResult.error]. */
     suspend fun execute(owner: String, operation: ExternalOperation, arguments: JsonObject): BrowserResult
+
+    /** The address [owner]'s tab [tabId] shows, for approval texts; `null` for a tab it does not control. */
+    suspend fun address(owner: String, tabId: String): String?
+}
+
+/** Arguments the tools add for a hand-over the user approved; the model's own values are always replaced. */
+internal object ApprovedTab {
+    const val ID = "approvedTabId"
+    const val URL = "approvedUrl"
 }
 
 /** Whether agents may drive the external browser at all (rollout toggles). */

@@ -93,16 +93,22 @@ class ExternalBrowserSessionTest {
         browser.active = ExternalTab("u5", "http://intranet.local/wiki", "Wiki")
         runCurrent()
 
-        val handed = session.execute(OWNER, ExternalOperation.RequestTab, JsonObject(emptyMap()))
+        val approval = args {
+            put("approvedTabId", "u5")
+            put("approvedUrl", "http://intranet.local/wiki")
+        }
+        val stale = session.execute(OWNER, ExternalOperation.RequestTab, JsonObject(emptyMap()))
+        val handed = session.execute(OWNER, ExternalOperation.RequestTab, approval)
         browser.events.emit(ExternalTabEvent.DocumentRequested("u5", "r1", "http://intranet.local/page", true))
         runCurrent()
 
+        assertEquals("The active tab changed since the approval; ask again", stale.error)
         assertEquals(JsonPrimitive(true), handed.data["isUserTab"])
         assertEquals(listOf("control u5"), browser.calls)
         assertEquals(listOf("r1" to true), browser.resolved)
         assertEquals(
             "Another chat controls this tab",
-            session.execute(OTHER, ExternalOperation.RequestTab, JsonObject(emptyMap())).error,
+            session.execute(OTHER, ExternalOperation.RequestTab, approval).error,
         )
     }
 
