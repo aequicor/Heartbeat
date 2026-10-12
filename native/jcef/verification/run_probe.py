@@ -248,6 +248,7 @@ def main() -> int:
                 result = output / f"{label}.json"
                 scale = label.removeprefix("visual-") if mode == "visual" else "native"
                 java = [args.java, "-Djava.awt.headless=false", "-Dfile.encoding=UTF-8",
+                        "-XX:ErrorFile=" + str(output / "hs_err_pid%p.log"),
                         "-Djava.library.path=" + str(args.native_dir.resolve())]
                 java += java_platform_options(sys.platform)
                 java += ["-classpath", os.pathsep.join(map(str, [classes, *classpath])), "SessionProbe",

@@ -112,7 +112,8 @@ Harness проверяет, что Chromium действительно прим�
 На Windows используется `gradlew.bat`. Запускать отдельно от
 `-Pheartbeat.browser.nativeTest=true`: глобальный CefApp не перезапускается в той же JVM.
 Нужна активная графическая сессия; Robot использует настоящие мышь и клавиатуру, на macOS
-необходимо разрешение Accessibility для Java. Тест не заменяет ввод вызовами JavaScript.
+необходимо разрешение Accessibility для Java, а для снимков — Screen Recording.
+Тест не заменяет ввод вызовами JavaScript.
 
 Проверяются смена ширины боковой панели на всю область ComposeWindow, скрытие и возврат
 той же нативной поверхности, неизменность DOM marker, число загрузок HTTP и созданий runtime.
@@ -132,6 +133,7 @@ Harness проверяет, что Chromium действительно прим�
 
 CI запускает harness **после упаковки** и сохраняет `*.json`, `*.log`, `*.png` из output
 через always-upload. Сборка на кросс-компиляторе не заменяет запуск на целевой архитектуре.
+Fatal JVM/native crashes сохраняют полный отчёт `hs_err_pid*.log` в том же output.
 
 Проверки самого harness без JCEF:
 
