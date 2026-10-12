@@ -72,6 +72,7 @@ internal fun AiStudioScreenState.withWorkspace(
 
 /** An empty draft is forgotten; editing clears a previous send failure. */
 internal fun AiStudioScreenState.withDraft(paneId: Int, text: String): AiStudioScreenState = copy(
+    diagramDraftReasons = (diagramDraftReasons - draftKey(paneId)).toImmutableMap(),
     drafts = draftKey(paneId).let { key -> if (text.isEmpty()) drafts - key else drafts + (key to text) }
         .toImmutableMap(),
     failedPanes = (failedPanes - paneId).toImmutableSet(),

@@ -118,6 +118,10 @@ data class AiStudioScreenState(
     val composerSuggestions: ImmutableMap<String, ComposerSuggestionsUi> = persistentMapOf(),
     val draftAttachments: ImmutableMap<String, ImmutableList<AttachmentUi>> = persistentMapOf(),
     val submissions: ImmutableMap<String, SubmissionUi> = persistentMapOf(),
+    /** Diagram messages awaiting native acceptance, independent of composer snapshots. */
+    val diagramSubmissions: ImmutableMap<String, DiagramSubmissionUi> = persistentMapOf(),
+    val diagramFocusRequests: ImmutableMap<Int, Long> = persistentMapOf(),
+    val diagramDraftReasons: ImmutableMap<String, DiagramDraftReasonUi> = persistentMapOf(),
     val attachmentRequests: ImmutableMap<String, String> = persistentMapOf(),
     val visibleAttachmentPreviews: ImmutableMap<String, PreviewVisibilityUi> = persistentMapOf(),
     val attachmentPreviews: ImmutableMap<String, AttachmentPreviewUi> = persistentMapOf(),
@@ -310,6 +314,11 @@ sealed interface AiStudioScreenIntent : MVIIntent {
 
     /** Cancels one queued or running coordinated build. */
     data class CancelWorktreeBuild(val sessionId: String, val operation: String) : Worktree
+
+    /** A user clicked an action in the editable root transcript of this session. */
+    data class DiagramAction(val sessionId: String, val text: String, val isSend: Boolean) : AiStudioScreenIntent {
+        override fun toString(): String = "DiagramAction(sessionId=$sessionId, isSend=$isSend)"
+    }
 
     /** Sends the composer text of a pane. */
     data class Submit(val paneId: Int) : Composer

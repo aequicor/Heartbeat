@@ -87,3 +87,52 @@ internal suspend fun compactStudioDraft(
 /** The chat a `/compact` draft of pane [paneId] compacts; none while the pane shows a native sub-agent of it. */
 internal fun AiStudioScreenState.compactedChat(paneId: Int): String? =
     panes.firstOrNull { it.id == paneId }?.sessionId?.takeIf { selectedNative(it) == PrimarySubSession }
+
+/** Correlates native acknowledgement with either a composer snapshot or a diagram-only message. */
+internal suspend fun handleStudioSubmissionOutput(
+    pipeline: PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>,
+    machineState: AiStudioState,
+    harnesses: StudioHarnesses,
+    output: AiStudioOutput,
+) = with(pipeline) {
+    when (output) {
+        // A new chat's harness claim travels with its submission; the turn uses and releases it. A chat
+        // that failed to start, or whose session another request owns, runs no turn, so its claim is
+        // released and the choice returns to the pane.
+        is AiStudioOutput.SubmitFailed -> {
+            if (output.submissionId.isNotEmpty()) harnesses.release(output.submissionId)
+            updateState {
+                if (output.submissionId.isEmpty()) {
+                    restoreDraft(output, machineState)
+                } else {
+                    rejectSubmission(output.submissionId)
+                        .finishDiagramSubmission(output.submissionId, DiagramDraftReasonUi.Rejected)
+                }
+            }
+        }
+
+        is AiStudioOutput.SubmitPrepared -> {
+            updateState { prepareSubmission(output.submissionId, output.sessionId) }
+        }
+
+        is AiStudioOutput.SubmitAccepted -> {
+            updateState {
+                acceptSubmission(
+                    output.submissionId,
+                    output.sessionId,
+                ).finishDiagramSubmission(output.submissionId, null)
+            }
+        }
+
+        is AiStudioOutput.SubmitRejected -> {
+            harnesses.release(output.submissionId)
+            updateState {
+                rejectSubmission(output.submissionId, output.sessionId)
+                    .finishDiagramSubmission(output.submissionId, DiagramDraftReasonUi.Rejected)
+            }
+        }
+
+        // Delivery results of engine questions are handled by the question bridge.
+        is AiStudioOutput.PermissionAnswerFailed, is AiStudioOutput.RunEnded -> Unit
+    }
+}
