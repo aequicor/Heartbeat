@@ -24,6 +24,9 @@ chrome.runtime.onConnect.addListener((/** @type {any} */ port) => {
   if (port.name === PANEL_PORT) hub?.attach(port);
 });
 
+// The toolbar button opens the side panel with the chat.
+chrome.sidePanel?.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+
 // Alarms may be cleared by a browser restart, so every service worker start re-creates the missing one.
 chrome.alarms.get(RECONNECT_ALARM).then((/** @type {unknown} */ alarm) => {
   if (!alarm) chrome.alarms.create(RECONNECT_ALARM, { periodInMinutes: 1 });

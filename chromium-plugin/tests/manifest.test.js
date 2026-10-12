@@ -26,5 +26,5 @@ test('the manifest is a module service worker without page-facing entry points',
 });
 
 test('permissions are exactly the reviewed set', () => {
-  assert.deepEqual([...manifest.permissions].sort(), ['alarms', 'nativeMessaging', 'storage']);
+  assert.deepEqual([...manifest.permissions].sort(), ['alarms', 'nativeMessaging', 'sidePanel', 'storage']);
 });
