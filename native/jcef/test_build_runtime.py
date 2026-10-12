@@ -34,6 +34,54 @@ class RuntimePackagingTest(unittest.TestCase):
             runtime.main()
             package.assert_called_once()
 
+    def test_release_identity_is_derived_from_the_lock(self):
+        data = runtime.lock()
+        version, tag = runtime.release_identity(data)
+        self.assertEqual(data["artifactVersion"], version)
+        self.assertEqual(f"jcef-{data['jcefCommit'][:7]}+cef-{data['cefVersion']}+heartbeat-"
+                         f"{version.rsplit('-', 1)[1]}", tag)
+        self.assertEqual((runtime.VERSION, runtime.RELEASE_TAG), (version, tag))
+        with self.assertRaisesRegex(ValueError, "Artifact version"):
+            runtime.release_identity(dict(data, artifactVersion="152.0.6-hb0"))
+
+    def test_lock_pins_the_cef_distribution_of_every_target(self):
+        data = runtime.lock()
+        for target, (cef_platform, _) in runtime.TARGETS.items():
+            name, _ = runtime.cef_distribution(data, target)
+            self.assertEqual(f"cef_binary_{data['cefVersion']}_{cef_platform}.tar.bz2", name)
+        with self.assertRaisesRegex(ValueError, "does not pin"):
+            runtime.cef_distribution(dict(data, cefDistributions={}), "windows-amd64")
+        unpinned = {"windows-amd64": dict(data["cefDistributions"]["windows-amd64"], sha1="upstream")}
+        with self.assertRaisesRegex(ValueError, "Invalid CEF distribution checksum"):
+            runtime.cef_distribution(dict(data, cefDistributions=unpinned), "windows-amd64")
+
+    def test_cef_distribution_matches_the_locked_digest_before_cmake_extracts_it(self):
+        payload = b"cef distribution"
+        name = f"cef_binary_{runtime.lock()['cefVersion']}_macosarm64.tar.bz2"
+        locked = dict(runtime.lock(), cefDistributions={
+            "macosx-arm64": {"file": name, "sha1": hashlib.sha1(payload).hexdigest()}})
+        archive = self.root / "third_party/cef" / name
+        with patch.object(runtime, "lock", return_value=locked):
+            with patch.object(runtime.urllib.request, "urlopen", return_value=io.BytesIO(b"tampered")) as urlopen:
+                with self.assertRaisesRegex(ValueError, "differs from the source lock"):
+                    runtime.prepare_cef_distribution(self.root, "macosx-arm64")
+            self.assertTrue(urlopen.call_args.args[0].startswith(runtime.CEF_DOWNLOADS))
+            self.assertIn("%2B", urlopen.call_args.args[0])
+            self.assertEqual([], list(archive.parent.iterdir()))
+            with patch.object(runtime.urllib.request, "urlopen", return_value=io.BytesIO(payload)):
+                runtime.prepare_cef_distribution(self.root, "macosx-arm64")
+            self.assertEqual(payload, archive.read_bytes())
+            with patch.object(runtime.urllib.request, "urlopen") as urlopen:
+                runtime.prepare_cef_distribution(self.root, "macosx-arm64")
+                urlopen.assert_not_called()
+            archive.write_bytes(b"replaced in the cache")
+            with self.assertRaisesRegex(ValueError, "differs from the source lock"):
+                runtime.prepare_cef_distribution(self.root, "macosx-arm64")
+            archive.unlink()
+            (archive.parent / name.removesuffix(".tar.bz2")).mkdir()
+            with self.assertRaisesRegex(ValueError, "cannot be verified"):
+                runtime.prepare_cef_distribution(self.root, "macosx-arm64")
+
     def test_candidate_inputs_use_separate_version_cache_and_native_resource(self):
         previous = {name: getattr(runtime, name) for name in
                     ("SOURCE_LOCK", "PATCH_FILE", "VERSION", "RELEASE_TAG")}

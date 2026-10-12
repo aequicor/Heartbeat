@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import urllib.parse
 import urllib.request
 import zipfile
 
@@ -22,10 +23,9 @@ TARGETS = {
     "macosx-amd64": ("macosx64", "x86_64"),
     "macosx-arm64": ("macosarm64", "arm64"),
 }
-VERSION = "152.0.6-hb1"
-RELEASE_TAG = "jcef-17e805a+cef-152.0.6+g708dc14+chromium-152.0.7977.83+heartbeat-hb1"
 SOURCE_LOCK = HERE / "source-lock.json"
 PATCH_FILE = HERE / "request-context-settings.patch"
+CEF_DOWNLOADS = "https://cef-builds.spotifycdn.com/"
 
 
 def run(*args: object, cwd: Path | None = None) -> None:
@@ -52,17 +52,26 @@ def lock() -> dict:
     return data
 
 
+def release_identity(data: dict) -> tuple[str, str]:
+    """The artifact version and jcefmaven release tag are derived from the lock, never hard-coded."""
+    version = data["artifactVersion"]
+    if not re.fullmatch(re.escape(data["cefVersion"].split("+")[0]) + r"-hb[1-9][0-9]*", version):
+        raise ValueError("Artifact version must identify the locked CEF release and Heartbeat revision")
+    tag = f"jcef-{data['jcefCommit'][:7]}+cef-{data['cefVersion']}+heartbeat-{version.rsplit('-', 1)[1]}"
+    return version, tag
+
+
+VERSION, RELEASE_TAG = release_identity(json.loads(SOURCE_LOCK.read_text()))
+
+
 def select_inputs(source_lock: Path, patch_file: Path) -> None:
     """Stage a new immutable release while the application still consumes its old lock."""
     global SOURCE_LOCK, PATCH_FILE, VERSION, RELEASE_TAG
     data = json.loads(source_lock.read_text())
-    version = data["artifactVersion"]
-    if not re.fullmatch(re.escape(data["cefVersion"].split("+")[0]) + r"-hb[1-9][0-9]*", version):
-        raise ValueError("Artifact version must identify the locked CEF release and Heartbeat revision")
+    version, tag = release_identity(data)
     if sha256(patch_file) != data["patchSha256"]:
         raise ValueError("JCEF patch differs from selected source lock")
-    SOURCE_LOCK, PATCH_FILE, VERSION = source_lock.resolve(), patch_file.resolve(), version
-    RELEASE_TAG = f"jcef-{data['jcefCommit'][:7]}+cef-{data['cefVersion']}+heartbeat-{version.rsplit('-', 1)[1]}"
+    SOURCE_LOCK, PATCH_FILE, VERSION, RELEASE_TAG = source_lock.resolve(), patch_file.resolve(), version, tag
 
 
 def cache_key() -> str:
@@ -91,6 +100,7 @@ def build(source: Path, target: str) -> None:
     data = lock()
     cef_platform, arch = TARGETS[target]
     prepare_formatter(source, target)
+    prepare_cef_distribution(source, target)
     output = source / "jcef_build"
     run("cmake", "-S", source, "-B", output, "-G", "Ninja",
         "-DCMAKE_BUILD_TYPE=Release", f"-DPROJECT_ARCH={arch}",
@@ -148,6 +158,44 @@ def prepare_formatter(source: Path, target: str) -> None:
         raise ValueError("Formatter checksum differs from the locked upstream source")
     output.write_bytes(content)
     output.chmod(0o755)
+
+
+def cef_distribution(data: dict, target: str) -> tuple[str, str]:
+    """The locked CEF binary archive name and SHA-1 (the digest upstream publishes) for one target."""
+    entry = data.get("cefDistributions", {}).get(target) or {}
+    name, digest = entry.get("file"), entry.get("sha1", "")
+    if name != f"cef_binary_{data['cefVersion']}_{TARGETS[target][0]}.tar.bz2":
+        raise ValueError(f"The source lock does not pin the CEF distribution for {target}")
+    if not re.fullmatch(r"[0-9a-f]{40}", digest):
+        raise ValueError(f"Invalid CEF distribution checksum for {target}")
+    return name, digest
+
+
+def prepare_cef_distribution(source: Path, target: str) -> None:
+    # Upstream CMake downloads the archive and a .sha1 from the same CDN, so the CDN alone decides what is
+    # trusted. Place the archive checked against the lock first: CMake then only extracts it. An existing
+    # archive is verified as well; an extracted tree without its archive cannot be verified and is rejected.
+    name, expected = cef_distribution(lock(), target)
+    directory = source / "third_party/cef"
+    archive = directory / name
+    if not archive.exists():
+        if (directory / name.removesuffix(".tar.bz2")).exists():
+            raise ValueError("An extracted CEF distribution without its archive cannot be verified")
+        directory.mkdir(parents=True, exist_ok=True)
+        partial = archive.with_name(name + ".part")
+        digest = hashlib.sha1()
+        url = CEF_DOWNLOADS + urllib.parse.quote(name)
+        with urllib.request.urlopen(url, timeout=600) as response, partial.open("wb") as stream:
+            while chunk := response.read(1 << 20):
+                digest.update(chunk)
+                stream.write(chunk)
+        if digest.hexdigest() != expected:
+            partial.unlink()
+            raise ValueError("CEF distribution checksum differs from the source lock")
+        partial.replace(archive)
+    with archive.open("rb") as stream:
+        if hashlib.file_digest(stream, "sha1").hexdigest() != expected:
+            raise ValueError("CEF distribution checksum differs from the source lock")
 
 
 def metadata(target: str) -> bytes:
