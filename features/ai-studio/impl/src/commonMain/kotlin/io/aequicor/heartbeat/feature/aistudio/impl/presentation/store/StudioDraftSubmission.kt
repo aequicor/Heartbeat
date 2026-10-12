@@ -64,7 +64,8 @@ internal fun AiStudioScreenState.selectedNative(sessionId: String?): String = su
 /**
  * Handles a draft typed as `/compact` while compaction is offered: the chat's context is compacted instead of sending
  * a prompt and the draft is cleared once the request is queued; a request that cannot be queued now (no session yet,
- * a compaction already running) keeps the draft and marks the pane failed. False when the draft is anything else.
+ * a native sub-agent shown in the pane, a chat its owner compacts, a compaction already running) keeps the draft and
+ * marks the pane failed. False when the draft is anything else.
  */
 internal suspend fun compactStudioDraft(
     pipeline: PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>,
@@ -74,7 +75,7 @@ internal suspend fun compactStudioDraft(
     var target: Pair<String?, CompactCommand>? = null
     withState {
         val command = compactCommand(draft(paneId)).takeIf { isCompactEnabled && attachments(paneId).isEmpty() }
-        if (command != null) target = panes.firstOrNull { it.id == paneId }?.sessionId to command
+        if (command != null) target = compactedChat(paneId) to command
     }
     val (chat, command) = target ?: return@with false
     val isQueued = chat != null && compactions.request(chat, command.instructions)
@@ -82,3 +83,7 @@ internal suspend fun compactStudioDraft(
     updateState { if (isQueued) withDraft(paneId, "") else copy(failedPanes = (failedPanes + paneId).toImmutableSet()) }
     true
 }
+
+/** The chat a `/compact` draft of pane [paneId] compacts; none while the pane shows a native sub-agent of it. */
+internal fun AiStudioScreenState.compactedChat(paneId: Int): String? =
+    panes.firstOrNull { it.id == paneId }?.sessionId?.takeIf { selectedNative(it) == PrimarySubSession }

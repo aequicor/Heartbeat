@@ -143,6 +143,8 @@ internal class ConfigurationAccess(private val target: EngineTarget, private val
     val attached = mutableListOf<String>()
     val anchors = mutableMapOf<String, FeedbackAnchor>()
     var beforeSave: suspend () -> Unit = {}
+    var consumedSeeds = 0
+    var seedFailure: Exception? = null
 
     fun add(id: String, session: ConfigurationSession) {
         sessions[id] = session
@@ -179,6 +181,12 @@ internal class ConfigurationAccess(private val target: EngineTarget, private val
 
     override fun configurationState(id: String, state: StudioSessionConfiguration) {
         states[id] = state
+    }
+
+    override suspend fun consumeSeed(id: String) {
+        seedFailure?.let { throw it }
+        consumedSeeds++
+        records[id] = records.getValue(id).seeded()
     }
 }
 

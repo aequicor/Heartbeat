@@ -1,14 +1,15 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import kotlinx.coroutines.CancellationException
 
 /**
  * Carries a studio conversation across changes of its native context, under the chat's run reservation and
- * conversation lock. The repository supplies its storage: the record and the items of a conversation, their writes and
- * `detach`, which closes and forgets the native handle.
+ * conversation lock. The repository supplies its storage: the record and the items of a conversation, their writes,
+ * the open native `handle` of a conversation and `forget`, which drops a closed handle.
  */
 internal class StudioContextCarry(
     private val locks: StudioConversationLocks,
@@ -16,7 +17,8 @@ internal class StudioContextCarry(
     private val items: suspend (String) -> List<SessionItem>,
     private val write: suspend (String, (List<SessionItem>) -> List<SessionItem>) -> Unit,
     private val update: suspend (String, StudioChatRecord.() -> StudioChatRecord) -> Unit,
-    private val detach: suspend (String) -> Unit,
+    private val handle: suspend (String) -> ActiveSession?,
+    private val forget: suspend (String, ActiveSession) -> Unit,
 ) {
     private val log = Log.tag("StudioContextCarry")
 
@@ -30,9 +32,26 @@ internal class StudioContextCarry(
         val items = items(id)
         val seed = if (request.isBriefed) continuationSeed(items, request.isSummarized) else rolloverSeed(items)
         write(id) { it.frozen(record.contextSegment + 1) }
-        update(id) { rolledOver(seed) }
+        // A briefed rollover ran the handoff summary turn last: its failure is not the chat's.
+        update(id) { rolledOver(seed).let { if (request.isBriefed) it.withoutFailure() else it } }
         detach(id)
         RunOutcome.Completed
+    }
+
+    /**
+     * Closes the native handle of the session the chat left. The rollover has already taken effect, so a failed close
+     * keeps the handle, now closing, for the retried close the next open runs before a new session is created.
+     */
+    private suspend fun detach(id: String) {
+        val active = handle(id) ?: return
+        try {
+            active.close()
+            forget(id, active)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.e(e) { "Previous native session could not be closed after a rollover; its close is retried on open" }
+        }
     }
 
     /**

@@ -122,6 +122,30 @@ class StudioHelperMetadataTest {
         assertNull(child.ref)
     }
 
+    @Test
+    fun `a parent that rolled over still owns the session its helper was requested from`() = runTest {
+        val fixture = HelperMetadataFixture()
+        val target = EngineTarget(session.engine, EngineBindingId("binding"), ModelId("model"))
+        val parent = StudioChatRecord(
+            "parent",
+            "Parent",
+            at,
+            ref = session.copy(nativeId = "next"),
+            target = target,
+            previousRefs = listOf(session),
+        )
+        fixture.store.set(ChatsKey, listOf(parent))
+
+        val id = fixture.records.createHelper(input().copy(parent = session))
+
+        val child = fixture.store.get(ChatsKey).orEmpty().single { it.id == id.value }
+        assertEquals("parent", child.helper?.parentChatId)
+        assertEquals(session, child.helper?.parentSession)
+        assertFailsWith<IllegalStateException> {
+            fixture.records.createHelper(input().copy(parent = session.copy(nativeId = "unknown")))
+        }
+    }
+
     private fun input() = HelperCreateRequest(owner, null, null, null, "Private title", TrustLevel.Ask)
 }
 

@@ -1,16 +1,26 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionActivity
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeCoverage
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeNode
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeSnapshot
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPane
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioCompactionPort
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -74,6 +84,28 @@ class StudioCompactionModelTest {
         runCurrent()
 
         assertEquals("/compact", fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.Submit>().single().prompt)
+    }
+
+    @Test
+    fun `a compact command typed while a native sub-agent is shown compacts no chat`() {
+        val root = SessionRef(EngineId("native"), SessionSourceId("profile"), "root")
+        val child = root.copy(nativeId = "child")
+        val tree = SessionTreeSnapshot(
+            root,
+            listOf(
+                SessionTreeNode(root, null, "Root", SessionActivity.Running),
+                SessionTreeNode(child, root, "Child", SessionActivity.Running),
+            ),
+            SessionTreeCoverage.Complete,
+        )
+        val state = AiStudioScreenState(
+            panes = persistentListOf(PaneUi(0, sessionId = "chat")),
+            nativeTrees = persistentMapOf("chat" to tree.toUi()),
+            subSessions = persistentMapOf("chat" to nativeKey(child)),
+        )
+
+        assertNull(state.compactedChat(0))
+        assertEquals("chat", state.copy(subSessions = persistentMapOf()).compactedChat(0))
     }
 
     private class FakeCompactions(private val isQueued: Boolean = true) : StudioCompactionPort {

@@ -27,6 +27,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
@@ -43,6 +44,7 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimi
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContinuationBriefEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.HANDOFF_SUMMARY_PROMPT
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.PendingCompaction
+import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -50,6 +52,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.yield
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -70,6 +73,38 @@ class StudioCompactionsTest {
             listOf(Public.Compact(Chat, CompactionOrigin.User, "keep decisions")),
             fixture.registry.sent,
         )
+    }
+
+    @Test
+    fun `helper and organism chats refuse a user compaction before it is queued`() = runTest {
+        val fixture = Fixture(this)
+        runCurrent()
+
+        assertFalse(fixture.compactions.request("helper", null))
+        assertFalse(fixture.compactions.request("organism", null))
+
+        assertTrue(fixture.registry.sent.isEmpty())
+    }
+
+    @Test
+    fun `a compaction queued while the previous one of the chat finishes still runs`() = runTest {
+        val fixture = Fixture(this)
+        var isQueuedAgain = false
+        fixture.afterFinished = {
+            if (!isQueuedAgain) {
+                isQueuedAgain = true
+                fixture.pending(Chat to PendingCompaction(CompactionMethod.Native, CompactionOrigin.User))
+                // The host observes the new request while the finished one is still marked in flight.
+                repeat(10) { yield() }
+            }
+        }
+        val job = launch { fixture.compactions.run() }
+
+        fixture.pending(Chat to PendingCompaction(CompactionMethod.Native, CompactionOrigin.User))
+        runCurrent()
+
+        assertEquals(2, fixture.executed.count { it.compaction != null })
+        job.cancel()
     }
 
     @Test
@@ -222,6 +257,7 @@ class StudioCompactionsTest {
 
     private class Fixture(scope: TestScope, disabled: Set<FeatureToggle<*>> = emptySet()) {
         private val state = MutableStateFlow<ContextOptimizationState>(ContextOptimizationState.Ready())
+        var afterFinished: suspend () -> Unit = {}
         val registry = Registry { intent ->
             val ready = state.value as ContextOptimizationState.Ready
             if (intent is Public.Claim) {
@@ -231,6 +267,7 @@ class StudioCompactionsTest {
                     running = ready.running + (intent.session to claimed),
                 )
             }
+            if (intent is Public.Finished) afterFinished()
         }
         val executed = mutableListOf<StudioTurnRequest>()
         private val stores = ChecklistTestStores()
@@ -259,6 +296,20 @@ class StudioCompactionsTest {
                     listOf(
                         StudioChatRecord("chat", "Chat", Instant.DISTANT_PAST, ref = Chat),
                         StudioChatRecord("new-chat", "New", Instant.DISTANT_PAST),
+                        StudioChatRecord(
+                            "helper",
+                            "Helper",
+                            Instant.DISTANT_PAST,
+                            ref = Chat.copy(nativeId = "helper-native"),
+                            helper = StudioHelperIdentity(ActionId("action"), "chat", Chat, TrustLevel.Ask),
+                        ),
+                        StudioChatRecord(
+                            "organism",
+                            "Organism",
+                            Instant.DISTANT_PAST,
+                            ref = Chat.copy(nativeId = "organism-native"),
+                            organismId = "organism",
+                        ),
                     ),
                 )
             }
@@ -269,7 +320,7 @@ class StudioCompactionsTest {
         }
     }
 
-    private class Registry(private val applied: (MachineIntent) -> Unit = {}) : MachineRegistry {
+    private class Registry(private val applied: suspend (MachineIntent) -> Unit = {}) : MachineRegistry {
         val sent = mutableListOf<MachineIntent>()
 
         override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> find(

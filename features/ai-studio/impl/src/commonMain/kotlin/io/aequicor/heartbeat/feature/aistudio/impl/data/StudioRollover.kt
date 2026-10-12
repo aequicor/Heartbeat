@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoticeKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.sessionEssence
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.RunFailureKind
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.BriefMode
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.HANDOFF_REQUEST_PREFIX
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.continuationBrief
@@ -48,6 +49,10 @@ internal fun StudioChatRecord.rolledOver(seed: String?): StudioChatRecord {
         pendingBrief = null,
     )
 }
+
+/** The record without the failure of its last turn. */
+internal fun StudioChatRecord.withoutFailure(): StudioChatRecord =
+    copy(hasFailed = false, failureKind = RunFailureKind.Unknown)
 
 /** The transcript after a rollover into segment [segment]: every item frozen, closed by a rollover notice. */
 internal fun List<SessionItem>.frozen(segment: Int): List<SessionItem> {

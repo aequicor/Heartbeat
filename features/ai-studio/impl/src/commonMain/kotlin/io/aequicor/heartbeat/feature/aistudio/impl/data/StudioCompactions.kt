@@ -44,11 +44,13 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.HANDOFF_SUMMA
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.PendingCompaction
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -112,7 +114,12 @@ internal class StudioCompactions(
 
     override suspend fun request(chatId: String, instructions: String?): Boolean {
         if (!toggles.get(ContextOptimizationEnabled)) return false
-        val session = chats().firstOrNull { it.id == chatId }?.ref ?: return false.also {
+        val chat = chats().firstOrNull { it.id == chatId }
+        if (chat?.isCompactable == false) {
+            log.i { "compaction skipped: helper and organism chats keep their context to their owners" }
+            return false
+        }
+        val session = chat?.ref ?: return false.also {
             log.i { "compaction skipped: the chat has no native session yet" }
         }
         val intent = ContextOptimizationIntent.Public.Compact(session, CompactionOrigin.User, instructions)
@@ -152,22 +159,30 @@ internal class StudioCompactions(
         combine(toggles.observe(ContextOptimizationEnabled), view.state) { isEnabled, state ->
             if (isEnabled) (state as? ContextOptimizationState.Ready)?.pending.orEmpty() else emptyMap()
         }.distinctUntilChanged().collect { pending ->
-            pending.keys.forEach { session ->
-                if (inFlight.getAndUpdate { it + session }.contains(session)) return@forEach
-                log.d { "handle a pending compaction: in flight=${inFlight.value.size}" }
-                launch {
-                    val continued = try {
-                        execute(session)
-                    } finally {
-                        inFlight.update { it - session }
-                        log.d { "pending compaction handled: in flight=${inFlight.value.size}" }
-                    }
-                    // Outside the in-flight mark: the continuation may ask for the next compaction itself.
-                    continued?.let { continueWork(it) }
-                }
-            }
+            pending.keys.forEach { session -> handle(session) }
         }
     }
+
+    /** Runs the pending compaction of [session] unless one of it is already in flight. */
+    private fun CoroutineScope.handle(session: SessionRef) {
+        if (inFlight.getAndUpdate { it + session }.contains(session)) return
+        log.d { "handle a pending compaction: in flight=${inFlight.value.size}" }
+        launch {
+            val continued = try {
+                execute(session)
+            } finally {
+                inFlight.update { it - session }
+                log.d { "pending compaction handled: in flight=${inFlight.value.size}" }
+            }
+            // A request queued while this one finished was skipped as in flight and may never change the map again.
+            if (isPending(session)) handle(session)
+            // Outside the in-flight mark: the continuation may ask for the next compaction itself.
+            continued?.let { continueWork(it) }
+        }
+    }
+
+    private suspend fun isPending(session: SessionRef): Boolean = toggles.get(ContextOptimizationEnabled) &&
+        (view.state.value as? ContextOptimizationState.Ready)?.pending?.containsKey(session) == true
 
     /**
      * Claims the pending compaction of [session] and runs the request the machine moved to running. Returns the chat
@@ -310,10 +325,13 @@ private const val CONTINUE_DIRECTIVE =
 internal class StudioCompactionStartup(
     private val compactions: Lazy<StudioCompactionHost>,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
+    private val toggles: FeatureToggles,
 ) : ProfileStartup {
     override fun start() {
         profile.coroutineScope.launch {
             try {
+                // The host starts the context optimization machine: nothing of it runs until the feature is on.
+                toggles.observe(ContextOptimizationEnabled).first { it }
                 compactions.value.run()
             } catch (e: CancellationException) {
                 throw e

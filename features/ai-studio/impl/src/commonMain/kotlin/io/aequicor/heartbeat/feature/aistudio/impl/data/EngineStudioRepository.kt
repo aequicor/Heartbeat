@@ -212,9 +212,15 @@ internal class EngineStudioRepository(
     private val stopRequests = mutableSetOf<String>()
 
     private val conversationLocks = StudioConversationLocks(handlesLock)
-    private val carry = StudioContextCarry(conversationLocks, ::record, ::items, ::write, ::update) { id ->
-        handlesLock.withLock { handles.remove(id) }?.close()
-    }
+    private val carry = StudioContextCarry(
+        conversationLocks,
+        ::record,
+        ::items,
+        ::write,
+        ::update,
+        handle = { id -> handlesLock.withLock { handles[id] } },
+        forget = { id, handle -> handlesLock.withLock { if (handles[id] === handle) handles.remove(id) } },
+    )
     private val mutableState = MutableStateFlow(StudioRuntimeState())
     override val state: StateFlow<StudioRuntimeState> = mutableState.asStateFlow()
 

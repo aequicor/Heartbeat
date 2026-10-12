@@ -32,9 +32,10 @@ internal suspend fun ActiveSession.submitStudioPrompt(
     requestId: RequestId,
     compaction: ContextCompaction? = null,
 ): TurnId {
-    // A compaction carries neither input nor turn options: it only summarizes the native context.
+    // A compaction carries no input and no effort: it only summarizes the native context. It keeps the chat's trust,
+    // which the engine would otherwise reset to its default and report back as the chat's configuration.
     val request = if (compaction != null) {
-        PromptRequest(requestId, emptyList(), compaction = supportedCompaction(compaction))
+        PromptRequest(requestId, emptyList(), trust = trust, compaction = supportedCompaction(compaction))
     } else {
         PromptRequest(
             requestId,

@@ -64,9 +64,10 @@ internal class StudioConfiguredSubmission(
         } else {
             seeded.copy(directives = seeded.directives + HELPER_DIRECTIVE)
         }
+        // The handoff turn's narrowed trust is not the chat's configuration: its session is never reflected again.
+        if (request.isHandoff) controller.retire(id, active)
         val submitted = send(active, constrained, effort) { turnTrust(request, record, trust, configurations) }
-        if (carried.isNotEmpty()) access.consumeSeed(id)
-        // The handoff turn's narrowed trust is not the chat's configuration.
+        if (carried.isNotEmpty()) consumeSeed(access, id)
         if (request.isHandoff) return submitted.turn
         confirmConfiguration(
             access,
@@ -90,6 +91,17 @@ internal class StudioConfiguredSubmission(
         helperPolicy.trust(record, trust, configurations)
     }
 
+    /** Native acceptance owns the turn: a seed that cannot be marked delivered may only reach the next turn again. */
+    private suspend fun consumeSeed(access: StudioConfigurationAccess, id: String) {
+        try {
+            access.consumeSeed(id)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.e(e) { "Carried context of an accepted turn could not be marked delivered; keep native ownership" }
+        }
+    }
+
     private suspend fun confirmConfiguration(
         access: StudioConfigurationAccess,
         id: String,
@@ -109,7 +121,7 @@ internal class StudioConfiguredSubmission(
             } catch (e: Exception) {
                 log.e(e) { "Accepted turn configuration could not be saved; continue native observation" }
             }
-            controller.observe(access, id, active, target)
+            controller.observe(access, id, active, target, isTurnAccepted = true)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

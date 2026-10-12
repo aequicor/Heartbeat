@@ -87,6 +87,9 @@ internal class StudioConfigurationController(
     private val lock = Mutex()
     private val changing = mutableSetOf<String>()
     private val observed = mutableMapOf<String, ConfigurationObservation>()
+
+    /** Sessions whose configuration no longer is their chat's: see [retire]. */
+    private val retired = mutableMapOf<String, ActiveSession>()
     private val reports = mutableMapOf<String, FeedbackRecord>()
     private val published = mutableSetOf<String>()
 
@@ -211,11 +214,24 @@ internal class StudioConfigurationController(
         }
     }
 
-    /** Profile-owned observation outlives screens, but releases both collectors when its handle closes or changes. */
-    suspend fun observe(access: StudioConfigurationAccess, id: String, session: ActiveSession, target: EngineTarget) {
+    /**
+     * Profile-owned observation outlives screens, but releases both collectors when its handle closes or changes. A
+     * [retired][retire] session is observed again only once a turn of the chat itself was accepted in it
+     * ([isTurnAccepted]).
+     */
+    suspend fun observe(
+        access: StudioConfigurationAccess,
+        id: String,
+        session: ActiveSession,
+        target: EngineTarget,
+        isTurnAccepted: Boolean = false,
+    ) {
         val capability = (session.features.resolve(ChangesSessionConfiguration) as? FeatureAccess.Available)?.feature
             ?: return
         lock.withLock {
+            val retiredSession = retired[id]
+            if (retiredSession != null && (retiredSession !== session || isTurnAccepted)) retired.remove(id)
+            if (retired[id] === session) return
             if (observed[id]?.session === session || session.state.value == ActiveSessionState.Closed) return
             observed[id]?.job?.cancel()
             val job = profile.coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
@@ -230,6 +246,21 @@ internal class StudioConfigurationController(
                 }
             }
             observed[id] = ConfigurationObservation(session, target, job)
+        }
+    }
+
+    /**
+     * Stops reflecting [session] into chat [id] before a turn that runs with a narrowed trust that is not the chat's
+     * (the handoff summary before a rollover retires its session). Removing the observation before that turn is sent
+     * keeps the trust the engine publishes for it, possibly after acceptance, out of the chat's configuration.
+     */
+    suspend fun retire(id: String, session: ActiveSession) {
+        log.d { "Stop reflecting a retiring session into its chat" }
+        lock.withLock {
+            retired[id] = session
+            val observation = observed[id]?.takeIf { it.session === session } ?: return@withLock
+            observed.remove(id)
+            observation.job.cancel()
         }
     }
 
