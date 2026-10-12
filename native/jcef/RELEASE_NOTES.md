@@ -3,6 +3,8 @@ profile ownership, cookie flush and asynchronous disposal completion.
 The hb2 revision also fixes macOS visibility and resize/close races accessing
 destroyed NSView pointers: tasks now retain the browser and validate its view on
 CEF UI. Cancelled reparent operations release their retained browser callback.
+Content-view destruction detaches children before removing its final owner,
+avoiding access to an already-deallocated view.
 
 The five matching Java/native jars cover Windows and macOS on x64 and ARM64.
 `source-lock.json` identifies the exact upstream JCEF commit, CEF version, patch
