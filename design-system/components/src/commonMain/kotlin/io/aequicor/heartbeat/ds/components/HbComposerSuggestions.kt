@@ -71,6 +71,8 @@ public data class HbComposerSuggestions(
  * Suggestion list floating above the whole composer while its editor keeps the focus. Unlike the composer
  * menus this popup is not focusable: arrows, Enter, Tab and Escape stay editor keys handled by
  * [composerSuggestionKeys] before the send shortcut, so accepting a suggestion never sends the draft.
+ * Outside clicks and scrolls reach the editor and the content beneath; the composer hides the list once
+ * the editor loses focus.
  */
 @Composable
 internal fun ComposerSuggestionsPopup(

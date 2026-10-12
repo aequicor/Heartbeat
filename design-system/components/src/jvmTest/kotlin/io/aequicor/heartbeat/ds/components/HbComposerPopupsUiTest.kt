@@ -15,6 +15,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SkikoComposeUiTest
 import androidx.compose.ui.test.isRoot
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performMouseInput
@@ -26,8 +27,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * The composer's popups share the menu host: on desktop an outside click dismisses them and never activates
- * the content beneath (which may be an embedded native surface that Compose never sees).
+ * The composer's popups share the menu host: on desktop an outside click dismisses a focusable popup and never
+ * activates the content beneath (which may be an embedded native surface that Compose never sees). Suggestions
+ * are not focusable and let outside input reach the editor beneath.
  */
 @OptIn(ExperimentalTestApi::class)
 class HbComposerPopupsUiTest {
@@ -44,11 +46,24 @@ class HbComposerPopupsUiTest {
     }
 
     @Test
-    fun `outside clicks dismiss suggestions without reaching the content beneath`() {
-        assertOutsideClicks { onDismiss ->
+    fun `outside clicks on suggestions reach the editor beneath`() = runSkikoComposeUiTest(size = Size(WIDTH, HEIGHT)) {
+        val host = PopupHost()
+        setPopup(host) { onDismiss ->
             val suggestions = HbComposerSuggestions(persistentListOf(HbComposerSuggestion("help", "/help")))
             ComposerSuggestionsPopup(suggestions, "Suggestions", onDismiss, {})
         }
+        CORNERS.forEach { point ->
+            host.isOpen = true
+            waitForIdle()
+            onNodeWithText("/help").assertExists()
+            // The suggestions layer has no backdrop: the window content takes the click directly.
+            onAllNodes(isRoot()).onFirst().performMouseInput {
+                moveTo(point)
+                press()
+                release()
+            }
+        }
+        runOnIdle { assertEquals(CORNERS.size, host.underlyingClicks) }
     }
 
     @Test
@@ -78,18 +93,17 @@ class HbComposerPopupsUiTest {
         runSkikoComposeUiTest(size = Size(WIDTH, HEIGHT)) {
             val host = PopupHost()
             setPopup(host, popup)
-            listOf(Offset(1f, 1f), Offset(WIDTH - 1f, 1f), Offset(1f, HEIGHT - 1f), Offset(WIDTH - 1f, HEIGHT - 1f))
-                .forEach { point ->
-                    host.isOpen = true
-                    waitForIdle()
-                    // The popup layer is the last root: outside its sheet it must cover the whole window.
-                    onAllNodes(isRoot()).onLast().performMouseInput {
-                        moveTo(point)
-                        press()
-                        release()
-                    }
-                    runOnIdle { assertEquals(false, host.isOpen) }
+            CORNERS.forEach { point ->
+                host.isOpen = true
+                waitForIdle()
+                // The popup layer is the last root: outside its sheet it must cover the whole window.
+                onAllNodes(isRoot()).onLast().performMouseInput {
+                    moveTo(point)
+                    press()
+                    release()
                 }
+                runOnIdle { assertEquals(false, host.isOpen) }
+            }
             runOnIdle {
                 assertEquals(4, host.dismissed)
                 assertEquals(0, host.underlyingClicks)
@@ -121,5 +135,11 @@ class HbComposerPopupsUiTest {
     private companion object {
         const val WIDTH = 800f
         const val HEIGHT = 600f
+        val CORNERS = listOf(
+            Offset(1f, 1f),
+            Offset(WIDTH - 1f, 1f),
+            Offset(1f, HEIGHT - 1f),
+            Offset(WIDTH - 1f, HEIGHT - 1f),
+        )
     }
 }
