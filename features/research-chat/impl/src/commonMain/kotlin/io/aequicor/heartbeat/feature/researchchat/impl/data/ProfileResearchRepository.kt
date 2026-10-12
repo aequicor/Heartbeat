@@ -52,6 +52,7 @@ import io.aequicor.heartbeat.feature.researchchat.api.ResearchWorkspace
 import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchAttachments
 import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchRepository
 import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchRun
+import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchSourceRecovery
 import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchStorage
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import kotlinx.coroutines.CancellationException
@@ -85,7 +86,7 @@ internal class ProfileResearchRepository(
     private val toggles: FeatureToggles,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val attachments: ResearchAttachments = ResearchAttachments.Legacy,
-    private val browserRecovery: ResearchBrowserRecovery? = null,
+    private val browserRecovery: ResearchSourceRecovery,
 ) : ResearchRepository {
     private val log = Log.tag("ResearchRepository")
     private val sourceImporter = ResearchSourceImporter(search, attachments)
@@ -111,7 +112,7 @@ internal class ProfileResearchRepository(
     override suspend fun prepare(target: EngineTarget): ResearchWorkspace {
         log.i { "Prepare research workspace" }
         requireEnabled(target)
-        browserRecovery?.restore()
+        browserRecovery.restore()
         migrateSources()
         recoverPending()
         if (storage.read().none { it.target == target }) createSession(target)
@@ -303,7 +304,7 @@ internal class ProfileResearchRepository(
     }
 
     private suspend fun recoverAndResume(sessionId: String, resourceId: String, action: ResearchRecoveryAction) {
-        requireNotNull(browserRecovery).recover(sessionId, resourceId, action)
+        browserRecovery.recover(sessionId, resourceId, action)
         if (action == ResearchRecoveryAction.Continue) {
             sourceResumeLock.withLock {
                 val current = session(sessionId)
@@ -655,7 +656,7 @@ internal class ProfileResearchRepository(
                 .selectedResources(question)
                 .filter { it.recoveryAttempt != null }
                 .forEach {
-                    browserRecovery?.recover(session.id, it.id, ResearchRecoveryAction.Cancel)
+                    browserRecovery.recover(session.id, it.id, ResearchRecoveryAction.Cancel)
                 }
         }
         val turn = active?.state?.value?.activeTurn()
