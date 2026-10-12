@@ -11,6 +11,15 @@ closing a browser disposes that wrapper. Close every browser first, then call
 anchor on the CEF UI thread. Completion runs on a subsequent UI task; callers
 must still account for asynchronous OS file handle release before deleting data.
 
+The same patch reserves browser creation before queuing native work, preventing
+duplicate native browsers for one Java wrapper on macOS. `onAfterClose` runs after
+Java context/browser cleanup and client-registry removal; `onCreationFailed` is a
+terminal notification after cleanup of an uncreated wrapper. A context-aware
+`CefURLRequest.create(request, client, context)` overload permits bounded downloads
+through the same Chromium profile and its resource-request handler. A disposed
+context fails rather than falling back to the global profile. Keep the context
+alive until request completion, then dispose the request before its context.
+
 ## Build and verify
 
 [Patched JCEF runtime](../../.github/workflows/jcef-runtime.yml) runs on pushes to

@@ -171,6 +171,7 @@ public final class SessionProbe {
         Tab result = new Tab(anchor, name);
         tabs.add(result);
         await(result.loaded, "load " + name);
+        result.assertSingleCreation();
         require(Boolean.TRUE.equals(result.evaluate("Boolean(window.probe)")), "Fixture missing");
         return result;
     }
@@ -186,6 +187,8 @@ public final class SessionProbe {
         a1.write(required("marker-a"));
         storage(a2, required("marker-a"), "tabs-share-all-site-data");
         storage(b1, null, "profile-b-isolated-from-a");
+        ProbeDownload.verify(a.context, b.context, required("origin"), required("server-token"), required("marker-a"));
+        passed("context-url-request-cookies-isolation-and-cancel", Map.of());
         b1.write(required("marker-b"));
         storage(a1, required("marker-a"), "profile-a-isolated-from-b");
         a1.close();
@@ -337,17 +340,25 @@ public final class SessionProbe {
         final CefClient client;
         final CefBrowser browser;
         final JFrame frame;
+        final List<Integer> createdIds = new CopyOnWriteArrayList<>();
         boolean closeRequested;
 
         Tab(Anchor anchor, String name) throws Exception {
             client = app.createClient();
             client.addLifeSpanHandler(new CefLifeSpanHandlerAdapter() {
-                @Override public void onBeforeClose(CefBrowser browser) {
+                @Override public void onAfterCreated(CefBrowser browser) {
                     int identifier = browser.getIdentifier();
-                    // AppKit and EDT are different threads. Wait for CefClient's own cleanup,
-                    // not merely one queued EDT turn, before marking/disposal of the client.
-                    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(TIMEOUT_SECONDS);
-                    SwingUtilities.invokeLater(() -> disposeAfterBrowserCleanup(identifier, deadline));
+                    createdIds.add(identifier);
+                    System.out.println("BROWSER CREATED tab=" + name + " id=" + identifier
+                        + " javaIdentity=" + System.identityHashCode(browser) + " createdIds=" + createdIds);
+                }
+                @Override public void onAfterClose(CefBrowser browser) {
+                    completeNativeClose(browser.getIdentifier());
+                }
+                @Override public void onCreationFailed(CefBrowser browser) {
+                    closeRequested = true;
+                    completeNativeClose(-1);
+                    loaded.completeExceptionally(new AssertionError("Native browser creation failed: " + name));
                 }
             });
             client.addLoadHandler(new CefLoadHandlerAdapter() {
@@ -376,21 +387,23 @@ public final class SessionProbe {
             });
         }
 
-        private void disposeAfterBrowserCleanup(int identifier, long deadline) {
+        private void assertSingleCreation() throws Exception {
+            int count = registeredBrowsers(client);
+            require(createdIds.size() == 1 && count == 1,
+                "A Java browser must have exactly one native creation: createdIds=" + createdIds
+                    + " registeredBrowsers=" + count);
+        }
+
+        private void completeNativeClose(int identifier) {
             try {
+                // A diagnostic assertion of the public hook's contract, not a reflection-based barrier.
                 int remaining = registeredBrowsers(client);
-                if (remaining == 0) {
-                    client.dispose();
-                    System.out.println("CLIENT DISPOSED browser=" + identifier
-                        + " remainingClients=" + remainingClients());
-                    closed.complete(null);
-                } else if (System.nanoTime() >= deadline) {
-                    closed.completeExceptionally(new AssertionError("CefClient cleanup timed out: browser="
-                        + identifier + " registeredBrowsers=" + remaining + " appState=" + CefApp.getState()));
-                } else {
-                    // Cooperative EDT scheduling leaves native AppKit callbacks free to finish.
-                    SwingUtilities.invokeLater(() -> disposeAfterBrowserCleanup(identifier, deadline));
-                }
+                require(remaining == 0, "After-close hook preceded registry cleanup: browser=" + identifier
+                    + " registeredBrowsers=" + remaining);
+                client.dispose();
+                System.out.println("CLIENT DISPOSED browser=" + identifier
+                    + " remainingClients=" + remainingClients());
+                closed.complete(null);
             } catch (Throwable failure) {
                 failure.printStackTrace(System.err);
                 closed.completeExceptionally(failure);
@@ -421,6 +434,7 @@ public final class SessionProbe {
 
         void close() throws Exception {
             if (!closeRequested) {
+                assertSingleCreation();
                 closeRequested = true;
                 onEdt(() -> { browser.close(true); return null; });
             }

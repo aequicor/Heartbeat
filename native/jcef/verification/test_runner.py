@@ -80,6 +80,15 @@ class FixtureTests(unittest.TestCase):
         self.assertTrue((self.owner / "owner-marker.txt").exists())
         self.assertEqual((self.b / "marker").read_text(encoding="utf-8"), "other profile")
 
+    def test_held_response_streams_prefix_then_requires_explicit_release(self):
+        with urllib.request.urlopen(self.origin + "/held-response", timeout=5) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(int(response.headers["Content-Length"]), 1024 * 1024)
+            self.assertEqual(response.read(len(b"native cancellation fixture")), b"native cancellation fixture")
+            self.post("/release-held")
+            self.assertEqual(response.read(1), b"")
+        self.assertEqual(self.events, [])
+
     def test_delete_removes_only_selected_profile(self):
         self.assertTrue(self.post("/delete-profile")["passed"])
         self.assertFalse(self.a.exists())

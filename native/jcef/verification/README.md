@@ -64,10 +64,11 @@ Python-процесс один раз запускает HTTP server на `127.0
 Таймаут этапа по умолчанию 240 секунд завершает всё дерево процесса и проваливает прогон.
 
 На macOS callback `onBeforeClose` идёт с AppKit thread, а Swing — с EDT. Harness освобождает
-клиент только после удаления браузера из registry JCEF; ожидание уступает EDT очередь без
-`sleep`. Размер registry читается рефлексией из закреплённого Java API, никогда не меняется
-тестом. Диагностика выводит остаток клиентов перед shutdown и полный stack trace необработанных
-callback exceptions. Отсутствие `TERMINATED` по-прежнему проваливает весь прогон.
+клиент по patched `onAfterClose`, после освобождения wrapper и удаления браузера из registry JCEF.
+Размер registry читается рефлексией только для проверки контракта callback, без polling и мутаций.
+Терминальный `onCreationFailed` обязан освободить wrapper до callback. Диагностика выводит остаток
+клиентов перед shutdown и полный stack trace необработанных callback exceptions.
+Повторное нативное создание одного Java browser и отсутствие `TERMINATED` проваливают прогон.
 
 Удаление выполняется только внутри свежего `--output/profiles`; запрос требует случайный
 run token. Выход за каталог, symlink/junction и удаление корня profiles отвергаются.

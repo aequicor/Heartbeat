@@ -38,6 +38,7 @@ def remove_owned_profile(profiles: Path, target: Path) -> None:
 
 def handler_type(profiles: Path, token: str, events: list[dict]) -> type[http.server.BaseHTTPRequestHandler]:
     fixture = Path(__file__).with_name("fixture.html").read_bytes()
+    held_response = threading.Event()
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, fmt: str, *args: object) -> None:
@@ -73,12 +74,26 @@ def handler_type(profiles: Path, token: str, events: list[dict]) -> type[http.se
                 self.wfile.write(b"{}")
             elif parsed.path == "/favicon.ico":
                 self.reply(204, b"")
+            elif parsed.path == "/held-response":
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(1024 * 1024))
+                self.end_headers()
+                self.wfile.write(b"native cancellation fixture")
+                self.wfile.flush()
+                # The client cancels after receiving this prefix. Parent control releases the handler.
+                if not held_response.wait(timeout=60):
+                    raise TimeoutError("Native cancellation did not release the held fixture response")
             else:
                 self.reply(404, b'{"error":"unknown fixture path"}')
 
         def do_POST(self) -> None:
             if not hmac.compare_digest(self.headers.get("X-Probe-Token", ""), token):
                 self.reply(403, b'{"error":"invalid run token"}')
+                return
+            if self.path == "/release-held":
+                held_response.set()
+                self.reply(200, b"{}")
                 return
             if self.path not in ("/clear-profile", "/delete-profile"):
                 self.reply(404, b'{"error":"unknown operation"}')
@@ -196,7 +211,8 @@ def main() -> int:
     try:
         command = [args.javac, "--release", "21", "-encoding", "UTF-8", "-classpath",
                    os.pathsep.join(map(str, classpath)), "-d", str(classes),
-                   str(sources / "ProbeJson.java"), str(sources / "SessionProbe.java")]
+                   str(sources / "ProbeJson.java"), str(sources / "ProbeDownload.java"),
+                   str(sources / "SessionProbe.java")]
         with (output / "compile.log").open("wb") as log:
             subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=90)
         if args.compile_only:
