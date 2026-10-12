@@ -28,9 +28,17 @@
     "default_path": "src/sidepanel/sidepanel.html"
   },
   "permissions": [
+    "activeTab",
     "alarms",
+    "contextMenus",
     "nativeMessaging",
+    "scripting",
     "sidePanel",
-    "storage"
+    "storage",
+    "tabs"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
   ]
 }

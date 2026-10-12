@@ -152,5 +152,14 @@
   },
   "errorGeneric": {
     "message": "The action failed."
+  },
+  "sendSelection": {
+    "message": "Send selection to Heartbeat"
+  },
+  "attachPage": {
+    "message": "Attach this page"
+  },
+  "errorCapture": {
+    "message": "This page cannot be attached."
   }
 }

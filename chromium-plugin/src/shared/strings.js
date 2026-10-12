@@ -20,6 +20,7 @@ export const ERROR_MESSAGES = Object.freeze({
   timeout: 'errorTimeout',
   bad_request: 'errorBadRequest',
   too_large: 'errorTooLarge',
+  capture: 'errorCapture',
 });
 
 /**

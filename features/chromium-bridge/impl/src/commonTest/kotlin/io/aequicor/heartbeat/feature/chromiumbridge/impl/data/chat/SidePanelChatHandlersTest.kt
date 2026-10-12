@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.chromiumbridge.impl.data.chat
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEntry
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatList
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatPart
@@ -11,6 +12,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioChatSummary
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChats
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeErrorCode
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.WirePage
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeCall
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeClient
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeIncomingEvent
@@ -45,7 +47,12 @@ import kotlin.time.Instant
 
 class SidePanelChatHandlersTest {
     private val chats = FakeChats()
-    private val handlers = SidePanelChatHandlers(chats)
+    private val imported = mutableListOf<List<WirePage>>()
+    private var importResult: PageImport = PageImport.Imported(listOf(ResourceRef("attachment:1", "text/markdown")))
+    private val handlers = SidePanelChatHandlers(chats) { pages ->
+        imported += pages
+        importResult
+    }
     private val at = Instant.fromEpochSeconds(1_700_000_000)
 
     @Test
@@ -129,8 +136,42 @@ class SidePanelChatHandlersTest {
 
         assertEquals("c9", accepted.result.jsonObject["chatId"]?.jsonPrimitive?.content)
         assertEquals(BridgeErrorCode.BUSY, busy.code)
-        assertEquals(listOf(StudioChatSend(null, null, "Hi"), StudioChatSend("c9", null, "Again")), chats.sent)
+        val page = ResourceRef("attachment:1", "text/markdown")
+        assertEquals(
+            listOf(StudioChatSend(null, null, "Hi", listOf(page)), StudioChatSend("c9", null, "Again", listOf(page))),
+            chats.sent,
+        )
         assertFailsWith<IllegalArgumentException> { call(session, "chat.send", buildJsonObject { put("text", " ") }) }
+    }
+
+    @Test
+    fun `captured pages are imported before the prompt and refused imports stop it`() = runTest {
+        val session = FakeSession(this)
+        chats.sendResult = StudioChatSendResult.Accepted("c1")
+        val page = buildJsonObject {
+            put("kind", "page")
+            put("url", "https://example.com/a")
+            put("title", "A")
+            put("text", "Body")
+        }
+        val params = buildJsonObject {
+            put("text", "Summarize")
+            put("attachments", JsonArray(listOf(page)))
+        }
+
+        call(session, "chat.send", params)
+        importResult = PageImport.Refused
+        val refused = call(session, "chat.send", params) as BridgeReply.Refused
+
+        assertEquals(listOf(WirePage(url = "https://example.com/a", title = "A", text = "Body")), imported.first())
+        assertEquals(BridgeErrorCode.BUSY, refused.code)
+        assertEquals(1, chats.sent.size)
+        val unsafePage = buildJsonObject { put("url", "file:///etc/passwd") }
+        val unsafe = buildJsonObject {
+            put("text", "x")
+            put("attachments", JsonArray(listOf(unsafePage)))
+        }
+        assertFailsWith<IllegalArgumentException> { call(session, "chat.send", unsafe) }
     }
 
     @Test

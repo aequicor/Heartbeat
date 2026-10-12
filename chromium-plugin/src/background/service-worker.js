@@ -1,5 +1,7 @@
 // @ts-check
+import { createTranslator } from '../shared/strings.js';
 import { browserInfo } from './browser-info.js';
+import { installSelectionMenu, onSelectionMenu } from './context-menu.js';
 import { createNativeLink } from './native-link.js';
 import { PANEL_PORT, createPanelHub } from './panel-hub.js';
 
@@ -22,6 +24,11 @@ hub = createPanelHub({ link, extensionOrigin: chrome.runtime.getURL('') });
 
 chrome.runtime.onConnect.addListener((/** @type {any} */ port) => {
   if (port.name === PANEL_PORT) hub?.attach(port);
+});
+
+chrome.runtime.onInstalled.addListener(() => installSelectionMenu(chrome, createTranslator(chrome.i18n)));
+chrome.contextMenus.onClicked.addListener((/** @type {any} */ info, /** @type {any} */ tab) => {
+  onSelectionMenu(chrome, info, tab).catch(() => {});
 });
 
 // The toolbar button opens the side panel with the chat.

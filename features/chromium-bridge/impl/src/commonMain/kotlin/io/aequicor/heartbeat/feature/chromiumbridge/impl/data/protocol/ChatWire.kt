@@ -20,9 +20,30 @@ internal data class ChatRef(val chatId: String)
 @Serializable
 internal data class WatchRef(val watch: String)
 
-/** `chat.send` parameters: an existing [chatId], or a new chat in [projectId]. */
+/** `chat.send` parameters: an existing [chatId], or a new chat in [projectId]; [attachments] are captured pages. */
 @Serializable
-internal data class ChatSendParams(val chatId: String? = null, val projectId: String? = null, val text: String)
+internal data class ChatSendParams(
+    val chatId: String? = null,
+    val projectId: String? = null,
+    val text: String,
+    val attachments: List<WirePage> = emptyList(),
+)
+
+/** A page the extension captured: its address, title, the user's selection and its readable text. */
+@Serializable
+internal data class WirePage(
+    val kind: String = "page",
+    val url: String,
+    val title: String = "",
+    val text: String = "",
+    val selection: String? = null,
+) {
+    /** Bounds the extension promised to respect. */
+    fun isValid(): Boolean = kind == "page" && url.length <= ChatWireLimits.MAX_URL_CHARS &&
+        (url.startsWith("https://") || url.startsWith("http://")) &&
+        title.length <= ChatWireLimits.MAX_TITLE_CHARS && text.length <= ChatWireLimits.MAX_PAGE_CHARS &&
+        (selection?.length ?: 0) <= ChatWireLimits.MAX_SELECTION_CHARS
+}
 
 /** `chat.send` result. */
 @Serializable
@@ -157,6 +178,10 @@ internal object ChatWireLimits {
     const val MAX_TEXT_CHARS = 64 * 1024
     const val MAX_OUTPUT_CHARS = 4 * 1024
     const val MAX_TITLE_CHARS = 512
+    const val MAX_URL_CHARS = 4096
+    const val MAX_PAGE_CHARS = 200_000
+    const val MAX_SELECTION_CHARS = 20_000
+    const val MAX_PAGES = 4
 }
 
 /** The list as sent: projects, the most recent chats up to the cap and live permissions. */

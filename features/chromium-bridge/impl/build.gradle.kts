@@ -11,6 +11,7 @@ kotlin {
         commonMain.dependencies {
             implementation(projects.features.chromiumBridge.api)
             implementation(projects.features.aiStudio.api)
+            implementation(projects.features.attachments.api)
             implementation(projects.core.common)
             implementation(projects.core.logging)
             implementation(projects.core.featureToggles.api)

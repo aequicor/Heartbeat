@@ -1,4 +1,6 @@
 // @ts-check
+import { PENDING_ATTACHMENT } from '../background/context-menu.js';
+import { capturePage } from '../shared/page-capture.js';
 import { CALL_TIMEOUT_MS, ErrorCode } from '../shared/protocol.js';
 import { createTranslator, errorMessage } from '../shared/strings.js';
 import { canSend, initialState, reduce, selectedChat, selectedPermissions } from './store.js';
@@ -7,6 +9,9 @@ import { renderTranscript } from './views/chat-view.js';
 import { h } from './views/dom.js';
 import { renderPermissions } from './views/permission-card.js';
 import { statusNotice } from './views/status.js';
+
+/** Pages a prompt can carry (`ChatWireLimits.MAX_PAGES`). */
+const MAX_PAGES = 4;
 
 const t = createTranslator(chrome.i18n);
 const locale = chrome.i18n.getUILanguage();
@@ -128,6 +133,28 @@ async function respond(permission, optionId, answer) {
   }
 }
 
+async function attachPage() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const page = tab?.id === undefined ? null : await capturePage(chrome, tab.id, tab.url);
+    if (!page) throw new Error('Page cannot be attached');
+    dispatch({ type: 'attach', attachment: page });
+  } catch (error) {
+    dispatch({ type: 'failed', code: 'capture' });
+  }
+}
+
+/** Picks up a selection sent from the context menu; a listing panel starts a new chat with it. */
+async function takePendingAttachment() {
+  const stored = await chrome.storage.session.get(PENDING_ATTACHMENT);
+  const page = stored?.[PENDING_ATTACHMENT];
+  if (!page) return;
+  await chrome.storage.session.remove(PENDING_ATTACHMENT);
+  if (!state.selected && !state.isComposingNew) dispatch({ type: 'compose', projectId: null });
+  dispatch({ type: 'attach', attachment: page });
+  prompt.focus();
+}
+
 /** @param {import('./store.js').PanelState} previous */
 function render(previous) {
   const chat = selectedChat(state);
@@ -185,6 +212,9 @@ function renderComposer(chat, isListing) {
   send.textContent = t('send');
   send.title = t('sendHint');
   /** @type {HTMLButtonElement} */ (send).disabled = !canSend(state, prompt.value);
+  const attach = byId('attach-page');
+  attach.textContent = t('attachPage');
+  /** @type {HTMLButtonElement} */ (attach).disabled = state.attachments.length >= MAX_PAGES;
   const stop = byId('stop');
   stop.textContent = t('stop');
   stop.hidden = !chat?.running;
@@ -217,6 +247,7 @@ byId('new-chat').addEventListener('click', () => {
   prompt.focus();
 });
 byId('send').addEventListener('click', send);
+byId('attach-page').addEventListener('click', attachPage);
 byId('stop').addEventListener('click', stop);
 byId('error-dismiss').addEventListener('click', () => dispatch({ type: 'dismiss' }));
 project.addEventListener('change', () => dispatch({ type: 'compose', projectId: project.value || null }));
@@ -234,5 +265,10 @@ prompt.addEventListener('keydown', (event) => {
   }
 });
 
+chrome.storage.session.onChanged.addListener((/** @type {Record<string, unknown>} */ changes) => {
+  if (PENDING_ATTACHMENT in changes) takePendingAttachment();
+});
+
 port.postMessage({ type: 'watch', key: 'chats', method: 'chats.watch', params: {} });
 render(initialState);
+takePendingAttachment();

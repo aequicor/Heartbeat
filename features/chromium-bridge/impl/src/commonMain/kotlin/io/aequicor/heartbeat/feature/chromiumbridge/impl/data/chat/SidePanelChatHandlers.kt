@@ -43,7 +43,8 @@ import kotlinx.serialization.json.jsonObject
  */
 @ContributesIntoSet(ProfileScope::class, binding = binding<BridgeRequestHandler>())
 @Inject
-internal class SidePanelChatHandlers(private val chats: StudioChats) : BridgeRequestHandler {
+internal class SidePanelChatHandlers(private val chats: StudioChats, private val pages: PageImporter) :
+    BridgeRequestHandler {
     private val log = Log.tag("SidePanelChat")
     private val watches = BridgeWatches()
 
@@ -105,7 +106,19 @@ internal class SidePanelChatHandlers(private val chats: StudioChats) : BridgeReq
 
     private suspend fun send(params: ChatSendParams): BridgeReply {
         require(params.text.isNotBlank() && params.text.length <= MAX_PROMPT_CHARS) { "Invalid prompt" }
-        val request = StudioChatSend(params.chatId?.checkedId(), params.projectId?.checkedId(), params.text)
+        require(params.attachments.size <= ChatWireLimits.MAX_PAGES && params.attachments.all { it.isValid() }) {
+            "Invalid attachments"
+        }
+        val attachments = when (val imported = pages.import(params.attachments)) {
+            is PageImport.Imported -> imported.resources
+            PageImport.Refused -> return BridgeReply.Refused(BridgeErrorCode.BUSY, "Attachments are busy")
+        }
+        val request = StudioChatSend(
+            params.chatId?.checkedId(),
+            params.projectId?.checkedId(),
+            params.text,
+            attachments,
+        )
         return when (val result = chats.send(request)) {
             is StudioChatSendResult.Accepted -> BridgeReply.Ok(encode(ChatSent.serializer(), ChatSent(result.chatId)))
             is StudioChatSendResult.Rejected -> result.reason.refusal()

@@ -152,5 +152,14 @@
   },
   "errorGeneric": {
     "message": "Не удалось выполнить действие."
+  },
+  "sendSelection": {
+    "message": "Отправить выделенное в Heartbeat"
+  },
+  "attachPage": {
+    "message": "Приложить страницу"
+  },
+  "errorCapture": {
+    "message": "Эту страницу нельзя приложить."
   }
 }
