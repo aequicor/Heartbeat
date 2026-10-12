@@ -99,7 +99,7 @@ internal class SurfaceModel(
                     isStarting = methods.isAvailable && !hasStarted
                     copy(isMethodsAvailable = methods.isAvailable, hasStarted = hasStarted || methods.isAvailable)
                 }
-                if (isStarting) {
+                if (isStarting && !session.isCard) {
                     val sources = session.spec.data.filterValues { it.load == UiLoad.Auto }.keys
                     sources.forEach { pipeline.launch { load(it) } }
                 }
@@ -166,7 +166,7 @@ internal class SurfaceModel(
                 }
 
                 is UiAction.Prompt -> {
-                    val isSubmitted = action.isSubmitted && session.owner != null
+                    val isSubmitted = action.isSubmitted && session.owner != null && !session.isCard
                     session.host.prompt(bindings.text(action.text, scope), isSubmitted) || notice(NoticeUi.Unsupported)
                 }
 

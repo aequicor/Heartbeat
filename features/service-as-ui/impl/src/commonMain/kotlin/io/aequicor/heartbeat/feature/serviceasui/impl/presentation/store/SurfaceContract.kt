@@ -123,7 +123,8 @@ internal interface SurfaceHost {
 
 /**
  * What a surface store works with: the decoded [spec], its [owner] (null for a card without one, which cannot call
- * methods), the call [context] of the place, the [args] it was opened with and the [host].
+ * methods), the call [context] of the place, the [args] it was opened with and the [host]. A card in a response
+ * ([isCard]) loads no data by itself and only inserts prompts, whoever owns its surface.
  */
 internal data class SurfaceSession(
     val spec: UiSpec,
@@ -132,6 +133,7 @@ internal data class SurfaceSession(
     val args: JsonObject,
     val facts: UiFacts,
     val host: SurfaceHost,
+    val isCard: Boolean = false,
 ) {
-    override fun toString(): String = "SurfaceSession(owner=${owner?.id ?: "none"})"
+    override fun toString(): String = "SurfaceSession(owner=${owner?.id ?: "none"}, isCard=$isCard)"
 }

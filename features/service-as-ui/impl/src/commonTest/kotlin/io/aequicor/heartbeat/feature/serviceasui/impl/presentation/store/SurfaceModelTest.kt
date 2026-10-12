@@ -201,6 +201,18 @@ class SurfaceModelTest {
     }
 
     @Test
+    fun `a card of a library surface loads nothing by itself and only inserts prompts`() = runTest {
+        val fixture = Fixture(this, available = true, isCard = true)
+        val screen = fixture.subscribe()
+        runCurrent()
+        assertEquals(emptyList(), fixture.calls.made)
+
+        screen.intent(SurfaceIntent.Press(button(screen, 4).press))
+        runCurrent()
+        assertEquals(listOf("Rank  PRs" to false), fixture.host.prompts)
+    }
+
+    @Test
     fun `cards without an owner only insert prompts and never call`() = runTest {
         val fixture = Fixture(this, available = true, hasOwner = false)
         val screen = fixture.subscribe()
@@ -222,7 +234,12 @@ class SurfaceModelTest {
 
     private fun button(screen: SurfaceProvider, index: Int) = assertIs<UiNodeUi.Button>(column(screen).children[index])
 
-    private class Fixture(private val scope: TestScope, available: Boolean = false, hasOwner: Boolean = true) {
+    private class Fixture(
+        private val scope: TestScope,
+        available: Boolean = false,
+        hasOwner: Boolean = true,
+        isCard: Boolean = false,
+    ) {
         val calls = FakeCalls(available)
         val host = FakeHost()
         val platform = FakePlatform()
@@ -235,6 +252,7 @@ class SurfaceModelTest {
                 JsonObject(emptyMap()),
                 UiFacts(),
                 host,
+                isCard,
             ),
             calls,
             platform,

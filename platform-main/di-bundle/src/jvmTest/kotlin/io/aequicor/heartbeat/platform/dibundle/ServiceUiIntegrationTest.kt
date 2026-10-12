@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiCardRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiEnabled
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiIntent
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiMachineKey
@@ -90,7 +91,7 @@ class ServiceUiIntegrationTest {
     }
 
     @Test
-    fun `slot and panel routes build their places from the profile graph`() = runTest {
+    fun `slot, panel and card routes build their places from the profile graph`() = runTest {
         val profile = app.profileSessions.open(ProfileId("service-ui-places"))
         val lifecycle = LifecycleRegistry().apply { resume() }
         try {
@@ -106,6 +107,11 @@ class ServiceUiIntegrationTest {
             val panel = ServiceUiPanelRoute("test")
             root.navigator.navigate(panel)
             assertEquals(panel, root.stack.value.active.configuration.route)
+            assertIs<ComposableComponent>(root.stack.value.active.instance)
+
+            val card = ServiceUiCardRoute("c_unknown")
+            root.navigator.navigate(card)
+            assertEquals(card, root.stack.value.active.configuration.route)
             assertIs<ComposableComponent>(root.stack.value.active.instance)
         } finally {
             lifecycle.destroy()

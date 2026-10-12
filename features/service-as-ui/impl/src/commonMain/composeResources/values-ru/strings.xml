@@ -25,4 +25,6 @@
     <string name="service_ui_broken">Интерфейс перестал работать — откройте его заново</string>
     <string name="service_ui_file_failed">Не удалось сохранить, показать или выбрать файл</string>
     <string name="service_ui_close_panel">Закрыть панель</string>
+    <string name="service_ui_card_missing">Эта карточка больше не хранится</string>
+    <string name="service_ui_card_unavailable">Интерфейс этой карточки недоступен</string>
 </resources>
