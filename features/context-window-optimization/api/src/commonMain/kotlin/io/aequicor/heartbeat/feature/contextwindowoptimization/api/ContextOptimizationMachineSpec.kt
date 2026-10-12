@@ -22,12 +22,13 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimi
  * | Ready | UpdateLedger | | Ready(ledger updated, ledgerRevision + 1) | SaveLedger(session) |
  * | Ready | Claim | session pending, not running | Ready(pending → running) | |
  * | Ready | Finished | session running | Ready(running removed) | |
- * | Ready | RolledOver | old ≠ new | Ready(pending, mark, ledger of old → new) | SaveLedger: new, then old deleted, if moved |
+ * | Ready | RolledOver | old ≠ new | Ready(pending, mark, ledger: old → new) | SaveLedger new, then old deleted |
  * | Ready | SessionClosed | | Ready(session dropped) | SaveLedger(session, deleted) if it had one |
  * | Ready | SaveFailed | | Ready | SaveFailed |
  * | Idle / Loading | any other Public | — | ignored | settings are not known before loading |
  *
  * Effect failures: Load → LoadFailed, Save and SaveLedger → SaveFailed. Every ledger effect writes one session.
+ * A rollover saves ledgers only when the old session had one.
  */
 public val ContextOptimizationMachineSpec: ContextOptimizationSpec =
     machineSpec(ContextOptimizationMachineKey, ContextOptimizationState.Idle) {
