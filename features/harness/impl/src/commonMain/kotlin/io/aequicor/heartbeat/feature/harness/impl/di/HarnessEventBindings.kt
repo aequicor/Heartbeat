@@ -12,7 +12,6 @@ import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessEventAncest
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessEventInputFactory
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessEventSourcePorts
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessEventSources
-import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessProjectSnapshots
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessSessionHook
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessSessionHookDispatchers
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessEnabledWork
@@ -35,10 +34,6 @@ public object HarnessEventBindings {
     @Provides
     @SingleIn(ProfileScope::class)
     internal fun gate(): HarnessEventGate = HarnessEventGate()
-
-    @Provides
-    @SingleIn(ProfileScope::class)
-    internal fun projects(): HarnessProjectSnapshots = HarnessProjectSnapshots()
 
     @Provides
     @SingleIn(ProfileScope::class)

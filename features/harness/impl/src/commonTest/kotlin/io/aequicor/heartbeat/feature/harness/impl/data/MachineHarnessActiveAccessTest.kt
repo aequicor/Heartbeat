@@ -35,10 +35,12 @@ class MachineHarnessActiveAccessTest {
         registry.library.value = SchedulerAccessMachine(HarnessState.Ready(listOf(HarnessEntry(entry))))
         assertEquals(emptyList(), waiting.await())
         assertEquals(emptyList(), access.active(WorkspaceRef("project"), dispatchSession))
-        registry.library.value = SchedulerAccessMachine(HarnessState.Ready(
-            listOf(HarnessEntry(entry)),
-            attachments = mapOf(dispatchSession to setOf(entry.id)),
-        ))
+        registry.library.value = SchedulerAccessMachine(
+            HarnessState.Ready(
+                listOf(HarnessEntry(entry)),
+                attachments = mapOf(dispatchSession to setOf(entry.id)),
+            ),
+        )
         assertEquals(listOf(entry), access.active(null, dispatchSession))
         assertEquals(listOf(entry), access.active(WorkspaceRef("project"), dispatchSession))
         assertEquals(emptyList(), access.active(null, null))
@@ -84,10 +86,12 @@ class MachineHarnessActiveAccessTest {
     @Test
     fun `workspace reads need no project catalog after the library is ready`() = runTest {
         val entry = harness.copy(scope = HarnessScope.Projects(setOf(WorkspaceRef("project"))))
-        registry.library.value = SchedulerAccessMachine(HarnessState.Ready(
-            listOf(HarnessEntry(entry)),
-            attachments = mapOf(dispatchSession to setOf(entry.id)),
-        ))
+        registry.library.value = SchedulerAccessMachine(
+            HarnessState.Ready(
+                listOf(HarnessEntry(entry)),
+                attachments = mapOf(dispatchSession to setOf(entry.id)),
+            ),
+        )
         assertEquals(listOf(entry), access.active(WorkspaceRef("worktree"), dispatchSession))
     }
 

@@ -26,7 +26,10 @@ class HarnessSessionProofsTest {
             name = HarnessName("project"),
             scope = HarnessScope.Projects(setOf(PROJECT)),
         )
-        val library = HarnessState.Ready(listOf(HarnessEntry(harness), HarnessEntry(project)), isRuntimeAvailable = true)
+        val library = HarnessState.Ready(
+            listOf(HarnessEntry(harness), HarnessEntry(project)),
+            isRuntimeAvailable = true,
+        )
         val proofs = HarnessSessionProofs({ library })
         proofs.remember(CONTEXT)
         assertTrue(proofs.isResolved(dispatchSession))
@@ -58,9 +61,14 @@ class HarnessSessionProofsTest {
         val proofs = HarnessSessionProofs({ library })
         proofs.remember(CONTEXT)
         assertTrue(proofs.allows(harness.id, dispatchSession))
-        library = library.copy(pending = mapOf(
-            harness.id to HarnessMutation.Remove(HarnessReceipt(RequestId("remove"), harness.id, harness.revision), harness),
-        ))
+        library = library.copy(
+            pending = mapOf(
+                harness.id to HarnessMutation.Remove(
+                    HarnessReceipt(RequestId("remove"), harness.id, harness.revision),
+                    harness,
+                ),
+            ),
+        )
         assertFalse(proofs.allows(harness.id, dispatchSession))
         library = library.copy(pending = emptyMap(), isSuspended = true)
         assertFalse(proofs.allows(harness.id, dispatchSession))
@@ -93,9 +101,36 @@ class HarnessSessionProofsTest {
             library = state
             isPublished = false
             assertTrue(proofs.isResolved(dispatchSession))
+            assertFalse(proofs.allows(harness.id, dispatchSession))
             isPublished = true
             assertFalse(proofs.isResolved(dispatchSession))
         }
+    }
+
+    @Test
+    fun `proof cache is bounded and evicts known routes before a conflict`() {
+        val oldest = dispatchSession.copy(nativeId = "oldest")
+        val library = HarnessState.Ready(
+            listOf(HarnessEntry(harness)),
+            attachments = mapOf(dispatchSession to setOf(harness.id), oldest to setOf(harness.id)),
+            isRuntimeAvailable = true,
+        )
+        val proofs = HarnessSessionProofs({ library })
+        proofs.remember(CONTEXT.copy(workspace = null))
+        proofs.remember(CONTEXT.copy(workspace = PROJECT))
+        proofs.remember(CONTEXT.copy(session = oldest, workspace = null))
+        assertTrue(proofs.allows(harness.id, oldest))
+        repeat(512) {
+            proofs.remember(CONTEXT.copy(session = dispatchSession.copy(nativeId = "s$it"), workspace = null))
+        }
+        // The oldest known route was forgotten; its next trusted callback simply proves it again.
+        assertFalse(proofs.isResolved(oldest))
+        proofs.remember(CONTEXT.copy(session = oldest, workspace = null))
+        assertTrue(proofs.allows(harness.id, oldest))
+        // The older conflict survived every eviction and still cannot be overwritten by a single late route.
+        proofs.remember(CONTEXT.copy(workspace = null))
+        assertFalse(proofs.isResolved(dispatchSession))
+        assertFalse(proofs.allows(harness.id, dispatchSession))
     }
 
     @Test

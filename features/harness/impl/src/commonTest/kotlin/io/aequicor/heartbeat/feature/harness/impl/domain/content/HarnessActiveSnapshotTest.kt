@@ -29,31 +29,32 @@ class HarnessActiveSnapshotTest {
 
     @Test
     fun `legacy scopes never activate a chat without a connection`() {
-        assertEquals(emptyList(), snapshot.select(workspace, dispatchSession))
-        assertEquals(emptyList(), snapshot.select(null, null))
-        assertEquals(emptyList(), snapshot.applicable(workspace, dispatchSession))
+        assertEquals(emptyList(), snapshot.select(dispatchSession))
+        assertEquals(emptyList(), snapshot.select(null))
+        assertEquals(emptyList(), snapshot.applicable(dispatchSession))
     }
 
     @Test
-    fun `explicit connection works without project evidence and only for its session`() {
-        val connected = snapshot.copy(library = ready.copy(
-            attachments = mapOf(dispatchSession to setOf(profile.id, project.id)),
-        ))
-        assertEquals(listOf(project, profile), connected.select(workspace, dispatchSession))
-        assertEquals(listOf(project, profile), connected.select(null, dispatchSession))
-        assertEquals(emptyList(), connected.select(workspace, null))
-        assertEquals(emptyList(), connected.copy(isEnabled = false).select(null, dispatchSession))
-        assertEquals(emptyList(), connected.copy(library = ready.copy(isSuspended = true)).select(null, dispatchSession))
+    fun `explicit connection activates only its own session`() {
+        val connected = snapshot.copy(
+            library = ready.copy(
+                attachments = mapOf(dispatchSession to setOf(profile.id, project.id)),
+            ),
+        )
+        assertEquals(listOf(project, profile), connected.select(dispatchSession))
+        assertEquals(emptyList(), connected.select(null))
+        assertEquals(emptyList(), connected.copy(isEnabled = false).select(dispatchSession))
+        assertEquals(emptyList(), connected.copy(library = ready.copy(isSuspended = true)).select(dispatchSession))
     }
 
     @Test
     fun `unavailable library differs from a known empty library`() {
-        assertNull(snapshot.copy(library = null).select(null, null))
-        assertNull(snapshot.copy(library = HarnessState.Idle()).select(null, null))
+        assertNull(snapshot.copy(library = null).select(null))
+        assertNull(snapshot.copy(library = HarnessState.Idle()).select(null))
         assertFailsWith<IllegalStateException> {
-            snapshot.copy(library = HarnessState.Failed()).select(null, null)
+            snapshot.copy(library = HarnessState.Failed()).select(null)
         }
-        assertEquals(emptyList(), snapshot.copy(library = HarnessState.Ready()).select(workspace, null))
+        assertEquals(emptyList(), snapshot.copy(library = HarnessState.Ready()).select(null))
     }
 
     @Test
@@ -63,11 +64,11 @@ class HarnessActiveSnapshotTest {
         val saving = connected.copy(
             pending = mapOf(profile.id to HarnessMutation.Save(receipt, profile.copy(isEnabled = false), false)),
         )
-        assertEquals(listOf(profile), snapshot.copy(library = saving).select(null, dispatchSession))
+        assertEquals(listOf(profile), snapshot.copy(library = saving).select(dispatchSession))
         val removing = connected.copy(pending = mapOf(profile.id to HarnessMutation.Remove(receipt, profile)))
-        assertEquals(emptyList(), snapshot.copy(library = removing).select(null, dispatchSession))
+        assertEquals(emptyList(), snapshot.copy(library = removing).select(dispatchSession))
         val disabled = connected.copy(harnesses = listOf(HarnessEntry(profile.copy(isEnabled = false))))
-        assertEquals(emptyList(), snapshot.copy(library = disabled).select(null, dispatchSession))
+        assertEquals(emptyList(), snapshot.copy(library = disabled).select(dispatchSession))
     }
 
     @Test
@@ -75,11 +76,13 @@ class HarnessActiveSnapshotTest {
         val entries = (0..9).reversed().map {
             HarnessEntry(profile.copy(id = HarnessId("$it"), name = HarnessName("h_$it")))
         }
-        val crowded = snapshot.copy(library = ready.copy(
-            harnesses = entries,
-            attachments = mapOf(dispatchSession to entries.mapTo(mutableSetOf()) { it.harness.id }),
-        ))
-        assertEquals((0..7).map { "h_$it" }, crowded.select(null, dispatchSession)?.map { it.name.value })
-        assertEquals((0..9).map { "h_$it" }, crowded.applicable(null, dispatchSession)?.map { it.name.value })
+        val crowded = snapshot.copy(
+            library = ready.copy(
+                harnesses = entries,
+                attachments = mapOf(dispatchSession to entries.mapTo(mutableSetOf()) { it.harness.id }),
+            ),
+        )
+        assertEquals((0..7).map { "h_$it" }, crowded.select(dispatchSession)?.map { it.name.value })
+        assertEquals((0..9).map { "h_$it" }, crowded.applicable(dispatchSession)?.map { it.name.value })
     }
 }

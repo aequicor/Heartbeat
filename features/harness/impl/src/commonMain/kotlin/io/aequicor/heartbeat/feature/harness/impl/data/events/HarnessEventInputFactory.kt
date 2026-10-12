@@ -4,7 +4,6 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
-import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
 import io.aequicor.heartbeat.feature.harness.api.HarnessMachineKey
 import io.aequicor.heartbeat.feature.harness.api.event.HarnessLifecycleEvent
@@ -16,7 +15,6 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessSessionP
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerBus
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEnabled
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerMachineKey
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -31,9 +29,7 @@ internal class HarnessEventInputFactory(
     private val machines: MachineRegistry,
     private val toggles: FeatureToggles,
     private val facade: Lazy<EngineFacade>,
-    private val workspaces: Lazy<LocalWorkspaces>,
     private val bus: SchedulerBus,
-    private val projects: HarnessProjectSnapshots,
     private val clock: Clock,
     private val runtime: Lazy<HarnessRuntime>,
 ) {
@@ -53,19 +49,17 @@ internal class HarnessEventInputFactory(
                 HarnessLifecycleEvent.WorkflowFinished(run.harness, run.workflow, run.id, run.status, clock.now())
             }
         },
-    ) { scope -> projects.observe(scope, workspaces.value.observe()) }
+    )
 
     /**
-     * Caller supplies the short hook deadline. Waiting never substitutes an unknown checkout for its project.
-     * Library and publication changes are observed too: a load or the last retirement can resolve the session.
+     * Caller supplies the short hook deadline. Library and publication changes are observed: a load, a connection
+     * or the last retirement can resolve the session.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     suspend fun awaitProof(context: SessionHookContext, proofs: HarnessSessionProofs) {
         combine(
-            machines.observe(WorktreeMachineKey).flatMapLatest { it?.state ?: flowOf(null) },
-            projects.projects,
             machines.observe(HarnessMachineKey).flatMapLatest { it?.state ?: flowOf(null) },
             runtime.value.publishedInstances,
-        ) { _, _, _, _ -> proofs.isResolved(context.session) }.first { it }
+        ) { _, _ -> proofs.isResolved(context.session) }.first { it }
     }
 }

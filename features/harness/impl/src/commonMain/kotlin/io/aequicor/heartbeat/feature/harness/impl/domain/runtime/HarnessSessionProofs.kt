@@ -16,7 +16,8 @@ import kotlinx.coroutines.flow.update
 /**
  * Session-workspace evidence comes only from trusted facade callbacks, never script arguments or event payload.
  * Open/Closed notifications are lossy and therefore do not grant or revoke authority here; the facade already
- * checks owner and accepted-turn lifetime. Every read resolves current library/project snapshots again.
+ * checks owner and accepted-turn lifetime. Every read resolves the current library snapshot again. A connected
+ * session still needs a remembered route: the trusted callback, not the connection alone, anchors its authority.
  * Every trusted entry point remembers its route before reading it, so the proof cache is bounded: the oldest
  * known routes are forgotten first, while a conflict is kept as long as any known route can be evicted instead.
  */
@@ -69,11 +70,10 @@ internal class HarnessSessionProofs(
             return SessionSelection(isResolved = true)
         }
         if (sessions.value[session] !is SessionWorkspaceProof.Known) return SessionSelection()
-        val applicable = applicableHarnesses(harnesses, ready.attachments, session, null)
-            .mapTo(linkedSetOf()) { it.id }
-        return SessionSelection(applicable.take(HarnessLimits.ACTIVE_PER_SESSION).toSet(), applicable, isResolved = true)
+        val applicable = applicableHarnesses(harnesses, ready.attachments, session).mapTo(linkedSetOf()) { it.id }
+        val active = applicable.take(HarnessLimits.ACTIVE_PER_SESSION).toSet()
+        return SessionSelection(active, applicable, isResolved = true)
     }
-
 }
 
 /** Drops one oldest known route (or the oldest conflict when only conflicts remain) above the bound. */

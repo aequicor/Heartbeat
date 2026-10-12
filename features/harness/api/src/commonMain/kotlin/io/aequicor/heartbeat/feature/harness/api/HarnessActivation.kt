@@ -2,7 +2,6 @@ package io.aequicor.heartbeat.feature.harness.api
 
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
-import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 
 /** The whole feature is opt-in. Native enabling additionally uses facade's HarnessNativeTools toggle. */
 public val HarnessEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
@@ -13,7 +12,8 @@ public val HarnessEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
 /**
  * Pure activation from explicit session attachments and verified helper affiliation.
  * Stored legacy scopes do not activate a harness; attachments never bypass isEnabled.
- * Overlapping scopes select a harness once. Overflow is deterministic: immutable name order, at most eight.
+ * A harness both attached and helper-affiliated is selected once. Overflow is deterministic: immutable name order,
+ * at most eight.
  * The cap bounds contributions only (content, instructions, script tools, events, native On switches);
  * restrictions use the uncapped [applicableHarnesses].
  * Suspension immediately removes all effective contributions while the committed library stays intact.
@@ -22,10 +22,9 @@ public fun activeHarnesses(
     harnesses: List<Harness>,
     attachments: Map<SessionRef, Set<HarnessId>>,
     session: SessionRef,
-    sourceProject: WorkspaceRef?,
     helperOf: HarnessId? = null,
     isSuspended: Boolean = false,
-): List<Harness> = applicableHarnesses(harnesses, attachments, session, sourceProject, helperOf, isSuspended)
+): List<Harness> = applicableHarnesses(harnesses, attachments, session, helperOf, isSuspended)
     .take(HarnessLimits.ACTIVE_PER_SESSION)
 
 /**
@@ -37,7 +36,6 @@ public fun applicableHarnesses(
     harnesses: List<Harness>,
     attachments: Map<SessionRef, Set<HarnessId>>,
     session: SessionRef,
-    sourceProject: WorkspaceRef?,
     helperOf: HarnessId? = null,
     isSuspended: Boolean = false,
 ): List<Harness> {

@@ -71,11 +71,11 @@ class HarnessSessionHookTest {
     }
 
     @Test
-    fun `an attached harness still denies tools when project metadata is unknown`() = runTest {
+    fun `an attached harness denies tools in any workspace next to a legacy project harness`() = runTest {
         val fixture = HookFixture(backgroundScope, StandardTestDispatcher(testScheduler))
         fixture.runtime.onEvaluate = { script -> script.hooks.beforeTool { ToolHookVerdict.Deny("denied") } }
         fixture.runtime.activate()
-        fixture.addUnknownProject()
+        fixture.addLegacyProjectHarness()
         fixture.prepare = { awaitCancellation() }
         val call = fixture.runtime.call.copy(
             context = fixture.runtime.context.copy(workspace = WorkspaceRef("unknown")),
@@ -86,10 +86,10 @@ class HarnessSessionHookTest {
     }
 
     @Test
-    fun `unknown project without a script hook does not force Ask`() = runTest {
+    fun `a legacy project harness without a script hook does not force Ask`() = runTest {
         val fixture = HookFixture(backgroundScope, StandardTestDispatcher(testScheduler))
         fixture.runtime.activate()
-        fixture.addUnknownProject()
+        fixture.addLegacyProjectHarness()
         val call = fixture.runtime.call.copy(
             context = fixture.runtime.context.copy(workspace = WorkspaceRef("unknown")),
         )
@@ -198,7 +198,7 @@ private class HookFixture(scope: CoroutineScope, dispatcher: CoroutineDispatcher
         CLOCK,
     )
 
-    fun addUnknownProject() {
+    fun addLegacyProjectHarness() {
         val project = runtime.request.harness.copy(
             id = HarnessId("project"),
             name = HarnessName("project"),

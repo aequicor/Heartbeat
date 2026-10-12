@@ -35,8 +35,11 @@ class HarnessSchedulerSnapshotTest {
         )
         val snapshot = HarnessSchedulerSnapshot(library, 1)
         assertEquals(false, snapshot.allows(guard.id, wake))
-        assertEquals(true, snapshot.copy(library = library.copy(harnesses = all.drop(1).map(::HarnessEntry)))
-            .allows(guard.id, wake))
+        assertEquals(
+            true,
+            snapshot.copy(library = library.copy(harnesses = all.drop(1).map(::HarnessEntry)))
+                .allows(guard.id, wake),
+        )
     }
 
     @Test
@@ -54,9 +57,14 @@ class HarnessSchedulerSnapshotTest {
         assertEquals(false, snapshot.allows(harness.id, wake))
         val connected = ready.copy(attachments = mapOf(wake.session to setOf(harness.id)))
         assertEquals(true, snapshot.copy(library = connected).allows(harness.id, wake))
-        val deleting = connected.copy(pending = mapOf(
-            harness.id to HarnessMutation.Remove(HarnessReceipt(RequestId("remove"), harness.id, harness.revision), harness),
-        ))
+        val deleting = connected.copy(
+            pending = mapOf(
+                harness.id to HarnessMutation.Remove(
+                    HarnessReceipt(RequestId("remove"), harness.id, harness.revision),
+                    harness,
+                ),
+            ),
+        )
         assertEquals(false, snapshot.copy(library = deleting).allows(harness.id, wake))
         assertEquals(false, snapshot.copy(library = connected.copy(isSuspended = true)).allows(harness.id, wake))
     }
@@ -64,7 +72,11 @@ class HarnessSchedulerSnapshotTest {
     @Test
     fun `connection works even when project evidence is unavailable`() {
         val orphan = HarnessTarget(dispatchSession, WorkspaceRef("removed"))
-        val profile = harness.copy(id = HarnessId("profile"), name = HarnessName("profile"), scope = HarnessScope.Profile)
+        val profile = harness.copy(
+            id = HarnessId("profile"),
+            name = HarnessName("profile"),
+            scope = HarnessScope.Profile,
+        )
         val library = ready.copy(harnesses = listOf(HarnessEntry(harness), HarnessEntry(profile)))
         val snapshot = HarnessSchedulerSnapshot(library, 1)
         assertEquals(false, snapshot.allows(harness.id, orphan))

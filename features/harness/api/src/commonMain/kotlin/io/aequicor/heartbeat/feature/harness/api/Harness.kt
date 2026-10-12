@@ -11,7 +11,7 @@ import kotlin.time.Instant
 /** Legacy stored scope, retained for decoding existing harnesses; activation uses explicit chat connections. */
 @Serializable
 public sealed interface HarnessScope {
-    /** Active only for explicit session attachments and helpers of this harness. */
+    /** Value of new harnesses; like the legacy values, activation comes only from chat connections and helpers. */
     @Serializable
     @SerialName("attached")
     public data object Attached : HarnessScope

@@ -5,7 +5,6 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
-import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
@@ -108,7 +107,7 @@ internal data class HarnessSchedulerSnapshot(
         enabled: List<Harness>,
         harness: HarnessId,
         target: HarnessTarget,
-    ): Boolean = activeHarnesses(enabled, ready.attachments, target.session, null).any { it.id == harness }
+    ): Boolean = activeHarnesses(enabled, ready.attachments, target.session).any { it.id == harness }
 
     override fun toString(): String = "HarnessSchedulerSnapshot(***)"
 }

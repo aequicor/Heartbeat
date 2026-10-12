@@ -80,21 +80,21 @@ class HarnessModelTest {
         val library = listOf(scoped, attached, helper, disabled)
         assertEquals(
             listOf(attached, helper),
-            activeHarnesses(library, attachments, Session, Project, helper.id),
+            activeHarnesses(library, attachments, Session, helper.id),
         )
-        assertEquals(emptyList(), activeHarnesses(library, emptyMap(), Session, null))
-        assertEquals(emptyList(), activeHarnesses(library, attachments, Session, Project, isSuspended = true))
+        assertEquals(emptyList(), activeHarnesses(library, emptyMap(), Session))
+        assertEquals(emptyList(), activeHarnesses(library, attachments, Session, isSuspended = true))
         val crowded = (0..9).map { harness("item_$it") }.reversed()
         val crowdedConnections = mapOf(Session to crowded.mapTo(mutableSetOf()) { it.id })
         assertEquals(
             (0..7).map { "item_$it" },
-            activeHarnesses(crowded, crowdedConnections, Session, null).map { it.name.value },
+            activeHarnesses(crowded, crowdedConnections, Session).map { it.name.value },
         )
         assertEquals(
             (0..9).map { "item_$it" },
-            applicableHarnesses(crowded, crowdedConnections, Session, null).map { it.name.value },
+            applicableHarnesses(crowded, crowdedConnections, Session).map { it.name.value },
         )
-        assertEquals(emptyList(), applicableHarnesses(crowded, emptyMap(), Session, null, isSuspended = true))
+        assertEquals(emptyList(), applicableHarnesses(crowded, emptyMap(), Session, isSuspended = true))
         assertFalse(HarnessEnabled.default)
     }
 
