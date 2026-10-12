@@ -22,7 +22,9 @@ public interface DataStores {
     public val owner: StorageOwner
 
     /**
-     * Absolute directory for immutable feature-owned files, removed with this owner's storage.
+     * Absolute directory for feature-owned files, removed with this owner's storage. Suitable for immutable
+     * attachments and native-engine-managed data; application records still belong in key-value stores or Room.
+     * App-owned directories containing profile data must contribute a [ProfileStorageCleaner] for deletion.
      * [name] follows the same safe naming rules as a store. Resolving the path does not create it or perform IO;
      * callers create directories and read/write files on their IO dispatcher. Fails after the owner closes.
      * The directory is for application data, never an externally selected file or an export destination.
