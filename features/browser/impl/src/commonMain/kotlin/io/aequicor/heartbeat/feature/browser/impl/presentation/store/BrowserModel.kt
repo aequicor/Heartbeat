@@ -57,13 +57,14 @@ internal class BrowserModel(
                     BrowserIntent.Public.Perform(BrowserRequest(Uuid.random().toString(), BrowserOperation.ClearData)),
                 )
 
-                BrowserScreenIntent.NewTab ->
+                BrowserScreenIntent.NewTab -> withState {
                     sendTo(
                         machine,
                         BrowserIntent.Public.Perform(
-                            BrowserRequest(Uuid.random().toString(), BrowserOperation.NewTab),
+                            BrowserRequest(Uuid.random().toString(), BrowserOperation.NewTab, selectedTabId),
                         ),
                     )
+                }
 
                 is BrowserScreenIntent.SelectTab ->
                     sendTo(machine, BrowserIntent.Public.SelectTab(intent.id))
@@ -171,6 +172,7 @@ internal fun BrowserScreenState.reflectState(state: BrowserState): BrowserScreen
                         it.isHumanControlled,
                         it.owner != null,
                         it.controlRequestId,
+                        it.owner,
                     )
                 }
                 .toImmutableList(),

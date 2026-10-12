@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserNativeResources
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserUrlResolver
 import io.aequicor.heartbeat.feature.browser.impl.domain.DesktopBrowserProfile
@@ -22,7 +23,11 @@ internal interface DesktopBrowserPanelFactory : BrowserNativeResources {
      * The panel of [surface] whose documents [guard] restricts for an agent owner. The first creation of a surface
      * fixes its guard: the session creates each tab's panel with the tab's guard before any view can ask for it.
      */
-    fun create(surface: BrowserSurface, guard: DesktopBrowserAgentGuard): DesktopBrowserPanel
+    fun create(
+        surface: BrowserSurface,
+        guard: DesktopBrowserAgentGuard,
+        openTab: ((BrowserCommand.Load) -> Unit)? = null,
+    ): DesktopBrowserPanel
     fun close(surface: BrowserSurface)
 
     /** Closes all surfaces and native context before deleting site data; failure prevents reuse. */
@@ -63,21 +68,32 @@ internal class DefaultDesktopBrowserPanelFactory(
         }
     }
 
-    override fun create(surface: BrowserSurface, guard: DesktopBrowserAgentGuard): DesktopBrowserPanel =
-        synchronized(monitor) {
-            check(profile.isAvailable) { "Browser profile is unavailable" }
-            panels.getOrPut(surface) {
-                DesktopBrowserPanel(surface, scope.coroutineScope, dispatchers) { isReleased, changed ->
-                    val app = resources.app()
-                    profile.useContext { shared ->
-                        check(!isReleased()) { "Browser surface is closed" }
-                        DesktopBrowserEngine(app, dispatchers, urlResolver, isReleased, changed, guard = guard) {
-                            checkNotNull(CefRequestContext.createContext(shared, it))
-                        }
+    override fun create(
+        surface: BrowserSurface,
+        guard: DesktopBrowserAgentGuard,
+        openTab: ((BrowserCommand.Load) -> Unit)?,
+    ): DesktopBrowserPanel = synchronized(monitor) {
+        check(profile.isAvailable) { "Browser profile is unavailable" }
+        panels.getOrPut(surface) {
+            DesktopBrowserPanel(surface, scope.coroutineScope, dispatchers) { isReleased, changed ->
+                val app = resources.app()
+                profile.useContext { shared ->
+                    check(!isReleased()) { "Browser surface is closed" }
+                    DesktopBrowserEngine(
+                        app,
+                        dispatchers,
+                        urlResolver,
+                        isReleased,
+                        changed,
+                        guard = guard,
+                        openTab = openTab,
+                    ) {
+                        checkNotNull(CefRequestContext.createContext(shared, it))
                     }
                 }
             }
         }
+    }
 
     override suspend fun clearData() = profile.clearData()
 

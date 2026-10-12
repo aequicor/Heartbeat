@@ -133,7 +133,7 @@ internal class BrowserSurfaceAdapter(
 }
 
 private fun BrowserCommand.toNative(): BrowserViewCommand = when (this) {
-    is BrowserCommand.Load -> BrowserViewCommand.Load(url)
+    is BrowserCommand.Load -> BrowserViewCommand.Load(url, referrer)
     BrowserCommand.Back -> BrowserViewCommand.Back
     BrowserCommand.Forward -> BrowserViewCommand.Forward
     BrowserCommand.Reload -> BrowserViewCommand.Reload

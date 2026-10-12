@@ -30,4 +30,6 @@
     <string name="browser_clear_data_message">Cookies, входы на сайты и данные сайтов этого профиля браузера будут удалены, а все вкладки закроются. Это действие нельзя отменить.</string>
     <string name="browser_clear_data_confirm">Очистить данные</string>
     <string name="browser_cancel">Отмена</string>
+    <string name="browser_user_group">Личные</string>
+    <string name="browser_session_group">Сессия %1$d</string>
 </resources>

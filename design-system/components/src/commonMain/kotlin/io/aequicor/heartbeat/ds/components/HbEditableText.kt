@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.ds.components
 
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,9 +38,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.pointer.AwaitPointerEventScope
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.editableText
 import androidx.compose.ui.semantics.inputText
 import androidx.compose.ui.semantics.semantics
@@ -97,6 +104,7 @@ internal fun HbEditableText(
     onCaretChange: ((Int) -> Unit)? = null,
     caretRequest: HbComposerCaretRequest? = null,
     onCaretRequestApply: (Long) -> Unit = {},
+    selectAllOnFocus: Boolean = false,
 ) {
     val state = rememberEditorState(value, isSecret)
     val bridge = remember(state) { ControlledEditorBridge(value, state.selection) }
@@ -135,7 +143,14 @@ internal fun HbEditableText(
         contentPadding,
         EditorAdornments(leadingContent, trailingContent),
     )
-    val keyModifier = if (onPreviewKey == null) modifier else modifier.onPreviewKeyEvent { onPreviewKey(it, state) }
+    val focusModifier = modifier.selectTextOnFocus(state, selectAllOnFocus)
+    val keyModifier = if (onPreviewKey == null) {
+        focusModifier
+    } else {
+        focusModifier.onPreviewKeyEvent {
+            onPreviewKey(it, state)
+        }
+    }
     val colors = HbTheme.colors
     val selectionColors = remember(colors) {
         TextSelectionColors(handleColor = colors.focusAccent, backgroundColor = colors.selectionHighlight)
@@ -169,6 +184,41 @@ internal fun HbEditableText(
             )
         }
     }
+}
+
+/** Focus entry selects once; clicks inside an already focused field keep normal caret behavior. */
+@Composable
+private fun Modifier.selectTextOnFocus(state: TextFieldState, selectAllOnFocus: Boolean): Modifier {
+    if (!selectAllOnFocus) return this
+    var isFocused by remember { mutableStateOf(false) }
+    SideEffect(isFocused) {
+        if (isFocused) {
+            // The focus event has placed its caret; subsequent clicks may position it normally.
+            state.edit { selection = TextRange(0, length) }
+        }
+    }
+    return onFocusChanged { isFocused = it.isFocused }.pointerInput(state, selectAllOnFocus) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            val isFirstClick = !isFocused
+            val isTap = awaitTapRelease(down)
+            // The editor places its caret again on release; apply the first-click selection after it.
+            if (isFirstClick && isTap && isFocused) state.edit { selection = TextRange(0, length) }
+        }
+    }
+}
+
+/** Observes without consuming the editor's gesture; dragging retains its normal text selection. */
+private suspend fun AwaitPointerEventScope.awaitTapRelease(down: PointerInputChange): Boolean {
+    var isTap = true
+    do {
+        val event = awaitPointerEvent(PointerEventPass.Final)
+        val change = event.changes.firstOrNull { it.id == down.id }
+        if (change == null || (change.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+            isTap = false
+        }
+    } while (event.changes.any { it.pressed })
+    return isTap
 }
 
 /** Applies a new caret request only once its replacement is present in both the owner and editor. */

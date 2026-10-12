@@ -31,7 +31,7 @@ internal interface BrowserSession {
 
 /** Domain commands are mapped to platform controller commands by presentation. */
 internal sealed interface BrowserCommand {
-    data class Load(val url: String) : BrowserCommand
+    data class Load(val url: String, val referrer: BrowserReferrer? = null) : BrowserCommand
     data object Back : BrowserCommand
     data object Forward : BrowserCommand
     data object Reload : BrowserCommand

@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.feature.browser.impl.presentation
 
 import io.aequicor.heartbeat.feature.browser.api.BrowserError
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserReferrer
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserReferrerPolicy
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -19,6 +21,23 @@ class BrowserSurfaceAdapterTest {
     )
 
     @Test
+    fun `linked navigation retains referrer and policy while waiting for a controller`() = runTest {
+        val adapter = createAdapter()
+        adapter.setEnabled(true)
+        val referrer = BrowserReferrer("https://example.com/private", BrowserReferrerPolicy.Origin)
+        adapter.execute(BrowserCommand.Load("https://example.com/next", referrer))
+        val controller = RecordingBrowserController()
+        adapter.attached(controller)
+        runCurrent()
+        assertEquals(
+            listOf<BrowserViewCommand>(BrowserViewCommand.Load("https://example.com/next", referrer)),
+            controller.commands,
+        )
+        adapter.execute(BrowserCommand.Load("https://example.com/typed"))
+        assertEquals(BrowserViewCommand.Load("https://example.com/typed"), controller.commands.last())
+    }
+
+    @Test
     fun `initial view is blank and load then stop are retained until attachment`() = runTest {
         val adapter = createAdapter()
         assertEquals("", adapter.initialUrl)
@@ -30,7 +49,10 @@ class BrowserSurfaceAdapterTest {
         val view = RecordingBrowserController()
         adapter.attached(view)
         runCurrent()
-        assertEquals(listOf(BrowserViewCommand.Load("https://example.com"), BrowserViewCommand.Stop), view.commands)
+        assertEquals(
+            listOf<BrowserViewCommand>(BrowserViewCommand.Load("https://example.com"), BrowserViewCommand.Stop),
+            view.commands,
+        )
         adapter.attached(view)
         runCurrent()
         assertEquals(2, view.commands.size)

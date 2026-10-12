@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.browser.impl.presentation
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserUrlResolver
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CancellationException
@@ -41,6 +42,7 @@ internal class DesktopBrowserEngine(
     private val changed: (BrowserViewState) -> Unit,
     private val onClosed: () -> Unit = {},
     guard: DesktopBrowserAgentGuard,
+    openTab: ((BrowserCommand.Load) -> Unit)? = null,
     createContext: (CefRequestContextHandler) -> CefRequestContext,
 ) : DesktopBrowserRuntime {
     private val log = Log.tag("DesktopBrowserEngine")
@@ -58,7 +60,8 @@ internal class DesktopBrowserEngine(
         isReleased = { isClosed.get() || isReleased() },
         isBootstrap = isBootstrap::get,
         unsupported = { onSwing { navigation?.unsupported() } },
-        open = { execute(BrowserViewCommand.Load(it)) },
+        open = { load -> openTab?.invoke(load) ?: execute(BrowserViewCommand.Load(load.url, load.referrer)) },
+        areLinksOpenedInTabs = openTab != null,
         unavailable = { onSwing { changed(BrowserViewState(error = BrowserViewError.EngineUnavailable)) } },
         guard = guard,
     )
@@ -222,7 +225,7 @@ internal class DesktopBrowserEngine(
             )
             installDesktopBrowserRestrictions(client)
             browser = client.createBrowser("about:blank", false, false, context)
-            navigation = DesktopBrowserNavigation(browser, changed)
+            navigation = DesktopBrowserNavigation(browser, changed, policy::prepareNavigation)
             isCreated = true
         } finally {
             if (!isCreated) {

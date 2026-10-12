@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.browser.impl.presentation
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.browser.api.isBrowserUrlAllowed
 import io.aequicor.heartbeat.feature.browser.api.normalizeBrowserUrl
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserRequestKind
 import io.aequicor.heartbeat.feature.browser.impl.domain.isBrowserRequestAllowed
 import io.aequicor.heartbeat.feature.searchengine.api.isPublicWebUrl
@@ -17,6 +18,7 @@ import org.cef.misc.StringRef
 import org.cef.network.CefRequest
 import org.cef.network.CefResponse
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Checks native navigation before IO, including redirects, popups and service-worker resources.
@@ -30,11 +32,29 @@ internal class DesktopBrowserPolicy(
     private val isReleased: () -> Boolean,
     private val isBootstrap: () -> Boolean,
     private val unsupported: () -> Unit,
-    private val open: (String) -> Unit,
+    private val open: (BrowserCommand.Load) -> Unit,
     unavailable: () -> Unit,
     private val guard: DesktopBrowserAgentGuard,
+    private val areLinksOpenedInTabs: Boolean = false,
 ) {
     private val log = Log.tag("DesktopBrowserPolicy")
+    private val linkedNavigation = AtomicReference<BrowserViewCommand.Load?>(null)
+
+    /**
+     * LoadURL can open a fresh browser; LoadRequest cannot navigate about:blank to a different origin.
+     * Apply the copied referrer to its first matching document request, before network IO. Every later
+     * command discards an unused value, so typed navigation, history and Stop never reuse it.
+     */
+    fun prepareNavigation(command: BrowserViewCommand) {
+        linkedNavigation.set((command as? BrowserViewCommand.Load)?.takeIf { it.referrer != null })
+    }
+
+    private fun applyLinkedReferrer(request: CefRequest) {
+        val load = linkedNavigation.get() ?: return
+        if (load.url != request.url || !linkedNavigation.compareAndSet(load, null)) return
+        val referrer = load.referrer ?: return
+        request.setReferrer(referrer.url, referrer.policy.toCefPolicy())
+    }
 
     val contextHandler = object : CefRequestContextHandlerAdapter() {
         override fun getResourceRequestHandler(
@@ -64,6 +84,17 @@ internal class DesktopBrowserPolicy(
             val kind = if (frame.isMain) BrowserRequestKind.MainDocument else BrowserRequestKind.ChildDocument
             val isRejected = !allows(request.url, kind)
             if (isRejected && kind == BrowserRequestKind.MainDocument && !isReleased()) unsupported()
+            if (!isRejected && opensLinkInTab(
+                    frame.isMain,
+                    userGesture,
+                    isRedirect,
+                    request.method,
+                    request.transitionType,
+                )
+            ) {
+                open(request.linkedNavigation())
+                return true
+            }
             return isRejected
         }
 
@@ -109,9 +140,24 @@ internal class DesktopBrowserPolicy(
         // Default getAuthCredentials and onCertificateError reject without bypassing TLS verification.
     }
 
+    /** Only clicked main-frame GET links fork a tab; forms, history and redirects keep their document. */
+    internal fun opensLinkInTab(
+        isMain: Boolean,
+        userGesture: Boolean,
+        isRedirect: Boolean,
+        method: String,
+        transition: CefRequest.TransitionType,
+    ): Boolean = areLinksOpenedInTabs && isMain && userGesture && !isRedirect &&
+        method == "GET" && transition.source == CefRequest.TransitionType.TT_LINK.source && !transition.isRedirect &&
+        !transition.isSet(CefRequest.TransitionFlags.TT_FORWARD_BACK_FLAG)
+
     fun popup(url: String) {
         if (isReleased()) return
-        if (isBrowserUrlAllowed(url) && guard.allows(url, BrowserRequestKind.MainDocument)) open(url) else unsupported()
+        if (isBrowserUrlAllowed(url) && guard.allows(url, BrowserRequestKind.MainDocument)) {
+            open(BrowserCommand.Load(url))
+        } else {
+            unsupported()
+        }
     }
 
     private fun resources(
@@ -126,8 +172,11 @@ internal class DesktopBrowserPolicy(
 
     private inner class ResourceHandler(private val kind: BrowserRequestKind, private val isDownload: Boolean) :
         CefResourceRequestHandlerAdapter() {
-        override fun onBeforeResourceLoad(browser: CefBrowser?, frame: CefFrame?, request: CefRequest): Boolean =
-            isDownload || !allows(request.url, kind)
+        override fun onBeforeResourceLoad(browser: CefBrowser?, frame: CefFrame?, request: CefRequest): Boolean {
+            if (isDownload || !allows(request.url, kind)) return true
+            if (kind == BrowserRequestKind.MainDocument) applyLinkedReferrer(request)
+            return false
+        }
 
         override fun onResourceRedirect(
             browser: CefBrowser?,
@@ -209,6 +258,11 @@ internal class DesktopBrowserAgentGuard {
             (if (kind == BrowserRequestKind.MainDocument) refusedNavigation else refusedContent).set(true)
         }
         return isApproved
+    }
+
+    /** Copies only authorization, never another tab's pending refusal notifications. */
+    fun inheritFrom(parent: DesktopBrowserAgentGuard) {
+        restriction = parent.restriction
     }
 
     /** Whether a main document was refused since the previous call. */

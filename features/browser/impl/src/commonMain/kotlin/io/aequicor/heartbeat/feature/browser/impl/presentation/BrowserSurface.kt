@@ -1,10 +1,11 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserNativeResources
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserReferrer
 
 /** Commands consumed by one native view on its platform UI thread. */
 internal sealed interface BrowserViewCommand {
-    data class Load(val url: String) : BrowserViewCommand
+    data class Load(val url: String, val referrer: BrowserReferrer? = null) : BrowserViewCommand
     data object Back : BrowserViewCommand
     data object Forward : BrowserViewCommand
     data object Reload : BrowserViewCommand

@@ -4,6 +4,9 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserAgentPolicy
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserReferrer
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserReferrerPolicy
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserRequestKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -34,6 +37,26 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DesktopBrowserSessionTest {
+    @Test
+    fun `linked navigation retains referrer alongside the inherited session and origin`() = runTest {
+        val fixture = Fixture(this)
+        fixture.create("session-a")
+        fixture.guards.first().restrict("http://192.168.1.1/")
+        val referrer = BrowserReferrer("http://192.168.1.1/private", BrowserReferrerPolicy.Origin)
+        fixture.links.first()(BrowserCommand.Load("http://192.168.1.1/next", referrer))
+        runCurrent()
+        val controller = RecordingBrowserController()
+        fixture.surfaces.last().attached(controller)
+        runCurrent()
+        assertEquals(
+            listOf<BrowserViewCommand>(BrowserViewCommand.Load("http://192.168.1.1/next", referrer)),
+            controller.commands,
+        )
+        assertEquals("session-a", fixture.session.tabs.value.first.last().owner)
+        assertTrue(fixture.guards.last().allows("http://192.168.1.1/another", BrowserRequestKind.MainDocument))
+        assertFalse(fixture.guards.last().allows("http://10.0.0.1/", BrowserRequestKind.MainDocument))
+    }
+
     @Test
     fun `a replaced control request survives an older transfer waiting for native cancellation`() = runTest {
         for (operation in listOf(BrowserOperation.ApproveControl, BrowserOperation.RejectControl)) {
@@ -317,6 +340,73 @@ class DesktopBrowserSessionTest {
         assertFalse(guard.allows("http://192.168.1.1/", BrowserRequestKind.MainDocument))
     }
 
+    @Test
+    fun `session groups stay contiguous and linked tabs inherit ownership next to their parent`() = runTest {
+        val fixture = Fixture(this)
+        val first = fixture.create("session-a")
+        val other = fixture.create("session-b")
+        val second = fixture.create("session-a")
+        assertEquals(listOf(first, second, other), fixture.session.tabs.value.first.map { it.id })
+        fixture.links.first()(BrowserCommand.Load("https://example.com/linked"))
+        runCurrent()
+        val linked = fixture.session.tabs.value.first[1]
+        assertEquals("session-a", linked.owner)
+        assertEquals(listOf(first, linked.id, second, other), fixture.session.tabs.value.first.map { it.id })
+        assertEquals(linked.id, fixture.session.tabs.value.second)
+        assertEquals(3, fixture.list("session-a").size)
+        assertEquals(1, fixture.list("session-b").size)
+        assertNotNull(fixture.request(BrowserOperation.CloseTab, linked.id, "session-b").error)
+        assertNull(fixture.request(BrowserOperation.CloseTab, linked.id, "session-a").error)
+        assertEquals(second, fixture.session.tabs.value.second)
+    }
+
+    @Test
+    fun `user new tab inherits selected group while a foreign agent cannot join it`() = runTest {
+        val fixture = Fixture(this)
+        val parent = fixture.create("session-a")
+        assertNull(fixture.request(BrowserOperation.NewTab, parent).error)
+        assertEquals(listOf("session-a", "session-a"), fixture.session.tabs.value.first.map { it.owner })
+        assertNotNull(fixture.request(BrowserOperation.NewTab, parent, "session-b").error)
+        assertEquals(2, fixture.session.tabs.value.first.size)
+    }
+
+    @Test
+    fun `linked tab preserves approved origin and cannot escape via another private address`() = runTest {
+        val fixture = Fixture(this)
+        val parent = fixture.create("session-a")
+        fixture.guards.first().restrict("http://192.168.1.1/")
+        fixture.links.first()(BrowserCommand.Load("http://192.168.1.1/login"))
+        runCurrent()
+        val guard = fixture.guards.last()
+        assertTrue(guard.isRestricted)
+        assertTrue(guard.allows("http://192.168.1.1/next", BrowserRequestKind.MainDocument))
+        assertFalse(guard.allows("http://10.0.0.1/", BrowserRequestKind.MainDocument))
+        fixture.links.first()(BrowserCommand.Load("http://10.0.0.1/"))
+        runCurrent()
+        assertEquals(2, fixture.session.tabs.value.first.size)
+        fixture.request(BrowserOperation.CloseTab, parent, "session-a")
+        fixture.links.first()(BrowserCommand.Load("https://example.com/stale"))
+        runCurrent()
+        assertEquals(1, fixture.session.tabs.value.first.size)
+    }
+
+    @Test
+    fun `personal links and human controlled siblings keep their group and control state`() = runTest {
+        val fixture = Fixture(this)
+        fixture.create()
+        fixture.links.first()(BrowserCommand.Load("https://example.com/"))
+        runCurrent()
+        assertTrue(fixture.session.tabs.value.first.all { it.owner == null })
+        val agent = fixture.create("session-a")
+        fixture.request(BrowserOperation.TakeControl, agent)
+        fixture.links.last()(BrowserCommand.Load("http://localhost:8080/"))
+        runCurrent()
+        val child = fixture.session.tabs.value.first.last()
+        assertEquals("session-a", child.owner)
+        assertTrue(child.isHumanControlled)
+        assertFalse(fixture.guards.last().isRestricted)
+    }
+
     private class Fixture(
         scope: TestScope,
         private val clearRelease: CompletableDeferred<Unit>? = null,
@@ -325,6 +415,7 @@ class DesktopBrowserSessionTest {
         val closed = mutableListOf<BrowserSurface>()
         val surfaces = mutableListOf<BrowserSurface>()
         val guards = mutableListOf<DesktopBrowserAgentGuard>()
+        val links = mutableListOf<(BrowserCommand.Load) -> Unit>()
         private val panels = mutableListOf<DesktopBrowserPanel>()
         var clearCount = 0
         private var requestIndex = 0
@@ -346,7 +437,12 @@ class DesktopBrowserSessionTest {
                 closed += surface
             }
 
-            override fun create(surface: BrowserSurface, guard: DesktopBrowserAgentGuard): DesktopBrowserPanel {
+            override fun create(
+                surface: BrowserSurface,
+                guard: DesktopBrowserAgentGuard,
+                openTab: ((BrowserCommand.Load) -> Unit)?,
+            ): DesktopBrowserPanel {
+                links += requireNotNull(openTab)
                 surfaces += surface
                 guards += guard
                 return panel(surface)

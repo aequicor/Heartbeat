@@ -30,4 +30,6 @@
     <string name="browser_clear_data_message">Cookies, sign-ins and site data of this browser profile will be deleted, and all tabs will close. This cannot be undone.</string>
     <string name="browser_clear_data_confirm">Clear data</string>
     <string name="browser_cancel">Cancel</string>
+    <string name="browser_user_group">Personal</string>
+    <string name="browser_session_group">Session %1$d</string>
 </resources>

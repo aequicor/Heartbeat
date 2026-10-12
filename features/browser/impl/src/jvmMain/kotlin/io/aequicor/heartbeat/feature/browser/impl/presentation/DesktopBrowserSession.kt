@@ -10,16 +10,19 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
+import io.aequicor.heartbeat.feature.browser.api.BrowserError
 import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserPage
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserTab
 import io.aequicor.heartbeat.feature.browser.api.browserSearchUrl
+import io.aequicor.heartbeat.feature.browser.api.isBrowserUrlAllowed
 import io.aequicor.heartbeat.feature.browser.api.normalizeBrowserUrl
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserAgentPolicy
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserNativeResources
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserRequestKind
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -42,7 +45,9 @@ import kotlinx.serialization.json.put
 import kotlin.uuid.Uuid
 
 /**
- * Profile-owned tabs. All registry mutations run on main; each tab serializes its native
+ * Profile-owned tabs grouped by session owner (null is the personal group). New links inherit the
+ * parent group, control state and approved origin, and are inserted immediately after that parent.
+ * All registry mutations run on main; each tab serializes its native
  * operations. Each tab's [DesktopBrowserAgentGuard] keeps an agent's documents on the public web and the
  * origin its owner approved; what it refuses is reported to the agent with its next operation on the tab.
  */
@@ -210,10 +215,24 @@ internal class DesktopBrowserSession(
         )
     }
 
+    private suspend fun newTab(request: BrowserRequest): Entry {
+        val parent = request.tabId?.let { id ->
+            val entry = requireNotNull(entries[id]) { "Unknown tab" }
+            require(request.owner == null || entry.tab.owner == request.owner) {
+                "Tab belongs to another session"
+            }
+            require(request.owner == null || !entry.tab.isHumanControlled) {
+                "Tab is controlled by the user"
+            }
+            entry
+        }
+        return create(request.owner ?: parent?.tab?.owner, parent)
+    }
+
     private suspend fun operate(request: BrowserRequest): BrowserResult {
         val entry =
             if (request.operation == BrowserOperation.NewTab) {
-                create(request.owner)
+                newTab(request)
             } else {
                 requireNotNull(entries[request.tabId]) { "Unknown tab" }
             }
@@ -408,22 +427,29 @@ internal class DesktopBrowserSession(
         return result.copy(data = JsonObject(result.data + notes))
     }
 
-    private suspend fun create(owner: String?): Entry {
+    /** A session owns one group; a user-created sibling inherits the selected group's authorization. */
+    private suspend fun create(owner: String?, parent: Entry? = null): Entry {
         require(entries.size < MAX_TABS) { "Close a tab before opening another" }
         val id = Uuid.random().toString()
         val surface = BrowserSurfaceAdapter(scope, dispatchers, nativeResources)
         surface.setEnabled(true)
         val guard = DesktopBrowserAgentGuard()
-        val panel = factory.create(surface, guard)
+        val panel = factory.create(surface, guard) { url -> openLinkedTab(id, url) }
         val entry =
             Entry(
-                BrowserTab(id, owner = owner),
+                BrowserTab(id, owner = owner, isHumanControlled = parent?.tab?.isHumanControlled == true),
                 surface,
                 DesktopBrowserAutomation(panel::devTools, panel::captureResource),
                 guard,
             )
         entry.syncGuard(approved = null)
-        entries[id] = entry
+        if (parent != null) guard.inheritFrom(parent.guard)
+        val after = parent?.tab?.id ?: entries.values.lastOrNull { it.tab.owner == owner }?.tab?.id
+        val ordered = entries.values.toMutableList()
+        val index = ordered.indexOfFirst { it.tab.id == after }
+        ordered.add(if (index < 0) ordered.size else index + 1, entry)
+        entries.clear()
+        ordered.forEach { entries[it.tab.id] = it }
         selected = id
         entry.observer =
             scope.coroutineScope.launch(dispatchers.main) {
@@ -438,7 +464,31 @@ internal class DesktopBrowserSession(
         return entry
     }
 
+    /** Native callbacks may arrive on CEF threads; recheck the live parent on main before inheriting it. */
+    private fun openLinkedTab(parentId: String, command: BrowserCommand.Load) {
+        val url = command.url
+        scope.coroutineScope.launch(dispatchers.main) {
+            val parent = entries[parentId] ?: return@launch
+            if (!isBrowserEnabled || isClearingData || !isBrowserUrlAllowed(url)) return@launch
+            if (!parent.guard.allows(url, BrowserRequestKind.MainDocument)) return@launch
+            try {
+                val child = create(parent.tab.owner, parent)
+                child.surface.execute(command)
+                log.i { "Browser link opened in a sibling tab" }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                log.w(error.redactedFailure()) { "Browser linked tab could not be opened" }
+                parent.tab = parent.tab.copy(page = parent.tab.page.copy(error = BrowserError.LoadFailed))
+                publish()
+            }
+        }
+    }
+
     private suspend fun close(id: String) {
+        val siblings = entries.values.filter { it.tab.owner == entries[id]?.tab?.owner }.map { it.tab.id }
+        val index = siblings.indexOf(id)
+        val neighbor = siblings.getOrNull(index + 1) ?: siblings.getOrNull(index - 1)
         val entry = entries.remove(id) ?: return
         val caller = currentCoroutineContext().job
         operations
@@ -449,13 +499,13 @@ internal class DesktopBrowserSession(
         entry.observer?.cancel()
         entry.surface.setEnabled(false)
         factory.close(entry.surface)
-        if (selected == id) selected = entries.keys.lastOrNull()
+        if (selected == id) selected = neighbor ?: entries.keys.lastOrNull()
         publish()
     }
 
     private fun publish() {
         log.v { "Browser tab projection changed" }
-        tabs.value = entries.values.map { it.tab } to selected
+        tabs.value = entries.values.groupBy { it.tab.owner }.values.flatten().map { it.tab } to selected
         pages.value = entries[selected]?.tab?.page ?: BrowserPage()
     }
 

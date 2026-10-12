@@ -145,6 +145,7 @@ private fun FlatButton(
  * [isSecret] makes a secure single-line field: obfuscated text marked as a password for accessibility,
  * no cut/copy, a password keyboard without autocorrect, and nothing written to saved state.
  * A secret field is always single-line, whatever [singleLine] says.
+ * [selectAllOnFocus] selects the current text on entry, useful for replacing an address.
  */
 @Composable
 public fun HbTextField(
@@ -158,6 +159,7 @@ public fun HbTextField(
     isSecret: Boolean = false,
     leadingContent: (@Composable () -> Unit)? = null,
     trailingContent: (@Composable () -> Unit)? = null,
+    selectAllOnFocus: Boolean = false,
 ) {
     val loggedChange: (String) -> Unit = {
         log.d { "text input changed length=${it.length}" }
@@ -177,6 +179,7 @@ public fun HbTextField(
         isSecret,
         leadingContent,
         trailingContent,
+        selectAllOnFocus,
     )
 }
 
@@ -191,6 +194,7 @@ private fun FlatTextField(
     isSecret: Boolean = false,
     leadingContent: (@Composable () -> Unit)? = null,
     trailingContent: (@Composable () -> Unit)? = null,
+    selectAllOnFocus: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -225,6 +229,7 @@ private fun FlatTextField(
         isSecret = isSecret,
         leadingContent = leadingContent,
         trailingContent = trailingContent,
+        selectAllOnFocus = selectAllOnFocus,
     )
 }
 
