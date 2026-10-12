@@ -1,6 +1,6 @@
 package io.aequicor.heartbeat.feature.chromiumbridge.impl.data.hosts
 
-import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.RegistrationProblem
+import io.aequicor.heartbeat.feature.chromiumbridge.api.HostRegistrationFailure
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -13,7 +13,7 @@ internal sealed interface HostLauncher {
     data class Development(val java: Path, val classpath: String) : HostLauncher
 
     /** This process cannot be relaunched as a host. */
-    data class Unavailable(val problem: RegistrationProblem) : HostLauncher
+    data class Unavailable(val problem: HostRegistrationFailure) : HostLauncher
 
     companion object {
         /** Detects the launcher of the current process. */
@@ -23,7 +23,7 @@ internal sealed interface HostLauncher {
         }
 
         private fun packaged(launcher: Path): HostLauncher = when {
-            "/AppTranslocation/" in launcher.toString() -> Unavailable(RegistrationProblem.Translocated)
+            "/AppTranslocation/" in launcher.toString() -> Unavailable(HostRegistrationFailure.Translocated)
             Files.isRegularFile(launcher) -> Packaged(launcher.toAbsolutePath())
             else -> noLauncher()
         }
@@ -35,6 +35,6 @@ internal sealed interface HostLauncher {
             return if (isUsable) Development(java, classpath) else noLauncher()
         }
 
-        private fun noLauncher() = Unavailable(RegistrationProblem.NoLauncher)
+        private fun noLauncher() = Unavailable(HostRegistrationFailure.NoLauncher)
     }
 }

@@ -1,7 +1,11 @@
 package io.aequicor.heartbeat.feature.chromiumbridge.impl.domain
 
+import io.aequicor.heartbeat.feature.chromiumbridge.api.BridgeServerStatus
 import io.aequicor.heartbeat.feature.chromiumbridge.api.BrowserHost
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBrowser
+import io.aequicor.heartbeat.feature.chromiumbridge.api.ConnectedBrowser
+import io.aequicor.heartbeat.feature.chromiumbridge.api.HostRegistrationFailure
+import kotlinx.coroutines.flow.Flow
 
 /** Registration of the native-messaging host in the browsers' own locations. */
 internal interface NativeHostRegistry {
@@ -18,21 +22,21 @@ internal interface NativeHostRegistry {
     suspend fun unregister(browser: ChromiumBrowser): BrowserHost
 }
 
-/** Why the host cannot be registered; shown to the user. */
-internal enum class RegistrationProblem {
-    /** Native messaging hosts are registered only on macOS and Windows. */
-    UnsupportedPlatform,
-
-    /** macOS runs the app from a temporary translocated copy; it must be moved to Applications first. */
-    Translocated,
-
-    /** Neither a packaged launcher nor a Java runtime is available to start the host. */
-    NoLauncher,
-
-    /** Writing the manifest, launcher or registry key failed. */
-    WriteFailed,
-}
-
 /** A registration refused for [problem]. */
-internal class HostRegistrationException(val problem: RegistrationProblem, cause: Throwable? = null) :
+internal class HostRegistrationException(val problem: HostRegistrationFailure, cause: Throwable? = null) :
     Exception("Host registration failed: $problem", cause)
+
+/** The app end of the bridge: the socket hosts connect to and the extensions behind them. */
+internal interface BridgeServer {
+    /**
+     * Serves until cancelled, reporting every status change. Returns only when the socket cannot be served
+     * ([BridgeServerStatus.Occupied] or [BridgeServerStatus.Failed] reported before).
+     */
+    suspend fun serve(onStatus: suspend (BridgeServerStatus) -> Unit)
+
+    /** Extensions past the handshake. */
+    fun clients(): Flow<List<ConnectedBrowser>>
+
+    /** Asks every extension allowing agent control to release the tabs agents drive; returns how many answered. */
+    suspend fun revokeTabs(): Int
+}

@@ -3,9 +3,9 @@ package io.aequicor.heartbeat.feature.chromiumbridge.impl.data.hosts
 import io.aequicor.heartbeat.feature.chromiumbridge.api.BrowserHost
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBrowser
 import io.aequicor.heartbeat.feature.chromiumbridge.api.HostRegistration
+import io.aequicor.heartbeat.feature.chromiumbridge.api.HostRegistrationFailure
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.ExtensionIdentity
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.HostRegistrationException
-import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.RegistrationProblem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
@@ -124,11 +124,11 @@ class DesktopNativeHostRegistryTest {
 
     @Test
     fun `a translocated app cannot register`() = runTest {
-        launcher = HostLauncher.Unavailable(RegistrationProblem.Translocated)
+        launcher = HostLauncher.Unavailable(HostRegistrationFailure.Translocated)
 
         val error = assertFailsWith<HostRegistrationException> { hosts.register(ChromiumBrowser.Chrome) }
 
-        assertEquals(RegistrationProblem.Translocated, error.problem)
+        assertEquals(HostRegistrationFailure.Translocated, error.problem)
         assertFalse(Files.exists(chromeManifest()))
     }
 

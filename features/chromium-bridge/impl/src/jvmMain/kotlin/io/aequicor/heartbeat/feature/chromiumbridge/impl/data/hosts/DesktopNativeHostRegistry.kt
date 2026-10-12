@@ -5,10 +5,10 @@ import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.chromiumbridge.api.BrowserHost
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBrowser
 import io.aequicor.heartbeat.feature.chromiumbridge.api.HostRegistration
+import io.aequicor.heartbeat.feature.chromiumbridge.api.HostRegistrationFailure
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.BridgePaths
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.HostRegistrationException
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.NativeHostRegistry
-import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.RegistrationProblem
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -54,7 +54,7 @@ internal class DesktopNativeHostRegistry(
     override suspend fun register(browser: ChromiumBrowser): BrowserHost = withContext(io) {
         val current = environment()
         val location = current.locations.firstOrNull { it.browser == browser }
-            ?: throw HostRegistrationException(RegistrationProblem.UnsupportedPlatform)
+            ?: throw HostRegistrationException(HostRegistrationFailure.UnsupportedPlatform)
         (current.launcher as? HostLauncher.Unavailable)?.let { throw HostRegistrationException(it.problem) }
         try {
             val wrapper = writeWrapper(current)
@@ -70,7 +70,7 @@ internal class DesktopNativeHostRegistry(
             }
         } catch (e: IOException) {
             log.w(e.redactedFailure()) { "Native host registration failed browser=$browser" }
-            throw HostRegistrationException(RegistrationProblem.WriteFailed, e)
+            throw HostRegistrationException(HostRegistrationFailure.WriteFailed, e)
         }
         log.i { "Native host registered browser=$browser" }
         status(current, location)
@@ -87,7 +87,7 @@ internal class DesktopNativeHostRegistry(
             }
         } catch (e: IOException) {
             log.w(e.redactedFailure()) { "Native host removal failed browser=$browser" }
-            throw HostRegistrationException(RegistrationProblem.WriteFailed, e)
+            throw HostRegistrationException(HostRegistrationFailure.WriteFailed, e)
         }
         log.i { "Native host unregistered browser=$browser" }
         status(current, location)

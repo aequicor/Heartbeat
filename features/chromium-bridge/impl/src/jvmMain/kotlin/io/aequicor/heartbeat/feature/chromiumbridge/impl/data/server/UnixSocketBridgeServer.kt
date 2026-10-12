@@ -48,7 +48,7 @@ internal class UnixSocketBridgeServer(
      * [onConnections] after every change of the live connection count.
      */
     suspend fun serve(
-        onListening: () -> Unit,
+        onListening: suspend () -> Unit,
         onConnections: (Int) -> Unit = {},
         handler: suspend (FrameLink) -> Unit,
     ): ServeResult {

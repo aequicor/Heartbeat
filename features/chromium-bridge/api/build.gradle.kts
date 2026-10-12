@@ -7,6 +7,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(projects.core.featureToggles.api)
+            api(projects.core.stateMachine.api)
             implementation(libs.kotlinx.serialization.core)
         }
     }
