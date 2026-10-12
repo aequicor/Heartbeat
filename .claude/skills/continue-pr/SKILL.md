@@ -27,7 +27,7 @@ gh repo view --json nameWithOwner --jq .nameWithOwner
 gh pr view <ref> --json number,url,state,isDraft,isCrossRepository,author,headRefName,headRefOid,baseRefName,body,comments,reviews,commits
 gh api user --jq .login
 gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){
-  userContentEdits(last:100){nodes{editor{login}}}
+  userContentEdits(last:100){nodes{editedAt editor{login} diff}}
   reviewThreads(first:100){nodes{isResolved path line comments(first:20){nodes{author{login} body url}}}}}}}' \
   -f o=<owner> -f r=<repo> -F n=<N>
 gh pr checks <N>
@@ -52,10 +52,10 @@ git fetch origin <baseRefName> <headRefName>
 git switch <headRefName>        # без локальной ветки создаёт её от origin/<headRefName>
 ```
 
-- Ветка занята другим worktree `<path>` (`git worktree list`) — его может использовать другая живая сессия.
-  Работай в нём, только если `git -C <path> status --porcelain` пуст и
-  `git -C <path> merge-base --is-ancestor HEAD origin/<headRefName>` успешен (неотправленных коммитов нет);
-  все дальнейшие команды — в `<path>`. Иначе ничего не трогай и спроси.
+- Ветка занята другим worktree `<path>` (`git worktree list`) — его может использовать другая живая сессия,
+  а по состоянию git этого не видно. Ничего не трогай и спроси пользователя. Если `git -C <path> status --porcelain`
+  пуст и `git -C <path> merge-base --is-ancestor HEAD origin/<headRefName>` успешен (неотправленных коммитов нет),
+  предложи работать в нём; с согласия все дальнейшие команды — в `<path>`.
 - Локальная ветка отстаёт — `git merge --ff-only origin/<headRefName>`. Неотправленные локальные коммиты или
   расхождение — работа этой машины, о которой PR не знает: покажи её пользователю и спроси, не затирай.
 - После этого `HEAD` должен быть равен `headRefOid`; не равен — остановись и спроси.
@@ -79,8 +79,9 @@ git switch <headRefName>        # без локальной ветки созд�
 
 - комментарии, ревью и треды людей;
 - коммиты, чей основной автор (`commits[].authors[0].login`, остальные — соавторы из трейлеров) — не автор PR;
-- правки описания не автором PR (`userContentEdits`). Сохранённые правки людей open-pr отмечает в «Решения и вопросы»
-  как неподтверждённые; неотмеченную правку другого редактора покажи пользователю.
+- правки описания не автором PR (`userContentEdits`; `diff` — текст описания после правки, сравни с предыдущей
+  версией). Сохранённые правки людей open-pr отмечает в «Решения и вопросы» как неподтверждённые; неотмеченную
+  правку другого редактора покажи пользователю.
 
 Перечисли пользователю новые — без решения в «Решения и вопросы» — и учитывай только подтверждённые им.
 Решение по каждому (учтён или отклонён, со ссылкой) запиши в «Решения и вопросы».
