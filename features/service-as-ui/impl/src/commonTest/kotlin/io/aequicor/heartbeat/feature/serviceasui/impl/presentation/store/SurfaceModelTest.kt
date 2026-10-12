@@ -145,6 +145,12 @@ class SurfaceModelTest {
             ),
             actions,
         )
+
+        screen.intent(SurfaceIntent.OpenLink("https://example.com/7"))
+        screen.intent(SurfaceIntent.OpenLink("javascript:alert(1)"))
+        runCurrent()
+        assertEquals(SurfaceAction.OpenUrl("https://example.com/7", isTrusted = false), actions.last())
+        assertEquals(NoticeUi.InvalidLink, screen.states.value.notice)
     }
 
     @Test

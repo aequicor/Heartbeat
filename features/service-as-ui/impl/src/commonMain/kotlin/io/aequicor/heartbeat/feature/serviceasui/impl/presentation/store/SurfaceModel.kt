@@ -105,6 +105,11 @@ internal class SurfaceModel(
 
                 is SurfaceIntent.Input -> update { it.withInput(intent.key, intent.value) }
 
+                is SurfaceIntent.OpenLink -> {
+                    log.i { "Surface link clicked" }
+                    openUrl(intent.url, isTrusted = false)
+                }
+
                 is SurfaceIntent.Pick -> pipeline.launch { pick(intent) }
 
                 is SurfaceIntent.Reload -> {
@@ -154,7 +159,7 @@ internal class SurfaceModel(
                     session.host.prompt(bindings.text(action.text, scope), isSubmitted) || notice(NoticeUi.Unsupported)
                 }
 
-                is UiAction.OpenUrl -> openUrl(bindings.text(action.url, scope))
+                is UiAction.OpenUrl -> openUrl(bindings.text(action.url, scope), isTrusted = session.owner != null)
 
                 is UiAction.Copy -> {
                     pipeline.action(SurfaceAction.Copy(bindings.text(action.text, scope)))
@@ -210,10 +215,11 @@ internal class SurfaceModel(
             }
         }
 
-        private suspend fun openUrl(url: String): Boolean {
+        /** Opens an http(s) [url], after the user confirms it unless [isTrusted]. */
+        private suspend fun openUrl(url: String, isTrusted: Boolean): Boolean {
             val isLink = url.startsWith("https://") || url.startsWith("http://")
             if (isLink) {
-                pipeline.action(SurfaceAction.OpenUrl(url, isTrusted = session.owner != null))
+                pipeline.action(SurfaceAction.OpenUrl(url, isTrusted))
             } else {
                 notice(NoticeUi.InvalidLink)
             }

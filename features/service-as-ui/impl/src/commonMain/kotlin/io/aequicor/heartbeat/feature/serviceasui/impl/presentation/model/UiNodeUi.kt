@@ -34,9 +34,14 @@ internal data class UiPress(val origin: String, internal val action: UiAction, i
 @Immutable
 internal data class ColumnUi(val title: String, val weight: Float)
 
-/** One row of a table; [press] runs the row action. */
+/** One row of a table; [press] runs the row action, which is still running while [isBusy]. */
 @Immutable
-internal data class RowUi(val key: String, val cells: ImmutableList<String>, val press: UiPress?)
+internal data class RowUi(
+    val key: String,
+    val cells: ImmutableList<String>,
+    val press: UiPress?,
+    val isBusy: Boolean = false,
+)
 
 /** One choice of a select. */
 @Immutable
@@ -51,8 +56,17 @@ internal data class PairUi(val key: String, val value: String)
 internal sealed interface UiNodeUi {
     val key: String
 
+    /** Arranges other nodes. */
+    sealed interface Layout : UiNodeUi
+
+    /** Shows values. */
+    sealed interface Content : UiNodeUi
+
+    /** Takes user input or runs actions. */
+    sealed interface Input : UiNodeUi
+
     /** Children stacked vertically. */
-    data class Column(override val key: String, val children: ImmutableList<UiNodeUi>, val gap: GapUi) : UiNodeUi
+    data class Column(override val key: String, val children: ImmutableList<UiNodeUi>, val gap: GapUi) : Layout
 
     /** Children side by side. */
     data class Row(
@@ -60,10 +74,10 @@ internal sealed interface UiNodeUi {
         val children: ImmutableList<UiNodeUi>,
         val gap: GapUi,
         val isWrapped: Boolean,
-    ) : UiNodeUi
+    ) : Layout
 
     /** A framed group. */
-    data class Card(override val key: String, val title: String?, val children: ImmutableList<UiNodeUi>) : UiNodeUi
+    data class Card(override val key: String, val title: String?, val children: ImmutableList<UiNodeUi>) : Layout
 
     /** A titled group. */
     data class Section(
@@ -71,34 +85,34 @@ internal sealed interface UiNodeUi {
         val title: String,
         val description: String?,
         val children: ImmutableList<UiNodeUi>,
-    ) : UiNodeUi
+    ) : Layout
 
     /** A separator. */
-    data class Divider(override val key: String) : UiNodeUi
+    data class Divider(override val key: String) : Layout
 
     /** Empty space. */
-    data class Spacer(override val key: String, val size: GapUi) : UiNodeUi
+    data class Spacer(override val key: String, val size: GapUi) : Layout
 
     /** Plain text. */
-    data class Text(override val key: String, val text: String, val style: TextStyleUi, val tone: ToneUi) : UiNodeUi
+    data class Text(override val key: String, val text: String, val style: TextStyleUi, val tone: ToneUi) : Content
 
     /** Markdown text. */
-    data class Markdown(override val key: String, val text: String) : UiNodeUi
+    data class Markdown(override val key: String, val text: String) : Content
 
     /** A colored label. */
-    data class Badge(override val key: String, val text: String, val tone: ToneUi) : UiNodeUi
+    data class Badge(override val key: String, val text: String, val tone: ToneUi) : Content
 
     /** Progress of [value] in 0..1, indeterminate when null. */
-    data class Progress(override val key: String, val value: Float?, val label: String?) : UiNodeUi
+    data class Progress(override val key: String, val value: Float?, val label: String?) : Content
 
     /** Pairs of a key and a value. */
-    data class KeyValue(override val key: String, val items: ImmutableList<PairUi>) : UiNodeUi
+    data class KeyValue(override val key: String, val items: ImmutableList<PairUi>) : Content
 
     /** An empty state. */
-    data class Empty(override val key: String, val title: String, val description: String?) : UiNodeUi
+    data class Empty(override val key: String, val title: String, val description: String?) : Content
 
     /** A PlantUML diagram. */
-    data class Diagram(override val key: String, val source: String, val title: String?) : UiNodeUi
+    data class Diagram(override val key: String, val source: String, val title: String?) : Content
 
     /** A table; [hidden] rows beyond the drawn ones are only counted. */
     data class Table(
@@ -107,10 +121,10 @@ internal sealed interface UiNodeUi {
         val rows: ImmutableList<RowUi>,
         val emptyText: String?,
         val hidden: Int,
-    ) : UiNodeUi
+    ) : Content
 
     /** A note that [count] more elements of a list are not drawn. */
-    data class More(override val key: String, val count: Int) : UiNodeUi
+    data class More(override val key: String, val count: Int) : Content
 
     /** A button; [confirm] is asked first, [isBusy] while its action runs. */
     data class Button(
@@ -122,7 +136,7 @@ internal sealed interface UiNodeUi {
         val isBusy: Boolean,
         val confirm: String?,
         val press: UiPress,
-    ) : UiNodeUi
+    ) : Input
 
     /** A text input of the state key [stateKey]. */
     data class TextField(
@@ -132,11 +146,11 @@ internal sealed interface UiNodeUi {
         val label: String?,
         val placeholder: String?,
         val isMultiline: Boolean,
-    ) : UiNodeUi
+    ) : Input
 
     /** A switch of the state key [stateKey]. */
     data class Toggle(override val key: String, val stateKey: String, val label: String, val isChecked: Boolean) :
-        UiNodeUi
+        Input
 
     /** A choice of the state key [stateKey]. */
     data class Select(
@@ -145,7 +159,7 @@ internal sealed interface UiNodeUi {
         val label: String?,
         val options: ImmutableList<OptionUi>,
         val selected: String?,
-    ) : UiNodeUi
+    ) : Input
 
     /** A platform widget writing the state key [stateKey]. */
     data class Native(
@@ -155,10 +169,10 @@ internal sealed interface UiNodeUi {
         val label: String?,
         val value: String,
         val extensions: ImmutableList<String>,
-    ) : UiNodeUi
+    ) : Input
 
     /** An isolated web document; [data] is JSON delivered to the page. */
-    data class Web(override val key: String, val html: String, val hasBridge: Boolean, val data: String?) : UiNodeUi
+    data class Web(override val key: String, val html: String, val hasBridge: Boolean, val data: String?) : Content
 }
 
 /** A modal dialog of a surface. */

@@ -193,10 +193,12 @@ internal class UiEvaluator(private val spec: UiSpec) {
             val keys = elementKeys(shown, node.key)
             val rows = shown.mapIndexed { index, row ->
                 val rowScope = UiScope(row, index)
+                val origin = "$key[${keys[index]}]"
                 RowUi(
                     keys[index],
                     node.columns.map { text(it.value, rowScope) }.toImmutableList(),
-                    node.onRowClick?.let { UiPress("$key[${keys[index]}]", it, rowScope) },
+                    node.onRowClick?.let { UiPress(origin, it, rowScope) },
+                    isBusy = origin in values.busy,
                 )
             }
             return UiNodeUi.Table(

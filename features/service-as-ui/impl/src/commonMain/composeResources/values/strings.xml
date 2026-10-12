@@ -1,0 +1,26 @@
+<resources>
+    <string name="service_ui_busy">Running</string>
+    <string name="service_ui_cancel">Cancel</string>
+    <string name="service_ui_continue">Continue</string>
+    <string name="service_ui_close">Close</string>
+    <string name="service_ui_dismiss">Dismiss</string>
+    <string name="service_ui_more">%1$d more not shown</string>
+    <string name="service_ui_choose_file">Choose file…</string>
+    <string name="service_ui_choose_folder">Choose folder…</string>
+    <string name="service_ui_not_chosen">Nothing chosen</string>
+    <string name="service_ui_date_hint">YYYY-MM-DD</string>
+    <string name="service_ui_date_invalid">Enter a date as YYYY-MM-DD</string>
+    <string name="service_ui_select">Choose…</string>
+    <string name="service_ui_open_link_title">Open link?</string>
+    <string name="service_ui_open_link">Open</string>
+    <string name="service_ui_web_unavailable">Web content is not available here</string>
+    <string name="service_ui_failed_unavailable">The owner of this interface cannot run its methods here</string>
+    <string name="service_ui_failed_not_found">The method is not published by the owner</string>
+    <string name="service_ui_failed_inactive">The owner of this interface is not active in this chat</string>
+    <string name="service_ui_failed_timed_out">The method took too long</string>
+    <string name="service_ui_failed_failed">The method failed</string>
+    <string name="service_ui_failed_too_large">The data is too large</string>
+    <string name="service_ui_unsupported">This action is not available here</string>
+    <string name="service_ui_invalid_link">Only http and https links can be opened</string>
+    <string name="service_ui_broken">The interface stopped working; reopen it</string>
+</resources>

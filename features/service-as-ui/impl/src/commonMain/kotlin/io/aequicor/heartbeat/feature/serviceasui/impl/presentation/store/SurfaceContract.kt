@@ -75,6 +75,11 @@ internal sealed interface SurfaceIntent : MVIIntent {
         override fun toString(): String = "Input(key=$key)"
     }
 
+    /** A link inside drawn markdown was clicked; it is always confirmed, since the text may come from anyone. */
+    data class OpenLink(val url: String) : SurfaceIntent {
+        override fun toString(): String = "OpenLink"
+    }
+
     /** A native widget asks for a system dialog writing the state key [key]. */
     data class Pick(val key: String, val widget: NativeWidgetUi, val extensions: List<String>) : SurfaceIntent
 

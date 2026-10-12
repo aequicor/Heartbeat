@@ -1,0 +1,26 @@
+<resources>
+    <string name="service_ui_busy">Выполняется</string>
+    <string name="service_ui_cancel">Отмена</string>
+    <string name="service_ui_continue">Продолжить</string>
+    <string name="service_ui_close">Закрыть</string>
+    <string name="service_ui_dismiss">Скрыть</string>
+    <string name="service_ui_more">Ещё %1$d не показано</string>
+    <string name="service_ui_choose_file">Выбрать файл…</string>
+    <string name="service_ui_choose_folder">Выбрать папку…</string>
+    <string name="service_ui_not_chosen">Ничего не выбрано</string>
+    <string name="service_ui_date_hint">ГГГГ-ММ-ДД</string>
+    <string name="service_ui_date_invalid">Введите дату в формате ГГГГ-ММ-ДД</string>
+    <string name="service_ui_select">Выбрать…</string>
+    <string name="service_ui_open_link_title">Открыть ссылку?</string>
+    <string name="service_ui_open_link">Открыть</string>
+    <string name="service_ui_web_unavailable">Веб-содержимое здесь недоступно</string>
+    <string name="service_ui_failed_unavailable">Владелец интерфейса не может выполнять методы здесь</string>
+    <string name="service_ui_failed_not_found">Владелец не публикует этот метод</string>
+    <string name="service_ui_failed_inactive">Владелец интерфейса не подключён к этому чату</string>
+    <string name="service_ui_failed_timed_out">Метод выполнялся слишком долго</string>
+    <string name="service_ui_failed_failed">Метод завершился с ошибкой</string>
+    <string name="service_ui_failed_too_large">Слишком много данных</string>
+    <string name="service_ui_unsupported">Это действие здесь недоступно</string>
+    <string name="service_ui_invalid_link">Открываются только ссылки http и https</string>
+    <string name="service_ui_broken">Интерфейс перестал работать — откройте его заново</string>
+</resources>
