@@ -109,3 +109,6 @@ __pycache__/
 
 # Desktop audit screenshots written by AiStudioDesktopAuditUiTest
 /output/
+
+# Chromium extension signing keys are never committed (the manifest keeps only the public key).
+chromium-plugin/*.pem

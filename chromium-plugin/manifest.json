@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Heartbeat",
+  "short_name": "Heartbeat",
+  "version": "0.1.0",
+  "description": "Чат Heartbeat в боковой панели браузера и управление браузером агентами Heartbeat.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnR+YaSK3LYMrrjbSIzOGWpADp+J+i84RSfh5iKG5Qezhq6t9JVejmH313JO+XR7f8qw+v8jhOVdkECxV67K6JuScfehIWwUB6vflc5LUAmtdDGUpGRDaviTGb/vqs4XhJWOAj5CwOrEV7F6s/iETpQKet/d6tlISHK/tqy0KHE/tCPVH1VkTb4bC6DennesuX1lwpX4+PrCbBqR1aIt6tDfzTYeVU7mV+CHCRJp7hzJKGijVrnhfdjwqkoHxElAadevkDOOqhOG6AGVwuX/ABYEodTxJZGdGDl0pL/jLykKmmvlg+hUptatvMt3VjDunXF/eZ2d0QGoaupw108zBvQIDAQAB",
+  "minimum_chrome_version": "116",
+  "icons": {
+    "16": "icons/heartbeat-16.png",
+    "32": "icons/heartbeat-32.png",
+    "48": "icons/heartbeat-48.png",
+    "128": "icons/heartbeat-128.png"
+  },
+  "action": {
+    "default_title": "Heartbeat",
+    "default_icon": {
+      "16": "icons/heartbeat-16.png",
+      "32": "icons/heartbeat-32.png"
+    }
+  },
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+  "permissions": [
+    "alarms",
+    "nativeMessaging",
+    "storage"
+  ]
+}
