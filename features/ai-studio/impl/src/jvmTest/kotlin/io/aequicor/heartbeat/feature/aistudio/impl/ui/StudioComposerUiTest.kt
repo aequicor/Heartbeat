@@ -10,10 +10,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.SemanticsMatcher
-import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -43,7 +40,6 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_effort_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_default
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_low
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_menu_permanent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan_prompt
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_remember
@@ -311,7 +307,7 @@ class StudioComposerUiTest {
             val state = AiStudioScreenState(
                 panes = persistentListOf(pane),
                 harnessChoices = HarnessChoicesUi(
-                    options = persistentListOf(StudioHarness("compose", "Compose UI", false, emptySet())),
+                    options = persistentListOf(StudioHarness("compose", "Compose UI")),
                     chats = persistentMapOf("chat" to persistentSetOf("compose")),
                 ),
             )
@@ -327,23 +323,26 @@ class StudioComposerUiTest {
         }
 
     @Test
-    fun `a harness active by its scope has a disabled chip that explains why`() =
+    fun `a harness is unselected until the user picks it from the plus menu`() =
         runSkikoComposeUiTest(size = Size(900f, 700f)) {
+            val events = mutableListOf<AiStudioScreenIntent>()
             val pane = PaneUi(0, sessionId = "chat")
             val state = AiStudioScreenState(
                 panes = persistentListOf(pane),
-                harnessChoices = HarnessChoicesUi(
-                    options = persistentListOf(StudioHarness("compose", "Compose UI", true, emptySet())),
-                ),
+                harnessChoices = HarnessChoicesUi(options = persistentListOf(StudioHarness("compose", "Compose UI"))),
             )
-            var permanent = ""
+            var addLabel = ""
             setContent {
-                permanent = stringResource(Res.string.harness_menu_permanent)
-                NativeComposerFixture(state.paneContent(pane), {})
+                addLabel = stringResource(Res.string.composer_add)
+                NativeComposerFixture(state.paneContent(pane), events::add)
             }
 
-            onNodeWithTag("harness-chip-0-compose").assertIsDisplayed().assertIsNotEnabled()
-                .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, permanent))
+            onNodeWithTag("harness-chip-0-compose").assertDoesNotExist()
+            onNodeWithContentDescription(addLabel).performClick()
+            onNodeWithText("Compose UI").performClick()
+            runOnIdle {
+                assertEquals(listOf<AiStudioScreenIntent>(AiStudioScreenIntent.SelectHarness(0, "compose", true)), events)
+            }
         }
 }
 

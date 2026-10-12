@@ -70,7 +70,6 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_medium
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_very_high
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.environment_cloud
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.environment_local
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_menu_permanent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_menu_section
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.model_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.model_not_selected
@@ -612,17 +611,14 @@ private fun PaneContent.canAddAttachments(): Boolean {
         !support?.mediaTypes.isNullOrEmpty()
 }
 
-/** One flat menu section; harnesses active by scope are checked and disabled with an explanation. */
+/** One flat menu section of explicitly selectable harnesses. */
 @Composable
 private fun harnessActions(harnesses: ImmutableList<HarnessChoiceUi>): List<HbComposerAction> {
     val section = stringResource(Res.string.harness_menu_section)
-    val permanent = stringResource(Res.string.harness_menu_permanent)
     return harnesses.mapIndexed { index, harness ->
         HbComposerAction(
             HARNESS_PREFIX + harness.id,
             harness.title,
-            supportingText = permanent.takeIf { harness.isPermanent },
-            isEnabled = !harness.isPermanent,
             sectionLabel = section.takeIf { index == 0 },
             isSelected = harness.isSelected,
         )
@@ -630,30 +626,22 @@ private fun harnessActions(harnesses: ImmutableList<HarnessChoiceUi>): List<HbCo
 }
 
 /**
- * Chips of the harnesses active in the chat; a connected one is disconnected by unchecking its chip. A harness
- * active by its scope cannot be unchecked: its disabled chip explains why in a tooltip and to accessibility services.
+ * Chips of the harnesses connected to the chat; unchecking a chip disconnects it.
  */
 @Composable
 private fun HarnessChips(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit) {
     val active = remember(content.harnesses) { content.harnesses.filter { it.isSelected } }
-    val permanent = stringResource(Res.string.harness_menu_permanent)
     active.forEach { harness ->
         key(harness.id) {
-            HbTooltip(permanent, isEnabled = harness.isPermanent) {
-                HbComposerToggle(
-                    label = harness.title,
-                    isChecked = true,
-                    onCheckedChange = {
-                        onIntent(AiStudioScreenIntent.SelectHarness(content.pane.id, harness.id, it))
-                    },
-                    enabled = !harness.isPermanent,
-                    icon = HbIcons.Code,
-                    modifier = Modifier.testTag("harness-chip-${content.pane.id}-${harness.id}")
-                        .then(
-                            if (harness.isPermanent) Modifier.semantics { stateDescription = permanent } else Modifier,
-                        ),
-                )
-            }
+            HbComposerToggle(
+                label = harness.title,
+                isChecked = true,
+                onCheckedChange = {
+                    onIntent(AiStudioScreenIntent.SelectHarness(content.pane.id, harness.id, it))
+                },
+                icon = HbIcons.Code,
+                modifier = Modifier.testTag("harness-chip-${content.pane.id}-${harness.id}"),
+            )
         }
     }
 }

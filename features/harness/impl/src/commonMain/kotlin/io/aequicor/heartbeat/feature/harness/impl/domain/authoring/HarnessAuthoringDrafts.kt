@@ -18,7 +18,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.contract
 
-/** Permanent scope chosen by the agent; "project" always means the source project of the calling session. */
+/** Legacy scope values are accepted only to reject wider authoring requests with a clear error. */
 internal enum class AuthoringScope { Attached, Profile, Project }
 
 /** Kinds of agent-authored items; code kinds always require a user decision. */
@@ -130,7 +130,9 @@ internal fun parseCreate(arguments: JsonObject): Parsed<AuthoringCommand.Create>
         harnessName(arguments.text("name")),
         line(arguments.text("title"), "title", TITLE_CHARS, isRequired = true),
         line(arguments.text("description"), "description", DESCRIPTION_CHARS, isRequired = false),
-        scope(arguments.text("scope") ?: "attached"),
+        scope(arguments.text("scope") ?: "attached").also {
+            argument(it == AuthoringScope.Attached) { "only attached scope is supported; connect this harness to a chat" }
+        },
         arguments.flag("attach") ?: true,
     )
 }
@@ -141,7 +143,9 @@ internal fun parseUpdate(arguments: JsonObject): Parsed<AuthoringCommand.Update>
         harnessName(arguments.text("harness")),
         arguments.text("title")?.let { line(it, "title", TITLE_CHARS, isRequired = true) },
         arguments["description"]?.let { line(arguments.text("description"), "description", DESCRIPTION_CHARS, false) },
-        arguments.text("scope")?.let(::scope),
+        arguments.text("scope")?.let(::scope)?.also {
+            argument(it == AuthoringScope.Attached) { "only attached scope is supported; connect this harness to a chat" }
+        },
     )
     argument(command.title != null || command.description != null || command.scope != null) {
         "nothing to change: pass title, description or scope"

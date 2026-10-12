@@ -4,8 +4,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
-/** A harness the chat menu offers; [isProfile] and [projects] describe its permanent scope. */
-data class StudioHarness(val id: String, val title: String, val isProfile: Boolean, val projects: Set<String>)
+/** A harness available for explicit connection from a chat's composer. */
+data class StudioHarness(val id: String, val title: String)
 
 /** Library choices: enabled harnesses and committed chat connections. */
 data class StudioHarnessChoices(

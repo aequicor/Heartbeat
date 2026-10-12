@@ -314,6 +314,6 @@ data class HarnessChoicesUi(
     val failedChats: ImmutableSet<String> = persistentSetOf(),
 )
 
-/** One harness of a pane's "+" menu; [isPermanent] ones are active by scope and cannot be toggled. */
+/** One harness of a pane's "+" menu. */
 @Immutable
-data class HarnessChoiceUi(val id: String, val title: String, val isSelected: Boolean, val isPermanent: Boolean)
+data class HarnessChoiceUi(val id: String, val title: String, val isSelected: Boolean)

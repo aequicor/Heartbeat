@@ -23,7 +23,6 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessMachineKey
 import io.aequicor.heartbeat.feature.harness.api.HarnessMutation
 import io.aequicor.heartbeat.feature.harness.api.HarnessOutput
 import io.aequicor.heartbeat.feature.harness.api.HarnessRejection
-import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -73,13 +72,7 @@ internal class MachineStudioHarnesses(private val machines: MachineRegistry, pri
                 .filter { it.isEnabled && ready.pending[it.id] !is HarnessMutation.Remove }
                 .sortedBy { it.name.value }
                 .map { harness ->
-                    StudioHarness(
-                        harness.id.value,
-                        harness.title,
-                        isProfile = harness.scope == HarnessScope.Profile,
-                        projects = (harness.scope as? HarnessScope.Projects)?.projects.orEmpty()
-                            .mapTo(mutableSetOf()) { it.value },
-                    )
+                    StudioHarness(harness.id.value, harness.title)
                 }.toList(),
             attached = ready.attachments.mapValues { (_, ids) -> ids.mapTo(mutableSetOf()) { it.value } },
         )

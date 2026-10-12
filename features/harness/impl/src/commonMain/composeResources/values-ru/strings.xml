@@ -31,20 +31,6 @@
         <item quantity="many">%1$d элементов</item>
         <item quantity="other">%1$d элемента</item>
     </plurals>
-    <string name="harness_scope">Где активен</string>
-    <string name="harness_scope_attached">Только подключённые чаты</string>
-    <string name="harness_scope_attached_hint">Активен в чатах, к которым подключён из меню чата или агентом.</string>
-    <string name="harness_scope_profile">Весь профиль</string>
-    <string name="harness_scope_profile_hint">Активен во всех чатах профиля.</string>
-    <string name="harness_scope_projects_title">Выбранные проекты</string>
-    <string name="harness_scope_projects_hint">Активен в чатах этих проектов, включая их worktree.</string>
-    <plurals name="harness_scope_projects">
-        <item quantity="one">%1$d проект</item>
-        <item quantity="few">%1$d проекта</item>
-        <item quantity="many">%1$d проектов</item>
-        <item quantity="other">%1$d проекта</item>
-    </plurals>
-    <string name="harness_no_projects">Сохранённых проектов пока нет.</string>
     <string name="harness_enabled">Включён</string>
     <string name="harness_edit">Изменить</string>
     <string name="harness_delete">Удалить</string>

@@ -28,8 +28,8 @@ private val GUIDE = """
     A harness is a reusable environment for a task or project. Build it when the user asks, e.g. "set up a harness
     for native Compose UI work". Steps:
     1. Read harness_tools_catalog to see Heartbeat and native tools; decide what the task needs.
-    2. harness_create(name, title, description, scope, attach). Scope: attached (default, only connected chats),
-       profile (every chat) or project (this chat's source project; worktrees count as the project).
+    2. harness_create(name, title, description, attach). The harness is connected only to chats selected
+       from the composer’s + menu or by the agent with harness_attach.
     3. harness_item_put for each item:
        - instruction: a short rule every session follows (≤ ${HarnessLimits.INSTRUCTION_CHARS} chars);
        - skill: markdown knowledge loaded on demand by name (≤ ${HarnessLimits.SKILL_CHARS} chars), e.g. design
@@ -180,7 +180,7 @@ private val EXAMPLES = """
     Worked example: harness compose_ui for native Compose UI.
 
     harness_create(name="compose_ui", title="Compose UI", description="Native Compose screens with the design
-    system", scope="project")
+    system")
 
     instruction "tokens": "Use only design-system tokens and Hb* components; no raw colors, dp or sp literals."
     skill "design_system" (description "Load before writing a screen"): markdown with token names, layouts,

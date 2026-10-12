@@ -23,7 +23,6 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessApiRef
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessToolCatalogs
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.kind
-import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.label
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.referenceText
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessActiveAccess
 import kotlinx.serialization.json.JsonObject
@@ -80,7 +79,6 @@ internal class HarnessReadTools(
                 val harness = entry.harness
                 buildString {
                     append("- ").append(harness.name.value).append(" — ").append(harness.title)
-                    append(" · ").append(harness.scope.label())
                     append(if (harness.isEnabled) " · on" else " · off")
                     append(" · ").append(harness.items.counts())
                     if (harness.id in attached) append(" · connected here")
@@ -148,7 +146,7 @@ internal class HarnessReadTools(
 private fun HarnessEntry.describe(): String = buildString {
     append(harness.name.value).append(" — ").append(harness.title).append('\n')
     if (harness.description.isNotEmpty()) append(harness.description).append('\n')
-    append("Scope: ").append(harness.scope.label()).append(" · ")
+    append("Activation: connected chats only · ")
     append(if (harness.isEnabled) "on" else "off").append(" · revision ").append(harness.revision).append('\n')
     append("Items:\n")
     if (harness.items.isEmpty()) append("(none)\n")

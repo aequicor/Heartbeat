@@ -181,12 +181,11 @@ class HarnessAuthoringToolsTest {
     }
 
     @Test
-    fun `creating a project harness normalizes the scope and connects the chat`() = runTest {
+    fun `creating a harness uses attached scope and connects the chat`() = runTest {
         library.harnesses = emptyList()
         val arguments = buildJsonObject {
             put("name", "compose_ui")
             put("title", "Compose UI")
-            put("scope", "project")
         }
         listOf(TrustLevel.Ask, TrustLevel.AutoEdits).forEach { trust ->
             assertTrue(tools.requiresDecision(context.copy(trust = trust), spec(HarnessTools.CREATE), arguments))
@@ -196,7 +195,7 @@ class HarnessAuthoringToolsTest {
         val result = tools.execute(context.copy(authorization = approval), HarnessTools.CREATE, arguments)
         assertFalse(result.isError, result.text)
         val create = assertIs<HarnessIntent.Internal.Create>(library.sent[0])
-        assertEquals(HarnessScope.Projects(setOf(SOURCE)), create.draft.scope)
+        assertEquals(HarnessScope.Attached, create.draft.scope)
         assertEquals(dispatchSession, create.author)
         val attach = assertIs<HarnessIntent.Public.Attach>(library.sent[1])
         assertEquals(create.id, attach.id)
@@ -249,19 +248,13 @@ class HarnessAuthoringToolsTest {
         listOf(HarnessTools.ATTACH, HarnessTools.DETACH, HarnessTools.DELETE).forEach {
             assertFalse(tools.requiresDecision(context, spec(it), ref), it)
         }
-        val widen = buildJsonObject {
-            put("harness", harness.name.value)
-            put("scope", "profile")
-        }
         library.tools = ToolPolicySpec(native = mapOf("claude" to mapOf("Bash" to ToolSwitch.On)))
         assertTrue(tools.requiresDecision(context, spec(HarnessTools.ATTACH), ref))
         assertFalse(tools.requiresDecision(context, spec(HarnessTools.DETACH), ref))
-        assertTrue(tools.requiresDecision(context, spec(HarnessTools.UPDATE), widen))
         library.tools = ToolPolicySpec(hostedOff = setOf("web_search"))
         assertFalse(tools.requiresDecision(context, spec(HarnessTools.ATTACH), ref))
         assertTrue(tools.requiresDecision(context, spec(HarnessTools.DETACH), ref))
         assertTrue(tools.requiresDecision(context, spec(HarnessTools.DELETE), ref))
-        assertFalse(tools.requiresDecision(context, spec(HarnessTools.UPDATE), widen))
         library.scope = HarnessScope.Profile
         val narrow = buildJsonObject {
             put("harness", harness.name.value)
@@ -310,19 +303,20 @@ class HarnessAuthoringToolsTest {
     }
 
     @Test
-    fun `an update whose scope fails after the title reports the partial change`() = runTest {
-        val arguments = buildJsonObject {
-            put("harness", harness.name.value)
-            put("title", "Renamed")
+    fun `agent cannot create or update an automatically active scope`() = runTest {
+        val create = buildJsonObject {
+            put("name", "compose_ui")
+            put("title", "Compose UI")
             put("scope", "profile")
         }
-        val approval = tools.approval(context, spec(HarnessTools.UPDATE), arguments)
-        library.outcomes += LibraryOutcome.Committed(HarnessOutput.Updated(RequestId("meta"), harness.id))
-        library.outcomes += LibraryOutcome.Rejected(HarnessRejection.Busy)
-        val result = tools.execute(context.copy(authorization = approval), HarnessTools.UPDATE, arguments)
-        assertTrue(result.isError)
-        assertTrue(result.text.startsWith("Partly updated harness test: title and description saved"), result.text)
-        assertEquals(2, library.sent.size)
+        val update = buildJsonObject {
+            put("harness", harness.name.value)
+            put("title", "Renamed")
+            put("scope", "project")
+        }
+        assertTrue(tools.execute(context, HarnessTools.CREATE, create).isError)
+        assertTrue(tools.execute(context, HarnessTools.UPDATE, update).isError)
+        assertTrue(library.sent.isEmpty())
     }
 
     @Test
@@ -354,16 +348,11 @@ class HarnessAuthoringToolsTest {
             put("harness", harness.name.value)
             put("name", script.name.value)
         }
-        val widen = buildJsonObject {
-            put("harness", harness.name.value)
-            put("scope", "profile")
-        }
         library.items = listOf(script.copy(isEnabled = false))
         listOf(HarnessTools.ATTACH, HarnessTools.DETACH, HarnessTools.DELETE).forEach {
             assertFalse(tools.requiresDecision(context, spec(it), ref), it)
         }
         assertFalse(tools.requiresDecision(context, spec(HarnessTools.ITEM_DELETE), removeScript))
-        assertFalse(tools.requiresDecision(context, spec(HarnessTools.UPDATE), widen))
         library.items = listOf(script)
         listOf(HarnessTools.ATTACH, HarnessTools.DETACH, HarnessTools.DELETE).forEach {
             assertTrue(tools.requiresDecision(context, spec(it), ref), it)
@@ -371,7 +360,6 @@ class HarnessAuthoringToolsTest {
         assertTrue(tools.requiresDecision(context, spec(HarnessTools.ITEM_DELETE), removeScript))
         val removal = tools.approval(context, spec(HarnessTools.ITEM_DELETE), removeScript).description.orEmpty()
         assertTrue(removal.contains("hooks stop guarding"), removal)
-        assertTrue(tools.requiresDecision(context, spec(HarnessTools.UPDATE), widen))
         library.scope = HarnessScope.Profile
         val narrow = buildJsonObject {
             put("harness", harness.name.value)

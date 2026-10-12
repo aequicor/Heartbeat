@@ -86,13 +86,13 @@ class HarnessReadToolsTest {
     private val context = AgentToolContext(dispatchSession, WorkspaceRef("project"), TurnId("turn"))
 
     @Test
-    fun `list shows scope, state, counts and where each harness applies`() = runTest {
+    fun `list shows state counts and explicit connections`() = runTest {
         val lines = tools.execute(context, HarnessTools.LIST, JsonObject(emptyMap())).text.lines()
         assertEquals(
-            "- test — Test · connected chats only · on · 1 script, 1 workflow · connected here · active here",
+            "- test — Test · on · 1 script, 1 workflow · connected here · active here",
             lines[0],
         )
-        assertEquals("- other — Other · connected chats only · off · no items", lines[1])
+        assertEquals("- other — Other · off · no items", lines[1])
     }
 
     @Test
@@ -110,7 +110,7 @@ class HarnessReadToolsTest {
     @Test
     fun `get describes item statuses and the tool policy, and returns one item on request`() = runTest {
         val described = tools.execute(context, HarnessTools.GET, ref("test")).text
-        assertTrue(described.contains("Scope: connected chats only · on · revision 0"), described)
+        assertTrue(described.contains("Activation: connected chats only · on · revision 0"), described)
         assertTrue(described.contains("- script script · failed and disabled"), described)
         assertTrue(described.contains("- workflow screen · active — Build a screen"), described)
         assertTrue(described.endsWith("Tool policy: Heartbeat web_search off; claude Bash on"), described)

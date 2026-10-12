@@ -29,18 +29,6 @@
         <item quantity="one">%1$d item</item>
         <item quantity="other">%1$d items</item>
     </plurals>
-    <string name="harness_scope">Where it is active</string>
-    <string name="harness_scope_attached">Connected chats only</string>
-    <string name="harness_scope_attached_hint">Active in chats it is connected to from the chat menu or by the agent.</string>
-    <string name="harness_scope_profile">Whole profile</string>
-    <string name="harness_scope_profile_hint">Active in every chat of this profile.</string>
-    <string name="harness_scope_projects_title">Selected projects</string>
-    <string name="harness_scope_projects_hint">Active in chats of these projects, including their worktrees.</string>
-    <plurals name="harness_scope_projects">
-        <item quantity="one">%1$d project</item>
-        <item quantity="other">%1$d projects</item>
-    </plurals>
-    <string name="harness_no_projects">There are no saved projects yet.</string>
     <string name="harness_enabled">Enabled</string>
     <string name="harness_edit">Edit</string>
     <string name="harness_delete">Delete</string>
