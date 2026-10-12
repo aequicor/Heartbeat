@@ -1,0 +1,58 @@
+name: Module build
+
+# Builds only the modules a change touches, on the OS chosen for the run; nothing builds automatically on PRs.
+# An agent starts it when it needs an OS it lacks locally (iOS targets from Windows, a feature's behavior on Windows
+# or macOS), the user at will. Only module tasks `:<module>:<task>` are accepted, never whole-project ones:
+#   gh workflow run module-build.yml --ref <branch> -f os=macos-15 -f tasks=':features:<name>:impl:jvmTest'
+run-name: 'Module build on ${{ inputs.os }}: ${{ inputs.tasks }}'
+on:
+  workflow_dispatch:
+    inputs:
+      os:
+        description: Runner OS
+        type: choice
+        options: [ubuntu-latest, macos-15, windows-2025]
+        default: ubuntu-latest
+      tasks:
+        description: 'Module tasks separated by spaces, e.g. :features:harness:impl:compileKotlinIosSimulatorArm64'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: module-build-${{ github.ref }}-${{ inputs.os }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Module build (${{ inputs.os }})
+    runs-on: ${{ inputs.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: jetbrains
+          java-version: '21'
+      - name: Build the module tasks
+        shell: bash
+        env:
+          TASKS: ${{ inputs.tasks }}
+        run: |
+          read -ra tasks <<< "$TASKS"
+          if [ "${#tasks[@]}" -eq 0 ]; then
+            echo "::error::No module tasks given"
+            exit 1
+          fi
+          for task in "${tasks[@]}"; do
+            # A project path and a task name: root tasks such as :build or allTests are refused.
+            if [[ ! $task =~ ^(:[A-Za-z0-9_.-]+)+:[A-Za-z][A-Za-z0-9]*$ ]]; then
+              printf '::error::Not a module task: %s\n' "$task"
+              exit 1
+            fi
+          done
+          ./gradlew "${tasks[@]}" --continue --stacktrace
