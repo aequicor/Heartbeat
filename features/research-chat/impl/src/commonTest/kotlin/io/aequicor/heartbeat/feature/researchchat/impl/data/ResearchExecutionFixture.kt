@@ -70,6 +70,9 @@ import kotlin.test.assertNull
 internal class ResearchExecutionFixture(
     scope: CoroutineScope,
     attachments: ResearchAttachments = ResearchAttachments.Legacy,
+    fetchResource: suspend (String) -> ResourceContent = {
+        error("Web-fetch tool already supplied complete source content")
+    },
 ) {
     val storage = ExecutionStorage()
     val native = mutableListOf<ExecutionSession>()
@@ -111,8 +114,7 @@ internal class ResearchExecutionFixture(
         override suspend fun search(query: String, count: Int, native: EngineFeatures?): List<SearchResult> =
             error("Unexpected search")
 
-        override suspend fun fetch(url: String, native: EngineFeatures?): ResourceContent =
-            error("Web-fetch tool already supplied complete source content")
+        override suspend fun fetch(url: String, native: EngineFeatures?): ResourceContent = fetchResource(url)
     }
     private val profile = object : ScopeHandle {
         override val name = "research-test-profile"

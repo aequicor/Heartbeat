@@ -413,16 +413,19 @@ internal class ProfileResearchRepository(
 
     private suspend fun prepareSources(session: ResearchSession, question: ResearchQuestion): ResearchSession {
         log.d { "Prepare selected research sources" }
-        val prepared = loadSelectedSources(session, question, search, toggles.get(BrowserResearchAccess))
+        val isRecoveryEnabled = toggles.get(BrowserEnabled) && toggles.get(BrowserResearchAccess)
+        val prepared = loadSelectedSources(session, question, search, isRecoveryEnabled)
+        val originals = session.resources.associateBy { it.id }
+        val hydrated = prepared.resources.associateBy { it.id }
         storage.update(session.id) { stored ->
             stored.copy(
                 resources = stored.resources.map { source ->
-                    val hydrated = prepared.resources.firstOrNull { it.id == source.id }
-                    if (source.text.isBlank() && hydrated != null) hydrated else source
+                    // A browser retry may have replaced even an empty-text source with a ready PDF.
+                    if (source == originals[source.id]) hydrated[source.id] ?: source else source
                 },
             )
         }
-        return prepared
+        return this.session(session.id)
     }
 
     /**
