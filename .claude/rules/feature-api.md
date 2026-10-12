@@ -245,6 +245,10 @@ send/wake/spawn/workflow. Ограничения (Off/hosted_off, Deny/Ask-ху�
 (`harness:impl`) и `platform-main:di-bundle` — соглашение проверяется на ревью. Спека поверхности (узлы, действия,
 привязки, валидатор) — внутренняя модель `impl`: наружу уходит только исходный JSON в `UiSurfaceContent.spec`.
 Данные вызовов (`UiCallContext`, `UiMethodCall`, `UiMethodResult`) скрывают аргументы, значения и пути в `toString`.
+Профильная машина `ServiceUiMachineKey` (без persist) держит библиотеку, места хостов и панели доков. Хосты (ai-studio)
+шлют только `BindHost`/`UnbindHost`/`OpenPanel`/`ClosePanel`/`Reload`, читают `panels` и output `PromptRequested`;
+правки библиотеки — `Internal.Edit` внутри фичи (инструменты агента, экраны настроек), один слот записи (`Busy` —
+повтор вызывающим). Поверхности удалённого владельца удаляются только по полному снимку его провайдера.
 
 ### Фичи сервисного контракта
 
