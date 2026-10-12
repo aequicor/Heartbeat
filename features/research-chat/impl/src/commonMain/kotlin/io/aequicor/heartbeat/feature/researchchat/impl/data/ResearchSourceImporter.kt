@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.researchchat.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatIntent
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResource
@@ -22,7 +23,7 @@ internal class ResearchSourceImporter(private val search: SearchEngine, private 
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
-        log.w(IllegalStateException(error::class.simpleName)) {
+        log.w(error.redactedFailure()) {
             "Legacy source migration failed"
         }
         source.copy(hasAttachmentError = true)

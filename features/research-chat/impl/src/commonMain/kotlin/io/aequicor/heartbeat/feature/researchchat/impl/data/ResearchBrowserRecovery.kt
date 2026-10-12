@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.core.statemachine.MachineRef
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.SendResult
@@ -233,7 +234,7 @@ internal class ResearchBrowserRecovery(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            log.w(IllegalStateException(error::class.simpleName)) {
+            log.w(error.redactedFailure()) {
                 "Browser-assisted source loading failed"
             }
             update(

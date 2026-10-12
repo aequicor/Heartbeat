@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.researchchat.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
@@ -251,7 +252,7 @@ internal suspend fun loadSelectedSources(
             throw error
         } catch (error: Exception) {
             if (!recoverFailures) throw error
-            resourceLog.w(IllegalStateException(error::class.simpleName)) {
+            resourceLog.w(error.redactedFailure()) {
                 "Research source requires retry"
             }
             source.copy(loadState = ResearchLoadState.Failed, loadError = "fetch_failed")

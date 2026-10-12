@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserPage
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
@@ -128,7 +129,7 @@ internal class DesktopBrowserSession(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            log.w(IllegalStateException(error::class.simpleName)) {
+            log.w(error.redactedFailure()) {
                 "Browser operation failed: ${request.operation}"
             }
             BrowserResult(request.id, error = operationError(error))

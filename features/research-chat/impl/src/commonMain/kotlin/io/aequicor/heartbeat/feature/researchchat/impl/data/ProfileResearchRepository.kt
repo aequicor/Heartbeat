@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
@@ -174,7 +175,7 @@ internal class ProfileResearchRepository(
                 ) {
                     throw error
                 }
-                log.w(IllegalStateException(error::class.simpleName)) {
+                log.w(error.redactedFailure()) {
                     "Keep failed website for browser recovery"
                 }
                 ResearchResource(
@@ -361,7 +362,7 @@ internal class ProfileResearchRepository(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            log.w(IllegalStateException(error::class.simpleName.orEmpty())) {
+            log.w(error.redactedFailure()) {
                 "Research question could not resume after source recovery; keep its prompt waiting"
             }
         } finally {
@@ -439,7 +440,7 @@ internal class ProfileResearchRepository(
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
-        log.w(IllegalStateException(error::class.simpleName.orEmpty())) { "Research generation failed" }
+        log.w(error.redactedFailure()) { "Research generation failed" }
         markFailed(session.id, question.id)
         false
     } finally {
@@ -581,7 +582,7 @@ internal class ProfileResearchRepository(
         active.features.requireFeature(SendsPrompts).send(request)
     } catch (error: EngineException) {
         log.w(
-            IllegalStateException(error::class.simpleName.orEmpty()),
+            error.redactedFailure(),
         ) { "Check native acceptance after submission error" }
         active.state.value.activeTurn()?.takeIf { it.request == request.id }?.id ?: throw error
     }
@@ -592,7 +593,7 @@ internal class ProfileResearchRepository(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            log.w(IllegalStateException(error::class.simpleName.orEmpty())) { "Research history observation failed" }
+            log.w(error.redactedFailure()) { "Research history observation failed" }
         }
     }
 
@@ -624,7 +625,7 @@ internal class ProfileResearchRepository(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            log.w(IllegalStateException(error::class.simpleName.orEmpty())) {
+            log.w(error.redactedFailure()) {
                 "Cancellation failed; keep observing the accepted research turn"
             }
         }
@@ -655,7 +656,7 @@ internal class ProfileResearchRepository(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            log.w(IllegalStateException(error::class.simpleName.orEmpty())) { "Research recovery remains pending" }
+            log.w(error.redactedFailure()) { "Research recovery remains pending" }
             markFailed(sessionId, question.id)
         }
     }
@@ -696,7 +697,7 @@ internal class ProfileResearchRepository(
             throw error
         } catch (error: Exception) {
             log.w(
-                IllegalStateException(error::class.simpleName.orEmpty()),
+                error.redactedFailure(),
             ) { "Could not release research native session" }
         }
     }
