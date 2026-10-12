@@ -41,6 +41,7 @@ internal class DesktopBrowserEngine(
     private val changed: (BrowserViewState) -> Unit,
     private val onClosed: () -> Unit = {},
     guard: DesktopBrowserAgentGuard,
+    openTab: ((String) -> Unit)? = null,
     createContext: (CefRequestContextHandler) -> CefRequestContext,
 ) : DesktopBrowserRuntime {
     private val log = Log.tag("DesktopBrowserEngine")
@@ -58,7 +59,8 @@ internal class DesktopBrowserEngine(
         isReleased = { isClosed.get() || isReleased() },
         isBootstrap = isBootstrap::get,
         unsupported = { onSwing { navigation?.unsupported() } },
-        open = { execute(BrowserViewCommand.Load(it)) },
+        open = { url -> openTab?.invoke(url) ?: execute(BrowserViewCommand.Load(url)) },
+        areLinksOpenedInTabs = openTab != null,
         unavailable = { onSwing { changed(BrowserViewState(error = BrowserViewError.EngineUnavailable)) } },
         guard = guard,
     )

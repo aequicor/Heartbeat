@@ -34,9 +34,11 @@ private fun tabPreviewState(): BrowserScreenState = BrowserScreenState(
             BrowserTabUi(
                 "source",
                 "Источник исследования с длинным заголовком",
-                isHumanControlled = true,
+                isHumanControlled = false,
                 hasAgent = true,
+                groupId = "session-a",
             ),
-            BrowserTabUi("search", "Google", isHumanControlled = false, hasAgent = true),
+            BrowserTabUi("search", "Google", false, true, groupId = "session-a"),
+            BrowserTabUi("other", "Другой чат", false, true, groupId = "session-b"),
         ),
 )

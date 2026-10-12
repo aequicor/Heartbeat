@@ -36,6 +36,24 @@ import kotlin.test.assertTrue
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class BrowserModelTest {
     @Test
+    fun `new tab passes selected parent while groups reflect session ownership`() = runTest {
+        val fixture = Fixture(this)
+        val screen = fixture.subscribe()
+        fixture.machine.state.value = ready(BrowserPage()).copy(
+            tabs = listOf(BrowserTab("parent", owner = "session-a")),
+            selectedTabId = "parent",
+        )
+        runCurrent()
+        assertEquals("session-a", screen.states.value.tabs.single().groupId)
+        fixture.model.store.intent(BrowserScreenIntent.NewTab)
+        runCurrent()
+        assertEquals(
+            BrowserRequest("", BrowserOperation.NewTab, "parent"),
+            fixture.machine.performed().single().copy(id = ""),
+        )
+    }
+
+    @Test
     fun `address submit normalizes host before machine validation`() = runTest {
         val fixture = Fixture(this)
         val screen = fixture.subscribe()

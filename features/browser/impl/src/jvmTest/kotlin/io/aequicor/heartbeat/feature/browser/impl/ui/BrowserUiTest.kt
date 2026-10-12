@@ -9,16 +9,24 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.unit.Density
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
@@ -35,6 +43,62 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class BrowserUiTest {
+    @Test
+    fun `address selects its URL on focus so typing replaces it`() = runSkikoComposeUiTest {
+        var state by mutableStateOf(BrowserScreenState(phase = BrowserPhase.Ready, address = "https://example.com/"))
+        setContent {
+            HbTheme {
+                BrowserScreenContent(state, {
+                    if (it is BrowserScreenIntent.AddressChanged) state = state.copy(address = it.value)
+                })
+            }
+        }
+        onNodeWithTag("browser-address").performClick()
+        waitForIdle()
+        onNodeWithTag("browser-address").assert(
+            SemanticsMatcher.expectValue(SemanticsProperties.TextSelectionRange, TextRange(0, state.address.length)),
+        )
+        onNodeWithTag("browser-address").performTextInput("replacement.com")
+        runOnIdle { assertEquals("replacement.com", state.address) }
+        onNodeWithTag("browser-address").performMouseInput {
+            advanceEventTime(1_000)
+            click()
+        }
+        runOnIdle {
+            assertTrue(
+                onNodeWithTag("browser-address").fetchSemanticsNode()
+                    .config[SemanticsProperties.TextSelectionRange].collapsed,
+            )
+        }
+        onNodeWithTag("browser-open").performClick()
+        onNodeWithTag("browser-address").performMouseInput {
+            advanceEventTime(1_000)
+            click()
+        }
+        onNodeWithTag("browser-address").assert(
+            SemanticsMatcher.expectValue(SemanticsProperties.TextSelectionRange, TextRange(0, state.address.length)),
+        )
+    }
+
+    @Test
+    fun `tabs share a visible session group and page title is shown once`() = runSkikoComposeUiTest {
+        val state = BrowserScreenState(
+            phase = BrowserPhase.Ready,
+            title = "Docs",
+            hasTabs = true,
+            selectedTabId = "one",
+            tabs = persistentListOf(
+                BrowserTabUi("one", "Docs", false, true, groupId = "session-a"),
+                BrowserTabUi("two", "Search", false, true, groupId = "session-a"),
+                BrowserTabUi("three", "Other", false, true, groupId = "session-b"),
+            ),
+        )
+        setContent { HbTheme { BrowserScreenContent(state, {}) } }
+        onNodeWithTag("browser-group-session-a").assertIsDisplayed()
+        onNodeWithTag("browser-group-session-b").assertExists()
+        onAllNodesWithText("Docs").assertCountEquals(1)
+    }
+
     @Test
     fun `disabled browser never creates native content and disabling disposes it`() = runSkikoComposeUiTest {
         var state by mutableStateOf(BrowserScreenState(phase = BrowserPhase.Disabled))
@@ -127,7 +191,19 @@ class BrowserUiTest {
                                 darkTheme = dark,
                                 dimensions = if (width == 320) HbDimensions.Mobile else HbDimensions.Desktop,
                             ) {
-                                BrowserScreenContent(BrowserScreenState(phase = BrowserPhase.Ready), {})
+                                BrowserScreenContent(
+                                    BrowserScreenState(
+                                        phase = BrowserPhase.Ready,
+                                        hasTabs = true,
+                                        selectedTabId = "docs",
+                                        tabs = persistentListOf(
+                                            BrowserTabUi("docs", "Документация", false, true, groupId = "a"),
+                                            BrowserTabUi("search", "Поиск", false, true, groupId = "a"),
+                                            BrowserTabUi("other", "Другой чат", false, true, groupId = "b"),
+                                        ),
+                                    ),
+                                    {},
+                                )
                             }
                         }
                     }

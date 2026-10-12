@@ -105,7 +105,8 @@ internal class NativeComposeBrowserFixture :
         }
     }
     override val nativeResources = object : DesktopBrowserPanelFactory {
-        override fun create(surface: BrowserSurface, guard: DesktopBrowserAgentGuard) = panel
+        override fun create(surface: BrowserSurface, guard: DesktopBrowserAgentGuard, openTab: ((String) -> Unit)?) =
+            panel
         override fun close(surface: BrowserSurface) = panel.release()
         override suspend fun clearData() = error("Not part of the Compose embedding test")
     }

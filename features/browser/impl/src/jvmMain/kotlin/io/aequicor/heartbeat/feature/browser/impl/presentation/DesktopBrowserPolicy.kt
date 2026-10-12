@@ -33,6 +33,7 @@ internal class DesktopBrowserPolicy(
     private val open: (String) -> Unit,
     unavailable: () -> Unit,
     private val guard: DesktopBrowserAgentGuard,
+    private val areLinksOpenedInTabs: Boolean = false,
 ) {
     private val log = Log.tag("DesktopBrowserPolicy")
 
@@ -64,6 +65,17 @@ internal class DesktopBrowserPolicy(
             val kind = if (frame.isMain) BrowserRequestKind.MainDocument else BrowserRequestKind.ChildDocument
             val isRejected = !allows(request.url, kind)
             if (isRejected && kind == BrowserRequestKind.MainDocument && !isReleased()) unsupported()
+            if (!isRejected && opensLinkInTab(
+                    frame.isMain,
+                    userGesture,
+                    isRedirect,
+                    request.method,
+                    request.transitionType,
+                )
+            ) {
+                open(request.url)
+                return true
+            }
             return isRejected
         }
 
@@ -108,6 +120,17 @@ internal class DesktopBrowserPolicy(
 
         // Default getAuthCredentials and onCertificateError reject without bypassing TLS verification.
     }
+
+    /** Only clicked main-frame GET links fork a tab; forms, history and redirects keep their document. */
+    internal fun opensLinkInTab(
+        isMain: Boolean,
+        userGesture: Boolean,
+        isRedirect: Boolean,
+        method: String,
+        transition: CefRequest.TransitionType,
+    ): Boolean = areLinksOpenedInTabs && isMain && userGesture && !isRedirect &&
+        method == "GET" && transition.source == CefRequest.TransitionType.TT_LINK.source && !transition.isRedirect &&
+        !transition.isSet(CefRequest.TransitionFlags.TT_FORWARD_BACK_FLAG)
 
     fun popup(url: String) {
         if (isReleased()) return
@@ -209,6 +232,11 @@ internal class DesktopBrowserAgentGuard {
             (if (kind == BrowserRequestKind.MainDocument) refusedNavigation else refusedContent).set(true)
         }
         return isApproved
+    }
+
+    /** Copies only authorization, never another tab's pending refusal notifications. */
+    fun inheritFrom(parent: DesktopBrowserAgentGuard) {
+        restriction = parent.restriction
     }
 
     /** Whether a main document was refused since the previous call. */

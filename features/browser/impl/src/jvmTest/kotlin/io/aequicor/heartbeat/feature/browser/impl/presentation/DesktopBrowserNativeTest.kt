@@ -113,6 +113,7 @@ class DesktopBrowserNativeTest {
     }
 
     private fun verifyStandaloneEngines(app: org.cef.CefApp, server: HttpServer) {
+        verifyLinkedTabs(app, "http://127.0.0.1:${server.address.port}")
         verifyEarlyClose(app)
         verifyDirectDocument(app, "http://127.0.0.1:${server.address.port}")
         verifyAgentGuard(app, server)
@@ -146,6 +147,7 @@ class DesktopBrowserNativeTest {
         app: org.cef.CefApp,
         states: LinkedBlockingQueue<BrowserViewState>,
         guard: DesktopBrowserAgentGuard = DesktopBrowserAgentGuard(),
+        openTab: ((String) -> Unit)? = null,
     ) = DesktopBrowserEngine(
         app,
         nativeDispatchers(),
@@ -153,8 +155,55 @@ class DesktopBrowserNativeTest {
         { false },
         states::offer,
         guard = guard,
+        openTab = openTab,
         createContext = temporaryContextFactory(),
     )
+
+    private fun verifyLinkedTabs(app: org.cef.CefApp, base: String) {
+        val opened = LinkedBlockingQueue<String>()
+        val states = LinkedBlockingQueue<BrowserViewState>()
+        var engine: DesktopBrowserEngine? = null
+        var frame: JFrame? = null
+        SwingUtilities.invokeAndWait {
+            engine = testEngine(app, states, openTab = { opened.offer(it) })
+            frame = nativeFrame().apply {
+                add(assertNotNull(engine).component, BorderLayout.CENTER)
+                validate()
+            }
+            assertNotNull(engine).start("$base/links")
+        }
+        val runtime = assertNotNull(engine)
+        try {
+            awaitTitle(states, "Links")
+            val driver = DesktopBrowserAutomation(runtime::devTools, runtime::captureResource)
+            runBlocking {
+                for (element in listOf(0, 1)) {
+                    val read = driver.perform(BrowserRequest("read", BrowserOperation.Read, "tab"))
+                    driver.perform(
+                        BrowserRequest(
+                            "click",
+                            BrowserOperation.Click,
+                            "tab",
+                            arguments = buildJsonObject {
+                                put("snapshotId", read.data.getValue("snapshotId"))
+                                put("element", element)
+                            },
+                        ),
+                    )
+                    assertEquals("$base/check", opened.poll(10, java.util.concurrent.TimeUnit.SECONDS))
+                    val after = driver.perform(BrowserRequest("after", BrowserOperation.Read, "tab"))
+                    assertEquals("$base/links", after.data.getValue("url").jsonPrimitive.content)
+                }
+                assertTrue(opened.isEmpty(), "A link must create exactly one sibling")
+            }
+        } finally {
+            SwingUtilities.invokeAndWait {
+                runtime.release()
+                frame?.dispose()
+            }
+            runBlocking { runtime.awaitClosed() }
+        }
+    }
 
     private fun verifyDirectDocument(app: org.cef.CefApp, base: String) {
         var engine: DesktopBrowserEngine? = null
@@ -360,6 +409,15 @@ class DesktopBrowserNativeTest {
             exchange.responseHeaders.add("Location", "file:///heartbeat-browser-must-not-load")
             exchange.sendResponseHeaders(302, -1)
             exchange.close()
+        }
+        server.createContext("/links") { exchange ->
+            val bytes = (
+                "<title>Links</title><a href='/check'>Same window</a> " +
+                    "<a href='/check' target='_blank'>New window</a>"
+            ).toByteArray()
+            exchange.responseHeaders.add("Content-Type", "text/html; charset=utf-8")
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
         }
         recoveryEndpoints(server)
         redirectEndpoints(server)

@@ -3,12 +3,43 @@ package io.aequicor.heartbeat.feature.browser.impl.presentation
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserRequestKind
 import io.aequicor.heartbeat.feature.browser.impl.domain.isBrowserRequestAllowed
 import org.cef.network.CefRequest.ResourceType
+import org.cef.network.CefRequest.TransitionFlags
+import org.cef.network.CefRequest.TransitionType
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class DesktopBrowserPolicyTest {
+    @Test
+    fun `history gestures do not fork a tab even when their original transition was a link`() {
+        val policy = DesktopBrowserPolicy({ false }, { false }, {}, {}, {}, DesktopBrowserAgentGuard(), true)
+        val link = TransitionType.TT_LINK
+        try {
+            link.addQualifier(TransitionFlags.TT_FORWARD_BACK_FLAG)
+            assertFalse(policy.opensLinkInTab(true, true, false, "GET", link))
+        } finally {
+            link.removeQualifier(TransitionFlags.TT_FORWARD_BACK_FLAG)
+        }
+    }
+
+    @Test
+    fun `only clicked GET main links open adjacent tabs`() {
+        val policy = DesktopBrowserPolicy({ false }, { false }, {}, {}, {}, DesktopBrowserAgentGuard(), true)
+        assertTrue(policy.opensLinkInTab(true, true, false, "GET", TransitionType.TT_LINK))
+        assertFalse(policy.opensLinkInTab(false, true, false, "GET", TransitionType.TT_LINK))
+        assertFalse(policy.opensLinkInTab(true, false, false, "GET", TransitionType.TT_LINK))
+        assertFalse(policy.opensLinkInTab(true, true, true, "GET", TransitionType.TT_LINK))
+        assertFalse(policy.opensLinkInTab(true, true, false, "POST", TransitionType.TT_LINK))
+        for (transition in listOf(
+            TransitionType.TT_FORM_SUBMIT,
+            TransitionType.TT_EXPLICIT,
+            TransitionType.TT_RELOAD,
+        )) {
+            assertFalse(policy.opensLinkInTab(true, true, false, "GET", transition))
+        }
+    }
+
     @Test
     fun `resources initiated by the main frame are not main document navigations`() {
         listOf(ResourceType.RT_IMAGE, ResourceType.RT_SCRIPT, ResourceType.RT_XHR).forEach { type ->

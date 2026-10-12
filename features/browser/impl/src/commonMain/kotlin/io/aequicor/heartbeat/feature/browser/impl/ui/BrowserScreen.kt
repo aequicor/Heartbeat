@@ -22,7 +22,6 @@ import io.aequicor.heartbeat.ds.components.HbEmptyState
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbLoadingState
-import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTextField
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
@@ -77,14 +76,6 @@ internal fun BrowserScreenContent(
     ) {
         BrowserTabs(state, onIntent)
         BrowserToolbar(state, onIntent)
-        if (state.title.isNotEmpty()) {
-            HbText(
-                state.title,
-                Modifier.fillMaxWidth().padding(horizontal = HbTheme.spacing.m),
-                style = HbTheme.typography.caption,
-                maxLines = 1,
-            )
-        }
         state.error?.let { HbBanner(stringResource(it.message()), Modifier.testTag("browser-error")) }
         if (state.isLoading) {
             HbLoadingState(
@@ -151,6 +142,7 @@ private fun BrowserAddressField(
         },
         placeholder = stringResource(Res.string.browser_address),
         enabled = isEnabled,
+        selectAllOnFocus = true,
     )
 }
 
