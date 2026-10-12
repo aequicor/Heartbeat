@@ -92,9 +92,9 @@ object ContextOptimizationBindings {
     ): SessionHook {
         val main = toggles.observe(ContextOptimizationEnabled)
         val brief = toggles.observe(ContinuationBriefEnabled)
-        val isEnabled = combine(main, brief) { isMain, isBrief -> isMain && isBrief }
+        val enabled = combine(main, brief) { isMain, isBrief -> isMain && isBrief }
             .stateIn(scope.coroutineScope, SharingStarted.Eagerly, false)
-        return ContextHandoffHook { isEnabled.value }
+        return ContextHandoffHook { enabled.value }
     }
 }
 

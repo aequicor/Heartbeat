@@ -104,6 +104,8 @@ internal data class StudioTurnRequest(
      * the next turn receives it after the engine's own summary.
      */
     val isBriefed: Boolean = false,
+    /** With [isRollover] and [isBriefed]: the handoff summary turn completed, so its answer is the work summary. */
+    val isSummarized: Boolean = false,
 ) {
     override fun toString(): String = "StudioTurnRequest(id=$id, kind=$kind, attachments=${attachments.size})"
 }

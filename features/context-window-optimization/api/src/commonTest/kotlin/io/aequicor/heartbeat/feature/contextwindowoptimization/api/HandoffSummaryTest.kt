@@ -36,6 +36,19 @@ class HandoffSummaryTest {
     }
 
     @Test
+    fun `a turn after the handoff turn stays and makes its answer stale`() {
+        val request = message(MessageRole.User, withHostDirectives("", listOf(HANDOFF_SUMMARY_PROMPT)))
+        val answer = message(MessageRole.Assistant, "Summary")
+        val later = listOf(message(MessageRole.User, "One more thing"), message(MessageRole.Assistant, "Done"))
+        val work = listOf(message(MessageRole.User, "Task"))
+
+        val split = handoffSplit(work + request + answer + later)
+
+        assertEquals(work + later, split.items)
+        assertNull(split.summary)
+    }
+
+    @Test
     fun `text the user typed never counts as a handoff turn`() {
         val items = listOf(message(MessageRole.User, HANDOFF_SUMMARY_PROMPT), message(MessageRole.Assistant, "Reply"))
 

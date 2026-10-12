@@ -94,6 +94,21 @@ class StudioCompactionsTest {
     }
 
     @Test
+    fun `an agent that keeps compacting is continued at most three times in a row`() = runTest {
+        val fixture = Fixture(this)
+        val job = launch { fixture.compactions.run() }
+
+        repeat(4) {
+            fixture.pending(Chat to PendingCompaction(CompactionMethod.Native, CompactionOrigin.Agent))
+            runCurrent()
+        }
+
+        assertEquals(4, fixture.executed.count { it.compaction != null })
+        assertEquals(3, fixture.executed.count { it.request.value.startsWith("continue-") })
+        job.cancel()
+    }
+
+    @Test
     fun `only the agent's own compaction continues its work, and only with the brief`() = runTest {
         val user = Fixture(this)
         val userJob = launch { user.compactions.run() }

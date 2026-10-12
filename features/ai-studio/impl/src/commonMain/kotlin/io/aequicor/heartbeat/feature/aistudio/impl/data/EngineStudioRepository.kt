@@ -437,7 +437,7 @@ internal class EngineStudioRepository(
     }
 
     override suspend fun executeRun(request: StudioTurnRequest): RunOutcome {
-        if (request.isRollover) return carry.rollover(request.id, request.isBriefed)
+        if (request.isRollover) return carry.rollover(request)
         log.i { "Execute the reserved native request" }
         val admitted = helperAdmission.prepare(record(request.id), request)
         try {

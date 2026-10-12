@@ -100,7 +100,7 @@ private val SessionItem.isAgentWork: Boolean
     get() = this is SessionItem.ToolCall || this is SessionItem.Plan ||
         (this is SessionItem.Message && role == MessageRole.Assistant)
 
-/** The text the user typed with attachments as placeholders; null for service messages without it. */
+/** The text the user typed with attachments as placeholders; null for service messages with neither. */
 private fun SessionItem.userText(): String? {
     if (this !is SessionItem.Message || role != MessageRole.User) return null
     val parts = parts.mapNotNull { part ->
@@ -111,10 +111,10 @@ private fun SessionItem.userText(): String? {
             is ContentPart.Reasoning -> null
         }
     }
-    return parts.takeIf { it.any { part -> part != "[image]" && part != "[attachment]" } }?.joinToString("\n")
+    return parts.takeIf { it.isNotEmpty() }?.joinToString("\n")
 }
 
-private class FittedMessages(val text: String, val omitted: Int)
+private data class FittedMessages(val text: String, val omitted: Int)
 
 /**
  * The messages within [budget]: the first and the newest whole (leaving a quarter for snippets), then older ones as
@@ -132,23 +132,28 @@ private fun fitted(messages: List<String>, budget: Int, options: BriefOptions): 
     val snippetsReserve = minOf(budget / SNIPPETS_SHARE, older.size * (options.snippetChars + ENTRY_OVERHEAD))
     val available = budget - first.length - OMITTED_RESERVE
     val kept = within(older, available - snippetsReserve) { whole[it] }
-    val usedByKept = kept.values.sumOf { it.length }
+    val usedByKept = kept.values.sumOf { it.length + SEPARATOR.length }
     val snippets = within(older.filterNot { it in kept }, available - usedByKept) { index ->
         entry(index, messages[index].shortened(options.snippetChars))
     }
     val rendered = List(messages.size) { index -> if (index == 0) first else kept[index] ?: snippets[index] }
-    return FittedMessages(rendered.withGaps().joinToString("\n\n"), rendered.count { it == null })
+    return FittedMessages(rendered.withGaps().joinToString(SEPARATOR), rendered.count { it == null })
 }
 
-/** Entries of [indices] in their order while their total stays within [limit]; one that does not fit is skipped. */
+/**
+ * Entries of [indices] in their order while their total, separators included, stays within [limit]. The first entry
+ * that does not fit ends the run, so the kept entries stay contiguous and leave a single gap.
+ */
 private fun within(indices: List<Int>, limit: Int, entryOf: (Int) -> String): Map<Int, String> {
     var used = 0
-    return indices.mapNotNull { index ->
+    val kept = mutableMapOf<Int, String>()
+    for (index in indices) {
         val entry = entryOf(index)
-        if (used + entry.length > limit) return@mapNotNull null
-        used += entry.length
-        index to entry
-    }.toMap()
+        if (used + entry.length + SEPARATOR.length > limit) break
+        used += entry.length + SEPARATOR.length
+        kept[index] = entry
+    }
+    return kept
 }
 
 /** Entries with a marker in place of every run of omitted ones. */
@@ -175,6 +180,7 @@ private fun entry(index: Int, text: String): String = "[${index + 1}] $text"
 /** Keeps the beginning and the end: conclusions and errors are usually at the end. */
 private fun String.shortened(limit: Int): String {
     if (length <= limit) return this
+    if (limit <= ELLIPSIS.length) return take(limit.coerceAtLeast(0))
     val tail = limit / TAIL_SHARE
     val head = (limit - tail - ELLIPSIS.length).coerceAtLeast(0)
     return take(head) + ELLIPSIS + takeLast(tail)
@@ -183,6 +189,7 @@ private fun String.shortened(limit: Int): String {
 /** Headers, section titles and separators of the brief. */
 private const val RESERVED_CHARS = 1_500
 private const val ENTRY_OVERHEAD = 16
+private const val SEPARATOR = "\n\n"
 private const val OMITTED_RESERVE = 64
 private const val TAIL_SHARE = 3
 private const val SNIPPETS_SHARE = 4

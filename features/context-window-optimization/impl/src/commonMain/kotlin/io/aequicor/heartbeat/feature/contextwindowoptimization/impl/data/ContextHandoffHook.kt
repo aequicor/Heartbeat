@@ -9,7 +9,8 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.HANDOFF_REQUE
 
 /**
  * Refuses every tool call of a handoff summary turn ([HANDOFF_REQUEST_PREFIX]): the turn only writes the summary of
- * the work before a rollover, whatever the trust level of the chat.
+ * the work before a rollover, whatever the trust level of the chat. It covers hosted tools and native calls that the
+ * adapter authorizes through the facade; the host submits the turn with the trust of a turn that asks for the rest.
  */
 internal class ContextHandoffHook(private val isEnabled: () -> Boolean) : SessionHook {
     private val log = Log.tag("ContextHandoffHook")

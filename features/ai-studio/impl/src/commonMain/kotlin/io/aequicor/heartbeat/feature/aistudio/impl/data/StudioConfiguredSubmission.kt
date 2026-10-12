@@ -64,10 +64,10 @@ internal class StudioConfiguredSubmission(
         } else {
             seeded.copy(directives = seeded.directives + HELPER_DIRECTIVE)
         }
-        val submitted = send(active, constrained, effort) {
-            helperPolicy.trust(record, trust, configurations)
-        }
+        val submitted = send(active, constrained, effort) { turnTrust(request, record, trust, configurations) }
         if (carried.isNotEmpty()) access.consumeSeed(id)
+        // The handoff turn's narrowed trust is not the chat's configuration.
+        if (request.isHandoff) return submitted.turn
         confirmConfiguration(
             access,
             id,
@@ -76,6 +76,18 @@ internal class StudioConfiguredSubmission(
             SessionConfiguration(target.model, effort, submitted.trust),
         )
         return submitted.turn
+    }
+
+    /** Engines that do not route native tools through hooks still ask before acting in the handoff turn. */
+    private suspend fun turnTrust(
+        request: StudioTurnRequest,
+        record: StudioChatRecord,
+        trust: TrustLevel?,
+        configurations: () -> Map<String, StudioSessionConfiguration>,
+    ): TrustLevel? = if (request.isHandoff) {
+        trust?.let { TrustLevel.Ask }
+    } else {
+        helperPolicy.trust(record, trust, configurations)
     }
 
     private suspend fun confirmConfiguration(

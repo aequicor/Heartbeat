@@ -78,13 +78,15 @@ internal fun rolloverSeed(items: List<SessionItem>): String {
 
 /**
  * Host directive for the first turn of the new session built from the continuation brief: every user message of all
- * segments, the handoff summary of the session that ends (or, without one, its earlier work) and its last turn.
+ * segments, the handoff summary of the session that ends when its turn [isSummarized] (otherwise its earlier work)
+ * and its last turn.
  */
-internal fun continuationSeed(items: List<SessionItem>): String {
+internal fun continuationSeed(items: List<SessionItem>, isSummarized: Boolean): String {
     // The handoff summary turn of the session that ends is the summary, not its last turn.
     val handoff = handoffSplit(items.filterNot { it.isFrozenSegment })
     val history = items.filter { it.isFrozenSegment } + handoff.items
-    val brief = continuationBrief(history, handoff.items, handoff.summary, BriefMode.Rollover)
+    val summary = handoff.summary.takeIf { isSummarized }
+    val brief = continuationBrief(history, handoff.items, summary, BriefMode.Rollover)
     log.i { "Rollover carries the continuation brief: $brief" }
     return brief.text
 }
@@ -104,8 +106,14 @@ internal fun StudioChatRecord.seeded(): StudioChatRecord = copy(pendingSeed = nu
 
 /** Continuation brief for the next turn after the engine compacted its context natively. */
 internal fun compactionBrief(items: List<SessionItem>): String {
-    val current = items.filterNot { it.isFrozenSegment }
-    val brief = continuationBrief(items, current, summary = null, BriefMode.AfterNativeCompaction)
+    // A handoff summary turn left by a failed rollover is not the last turn.
+    val current = handoffSplit(items.filterNot { it.isFrozenSegment }).items
+    val brief = continuationBrief(
+        items.filter { it.isFrozenSegment } + current,
+        current,
+        summary = null,
+        BriefMode.AfterNativeCompaction,
+    )
     log.i { "The next turn carries the continuation brief: $brief" }
     return brief.text
 }

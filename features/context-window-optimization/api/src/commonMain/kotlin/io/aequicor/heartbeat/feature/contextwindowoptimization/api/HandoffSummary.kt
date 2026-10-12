@@ -7,7 +7,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.stripHostDirectives
 
 /**
  * Prefix of the request id of a handoff summary turn: before a rollover the old session writes the summary of its work
- * for the new one. Tools are refused during such a turn.
+ * for the new one. Hosts refuse its tool calls through session hooks and submit it with the trust of a turn that asks,
+ * so engines whose native tools bypass hooks still ask the user before acting.
  */
 public const val HANDOFF_REQUEST_PREFIX: String = "handoff-"
 
@@ -27,24 +28,29 @@ public const val HANDOFF_SUMMARY_PROMPT: String =
 
 /** A transcript without its newest handoff summary turn ([items]) and the agent's answer to it ([summary]). */
 public data class HandoffSplit(val items: List<SessionItem>, val summary: String?) {
-    override fun toString(): String = "HandoffSplit(items=${items.size}, summary=${summary?.length})"
+    override fun toString(): String = "HandoffSplit(items=${items.size}, summary=${summary?.length ?: 0})"
 }
 
 /**
- * Splits [items] at the newest handoff summary turn: the items before it and the text of the agent's last message after
- * it. Without such a turn, or without an answer to it, [HandoffSplit.summary] is null. Only a message that carries
- * nothing but host directives counts as the turn, so text the user typed never does.
+ * Removes the newest handoff summary turn from [items] — its request and everything up to the next user message — and
+ * returns the text of the agent's last message in it as the summary. The summary is null without such a turn, without
+ * an answer, or when another turn followed it: then the answer is stale or belongs to that turn. Only a message that
+ * carries nothing but host directives counts as the request, so text the user typed never does.
  */
 public fun handoffSplit(items: List<SessionItem>): HandoffSplit {
     val index = items.indexOfLast { it.isHandoffRequest }
     if (index < 0) return HandoffSplit(items, null)
-    val summary = items.drop(index + 1)
+    val end = (index + 1 until items.size).firstOrNull { items[it].isUserMessage } ?: items.size
+    val summary = items.subList(index + 1, end).asSequence()
         .filterIsInstance<SessionItem.Message>()
         .filter { it.role == MessageRole.Assistant }
         .mapNotNull { message -> message.parts.texts().takeIf { it.isNotEmpty() } }
         .lastOrNull()
-    return HandoffSplit(items.take(index), summary)
+        .takeIf { end == items.size }
+    return HandoffSplit(items.take(index) + items.drop(end), summary)
 }
+
+private val SessionItem.isUserMessage: Boolean get() = this is SessionItem.Message && role == MessageRole.User
 
 private val SessionItem.isHandoffRequest: Boolean
     get() = this is SessionItem.Message && role == MessageRole.User && parts.any { part ->

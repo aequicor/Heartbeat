@@ -48,6 +48,16 @@ class ContinuationBriefTest {
     }
 
     @Test
+    fun `a message with only an attachment is still the user's`() {
+        val items = listOf(message(MessageRole.User, ContentPart.Resource(ResourceRef("doc", "text/plain"))))
+
+        val brief = continuationBrief(items, items, summary = null, BriefMode.AfterNativeCompaction)
+
+        assertTrue("[1] [attachment]" in brief.text)
+        assertEquals(1, brief.userMessages)
+    }
+
+    @Test
     fun `user messages of earlier segments are kept while the last turn comes from the current one`() {
         val earlier = listOf(user("Original task"), assistant("old answer"))
         val current = listOf(user("Continue"), assistant("new answer"))

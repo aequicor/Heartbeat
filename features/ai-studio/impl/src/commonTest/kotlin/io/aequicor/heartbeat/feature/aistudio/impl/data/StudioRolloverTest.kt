@@ -52,7 +52,7 @@ class StudioRolloverTest {
         val earlier = listOf(message("task", 0, "Fix every open issue"), reply("old", 1, "Old work")).frozen(1)
         val items = earlier + message("next", 0, "Skip #7") + reply("now", 1, "Fixing #8")
 
-        val seed = continuationSeed(items)
+        val seed = continuationSeed(items, isSummarized = false)
 
         assertTrue("[1] Fix every open issue" in seed && "[2] Skip #7" in seed)
         assertTrue("Assistant: Fixing #8" in seed)
@@ -65,9 +65,10 @@ class StudioRolloverTest {
         val items = listOf(message("task", 0, "Fix the parser"), reply("work", 1, "Fixing the lexer"), handoff) +
             reply("summary", 3, "Decided to rewrite the lexer")
 
-        val seed = continuationSeed(items)
+        val seed = continuationSeed(items, isSummarized = true)
 
         assertTrue("## Work so far\nDecided to rewrite the lexer" in seed)
+        assertFalse("Decided" in continuationSeed(items, isSummarized = false))
         assertTrue("Assistant: Fixing the lexer" in seed.substringAfter("## Last turn"))
         assertFalse("handoff-summary" in seed)
     }
