@@ -4,6 +4,7 @@ import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiLimits
 import io.aequicor.heartbeat.feature.serviceasui.api.UiCallContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodCall
@@ -35,7 +36,7 @@ internal class ProviderUiMethodCalls(private val providers: Set<ServiceUiProvide
     override fun methods(owner: UiOwner): Flow<UiMethods> {
         val provider = providers.firstOrNull { it.kind == owner.kind } ?: return flowOf(UiMethods(isAvailable = false))
         return provider.methods(owner.id).catch { e ->
-            log.w(e) { "Methods of ${owner.kind} owner stopped" }
+            log.w(e.redactedFailure()) { "Methods of ${owner.kind} owner stopped" }
             emit(UiMethods(isAvailable = false))
         }
     }
@@ -67,7 +68,8 @@ internal class ProviderUiMethodCalls(private val providers: Set<ServiceUiProvide
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            log.w(e) { "Provider ${provider.kind} failed a call" }
+            // Script failures may quote the arguments or results they worked on; only the type is logged.
+            log.w(e.redactedFailure()) { "Provider ${provider.kind} failed a call" }
             UiMethodResult.Failure(UiMethodFailure.Failed)
         }
         return when {
