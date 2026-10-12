@@ -1,0 +1,11 @@
+{
+  "kind": "req",
+  "id": "e:1",
+  "method": "hello",
+  "params": {
+    "protocol": [1],
+    "extension": { "version": "0.1.0" },
+    "browser": { "brand": "Google Chrome", "version": "140" },
+    "capabilities": ["chat"]
+  }
+}

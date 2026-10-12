@@ -1,9 +1,15 @@
 // @ts-check
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { createNativeLink } from '../src/background/native-link.js';
 import { BridgeError } from '../src/shared/protocol.js';
 import { FakeTimers, fakeChrome, flush } from './fakes/chrome.js';
+
+/** Shared with the app's `ProtocolFixturesTest`. @param {string} name */
+function fixture(name) {
+  return JSON.parse(readFileSync(new URL(`./fixtures/protocol/${name}.json`, import.meta.url), 'utf8'));
+}
 
 function setup(overrides = {}) {
   const fake = fakeChrome();
@@ -32,7 +38,7 @@ async function ready(context) {
   const port = context.fake.ports.at(-1);
   port.deliver({ kind: 'host', state: 'connected' });
   const hello = port.last();
-  port.deliver({ kind: 'res', id: hello.id, result: { protocol: 1, features: { chat: true, agentControl: false } } });
+  port.deliver({ ...fixture('hello-result'), id: hello.id });
   await flush();
   return port;
 }
@@ -41,17 +47,7 @@ test('hello is sent once the host reports Heartbeat and carries version, browser
   const context = setup();
   const port = await ready(context);
 
-  assert.deepEqual(port.posted[0], {
-    kind: 'req',
-    id: 'e:1',
-    method: 'hello',
-    params: {
-      protocol: [1],
-      extension: { version: '0.1.0' },
-      browser: { brand: 'Google Chrome', version: '140' },
-      capabilities: ['chat'],
-    },
-  });
+  assert.deepEqual(port.posted[0], fixture('hello-request'));
   assert.deepEqual(context.statuses, ['connecting', 'handshaking', 'ready']);
   assert.deepEqual(context.link.hello?.features, { chat: true, agentControl: false });
 });
