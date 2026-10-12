@@ -12,7 +12,7 @@
     <string name="browser_disabled">Browser is disabled</string>
     <string name="browser_disabled_hint">Enable the browser in the feature toggle settings.</string>
     <string name="browser_invalid_address">Enter a valid HTTP or HTTPS address without spaces or credentials.</string>
-    <string name="browser_unsupported_address">This address is not supported. Only HTTP and HTTPS pages can open here.</string>
+    <string name="browser_unsupported_address">This address is not supported. Only HTTP and HTTPS pages can open here; on this device plain HTTP may be limited to local addresses.</string>
     <string name="browser_load_failed">The page could not load. Check the address and connection, then reload.</string>
     <string name="browser_engine_unavailable">The browser engine is unavailable on this device.</string>
     <string name="browser_new_tab">New tab</string>

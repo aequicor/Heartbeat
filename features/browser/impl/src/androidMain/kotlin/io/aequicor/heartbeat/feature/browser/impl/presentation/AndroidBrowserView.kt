@@ -31,6 +31,8 @@ import io.aequicor.heartbeat.feature.browser.impl.domain.isBrowserRequestAllowed
  * A surface-owned browser without persisted authorization: cookies and DOM storage are disabled
  * because Android's default WebView storage is shared across profiles in the application process.
  * Popup windows, native permissions, file uploads and non-HTTP(S) main navigation are denied.
+ * Plain HTTP main documents are limited to the loopback hosts the app's network security config allows
+ * ([isAndroidBrowserUrlAllowed]); others fail with an unsupported-address error instead of a silent block.
  * Child documents may use browser-managed memory URLs under WebView's origin and sandbox rules.
  * Native history lasts only as long as this view; URLs and titles are never logged.
  */
@@ -137,7 +139,7 @@ internal class AndroidBrowserView(context: Context, private val surface: Browser
 
     private fun loadAddress(value: String) {
         if (isLoading && address == value) return
-        if (!isBrowserUrlAllowed(value)) {
+        if (!isAndroidBrowserUrlAllowed(value)) {
             failure = BrowserViewError.UnsupportedAddress
             publish()
             return
@@ -193,10 +195,12 @@ internal class AndroidBrowserView(context: Context, private val surface: Browser
             log.v { "Checking native navigation" }
             if (isReleased) return true
             val kind = if (request.isForMainFrame) BrowserRequestKind.MainDocument else BrowserRequestKind.ChildDocument
-            val isAllowed = isBrowserRequestAllowed(request.url.toString(), kind)
+            val url = request.url.toString()
+            val isAllowed = isBrowserRequestAllowed(url, kind) &&
+                (!request.isForMainFrame || isAndroidBrowserUrlAllowed(url))
             if (request.isForMainFrame) {
                 if (isAllowed) {
-                    address = request.url.toString()
+                    address = url
                     isStopped = false
                 } else {
                     failure = BrowserViewError.UnsupportedAddress
@@ -212,7 +216,7 @@ internal class AndroidBrowserView(context: Context, private val surface: Browser
             log.v { "Main document started" }
             if (isReleased || isStopped) return
             val current = url.orEmpty()
-            if (!isBrowserUrlAllowed(current)) {
+            if (!isAndroidBrowserUrlAllowed(current)) {
                 stopLoading()
                 isLoading = false
                 failure = BrowserViewError.UnsupportedAddress
