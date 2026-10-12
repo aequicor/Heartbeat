@@ -75,7 +75,8 @@ patch hash before applying the patch. Before CMake runs, `build` downloads the e
 binary distribution into `third_party/cef` and checks it against the SHA-1 pinned per
 target in `cefDistributions` of `source-lock.json` (the digest upstream publishes in
 `https://cef-builds.spotifycdn.com/index.json`); CMake then only extracts the verified
-archive. An already present archive is checked the same way. Upgrading CEF means pinning
+archive. An already present archive is checked the same way, and an earlier extracted tree
+is removed so CMake always extracts afresh (an interrupted extraction is never reused). Upgrading CEF means pinning
 the new four digests from that index together with `cefVersion`.
 Packaging records SHA-256 for every produced artifact and native runtime file.
 The Java API is compiled from the same patched source as JNI with `--release 8`.

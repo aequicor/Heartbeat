@@ -74,14 +74,6 @@ def select_inputs(source_lock: Path, patch_file: Path) -> None:
     SOURCE_LOCK, PATCH_FILE, VERSION, RELEASE_TAG = source_lock.resolve(), patch_file.resolve(), version, tag
 
 
-def cache_key() -> str:
-    data = lock()
-    inputs = {key: data[key] for key in ("jcefCommit", "cefVersion", "patchSha256", "artifactVersion")}
-    digest = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode())
-    digest.update(Path(__file__).read_bytes())
-    return digest.hexdigest()
-
-
 def prepare(source: Path) -> None:
     data = lock()
     if source.exists():
@@ -174,13 +166,15 @@ def cef_distribution(data: dict, target: str) -> tuple[str, str]:
 def prepare_cef_distribution(source: Path, target: str) -> None:
     # Upstream CMake downloads the archive and a .sha1 from the same CDN, so the CDN alone decides what is
     # trusted. Place the archive checked against the lock first: CMake then only extracts it. An existing
-    # archive is verified as well; an extracted tree without its archive cannot be verified and is rejected.
+    # archive is verified as well. CMake skips extraction when the tree exists, so an earlier tree (possibly
+    # cut short by an interrupted extraction, or without its archive) is removed and extracted afresh.
     name, expected = cef_distribution(lock(), target)
     directory = source / "third_party/cef"
     archive = directory / name
+    extracted = directory / name.removesuffix(".tar.bz2")
+    if extracted.exists():
+        shutil.rmtree(extracted)
     if not archive.exists():
-        if (directory / name.removesuffix(".tar.bz2")).exists():
-            raise ValueError("An extracted CEF distribution without its archive cannot be verified")
         directory.mkdir(parents=True, exist_ok=True)
         partial = archive.with_name(name + ".part")
         digest = hashlib.sha1()
@@ -362,7 +356,7 @@ def verify_package(source: Path, target: str, artifacts: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["prepare", "build", "package", "collect", "verify", "cache-key"])
+    parser.add_argument("command", choices=["prepare", "build", "package", "collect", "verify"])
     parser.add_argument("--source", type=Path, default=Path("build/jcef-source"))
     parser.add_argument("--target", choices=TARGETS)
     parser.add_argument("--output", type=Path, default=Path("build/jcef-artifacts"))
@@ -371,13 +365,7 @@ def main() -> None:
     options = parser.parse_args()
     select_inputs(options.source_lock, options.patch)
     source, output = options.source.resolve(), options.output.resolve()
-    if options.command == "cache-key":
-        key = cache_key()
-        print(key)
-        if os.environ.get("GITHUB_OUTPUT"):
-            with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output_file:
-                output_file.write(f"key={key}\n")
-    elif options.command == "prepare":
+    if options.command == "prepare":
         prepare(source)
     elif options.command == "collect":
         collect(source, output)

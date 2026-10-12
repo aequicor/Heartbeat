@@ -78,21 +78,27 @@ class RuntimePackagingTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "differs from the source lock"):
                 runtime.prepare_cef_distribution(self.root, "macosx-arm64")
             archive.unlink()
-            (archive.parent / name.removesuffix(".tar.bz2")).mkdir()
-            with self.assertRaisesRegex(ValueError, "cannot be verified"):
+            # A tree left without its archive (or cut short mid-extraction) is never handed to CMake.
+            stale = self.write(f"third_party/cef/{name.removesuffix('.tar.bz2')}/partial")
+            with patch.object(runtime.urllib.request, "urlopen", return_value=io.BytesIO(payload)):
                 runtime.prepare_cef_distribution(self.root, "macosx-arm64")
+            self.assertFalse(stale.parent.exists())
+            self.assertEqual(payload, archive.read_bytes())
+            stale = self.write(f"third_party/cef/{name.removesuffix('.tar.bz2')}/partial")
+            with patch.object(runtime.urllib.request, "urlopen") as urlopen:
+                runtime.prepare_cef_distribution(self.root, "macosx-arm64")
+                urlopen.assert_not_called()
+            self.assertFalse(stale.parent.exists())
 
-    def test_candidate_inputs_use_separate_version_cache_and_native_resource(self):
+    def test_candidate_inputs_use_separate_version_and_native_resource(self):
         previous = {name: getattr(runtime, name) for name in
                     ("SOURCE_LOCK", "PATCH_FILE", "VERSION", "RELEASE_TAG")}
         self.addCleanup(lambda: [setattr(runtime, name, value) for name, value in previous.items()])
-        old_key = runtime.cache_key()
         canonical_bytes = runtime.SOURCE_LOCK.read_bytes()
         candidate_lock, candidate_patch = self.candidate_inputs()
         runtime.select_inputs(candidate_lock, candidate_patch)
         self.assertEqual("152.0.6-hb99", runtime.VERSION)
         self.assertTrue(runtime.RELEASE_TAG.endswith("+heartbeat-hb99"))
-        self.assertNotEqual(old_key, runtime.cache_key())
         self.assertEqual({}, runtime.lock()["nativeArtifacts"])
         self.assertEqual(canonical_bytes, previous["SOURCE_LOCK"].read_bytes())
 
@@ -192,18 +198,6 @@ class RuntimePackagingTest(unittest.TestCase):
         with patch.object(runtime, "sha256", return_value="bad"):
             with self.assertRaisesRegex(ValueError, "patch differs"):
                 runtime.lock()
-
-    def test_cache_identity_ignores_outputs_but_tracks_source_inputs(self):
-        inputs = runtime.lock()
-        with patch.object(runtime, "lock", return_value=inputs):
-            initial = runtime.cache_key()
-        published = dict(inputs, apiArtifact={"file": "api.jar", "sha256": "published"},
-                         nativeArtifacts={"windows-amd64": {"sha256": "published"}})
-        with patch.object(runtime, "lock", return_value=published):
-            self.assertEqual(initial, runtime.cache_key())
-        for name in ["jcefCommit", "cefVersion", "patchSha256", "artifactVersion"]:
-            with patch.object(runtime, "lock", return_value=dict(inputs, **{name: "changed"})):
-                self.assertNotEqual(initial, runtime.cache_key())
 
     def test_request_flags_are_checked_against_downloaded_cef_headers(self):
         native = "UR_FLAG_NONE = 0, UR_FLAG_ALLOW_STORED_CREDENTIALS = 1 << 3,"
