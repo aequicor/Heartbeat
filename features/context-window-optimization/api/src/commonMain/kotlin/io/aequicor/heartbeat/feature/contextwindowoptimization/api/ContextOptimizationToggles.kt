@@ -35,6 +35,12 @@ public val KoogMaskingEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "Маскирование старых результатов инструментов в промпте Koog",
 )
 
+/** Long tool output kept out of the context, readable with `context_recall`; requires the main toggle. */
+public val ContextOffloadEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
+    "context_optimization.offload",
+    "Выгрузка длинных выводов инструментов из контекста и инструмент context_recall",
+)
+
 /** Names of the agent's hosted context tools. */
 public object ContextOptimizationTools {
     /** Reports context occupancy, the ledger and pending compaction. */
@@ -45,4 +51,7 @@ public object ContextOptimizationTools {
 
     /** Asks to compact the context after the current turn. */
     public const val COMPACT: String = "context_compact"
+
+    /** Reads a part of a long tool output that was kept out of the context. */
+    public const val RECALL: String = "context_recall"
 }

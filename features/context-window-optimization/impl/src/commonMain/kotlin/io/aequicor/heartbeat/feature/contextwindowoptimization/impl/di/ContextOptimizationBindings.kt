@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.AutoCompactionEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextLedgerEnabled
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOffloadEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationIntent
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationMachineSpec
@@ -107,4 +108,9 @@ object ContextOptimizationToggleBindings {
     @Provides
     @IntoSet
     fun koogMasking(): FeatureToggle<*> = KoogMaskingEnabled
+
+    /** Offloading of long tool output. */
+    @Provides
+    @IntoSet
+    fun offload(): FeatureToggle<*> = ContextOffloadEnabled
 }

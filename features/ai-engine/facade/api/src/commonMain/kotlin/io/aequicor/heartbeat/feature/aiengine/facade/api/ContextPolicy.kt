@@ -20,3 +20,14 @@ public fun interface ContextPolicyProvider {
     /** The policy for [session], or null. */
     public suspend fun policy(session: SessionRef): ContextPolicy?
 }
+
+/**
+ * Profile multibinding that keeps long tool output out of the context; resolved lazily. It may store [text] and
+ * return a shortened replacement that tells the agent how to read the rest, or null to keep the output. Applied by
+ * the hosted tools dispatcher and by engines running their own tools (Koog); output of native tools of engines that
+ * own their context (Codex, Claude, Pi) cannot be replaced. A failure keeps the output.
+ */
+public fun interface ToolOutputOffload {
+    /** A replacement for [text] that [tool] returned in [session], or null. */
+    public suspend fun offload(session: SessionRef, tool: String, text: String): String?
+}

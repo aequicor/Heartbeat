@@ -141,7 +141,7 @@ internal class KoogNativeSession(
 
     // Tools the user allowed for the rest of this native session.
     private val allowedTools = mutableSetOf<String>()
-    private val toolExecution = KoogToolExecution(history, this::approve)
+    private val toolExecution = KoogToolExecution(history, this::approve, access.offloader(initial.summary.ref))
 
     val route: ExecutionRoute = requireNotNull(initial.summary.lastRoute)
     val ref: SessionRef = initial.summary.ref

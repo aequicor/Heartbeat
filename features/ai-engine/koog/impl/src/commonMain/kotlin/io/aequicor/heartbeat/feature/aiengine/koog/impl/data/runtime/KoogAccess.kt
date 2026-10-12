@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogAutoApprove
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogCodingTools
@@ -50,6 +51,8 @@ internal class KoogAccess(
     val tools: ProfileAgentTools = NoAgentTools,
     /** Prompt shaping offered by profile features; see [contextPolicy]. */
     val contextPolicies: Lazy<Set<ContextPolicyProvider>> = lazyOf(emptySet()),
+    /** Keeps long output of Koog's own tools out of the context. */
+    val toolOffloads: Lazy<Set<ToolOutputOffload>> = lazyOf(emptySet()),
 ) {
     private val log = Log.tag("KoogAccess")
 

@@ -19,6 +19,20 @@ internal suspend fun KoogAccess.contextPolicy(session: SessionRef): ContextPolic
     null
 }
 
+/** A shortened output of a Koog tool when a profile feature offloads it; a failure keeps the output. */
+internal suspend fun KoogAccess.offloaded(session: SessionRef, tool: String, text: String): String? = try {
+    toolOffloads.value.firstNotNullOfOrNull { it.offload(session, tool, text) }
+} catch (e: CancellationException) {
+    throw e
+} catch (e: Exception) {
+    log.w(e) { "Tool output offload failed; the output stays whole" }
+    null
+}
+
+/** [offloaded] for the tools of [session]. */
+internal fun KoogAccess.offloader(session: SessionRef): suspend (String, String) -> String? =
+    { tool, text -> offloaded(session, tool, text) }
+
 /**
  * Observation masking of the visible context: tool results of turns older than the newest
  * [ContextPolicy.keepRecentTurns] keep only their beginning and a note, in steps of [ContextPolicy.maskStepTurns]
