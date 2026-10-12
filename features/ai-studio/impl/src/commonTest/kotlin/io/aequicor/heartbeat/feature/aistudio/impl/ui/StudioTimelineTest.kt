@@ -31,6 +31,9 @@ class StudioTimelineTest {
         stoppedTemplate = "Stopped after %1\$s",
         failed = FailureLabels(unknown = "Failed", limit = "Limit"),
         durations = durations,
+        compacted = "Context compacted",
+        rolledOver = "Continued in a new session",
+        collapsedTools = "Tool calls: %1\$d",
     )
     private val prompt = MessageUi.Prompt("m1", Instant.fromEpochSeconds(0), "Fix the build")
 
@@ -52,6 +55,22 @@ class StudioTimelineTest {
 
         val completed = cache.update(listOf(thinking.copy(isStreaming = false)), labels).messages.single()
         assertEquals(HbToolStatus.Complete, assertIs<HbMessagePart.Tool>(completed.parts.single()).call.status)
+    }
+
+    @Test
+    fun `visible reasoning before running collapsed calls does not pose as the latest activity`() {
+        val collapsed = reply("", isStreaming = true).copy(
+            parts = persistentListOf(
+                ReplyPartUi.CollapsedTools("collapsed:r", 2, isRunning = true),
+                ReplyPartUi.Reasoning("reasoning", "Check the public API"),
+            ),
+        )
+        val parts = TimelineCache().update(listOf(collapsed), labels).messages.single().parts.map {
+            assertIs<HbMessagePart.Tool>(it).call
+        }
+
+        assertEquals(listOf(HbToolStatus.Running, HbToolStatus.Complete), parts.map { it.status })
+        assertEquals("Tool calls: 2", parts.first().title)
     }
 
     @Test

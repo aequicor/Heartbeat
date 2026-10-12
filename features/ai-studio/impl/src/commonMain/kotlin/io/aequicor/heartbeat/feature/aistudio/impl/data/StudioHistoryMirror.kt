@@ -162,7 +162,8 @@ internal class StudioHistoryMirror(
         val isComplete = coverage == HistoryCoverage.Complete
         var kept = 0
         update(id) { stored ->
-            val earlier = if (isComplete) emptyList() else keepEarlier(stored, window)
+            // Frozen segments of earlier native sessions are never part of the engine's window.
+            val earlier = if (isComplete) stored.takeWhile { it.isFrozenSegment } else keepEarlier(stored, window)
             kept = earlier.size
             earlier + window
         }

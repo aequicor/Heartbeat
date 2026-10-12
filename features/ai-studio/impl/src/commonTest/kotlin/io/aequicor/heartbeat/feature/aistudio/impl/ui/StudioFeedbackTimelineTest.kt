@@ -64,6 +64,9 @@ class StudioFeedbackTimelineTest {
         FailureLabels("Failed"),
         DurationLabels("%1\$d s", "%1\$d min %2\$d s"),
         feedback = feedbackLabels,
+        compacted = "Context compacted",
+        rolledOver = "Continued in a new session",
+        collapsedTools = "Tool calls: %1\$d",
     )
 
     @Test

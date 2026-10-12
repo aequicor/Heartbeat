@@ -8,7 +8,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.CompactCommand
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioCompactionPort
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.compactCommand
+import kotlinx.collections.immutable.toImmutableSet
 import pro.respawn.flowmvi.api.PipelineContext
 import kotlin.uuid.Uuid
 
@@ -56,3 +60,30 @@ internal suspend fun submitStudioDraft(
 internal fun AiStudioScreenState.selectedNative(sessionId: String?): String = subSessions[sessionId]?.takeIf { key ->
     nativeTrees[sessionId]?.sessions?.any { it.key == key && it.kind == SubSessionKindUi.Agent } == true
 } ?: PrimarySubSession
+
+/**
+ * Handles a draft typed as `/compact` while compaction is offered: the chat's context is compacted instead of sending
+ * a prompt and the draft is cleared once the request is queued; a request that cannot be queued now (no session yet,
+ * a native sub-agent shown in the pane, a chat its owner compacts, a compaction already running) keeps the draft and
+ * marks the pane failed. False when the draft is anything else.
+ */
+internal suspend fun compactStudioDraft(
+    pipeline: PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>,
+    compactions: StudioCompactionPort,
+    paneId: Int,
+): Boolean = with(pipeline) {
+    var target: Pair<String?, CompactCommand>? = null
+    withState {
+        val command = compactCommand(draft(paneId)).takeIf { isCompactEnabled && attachments(paneId).isEmpty() }
+        if (command != null) target = compactedChat(paneId) to command
+    }
+    val (chat, command) = target ?: return@with false
+    val isQueued = chat != null && compactions.request(chat, command.instructions)
+    log.i { "Compaction of the pane chat requested from the composer: queued=$isQueued" }
+    updateState { if (isQueued) withDraft(paneId, "") else copy(failedPanes = (failedPanes + paneId).toImmutableSet()) }
+    true
+}
+
+/** The chat a `/compact` draft of pane [paneId] compacts; none while the pane shows a native sub-agent of it. */
+internal fun AiStudioScreenState.compactedChat(paneId: Int): String? =
+    panes.firstOrNull { it.id == paneId }?.sessionId?.takeIf { selectedNative(it) == PrimarySubSession }

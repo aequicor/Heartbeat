@@ -6,6 +6,7 @@ import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.binding
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
+import io.aequicor.heartbeat.core.datastore.StoreKey
 import io.aequicor.heartbeat.core.datastore.jsonKey
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
@@ -30,10 +31,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
@@ -101,7 +100,8 @@ import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 internal val ChatSpec = KeyValueSpec("ai_studio_chats")
-internal val ChatsKey = jsonKey("chats", ListSerializer(StudioChatRecord.serializer()))
+internal val ChatsKey: StoreKey<List<StudioChatRecord>> =
+    jsonKey("chats", ListSerializer(StudioChatRecord.serializer()))
 
 /**
  * Persistent identity and projection; no credential material or opaque history cursors are stored.
@@ -134,7 +134,18 @@ internal data class StudioChatRecord(
     val organismId: String? = null,
     /** Durable helper marker, also present for helpers with no caller. */
     val helper: StudioHelperIdentity? = null,
-)
+    /** Native sessions this chat continued from after rollovers, oldest first; see `StudioRollover`. */
+    val previousRefs: List<SessionRef> = emptyList(),
+    /** Number of rollovers; names the frozen transcript segments. */
+    val contextSegment: Int = 0,
+    /** Essence of the previous session for the first accepted turn of the next one; user data, never logged. */
+    val pendingSeed: String? = null,
+    /** Continuation brief for the next accepted turn after a native compaction; user data, never logged. */
+    val pendingBrief: String? = null,
+) {
+    /** Whether [session] is this chat's current or an earlier native session. */
+    fun owns(session: SessionRef): Boolean = ref == session || session in previousRefs
+}
 
 /** The profile owns accepted turns, handles and transcript projection; screens only observe. */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -203,6 +214,20 @@ internal class EngineStudioRepository(
     private val stopRequests = mutableSetOf<String>()
 
     private val conversationLocks = StudioConversationLocks(handlesLock)
+    private val carry = StudioContextCarry(
+        conversationLocks,
+        ::record,
+        ::items,
+        ::write,
+        ::update,
+        object : StudioCarriedHandles {
+            override suspend fun handle(id: String): ActiveSession? = handlesLock.withLock { handles[id] }
+
+            override suspend fun forget(id: String, closed: ActiveSession) {
+                handlesLock.withLock { if (handles[id] === closed) handles.remove(id) }
+            }
+        },
+    )
     private val mutableState = MutableStateFlow(StudioRuntimeState())
     override val state: StateFlow<StudioRuntimeState> = mutableState.asStateFlow()
 
@@ -285,7 +310,7 @@ internal class EngineStudioRepository(
 
     override suspend fun sessionIdOf(ref: SessionRef): String? {
         log.d { "sessionIdOf engine=${ref.engine.value} source=${ref.source.value}" }
-        return lock.withLock { store.get(ChatsKey).orEmpty().firstOrNull { record -> record.ref == ref }?.id }
+        return lock.withLock { store.get(ChatsKey).orEmpty().firstOrNull { record -> record.owns(ref) }?.id }
     }
 
     override suspend fun defaults(): RunSettings {
@@ -425,6 +450,7 @@ internal class EngineStudioRepository(
     }
 
     override suspend fun executeRun(request: StudioTurnRequest): RunOutcome {
+        if (request.isRollover) return carry.rollover(request)
         log.i { "Execute the reserved native request" }
         val admitted = helperAdmission.prepare(record(request.id), request)
         try {
@@ -433,6 +459,8 @@ internal class EngineStudioRepository(
             ) { copy(lastRunRequest = request.request, hasLastRunSucceeded = false, runRevision = runRevision + 1) }
             val result = turns.execute(this, admitted)
             update(request.id) { copy(hasLastRunSucceeded = result == RunOutcome.Completed) }
+            val isBriefed = request.compaction != null && request.isBriefed
+            if (result == RunOutcome.Completed && isBriefed) carry.brief(request.id)
             releaseArchived(request.id)
             return result
         } finally {
@@ -697,18 +725,8 @@ internal class EngineStudioRepository(
         optionId: String,
         answer: StudioPermissionAnswer?,
     ) {
-        val active = handlesLock.withLock { handles[sessionId] }
-            ?: rejectPermission("no open native session", requestId, optionId)
-        val pending = active.state.value as? ActiveSessionState.AwaitingUserAction
-            ?: rejectPermission("the session no longer awaits a decision", requestId, optionId)
-        val request = pending.requests.firstOrNull { it.id.value == requestId }
-            ?: rejectPermission("the request is no longer pending", requestId, optionId)
-        val option = request.options.firstOrNull { it.id.value == optionId }
-            ?: rejectPermission("the option is not offered", requestId, optionId)
         log.i { "Responding to pending engine permission" }
-        active.features.requireFeature(
-            RequestsPermissions,
-        ).respond(PermissionDecision(request.turn, request.id, option.id, answer?.toFacade()))
+        handlesLock.withLock { handles[sessionId] }.respondStudioPermission(requestId, optionId, answer)
     }
 
     /** Fails the answer so the machine shows the request again instead of hiding it forever. */
@@ -741,6 +759,8 @@ internal class EngineStudioRepository(
             }
         }
     }
+
+    override suspend fun consumeSeed(id: String) = update(id) { seeded() }.also { log.d { "seeded" } }
 
     /** Closes under the conversation lock, so a concurrent open never receives a closing handle. */
     private suspend fun release(id: String) = conversationLocks.withLock(id) {
@@ -783,10 +803,7 @@ internal class EngineStudioRepository(
         transcripts.replace(id, change(stored), previousItems = stored)
     }
 
-    override fun newMessageId(): String {
-        log.d { "Allocate message identity" }
-        return Uuid.random().toString()
-    }
+    override fun newMessageId(): String = Uuid.random().toString().also { log.d { "Allocate message identity" } }
     override suspend fun append(sessionId: String, message: StudioMessage) {
         log.w { "Rejected local transcript append" }
         error("Native history owns transcript writes")
@@ -897,11 +914,6 @@ internal fun ActiveSession.configurationModel(fallback: ModelId?): ModelId? =
 /** Trust level of a turn on [target]: only engines applying trust levels receive one. */
 internal fun ApprovalMode.trustFor(offered: List<StudioModel>, target: EngineTarget): TrustLevel? =
     toTrust().takeIf { offered.isTrustSupported(target) }
-
-private fun rejectPermission(reason: String, requestId: String, optionId: String): Nothing {
-    Log.tag("EngineStudio").w { "Permission answer rejected: $reason requestId=$requestId optionId=$optionId" }
-    error("Permission answer rejected: $reason")
-}
 
 internal fun ApprovalMode.toTrust(): TrustLevel = when (this) {
     ApprovalMode.Ask -> TrustLevel.Ask

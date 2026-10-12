@@ -90,7 +90,7 @@ internal class PiSession(
     private val profile get() = environment.profile
     private val dispatchers get() = environment.dispatchers
     private val handle = environment.scopes.child(profile, "pi-" + UUID.randomUUID())
-    private val promptResources = PiPromptResources(environment)
+    private val promptResources = PiPromptResources(environment) { rpc, request -> compactions.start(rpc, request) }
     private val journal = PiJournal(promptResources::originals)
     private val mutex = Mutex()
     internal var connection: PiConnection? = null
@@ -181,6 +181,7 @@ internal class PiSession(
         kotlinx.coroutines.CoroutineScope(profile.coroutineScope.coroutineContext + dispatchers.main),
     )
     private val commands = PiSessionCommands(environment, submissions, ::execute, ::commandFailed)
+    private val compactions = PiCompactionTurns(submissions.scope, { turn?.id }, { state.value }, ::finish)
     internal val stopping = PiSessionStop(this, ::applyStopped)
     private val nativeApprovals = PiNativeApprovals(environment, hostedTools, isCurrent = { process, active, captured ->
         val isSameProcess = generation == captured && connection === process && process.isOpen
@@ -192,12 +193,8 @@ internal class PiSession(
     }
     private var launchedTools: Set<String> = emptySet()
     private val profileClose = profile.onClose {
-        cancellationAck?.completeExceptionally(
-            EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed)),
-        )
-        acceptance?.completeExceptionally(
-            EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed)),
-        )
+        cancellationAck?.completeExceptionally(profileClosed())
+        acceptance?.completeExceptionally(profileClosed())
     }
 
     override val ref: SessionRef get() = requireNotNull(nativeRef)
@@ -385,9 +382,7 @@ internal class PiSession(
         withContext(dispatchers.main) {
             usage.close()
             machine.send(ActiveSessionIntent.Public.Close)
-            cancellationAck?.completeExceptionally(
-                EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed)),
-            )
+            cancellationAck?.completeExceptionally(profileClosed())
             acceptance?.completeExceptionally(
                 EngineException(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, turn?.request)),
             )
@@ -425,9 +420,7 @@ internal class PiSession(
             withContext(NonCancellable) {
                 machine.send(ActiveSessionIntent.Public.Close)
                 machine.send(ActiveSessionIntent.Internal.Released)
-                acceptance?.completeExceptionally(
-                    EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed)),
-                )
+                acceptance?.completeExceptionally(profileClosed())
                 handle.close()
                 isHandleClosed = true
                 release()
@@ -606,6 +599,8 @@ internal class PiSession(
 
             "agent_settled" -> finish(terminal)
 
+            "compaction_end" -> compactions.ended(record, turn?.id)
+
             "extension_ui_request" -> uiRequest(record)
         }
     }
@@ -702,15 +697,6 @@ internal class PiSession(
         }
     }
 
-    private companion object {
-        // Must match APPROVAL_TITLE in resources/pi/heartbeat-approval.ts.
-        const val APPROVAL_TITLE = "heartbeat.tool-approval"
-        val DIALOG_METHODS = setOf("select", "confirm", "input", "editor")
-
-        // Prompts without an explicit trust keep every action behind a user decision.
-        val DefaultTrust = TrustLevel.Ask
-    }
-
     internal suspend fun applyStopped(stop: PiStopClaim, record: PiTurnRecord) {
         commands.clear()
         cancellationAck?.completeExceptionally(
@@ -744,6 +730,15 @@ internal class PiSession(
     private fun rpc(): PiConnection = connection
         ?: piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable))
 }
+
+private fun profileClosed() = EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
+
+// Must match APPROVAL_TITLE in resources/pi/heartbeat-approval.ts.
+private const val APPROVAL_TITLE = "heartbeat.tool-approval"
+private val DIALOG_METHODS = setOf("select", "confirm", "input", "editor")
+
+// Prompts without an explicit trust keep every action behind a user decision.
+private val DefaultTrust = TrustLevel.Ask
 
 /** Failures before the final native admission check are definite rather than an unknown delivery. */
 private inline fun <T> notSent(block: () -> T): T = try {

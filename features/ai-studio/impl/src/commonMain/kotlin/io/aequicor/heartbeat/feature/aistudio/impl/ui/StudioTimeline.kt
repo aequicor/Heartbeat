@@ -50,6 +50,9 @@ internal data class TimelineLabels(
     val isGroupedByDate: Boolean = false,
     val feedback: FeedbackLabels? = null,
     val learning: LearningLabels? = null,
+    val compacted: String,
+    val rolledOver: String,
+    val collapsedTools: String,
 )
 
 /** Failed-run notices, one per [FailureUi]. */
@@ -312,7 +315,7 @@ internal fun MessageUi.toHb(labels: TimelineLabels): HbChatMessage = when (this)
         toolCalls = tools.map { it.toHb(labels) }.toImmutableList(),
         appearance = labels.replyAppearance,
         parts = parts.mapIndexed { index, part ->
-            part.toHb(labels, isStreaming = isStreaming && index == parts.lastIndex)
+            part.toHb(labels, isStreaming = isStreaming && index == streamingPartIndex)
         }.toImmutableList(),
         label = labels.calendar.timeLabel(createdAt).takeIf { isTimestampKnown },
     )
@@ -321,6 +324,14 @@ internal fun MessageUi.toHb(labels: TimelineLabels): HbChatMessage = when (this)
         id = id,
         author = labels.studio,
         text = fill(labels.stoppedTemplate, labels.durations.format(elapsed)),
+        role = HbChatRole.System,
+        kind = HbMessageKind.Notice,
+    )
+
+    is MessageUi.ContextNotice -> HbChatMessage(
+        id = id,
+        author = labels.studio,
+        text = if (isRollover) labels.rolledOver else labels.compacted,
         role = HbChatRole.System,
         kind = HbMessageKind.Notice,
     )
@@ -334,6 +345,13 @@ internal fun MessageUi.toHb(labels: TimelineLabels): HbChatMessage = when (this)
         appearance = HbMessageAppearance(tone = HbTone.Danger),
     )
 }
+
+/**
+ * The part showing the reply's progress: the last one, unless the collapsed line already runs for hidden work that
+ * follows it; then a visible reasoning before the hidden calls does not pose as the latest activity.
+ */
+private val MessageUi.Reply.streamingPartIndex: Int
+    get() = if (parts.any { it is ReplyPartUi.CollapsedTools && it.isRunning }) -1 else parts.lastIndex
 
 private fun ToolUi.toHb(labels: TimelineLabels): HbToolCall = HbToolCall(
     id = id,
@@ -366,6 +384,14 @@ private fun ReplyPartUi.toHb(labels: TimelineLabels, isStreaming: Boolean): HbMe
     is ReplyPartUi.Text -> HbMessagePart.Text(id, text)
 
     is ReplyPartUi.Tool -> HbMessagePart.Tool(tool.toHb(labels))
+
+    is ReplyPartUi.CollapsedTools -> HbMessagePart.Tool(
+        HbToolCall(
+            id = id,
+            title = fill(labels.collapsedTools, count),
+            status = if (isRunning) HbToolStatus.Running else HbToolStatus.Complete,
+        ),
+    )
 
     is ReplyPartUi.Reasoning -> HbMessagePart.Tool(
         HbToolCall(

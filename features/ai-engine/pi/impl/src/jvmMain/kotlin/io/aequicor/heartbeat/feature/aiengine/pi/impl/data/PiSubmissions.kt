@@ -13,7 +13,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 /** Registers exact identity synchronously before preflight, then hands preparation to the profile. */
-internal class PiSubmissions(private val scope: CoroutineScope) {
+internal class PiSubmissions(val scope: CoroutineScope) {
     private val log = Log.tag("PiSubmissions")
     var pending: PiSubmission? = null
         private set

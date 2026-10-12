@@ -27,6 +27,10 @@ public enum class SettingsSection {
     @SerialName("agent_learning")
     AgentLearning,
 
+    /** Context window optimization: automatic compaction and how the chat feed shows reasoning and tools. */
+    @SerialName("context")
+    Context,
+
     /** Harnesses the agent built: their approval level, scope, items, tools and workflow runs. */
     @SerialName("harness")
     Harness,
@@ -72,6 +76,7 @@ public val SettingsSection.deepLinkName: String
         SettingsSection.Search -> "search"
         SettingsSection.ComputerUse -> "computer_use"
         SettingsSection.AgentLearning -> "agent_learning"
+        SettingsSection.Context -> "context"
         SettingsSection.Harness -> "harness"
         SettingsSection.FeatureFlags -> "feature_flags"
     }
