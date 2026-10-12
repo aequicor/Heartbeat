@@ -7,7 +7,12 @@ import io.aequicor.heartbeat.feature.browser.impl.domain.desktopBrowserFailure
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.JsonObject
 import java.awt.BorderLayout
 import java.awt.Component
 import java.util.concurrent.atomic.AtomicBoolean
@@ -17,7 +22,8 @@ import javax.swing.SwingUtilities
 
 /**
  * Owns one native surface. Startup suspends while the app runtime extracts on IO, keeping EDT free.
- * Native callbacks are marshalled to EDT and invalidated before disposal. Reload retries failed startup.
+ * Native callbacks are marshalled to EDT and invalidated before disposal. Reload retries failed
+ * startup.
  */
 internal class DesktopBrowserPanel(
     private val surface: BrowserSurface,
@@ -28,6 +34,15 @@ internal class DesktopBrowserPanel(
     private val log = Log.tag("DesktopBrowserPanel")
     private val isReleased = AtomicBoolean(false)
     private var native: DesktopBrowserRuntime? = null
+    private val ready = MutableStateFlow<DesktopBrowserRuntime?>(null)
+
+    suspend fun devTools(method: String, arguments: JsonObject): String =
+        withTimeout(DEVTOOLS_TIMEOUT) { ready.filterNotNull().first().devTools(method, arguments) }
+
+    private companion object {
+        const val DEVTOOLS_TIMEOUT = 30_000L
+    }
+
     private var container: JPanel? = null
     private var initialization: Job? = null
     private var isAttached = false
@@ -39,7 +54,9 @@ internal class DesktopBrowserPanel(
 
     fun createComponent(): JComponent {
         check(SwingUtilities.isEventDispatchThread())
-        check(container == null)
+        container?.let {
+            return it
+        }
         val panel = JPanel(BorderLayout()).apply { isOpaque = false }
         container = panel
         if (!isReleased.get()) {
@@ -53,7 +70,9 @@ internal class DesktopBrowserPanel(
     override fun execute(command: BrowserViewCommand) {
         onSwing {
             if (isReleased.get()) return@onSwing
-            if (command is BrowserViewCommand.Load && isBrowserUrlAllowed(command.url)) currentUrl = command.url
+            if (command is BrowserViewCommand.Load && isBrowserUrlAllowed(command.url)) {
+                currentUrl = command.url
+            }
             val runtime = native
             if (runtime != null) {
                 runtime.execute(command)
@@ -78,6 +97,8 @@ internal class DesktopBrowserPanel(
             if (isAttached) surface.detached(this)
             native?.release()
             native = null
+            log.v { "Browser native runtime detached" }
+            ready.value = null
             container?.removeAll()
             container = null
         }
@@ -97,6 +118,7 @@ internal class DesktopBrowserPanel(
                     return@launch
                 }
                 native = runtime
+                ready.value = runtime
                 container?.apply {
                     add(runtime.component, BorderLayout.CENTER)
                     revalidate()
@@ -131,6 +153,8 @@ internal class DesktopBrowserPanel(
     private fun fail() {
         native?.release()
         native = null
+        log.v { "Browser native runtime detached" }
+        ready.value = null
         container?.removeAll()
         pending.clear()
         publish(BrowserViewState(url = currentUrl, error = BrowserViewError.EngineUnavailable))
@@ -149,6 +173,9 @@ internal class DesktopBrowserPanel(
 
 /** Testable presentation port, independent of the CEF JNI lifetime. */
 internal interface DesktopBrowserRuntime : BrowserViewController {
+    suspend fun devTools(method: String, arguments: JsonObject): String =
+        throw UnsupportedOperationException("Browser automation is unavailable")
+
     val component: Component
     fun start(initialUrl: String)
     fun release()
