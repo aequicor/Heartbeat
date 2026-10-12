@@ -91,7 +91,8 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
 
 Затем запусти собранное приложение с `--heartbeat-harness-probe` и проверь код выхода 0: проба компилирует и
 исполняет скрипт и workflow в релизной раскладке (ProGuard, jlink), компилятор — в упакованном воркере.
-Ненулевой код — смотри `HarnessHostProbe.kt` и keep-правила.
+Ненулевой код — смотри `HarnessHostProbe.kt` и keep-правила. На другой ОС пробу собирает `module-build.yml` с задачей
+`:platform-main:desktop:verifyReleaseHarnessCompiler` — сборка приложения целиком, только по просьбе пользователя.
 
 ## Проверка
 
