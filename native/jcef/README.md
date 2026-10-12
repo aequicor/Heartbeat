@@ -12,13 +12,16 @@ native/jcef/request-context-settings-hb2.patch` to every `build_runtime.py`
 command to reproduce the candidate. Its jars, archive resource tags and draft
 release all use hb2; source inputs create an independent native build cache.
 
-hb2 fixes a confirmed macOS use-after-free in queued visibility updates. The old
-AppKit selector retained a raw NSView pointer after browser destruction. The new
-CEF UI task owns a `CefRefPtr<CefBrowser>`, checks browser validity and the native
-view registry on that thread, and resolves the window handle only then. Forced
+hb2 fixes a confirmed macOS use-after-free in queued visibility updates and the
+same resize/close race: Swing paint previously read NSView before dispatching to
+AppKit. Both operations now queue a `CefRefPtr<CefBrowser>` and value arguments;
+a shared CEF UI helper checks browser validity and the native view registry on
+that thread, and resolves the window handle only then. Forced
 close removes the view before `OnBeforeClose`, so the registry check is required
 in addition to `IsValid()`. A separate native process stresses visibility changes
-and immediate close across twenty new tabs before checking profile disposal.
+and resize/paint with immediate close across twenty new tabs before checking
+profile disposal. A cancelled reparent operation also releases its callback's
+browser reference when the view has already been removed.
 
 The patch exposes all five CEF request-context settings and independently owned
 Java wrappers sharing a profile context. Each browser needs its own wrapper:
