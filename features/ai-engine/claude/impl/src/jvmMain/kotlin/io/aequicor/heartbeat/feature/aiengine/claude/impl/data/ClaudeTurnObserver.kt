@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NoticeKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
@@ -43,6 +44,7 @@ internal class ClaudeTurnObserver(
         private set
     private var isAccepted = false
     private var hasText = false
+    private var isCompactionNoticed = false
 
     @Synchronized
     fun receive(message: JsonObject) {
@@ -53,8 +55,12 @@ internal class ClaudeTurnObserver(
         if (session != null) hasMatchingSession = true
         if (isFinished) return
         when (message.text("type")) {
-            "system" -> if (message.text("subtype") == "init") {
-                message.text("model")?.let { turn = turn.copy(target = turn.target.copy(model = ModelId(it))) }
+            "system" -> when (message.text("subtype")) {
+                "init" -> message.text(
+                    "model",
+                )?.let { turn = turn.copy(target = turn.target.copy(model = ModelId(it))) }
+
+                CLAUDE_COMPACT_BOUNDARY -> compacted()
             }
 
             "assistant" -> assistant(message)
@@ -160,7 +166,10 @@ internal class ClaudeTurnObserver(
         } else {
             TurnOutcome.Failed(EngineFailure.Unknown())
         }
-        if (!hasText) {
+        if (request.compaction != null) {
+            // The CLI's own report is not conversation; a confirmed compaction is shown as a notice.
+            if (outcome == TurnOutcome.Completed) compacted()
+        } else if (!hasText) {
             message.text("result")?.let { text ->
                 history.item(turn.id) { SessionItem.Message(it, MessageRole.Assistant, listOf(ContentPart.Text(text))) }
             }
@@ -183,12 +192,20 @@ internal class ClaudeTurnObserver(
         update(ActiveSessionState.Unavailable(failure, lastTurn = turn.copy(outcome = TurnOutcome.Unknown)))
     }
 
+    private fun compacted() {
+        if (isCompactionNoticed) return
+        isCompactionNoticed = true
+        history.item(turn.id) { SessionItem.Notice(it, CLAUDE_COMPACTED_NOTICE, NoticeKind.ContextCompacted) }
+    }
+
     private fun accept() {
         if (isAccepted) return
         if (!hasSession) protocolFailure()
         isAccepted = true
         history.publish { SessionEvent.TurnStarted(it, turn) }
-        history.item(turn.id) { SessionItem.Message(it, MessageRole.User, request.parts) }
+        if (request.parts.isNotEmpty()) {
+            history.item(turn.id) { SessionItem.Message(it, MessageRole.User, request.parts) }
+        }
         update(ActiveSessionState.Running(turn))
         accepted.complete(turn.id)
     }
