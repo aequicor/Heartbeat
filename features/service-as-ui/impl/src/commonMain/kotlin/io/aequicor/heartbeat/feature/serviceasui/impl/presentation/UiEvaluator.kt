@@ -222,9 +222,10 @@ internal class UiEvaluator(private val spec: UiSpec) {
             )
         }
 
+        /** A share in 0..1; a value that is not a finite number (NaN from an owner's division) is indeterminate. */
         private fun progress(value: String, scope: UiScope): Float? {
             val number = value.toDoubleOrNull() ?: (bindings.value(value, scope) as? JsonPrimitive)?.doubleOrNull
-            return number?.coerceIn(0.0, 1.0)?.toFloat()
+            return number?.takeIf { it.isFinite() }?.coerceIn(0.0, 1.0)?.toFloat()
         }
 
         /** Keys of the elements from [key] when they are present and unique, otherwise their positions. */

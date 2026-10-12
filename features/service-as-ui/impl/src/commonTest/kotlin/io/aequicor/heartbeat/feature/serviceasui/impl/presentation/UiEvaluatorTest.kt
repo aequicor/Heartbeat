@@ -50,6 +50,21 @@ class UiEvaluatorTest {
     }
 
     @Test
+    fun `progress keeps a share in range and is indeterminate without a finite number`() {
+        val evaluator = UiEvaluator(
+            spec("""{"version":1,"state":{"p":0},"body":{"type":"progress","value":"{{state.p}}"}}"""),
+        )
+        fun progress(value: JsonElement) =
+            assertIs<UiNodeUi.Progress>(evaluator.body(UiValues(state = mapOf("p" to value)))).value
+
+        assertEquals(0.25f, progress(JsonPrimitive(0.25)))
+        assertEquals(1f, progress(JsonPrimitive(7)))
+        assertNull(progress(JsonPrimitive(Double.NaN)))
+        assertNull(progress(JsonPrimitive(Double.POSITIVE_INFINITY)))
+        assertNull(progress(JsonPrimitive("soon")))
+    }
+
+    @Test
     fun `busy and disabled buttons follow values`() {
         val busy = column(evaluator.body(values(UiSourceStatus.Ready).copy(busy = setOf("ask"))))
         assertTrue(assertIs<UiNodeUi.Button>(busy.children[3]).isBusy)
