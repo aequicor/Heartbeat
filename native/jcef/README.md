@@ -16,7 +16,9 @@ duplicate native browsers for one Java wrapper on macOS. `onAfterClose` runs aft
 Java context/browser cleanup and client-registry removal; `onCreationFailed` is a
 terminal notification after cleanup of an uncreated wrapper. A context-aware
 `CefURLRequest.create(request, client, context)` overload permits bounded downloads
-through the same Chromium profile and its resource-request handler. A disposed
+through the same Chromium profile. Standalone requests do not emit resource-handler
+callbacks: Heartbeat uses `UR_FLAG_STOP_ON_REDIRECT`, validates each completed hop,
+and explicitly follows accepted HTTP(S) locations within one transfer budget. A disposed
 context fails rather than falling back to the global profile. Keep the context
 alive until request completion, then dispose the request before its context.
 

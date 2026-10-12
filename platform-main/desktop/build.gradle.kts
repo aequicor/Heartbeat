@@ -36,6 +36,15 @@ val desktopRuntime = javaToolchains.launcherFor {
 val desktopJavaHome = desktopRuntime.map { it.metadata.installationPath.asFile.absolutePath }
 val heartbeatApplicationVersion = "1.0.0"
 
+tasks.withType<Test>().configureEach {
+    // Match launchHeartbeat's owned-window layers, including tests that do not enter main().
+    systemProperty("compose.layers.type", "WINDOW")
+    if (providers.systemProperty("os.name").get().startsWith("Windows")) {
+        val architecture = providers.systemProperty("os.arch").get().lowercase()
+        systemProperty("skiko.renderApi", if (architecture in listOf("aarch64", "arm64")) "SOFTWARE_FAST" else "OPENGL")
+    }
+}
+
 // SHA-256 of each Pi release asset for the version pinned as `pi` in gradle/libs.versions.toml.
 val piChecksums = mapOf(
     "windows-x64" to "aab2ba67baf8ff97a52d05b62d88e9e65a840c6ea8fa1029a28d62d210d4e5fc",

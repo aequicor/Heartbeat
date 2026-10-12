@@ -1,11 +1,6 @@
 package io.aequicor.heartbeat.feature.browser.impl.ui
 
 import androidx.compose.ui.awt.ComposeWindow
-import com.sun.jna.Native
-import com.sun.jna.Platform
-import com.sun.jna.platform.win32.User32
-import com.sun.jna.platform.win32.WinDef.HWND
-import com.sun.jna.ptr.IntByReference
 import java.awt.AWTEvent
 import java.awt.Component
 import java.awt.Container
@@ -22,7 +17,7 @@ internal class NativeBrowserFocusTrace(private val window: ComposeWindow) : Auto
     private val listener = AWTEventListener { event ->
         val component = event.source as? Component
         if (component === window || component?.let(SwingUtilities::getWindowAncestor) === window) {
-            record("event-${event.id}-${component?.javaClass?.simpleName}")
+            record("event-${event.id}-${component.javaClass.simpleName}")
         }
     }
 
@@ -42,7 +37,7 @@ internal class NativeBrowserFocusTrace(private val window: ComposeWindow) : Auto
         val state = "${(System.nanoTime() - started) / 1_000_000}ms $phase " +
             "showing=${window.isShowing} active=${window.isActive} focused=${window.isFocused} " +
             "activeIsTest=${active === window} focusOwner=${ownFocus?.javaClass?.simpleName} " +
-            nativeOwnership()
+            window.nativeWindowVisibility()
         output.appendText("$state\n")
     }
 
@@ -57,18 +52,6 @@ internal class NativeBrowserFocusTrace(private val window: ComposeWindow) : Auto
             if (current is Container) current.components.forEach { visit(it, depth + 1) }
         }
         visit(component, 0)
-    }
-
-    private fun nativeOwnership(): String {
-        if (!Platform.isWindows() || !window.isDisplayable) return "nativeOwnership=unavailable"
-        val users = User32.INSTANCE
-        val foreground = users.GetForegroundWindow() ?: return "nativeForeground=false"
-        val process = IntByReference()
-        users.GetWindowThreadProcessId(foreground, process)
-        val own = HWND(Native.getWindowPointer(window))
-        val ancestor = users.GetAncestor(foreground, 2)
-        return "nativeOwnProcess=${process.value.toLong() == ProcessHandle.current().pid()} " +
-            "nativeIsTest=${foreground == own} nativeRootIsTest=${ancestor == own}"
     }
 
     override fun close() {

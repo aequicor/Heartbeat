@@ -21,6 +21,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.swing.Swing
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
@@ -79,7 +80,10 @@ internal class NativeComposeBrowserFixture :
         if (state.title == "compose-native-ready" && !state.isLoading) loaded.complete(Unit)
     }
 
-    fun evaluate(expression: String) = runBlocking { withTimeout(30_000) { evaluateDocument(expression) } }
+    fun evaluate(expression: String) = runBlocking {
+        withTimeoutOrNull(30_000) { evaluateDocument(expression) }
+            ?: throw AssertionError("Native DOM evaluation timed out: $expression")
+    }
 
     private suspend fun evaluateDocument(expression: String): JsonElement {
         val response = Json.parseToJsonElement(
@@ -117,7 +121,11 @@ internal class NativeComposeBrowserFixture :
             val bytes = """
                 <title>compose-native-ready</title>
                 <input id="entry" style="position:absolute;left:24px;top:24px;width:180px;height:44px">
-                <script>window.retainedMarker = 'unchanged';</script>
+                <script>
+                    window.retainedMarker = 'unchanged';
+                    window.pageClicks = 0;
+                    document.addEventListener('click', () => window.pageClicks++);
+                </script>
             """.trimIndent().toByteArray()
             exchange.responseHeaders.add("Content-Type", "text/html; charset=utf-8")
             exchange.sendResponseHeaders(200, bytes.size.toLong())
