@@ -118,8 +118,8 @@ public data class PendingCompaction(
 }
 
 /**
- * Automatic attempts of one session since its context was last below the threshold minus the hysteresis.
- * [isExhausted] stops automatic compaction until the context drops below that level.
+ * Automatic attempts of one session since its context was last below the threshold. [isExhausted] stops automatic
+ * compaction until the context drops below the threshold minus the hysteresis.
  */
 public data class CompactionMark(val attempts: Int = 0, val isExhausted: Boolean = false)
 

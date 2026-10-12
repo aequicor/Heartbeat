@@ -133,7 +133,8 @@ lint/            detekt-rules — собственный набор правил
 > проверку движка: совпавший ход наблюдается, подтверждённо свободный чат получает recovery-ход с историей,
 > неопределённый исход остаётся ожидающим восстановления. Текст ответа не определяет успех.
 > `features:context-window-optimization:{api,impl}` — оптимизация контекстного окна (тогл `context_optimization.enabled`,
-> по умолчанию false): сжатие как ход через `CompactsContext` (`facade:api`; Codex `thread/compact/start`, Pi RPC `compact`,
+> по умолчанию false; профильная машина в ProfileScope читает хранилище только после включения тогла):
+> сжатие как ход через `CompactsContext` (`facade:api`; Codex `thread/compact/start`, Pi RPC `compact`,
 > Claude `/compact`, Koog — своя выжимка с границей контекста), `/compact` и кнопка в индикаторе контекста ai-studio,
 > автосжатие между ходами по порогу (`.auto_compaction`, гистерезис и эскалация native → rollover в `decideCompaction`),
 > rollover — продолжение чата в новой сессии с выжимкой (`.rollover`, замороженные сегменты ленты), журнал прогресса,

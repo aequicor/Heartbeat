@@ -40,7 +40,7 @@ public sealed interface ContextOptimizationState : MachineState {
 public sealed interface ContextOptimizationIntent : MachineIntent {
     /** Commands sent through [ContextOptimizationMachineKey]. */
     public sealed interface Public : ContextOptimizationIntent {
-        /** Loads stored settings; sent once by the owner when the machine is created. */
+        /** Loads stored settings; sent once by the owner when [ContextOptimizationEnabled] is first on. */
         public data object Start : Public
 
         /** Replaces the settings and persists them. */
@@ -128,7 +128,8 @@ public sealed interface ContextOptimizationOutput : MachineOutput {
 
 /**
  * Profile-scoped context optimization machine. It is created by the first injection of [ContextOptimizationView]
- * in the profile; until then `MachineRegistry.send` reports `NotRunning`.
+ * in the profile; until then `MachineRegistry.send` reports `NotRunning`. It reads storage only once
+ * [ContextOptimizationEnabled] is on; before that it stays [ContextOptimizationState.Idle].
  */
 public object ContextOptimizationMachineKey :
     MachineKey<

@@ -3,23 +3,20 @@ package io.aequicor.heartbeat.feature.contextwindowoptimization.impl.presentatio
 import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
-import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.core.statemachine.flowmvi.reflect
+import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.CompactionStrategy
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationIntent
-import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationMachineKey
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationOutput
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationSettings
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationState
-import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationView
+import io.aequicor.heartbeat.feature.contextwindowoptimization.impl.domain.ContextOptimizationMachine
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.launch
 import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
 import pro.respawn.flowmvi.api.MVIState
 import pro.respawn.flowmvi.plugins.reduce
-import pro.respawn.flowmvi.plugins.whileSubscribed
 
 /** How a compaction is preferably done, as the screen offers it. */
 internal enum class StrategyUi { Native, Rollover, Auto }
@@ -67,12 +64,12 @@ internal sealed interface ContextSettingsScreenAction : MVIAction
 internal val ThresholdChoices = listOf(60, 70, 80, 90)
 
 /**
- * Settings store: it shows the machine's settings and sends every change as a whole new settings value. The
- * machine persists it; until it is loaded the controls stay disabled.
+ * Settings store: it reflects the machine's settings and sends every change as a whole new settings value. The
+ * machine persists it; until it is loaded the controls stay disabled. Only a real rejection shows the failure: the
+ * machine is not running or reports that the settings were not saved.
  */
 internal class ContextSettingsModel(
-    private val view: ContextOptimizationView,
-    private val machines: MachineRegistry,
+    machine: ContextOptimizationMachine,
     factory: HeartbeatStoreFactory,
     scope: CoroutineScope,
 ) {
@@ -81,26 +78,23 @@ internal class ContextSettingsModel(
     /** The settings store, retained for the lifetime of this screen. */
     val store = factory.create<ContextSettingsScreenState, ContextSettingsScreenIntent, ContextSettingsScreenAction>(
         "ContextSettings",
-        ContextSettingsScreenState().reflecting(view.state.value),
+        ContextSettingsScreenState().reflecting(machine.state.value),
         onError = { this },
     ) {
-        whileSubscribed {
-            launch { view.state.collect { updateState { reflecting(it) } } }
-            // A persist failure is an output of the machine, not a send result.
-            machines.observe(ContextOptimizationMachineKey).collectLatest { machine ->
-                machine?.outputs?.collect { output ->
-                    when (output) {
-                        ContextOptimizationOutput.SaveFailed -> updateState { copy(isSaveFailed = true) }
-                    }
-                }
+        reflect(machine, onOutput = { output ->
+            when (output) {
+                ContextOptimizationOutput.SaveFailed -> updateState { copy(isSaveFailed = true) }
             }
-        }
+        }) { reflecting(it) }
         reduce { intent ->
-            val current = (view.state.value as? ContextOptimizationState.Ready)?.settings ?: return@reduce
+            val current = (machine.state.value as? ContextOptimizationState.Ready)?.settings ?: return@reduce
+            val changed = current.changed(intent)
+            if (changed == current) return@reduce
             log.i { "change context settings: ${intent::class.simpleName.orEmpty()}" }
-            val update = ContextOptimizationIntent.Public.UpdateSettings(current.changed(intent))
-            val result = machines.send(ContextOptimizationMachineKey, update)
-            updateState { copy(isSaveFailed = result != SendResult.Accepted) }
+            val result = sendTo(machine, ContextOptimizationIntent.Public.UpdateSettings(changed)) { rejected ->
+                if (rejected == SendResult.NotRunning) updateState { copy(isSaveFailed = true) }
+            }
+            if (result == SendResult.Accepted) updateState { copy(isSaveFailed = false) }
         }
     }
 

@@ -28,39 +28,51 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.KoogMaskingEn
 import io.aequicor.heartbeat.feature.contextwindowoptimization.impl.data.ContextHandoffHook
 import io.aequicor.heartbeat.feature.contextwindowoptimization.impl.data.ContextLedgerHook
 import io.aequicor.heartbeat.feature.contextwindowoptimization.impl.domain.ContextOptimizationEffects
+import io.aequicor.heartbeat.feature.contextwindowoptimization.impl.domain.ContextOptimizationMachine
 import io.aequicor.heartbeat.feature.contextwindowoptimization.impl.domain.ContextSettingsStore
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
 
 private val log = Log.tag("ContextOptimizationBindings")
 
-/** The context optimization machine belongs to the profile; it is created and started on first injection. */
+/**
+ * The context optimization machine belongs to the profile (ProfileScope); it is created on first injection and loads
+ * the stored settings and ledgers once [ContextOptimizationEnabled] is on.
+ */
 @ContributesTo(ProfileScope::class)
 @BindingContainer
 object ContextOptimizationBindings {
+    @Provides
+    @SingleIn(ProfileScope::class)
+    internal fun machine(
+        launcher: MachineLauncher,
+        @ForScope(ProfileScope::class) scope: ScopeHandle,
+        toggles: FeatureToggles,
+        store: ContextSettingsStore,
+        clock: Clock,
+    ): ContextOptimizationMachine {
+        val machine = launcher.launch(ContextOptimizationMachineSpec, scope, ContextOptimizationEffects(store, clock))
+        scope.coroutineScope.launch {
+            // Storage stays untouched while the feature is off.
+            toggles.observe(ContextOptimizationEnabled).first { it }
+            val result = machine.send(ContextOptimizationIntent.Public.Start)
+            log.i { "context optimization start: $result" }
+        }
+        return machine
+    }
+
     /**
      * The only binding other features inject: state without the ability to send internal intents. The machine itself
      * is reachable only through `MachineRegistry` with `Public` intents.
      */
     @Provides
     @SingleIn(ProfileScope::class)
-    internal fun view(
-        launcher: MachineLauncher,
-        @ForScope(ProfileScope::class) scope: ScopeHandle,
-        store: ContextSettingsStore,
-        clock: Clock,
-    ): ContextOptimizationView {
-        val machine = launcher.launch(ContextOptimizationMachineSpec, scope, ContextOptimizationEffects(store, clock))
-        scope.coroutineScope.launch {
-            val result = machine.send(ContextOptimizationIntent.Public.Start)
-            log.i { "context optimization start: $result" }
-        }
-        return object : ContextOptimizationView {
-            override val state = machine.state
-        }
+    internal fun view(machine: ContextOptimizationMachine): ContextOptimizationView = object : ContextOptimizationView {
+        override val state = machine.state
     }
 
     /** Delivers the progress ledger to engines that keep their context natively. */
@@ -74,9 +86,9 @@ object ContextOptimizationBindings {
         @ForScope(ProfileScope::class) scope: ScopeHandle,
     ): SessionHook {
         val main = toggles.observe(ContextOptimizationEnabled)
-        val isEnabled = combine(main, toggles.observe(ContextLedgerEnabled)) { isMain, isLedger -> isMain && isLedger }
+        val enabled = combine(main, toggles.observe(ContextLedgerEnabled)) { isMain, isLedger -> isMain && isLedger }
             .stateIn(scope.coroutineScope, SharingStarted.Eagerly, false)
-        return ContextLedgerHook(view, { isEnabled.value }) { session ->
+        return ContextLedgerHook(view, { enabled.value }) { session ->
             facade.value.engines.state.value.find { it.descriptor.id == session.engine }
                 ?.descriptor?.areInstructionsRefreshedPerTurn == true
         }

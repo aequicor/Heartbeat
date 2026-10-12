@@ -29,6 +29,8 @@ class ContextHandoffHookTest {
     @Test
     fun `other turns and calls without a request continue`() = runTest {
         assertEquals(ToolHookVerdict.Continue, hook.beforeTool(call(RequestId("compact-1"))))
+        // A session engine transfer uses its own handoff- request ids.
+        assertEquals(ToolHookVerdict.Continue, hook.beforeTool(call(RequestId("handoff-0a1b"))))
         assertEquals(ToolHookVerdict.Continue, hook.beforeTool(call(null)))
     }
 

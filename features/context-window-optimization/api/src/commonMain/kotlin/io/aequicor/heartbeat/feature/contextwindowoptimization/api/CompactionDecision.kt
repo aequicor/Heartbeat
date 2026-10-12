@@ -13,9 +13,11 @@ public val ContextUsage.percent: Int get() = (usedTokens * PERCENT / capacityTok
 
 /**
  * Decides automatic compaction for a settled turn. Unknown [usage] changes nothing. Below the threshold minus
- * [COMPACTION_HYSTERESIS_PERCENT] the attempts start over. At or above the threshold each settled turn tries the
- * next supported method of the strategy (Auto: native, then rollover), one per turn; when none is left the session
- * is exhausted, so a context that compaction cannot shrink never loops.
+ * [COMPACTION_HYSTERESIS_PERCENT] the attempts start over. Below the threshold a session that is not exhausted also
+ * starts over: the last compaction worked, so the next crossing tries the first method again. An exhausted session
+ * stays exhausted until the context drops below the threshold minus the hysteresis. At or above the threshold each
+ * settled turn tries the next supported method of the strategy (Auto: native, then rollover), one per turn; when
+ * none is left the session is exhausted, so a context that compaction cannot shrink never loops.
  */
 public fun ContextOptimizationSettings.decideCompaction(
     mark: CompactionMark,
@@ -26,7 +28,10 @@ public fun ContextOptimizationSettings.decideCompaction(
     return when {
         occupancy < thresholdPercent - COMPACTION_HYSTERESIS_PERCENT -> CompactionDecision(null, CompactionMark())
 
-        occupancy < thresholdPercent || !isAutoCompactionEnabled || mark.isExhausted -> CompactionDecision(null, mark)
+        occupancy < thresholdPercent ->
+            CompactionDecision(null, if (mark.isExhausted) mark else CompactionMark())
+
+        !isAutoCompactionEnabled || mark.isExhausted -> CompactionDecision(null, mark)
 
         else -> {
             val method = methods(support).getOrNull(mark.attempts)

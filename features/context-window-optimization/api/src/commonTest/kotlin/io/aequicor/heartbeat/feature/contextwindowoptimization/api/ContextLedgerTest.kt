@@ -39,6 +39,29 @@ class ContextLedgerTest {
     }
 
     @Test
+    fun `a long plan is bounded and trimmed from its end after done items and facts`() {
+        val step = "s".repeat(LEDGER_ENTRY_CHARS)
+        val plan = List(LEDGER_MAX_NEXT + 10) { "$it $step" }
+        val ledger = null.updated(
+            LedgerUpdate(goal = "g".repeat(1_000), done = listOf("done"), next = plan, facts = listOf("fact")),
+            at,
+        )
+
+        assertTrue(ledger.render().length <= LEDGER_MAX_CHARS)
+        assertEquals(LEDGER_ENTRY_CHARS, ledger.goal?.length)
+        assertTrue(ledger.done.isEmpty() && ledger.facts.isEmpty())
+        assertTrue(ledger.next.isNotEmpty() && ledger.next.size < LEDGER_MAX_NEXT)
+        assertEquals(plan.take(ledger.next.size).map { it.take(LEDGER_ENTRY_CHARS) }, ledger.next)
+    }
+
+    @Test
+    fun `at most the maximum number of planned steps is kept`() {
+        val ledger = null.updated(LedgerUpdate(next = List(LEDGER_MAX_NEXT + 5) { "step $it" }), at)
+
+        assertEquals(List(LEDGER_MAX_NEXT) { "step $it" }, ledger.next)
+    }
+
+    @Test
     fun `ledger text never reaches toString`() {
         val ledger = null.updated(LedgerUpdate(goal = "secret goal"), at)
 

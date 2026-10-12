@@ -87,7 +87,7 @@ internal class ContextOptimizationEffects(
                 } else {
                     store.saveLedgers(effect.ledgers)
                     savedLedgerRevision = effect.revision
-                    log.i { "ledgers saved: ${effect.ledgers.size}, revision ${effect.revision}" }
+                    log.v { "ledgers saved: ${effect.ledgers.size}, revision ${effect.revision}" }
                 }
             }
         }

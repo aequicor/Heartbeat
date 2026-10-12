@@ -28,7 +28,8 @@ import kotlinx.serialization.json.jsonObject
 
 /**
  * Keeps tool output longer than the settings' threshold out of the context: the output is stored and the agent gets
- * its beginning, its end and how to read the rest with [ContextOptimizationTools.RECALL].
+ * its beginning, its end and how to read the rest with [ContextOptimizationTools.RECALL]. The hosted tools dispatcher
+ * applies the offload before `SessionHooks.afterTool`, so result hooks see this shortened stub, not the whole output.
  */
 @ContributesIntoSet(ProfileScope::class)
 @Inject

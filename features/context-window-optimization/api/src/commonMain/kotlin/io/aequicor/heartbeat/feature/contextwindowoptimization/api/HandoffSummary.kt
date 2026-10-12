@@ -8,9 +8,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.stripHostDirectives
 /**
  * Prefix of the request id of a handoff summary turn: before a rollover the old session writes the summary of its work
  * for the new one. Hosts refuse its tool calls through session hooks and submit it with the trust of a turn that asks,
- * so engines whose native tools bypass hooks still ask the user before acting.
+ * so engines whose native tools bypass hooks still ask the user before acting. Distinct from the request ids of other
+ * features, such as the `handoff-` ids of a session engine transfer.
  */
-public const val HANDOFF_REQUEST_PREFIX: String = "handoff-"
+public const val HANDOFF_REQUEST_PREFIX: String = "context-handoff-"
 
 /** Marks the host directive of a handoff summary turn in the transcript. */
 private const val HANDOFF_MARKER = "[heartbeat:handoff-summary]"

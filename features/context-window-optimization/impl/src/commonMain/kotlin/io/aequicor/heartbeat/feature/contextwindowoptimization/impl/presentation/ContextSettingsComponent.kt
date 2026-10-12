@@ -9,8 +9,7 @@ import dev.zacsweers.metro.AssistedInject
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.core.navigation.Navigator
-import io.aequicor.heartbeat.core.statemachine.MachineRegistry
-import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationView
+import io.aequicor.heartbeat.feature.contextwindowoptimization.impl.domain.ContextOptimizationMachine
 
 /** Context settings component owning only screen lifetime; the settings belong to the profile machine. */
 @AssistedInject
@@ -18,13 +17,12 @@ internal class ContextSettingsComponent(
     @Assisted context: ComponentContext,
     @Assisted private val navigator: Navigator,
     @Assisted screen: ScopeHandle,
-    view: ContextOptimizationView,
-    machines: MachineRegistry,
+    machine: ContextOptimizationMachine,
     factory: HeartbeatStoreFactory,
 ) : ComponentContext by context {
     /** The settings store, retained across configuration changes. */
     val model: ContextSettingsModel = instanceKeeper.getOrCreate(MODEL_KEY) {
-        RetainedModel(ContextSettingsModel(view, machines, factory, screen.coroutineScope))
+        RetainedModel(ContextSettingsModel(machine, factory, screen.coroutineScope))
     }.model
 
     /** Closes this navigation entry. */

@@ -10,6 +10,7 @@ kotlin {
             implementation(projects.features.contextWindowOptimization.api)
             implementation(projects.features.aiEngine.facade.api)
             implementation(projects.core.stateMachine.api)
+            implementation(projects.core.stateMachine.flowmviExt)
             implementation(projects.core.logging)
             implementation(projects.core.common)
             implementation(projects.core.di.api)
