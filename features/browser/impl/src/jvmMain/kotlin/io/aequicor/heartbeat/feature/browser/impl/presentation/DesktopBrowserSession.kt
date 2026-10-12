@@ -27,6 +27,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.job
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -67,6 +68,7 @@ internal class DesktopBrowserSession(
     }
 
     private var isBrowserEnabled = false
+    private var isClearingData = false
     private var selected: String? = null
     override val pages = MutableStateFlow(BrowserPage())
     override val tabs = MutableStateFlow(emptyList<BrowserTab>() to null as String?)
@@ -94,14 +96,14 @@ internal class DesktopBrowserSession(
     }
 
     override suspend fun execute(command: BrowserCommand) = withContext(dispatchers.main) {
-        if (isBrowserEnabled) {
+        if (isBrowserEnabled && !isClearingData) {
             val entry = entries[selected] ?: create(null)
             entry.surface.execute(command)
         }
     }
 
     override suspend fun selectTab(id: String) = withContext(dispatchers.main) {
-        if (isBrowserEnabled && id in entries) {
+        if (isBrowserEnabled && !isClearingData && id in entries) {
             selected = id
             publish()
         }
@@ -117,6 +119,7 @@ internal class DesktopBrowserSession(
         operations[request.id] = request.tabId to currentCoroutineContext().job
         if (request.owner != null) agentOperations += request.id
         try {
+            check(!isClearingData) { "Browser data is being cleared" }
             if (request.owner != null) {
                 check(agentPolicy.isEnabled()) { "Browser tools disabled" }
             }
@@ -167,8 +170,18 @@ internal class DesktopBrowserSession(
 
     private suspend fun clearData(request: BrowserRequest): BrowserResult {
         require(request.owner == null) { "Only the user can clear browser data" }
-        entries.keys.toList().forEach { close(it) }
-        return BrowserResult(request.id)
+        isClearingData = true
+        try {
+            val caller = currentCoroutineContext().job
+            val pending = operations.values.map { it.second }.filter { it != caller }
+            pending.forEach { it.cancel() }
+            pending.joinAll()
+            entries.keys.toList().forEach { close(it) }
+            factory.clearData()
+            return BrowserResult(request.id)
+        } finally {
+            isClearingData = false
+        }
     }
 
     private fun listTabs(request: BrowserRequest): BrowserResult {
@@ -253,6 +266,8 @@ internal class DesktopBrowserSession(
 
     private suspend fun transfer(request: BrowserRequest, entry: Entry): BrowserResult {
         require(request.owner == null) { "Only the user can transfer control" }
+        val pendingOwner = entry.tab.pendingOwner
+        val controlRequestId = entry.tab.controlRequestId
         if (
             request.operation == BrowserOperation.ApproveControl ||
             request.operation == BrowserOperation.RejectControl
@@ -272,6 +287,10 @@ internal class DesktopBrowserSession(
             .values
             .toList()
             .forEach { it.second.cancelAndJoin() }
+        require(entries[entry.tab.id] === entry) { "Tab closed" }
+        require(entry.tab.controlRequestId == controlRequestId && entry.tab.pendingOwner == pendingOwner) {
+            "Control request changed; use the current request"
+        }
         entry.tab =
             when {
                 request.operation == BrowserOperation.ApproveControl ->
@@ -363,11 +382,12 @@ internal class DesktopBrowserSession(
         val id = Uuid.random().toString()
         val surface = BrowserSurfaceAdapter(scope, dispatchers, nativeResources)
         surface.setEnabled(true)
+        val panel = factory.create(surface)
         val entry =
             Entry(
                 BrowserTab(id, owner = owner),
                 surface,
-                DesktopBrowserAutomation(factory.create(surface)::devTools),
+                DesktopBrowserAutomation(panel::devTools, panel::captureResource),
             )
         entries[id] = entry
         selected = id

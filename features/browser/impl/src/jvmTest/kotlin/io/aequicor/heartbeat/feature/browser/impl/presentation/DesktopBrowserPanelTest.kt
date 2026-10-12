@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.browser.impl.presentation
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserNativeResources
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -121,7 +122,27 @@ class DesktopBrowserPanelTest {
         assertTrue(surface.states.isEmpty())
     }
 
-    private class FakeRuntime : DesktopBrowserRuntime {
+    @Test
+    fun `profile teardown awaits native close after removing the Swing surface`() = runTest {
+        val nativeClosed = CompletableDeferred<Unit>()
+        val runtime = FakeRuntime(nativeClosed)
+        val panel = DesktopBrowserPanel(
+            RecordingSurface(),
+            backgroundScope,
+            BrowserTestDispatchers(StandardTestDispatcher(testScheduler)),
+        ) { _, _ -> runtime }
+        SwingUtilities.invokeAndWait { panel.createComponent() }
+        runCurrent()
+        SwingUtilities.invokeAndWait { panel.release() }
+        val teardown = async { panel.awaitClosed() }
+        runCurrent()
+        assertTrue(runtime.isReleased)
+        assertFalse(teardown.isCompleted)
+        nativeClosed.complete(Unit)
+        teardown.await()
+    }
+
+    private class FakeRuntime(private val nativeClosed: CompletableDeferred<Unit>? = null) : DesktopBrowserRuntime {
         override val component = JPanel()
         var initialUrl = ""
         var isStarted = false
@@ -136,6 +157,9 @@ class DesktopBrowserPanelTest {
         }
         override fun release() {
             isReleased = true
+        }
+        override suspend fun awaitClosed() {
+            nativeClosed?.await()
         }
     }
 

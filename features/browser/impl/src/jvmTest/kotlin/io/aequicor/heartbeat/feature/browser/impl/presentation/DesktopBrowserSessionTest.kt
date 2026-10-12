@@ -4,22 +4,70 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserAgentPolicy
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import javax.swing.JPanel
+import javax.swing.SwingUtilities
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class DesktopBrowserSessionTest {
+    @Test
+    fun `a replaced control request survives an older transfer waiting for native cancellation`() = runTest {
+        for (operation in listOf(BrowserOperation.ApproveControl, BrowserOperation.RejectControl)) {
+            val cancelling = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val fixture = Fixture(this, nativeCommand = {
+                try {
+                    awaitCancellation()
+                } finally {
+                    withContext(NonCancellable) {
+                        cancelling.complete(Unit)
+                        release.await()
+                    }
+                }
+            })
+            val tab = fixture.create()
+            fixture.attach()
+            runCurrent()
+            val read = async { fixture.request(BrowserOperation.Read, tab) }
+            runCurrent()
+            val first = fixture.request(BrowserOperation.RequestControl, tab, "session-a")
+            val transfer = async { fixture.request(operation, tab, controlRequestId = first.requestId) }
+            runCurrent()
+            assertTrue(cancelling.isCompleted)
+            val second = fixture.request(BrowserOperation.RequestControl, tab, "session-a")
+            release.complete(Unit)
+            assertNotNull(transfer.await().error)
+            assertFailsWith<CancellationException> { read.await() }
+            val pending = fixture.session.tabs.value.first.single()
+            assertEquals(second.requestId, pending.controlRequestId)
+            assertEquals("session-a", pending.pendingOwner)
+            assertNull(pending.owner)
+        }
+    }
+
     @Test
     fun `agent sessions cannot read or close each others tabs and human takeover revokes access`() = runTest {
         val fixture = Fixture(this)
@@ -136,11 +184,35 @@ class DesktopBrowserSessionTest {
         assertEquals(emptyList(), fixture.session.tabs.value.first)
         assertNull(fixture.session.tabs.value.second)
         assertEquals(2, fixture.closed.size)
+        assertEquals(1, fixture.clearCount)
         assertNotNull(fixture.request(BrowserOperation.ApproveControl, humanTab).error)
     }
 
-    private class Fixture(scope: TestScope) {
+    @Test
+    fun `new tabs wait until persistent data clearing finishes`() = runTest {
+        val released = CompletableDeferred<Unit>()
+        val fixture = Fixture(this, released)
+        fixture.create()
+        val clearing = async { fixture.request(BrowserOperation.ClearData) }
+        runCurrent()
+        assertFalse(clearing.isCompleted)
+        assertTrue(fixture.session.tabs.value.first.isEmpty())
+        assertNotNull(fixture.request(BrowserOperation.NewTab, owner = "session-a").error)
+        assertEquals(1, fixture.clearCount)
+        released.complete(Unit)
+        assertNull(clearing.await().error)
+        assertNull(fixture.request(BrowserOperation.NewTab, owner = "session-a").error)
+        assertEquals(1, fixture.session.tabs.value.first.size)
+    }
+
+    private class Fixture(
+        scope: TestScope,
+        private val clearRelease: CompletableDeferred<Unit>? = null,
+        private val nativeCommand: (suspend () -> String)? = null,
+    ) {
         val closed = mutableListOf<BrowserSurface>()
+        private val panels = mutableListOf<DesktopBrowserPanel>()
+        var clearCount = 0
         private var requestIndex = 0
         private val policy = object : BrowserAgentPolicy {
             private val enabled = MutableStateFlow(true)
@@ -151,16 +223,30 @@ class DesktopBrowserSessionTest {
         }
         private val dispatchers = BrowserTestDispatchers(StandardTestDispatcher(scope.testScheduler))
         private val resources = object : DesktopBrowserPanelFactory {
+            override suspend fun clearData() {
+                clearCount++
+                clearRelease?.await()
+            }
+
             override fun close(surface: BrowserSurface) {
                 closed += surface
             }
 
             override fun create(surface: BrowserSurface) =
                 DesktopBrowserPanel(surface, scope.backgroundScope, dispatchers) { _, _ ->
-                    error("Native runtime must not be created for empty tabs")
-                }
+                    val command = checkNotNull(nativeCommand) { "Native runtime must not be created for empty tabs" }
+                    object : DesktopBrowserRuntime {
+                        override val component = JPanel()
+                        override fun start(initialUrl: String) = Unit
+                        override fun release() = Unit
+                        override fun execute(command: BrowserViewCommand) = Unit
+                        override suspend fun devTools(method: String, arguments: JsonObject): String = command()
+                    }
+                }.also(panels::add)
         }
         val session = DesktopBrowserSession(BrowserTestScope(scope.backgroundScope), dispatchers, resources, policy)
+
+        fun attach() = SwingUtilities.invokeAndWait { panels.single().createComponent() }
 
         suspend fun create(owner: String? = null): String {
             session.setEnabled(true)
