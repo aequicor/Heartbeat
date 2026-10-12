@@ -82,6 +82,12 @@ class ProcessPlantUmlEngineTest {
     }
 
     @Test
+    fun `worker launches beyond the Windows command line limit`() {
+        val options = heap("128m") + "-Dheartbeat.worker.padding=${"x".repeat(40_000)}"
+        assertIs<PlantUmlResult.Image>(engine(launcher = JavaPlantUmlWorkerLauncher(options)).draw(DIAGRAM))
+    }
+
+    @Test
     fun `a source that exhausts memory ends only its worker`() {
         val engine = engine()
         val bomb = "@startuml\n!\$a = \"xxxxxxxxxx\"\n" + "!\$a = \$a + \$a\n".repeat(40) + "A -> B : \$a\n@enduml"
