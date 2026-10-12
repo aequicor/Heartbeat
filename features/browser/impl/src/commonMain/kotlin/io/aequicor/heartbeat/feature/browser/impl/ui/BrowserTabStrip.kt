@@ -15,9 +15,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -50,13 +52,18 @@ import org.jetbrains.compose.resources.stringResource
 @Composable
 internal fun BrowserTabStrip(state: BrowserScreenState, onIntent: (BrowserScreenIntent) -> Unit) {
     val groups = state.tabs.groupBy { it.groupId }
+    var revealRequest by remember { mutableIntStateOf(0) }
     HbRow(
         Modifier.fillMaxWidth().background(HbTheme.surfaces.sidebar)
             .padding(start = HbTheme.spacing.xs, end = HbTheme.spacing.xs, top = HbTheme.spacing.xs),
         gap = HbTheme.spacing.xxs,
     ) {
-        BrowserTabMenu(state, onIntent)
+        BrowserTabMenu(state) {
+            revealRequest++
+            onIntent(it)
+        }
         BoxWithConstraints(Modifier.weight(1f, fill = false)) {
+            val viewportWidth = maxWidth
             val dimensions = HbTheme.dimensions
             val labelWidth = dimensions.browserGroupLabelMaxWidth
             val available = maxWidth - (labelWidth + HbTheme.spacing.m) * groups.size
@@ -70,7 +77,10 @@ internal fun BrowserTabStrip(state: BrowserScreenState, onIntent: (BrowserScreen
             ) {
                 groups.entries.forEachIndexed { index, (groupId, tabs) ->
                     key(groupId) {
-                        BrowserTabGroup(groupId, index, tabs, state.selectedTabId, labelWidth, tabWidth, onIntent)
+                        BrowserTabGroup(
+                            groupId, index, tabs, state.selectedTabId, labelWidth, tabWidth,
+                            viewportWidth, revealRequest, onIntent,
+                        )
                     }
                 }
             }
@@ -92,6 +102,8 @@ private fun BrowserTabGroup(
     selectedTabId: String?,
     labelWidth: Dp,
     tabWidth: Dp,
+    viewportWidth: Dp,
+    revealRequest: Int,
     onIntent: (BrowserScreenIntent) -> Unit,
 ) {
     val color = when {
@@ -120,17 +132,30 @@ private fun BrowserTabGroup(
             maxLines = 1,
         )
         tabs.forEach { tab ->
-            key(tab.id) { BrowserTab(tab, selectedTabId == tab.id, tabWidth, onIntent) }
+            key(tab.id) {
+                BrowserTab(tab, selectedTabId == tab.id, tabWidth, viewportWidth, revealRequest, onIntent)
+            }
         }
     }
 }
 
 @Composable
-private fun BrowserTab(tab: BrowserTabUi, isSelected: Boolean, width: Dp, onIntent: (BrowserScreenIntent) -> Unit) {
+private fun BrowserTab(
+    tab: BrowserTabUi,
+    isSelected: Boolean,
+    width: Dp,
+    viewportWidth: Dp,
+    revealRequest: Int,
+    onIntent: (BrowserScreenIntent) -> Unit,
+) {
     val title = tab.title.ifBlank { stringResource(Res.string.browser_new_tab) }
     val bringIntoView = remember { BringIntoViewRequester() }
-    LaunchedEffect(isSelected, width) {
-        if (isSelected) bringIntoView.bringIntoView()
+    LaunchedEffect(isSelected, width, viewportWidth, revealRequest) {
+        if (isSelected) {
+            // Use the resized layout, and reveal even when the menu reselects the active tab.
+            withFrameNanos { }
+            bringIntoView.bringIntoView()
+        }
     }
     HbNavigationItem(
         label = title,

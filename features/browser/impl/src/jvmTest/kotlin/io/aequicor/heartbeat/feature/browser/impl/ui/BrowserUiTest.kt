@@ -1,10 +1,12 @@
 package io.aequicor.heartbeat.feature.browser.impl.ui
 
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
@@ -15,6 +17,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.onAllNodesWithText
@@ -29,6 +32,7 @@ import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserPhase
@@ -158,6 +162,45 @@ class BrowserUiTest {
             waitForIdle()
             onNodeWithTag("browser-close-tab-19").assertIsDisplayed()
             runOnIdle { assertEquals(BrowserScreenIntent.SelectTab("19"), events.last()) }
+
+            onNodeWithTag("browser-tab-0").performScrollTo()
+            onNodeWithTag("browser-close-tab-19").assertIsNotDisplayed()
+            onNodeWithTag("browser-all-tabs").performClick()
+            onAllNodesWithText("Page 19")[1].performScrollTo().performClick()
+            waitForIdle()
+            onNodeWithTag("browser-close-tab-19").assertIsDisplayed()
+        }
+
+    @Test
+    fun `narrowing the pane keeps the selected overflow tab visible`() =
+        runSkikoComposeUiTest(size = Size(800f, 800f)) {
+            var paneWidth by mutableStateOf(800.dp)
+            var state by mutableStateOf(
+                BrowserScreenState(
+                    phase = BrowserPhase.Ready,
+                    hasTabs = true,
+                    selectedTabId = "0",
+                    tabs = (0..19).map { BrowserTabUi("$it", "Page $it", true, false) }.toImmutableList(),
+                ),
+            )
+            setContent {
+                CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                    HbTheme(dimensions = HbDimensions.Desktop) {
+                        BrowserScreenContent(
+                            state,
+                            { if (it is BrowserScreenIntent.SelectTab) state = state.copy(selectedTabId = it.id) },
+                            Modifier.width(paneWidth),
+                        )
+                    }
+                }
+            }
+            onNodeWithTag("browser-all-tabs").performClick()
+            onAllNodesWithText("Page 19")[1].performScrollTo().performClick()
+            waitForIdle()
+            onNodeWithTag("browser-close-tab-19").assertIsDisplayed()
+            runOnIdle { paneWidth = 420.dp }
+            waitForIdle()
+            onNodeWithTag("browser-close-tab-19").assertIsDisplayed()
         }
 
     @Test
