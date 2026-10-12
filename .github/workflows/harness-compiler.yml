@@ -1,35 +1,11 @@
 name: Packaged harness compiler
 
-# Builds the release app image and probes its harness compiler on macOS and Windows: tens of runner minutes per run.
-# It runs only for ready PRs whose diff can change the packaged compiler — harness sources (not tests, resources or
-# UI), the APIs on the script classpath (ai-engine facade, scheduler), the desktop app and its build classpath,
-# dependency versions and build logic. Drafts skip it until ready.
-# A PR run checks its merge with master as of its last push; master pushes do not repeat it, so a run after risky
-# merges is a manual workflow_dispatch at the user's request.
+# A long build, outside PR verification: the release app image and its harness compiler probe on macOS and Windows,
+# tens of runner minutes. Run it by hand, at the user's decision, when a change can affect the packaged compiler:
+# harness sources, the APIs on the script classpath (ai-engine facade, scheduler), the desktop app and its build
+# classpath, dependency versions, build logic.
+#   gh workflow run harness-compiler.yml --ref <branch>
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - 'features/harness/**'
-      - '!features/harness/**/src/*Test/**'
-      - '!features/harness/**/composeResources/**'
-      - '!features/harness/impl/schemas/**'
-      - '!features/harness/impl/src/commonMain/kotlin/**/presentation/**'
-      - '!features/harness/impl/src/commonMain/kotlin/**/ui/**'
-      - 'features/ai-engine/facade/api/build.gradle.kts'
-      - 'features/ai-engine/facade/api/src/commonMain/**'
-      - 'features/scheduler/api/build.gradle.kts'
-      - 'features/scheduler/api/src/commonMain/**'
-      - 'platform-main/desktop/**'
-      - '!platform-main/desktop/src/test/**'
-      - 'platform-main/di-bundle/build.gradle.kts'
-      - 'platform-main/shared/build.gradle.kts'
-      - 'build.gradle.kts'
-      - 'settings.gradle.kts'
-      - 'gradle.properties'
-      - 'gradle/**'
-      - 'build-logic/**'
-      - '.github/workflows/harness-compiler.yml'
   workflow_dispatch:
 
 permissions:
@@ -42,7 +18,6 @@ concurrency:
 jobs:
   release-probe:
     name: Release probe (${{ matrix.os }})
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     strategy:
       fail-fast: false
       matrix:
@@ -52,8 +27,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # The PR merge commit and its parents: the first one is the base the PR diff is measured against.
-          fetch-depth: 2
           persist-credentials: false
       - uses: actions/setup-java@v6
         with:
@@ -62,19 +35,3 @@ jobs:
       - name: Probe the release app image
         shell: bash
         run: ./gradlew :platform-main:desktop:verifyReleaseHarnessCompiler --stacktrace
-      - name: Detect changes to the mobile host compilation
-        id: mobile
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          if [ "$GITHUB_EVENT_NAME" != pull_request ] || ! git diff --quiet HEAD^1 HEAD -- \
-            features/harness/api/build.gradle.kts features/harness/api/src/commonMain \
-            features/harness/impl/build.gradle.kts features/harness/impl/src/commonMain \
-            features/harness/impl/src/androidMain features/harness/impl/src/iosMain \
-            gradle build-logic .github/workflows/harness-compiler.yml; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Compile the unsupported mobile hosts
-        if: steps.mobile.outputs.changed == 'true'
-        shell: bash
-        run: ./gradlew :features:harness:impl:compileAndroidMain :features:harness:impl:compileKotlinIosSimulatorArm64 --stacktrace

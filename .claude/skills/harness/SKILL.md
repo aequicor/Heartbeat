@@ -82,7 +82,8 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
 
 Затем запусти собранное приложение с `--heartbeat-harness-probe` и проверь код выхода 0: проба компилирует и
 исполняет скрипт и workflow в релизной раскладке (ProGuard, jlink), компилятор — в упакованном воркере.
-Ненулевой код — смотри `HarnessHostProbe.kt` и keep-правила.
+Ненулевой код — смотри `HarnessHostProbe.kt` и keep-правила. На обеих ОС пробу собирает ручной workflow
+`harness-compiler.yml` — долгая сборка, запускается по решению пользователя.
 
 ## Проверка
 
