@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.ds.components.HbChatRole
 import io.aequicor.heartbeat.ds.components.HbChoiceRow
 import io.aequicor.heartbeat.ds.components.HbCodeEditor
 import io.aequicor.heartbeat.ds.components.HbCopyButton
+import io.aequicor.heartbeat.ds.components.HbDateField
 import io.aequicor.heartbeat.ds.components.HbDiffView
 import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbMessageAppearance
@@ -71,6 +72,26 @@ internal fun ComponentsCatalog(state: SandboxState, modifier: Modifier = Modifie
                 HbPressableRow({}, enabled = false) {
                     HbText(hbString(HbString.Disabled), color = HbTheme.colors.textSecondary)
                 }
+            }
+        }
+        item {
+            var date by remember { mutableStateOf("") }
+            HbColumn {
+                HbDateField(
+                    date,
+                    { date = it },
+                    label = hbString(HbString.DateDue),
+                    placeholder = hbString(HbString.DateFormat),
+                    invalidText = hbString(HbString.DateInvalid),
+                )
+                HbDateField(
+                    "2026-10-12",
+                    {},
+                    label = hbString(HbString.Disabled),
+                    placeholder = hbString(HbString.DateFormat),
+                    invalidText = hbString(HbString.DateInvalid),
+                    enabled = false,
+                )
             }
         }
         item { UsageCatalog() }
