@@ -444,8 +444,9 @@ internal class KoogNativeSession(
             val input = koogCompactionPrompt(history.items, record.context, request)
             outcome = client.koogCompaction(provider.textModel(model.value), input) { summary ->
                 val notice = koogCompactedNotice(history.items.size, turn.id)
-                history.append { SessionEvent.ItemUpserted(it, notice) }
+                // The summary first: a stop before the notice keeps the whole transcript, never a summary-less notice.
                 mutex.withLock { record = record.copy(context = KoogContextSummary(notice.info.id, summary)) }
+                history.append { SessionEvent.ItemUpserted(it, notice) }
                 contextUsage.clear()
             }
         } finally {

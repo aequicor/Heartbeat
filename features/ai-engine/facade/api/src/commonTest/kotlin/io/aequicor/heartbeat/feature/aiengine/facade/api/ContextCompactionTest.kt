@@ -53,6 +53,18 @@ class ContextCompactionTest {
     }
 
     @Test
+    fun `essence fits budgets shorter than the ellipsis`() {
+        val items = listOf(message(0, MessageRole.Assistant, ContentPart.Text("x".repeat(500))))
+
+        for (budget in 1..4) {
+            val essence = sessionEssence(items, budgetChars = budget)
+
+            assertEquals(1, essence.keptItems)
+            assertEquals(budget, essence.text.length)
+        }
+    }
+
+    @Test
     fun `long tool output keeps its beginning and end`() {
         val output = "head-" + "x".repeat(2_000) + "-tail"
         val items = listOf(SessionItem.ToolResult(info(0), ToolCallId("c1"), listOf(ContentPart.Text(output))))

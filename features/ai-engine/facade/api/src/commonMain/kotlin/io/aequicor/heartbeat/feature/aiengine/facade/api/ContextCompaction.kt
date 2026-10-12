@@ -77,7 +77,7 @@ public fun sessionEssence(
     for (entry in entries.asReversed()) {
         val cost = entry.length + ENTRY_SEPARATOR.length
         if (used + cost > budgetChars) {
-            if (kept.isEmpty()) kept.addFirst(entry.take(budgetChars - ELLIPSIS.length) + ELLIPSIS)
+            if (kept.isEmpty()) kept.addFirst(entry.truncatedTo(budgetChars))
             break
         }
         kept.addFirst(entry)
@@ -125,6 +125,10 @@ private fun List<ContentPart>.essence(): String? = mapNotNull { part ->
 }.takeIf { it.isNotEmpty() }?.joinToString("\n")
 
 private fun List<ContentPart>.essenceLength(): Int = sumOf { (it as? ContentPart.Text)?.text?.length ?: 0 }
+
+/** Keeps the beginning within [limit] chars; a budget shorter than the ellipsis keeps a part of the ellipsis. */
+private fun String.truncatedTo(limit: Int): String =
+    (take((limit - ELLIPSIS.length).coerceAtLeast(0)) + ELLIPSIS).take(limit)
 
 /** Keeps the beginning and the end: errors and conclusions are usually at the end of long output. */
 private fun String.shortened(limit: Int): String {

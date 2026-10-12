@@ -77,9 +77,8 @@ internal class KoogToolExecution(
             if (isApprovalNeeded) ToolCallStatus.Pending else ToolCallStatus.Running,
         )
         history.append { SessionEvent.ItemUpserted(it, started) }
-        val result = executed(turn, call, tool, args, isApprovalNeeded, started).let { result ->
-            offload(call.name, result.text)?.let { result.copy(text = it) } ?: result
-        }
+        val executed = executed(turn, call, tool, args, started)
+        val result = offload(call.name, executed.text)?.let { executed.copy(text = it) } ?: executed
         val status = if (result.isFailed) ToolCallStatus.Failed else ToolCallStatus.Succeeded
         history.append { SessionEvent.ItemUpserted(it, started.copy(info = info.copy(revision = 2), status = status)) }
         val output = SessionItem.ToolResult(
@@ -98,7 +97,6 @@ internal class KoogToolExecution(
         call: StreamFrame.ToolCallComplete,
         tool: KoogTool?,
         args: JsonObject?,
-        isApprovalNeeded: Boolean,
         started: SessionItem.ToolCall,
     ): KoogToolResult = when {
         tool == null -> {
@@ -108,7 +106,7 @@ internal class KoogToolExecution(
 
         args == null -> KoogToolResult("InvalidInput: arguments must be a JSON object", true)
 
-        isApprovalNeeded -> approve(turn, tool, args)?.let { KoogToolResult(it, true) } ?: run(tool, args, started)
+        tool.isMutating -> approve(turn, tool, args)?.let { KoogToolResult(it, true) } ?: run(tool, args, started)
 
         else -> {
             log.i { "Running tool ${call.name}" }

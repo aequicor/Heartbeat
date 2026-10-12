@@ -41,8 +41,9 @@ internal fun piCompactionOutcome(record: JsonObject): TurnOutcome = when {
 /**
  * The compaction turn of one session, confined to the session's main dispatcher ([scope]). Pi answers `compact`
  * only after summarizing, which may outlast the command timeout, so the turn settles on `compaction_end`; a refused
- * command settles it as failed, or as cancelled while the turn is being interrupted. Automatic compactions inside
- * a prompt turn never settle that turn.
+ * command settles it as failed, or as cancelled while the turn is being interrupted. A lost process or a closed
+ * connection is not a refusal: the session's failure, reconciliation and shutdown paths settle the turn. Automatic
+ * compactions inside a prompt turn never settle that turn.
  */
 internal class PiCompactionTurns(
     private val scope: CoroutineScope,
@@ -64,6 +65,7 @@ internal class PiCompactionTurns(
             } catch (error: EngineException) {
                 // A timeout leaves the summary running: compaction_end settles it.
                 if (error.failure is EngineFailure.Transport) return@launch log.w(error) { "Pi compaction pending" }
+                if (error.failure.isConnectionLoss()) return@launch log.w(error) { "Pi compaction lost its process" }
                 log.w(error) { "Pi compaction refused" }
                 refused(turn, error.failure)
             } catch (error: CancellationException) {
@@ -93,3 +95,7 @@ internal class PiCompactionTurns(
         return true
     }
 }
+
+/** The process died or the connection closed: the outcome belongs to recovery or shutdown, not to the command. */
+private fun EngineFailure.isConnectionLoss(): Boolean =
+    this is EngineFailure.Lifecycle || this == EngineFailure.Engine(EngineFailureReason.Crashed)

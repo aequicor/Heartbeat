@@ -272,7 +272,10 @@ class ManagedActiveSession(
         val compacts = when (val access = parts.native.features.resolve(CompactsContext)) {
             is FeatureAccess.Available -> access.feature
 
-            is FeatureAccess.Unavailable -> fail(access.reason)
+            is FeatureAccess.Unavailable -> {
+                log.w { "compaction refused: engine=${ref.engine.value} failure=${access.reason.code}" }
+                fail(access.reason)
+            }
 
             FeatureAccess.Unsupported -> {
                 log.w { "compaction refused: engine=${ref.engine.value} does not compact context" }

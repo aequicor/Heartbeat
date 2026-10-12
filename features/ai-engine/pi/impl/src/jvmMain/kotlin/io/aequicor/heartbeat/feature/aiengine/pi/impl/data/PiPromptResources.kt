@@ -18,7 +18,7 @@ import kotlinx.serialization.json.JsonPrimitive
  */
 internal class PiPromptResources(
     private val environment: PiSessionEnvironment,
-    private val compact: (PiConnection, ContextCompaction) -> Unit = { _, _ -> },
+    private val compact: (PiConnection, ContextCompaction) -> Unit,
 ) {
     private val originals = mutableMapOf<String, List<ContentPart>>()
     private var pending: List<ContentPart>? = null
