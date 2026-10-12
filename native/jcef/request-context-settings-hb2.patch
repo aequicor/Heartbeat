@@ -666,7 +666,7 @@ index 6af234f..9cec326 100644
                  CefRect browserRect);
  
 diff --git a/native/util_mac.mm b/native/util_mac.mm
-index 55eac97..886832a 100644
+index 55eac97..162aef1 100644
 --- a/native/util_mac.mm
 +++ b/native/util_mac.mm
 @@ -10,11 +10,14 @@
@@ -729,7 +729,26 @@ index 55eac97..886832a 100644
  @end  // implementation CefHandler
  
  // Instead of adding CefBrowser as child of the windows main view, a content
-@@ -464,29 +443,74 @@ void CefDoMessageLoopWorkOnMainThread() {
+@@ -349,11 +328,15 @@ bool g_handling_send_event = false;
+ - (void)destroyCefBrowser {
+   [[NSNotificationCenter defaultCenter] removeObserver:self];
+   cefBrowser = nullptr;
+-  [self removeFromSuperview];
+-  // Also remove all subviews so the CEF objects are released.
+-  for (NSView* view in [self subviews]) {
++  // Snapshot the children because removal mutates the live subview array.
++  NSArray* children = [[self subviews] copy];
++  for (NSView* view in children) {
+     [view removeFromSuperview];
+   }
++  [children release];
++  // The superview may be our last owner. Do not touch self after removing it,
++  // and do not retain self here: this path is also reached from dealloc.
++  [self removeFromSuperview];
+ }
+ 
+ - (void)windowWillStartLiveResize:(NSNotification*)notification {
+@@ -464,29 +447,74 @@ void CefDoMessageLoopWorkOnMainThread() {
                  modes:@[ NSDefaultRunLoopMode, NSEventTrackingRunLoopMode ]];
  }
  
@@ -764,8 +783,9 @@ index 55eac97..886832a 100644
 +    return nil;
 +
 +  return CAST_CEF_WINDOW_HANDLE_TO_NSVIEW(handle);
-+}
-+
+ }
+ 
+-void UpdateView(CefWindowHandle handle,
 +}  // namespace
 +
 +void SetVisibility(CefRefPtr<CefBrowser> browser, bool isVisible) {
@@ -783,9 +803,8 @@ index 55eac97..886832a 100644
 +    [view needsDisplay];
 +    [[view superview] display];
 +  }
- }
- 
--void UpdateView(CefWindowHandle handle,
++}
++
 +void UpdateView(CefRefPtr<CefBrowser> browser,
                  CefRect contentRect,
                  CefRect browserRect) {
@@ -817,7 +836,7 @@ index 55eac97..886832a 100644
      NSString* contentStr = [[NSString alloc]
          initWithFormat:@"{{%d,%d},{%d,%d}", contentRect.x, contentRect.y,
                         contentRect.width, contentRect.height];
-@@ -496,9 +520,10 @@ void UpdateView(CefWindowHandle handle,
+@@ -496,9 +524,10 @@ void UpdateView(CefWindowHandle handle,
      NSDictionary* dict = [[NSDictionary alloc]
          initWithObjectsAndKeys:contentStr, @"content", browserStr, @"browser",
                                 nil];
@@ -831,7 +850,7 @@ index 55eac97..886832a 100644
    }
  }
  
-@@ -551,8 +576,11 @@ void SetParent(CefWindowHandle handle,
+@@ -551,8 +580,11 @@ void SetParent(CefWindowHandle handle,
      g_browsers_lock_.Lock();
      bool browser_exists = g_browsers_.count(handle) > 0;
      g_browsers_lock_.Unlock();

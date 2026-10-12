@@ -22,6 +22,9 @@ in addition to `IsValid()`. A separate native process stresses visibility change
 and resize/paint with immediate close across twenty new tabs before checking
 profile disposal. A cancelled reparent operation also releases its callback's
 browser reference when the view has already been removed.
+Content-view destruction removes a snapshot of its children before detaching
+itself from its last owner; no access to `self` follows `removeFromSuperview`.
+This path also runs during deallocation, so it must not resurrect the view.
 
 The patch exposes all five CEF request-context settings and independently owned
 Java wrappers sharing a profile context. Each browser needs its own wrapper:
