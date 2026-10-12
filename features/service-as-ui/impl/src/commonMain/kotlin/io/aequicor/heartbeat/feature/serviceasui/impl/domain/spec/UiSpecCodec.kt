@@ -17,6 +17,27 @@ internal object UiSpecLimits {
 
     /** Diagnostics reported for one spec. */
     const val DIAGNOSTICS: Int = 20
+
+    /** Data sources of one spec. */
+    const val SOURCES: Int = 8
+
+    /** Named modals of one spec. */
+    const val MODALS: Int = 8
+
+    /** Actions of one sequence. */
+    const val SEQUENCE: Int = 8
+
+    /** Columns of one table. */
+    const val COLUMNS: Int = 12
+
+    /** Options of one select. */
+    const val OPTIONS: Int = 64
+
+    /** UTF-8 bytes of the initial state as JSON. */
+    const val STATE_BYTES: Int = 16 * 1024
+
+    /** UTF-8 bytes of the HTML of a web node. */
+    const val HTML_BYTES: Int = 48 * 1024
 }
 
 /** What is wrong with a spec; [message] is shown to the agent and in the editor. */
@@ -38,20 +59,68 @@ internal enum class UiSpecProblem(val message: String) {
 
     /** Unknown type, unknown or missing field, or a value of the wrong type. */
     Malformed("the structure does not match the spec format"),
+
+    /** A `{{path}}` that does not parse, or a field that needs exactly one binding. */
+    InvalidBinding("invalid binding"),
+
+    /** `data.<source>`, `status.<source>` or `reload` name an undeclared data source. */
+    UnknownSource("unknown data source"),
+
+    /** A state key that the initial `state` does not declare. */
+    UnknownStateKey("state key is not declared in the initial state"),
+
+    /** `open` names an undeclared modal. */
+    UnknownModal("unknown modal"),
+
+    /** `open` names a surface the owner does not have. */
+    UnknownSurface("unknown surface of this owner"),
+
+    /** A method the owner does not publish (a warning while its methods are unknown). */
+    UnknownMethod("the owner does not publish this method"),
+
+    /** `item` or `index` outside list items and table cells. */
+    OutOfScope("item and index exist only inside list items and table rows"),
+
+    /** A web document outside panel and modal surfaces and modals. */
+    PlacementForbidden("web documents are allowed only in panel and modal surfaces and in modals"),
+
+    /** Methods, data sources, sending prompts, reveal or a web bridge in a card without an owner. */
+    OriginForbidden("not allowed in a card without an owner"),
+
+    /** Too many sources, modals, actions, columns, options or web nodes, or too large state or HTML. */
+    LimitExceeded("exceeds a limit of the spec format"),
+
+    /** A diagram source containing a Markdown fence. */
+    DiagramFence("diagram sources must not contain ```"),
+
+    /** A literal link that is not http or https. */
+    InvalidUrl("only http and https links are allowed"),
+
+    /** A value that is not allowed for this field. */
+    InvalidValue("invalid value"),
+
+    /** A name that is not a short identifier. */
+    InvalidName("names start with a letter or '_' and contain letters, digits, '_' or '-', up to 32 characters"),
 }
 
 /**
- * A problem at the JSON [path] (`$.body.children[0]`). [detail] may quote the spec, so it goes to the agent and the
- * editor only, never to logs.
+ * A problem at the JSON [path] (`$.body.children[0]`); a warning does not reject the spec. [detail] may quote the
+ * spec, so it goes to the agent and the editor only, never to logs.
  */
-internal data class UiSpecDiagnostic(val path: String, val problem: UiSpecProblem, val detail: String? = null) {
+internal data class UiSpecDiagnostic(
+    val path: String,
+    val problem: UiSpecProblem,
+    val detail: String? = null,
+    val isWarning: Boolean = false,
+) {
     /** Human-readable description for the agent and the editor. */
     fun describe(): String = buildString {
+        if (isWarning) append("warning: ")
         append(path).append(": ").append(problem.message)
         detail?.let { append(" (").append(it).append(')') }
     }
 
-    override fun toString(): String = "UiSpecDiagnostic(path=$path, problem=$problem)"
+    override fun toString(): String = "UiSpecDiagnostic(path=$path, problem=$problem, isWarning=$isWarning)"
 }
 
 /** Outcome of [decodeUiSpec]. */
