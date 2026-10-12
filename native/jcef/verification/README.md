@@ -2,7 +2,7 @@
 
 Standalone harness для согласованных Java/native-артефактов Heartbeat. Нужны JDK 21,
 Python 3.11+, Windows или macOS с доступной графической сессией и бинарники **архитектуры
-самого runner**. Gradle, сеть для загрузки зависимостей и запущенный Heartbeat не нужны.
+самого хоста**. Gradle, сеть для загрузки зависимостей и запущенный Heartbeat не нужны.
 Проверка открывает настоящие JFrame с windowed JCEF; headless-режим не подменяет результат.
 
 ## Запуск после сборки
@@ -68,7 +68,7 @@ Python-процесс один раз запускает HTTP server на `127.0
 Перед нативными фазами запускается Java-only `DevToolsClientProbe`: десять детерминированных
 порядков CDP callbacks проверяют ранний результат до ID, ошибки, закрытие и отмену отдельного
 вызова, независимость соседнего вызова, очистку pending entries и отсутствие JNI-вызова под lock.
-Нужен JDK без встроенного JCEF module (например Microsoft/Temurin из CI), иначе его пакет
+Нужен JDK без встроенного JCEF module (например Microsoft или Temurin), иначе его пакет
 `org.cef.browser` перекроет тестовый класс и проверяемую API-библиотеку.
 
 Первой нативной фазой выполняется **anchor-close**: 20 отдельных persistent contexts проходят
@@ -119,11 +119,14 @@ Harness проверяет, что Chromium действительно прим�
 `BrowserWebView` → `SwingPanel` → `DesktopBrowserPanel` → JCEF в `ComposeWindow`:
 
 ```text
-./gradlew :features:browser:impl:jvmTest -Pheartbeat.browser.composeNativeTest=true --tests '*DesktopBrowserComposeNativeTest'
+./gradlew :features:browser:impl:browserComposeNativeTest
 ```
 
-На Windows используется `gradlew.bat`. Запускать отдельно от
-`-Pheartbeat.browser.nativeTest=true`: глобальный CefApp не перезапускается в той же JVM.
+На Windows используется `gradlew.bat`. Проверка запускается только локально и только этой задачей:
+обычный `jvmTest` её пропускает, а задача выполняет один тестовый класс в свежей JVM на JBR
+приложения (глобальный CefApp не перезапускается в той же JVM). Так же устроены
+`:features:browser:impl:browserNativeTest` (поверхности Chromium без Compose) и
+`:platform-main:di-bundle:browserRecoveryNativeTest` (восстановление research-источника через граф профиля).
 Нужна активная графическая сессия; Robot использует настоящие мышь и клавиатуру, на macOS
 необходимо разрешение Accessibility для Java, а для снимков — Screen Recording.
 Тест не заменяет ввод вызовами JavaScript.
@@ -155,7 +158,7 @@ Desktop `HbDialog` рисует scrim внутри полноразмерног�
 вводом проверяется принадлежность foreground тестовому окну или его owned-окну; Windows
 дополнительно проверяет native HWND, видимость и отсутствие virtual-desktop cloaking.
 
-## Результаты и CI
+## Результаты
 
 Отдельный JVM-процесс `visibility-close` создаёт 20 новых вкладок. Каждая отправляет
 пачку изменений видимости непосредственно перед принудительным закрытием и после его
@@ -172,8 +175,9 @@ native view; количество вызовов записывается в JSO
 Отчёт содержит SHA-256 проверенных API/native библиотек. Это provenance результата;
 проверка ожидаемых release checksums остаётся задачей packaging pipeline.
 
-CI запускает harness **после упаковки** и сохраняет `*.json`, `*.log`, `*.png` из output
-через always-upload. Сборка на кросс-компиляторе не заменяет запуск на целевой архитектуре.
+CI для этой проверки нет: harness запускается локально **после упаковки** на каждом из четырёх
+хостов, а `*.json`, `*.log`, `*.png` из output сохраняются для проверки релиза (в том числе при
+провале). Сборка на кросс-компиляторе не заменяет запуск на целевой архитектуре.
 Fatal JVM/native crashes сохраняют полный отчёт `hs_err_pid*.log` в том же output.
 
 Проверки самого harness без JCEF:
@@ -185,5 +189,5 @@ java -cp build/probe-json ProbeJsonTest
 ```
 
 На момент добавления harness прошли эти unit-проверки, синтаксис fixture JavaScript и
-компиляция SessionProbe против пропатченного Java API. Нативный прогон остаётся отдельным
-обязательным результатом CI; сама компиляция не считается проверкой persistence.
+компиляция SessionProbe против пропатченного Java API. Нативный прогон на всех четырёх хостах
+остаётся отдельным обязательным условием публикации; сама компиляция не считается проверкой persistence.

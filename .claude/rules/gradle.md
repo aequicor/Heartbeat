@@ -14,7 +14,8 @@ paths:
   - `heartbeat.kmp.compose` — + Compose Multiplatform;
   - `heartbeat.feature.api` / `heartbeat.feature.impl` — зависимости и ограничения для фич;
   - `heartbeat.metro` — Metro-плагин;
-  - `heartbeat.detekt` — detekt + ktlint-wrapper + compose-rules.
+  - `heartbeat.detekt` — detekt + ktlint-wrapper + compose-rules;
+  - `heartbeat.jcef` — встроенный Chromium (JCEF): натив хоста из каталога, JDK-модули и JVM-аргументы, проверка закреплённого runtime и изолированные нативные тест-задачи.
 - Новый модуль регистрируется в `settings.gradle.kts` (`include(":features:chat:api")`). Используй typesafe project accessors (`projects.core.logging`).
 - `api(...)` только для типов, входящих в публичный контракт модуля; остальное `implementation(...)`.
 - Проверяй правила зависимостей из `CLAUDE.md` при каждой правке `dependencies { }`: `features:*:impl` не зависит от другого `impl`; `core` не зависит от `features`/`design-system`.

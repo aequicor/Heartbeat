@@ -14,10 +14,11 @@ SHA-256 and every artifact SHA-256. `SHA256SUMS` and `runtime-manifest.json` rec
 the collected build outputs. Reproduction commands and packaging layout are in
 `native/jcef/README.md` at the release's target commit.
 
-The publishing job requires successful native probes on all four architectures:
-cross-process cookies/localStorage/IndexedDB persistence, sibling-tab ownership,
-profile isolation, clear/delete, visibility/close stress and screenshot/input checks. CI retains the probe
-reports. These standalone native tests do not replace Heartbeat Compose UI tests.
+Publication requires successful native probes, run locally on each of the four
+architectures: cross-process cookies/localStorage/IndexedDB persistence, sibling-tab
+ownership, profile isolation, clear/delete, visibility/close stress and screenshot/input
+checks. The maintainer keeps the probe reports with the release inspection. These
+standalone native tests do not replace Heartbeat Compose UI tests.
 
 This release is created as a draft for inspection. Existing assets are never
 overwritten; retries require matching checksums and source manifests.

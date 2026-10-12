@@ -114,8 +114,9 @@ lint/            detekt-rules — собственный набор правил
 > ошибочные источники исследования и добавляет ручное продолжение загрузки через Chromium после проверки доступа.
 > Оба дополнительных флага выключены по умолчанию. Desktop-вкладки разделяют постоянное Chromium-хранилище своего
 > профиля (cookies, localStorage, IndexedDB); очистка браузера и удаление профиля закрывают вкладки до удаления данных.
-> Согласованные Java/JNI-артефакты для Windows/macOS x64/ARM64 собираются из `native/jcef`, проверяются по SHA-256
-> и входят в дистрибутив. Восстановление источника запускается только кнопкой пользователя и использует тот же профиль.
+> Согласованные Java/JNI-артефакты для Windows/macOS x64/ARM64 собираются локально из `native/jcef` (CI нет), проверяются
+> по SHA-256 (`heartbeat.jcef`, `verifyBrowserRuntime`) и входят в дистрибутив. Нативные проверки с настоящим Chromium —
+> только локальные задачи `browserNativeTest`, `browserComposeNativeTest`, `browserRecoveryNativeTest` (нужен рабочий стол, вне `check`). Восстановление источника запускается только кнопкой пользователя и использует тот же профиль.
 > iOS — WKWebView с непостоянным хранилищем, Android — WebView без cookies и DOM storage; автоматизация только Desktop.
 > `features:plant-uml-support:{api,impl}` — диаграммы PlantUML в markdown чатов и кодинг-сессий (тогл `plantuml.enabled`,
 > по умолчанию false): закрытый fence `plantuml`/`puml` ДС делает строкой `Diagram` и рисует через SPI `HbDiagramRenderer`;
