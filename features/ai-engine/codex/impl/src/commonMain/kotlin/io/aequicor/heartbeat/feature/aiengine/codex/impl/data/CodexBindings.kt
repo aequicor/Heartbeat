@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexLocalConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CompactsContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
@@ -95,6 +96,7 @@ public object CodexBindings {
                 ReconcilesSession.id,
                 SessionHistory.id,
                 SessionTrees.id,
+                CompactsContext.id,
             ),
         ),
         authOwner = CodexEngine.AuthOwner,
