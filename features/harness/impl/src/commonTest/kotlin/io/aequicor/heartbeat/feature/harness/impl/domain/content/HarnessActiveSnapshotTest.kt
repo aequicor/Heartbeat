@@ -11,98 +11,78 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.impl.domain.harness
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.dispatchSession
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 class HarnessActiveSnapshotTest {
-    private val project = WorkspaceRef("project")
-    private val checkout = WorkspaceRef("checkout")
+    private val workspace = WorkspaceRef("project")
     private val profile = harness.copy(scope = HarnessScope.Profile)
-    private val ready = HarnessState.Ready(listOf(HarnessEntry(profile)))
-    private val snapshot = HarnessActiveSnapshot(true, ready, null, null)
+    private val project = harness.copy(
+        id = HarnessId("project"),
+        name = HarnessName("project"),
+        scope = HarnessScope.Projects(setOf(workspace)),
+    )
+    private val ready = HarnessState.Ready(listOf(HarnessEntry(profile), HarnessEntry(project)))
+    private val snapshot = HarnessActiveSnapshot(true, ready)
 
     @Test
-    fun `mobile content and policy work without runtime or project catalog`() {
-        assertEquals(listOf(profile), snapshot.select(checkout, dispatchSession))
-        assertEquals(listOf(profile), snapshot.select(null, null))
-        assertEquals(emptyList(), snapshot.copy(isEnabled = false).select(null, null))
-        assertEquals(emptyList(), snapshot.copy(library = ready.copy(isSuspended = true)).select(null, null))
+    fun `legacy scopes never activate a chat without a connection`() {
+        assertEquals(emptyList(), snapshot.select(dispatchSession))
+        assertEquals(emptyList(), snapshot.select(null))
+        assertEquals(emptyList(), snapshot.applicable(dispatchSession))
+    }
+
+    @Test
+    fun `explicit connection activates only its own session`() {
+        val connected = snapshot.copy(
+            library = ready.copy(
+                attachments = mapOf(dispatchSession to setOf(profile.id, project.id)),
+            ),
+        )
+        assertEquals(listOf(project, profile), connected.select(dispatchSession))
+        assertEquals(emptyList(), connected.select(null))
+        assertEquals(emptyList(), connected.copy(isEnabled = false).select(dispatchSession))
+        assertEquals(emptyList(), connected.copy(library = ready.copy(isSuspended = true)).select(dispatchSession))
     }
 
     @Test
     fun `unavailable library differs from a known empty library`() {
-        assertNull(snapshot.copy(library = null).select(null, null))
-        assertNull(snapshot.copy(library = HarnessState.Idle()).select(null, null))
+        assertNull(snapshot.copy(library = null).select(null))
+        assertNull(snapshot.copy(library = HarnessState.Idle()).select(null))
         assertFailsWith<IllegalStateException> {
-            snapshot.copy(library = HarnessState.Failed()).select(null, null)
+            snapshot.copy(library = HarnessState.Failed()).select(null)
         }
-        assertEquals(emptyList(), snapshot.copy(library = HarnessState.Ready()).select(checkout, null))
+        assertEquals(emptyList(), snapshot.copy(library = HarnessState.Ready()).select(null))
     }
 
     @Test
-    fun `restored worktree mapping takes precedence over promoted checkout`() {
-        val scoped = profile.copy(scope = HarnessScope.Projects(setOf(project)))
-        val promoted = scoped.copy(
-            id = HarnessId("promoted"),
-            name = HarnessName("promoted"),
-            scope = HarnessScope.Projects(setOf(checkout)),
-        )
-        val pending = snapshot.copy(
-            library = ready.copy(harnesses = listOf(scoped, promoted).map(::HarnessEntry)),
-            projects = setOf(checkout),
-        )
-        assertNull(pending.select(checkout, dispatchSession))
-        val restored = pending.copy(
-            worktrees = WorktreeState.Ready(
-                mapOf("chat" to WorktreeTask("chat", project, executionWorkspace = checkout)),
-            ),
-        )
-        assertEquals(listOf(scoped), restored.select(checkout, dispatchSession))
-        assertEquals(emptyList(), restored.select(null, dispatchSession))
-        // Both catalogs are known: a removed project or deleted checkout proves "no project" without waiting.
-        assertEquals(emptyList(), restored.select(WorkspaceRef("unknown"), dispatchSession))
-        assertNull(restored.copy(projects = null).select(WorkspaceRef("unknown"), dispatchSession))
-    }
-
-    @Test
-    fun `attachments require the exact session but can resolve without project evidence`() {
-        val scoped = harness.copy(scope = HarnessScope.Projects(setOf(project)))
-        val attached = snapshot.copy(
-            library = ready.copy(
-                harnesses = listOf(HarnessEntry(scoped)),
-                attachments = mapOf(dispatchSession to setOf(scoped.id)),
-            ),
-        )
-        assertEquals(listOf(scoped), attached.select(checkout, dispatchSession))
-        assertNull(attached.select(checkout, null))
-        assertEquals(emptyList(), attached.select(null, null))
-    }
-
-    @Test
-    fun `only committed values apply while pending removal stops contribution immediately`() {
+    fun `pending removal stops a connected harness immediately`() {
+        val connected = ready.copy(attachments = mapOf(dispatchSession to setOf(profile.id)))
         val receipt = HarnessReceipt(RequestId("change"), profile.id, profile.revision)
-        val saving = ready.copy(
+        val saving = connected.copy(
             pending = mapOf(profile.id to HarnessMutation.Save(receipt, profile.copy(isEnabled = false), false)),
         )
-        assertEquals(listOf(profile), snapshot.copy(library = saving).select(null, null))
-        val removing = ready.copy(pending = mapOf(profile.id to HarnessMutation.Remove(receipt, profile)))
-        assertEquals(emptyList(), snapshot.copy(library = removing).select(null, null))
-        val disabled = ready.copy(harnesses = listOf(HarnessEntry(profile.copy(isEnabled = false))))
-        assertEquals(emptyList(), snapshot.copy(library = disabled).select(null, null))
+        assertEquals(listOf(profile), snapshot.copy(library = saving).select(dispatchSession))
+        val removing = connected.copy(pending = mapOf(profile.id to HarnessMutation.Remove(receipt, profile)))
+        assertEquals(emptyList(), snapshot.copy(library = removing).select(dispatchSession))
+        val disabled = connected.copy(harnesses = listOf(HarnessEntry(profile.copy(isEnabled = false))))
+        assertEquals(emptyList(), snapshot.copy(library = disabled).select(dispatchSession))
     }
 
     @Test
-    fun `selection remains bounded in immutable name order`() {
+    fun `connection selection remains bounded in immutable name order`() {
         val entries = (0..9).reversed().map {
             HarnessEntry(profile.copy(id = HarnessId("$it"), name = HarnessName("h_$it")))
         }
-        val crowded = snapshot.copy(library = ready.copy(harnesses = entries))
-        assertEquals((0..7).map { "h_$it" }, crowded.select(null, null)?.map { it.name.value })
-        // Restrictions read every covering harness: overflow never displaces them.
-        assertEquals((0..9).map { "h_$it" }, crowded.applicable(null, null)?.map { it.name.value })
+        val crowded = snapshot.copy(
+            library = ready.copy(
+                harnesses = entries,
+                attachments = mapOf(dispatchSession to entries.mapTo(mutableSetOf()) { it.harness.id }),
+            ),
+        )
+        assertEquals((0..7).map { "h_$it" }, crowded.select(dispatchSession)?.map { it.name.value })
+        assertEquals((0..9).map { "h_$it" }, crowded.applicable(dispatchSession)?.map { it.name.value })
     }
 }

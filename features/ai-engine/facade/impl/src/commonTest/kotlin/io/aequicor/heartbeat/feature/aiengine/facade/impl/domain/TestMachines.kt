@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CompactsContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
@@ -149,6 +150,7 @@ internal class FakeNativeSession(
     initial: ActiveSessionState = ActiveSessionState.Ready(),
     appliesTrust: Boolean = false,
     configuration: ChangesSessionConfiguration? = null,
+    compacts: CompactsContext? = null,
 ) : ActiveSession {
     val native = MutableStateFlow(initial)
     val sent = mutableListOf<PromptRequest>()
@@ -226,7 +228,8 @@ internal class FakeNativeSession(
                 emptyMap()
             }
         ) +
-            configuration?.let { mapOf(ChangesSessionConfiguration.id to available(it)) }.orEmpty(),
+            configuration?.let { mapOf(ChangesSessionConfiguration.id to available(it)) }.orEmpty() +
+            compacts?.let { mapOf(CompactsContext.id to available(it)) }.orEmpty(),
     )
 
     val activeTurn: Turn get() = checkNotNull(native.value.activeTurn())

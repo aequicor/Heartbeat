@@ -5,7 +5,6 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
-import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
@@ -13,16 +12,12 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessMachineKey
 import io.aequicor.heartbeat.feature.harness.api.HarnessMutation
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.activeHarnesses
-import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessProjectSnapshots
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessEventGate
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessAccessSnapshot
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDeliveryPermit
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSchedulerAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessTarget
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
-import io.aequicor.heartbeat.feature.worktreemode.api.sourceProjectOf
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -34,15 +29,14 @@ import kotlinx.coroutines.flow.map
 /**
  * Uses persisted scheduler routing and attachments even before any facade callback after restart. Reading the
  * registry never starts the library or an engine. A helper must be durably attached before its first prompt;
- * neither owner text nor an action-id prefix can prove helper affiliation. Until the library, the enabled
- * generation and the needed worktree mapping are restored, a decision is [HarnessAccess.Unknown], never a refusal.
+ * neither owner text nor an action-id prefix can prove helper affiliation. Until the library and enabled
+ * generation are restored, a decision is [HarnessAccess.Unknown], never a refusal.
  */
 @ContributesBinding(ProfileScope::class)
 @Inject
 internal class MachineHarnessSchedulerAccess(
     private val machines: MachineRegistry,
     private val toggles: FeatureToggles,
-    private val projects: HarnessProjectSnapshots,
     private val gate: HarnessEventGate,
 ) : HarnessSchedulerAccess {
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -53,11 +47,9 @@ internal class MachineHarnessSchedulerAccess(
             } else {
                 combine(
                     machines.observe(HarnessMachineKey).flatMapLatest { it?.state ?: flowOf(null) },
-                    machines.observe(WorktreeMachineKey).flatMapLatest { it?.state ?: flowOf(null) },
-                    projects.projects,
                     gate.epochs,
-                ) { library, worktrees, catalog, epoch ->
-                    val isAllowed = HarnessSchedulerSnapshot(library, worktrees, catalog, epoch, gate.hasOpened)
+                ) { library, epoch ->
+                    val isAllowed = HarnessSchedulerSnapshot(library, epoch, gate.hasOpened)
                         .allows(harness, target)
                     // A permit is bound to its enabled generation; other decisions do not depend on it.
                     isAllowed to epoch.takeIf { isAllowed == true }
@@ -82,18 +74,14 @@ internal class MachineHarnessSchedulerAccess(
 
     private fun current(): HarnessSchedulerSnapshot = HarnessSchedulerSnapshot(
         machines.find(HarnessMachineKey)?.state?.value,
-        machines.find(WorktreeMachineKey)?.state?.value,
-        projects.projects.value,
         gate.currentEpoch,
         gate.hasOpened,
     )
 }
 
-/** Null admission means project provenance is still unknown, not a license to treat a checkout as its source. */
+/** A missing library or unopened generation leaves admission unknown. */
 internal data class HarnessSchedulerSnapshot(
     val library: HarnessState?,
-    val worktrees: WorktreeState?,
-    val projects: Set<WorkspaceRef>?,
     val epoch: Long?,
     val hasOpened: Boolean = true,
 ) : HarnessAccessSnapshot {
@@ -113,27 +101,13 @@ internal data class HarnessSchedulerSnapshot(
         return if (target == null) true else allowsTarget(ready, enabled, harness, target)
     }
 
-    /**
-     * Unknown only while worktrees or the project catalog are restoring. Once both are known, a folder that is
-     * neither a checkout nor a saved project (a removed project, a finished worktree) proves "no project", so event
-     * wakes into it get a final decision instead of deferring forever while holding quota.
-     */
+    /** Only an explicit connection to the target chat admits its harness. */
     private fun allowsTarget(
         ready: HarnessState.Ready,
         enabled: List<Harness>,
         harness: HarnessId,
         target: HarnessTarget,
-    ): Boolean? {
-        val workspace = target.workspace
-        val source = if (workspace == null) {
-            null
-        } else {
-            val restored = worktrees as? WorktreeState.Ready ?: return null
-            val catalog = projects ?: return null
-            restored.sourceProjectOf(workspace) ?: workspace.takeIf { it in catalog }
-        }
-        return activeHarnesses(enabled, ready.attachments, target.session, source).any { it.id == harness }
-    }
+    ): Boolean = activeHarnesses(enabled, ready.attachments, target.session).any { it.id == harness }
 
     override fun toString(): String = "HarnessSchedulerSnapshot(***)"
 }

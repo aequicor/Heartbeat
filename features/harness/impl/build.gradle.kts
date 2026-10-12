@@ -28,7 +28,6 @@ kotlin {
             implementation(projects.features.harness.api)
             implementation(projects.features.aiEngine.facade.api)
             implementation(projects.features.scheduler.api)
-            implementation(projects.features.worktreeMode.api)
             implementation(projects.core.common)
             implementation(projects.core.logging)
             implementation(projects.core.di.api)

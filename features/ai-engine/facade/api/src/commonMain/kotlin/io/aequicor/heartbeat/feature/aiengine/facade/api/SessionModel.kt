@@ -80,6 +80,14 @@ public data class CreateSessionRequest(
     val areDetachedToolsEnabled: Boolean = false,
     /** Opts this handle's own turns into profile session hooks; service sessions leave this false. */
     val areSessionHooksEnabled: Boolean = false,
+    /**
+     * Choices the creator made before the session exists, by [AgentToolContribution.group] (for example harnesses
+     * chosen in a new chat's composer). Adapters that declare tools before the native session has a ref pass them as
+     * [AgentToolScope.preselected] and [ToolPolicyScope.preselected]; the creator still records the choice durably
+     * once the session exists, and later reads use that record. Only the user's own choices made through host UI
+     * belong here, never values derived from model output or tool arguments.
+     */
+    val preselected: Map<String, Set<String>> = emptyMap(),
 )
 
 /**
@@ -95,7 +103,10 @@ public data class ResumeSessionRequest(
     val areSessionHooksEnabled: Boolean = false,
 )
 
-/** Accepted request correlation and multimodal content. RequestId is not a promise of native deduplication. */
+/**
+ * Accepted request correlation and multimodal content. RequestId is not a promise of native deduplication.
+ * A [compaction] request has no [parts]: it asks a session declaring [CompactsContext] to summarize its context.
+ */
 @Serializable
 public data class PromptRequest(
     val id: RequestId,
@@ -110,12 +121,15 @@ public data class PromptRequest(
      * Sessions that do not declare [AppliesTrustLevels] reject a non-null value before acceptance.
      */
     val trust: TrustLevel? = null,
+    /** Native context compaction instead of a prompt; see [CompactsContext]. */
+    val compaction: ContextCompaction? = null,
 ) {
     init {
-        require(parts.isNotEmpty())
+        require(parts.isNotEmpty() == (compaction == null)) { "A prompt has parts, a compaction has none" }
         require(reasoningEffort == null || reasoningEffort.isNotBlank())
     }
-    override fun toString(): String = "PromptRequest(id=$id, parts=${parts.size})"
+    override fun toString(): String =
+        "PromptRequest(id=$id, parts=${parts.size}${if (compaction != null) ", compaction" else ""})"
 }
 
 /** How much the user trusts the agent with actions that have side effects. */

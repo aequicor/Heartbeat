@@ -4,6 +4,8 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextCompaction
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
@@ -18,6 +20,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.NoStudioHarnessAttach
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessAttach
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolChoices
 import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
@@ -34,7 +37,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 /** The repository supplies persistence and native features; this executor owns a single accepted turn. */
 internal interface StudioTurnHost {
     suspend fun isWorktree(id: String): Boolean
-    suspend fun openTurn(id: String, settings: RunSettings): ActiveSession
+
+    /** [preselected] reaches only a session created now ([CreateSessionRequest.preselected]); a resume ignores it. */
+    suspend fun openTurn(id: String, settings: RunSettings, preselected: ToolChoices = emptyMap()): ActiveSession
     suspend fun submitTurn(active: ActiveSession, request: StudioTurnRequest): TurnId
     suspend fun shouldStop(id: String): Boolean
     suspend fun requestStop(id: String, active: ActiveSession, turn: TurnId)
@@ -62,6 +67,13 @@ internal interface StudioTurnObserver {
 
 internal object NoStudioTurnObserver : StudioTurnObserver
 
+/** Learns that a turn settled with its handle still open, after its history is current; failures are isolated. */
+internal fun interface StudioTurnSettlement {
+    suspend fun settled(request: StudioTurnRequest, active: ActiveSession, outcome: TurnOutcome)
+}
+
+internal val NoStudioTurnSettlement = StudioTurnSettlement { _, _, _ -> }
+
 /** Host-created identity; native tools never supply an action's kind or operation. */
 internal data class StudioTurnRequest(
     val id: String,
@@ -87,6 +99,17 @@ internal data class StudioTurnRequest(
     val causes: Set<RequestInitiator> = emptySet(),
     /** The screen submission that created this chat; its claimed harnesses connect before this first prompt. */
     val submissionId: String = "",
+    /** A native context compaction instead of [prompt]; it runs no tools, so it needs no worktree isolation. */
+    val compaction: ContextCompaction? = null,
+    /** Continues the chat in a new native session instead of running a turn; see `StudioRollover`. */
+    val isRollover: Boolean = false,
+    /**
+     * The continuation brief: with [isRollover] the new session receives it instead of the essence, with [compaction]
+     * the next turn receives it after the engine's own summary.
+     */
+    val isBriefed: Boolean = false,
+    /** With [isRollover] and [isBriefed]: the handoff summary turn completed, so its answer is the work summary. */
+    val isSummarized: Boolean = false,
 ) {
     override fun toString(): String = "StudioTurnRequest(id=$id, kind=$kind, attachments=${attachments.size})"
 }
@@ -98,15 +121,17 @@ internal class StudioTurnExecutor(
     private val tools: ProfileAgentTools,
     private val observer: StudioTurnObserver = NoStudioTurnObserver,
     private val harnesses: StudioHarnessAttach = NoStudioHarnessAttach,
+    private val settlement: StudioTurnSettlement = NoStudioTurnSettlement,
 ) {
     private val log = Log.tag("StudioTurnExecutor")
 
     suspend fun execute(host: StudioTurnHost, request: StudioTurnRequest): RunOutcome {
         val progress = Progress()
         try {
-            progress.isIsolated = host.isWorktree(request.id)
-            if (progress.isIsolated) prepare(host, request, progress)
-            val active = host.openTurn(request.id, request.settings)
+            val preselected = request.submissionId.takeIf { it.isNotEmpty() }?.let(harnesses::preselected).orEmpty()
+            progress.isIsolated = request.compaction == null && host.isWorktree(request.id)
+            if (progress.isIsolated) prepare(host, request, progress, preselected)
+            val active = host.openTurn(request.id, request.settings, preselected)
             return runNative(host, request, active, progress)
         } catch (error: CancellationException) {
             throw error
@@ -136,8 +161,13 @@ internal class StudioTurnExecutor(
         }
     }
 
-    private suspend fun prepare(host: StudioTurnHost, request: StudioTurnRequest, progress: Progress) {
-        worktrees.reconcile(request.id) { host.openTurn(request.id, request.settings) }
+    private suspend fun prepare(
+        host: StudioTurnHost,
+        request: StudioTurnRequest,
+        progress: Progress,
+        preselected: ToolChoices,
+    ) {
+        worktrees.reconcile(request.id) { host.openTurn(request.id, request.settings, preselected) }
         worktrees.send(WorktreeIntent.Public.RunStarted(request.id, request.request, request.kind))
         progress.isPrepared = true
         val prepared = worktrees.await(request.id, failOnTaskError = false) {
@@ -198,6 +228,7 @@ internal class StudioTurnExecutor(
             val outcome = checkNotNull(completed.outcome) { "Terminal outcome is unavailable" }
             progress.isTerminalObserved = true
             observe("terminal") { observer.terminalTurn(request, active, turn, outcome, isHistoryCurrent = true) }
+            observe("settlement") { settlement.settled(request, active, outcome) }
             request.onOutcome(outcome)
             worktrees.settled(request.id.takeIf { progress.isIsolated }, request.request, active.ref, turn, outcome)
             host.outcome(request.id, outcome)

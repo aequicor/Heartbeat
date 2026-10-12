@@ -670,10 +670,13 @@ class StudioTurnExecutorTest {
 
             assertTrue(fixture.host.submitted != null)
             assertEquals(listOf("connect submission", "release submission"), harnesses.calls)
+            // An engine declaring tools when the session opens already sees the claimed harnesses.
+            assertEquals(listOf(mapOf("harness" to setOf("chosen-by-submission"))), fixture.host.opened)
             harnesses.calls.clear()
             fixture.host.beforeSubmit = {}
             fixture.executor.execute(fixture.host, fixture.request)
             assertTrue(harnesses.calls.isEmpty(), "turns of existing chats claim nothing")
+            assertEquals(emptyMap(), fixture.host.opened.last())
         }
 
     @Test
@@ -735,6 +738,7 @@ private class TurnFixture(harnesses: StudioHarnessAttach = NoStudioHarnessAttach
 
 private class RecordingHarnessAttach : StudioHarnessAttach {
     val calls = mutableListOf<String>()
+    override fun preselected(submissionId: String) = mapOf("harness" to setOf("chosen-by-$submissionId"))
     override suspend fun beforeSubmit(submissionId: String, session: SessionRef) {
         calls += "connect $submissionId"
     }
@@ -766,6 +770,7 @@ private class ExecutorHost(
     var submitted: StudioTurnRequest? = null
     var isIsolated = true
     var openCount = 0
+    val opened = mutableListOf<Map<String, Set<String>>>()
     val permissionStates = mutableListOf<ActiveSessionState>()
     var beforeSubmit: suspend () -> Unit = {}
     val acceptedReceipts = mutableListOf<Pair<RequestId, TurnId>>()
@@ -791,8 +796,13 @@ private class ExecutorHost(
         terminalFailure?.let { throw it }
     }
     override suspend fun isWorktree(id: String) = isIsolated
-    override suspend fun openTurn(id: String, settings: RunSettings): ActiveSession {
+    override suspend fun openTurn(
+        id: String,
+        settings: RunSettings,
+        preselected: Map<String, Set<String>>,
+    ): ActiveSession {
         openCount++
+        opened += preselected
         events += "open"
         openFailure?.let { throw it }
         return active

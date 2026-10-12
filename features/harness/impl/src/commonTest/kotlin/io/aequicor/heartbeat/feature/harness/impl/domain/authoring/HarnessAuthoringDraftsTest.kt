@@ -2,11 +2,9 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.authoring
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
-import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.HarnessApproval
 import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
-import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
 import kotlinx.serialization.json.JsonArray
@@ -28,7 +26,6 @@ class HarnessAuthoringDraftsTest {
             parseCreate(args("name" to "compose_ui", "title" to "Compose UI")),
         ).value
         assertEquals("compose_ui", parsed.name.value)
-        assertEquals(AuthoringScope.Attached, parsed.scope)
         assertTrue(parsed.isAttached)
     }
 
@@ -39,15 +36,25 @@ class HarnessAuthoringDraftsTest {
             args("name" to "ok_name", "title" to "line\nbreak"),
             args("name" to "ok_name", "title" to "T", "extra" to "secret-ish"),
             args("name" to "ok_name", "title" to "T", "scope" to "galaxy"),
+            args("name" to "ok_name", "title" to "T", "scope" to ""),
+            buildJsonObject {
+                put("name", "ok_name")
+                put("title", "T")
+                put("scope", true)
+            },
         ).forEach { arguments ->
             val invalid = assertIs<Parsed.Invalid>(parseCreate(arguments))
             assertFalse(invalid.message.contains("secret-ish"))
         }
+        assertIs<Parsed.Valid<AuthoringCommand.Create>>(
+            parseCreate(args("name" to "ok_name", "title" to "T", "scope" to "attached")),
+        )
     }
 
     @Test
     fun `update requires at least one change`() {
         assertIs<Parsed.Invalid>(parseUpdate(args("harness" to "compose_ui")))
+        assertIs<Parsed.Invalid>(parseUpdate(args("harness" to "compose_ui", "scope" to "attached")))
         val update = assertIs<Parsed.Valid<AuthoringCommand.Update>>(
             parseUpdate(args("harness" to "compose_ui", "description" to "")),
         ).value
@@ -206,21 +213,6 @@ class HarnessAuthoringDraftsTest {
         assertTrue(off.hasRestrictions && !off.hasNativeOn)
         assertTrue(on.hasNativeOn && !on.hasRestrictions)
         assertTrue(ToolPolicySpec(hostedOff = setOf("web_search")).hasRestrictions)
-    }
-
-    @Test
-    fun `a scope is wider when it covers a chat the other one does not`() {
-        val a = HarnessScope.Projects(setOf(WorkspaceRef("a")))
-        val ab = HarnessScope.Projects(setOf(WorkspaceRef("a"), WorkspaceRef("b")))
-        assertTrue(HarnessScope.Profile.isWiderThan(HarnessScope.Attached))
-        assertTrue(HarnessScope.Profile.isWiderThan(ab))
-        assertTrue(a.isWiderThan(HarnessScope.Attached))
-        assertTrue(ab.isWiderThan(a))
-        assertTrue(HarnessScope.Projects(setOf(WorkspaceRef("b"))).isWiderThan(a))
-        assertFalse(a.isWiderThan(ab))
-        assertFalse(ab.isWiderThan(HarnessScope.Profile))
-        assertFalse(HarnessScope.Attached.isWiderThan(a))
-        assertFalse(HarnessScope.Profile.isWiderThan(HarnessScope.Profile))
     }
 
     private fun args(vararg values: Pair<String, String>): JsonObject =

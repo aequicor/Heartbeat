@@ -247,8 +247,6 @@ private class SnapshotLibrary(private val machine: StubLibraryMachine) : Harness
     override suspend fun ready(): HarnessState.Ready? = current
 
     override suspend fun submit(intent: HarnessIntent.Command): LibraryOutcome = error("Unused")
-
-    override suspend fun sourceProject(workspace: WorkspaceRef?): WorkspaceRef? = workspace
 }
 
 /** Admits every start into its journal so the launch is confirmed. */

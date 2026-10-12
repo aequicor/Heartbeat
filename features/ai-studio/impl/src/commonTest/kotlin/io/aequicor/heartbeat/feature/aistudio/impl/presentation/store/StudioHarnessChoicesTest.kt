@@ -13,9 +13,9 @@ class StudioHarnessChoicesTest {
     private val state = AiStudioScreenState(
         harnessChoices = HarnessChoicesUi(
             options = persistentListOf(
-                StudioHarness("everywhere", "Everywhere", isProfile = true, projects = emptySet()),
-                StudioHarness("project", "Project", isProfile = false, projects = setOf("heartbeat")),
-                StudioHarness("chosen", "Chosen", isProfile = false, projects = emptySet()),
+                StudioHarness("compose", "Compose"),
+                StudioHarness("verify", "Verify"),
+                StudioHarness("chosen", "Chosen"),
             ),
             chats = persistentMapOf("chat" to persistentSetOf("chosen")),
             panes = persistentMapOf(1 to persistentSetOf("chosen")),
@@ -23,26 +23,25 @@ class StudioHarnessChoicesTest {
     )
 
     @Test
-    fun `a chat shows its connections and harnesses active by scope as permanent`() {
-        val choices = state.harnessChoices(PaneUi(0, sessionId = "chat"), projectId = null)
+    fun `a chat selects only connected harnesses`() {
+        val choices = state.harnessChoices(PaneUi(0, sessionId = "chat"))
         assertEquals(
             listOf(
-                HarnessChoiceUi("everywhere", "Everywhere", isSelected = true, isPermanent = true),
-                HarnessChoiceUi("project", "Project", isSelected = false, isPermanent = false),
-                HarnessChoiceUi("chosen", "Chosen", isSelected = true, isPermanent = false),
+                HarnessChoiceUi("compose", "Compose", isSelected = false),
+                HarnessChoiceUi("verify", "Verify", isSelected = false),
+                HarnessChoiceUi("chosen", "Chosen", isSelected = true),
             ),
             choices.toList(),
         )
     }
 
     @Test
-    fun `a new chat shows the choice kept on its pane and its project's harnesses`() {
-        val choices = state.harnessChoices(PaneUi(1), projectId = "heartbeat")
-        assertEquals(listOf(true, true, true), choices.map { it.isSelected })
-        assertEquals(listOf(true, true, false), choices.map { it.isPermanent })
+    fun `a new chat selects only the choice kept on its pane`() {
+        val choices = state.harnessChoices(PaneUi(1))
+        assertEquals(listOf(false, false, true), choices.map { it.isSelected })
 
-        val otherPane = state.harnessChoices(PaneUi(2), projectId = null)
-        assertEquals(listOf("everywhere"), otherPane.filter { it.isSelected }.map { it.id })
+        val otherPane = state.harnessChoices(PaneUi(2))
+        assertEquals(emptyList(), otherPane.filter { it.isSelected }.map { it.id })
     }
 
     @Test

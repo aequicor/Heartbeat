@@ -6,5 +6,6 @@
     <string name="settings_section_feature_flags">Feature flags</string>
     <string name="settings_section_computer_use">Computer use</string>
     <string name="settings_section_agent_learning">Self-learning</string>
+    <string name="settings_section_context">Context</string>
     <string name="settings_section_harness">Harness</string>
 </resources>

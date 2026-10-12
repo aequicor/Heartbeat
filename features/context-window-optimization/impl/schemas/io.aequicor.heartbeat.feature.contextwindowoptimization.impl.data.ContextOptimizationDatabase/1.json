@@ -1,0 +1,148 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "d5268b940b2eda764219e4b48e00eac4",
+    "entities": [
+      {
+        "tableName": "ledgers",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`session` TEXT NOT NULL, `ledger` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, `hb_created_at` INTEGER NOT NULL, `hb_expires_at` INTEGER, `hb_event` TEXT, PRIMARY KEY(`session`))",
+        "fields": [
+          {
+            "fieldPath": "session",
+            "columnName": "session",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ledger",
+            "columnName": "ledger",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "retention.createdAt",
+            "columnName": "hb_created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "retention.expiresAt",
+            "columnName": "hb_expires_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "retention.event",
+            "columnName": "hb_event",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "session"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_ledgers_hb_expires_at",
+            "unique": false,
+            "columnNames": [
+              "hb_expires_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ledgers_hb_expires_at` ON `${TABLE_NAME}` (`hb_expires_at`)"
+          },
+          {
+            "name": "index_ledgers_updatedAt",
+            "unique": false,
+            "columnNames": [
+              "updatedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ledgers_updatedAt` ON `${TABLE_NAME}` (`updatedAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "outputs",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `session` TEXT NOT NULL, `tool` TEXT NOT NULL, `text` TEXT NOT NULL, `chars` INTEGER NOT NULL, `hb_created_at` INTEGER NOT NULL, `hb_expires_at` INTEGER, `hb_event` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "session",
+            "columnName": "session",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tool",
+            "columnName": "tool",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "text",
+            "columnName": "text",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "chars",
+            "columnName": "chars",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "retention.createdAt",
+            "columnName": "hb_created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "retention.expiresAt",
+            "columnName": "hb_expires_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "retention.event",
+            "columnName": "hb_event",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_outputs_hb_expires_at",
+            "unique": false,
+            "columnNames": [
+              "hb_expires_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_outputs_hb_expires_at` ON `${TABLE_NAME}` (`hb_expires_at`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'd5268b940b2eda764219e4b48e00eac4')"
+    ]
+  }
+}

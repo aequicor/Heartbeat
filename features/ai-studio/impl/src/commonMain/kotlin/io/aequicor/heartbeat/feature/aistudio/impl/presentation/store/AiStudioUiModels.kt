@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPane
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.ContextNoticeKind
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.LearningAction
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEnvironment
@@ -151,6 +152,9 @@ sealed interface ReplyPartUi {
     data class Tool(val tool: ToolUi) : ReplyPartUi {
         override val id: String get() = tool.id
     }
+
+    /** [count] tool calls of the reply shown as one line while the feed collapses agent work. */
+    data class CollapsedTools(override val id: String, val count: Int, val isRunning: Boolean) : ReplyPartUi
 }
 
 /** Screen-level class of a failed run, mirroring the domain failure kind. */
@@ -187,10 +191,17 @@ sealed interface MessageUi {
         val parts: ImmutableList<ReplyPartUi> = persistentListOf(),
         override val isTimestampKnown: Boolean = true,
         val checklistIds: ImmutableList<String> = persistentListOf(),
-    ) : MessageUi
+    ) : MessageUi {
+        /** How this instance looks in a collapsed feed, computed once per settings; not part of equality. */
+        internal val collapseMemo: CollapseMemo = CollapseMemo()
+    }
 
     /** The user stopped the run after [elapsed]. */
     data class Stopped(override val id: String, override val createdAt: Instant, val elapsed: Duration) : MessageUi
+
+    /** A context divider: compacted, or continued in a new session. */
+    data class ContextNotice(override val id: String, override val createdAt: Instant, val isRollover: Boolean) :
+        MessageUi
 
     /** The run failed. */
     data class Failed(
@@ -272,6 +283,8 @@ internal fun StudioMessage.toUi(): MessageUi = when (this) {
     is StudioMessage.Stopped -> MessageUi.Stopped(id, createdAt, elapsed)
 
     is StudioMessage.Failed -> MessageUi.Failed(id, createdAt, FailureUi.valueOf(kind.name))
+
+    is StudioMessage.ContextNotice -> MessageUi.ContextNotice(id, createdAt, kind == ContextNoticeKind.RolledOver)
 }
 
 private fun StudioToolRun.toUi(): ToolUi = ToolUi(
@@ -314,6 +327,6 @@ data class HarnessChoicesUi(
     val failedChats: ImmutableSet<String> = persistentSetOf(),
 )
 
-/** One harness of a pane's "+" menu; [isPermanent] ones are active by scope and cannot be toggled. */
+/** One harness of a pane's "+" menu. */
 @Immutable
-data class HarnessChoiceUi(val id: String, val title: String, val isSelected: Boolean, val isPermanent: Boolean)
+data class HarnessChoiceUi(val id: String, val title: String, val isSelected: Boolean)

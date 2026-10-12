@@ -40,7 +40,6 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -149,7 +148,7 @@ internal class CodexSession(
         if (request.parts.any { it !is ContentPart.Text }) runtime.models(target.binding)
         val prepared = codexPromptInputs(request, runtime.inputSupport(target.model), runtime.host.resources)
         ensureReadyForPolicy()
-        validateReasoningEffort(request)
+        runtime.validateReasoningEffort(target, request)
         submission.ensureAllowed()
         execution.prepare()
         submission.ensureAllowed()
@@ -178,14 +177,6 @@ internal class CodexSession(
 
     private fun auditReopened(thread: JsonObject) {
         nativeHistory.audit(thread, nativeTurns.keys)
-    }
-
-    private suspend fun validateReasoningEffort(request: PromptRequest) {
-        val effort = request.reasoningEffort ?: return
-        val model = runtime.models(target.binding).firstOrNull { it.target == target }
-        if (effort !in model?.reasoningEfforts.orEmpty()) {
-            fail(EngineFailure.Request(RequestFailureReason.Invalid, request.id))
-        }
     }
 
     suspend fun cancel(turn: TurnId) {
@@ -315,7 +306,6 @@ internal class CodexSession(
         submission.ensureAllowed()
         trust = effect.request.trust ?: TrustLevel.Ask
         val prepared = inputs.remove(effect.turn.id) ?: protocolFailure()
-        val input = JsonArray(prepared.parts)
         val origin = connection
         // A refused admission is already reported once with its reason; it settles as a proven rejection.
         journal.admit(effect.turn, trust, origin.rpc.processOwner(), submission.settled)?.let {
@@ -325,11 +315,12 @@ internal class CodexSession(
         confirmSubmission(effect)
         submission.nativeMayStart(origin)
         isActiveExecutionOwned = true
-        val response = origin.rpc.request(
-            "turn/start",
-            codexTurnParams(ref.nativeId, target.model.value, input, effect.request.reasoningEffort),
-        )
-        val id = response.obj("turn").text("id") ?: protocolFailure()
+        // A compaction learns its native turn from turn/started (see correlate).
+        origin.rpc.startTurn(ref.nativeId, target.model.value, prepared, effect.request.reasoningEffort)
+            ?.let { bind(effect, submission, it) }
+    }
+
+    private suspend fun bind(effect: ActiveSessionEffect.Submit, submission: CodexSubmission, id: String) {
         journal.bind(effect.turn.id, id)
         nativeTurns[id] = effect.turn.id
         if (submission.isStopRequested) return

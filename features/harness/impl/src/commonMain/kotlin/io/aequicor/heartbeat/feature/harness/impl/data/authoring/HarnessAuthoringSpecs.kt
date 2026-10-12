@@ -12,7 +12,6 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 
 // Declared before the specifications: file-level values initialize in source order.
-private val ATTACH_SCOPES = listOf("attached", "profile", "project")
 private val ITEM_KINDS = listOf("skill", "instruction", "template", "script", "workflow")
 
 /**
@@ -28,22 +27,16 @@ internal val HARNESS_AUTHORING_SPECS = listOf(
             text("name", "Immutable slug [a-z][a-z0-9_]{1,19}, e.g. compose_ui")
             text("title", "Short single-line title")
             text("description", "When the harness applies, single line")
-            choice(
-                "scope",
-                "attached (default): only connected chats; profile: everywhere; project: this project",
-                ATTACH_SCOPES,
-            )
             flag("attach", "Connect the harness to this chat (default true)")
         },
     ),
     AgentToolSpec(
         HarnessTools.UPDATE,
-        "Change the title, description or permanent scope of a harness. The slug never changes.",
+        "Change the title or description of a harness. The slug never changes.",
         schema(required = listOf("harness")) {
             text("harness", "Harness slug")
             text("title", "New single-line title")
             text("description", "New single-line description; empty clears it")
-            choice("scope", "attached, profile or project (the source project of this chat)", ATTACH_SCOPES)
         },
     ),
     AgentToolSpec(
@@ -109,7 +102,7 @@ internal val HARNESS_AUTHORING_SPECS = listOf(
 internal val HARNESS_READ_SPECS = listOf(
     AgentToolSpec(
         HarnessTools.LIST,
-        "List harnesses of the profile with scope, state and which are active or only restrict here.",
+        "List harnesses of the profile with state and which are active or only restrict here.",
         schema(),
     ),
     AgentToolSpec(

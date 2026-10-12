@@ -148,7 +148,7 @@ private class FakeStudioHarnesses : StudioHarnesses {
     var isConfirmed = true
 
     override val choices = flowOf(
-        StudioHarnessChoices(listOf(StudioHarness("compose", "Compose", isProfile = false, projects = emptySet()))),
+        StudioHarnessChoices(listOf(StudioHarness("compose", "Compose"))),
     )
 
     override suspend fun connect(session: SessionRef, harness: String, isSelected: Boolean): Boolean {

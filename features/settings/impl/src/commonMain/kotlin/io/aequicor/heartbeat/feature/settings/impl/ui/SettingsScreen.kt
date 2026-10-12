@@ -48,6 +48,7 @@ import io.aequicor.heartbeat.feature.settings.impl.resources.Res
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_back
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_agent_learning
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_computer_use
+import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_context
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_feature_flags
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_harness
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_models
@@ -252,6 +253,7 @@ private fun sectionTitle(section: SettingsSectionUi): String = stringResource(
         SettingsSectionUi.Search -> Res.string.settings_section_search
         SettingsSectionUi.ComputerUse -> Res.string.settings_section_computer_use
         SettingsSectionUi.AgentLearning -> Res.string.settings_section_agent_learning
+        SettingsSectionUi.Context -> Res.string.settings_section_context
         SettingsSectionUi.Harness -> Res.string.settings_section_harness
         SettingsSectionUi.FeatureFlags -> Res.string.settings_section_feature_flags
     },
@@ -262,6 +264,7 @@ private fun SettingsSectionUi.icon(): ImageVector = when (this) {
     SettingsSectionUi.Search -> HbIcons.Search
     SettingsSectionUi.ComputerUse -> HbIcons.Layers
     SettingsSectionUi.AgentLearning -> HbIcons.Sparkles
+    SettingsSectionUi.Context -> HbIcons.Minimize
     SettingsSectionUi.Harness -> HbIcons.Code
     SettingsSectionUi.FeatureFlags -> HbIcons.Sliders
 }

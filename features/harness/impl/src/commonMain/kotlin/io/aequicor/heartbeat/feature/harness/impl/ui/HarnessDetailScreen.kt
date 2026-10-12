@@ -1,7 +1,6 @@
 package io.aequicor.heartbeat.feature.harness.impl.ui
 
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -10,16 +9,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import io.aequicor.heartbeat.ds.components.HbBadge
 import io.aequicor.heartbeat.ds.components.HbBanner
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonSize
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
-import io.aequicor.heartbeat.ds.components.HbChoiceRow
 import io.aequicor.heartbeat.ds.components.HbDialog
 import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbIcon
@@ -44,10 +39,8 @@ import io.aequicor.heartbeat.feature.harness.impl.presentation.ItemRowUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.ItemStatusUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.MetaDraftUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.PhaseUi
-import io.aequicor.heartbeat.feature.harness.impl.presentation.ProjectChoiceUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.RunStatusUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.RunUi
-import io.aequicor.heartbeat.feature.harness.impl.presentation.ScopeUi
 import io.aequicor.heartbeat.feature.harness.impl.resources.Res
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_attachments
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_attachments_hint
@@ -70,7 +63,6 @@ import io.aequicor.heartbeat.feature.harness.impl.resources.harness_kind_templat
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_kind_workflow
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_limit
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_meta_title
-import io.aequicor.heartbeat.feature.harness.impl.resources.harness_no_projects
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_run_cancel
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_run_status_cancelled
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_run_status_cancelling
@@ -82,13 +74,6 @@ import io.aequicor.heartbeat.feature.harness.impl.resources.harness_run_waiting
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_runs
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_save
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_save_failed
-import io.aequicor.heartbeat.feature.harness.impl.resources.harness_scope
-import io.aequicor.heartbeat.feature.harness.impl.resources.harness_scope_attached
-import io.aequicor.heartbeat.feature.harness.impl.resources.harness_scope_attached_hint
-import io.aequicor.heartbeat.feature.harness.impl.resources.harness_scope_profile
-import io.aequicor.heartbeat.feature.harness.impl.resources.harness_scope_profile_hint
-import io.aequicor.heartbeat.feature.harness.impl.resources.harness_scope_projects_hint
-import io.aequicor.heartbeat.feature.harness.impl.resources.harness_scope_projects_title
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_status_activating
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_status_active
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_status_failed
@@ -105,7 +90,7 @@ import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import pro.respawn.flowmvi.dsl.collect
 
-/** One harness: switch, metadata, scope, connected chats, items, tools and workflow runs. */
+/** One harness: switch, metadata, connected chats, items, tools and workflow runs. */
 @Composable
 internal fun HarnessDetailScreen(
     model: HarnessDetailModel,
@@ -146,7 +131,6 @@ internal fun HarnessDetailContent(
         }
         if (!phaseItems(state.phase)) return@HarnessPane
         item(key = "header") { HeaderSection(state, onIntent) }
-        item(key = "scope") { ScopeSection(state.scope, state.projects, onIntent) }
         if (state.attachments.isNotEmpty()) {
             item(key = "attachments") { AttachmentsSection(state.attachments, onIntent) }
         }
@@ -215,51 +199,6 @@ private fun HeaderSection(
                 style = HbButtonStyle.Ghost,
                 size = HbButtonSize.Small,
             )
-        }
-    }
-}
-
-@Composable
-private fun ScopeSection(
-    scope: ScopeUi,
-    projects: ImmutableList<ProjectChoiceUi>,
-    onIntent: (HarnessDetailIntent) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    HbSettingsSection(stringResource(Res.string.harness_scope), modifier.selectableGroup().testTag("harness-scope")) {
-        ScopeUi.entries.forEachIndexed { index, option ->
-            if (index > 0) HbDivider()
-            val isSelected = option == scope
-            HbSettingsRow(
-                stringResource(option.title()),
-                Modifier.fillMaxWidth().semantics { selected = isSelected }.testTag("harness-scope-${option.name}"),
-                description = stringResource(option.hint()),
-                onClick = { onIntent(HarnessDetailIntent.SelectScope(option)) },
-                enabled = option != ScopeUi.Projects || projects.isNotEmpty(),
-                isSelected = isSelected,
-                role = Role.RadioButton,
-            ) {
-                if (isSelected) HbIcon(HbIcons.Check, contentDescription = null)
-            }
-        }
-        if (projects.isEmpty()) {
-            HbText(
-                stringResource(Res.string.harness_no_projects),
-                style = HbTheme.typography.caption,
-                color = HbTheme.colors.textSecondary,
-            )
-        } else if (scope == ScopeUi.Projects) {
-            projects.forEach { project ->
-                key(project.key) {
-                    HbChoiceRow(
-                        project.name,
-                        project.isSelected,
-                        isMultiple = true,
-                        { onIntent(HarnessDetailIntent.ToggleProject(project.key)) },
-                        Modifier.fillMaxWidth().testTag("harness-project-${project.key}"),
-                    )
-                }
-            }
         }
     }
 }
@@ -447,18 +386,6 @@ internal fun ItemKindUi.title(): StringResource = when (this) {
     ItemKindUi.Workflow -> Res.string.harness_kind_workflow
 }
 
-private fun ScopeUi.title(): StringResource = when (this) {
-    ScopeUi.Attached -> Res.string.harness_scope_attached
-    ScopeUi.Profile -> Res.string.harness_scope_profile
-    ScopeUi.Projects -> Res.string.harness_scope_projects_title
-}
-
-private fun ScopeUi.hint(): StringResource = when (this) {
-    ScopeUi.Attached -> Res.string.harness_scope_attached_hint
-    ScopeUi.Profile -> Res.string.harness_scope_profile_hint
-    ScopeUi.Projects -> Res.string.harness_scope_projects_hint
-}
-
 private fun ItemStatusUi.label(): Pair<StringResource, HbTone>? = when (this) {
     ItemStatusUi.None, ItemStatusUi.Disabled -> null
     ItemStatusUi.Unsupported -> Res.string.harness_status_unsupported to HbTone.Neutral
@@ -482,8 +409,6 @@ private val previewState = HarnessDetailState(
     title = "Compose UI",
     description = "Native Compose screens with the design system",
     isEnabled = true,
-    scope = ScopeUi.Projects,
-    projects = persistentListOf(ProjectChoiceUi("p", "Heartbeat", isSelected = true)),
     attachments = persistentListOf(AttachmentUi("a", "claude · 7f3a91c2")),
     items = persistentListOf(
         ItemRowUi("1", "tokens", ItemKindUi.Instruction, "Use only tokens", true, ItemStatusUi.None),

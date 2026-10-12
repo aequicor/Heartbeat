@@ -24,7 +24,9 @@ git status --porcelain
 
 - Android-специфичный код: `./gradlew :<module>:compileAndroidMain` (или `:<module>:testAndroidHostTest`).
 - Приложения: `./gradlew :platform-main:desktop:compileKotlin` / `:platform-main:android:assembleDebug`.
-- iOS-таргеты компилируются только на macOS: `./gradlew :<module>:compileKotlinIosSimulatorArm64`. На Windows — явно сообщи, что iOS не проверен.
+- iOS-таргеты компилируются только на macOS: `./gradlew :<module>:compileKotlinIosSimulatorArm64`. На Windows — если
+  изменён iOS- или common-код, собери затронутые модули в CI (`module-build.yml` с `os=macos-15`, раздел «CI» в `AGENTS.md`),
+  иначе явно сообщи, что iOS не проверен.
 
 ## 3. Lint
 
@@ -65,6 +67,7 @@ python scripts/check_commit_size.py --base <base-ref> --head HEAD
 
 Для изменений только Python-инструмента, workflow и документации Gradle-проверки не нужны;
 выполни `python -m unittest discover -s scripts/tests -v` и проверку размера изменений.
+Изменённые workflow — по `.claude/rules/ci.md`. `verify` выполняется локально до push: CI его не заменяет.
 
 ## 6. Отчёт
 

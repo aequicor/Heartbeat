@@ -11,8 +11,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedResource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import kotlinx.serialization.json.JsonObject
 
-/** Transient native serialization; original opaque parts are persisted separately. */
-internal data class CodexPromptInputs(val parts: List<JsonObject>) {
+/**
+ * Transient native serialization; original opaque parts are persisted separately. A compaction has no input and
+ * starts with `thread/compact/start` instead of `turn/start`.
+ */
+internal data class CodexPromptInputs(val parts: List<JsonObject>, val isCompaction: Boolean = false) {
     override fun toString(): String = "CodexPromptInputs(redacted)"
 }
 
@@ -21,6 +24,7 @@ internal suspend fun codexPromptInputs(
     support: PromptInputSupport,
     resolver: ResourceResolver,
 ): CodexPromptInputs {
+    if (request.compaction != null) return CodexPromptInputs(emptyList(), isCompaction = true)
     if (request.parts.count { it !is ContentPart.Text } > support.maxAttachments) unsupportedCodexInput(request)
     val text = mutableListOf<String>()
     val images = mutableListOf<JsonObject>()

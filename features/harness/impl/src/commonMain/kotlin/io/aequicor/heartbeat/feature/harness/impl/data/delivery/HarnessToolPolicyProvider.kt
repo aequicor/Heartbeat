@@ -7,20 +7,28 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPolicyProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
+import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
+import io.aequicor.heartbeat.feature.harness.api.HarnessTools
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessActiveAccess
 
 /**
  * Preserves Off dominance across harnesses, independent of order. Restrictions (Off, hosted_off) come from every
  * applicable harness, uncapped, so that harnesses sorting earlier by name cannot displace a restricting one; On
  * switches come only from the capped active set (the name-ordered prefix). Catalog/gated/native-toggle checks
- * remain in the facade resolver. Resolution errors propagate: only declaration callers may use defaults.
+ * remain in the facade resolver. Resolution errors propagate: only declaration callers may use defaults. A session
+ * being opened, without a ref yet, follows the harnesses its creator preselected.
  */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
 internal class HarnessToolPolicyProvider(private val access: Lazy<HarnessActiveAccess>) : AgentToolPolicyProvider {
     override suspend fun policy(scope: ToolPolicyScope): ToolPolicy? {
-        val applicable = access.value.applicable(scope.workspace, scope.session)
+        val chosen = scope.preselected[HarnessTools.GROUP].takeIf { scope.session == null }.orEmpty()
+        val applicable = if (chosen.isNotEmpty()) {
+            access.value.opening(chosen.mapTo(hashSetOf(), ::HarnessId))
+        } else {
+            access.value.applicable(scope.workspace, scope.session)
+        }
         if (applicable.isEmpty()) return null
         // The active set is the name-ordered prefix of the same snapshot, so both come from one resolution.
         val active = applicable.take(HarnessLimits.ACTIVE_PER_SESSION).mapTo(hashSetOf()) { it.id }

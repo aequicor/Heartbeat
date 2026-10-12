@@ -61,7 +61,9 @@ internal class SessionHookHandle(
     suspend fun prepare(request: PromptRequest, turn: Turn): PromptRequest {
         val bound = context.copy(request = request.id, turn = turn.id)
         val text = request.parts.filterIsInstance<ContentPart.Text>().joinToString("\n") { it.text }
-        val addition = if (text.startsWith('/')) null else hooks.preparePrompt(bound, text, contextRevision())
+        // Commands and compactions are not conversation: nothing is added to them.
+        val isCommand = request.compaction != null || text.startsWith('/')
+        val addition = if (isCommand) null else hooks.preparePrompt(bound, text, contextRevision())
         lock.withLock { turns[turn.id] = OwnedTurn(bound, addition = addition) }
         hooks.bindTurn(bound)
         // A host directive: the engine reads it, history and handoff strip it, and hook text cannot forge one.

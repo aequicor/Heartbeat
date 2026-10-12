@@ -8,25 +8,21 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.HarnessMutation
-import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.applicableHarnesses
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
-import io.aequicor.heartbeat.feature.worktreemode.api.sourceProjectOf
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
 /**
  * Session-workspace evidence comes only from trusted facade callbacks, never script arguments or event payload.
  * Open/Closed notifications are lossy and therefore do not grant or revoke authority here; the facade already
- * checks owner and accepted-turn lifetime. Every read resolves current library/project snapshots again.
+ * checks owner and accepted-turn lifetime. Every read resolves the current library snapshot again. A connected
+ * session still needs a remembered route: the trusted callback, not the connection alone, anchors its authority.
  * Every trusted entry point remembers its route before reading it, so the proof cache is bounded: the oldest
  * known routes are forgotten first, while a conflict is kept as long as any known route can be evicted instead.
  */
 internal class HarnessSessionProofs(
     private val library: () -> HarnessState,
-    private val worktrees: () -> WorktreeState?,
-    private val knownProjects: () -> Set<WorkspaceRef>?,
     private val hasPublished: () -> Boolean = { true },
 ) : HarnessSessionAdmission {
     private val sessions = MutableStateFlow<Map<SessionRef, SessionWorkspaceProof>>(emptyMap())
@@ -52,7 +48,7 @@ internal class HarnessSessionProofs(
 
     override fun allows(harness: HarnessId, session: SessionRef): Boolean = harness in selected(session).active
 
-    /** Only certainly covering harnesses: an unknown source project never admits a project-scoped hook. */
+    /** Only explicitly connected harnesses with a trusted session route can restrict tool calls. */
     override fun restricts(harness: HarnessId, session: SessionRef): Boolean = harness in selected(session).applicable
 
     /**
@@ -70,36 +66,13 @@ internal class HarnessSessionProofs(
         val harnesses = ready.harnesses.map { it.harness }.filter {
             it.isEnabled && ready.pending[it.id] !is HarnessMutation.Remove
         }
-        if (harnesses.isEmpty()) return SessionSelection(isResolved = true)
-        val proof = sessions.value[session] as? SessionWorkspaceProof.Known ?: return SessionSelection()
-        val source = sourceProject(proof.workspace)
-        val attached = ready.attachments[session].orEmpty()
-        val project = (source as? SourceProjectProof.Known)?.workspace
-        val applicable = applicableHarnesses(harnesses, ready.attachments, session, project)
-            .mapTo(linkedSetOf()) { it.id }
-        val known = applicable.take(HarnessLimits.ACTIVE_PER_SESSION).toSet()
-        val possible = harnesses.filter { it.scope is HarnessScope.Projects && it.id !in attached }
-        return if (source != SourceProjectProof.Unknown || possible.isEmpty()) {
-            SessionSelection(known, applicable, isResolved = true)
-        } else {
-            // Unknown project candidates can displace only later names; certain earlier hooks still apply.
-            val certain = (harnesses.filter { it.id in known } + possible).asSequence().distinctBy { it.id }
-                .sortedBy { it.name.value }.take(HarnessLimits.ACTIVE_PER_SESSION).mapTo(linkedSetOf()) { it.id }
-            SessionSelection(known.intersect(certain), applicable)
+        if (harnesses.isEmpty() || ready.attachments[session].isNullOrEmpty()) {
+            return SessionSelection(isResolved = true)
         }
-    }
-
-    private fun sourceProject(workspace: WorkspaceRef?): SourceProjectProof {
-        if (workspace == null) return SourceProjectProof.Known(null)
-        val restored = worktrees() as? WorktreeState.Ready
-        val mapped = restored?.sourceProjectOf(workspace)
-        // A checkout can be promoted into the ordinary catalog without removing its durable worktree mapping.
-        return when {
-            restored == null -> SourceProjectProof.Unknown
-            mapped != null -> SourceProjectProof.Known(mapped)
-            knownProjects()?.contains(workspace) == true -> SourceProjectProof.Known(workspace)
-            else -> SourceProjectProof.Unknown
-        }
+        if (sessions.value[session] !is SessionWorkspaceProof.Known) return SessionSelection()
+        val applicable = applicableHarnesses(harnesses, ready.attachments, session).mapTo(linkedSetOf()) { it.id }
+        val active = applicable.take(HarnessLimits.ACTIVE_PER_SESSION).toSet()
+        return SessionSelection(active, applicable, isResolved = true)
     }
 }
 
@@ -117,13 +90,6 @@ private sealed interface SessionWorkspaceProof {
         override fun toString(): String = "SessionWorkspaceProof.Known(***)"
     }
     data object Conflicting : SessionWorkspaceProof
-}
-
-private sealed interface SourceProjectProof {
-    data class Known(val workspace: WorkspaceRef?) : SourceProjectProof {
-        override fun toString(): String = "SourceProjectProof.Known(***)"
-    }
-    data object Unknown : SourceProjectProof
 }
 
 private data class SessionSelection(

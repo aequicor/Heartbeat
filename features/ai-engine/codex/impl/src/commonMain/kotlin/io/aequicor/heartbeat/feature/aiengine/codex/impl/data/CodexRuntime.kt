@@ -238,6 +238,7 @@ internal class CodexRuntime(
         request.target,
         request.workspace,
         request.areDetachedToolsEnabled,
+        request.preselected,
     )
 
     override suspend fun attach(ref: SessionRef, request: ResumeSessionRequest): ActiveSession {
@@ -260,6 +261,7 @@ internal class CodexRuntime(
         target: EngineTarget,
         workspace: WorkspaceRef?,
         areDetachedToolsEnabled: Boolean,
+        preselected: Map<String, Set<String>> = emptyMap(),
     ): ActiveSession = withContext(dispatchers.main) {
         nativeId?.let { resumeStop(it, target, workspace) }
         commands.withLock {
@@ -279,7 +281,7 @@ internal class CodexRuntime(
                 ensureOpen()
                 existing.lease().also { existing.recheck() }
             } else {
-                openNative(nativeId, target, route, areDetachedToolsEnabled)
+                openNative(nativeId, target, route, areDetachedToolsEnabled, preselected)
             }
         }
     }
@@ -311,8 +313,9 @@ internal class CodexRuntime(
         target: EngineTarget,
         route: ExecutionRoute,
         areDetachedToolsEnabled: Boolean,
+        preselected: Map<String, Set<String>>,
     ): ActiveSession {
-        val request = threads.request(nativeId, target, route, areDetachedToolsEnabled)
+        val request = threads.request(nativeId, target, route, areDetachedToolsEnabled, preselected)
         val connection = openConnection(request.off)
         var attached: CodexSession? = null
         var isTransferred = false

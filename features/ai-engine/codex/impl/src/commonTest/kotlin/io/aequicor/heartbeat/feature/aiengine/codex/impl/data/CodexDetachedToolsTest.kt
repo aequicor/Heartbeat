@@ -48,6 +48,20 @@ class CodexDetachedToolsTest {
     }
 
     @Test
+    fun `a new thread declares its tools for the choices its creator made before it existed`() = runTest {
+        val tools = ScopedTools(listOf("remember"))
+        val fixture = Fixture(this, tools = tools)
+        val chosen = mapOf("harness" to setOf("compose"))
+        val request = CreateSessionRequest(fixture.target, areDetachedToolsEnabled = true, preselected = chosen)
+        fixture.runtime.create(request)
+        assertEquals(chosen, tools.scopes.last().preselected)
+        assertNull(tools.scopes.last().session)
+        // The process and native policy of the new thread follow the same choices.
+        assertTrue(tools.policyScopes.any { it.preselected == chosen && it.session == null })
+        fixture.runtime.close()
+    }
+
+    @Test
     fun `chat thread opens without detached tools when a contribution fails`() = runTest {
         val failingSpecifications = object : ProfileAgentTools by ScopedTools(listOf("remember")) {
             override suspend fun specifications(scope: AgentToolScope): List<AgentToolSpec> =
@@ -116,7 +130,11 @@ class CodexDetachedToolsTest {
 }
 
 private class ScopedTools(private val names: List<String>) : ProfileAgentTools {
-    override suspend fun nativeToolsForExecution(scope: ToolPolicyScope): ResolvedToolPolicy = ResolvedToolPolicy()
+    val policyScopes = mutableListOf<ToolPolicyScope>()
+    override suspend fun nativeToolsForExecution(scope: ToolPolicyScope): ResolvedToolPolicy {
+        policyScopes += scope
+        return ResolvedToolPolicy()
+    }
 
     val scopes = mutableListOf<AgentToolScope>()
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =

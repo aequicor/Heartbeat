@@ -7,7 +7,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.looksLikeSecret
 import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.HarnessName
-import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.isHarnessInputSchema
@@ -17,9 +16,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.contract
-
-/** Permanent scope chosen by the agent; "project" always means the source project of the calling session. */
-internal enum class AuthoringScope { Attached, Profile, Project }
 
 /** Kinds of agent-authored items; code kinds always require a user decision. */
 internal enum class ItemKind(val key: String, val isCode: Boolean) {
@@ -54,22 +50,12 @@ internal data class ItemDraft(
 
 /** One parsed authoring call; harness references are slugs resolved against the committed library. */
 internal sealed interface AuthoringCommand {
-    data class Create(
-        val name: HarnessName,
-        val title: String,
-        val description: String,
-        val scope: AuthoringScope,
-        val isAttached: Boolean,
-    ) : AuthoringCommand {
+    data class Create(val name: HarnessName, val title: String, val description: String, val isAttached: Boolean) :
+        AuthoringCommand {
         override fun toString(): String = "Create(name=$name, ***)"
     }
 
-    data class Update(
-        val harness: HarnessName,
-        val title: String?,
-        val description: String?,
-        val scope: AuthoringScope?,
-    ) : AuthoringCommand {
+    data class Update(val harness: HarnessName, val title: String?, val description: String?) : AuthoringCommand {
         override fun toString(): String = "Update(harness=$harness, ***)"
     }
 
@@ -117,22 +103,14 @@ internal fun HarnessItem.kind(): ItemKind = when (this) {
     is HarnessItem.Workflow -> ItemKind.Workflow
 }
 
-/** Scope as shown in questions and reads; project references are host paths, never model input. */
-internal fun HarnessScope.label(): String = when (this) {
-    HarnessScope.Attached -> "connected chats only"
-    HarnessScope.Profile -> "whole profile"
-    is HarnessScope.Projects -> "projects: " + projects.joinToString { it.value }
-}
-
 internal fun parseCreate(arguments: JsonObject): Parsed<AuthoringCommand.Create> = parsing {
     only(arguments, "name", "title", "description", "scope", "attach")
     AuthoringCommand.Create(
         harnessName(arguments.text("name")),
         line(arguments.text("title"), "title", TITLE_CHARS, isRequired = true),
         line(arguments.text("description"), "description", DESCRIPTION_CHARS, isRequired = false),
-        scope(arguments.text("scope") ?: "attached"),
         arguments.flag("attach") ?: true,
-    )
+    ).also { attachedOnly(arguments) }
 }
 
 internal fun parseUpdate(arguments: JsonObject): Parsed<AuthoringCommand.Update> = parsing {
@@ -141,11 +119,9 @@ internal fun parseUpdate(arguments: JsonObject): Parsed<AuthoringCommand.Update>
         harnessName(arguments.text("harness")),
         arguments.text("title")?.let { line(it, "title", TITLE_CHARS, isRequired = true) },
         arguments["description"]?.let { line(arguments.text("description"), "description", DESCRIPTION_CHARS, false) },
-        arguments.text("scope")?.let(::scope),
     )
-    argument(command.title != null || command.description != null || command.scope != null) {
-        "nothing to change: pass title, description or scope"
-    }
+    attachedOnly(arguments)
+    argument(command.title != null || command.description != null) { "nothing to change: pass title or description" }
     command
 }
 
@@ -283,11 +259,15 @@ private fun itemName(value: String?): ItemName {
     return ItemName(value)
 }
 
-private fun scope(value: String): AuthoringScope = when (value) {
-    "attached" -> AuthoringScope.Attached
-    "profile" -> AuthoringScope.Profile
-    "project" -> AuthoringScope.Project
-    else -> invalid("scope must be attached, profile or project")
+/**
+ * The schemas no longer offer `scope`; an off-schema value other than the only remaining `attached` is refused
+ * instead of being ignored, so an agent never believes a harness became active without a connection.
+ */
+private fun attachedOnly(arguments: JsonObject) {
+    val scope = arguments["scope"] ?: return
+    argument(arguments.raw("scope")?.trim() == "attached" && scope is JsonPrimitive) {
+        "only attached scope is supported; connect this harness to a chat"
+    }
 }
 
 private fun line(value: String?, field: String, limit: Int, isRequired: Boolean): String {

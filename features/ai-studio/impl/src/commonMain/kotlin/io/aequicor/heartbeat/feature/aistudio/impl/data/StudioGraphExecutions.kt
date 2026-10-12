@@ -19,9 +19,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RestoresSessionTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskPhase
 import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskResult
@@ -134,11 +136,9 @@ internal class StudioGraphExecutions(
     ): io.aequicor.heartbeat.feature.aistudio.api.RunSettings {
         val records = chats.get(ChatsKey).orEmpty()
         val record = records.first { it.id == chatId }
-        val parent = records.firstOrNull { it.ref == request.parent }
-        val parentSettings = parent?.let { runtime.state.value.configurations[it.id]?.applied ?: it.configuration }
-        val base = runtime.defaults()
-        val defaults = parentSettings?.let { base.copy(approval = it.approval) } ?: base
-        return hostRunSettings(record, runtime.state.value.configurations[chatId]?.applied, defaults, request.target)
+        val configurations = runtime.state.value.configurations
+        val defaults = records.graphDefaults(request.parent, configurations, runtime.defaults())
+        return hostRunSettings(record, configurations[chatId]?.applied, defaults, request.target)
     }
 
     /** Cancellation is acknowledged only after native terminal state, including after a profile restart. */
@@ -308,3 +308,17 @@ private fun SpawnRequest.graphAttempt(chat: String, checkpoint: String?, previou
         recoveryRoot = previousExecution ?: prompt.request.value,
         causes = causes + prompt.causes,
     )
+
+/**
+ * Defaults of a graph assignment: the approval of the chat that owns [parent], also after that chat continued in a new
+ * native session, so a rollover never trades the parent's approval for the profile default.
+ */
+internal fun List<StudioChatRecord>.graphDefaults(
+    parent: SessionRef,
+    configurations: Map<String, StudioSessionConfiguration>,
+    base: io.aequicor.heartbeat.feature.aistudio.api.RunSettings,
+): io.aequicor.heartbeat.feature.aistudio.api.RunSettings {
+    val owner = firstOrNull { it.owns(parent) } ?: return base
+    val approval = (configurations[owner.id]?.applied ?: owner.configuration)?.approval ?: return base
+    return base.copy(approval = approval)
+}

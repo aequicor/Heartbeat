@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NoticeKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
@@ -224,6 +225,8 @@ internal class CodexHistory : SessionHistory {
                 buildJsonObject { put("query", native.text("query").orEmpty()) }.toString(),
                 if (isStarted) ToolCallStatus.Running else ToolCallStatus.Succeeded,
             )
+
+            "contextCompaction" -> SessionItem.Notice(info, COMPACTED_NOTICE, NoticeKind.ContextCompacted)
 
             else -> SessionItem.UnsupportedItem(info, kind?.take(MAX_KIND_LENGTH) ?: "unknown")
         }

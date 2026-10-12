@@ -39,6 +39,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAttachmentPreview
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAttachmentPreviews
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioCompactionPort
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
@@ -748,6 +749,7 @@ class AiStudioModelTest {
         initial: AiStudioState,
         repository: StudioRepository = InMemoryStudioRepository(TestClock(scope)),
         harnesses: StudioHarnesses = StudioHarnesses.None,
+        compactions: StudioCompactionPort = StudioCompactionPort.None,
         assists: io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists =
             object : io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists {
                 override suspend fun suggest(
@@ -784,6 +786,7 @@ class AiStudioModelTest {
                 override fun observe(resources: List<ResourceRef>) = flowOf(emptyMap<String, StudioAttachmentPreview>())
             },
             harnesses = harnesses,
+            compactions = compactions,
         )
 
         suspend fun subscribe(): Provider<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction> {

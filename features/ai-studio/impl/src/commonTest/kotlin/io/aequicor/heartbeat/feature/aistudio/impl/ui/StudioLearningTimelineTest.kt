@@ -25,6 +25,9 @@ class StudioLearningTimelineTest {
         FailureLabels("Failed"),
         DurationLabels("%1\$d s", "%1\$d min %2\$d s"),
         learning = LearningLabels("New instruction", "Learned skill", "General", "Model", "Skill"),
+        compacted = "Context compacted",
+        rolledOver = "Continued in a new session",
+        collapsedTools = "Tool calls: %1\$d",
     )
 
     @Test

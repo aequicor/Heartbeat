@@ -11,6 +11,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import io.aequicor.heartbeat.ds.components.HbButton
+import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbComposerUsageButton
 import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbProgressBar
@@ -23,6 +25,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.UsageCredi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.UsageWindowUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_all_models
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_compact
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_context
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_credits
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_expires
@@ -63,12 +66,38 @@ internal fun StudioUsage(content: PaneContent, onIntent: (AiStudioScreenIntent) 
         modifier = Modifier.testTag("usage-${content.pane.id}"),
         accessibleLabel = accessible,
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(HbTheme.spacing.l)) {
-            if (context != null) ContextDetails(context)
-            if (context != null && provider != null) HbDivider()
-            if (provider != null) ProviderDetails(provider, content.calendar)
+        UsageDetails(content, context, provider) {
+            isOpen = false
+            onIntent(AiStudioScreenIntent.CompactContext(content.pane.id))
         }
     }
+}
+
+@Composable
+private fun UsageDetails(
+    content: PaneContent,
+    context: ContextUsageUi?,
+    provider: ProviderUsageUi?,
+    onCompact: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(HbTheme.spacing.l)) {
+        if (context != null) ContextDetails(context)
+        if (content.isCompactOffered) CompactButton(content, onCompact)
+        if (context != null && provider != null) HbDivider()
+        if (provider != null) ProviderDetails(provider, content.calendar)
+    }
+}
+
+/** Compacts the chat's context; disabled while the chat runs. */
+@Composable
+private fun CompactButton(content: PaneContent, onClick: () -> Unit) {
+    HbButton(
+        text = stringResource(Res.string.usage_compact),
+        onClick = onClick,
+        style = HbButtonStyle.Secondary,
+        enabled = content.isCompactReady,
+        modifier = Modifier.testTag("compact-${content.pane.id}"),
+    )
 }
 
 @Composable

@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarness
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessAttach
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessChoices
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolChoices
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
@@ -23,8 +24,8 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessMachineKey
 import io.aequicor.heartbeat.feature.harness.api.HarnessMutation
 import io.aequicor.heartbeat.feature.harness.api.HarnessOutput
 import io.aequicor.heartbeat.feature.harness.api.HarnessRejection
-import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
+import io.aequicor.heartbeat.feature.harness.api.HarnessTools
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -73,13 +74,7 @@ internal class MachineStudioHarnesses(private val machines: MachineRegistry, pri
                 .filter { it.isEnabled && ready.pending[it.id] !is HarnessMutation.Remove }
                 .sortedBy { it.name.value }
                 .map { harness ->
-                    StudioHarness(
-                        harness.id.value,
-                        harness.title,
-                        isProfile = harness.scope == HarnessScope.Profile,
-                        projects = (harness.scope as? HarnessScope.Projects)?.projects.orEmpty()
-                            .mapTo(mutableSetOf()) { it.value },
-                    )
+                    StudioHarness(harness.id.value, harness.title)
                 }.toList(),
             attached = ready.attachments.mapValues { (_, ids) -> ids.mapTo(mutableSetOf()) { it.value } },
         )
@@ -107,6 +102,9 @@ internal class MachineStudioHarnesses(private val machines: MachineRegistry, pri
         claims.update { current -> (current - submissionId + (submissionId to harnesses)).newest() }
         log.d { "New chat submission claims its harness choice count=${harnesses.size}" }
     }
+
+    override fun preselected(submissionId: String): ToolChoices =
+        claims.value[submissionId]?.let { mapOf(HarnessTools.GROUP to it) }.orEmpty()
 
     override fun release(submissionId: String) {
         if (submissionId !in claims.value) return

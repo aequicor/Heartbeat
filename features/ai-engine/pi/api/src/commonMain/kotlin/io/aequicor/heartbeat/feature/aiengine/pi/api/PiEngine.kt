@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CompactsContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibleProtocol
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
@@ -62,6 +63,7 @@ public val PiDescriptor: EngineDescriptor = EngineDescriptor(
         RequestsPermissions.id,
         AppliesTrustLevels.id,
         ChangesSessionConfiguration.id,
+        CompactsContext.id,
         ListsComposerAssists.id,
     ),
     connectionMethods = listOf(

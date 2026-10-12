@@ -10,7 +10,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CompactsContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
@@ -232,12 +234,16 @@ class ManagedActiveSession(
 
     private inner class Sender : SendsPrompts {
         override suspend fun send(request: PromptRequest): TurnId {
-            log.i { "send request=${request.id.value} parts=${request.parts.size} trust=${request.trust ?: "default"}" }
+            log.i {
+                "send request=${request.id.value} parts=${request.parts.size} trust=${request.trust ?: "default"}" +
+                    if (request.compaction != null) " compaction" else ""
+            }
             val isTrustApplied = parts.native.features.resolve(AppliesTrustLevels) != FeatureAccess.Unsupported
             if (request.trust != null && !isTrustApplied) {
                 log.w { "trust level refused: engine=${ref.engine.value} does not apply trust levels" }
                 fail(InvalidRequest)
             }
+            request.compaction?.let { compaction -> checkCompaction(compaction.instructions != null) }
             val model = (parts.native.features.resolve(ChangesSessionConfiguration) as? FeatureAccess.Available)
                 ?.feature?.configuration?.value?.model ?: currentModel.value
             policy.beforeTurn(route, model)
@@ -258,6 +264,27 @@ class ManagedActiveSession(
                 val prepared = hookHandle?.prepare(request, turn) ?: request
                 submit(prepared, turn)
             }
+        }
+    }
+
+    /** Refuses a compaction the native session cannot run, before any turn is bound. */
+    private fun checkCompaction(hasInstructions: Boolean) {
+        val compacts = when (val access = parts.native.features.resolve(CompactsContext)) {
+            is FeatureAccess.Available -> access.feature
+
+            is FeatureAccess.Unavailable -> {
+                log.w { "compaction refused: engine=${ref.engine.value} failure=${access.reason.code}" }
+                fail(access.reason)
+            }
+
+            FeatureAccess.Unsupported -> {
+                log.w { "compaction refused: engine=${ref.engine.value} does not compact context" }
+                fail(EngineFailure.Engine(EngineFailureReason.UnsupportedCapability))
+            }
+        }
+        if (hasInstructions && !compacts.isInstructionsSupported) {
+            log.w { "compaction instructions refused: engine=${ref.engine.value}" }
+            fail(InvalidRequest)
         }
     }
 

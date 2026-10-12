@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CompactsContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -417,7 +418,8 @@ internal class ClaudeSession(
             providerSearch = route.workspace == null,
         )
         val gated = requestedFlags.native.intersect(ClaudeNativeCatalog.filter { it.isGated }.map { it.name }.toSet())
-        val native = if (gated.isNotEmpty()) nativeWorkspace() else null
+        // A compaction runs no tools: it never needs the native gate.
+        val native = if (gated.isNotEmpty() && request.compaction == null) nativeWorkspace() else null
         val flags = if (native == null) requestedFlags.copy(native = requestedFlags.native - gated) else requestedFlags
         val arguments = claudeArguments(
             target.model,
@@ -708,6 +710,7 @@ internal class ClaudeSession(
             CancelsTurns to this,
             RequestsPermissions to this,
             AppliesTrustLevels to this,
+            CompactsContext to ClaudeCompactsContext,
         )
 
         override suspend fun cancel(turn: TurnId) {
@@ -767,6 +770,7 @@ internal class ClaudeSession(
 }
 
 private fun promptText(request: PromptRequest): String {
+    request.compaction?.let { return claudeCompactPrompt(it) }
     if (request.parts.any { it !is ContentPart.Text }) {
         throw EngineException(EngineFailure.Request(RequestFailureReason.UnsupportedContent, request.id))
     }

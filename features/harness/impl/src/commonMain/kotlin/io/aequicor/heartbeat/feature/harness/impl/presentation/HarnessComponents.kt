@@ -10,7 +10,6 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.core.navigation.Navigator
-import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.harness.api.HarnessDetailRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessItemRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessToolsRoute
@@ -63,11 +62,10 @@ internal class HarnessDetailComponent(
     @Assisted harness: String,
     machine: Lazy<HarnessMachine>,
     runs: Lazy<HarnessRunsMachine>,
-    workspaces: LocalWorkspaces,
     factory: HeartbeatStoreFactory,
 ) : ComponentContext by context {
     val model: HarnessDetailModel = instanceKeeper.getOrCreate(MODEL_KEY) {
-        Retained(HarnessDetailModel(harness, machine.value, runs.value, workspaces, factory, screen.coroutineScope))
+        Retained(HarnessDetailModel(harness, machine.value, runs.value, factory, screen.coroutineScope))
     }.model
 
     /** Navigation of this entry; the model only requests it through actions. */

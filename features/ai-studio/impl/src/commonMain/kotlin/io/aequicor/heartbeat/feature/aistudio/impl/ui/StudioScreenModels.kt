@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.attachmentSupport
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.collapsed
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.selectedNative
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
@@ -96,6 +97,7 @@ internal data class PaneContent(
     val attachments: ImmutableList<AttachmentUi> = persistentListOf(),
     val isAttachmentsEnabled: Boolean = false,
     val isRememberEnabled: Boolean = false,
+    val isCompactEnabled: Boolean = false,
     val isOrganismEnabled: Boolean = false,
     val harnesses: ImmutableList<HarnessChoiceUi> = persistentListOf(),
     val isHarnessFailed: Boolean = false,
@@ -108,6 +110,12 @@ internal data class PaneContent(
     val suggestions: io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ComposerSuggestionsUi? = null,
     val caretRequest: ComposerCaretRequestUi? = null,
 ) {
+    /** The chat exists and compaction is enabled, so the pane offers it. */
+    val isCompactOffered: Boolean get() = isCompactEnabled && pane.sessionId != null
+
+    /** The chat is offered compaction and is idle, so its context can be compacted now. */
+    val isCompactReady: Boolean get() = isCompactOffered && session?.isRunning != true
+
     /** A descendant view has no execution controls; root ownership remains unchanged. */
     val isNativeChild: Boolean get() = nativeTree?.sessions?.any {
         it.key == subSession &&
@@ -132,13 +140,12 @@ internal data class SidebarInput(
 
 /**
  * Harness choices of a pane: a chat shows its committed connections, a new chat the choice kept on its pane.
- * Harnesses active by profile or project scope are shown selected and cannot be toggled.
+ * Only explicit connections are selected, regardless of a harness's stored legacy scope.
  */
-internal fun AiStudioScreenState.harnessChoices(pane: PaneUi, projectId: String?): ImmutableList<HarnessChoiceUi> {
+internal fun AiStudioScreenState.harnessChoices(pane: PaneUi): ImmutableList<HarnessChoiceUi> {
     val selected = if (pane.sessionId != null) harnessChoices.chats[pane.sessionId] else harnessChoices.panes[pane.id]
     return harnessChoices.options.map { harness ->
-        val isPermanent = harness.isProfile || (projectId != null && projectId in harness.projects)
-        HarnessChoiceUi(harness.id, harness.title, isPermanent || selected?.contains(harness.id) == true, isPermanent)
+        HarnessChoiceUi(harness.id, harness.title, selected?.contains(harness.id) == true)
     }.toImmutableList()
 }
 
@@ -159,7 +166,7 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         session = session,
         project = project(pane.projectId ?: session?.projectId),
         projects = projects,
-        transcript = transcriptOf(pane.sessionId, session),
+        transcript = transcriptOf(pane.sessionId, session)?.collapsed(feedCollapse),
         isFocused = pane.id == focusedPaneId,
         isStopping = session != null && session.id in stopping,
         elapsed = if (session?.isRunning == true) startedAt?.let { (now - it).coerceAtLeast(Duration.ZERO) } else null,
@@ -167,8 +174,9 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         attachments = attachments(pane.id),
         isAttachmentsEnabled = isAttachmentsEnabled,
         isRememberEnabled = isRememberEnabled,
+        isCompactEnabled = isCompactEnabled,
         isOrganismEnabled = isOrganismEnabled,
-        harnesses = harnessChoices(pane, session?.projectId ?: pane.projectId),
+        harnesses = harnessChoices(pane),
         isHarnessFailed = harnessChoices.isFailed(pane.sessionId),
         organism = organism,
         subSession = selectedSubSession(pane.sessionId, session),
