@@ -15,7 +15,11 @@ public enum class CompactionStrategy {
     Auto,
 }
 
-/** The way one compaction runs. */
+/**
+ * The way one compaction runs. With [ContinuationBriefEnabled] a rollover first asks the old session for a handoff
+ * summary and seeds the new one with the [continuationBrief]; after a native compaction the next turn carries the
+ * brief without the summary.
+ */
 @Serializable
 public enum class CompactionMethod { Native, Rollover }
 
