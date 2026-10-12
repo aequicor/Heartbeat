@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -72,12 +73,14 @@ public data class HbComposerSuggestions(
  * menus this popup is not focusable: arrows, Enter, Tab and Escape stay editor keys handled by
  * [composerSuggestionKeys] before the send shortcut, so accepting a suggestion never sends the draft.
  * Outside clicks and scrolls reach the editor and the content beneath; the composer hides the list once
- * the editor loses focus.
+ * the editor loses focus. A heavyweight native surface (an embedded browser page) may not take that focus,
+ * so the list always shows a close button labelled [closeLabel] as well.
  */
 @Composable
 internal fun ComposerSuggestionsPopup(
     suggestions: HbComposerSuggestions,
     label: String,
+    closeLabel: String,
     onDismiss: () -> Unit,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
@@ -107,13 +110,21 @@ internal fun ComposerSuggestionsPopup(
                 .semantics { paneTitle = label }
                 .background(HbTheme.colors.surfaceElevated, HbTheme.shapes.large)
                 .hbPopupSurface(HbTheme.colors.surface, HbTheme.shapes.medium)
-                .hbVerticalScroll(rememberScrollState())
                 .padding(HbTheme.spacing.s),
             gap = HbTheme.spacing.xs,
         ) {
-            suggestions.items.forEachIndexed { index, item ->
-                if (item.sectionLabel != null) ComposerSectionLabel(item.sectionLabel)
-                SuggestionRow(item, onClick = { onSelect(index) }, modifier = Modifier.fillMaxWidth())
+            HbRow(modifier = Modifier.fillMaxWidth()) {
+                Spacer(Modifier.weight(1f))
+                HbIconButton(HbIcons.Close, closeLabel, onDismiss)
+            }
+            HbColumn(
+                modifier = Modifier.weight(1f, fill = false).hbVerticalScroll(rememberScrollState()),
+                gap = HbTheme.spacing.xs,
+            ) {
+                suggestions.items.forEachIndexed { index, item ->
+                    if (item.sectionLabel != null) ComposerSectionLabel(item.sectionLabel)
+                    SuggestionRow(item, onClick = { onSelect(index) }, modifier = Modifier.fillMaxWidth())
+                }
             }
         }
     }

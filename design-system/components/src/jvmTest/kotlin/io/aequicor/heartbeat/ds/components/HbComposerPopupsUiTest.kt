@@ -18,7 +18,9 @@ import androidx.compose.ui.input.pointer.PointerButtons
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SkikoComposeUiTest
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.unit.dp
@@ -54,7 +56,7 @@ class HbComposerPopupsUiTest {
         val host = PopupHost()
         setPopup(host) { onDismiss ->
             val suggestions = HbComposerSuggestions(persistentListOf(HbComposerSuggestion("help", "/help")))
-            ComposerSuggestionsPopup(suggestions, "Suggestions", onDismiss, {})
+            ComposerSuggestionsPopup(suggestions, "Suggestions", "Close suggestions", onDismiss, {})
         }
         CORNERS.forEachIndexed { index, point ->
             host.isOpen = true
@@ -67,6 +69,23 @@ class HbComposerPopupsUiTest {
                 assertEquals(index + 1, host.dismissed)
                 assertEquals(false, host.isOpen)
             }
+        }
+    }
+
+    @Test
+    fun `the suggestion list always offers a close button`() = runSkikoComposeUiTest(size = Size(WIDTH, HEIGHT)) {
+        val host = PopupHost()
+        setPopup(host) { onDismiss ->
+            val suggestions = HbComposerSuggestions(persistentListOf(HbComposerSuggestion("help", "/help")))
+            ComposerSuggestionsPopup(suggestions, "Suggestions", "Close suggestions", onDismiss, {})
+        }
+        host.isOpen = true
+        waitForIdle()
+        onNodeWithContentDescription("Close suggestions").assertExists().performClick()
+        runOnIdle {
+            assertEquals(1, host.dismissed)
+            assertEquals(0, host.underlyingClicks)
+            assertEquals(false, host.isOpen)
         }
     }
 

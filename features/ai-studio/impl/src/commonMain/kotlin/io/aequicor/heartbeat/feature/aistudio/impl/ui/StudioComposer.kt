@@ -63,6 +63,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_placeholde
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_send
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_stop
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_suggestions
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_suggestions_close
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.connect_model_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_high
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_low
@@ -156,6 +157,7 @@ internal fun StudioComposer(
         inputModifier = Modifier.focusRequester(focus),
         suggestions = composerSuggestions(content),
         suggestionsLabel = stringResource(Res.string.composer_suggestions),
+        suggestionsCloseLabel = stringResource(Res.string.composer_suggestions_close),
         onSuggestionMove = { delta -> onIntent(AiStudioScreenIntent.Suggestions.MoveSuggestion(pane.id, delta)) },
         onSuggestionAccept = { index -> onIntent(AiStudioScreenIntent.Suggestions.AcceptSuggestion(pane.id, index)) },
         onSuggestionsDismiss = { onIntent(AiStudioScreenIntent.Suggestions.DismissSuggestions(pane.id)) },
