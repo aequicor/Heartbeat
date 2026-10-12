@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import build_runtime
 import publish_draft
 
 
@@ -14,7 +15,7 @@ class DraftReleaseTest(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
-        version = "152.0.6-hb1"
+        version = json.loads((build_runtime.HERE / "source-lock.json").read_text())["artifactVersion"]
         digest = hashlib.sha256(b"fixture").hexdigest()
         api = {"file": f"jcef-api-{version}.jar", "sha256": digest}
         natives = {target: {"file": f"jcef-natives-{target}-{version}.jar", "sha256": digest}
@@ -49,7 +50,7 @@ class DraftReleaseTest(unittest.TestCase):
         gh.assert_not_called()
 
     def test_candidate_version_must_be_explicitly_selected(self):
-        with patch("sys.argv", self.arguments + ["--version", "152.0.6-hb2"]), \
+        with patch("sys.argv", self.arguments + ["--version", "152.0.6-hb99"]), \
                 patch.object(publish_draft, "gh") as gh:
             with self.assertRaisesRegex(ValueError, "Unexpected release version"):
                 publish_draft.main()
@@ -58,18 +59,20 @@ class DraftReleaseTest(unittest.TestCase):
     def test_explicit_candidate_creates_new_tag_without_overwriting_old_release(self):
         path = self.directory / "source-lock.json"
         lock = json.loads(path.read_text())
-        lock["artifactVersion"] = "152.0.6-hb2"
+        old_version = lock["artifactVersion"]
+        candidate_version = "152.0.6-hb99"
+        lock["artifactVersion"] = candidate_version
         for artifact in [lock["apiArtifact"], *lock["nativeArtifacts"].values()]:
-            renamed = artifact["file"].replace("hb1", "hb2")
+            renamed = artifact["file"].replace(old_version, candidate_version)
             (self.directory / artifact["file"]).rename(self.directory / renamed)
             artifact["file"] = renamed
         path.write_text(json.dumps(lock))
         responses = [subprocess.CompletedProcess([], 1, "", "release not found"),
                      subprocess.CompletedProcess([], 0, "candidate release", "")]
-        with patch("sys.argv", self.arguments + ["--version", "152.0.6-hb2"]), \
+        with patch("sys.argv", self.arguments + ["--version", candidate_version]), \
                 patch.object(publish_draft, "gh", side_effect=responses) as gh:
             publish_draft.main()
-        self.assertEqual("152.0.6-hb2", gh.call_args.args[2])
+        self.assertEqual(candidate_version, gh.call_args.args[2])
         self.assertNotIn("--clobber", gh.call_args.args)
 
     def test_existing_release_with_different_checksums_is_never_overwritten(self):

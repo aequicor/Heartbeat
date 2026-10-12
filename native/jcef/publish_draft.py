@@ -16,7 +16,7 @@ def main():
     parser.add_argument("--artifacts", type=Path, required=True)
     parser.add_argument("--repository", required=True)
     parser.add_argument("--commit", required=True)
-    parser.add_argument("--version", default="152.0.6-hb1", help="Exact release approved for this workflow")
+    parser.add_argument("--version", default="152.0.6-hb2", help="Exact release approved for this workflow")
     options = parser.parse_args()
     directory = options.artifacts.resolve()
     lock = json.loads((directory / "source-lock.json").read_text())

@@ -4,13 +4,9 @@ Heartbeat builds Java-CEF `17e805ad387d89839fdd2b864466b6510b2a783c` with CEF
 `152.0.6+g708dc14+chromium-152.0.7977.83`. `source-lock.json` pins the source and
 SHA-256 of `request-context-settings.patch`. Upstream files retain their BSD license.
 
-The workflow currently stages **152.0.6-hb2** using `source-lock-hb2.json` and
-`request-context-settings-hb2.patch`. The canonical lock and application stay on
-the published hb1 until hb2 passes all native probes and its immutable artifacts
-are published. Pass `--source-lock native/jcef/source-lock-hb2.json --patch
-native/jcef/request-context-settings-hb2.patch` to every `build_runtime.py`
-command to reproduce the candidate. Its jars, archive resource tags and draft
-release all use hb2; source inputs create an independent native build cache.
+The published **152.0.6-hb2** release is pinned by this source lock and by Gradle
+verification metadata. It contains the matching Java API and native libraries
+for all four desktop targets. The previous hb1 release remains immutable.
 
 hb2 fixes a confirmed macOS use-after-free in queued visibility updates and the
 same resize/close race: Swing paint previously read NSView before dispatching to
@@ -96,16 +92,16 @@ behavior or replace Heartbeat's actual Compose/native UI checks.
 
 Each matrix job uploads `jcef-<target>` containing two jars and a platform manifest.
 The collection job requires all four targets, rejects inconsistent API jars and
-mismatched checksums/source versions, then uploads `jcef-release-152.0.6-hb1`:
+mismatched checksums/source versions, then uploads `jcef-release-152.0.6-hb2`:
 
-- `jcef-api-152.0.6-hb1.jar`
-- `jcef-natives-<target>-152.0.6-hb1.jar` for each target
+- `jcef-api-152.0.6-hb2.jar`
+- `jcef-natives-<target>-152.0.6-hb2.jar` for each target
 - `SHA256SUMS`, `runtime-manifest.json`, and completed `source-lock.json`
 
 The native jar contains a tar.gz resource named exactly as jcefmaven expects:
 `jcef-natives-<target>-<release_tag>.tar.gz`. Both API `build_meta.json` and native
 metadata use the unique release tag
-`jcef-17e805a+cef-152.0.6+g708dc14+chromium-152.0.7977.83+heartbeat-hb1`.
+`jcef-17e805a+cef-152.0.6+g708dc14+chromium-152.0.7977.83+heartbeat-hb2`.
 This prevents reuse of an unpatched extraction cache. Native archives include
 resources, locales, helper executables/apps and licenses. macOS symlinks and
 executable modes are preserved. Jar entries and archive timestamps are normalized;
@@ -113,9 +109,9 @@ CI checks that all four shared API builds are byte-identical.
 
 The workflow creates a draft prerelease after all four native probes and collection
 checks pass. Publication follows inspection of the verified five jars and
-manifests as immutable assets of the GitHub release tag `152.0.6-hb1`. Copy the
+manifests as immutable assets of the GitHub release tag `152.0.6-hb2`. Copy the
 completed source lock into this directory, and pin actual jar hashes in Gradle
-verification metadata. Coordinates are `io.aequicor.heartbeat.jcef:<artifact>:152.0.6-hb1`;
+verification metadata. Coordinates are `io.aequicor.heartbeat.jcef:<artifact>:152.0.6-hb2`;
 Gradle consumes release assets using an Ivy artifact pattern. JOGL/gluegen Java
 API dependencies remain explicit dependencies of the application.
 

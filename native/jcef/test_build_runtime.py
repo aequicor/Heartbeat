@@ -14,6 +14,7 @@ import build_runtime as runtime
 
 class RuntimePackagingTest(unittest.TestCase):
     def setUp(self):
+        runtime.select_inputs(runtime.HERE / "source-lock.json", runtime.HERE / "request-context-settings.patch")
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -24,26 +25,44 @@ class RuntimePackagingTest(unittest.TestCase):
         path.write_bytes(data)
         return path
 
+    def test_cli_defaults_select_the_canonical_lock_before_packaging(self):
+        canonical_version = runtime.lock()["artifactVersion"]
+        with patch.object(runtime, "VERSION", "unselected-bootstrap"), \
+                patch.object(runtime, "package") as package, \
+                patch("sys.argv", ["build_runtime.py", "package", "--target", "windows-amd64"]):
+            package.side_effect = lambda *args: self.assertEqual(canonical_version, runtime.VERSION)
+            runtime.main()
+            package.assert_called_once()
+
     def test_candidate_inputs_use_separate_version_cache_and_native_resource(self):
         previous = {name: getattr(runtime, name) for name in
                     ("SOURCE_LOCK", "PATCH_FILE", "VERSION", "RELEASE_TAG")}
         self.addCleanup(lambda: [setattr(runtime, name, value) for name, value in previous.items()])
         old_key = runtime.cache_key()
         canonical_bytes = runtime.SOURCE_LOCK.read_bytes()
-        runtime.select_inputs(runtime.HERE / "source-lock-hb2.json",
-                              runtime.HERE / "request-context-settings-hb2.patch")
-        self.assertEqual("152.0.6-hb2", runtime.VERSION)
-        self.assertTrue(runtime.RELEASE_TAG.endswith("+heartbeat-hb2"))
+        candidate_lock, candidate_patch = self.candidate_inputs()
+        runtime.select_inputs(candidate_lock, candidate_patch)
+        self.assertEqual("152.0.6-hb99", runtime.VERSION)
+        self.assertTrue(runtime.RELEASE_TAG.endswith("+heartbeat-hb99"))
         self.assertNotEqual(old_key, runtime.cache_key())
         self.assertEqual({}, runtime.lock()["nativeArtifacts"])
         self.assertEqual(canonical_bytes, previous["SOURCE_LOCK"].read_bytes())
 
     def test_candidate_rejects_patch_mismatch_without_changing_active_inputs(self):
         previous = runtime.SOURCE_LOCK
+        candidate_lock, _ = self.candidate_inputs()
         with self.assertRaisesRegex(ValueError, "differs from selected source lock"):
-            runtime.select_inputs(runtime.HERE / "source-lock-hb2.json",
-                                  runtime.HERE / "request-context-settings.patch")
+            runtime.select_inputs(candidate_lock, runtime.PATCH_FILE)
         self.assertEqual(previous, runtime.SOURCE_LOCK)
+
+    def candidate_inputs(self):
+        candidate = json.loads(runtime.SOURCE_LOCK.read_text())
+        candidate.update(artifactVersion="152.0.6-hb99", nativeArtifacts={})
+        candidate.pop("apiArtifact", None)
+        patch_file = self.write("candidate.patch", runtime.PATCH_FILE.read_bytes() + b"\n")
+        candidate["patchSha256"] = runtime.sha256(patch_file)
+        lock_file = self.write("candidate.json", json.dumps(candidate).encode())
+        return lock_file, patch_file
 
     def test_windows_archive_matches_jcefmaven_resource_and_is_reproducible(self):
         source = self.root / "source"
