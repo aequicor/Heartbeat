@@ -74,7 +74,9 @@ class ServiceUiIntegrationTest {
                 assertEquals(setOf(host), disabled.hosts.keys)
             }
         }
-        assertEquals(access.serviceUiProviders.map { it.kind }.toSet().size, access.serviceUiProviders.size)
+        val kinds = access.serviceUiProviders.map { it.kind }
+        assertEquals(kinds.toSet().size, kinds.size)
+        assertTrue("harness" in kinds, kinds.toString())
         app.profileSessions.close()
     }
 }

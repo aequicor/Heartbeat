@@ -25,6 +25,7 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
 | Доставка скиллов/инструкций, политика инструментов | `harness/impl/data/delivery` |
 | Экраны настроек | `harness/impl/presentation`, `ui`; раздел — `settings` (`SettingsSection.Harness`) |
 | Подключение из чата («+», чипы) | `ai-studio/impl` (`MachineStudioHarnesses`, `StudioTurnExecutor`) |
+| UI-методы для интерфейсов service-as-ui (`ui.method`) | `harness/api/script/ScriptUi.kt`; `impl/domain/runtime/HarnessUiDispatch.kt` (`connectedAdmission`); провайдер `impl/data/serviceui/HarnessServiceUiProvider.kt` |
 | Хуки сессий, политика, гейт нативных вызовов | `ai-engine/facade:{api,impl}` (`SessionHooks`, `ToolPolicy`, `authorizeNative`) |
 
 ## Правила
@@ -60,6 +61,11 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
   `HarnessSessionAdmission.restricts`) — пустые харнессы с ранними именами не вытесняют ограничения.
 - Харнесс не может выключить инструменты `harness_*` и `hs_*` (иначе агент не починит харнесс).
 - Одобрение скрипта покрывает его запуски workflow и помощников; помощники получают доверие Ask и общие квоты.
+- UI-методы (`ui.method`) вызывает нажатие пользователя в интерфейсах service-as-ui, без хода агента; одобрение кода
+  их покрывает. Допуск в чате — подключение включённого харнесса к этому чату (`connectedAdmission`, сессию передаёт
+  доверенный хост), без чата — работающая активация. `ScriptUiResult.Error` и слишком большой результат не считаются
+  сбоем скрипта, исключение — считается. Харнесс — владелец поверхностей через `HarnessServiceUiProvider`: полный
+  снимок владельцев только в Ready (не suspended, не reloading, тогл включён), иначе поверхности не удаляются.
 - Логи: никогда не логируются исходники, тексты, payload, wake note, диагностика компилятора и сообщения
   исключений скриптов — только класс исключения. Частые события — `log.v` и `@HighFrequency`.
 - UI (`impl/ui`) не импортирует `harness:api`: только презентационные модели (`presentation/HarnessUiModels.kt`).
