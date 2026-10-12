@@ -69,6 +69,9 @@ internal interface StudioConfigurationAccess {
     suspend fun validateConfigurationTarget(target: EngineTarget)
     fun configurationModels(): List<StudioModel>
     fun configurationState(id: String, state: StudioSessionConfiguration)
+
+    /** The next turn accepted the essence of the previous session or the continuation brief after compaction. */
+    suspend fun consumeSeed(id: String) = Unit
 }
 
 /** Applies profile-owned changes independently of the screen and publishes correlated feedback. */
@@ -84,6 +87,9 @@ internal class StudioConfigurationController(
     private val lock = Mutex()
     private val changing = mutableSetOf<String>()
     private val observed = mutableMapOf<String, ConfigurationObservation>()
+
+    /** Sessions whose configuration no longer is their chat's: see [retire]. */
+    private val retired = mutableMapOf<String, ActiveSession>()
     private val reports = mutableMapOf<String, FeedbackRecord>()
     private val published = mutableSetOf<String>()
 
@@ -133,6 +139,7 @@ internal class StudioConfigurationController(
             ?: SessionConfiguration(target.model)
         val requested = change.feedback(target, actual)
         if (change.matches(target, actual)) return null
+        val stored = actual
         val operation = Uuid.random().toString()
         val report = FeedbackRecord(
             id = operation,
@@ -157,13 +164,19 @@ internal class StudioConfigurationController(
             } else {
                 applyIdle(access, session, selected, actual, nativeChange)
             }
+            // Without a stored configuration the chat has no trust of its own to keep.
+            val isStored = record.configuration != null
+            if (isStored && keepsChatTrust(id, session, nativeChange)) actual = actual.copy(trust = stored.trust)
             val confirmedTarget = target.copy(model = actual.model)
             val settings = actual.studio(confirmedTarget)
             // Reflect the native acknowledgement even if persisting the preference subsequently fails.
             access.configurationState(id, StudioSessionConfiguration(settings, operation))
             publish(report.copy(revision = 1, outcome = FeedbackOutcome.Applied(actual)))
             persist(access, id, settings)
-            val latest = capability?.configuration?.value ?: actual
+            val native = capability?.configuration?.value ?: actual
+            // Checked again: the session may have been retired while the change was persisted.
+            val isTrustKept = isStored && keepsChatTrust(id, session, nativeChange)
+            val latest = if (isTrustKept) native.copy(trust = stored.trust) else native
             val latestTarget = target.copy(model = latest.model)
             observe(access, id, session, confirmedTarget)
             latest.studio(latestTarget)
@@ -176,6 +189,13 @@ internal class StudioConfigurationController(
             actual.studio(target.copy(model = actual.model))
         }
     }
+
+    /** A retired session runs with a narrowed trust that is not the chat's; changing anything else keeps the chat's. */
+    private suspend fun keepsChatTrust(
+        id: String,
+        session: ActiveSession,
+        change: SessionConfigurationChange,
+    ): Boolean = change !is SessionConfigurationChange.Trust && lock.withLock { retired[id] === session }
 
     private suspend fun applyIdle(
         access: StudioConfigurationAccess,
@@ -208,11 +228,24 @@ internal class StudioConfigurationController(
         }
     }
 
-    /** Profile-owned observation outlives screens, but releases both collectors when its handle closes or changes. */
-    suspend fun observe(access: StudioConfigurationAccess, id: String, session: ActiveSession, target: EngineTarget) {
+    /**
+     * Profile-owned observation outlives screens, but releases both collectors when its handle closes or changes. A
+     * [retired][retire] session is observed again only once a turn of the chat itself was accepted in it
+     * ([isTurnAccepted]).
+     */
+    suspend fun observe(
+        access: StudioConfigurationAccess,
+        id: String,
+        session: ActiveSession,
+        target: EngineTarget,
+        isTurnAccepted: Boolean = false,
+    ) {
         val capability = (session.features.resolve(ChangesSessionConfiguration) as? FeatureAccess.Available)?.feature
             ?: return
         lock.withLock {
+            val retiredSession = retired[id]
+            if (retiredSession != null && (retiredSession !== session || isTurnAccepted)) retired.remove(id)
+            if (retired[id] === session) return
             if (observed[id]?.session === session || session.state.value == ActiveSessionState.Closed) return
             observed[id]?.job?.cancel()
             val job = profile.coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
@@ -227,6 +260,21 @@ internal class StudioConfigurationController(
                 }
             }
             observed[id] = ConfigurationObservation(session, target, job)
+        }
+    }
+
+    /**
+     * Stops reflecting [session] into chat [id] before a turn that runs with a narrowed trust that is not the chat's
+     * (the handoff summary before a rollover retires its session). Removing the observation before that turn is sent
+     * keeps the trust the engine publishes for it, possibly after acceptance, out of the chat's configuration.
+     */
+    suspend fun retire(id: String, session: ActiveSession) {
+        log.d { "Stop reflecting a retiring session into its chat" }
+        lock.withLock {
+            retired[id] = session
+            val observation = observed[id]?.takeIf { it.session === session } ?: return@withLock
+            observed.remove(id)
+            observation.job.cancel()
         }
     }
 

@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeEngineMan
 import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeManagementSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CompactsContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
@@ -83,6 +84,7 @@ public object ClaudeBindings {
                     CancelsTurns.id,
                     RequestsPermissions.id,
                     AppliesTrustLevels.id,
+                    CompactsContext.id,
                 ),
             ),
             authOwner = ClaudeEngine.AuthOwner,

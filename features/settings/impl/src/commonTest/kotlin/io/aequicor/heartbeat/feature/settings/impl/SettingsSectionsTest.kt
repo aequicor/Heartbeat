@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.settings.impl
 
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningRoute
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRoute
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessRoute
 import io.aequicor.heartbeat.feature.settings.api.SettingsSection
 import io.aequicor.heartbeat.feature.settings.api.deepLinkName
@@ -31,6 +32,7 @@ class SettingsSectionsTest {
                 isComputerUseEnabled = true,
                 isLearningEnabled = true,
                 isHarnessEnabled = true,
+                isContextEnabled = true,
             ),
         )
         assertEquals(
@@ -75,6 +77,18 @@ class SettingsSectionsTest {
         }
         assertEquals(HarnessRoute(isEmbedded = true), SettingsSection.Harness.route())
         assertEquals("harness", SettingsSection.Harness.deepLinkName)
+    }
+
+    @Test
+    fun `context is offered only with its toggle and an active profile and opens embedded`() {
+        for (enabled in listOf(false, true)) {
+            for (profile in listOf(false, true)) {
+                val sections = availableSections(false, false, profile, isContextEnabled = enabled)
+                assertEquals(enabled && profile, SettingsSection.Context in sections)
+            }
+        }
+        assertEquals(ContextOptimizationRoute(isEmbedded = true), SettingsSection.Context.route())
+        assertEquals("context", SettingsSection.Context.deepLinkName)
     }
 
     private val allUi = all.map { it.toUi() }

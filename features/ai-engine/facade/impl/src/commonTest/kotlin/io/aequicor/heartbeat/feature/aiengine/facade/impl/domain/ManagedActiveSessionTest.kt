@@ -10,9 +10,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionIntent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CompactsContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextCompaction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
@@ -187,6 +190,43 @@ class ManagedActiveSessionTest {
         runCurrent()
 
         assertEquals(TrustLevel.AutoEdits, native.sent.single().trust)
+    }
+
+    @Test
+    fun `a compaction is refused by a session that does not compact its context`() = runTest {
+        val native = FakeNativeSession()
+        val (session, _) = open(RouteFixture(this), native)
+
+        val failure = assertFailsWith<EngineException> { session.sender().send(compaction("r1")) }
+
+        assertEquals(EngineFailure.Engine(EngineFailureReason.UnsupportedCapability), failure.failure)
+        assertTrue(native.sent.isEmpty())
+        assertIs<ActiveSessionState.Ready>(session.state.value)
+    }
+
+    @Test
+    fun `compaction instructions are refused when the engine ignores them`() = runTest {
+        val native = FakeNativeSession(compacts = Compacts(isInstructionsSupported = false))
+        val (session, _) = open(RouteFixture(this), native)
+
+        val failure = assertFailsWith<EngineException> {
+            session.sender().send(compaction("r1", ContextCompaction("keep decisions")))
+        }
+
+        assertEquals(EngineFailure.Request(RequestFailureReason.Invalid), failure.failure)
+        assertTrue(native.sent.isEmpty())
+    }
+
+    @Test
+    fun `a compaction runs as a turn of a session that compacts its context`() = runTest {
+        val native = FakeNativeSession(compacts = Compacts(isInstructionsSupported = true))
+        val (session, _) = open(RouteFixture(this), native)
+
+        session.sender().send(compaction("r1", ContextCompaction("keep decisions")))
+        runCurrent()
+
+        assertEquals("keep decisions", native.sent.single().compaction?.instructions)
+        assertIs<ActiveSessionState.Running>(session.state.value)
     }
 
     @Test
@@ -425,3 +465,8 @@ class ManagedActiveSessionTest {
         }
     }
 }
+
+private class Compacts(override val isInstructionsSupported: Boolean) : CompactsContext
+
+private fun compaction(id: String, compaction: ContextCompaction = ContextCompaction()) =
+    PromptRequest(RequestId(id), emptyList(), compaction = compaction)

@@ -4,6 +4,7 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextCompaction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
@@ -66,6 +67,13 @@ internal interface StudioTurnObserver {
 
 internal object NoStudioTurnObserver : StudioTurnObserver
 
+/** Learns that a turn settled with its handle still open, after its history is current; failures are isolated. */
+internal fun interface StudioTurnSettlement {
+    suspend fun settled(request: StudioTurnRequest, active: ActiveSession, outcome: TurnOutcome)
+}
+
+internal val NoStudioTurnSettlement = StudioTurnSettlement { _, _, _ -> }
+
 /** Host-created identity; native tools never supply an action's kind or operation. */
 internal data class StudioTurnRequest(
     val id: String,
@@ -91,6 +99,17 @@ internal data class StudioTurnRequest(
     val causes: Set<RequestInitiator> = emptySet(),
     /** The screen submission that created this chat; its claimed harnesses connect before this first prompt. */
     val submissionId: String = "",
+    /** A native context compaction instead of [prompt]; it runs no tools, so it needs no worktree isolation. */
+    val compaction: ContextCompaction? = null,
+    /** Continues the chat in a new native session instead of running a turn; see `StudioRollover`. */
+    val isRollover: Boolean = false,
+    /**
+     * The continuation brief: with [isRollover] the new session receives it instead of the essence, with [compaction]
+     * the next turn receives it after the engine's own summary.
+     */
+    val isBriefed: Boolean = false,
+    /** With [isRollover] and [isBriefed]: the handoff summary turn completed, so its answer is the work summary. */
+    val isSummarized: Boolean = false,
 ) {
     override fun toString(): String = "StudioTurnRequest(id=$id, kind=$kind, attachments=${attachments.size})"
 }
@@ -102,6 +121,7 @@ internal class StudioTurnExecutor(
     private val tools: ProfileAgentTools,
     private val observer: StudioTurnObserver = NoStudioTurnObserver,
     private val harnesses: StudioHarnessAttach = NoStudioHarnessAttach,
+    private val settlement: StudioTurnSettlement = NoStudioTurnSettlement,
 ) {
     private val log = Log.tag("StudioTurnExecutor")
 
@@ -109,7 +129,7 @@ internal class StudioTurnExecutor(
         val progress = Progress()
         try {
             val preselected = request.submissionId.takeIf { it.isNotEmpty() }?.let(harnesses::preselected).orEmpty()
-            progress.isIsolated = host.isWorktree(request.id)
+            progress.isIsolated = request.compaction == null && host.isWorktree(request.id)
             if (progress.isIsolated) prepare(host, request, progress, preselected)
             val active = host.openTurn(request.id, request.settings, preselected)
             return runNative(host, request, active, progress)
@@ -208,6 +228,7 @@ internal class StudioTurnExecutor(
             val outcome = checkNotNull(completed.outcome) { "Terminal outcome is unavailable" }
             progress.isTerminalObserved = true
             observe("terminal") { observer.terminalTurn(request, active, turn, outcome, isHistoryCurrent = true) }
+            observe("settlement") { settlement.settled(request, active, outcome) }
             request.onOutcome(outcome)
             worktrees.settled(request.id.takeIf { progress.isIsolated }, request.request, active.ref, turn, outcome)
             host.outcome(request.id, outcome)

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="context_title">Context</string>
+    <string name="context_back">Back</string>
+    <string name="context_section_compaction">Compaction</string>
+    <string name="context_section_compaction_hint">Long sessions keep working when the context window fills up: the agent continues from a summary and its progress ledger.</string>
+    <string name="context_auto">Compact automatically</string>
+    <string name="context_auto_hint">Between turns, never in the middle of one</string>
+    <string name="context_threshold">Threshold</string>
+    <string name="context_threshold_value">%1$d%% of the context window</string>
+    <string name="context_strategy">Strategy</string>
+    <string name="context_strategy_native">Engine summary</string>
+    <string name="context_strategy_rollover">New session with a summary</string>
+    <string name="context_strategy_auto">Engine summary, then a new session</string>
+    <string name="context_section_feed">Chat feed</string>
+    <string name="context_collapse_reasoning">Collapse reasoning</string>
+    <string name="context_collapse_tools">Collapse tool calls</string>
+    <string name="context_collapse_hint">Only the display changes; the agent's context stays the same</string>
+    <string name="context_save_failed">The change was not saved</string>
+</resources>

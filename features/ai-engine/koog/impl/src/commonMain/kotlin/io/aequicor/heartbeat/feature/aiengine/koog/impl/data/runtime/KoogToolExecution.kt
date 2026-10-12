@@ -28,6 +28,7 @@ import kotlin.uuid.Uuid
 internal class KoogToolExecution(
     private val history: KoogHistory,
     private val approve: suspend (Turn, KoogTool, JsonObject) -> String?,
+    private val offload: suspend (tool: String, text: String) -> String? = { _, _ -> null },
 ) {
     private val log = Log.tag("KoogSession")
 
@@ -76,21 +77,8 @@ internal class KoogToolExecution(
             if (isApprovalNeeded) ToolCallStatus.Pending else ToolCallStatus.Running,
         )
         history.append { SessionEvent.ItemUpserted(it, started) }
-        val result = when {
-            tool == null -> {
-                log.w { "Model called an unknown tool ${call.name}" }
-                KoogToolResult("Unknown tool: ${call.name}", true)
-            }
-
-            args == null -> KoogToolResult("InvalidInput: arguments must be a JSON object", true)
-
-            isApprovalNeeded -> approve(turn, tool, args)?.let { KoogToolResult(it, true) } ?: run(tool, args, started)
-
-            else -> {
-                log.i { "Running tool ${call.name}" }
-                tool.run(args)
-            }
-        }
+        val executed = executed(turn, call, tool, args, started)
+        val result = offload(call.name, executed.text)?.let { executed.copy(text = it) } ?: executed
         val status = if (result.isFailed) ToolCallStatus.Failed else ToolCallStatus.Succeeded
         history.append { SessionEvent.ItemUpserted(it, started.copy(info = info.copy(revision = 2), status = status)) }
         val output = SessionItem.ToolResult(
@@ -102,6 +90,28 @@ internal class KoogToolExecution(
         )
         history.append { SessionEvent.ItemUpserted(it, output) }
         return HandledToolCall(id.value, call.name, call.content, result)
+    }
+
+    private suspend fun executed(
+        turn: Turn,
+        call: StreamFrame.ToolCallComplete,
+        tool: KoogTool?,
+        args: JsonObject?,
+        started: SessionItem.ToolCall,
+    ): KoogToolResult = when {
+        tool == null -> {
+            log.w { "Model called an unknown tool ${call.name}" }
+            KoogToolResult("Unknown tool: ${call.name}", true)
+        }
+
+        args == null -> KoogToolResult("InvalidInput: arguments must be a JSON object", true)
+
+        tool.isMutating -> approve(turn, tool, args)?.let { KoogToolResult(it, true) } ?: run(tool, args, started)
+
+        else -> {
+            log.i { "Running tool ${call.name}" }
+            tool.run(args)
+        }
     }
 
     private suspend fun run(tool: KoogTool, args: JsonObject, pending: SessionItem.ToolCall): KoogToolResult {

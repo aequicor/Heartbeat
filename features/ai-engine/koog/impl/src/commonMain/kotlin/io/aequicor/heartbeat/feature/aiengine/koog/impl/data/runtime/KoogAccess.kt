@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReaso
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextPolicyProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -22,6 +23,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogAutoApprove
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogCodingTools
@@ -47,6 +49,10 @@ internal class KoogAccess(
     val resources: ResourceResolver = ResourceResolver { null },
     val inputs: KoogModelInputs = KoogModelInputs(),
     val tools: ProfileAgentTools = NoAgentTools,
+    /** Prompt shaping offered by profile features; see [contextPolicy]. */
+    val contextPolicies: Lazy<Set<ContextPolicyProvider>> = lazyOf(emptySet()),
+    /** Keeps long output of Koog's own tools out of the context. */
+    val toolOffloads: Lazy<Set<ToolOutputOffload>> = lazyOf(emptySet()),
 ) {
     private val log = Log.tag("KoogAccess")
 

@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionOwner
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -81,6 +82,21 @@ class DefaultAgentToolsTest {
                 assertEquals(1, owner.calls, "$trust/$action")
             }
         }
+    }
+
+    @Test
+    fun `a profile offload replaces long hosted output and a failing one keeps it`() = runTest {
+        val owner = ToolOwner(AgentToolAction.Read)
+        val shortening = ToolOutputOffload { _, tool, text -> "short $tool ${text.length}" }
+        val failing = ToolOutputOffload { _, _, _ -> error("storage unavailable") }
+
+        val shortened = DefaultAgentTools(setOf(owner), offloads = lazyOf(setOf(shortening)))
+            .execute(toolContext(TrustLevel.Full), "tool", EMPTY_ARGS)
+        val kept = DefaultAgentTools(setOf(owner), offloads = lazyOf(setOf(failing)))
+            .execute(toolContext(TrustLevel.Full), "tool", EMPTY_ARGS)
+
+        assertEquals("short tool 4", shortened.text)
+        assertEquals("done", kept.text)
     }
 
     @Test

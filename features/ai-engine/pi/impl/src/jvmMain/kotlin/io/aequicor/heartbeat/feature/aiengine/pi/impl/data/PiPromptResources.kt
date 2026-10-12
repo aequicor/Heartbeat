@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextCompaction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
@@ -11,8 +12,14 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-/** Restores host references using native user timestamps, stable across process launches and branch replay. */
-internal class PiPromptResources(private val environment: PiSessionEnvironment) {
+/**
+ * Restores host references using native user timestamps, stable across process launches and branch replay.
+ * A compaction request carries no input: [submit] hands it to [compact] instead of sending a prompt.
+ */
+internal class PiPromptResources(
+    private val environment: PiSessionEnvironment,
+    private val compact: (PiConnection, ContextCompaction) -> Unit,
+) {
     private val originals = mutableMapOf<String, List<ContentPart>>()
     private var pending: List<ContentPart>? = null
     private var prepared: PiPromptInputs? = null
@@ -36,6 +43,11 @@ internal class PiPromptResources(private val environment: PiSessionEnvironment) 
     }
 
     suspend fun prepare(ref: SessionRef, request: PromptRequest) {
+        if (request.compaction != null) {
+            prepared = null
+            pending = null
+            return
+        }
         prepared = piPromptInputs(request, support, environment.resources)
         pending = request.parts.takeIf { parts -> parts.any { it is ContentPart.Image || it is ContentPart.Resource } }
         environment.resourceHistory.remember(ref, "request:" + request.id.value, request.parts)
@@ -47,6 +59,8 @@ internal class PiPromptResources(private val environment: PiSessionEnvironment) 
         request: PromptRequest,
         confirm: suspend () -> Unit,
     ) {
+        val compaction = request.compaction
+        if (compaction != null) return compactAfter(rpc, compaction, confirm)
         val input = prepared ?: piFailure(EngineFailure.Request(RequestFailureReason.Invalid, request.id))
         prepared = null
         configuration.prepareEffort(request.reasoningEffort)
@@ -64,6 +78,15 @@ internal class PiPromptResources(private val environment: PiSessionEnvironment) 
                 },
             ),
         )
+    }
+
+    private suspend fun compactAfter(rpc: PiConnection, compaction: ContextCompaction, confirm: suspend () -> Unit) {
+        try {
+            confirm()
+        } catch (error: EngineException) {
+            throw PromptNotSentException(error.failure, error)
+        }
+        compact(rpc, compaction)
     }
 
     suspend fun event(ref: SessionRef, record: JsonObject) {

@@ -24,6 +24,7 @@ internal class StudioConfiguredSubmission(
     private val helperPolicy: StudioHelperPolicy,
     private val efforts: EffortChoicesView,
     private val origins: StudioRequestOrigins,
+    private val rollovers: StudioRolloverObserver = StudioRolloverObserver { _, _ -> },
 ) {
     private val log = Log.tag("StudioConfiguredSubmission")
 
@@ -53,14 +54,21 @@ internal class StudioConfiguredSubmission(
             efforts.state.value.effectiveEffort(target, models().reasoningEfforts(target))
         }
         log.i { "Submitting prompt length=${request.prompt.length} trust=${trust ?: "default"}" }
+        val seed = record.pendingSeed.takeIf { request.compaction == null }
+        // The ledger and marks follow the chat before its first turn in the new session prepares its prompt.
+        if (seed != null) record.previousRefs.lastOrNull()?.let { rollovers.rolledOver(it, active.ref) }
+        val carried = record.carriedDirectives(request)
+        val seeded = if (carried.isEmpty()) request else request.copy(directives = carried + request.directives)
         val constrained = if (record.helper == null) {
-            request
+            seeded
         } else {
-            request.copy(directives = request.directives + HELPER_DIRECTIVE)
+            seeded.copy(directives = seeded.directives + HELPER_DIRECTIVE)
         }
-        val submitted = send(active, constrained, effort) {
-            helperPolicy.trust(record, trust, configurations)
-        }
+        // The handoff turn's narrowed trust is not the chat's configuration: its session is never reflected again.
+        if (request.isHandoff) controller.retire(id, active)
+        val submitted = send(active, constrained, effort) { turnTrust(request, record, trust, configurations) }
+        if (carried.isNotEmpty()) consumeSeed(access, id)
+        if (request.isHandoff) return submitted.turn
         confirmConfiguration(
             access,
             id,
@@ -69,6 +77,29 @@ internal class StudioConfiguredSubmission(
             SessionConfiguration(target.model, effort, submitted.trust),
         )
         return submitted.turn
+    }
+
+    /** Engines that do not route native tools through hooks still ask before acting in the handoff turn. */
+    private suspend fun turnTrust(
+        request: StudioTurnRequest,
+        record: StudioChatRecord,
+        trust: TrustLevel?,
+        configurations: () -> Map<String, StudioSessionConfiguration>,
+    ): TrustLevel? = if (request.isHandoff) {
+        trust?.let { TrustLevel.Ask }
+    } else {
+        helperPolicy.trust(record, trust, configurations)
+    }
+
+    /** Native acceptance owns the turn: a seed that cannot be marked delivered may only reach the next turn again. */
+    private suspend fun consumeSeed(access: StudioConfigurationAccess, id: String) {
+        try {
+            access.consumeSeed(id)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.e(e) { "Carried context of an accepted turn could not be marked delivered; keep native ownership" }
+        }
     }
 
     private suspend fun confirmConfiguration(
@@ -90,7 +121,7 @@ internal class StudioConfiguredSubmission(
             } catch (e: Exception) {
                 log.e(e) { "Accepted turn configuration could not be saved; continue native observation" }
             }
-            controller.observe(access, id, active, target)
+            controller.observe(access, id, active, target, isTurnAccepted = true)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -109,7 +140,8 @@ internal class StudioConfiguredSubmission(
         val helper = request.submission as? StudioHelperSubmission
         val submit: suspend () -> SubmittedPrompt = {
             origins.record(active.ref, request.request, request.causes)
-            val prompt = learning.prompt(request.id, request.prompt, request.directives)
+            val compaction = request.compaction
+            val prompt = if (compaction == null) learning.prompt(request.id, request.prompt, request.directives) else ""
             val finalTrust = if (helper != null) {
                 helper.begin(trust)
             } else {
@@ -117,7 +149,14 @@ internal class StudioConfiguredSubmission(
                 trust()
             }
             val native: suspend () -> TurnId = {
-                active.submitStudioPrompt(prompt, reasoningEffort, finalTrust, request.attachments, request.request)
+                active.submitStudioPrompt(
+                    prompt,
+                    reasoningEffort,
+                    finalTrust,
+                    request.attachments,
+                    request.request,
+                    compaction,
+                )
             }
             // A helper receipt must not stay Submitting when the engine refused the request before acceptance.
             val turn = if (helper != null) helper.send(native) else native()

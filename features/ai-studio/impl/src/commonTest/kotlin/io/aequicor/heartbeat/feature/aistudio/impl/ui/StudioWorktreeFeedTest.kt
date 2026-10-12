@@ -156,6 +156,9 @@ class StudioWorktreeFeedTest {
             stoppedTemplate = "Stopped after %1\$s",
             failed = FailureLabels(unknown = "Failed", limit = "Limit"),
             durations = DurationLabels(secondsTemplate = "%1\$d s", minutesTemplate = "%1\$d min %2\$d s"),
+            compacted = "Context compacted",
+            rolledOver = "Continued in a new session",
+            collapsedTools = "Tool calls: %1\$d",
         )
         TimelineCache(placement).update(emptyList(), timelineLabels, initial.messages, initial.retained)
         assertEquals(HbToolStatus.Running, initial.card("build:first").status)

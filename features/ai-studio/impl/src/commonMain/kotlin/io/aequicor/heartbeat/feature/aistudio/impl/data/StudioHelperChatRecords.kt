@@ -60,9 +60,10 @@ internal fun newStudioHelperRecord(
     request: HelperCreateRequest,
     parent: StudioChatRecord?,
 ): StudioChatRecord {
-    require((parent == null) == (request.parent == null) && parent?.ref == request.parent) {
-        "The helper parent does not match its caller"
-    }
+    // The caller may still name a session its chat left by a rollover.
+    val caller = request.parent
+    val isParentMatched = if (caller == null) parent == null else parent?.owns(caller) == true
+    require(isParentMatched) { "The helper parent does not match its caller" }
     check(parent?.worktreeTaskId == null || parent.executionWorkspace != null) {
         "The helper parent's worktree is not ready"
     }

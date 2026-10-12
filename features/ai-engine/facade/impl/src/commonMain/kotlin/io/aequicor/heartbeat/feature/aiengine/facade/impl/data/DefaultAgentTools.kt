@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolGroup
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
@@ -70,6 +71,7 @@ internal class DefaultAgentTools(
     private val contributions: Set<AgentToolContribution>,
     private val hooks: SessionHooks = NoSessionHooks,
     private val policies: ToolPolicyResolver = NoToolPolicyResolver,
+    private val offloads: Lazy<Set<ToolOutputOffload>> = lazyOf(emptySet()),
 ) : ProfileAgentTools {
     private val log = Log.tag("AgentTools")
     private val nativeGate = NativeToolGate(policies, hooks) {
@@ -274,6 +276,16 @@ internal class DefaultAgentTools(
         }
     }
 
+    /** Long output stays out of the context when a profile feature offloads it. */
+    private suspend fun AgentToolResult.shortened(context: AgentToolContext, name: String): AgentToolResult = try {
+        offloads.value.firstNotNullOfOrNull { it.offload(context.session, name, text) }?.let { copy(text = it) } ?: this
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e) { "Tool output offload failed; the output stays whole" }
+        this
+    }
+
     private suspend fun executeAuthorized(
         context: AgentToolContext,
         name: String,
@@ -308,6 +320,7 @@ internal class DefaultAgentTools(
             } else {
                 currentCoroutineContext().ensureActive()
                 val result = owner.execute(context.copy(authorization = approval), name, arguments)
+                    .shortened(context, name)
                 log.i { "Hosted tool finished name=${spec.name} failed=${result.isError}" }
                 val note = call?.let { hooks.afterTool(it, result) }
                 if (note.isNullOrBlank()) {

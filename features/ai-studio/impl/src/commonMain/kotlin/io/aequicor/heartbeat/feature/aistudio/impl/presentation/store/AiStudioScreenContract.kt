@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioFeedCollapse
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
@@ -123,6 +124,10 @@ data class AiStudioScreenState(
     val isAttachmentsEnabled: Boolean = false,
     /** Whether the composer offers the `/remember` command. */
     val isRememberEnabled: Boolean = false,
+    /** Whether the composer offers `/compact` and the context indicator its compaction action. */
+    val isCompactEnabled: Boolean = false,
+    /** How the feed collapses agent work. */
+    val feedCollapse: StudioFeedCollapse = StudioFeedCollapse(),
     /** Whether a new chat may be started as an organic AI organism. */
     val isOrganismEnabled: Boolean = false,
     /** Harnesses offered in the "+" menu, chat connections and choices of new chats. */
@@ -312,8 +317,14 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     /** Stops the running agent of a session. */
     data class Stop(val sessionId: String) : Composer
 
+    /** Actions of the context and limits indicator. */
+    sealed interface Usage : Composer
+
     /** Requests provider telemetry when the details panel opens. */
-    data class RefreshUsage(val modelId: String) : Composer
+    data class RefreshUsage(val modelId: String) : Usage
+
+    /** Compacts the context of the pane's chat once it is idle. */
+    data class CompactContext(val paneId: Int) : Usage
 
     /** Changes an existing session's model, or the default for a new page. */
     data class SelectModel(val modelId: String, val paneId: Int? = null) : Composer

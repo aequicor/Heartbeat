@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -17,7 +18,16 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 
-/** One atomic transcript checkpoint. An unfinished turn is recovered as Unknown after runtime loss. */
+/** The model sees [summary] instead of the transcript up to and including the notice [boundary]. */
+@Serializable
+internal data class KoogContextSummary(val boundary: ItemId, val summary: String) {
+    override fun toString(): String = "KoogContextSummary(boundary=$boundary, summary=${summary.length})"
+}
+
+/**
+ * One atomic transcript checkpoint. An unfinished turn is recovered as Unknown after runtime loss.
+ * [context] is the latest compaction; the transcript before it stays visible but no longer reaches the model.
+ */
 @Serializable
 internal data class KoogRecord(
     val summary: SessionSummary,
@@ -26,6 +36,7 @@ internal data class KoogRecord(
     val lastTurn: Turn? = null,
     val coverage: HistoryCoverage = HistoryCoverage.Complete,
     val reasoningEffort: String? = null,
+    val context: KoogContextSummary? = null,
 )
 
 internal interface KoogSessionRecords {

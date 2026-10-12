@@ -51,6 +51,19 @@ class StudioHistoryMirrorTest {
     }
 
     @Test
+    fun `a complete history of a new session keeps the frozen segments of earlier sessions first`() = runTest {
+        stored = listOf(message("old-prompt", 0), message("old-answer", 1)).frozen(1)
+        val history = FakeHistory(listOf(message("new-prompt", 0), message("new-answer", 1)), HistoryCoverage.Complete)
+
+        mirror.refresh("chat", history)
+
+        assertEquals(
+            listOf("hb.seg.1/old-prompt", "hb.seg.1/old-answer", "hb.seg.1/rollover", "new-prompt", "new-answer"),
+            ids(),
+        )
+    }
+
+    @Test
     fun `repeated resumes with omitted partial replay preserve saved messages and append new turns once`() = runTest {
         stored = listOf(message("old-prompt", 0), message("old-answer", 1))
         repeat(3) { generation ->

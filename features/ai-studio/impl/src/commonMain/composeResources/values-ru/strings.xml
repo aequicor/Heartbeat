@@ -100,6 +100,10 @@
     <string name="working_for">Работает уже %1$s</string>
     <string name="stopping">Останавливаем…</string>
     <string name="stopped_after">Вы остановили выполнение через %1$s</string>
+    <string name="usage_compact">Сжать контекст</string>
+    <string name="collapsed_tool_calls">Вызовов инструментов: %1$d</string>
+    <string name="context_compacted">Контекст сжат: агент продолжает по выжимке</string>
+    <string name="context_rolled_over">Продолжено в новой сессии с выжимкой этой</string>
     <string name="run_failed">Не удалось выполнить задачу. Попробуйте ещё раз.</string>
     <string name="run_failed_limit">Исчерпан лимит использования движка. Повторите после сброса лимита или выберите другую модель.</string>
     <string name="run_failed_context">Беседа не помещается в контекст модели. Начните новый чат или выберите модель с большим контекстом.</string>

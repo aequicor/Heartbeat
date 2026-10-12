@@ -2,10 +2,12 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NoticeKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
 import io.aequicor.heartbeat.feature.aiengine.facade.api.hostedToolName
 import io.aequicor.heartbeat.feature.aiengine.facade.api.stripHostDirectives
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.ContextNoticeKind
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioReplyPart
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioToolRun
@@ -72,8 +74,15 @@ private class NativeHistoryProjection(private val time: Instant) {
         if (updateOwnedTool(item)) return
         when (item) {
             is SessionItem.UnsupportedItem -> Unit
+
             is SessionItem.Message -> appendMessage(item)
-            is SessionItem.Notice -> appendNotice(item.info.id.value, item.text)
+
+            is SessionItem.Notice -> when (item.kind) {
+                NoticeKind.ContextCompacted -> appendContextNotice(item.info.id.value, ContextNoticeKind.Compacted)
+                NoticeKind.ContextRollover -> appendContextNotice(item.info.id.value, ContextNoticeKind.RolledOver)
+                null -> appendNotice(item.info.id.value, item.text)
+            }
+
             is SessionItem.Plan, is SessionItem.ToolCall, is SessionItem.ToolResult -> appendAnswer(item)
         }
     }
@@ -125,6 +134,12 @@ private class NativeHistoryProjection(private val time: Instant) {
 
             MessageRole.Assistant -> appendAnswer(item)
         }
+    }
+
+    private fun appendContextNotice(id: String, kind: ContextNoticeKind) {
+        flush()
+        streamingAnswer = null
+        messages += StudioMessage.ContextNotice(id, time, kind)
     }
 
     private fun appendNotice(id: String, text: String) {

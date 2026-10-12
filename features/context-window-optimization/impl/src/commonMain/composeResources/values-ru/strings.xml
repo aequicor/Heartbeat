@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="context_title">Контекст</string>
+    <string name="context_back">Назад</string>
+    <string name="context_section_compaction">Сжатие</string>
+    <string name="context_section_compaction_hint">Длинные сессии продолжают работу, когда контекстное окно заполняется: агент продолжает по выжимке и журналу прогресса.</string>
+    <string name="context_auto">Сжимать автоматически</string>
+    <string name="context_auto_hint">Между ходами, никогда посреди хода</string>
+    <string name="context_threshold">Порог</string>
+    <string name="context_threshold_value">%1$d%% контекстного окна</string>
+    <string name="context_strategy">Способ</string>
+    <string name="context_strategy_native">Выжимка движка</string>
+    <string name="context_strategy_rollover">Новая сессия с выжимкой</string>
+    <string name="context_strategy_auto">Выжимка движка, затем новая сессия</string>
+    <string name="context_section_feed">Лента чата</string>
+    <string name="context_collapse_reasoning">Сворачивать размышления</string>
+    <string name="context_collapse_tools">Сворачивать вызовы инструментов</string>
+    <string name="context_collapse_hint">Меняется только отображение, контекст агента остаётся прежним</string>
+    <string name="context_save_failed">Изменение не сохранено</string>
+</resources>
