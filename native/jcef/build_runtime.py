@@ -6,6 +6,7 @@ import gzip
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -82,6 +83,9 @@ def build(source: Path, target: str) -> None:
     cache = (output / "CMakeCache.txt").read_text()
     if f"cef_binary_{data['cefVersion']}_{cef_platform}" not in cache:
         raise ValueError("CMake selected a CEF archive for another architecture")
+    cef = source / "third_party/cef" / f"cef_binary_{data['cefVersion']}_{cef_platform}"
+    verify_request_flags((source / "java/org/cef/network/CefRequest.java").read_text(),
+                         (cef / "include/internal/cef_types.h").read_text())
     run("cmake", "--build", output, "--config", "Release", "--parallel", "3")
     # Compile only the API, identically on all hosts, without platform-specific test resources.
     classes = source / "heartbeat-api-classes"
@@ -94,6 +98,17 @@ def build(source: Path, target: str) -> None:
     classpath = os.pathsep.join(str(p) for p in canonical_paths((source / "third_party/jogamp/jar").glob("*.jar")))
     run("javac", "--release", "8", "-encoding", "UTF-8", "-g:source,lines", "-cp", classpath,
         "-d", classes, "@" + str(arguments))
+
+
+def verify_request_flags(java: str, native: str) -> None:
+    """These bit masks cross JNI unchanged; stale Java values change network policy."""
+    pattern = r"\b(UR_FLAG_\w+)\s*=\s*(0|1\s*<<\s*\d+)\s*[,;]"
+    def masks(text):
+        return {name: 0 if value == "0" else 1 << int(value.split("<<")[1])
+                for name, value in re.findall(pattern, text)}
+    java_masks, native_masks = masks(java), masks(native)
+    if not native_masks or any(java_masks.get(name) != value for name, value in native_masks.items()):
+        raise ValueError("Java URLRequest flags differ from the pinned CEF ABI")
 
 
 def prepare_formatter(source: Path, target: str) -> None:

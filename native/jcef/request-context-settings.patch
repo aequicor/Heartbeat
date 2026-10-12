@@ -574,3 +574,65 @@ new file mode 100644
 +    public String cookieable_schemes_list = "";
 +    public boolean cookieable_schemes_exclude_defaults = false;
 +}
+diff --git a/java/org/cef/network/CefRequest.java b/java/org/cef/network/CefRequest.java
+index 5ce6445..5ba8b9f 100644
+--- a/java/org/cef/network/CefRequest.java
++++ b/java/org/cef/network/CefRequest.java
+@@ -175,33 +175,34 @@ public abstract class CefRequest {
+          */
+         public static final int UR_FLAG_SKIP_CACHE = 1 << 0;
+ 
+-        /**
+-         * If set user name, password, and cookies may be sent with the request, and
+-         * cookies may be saved from the response.
+-         */
+-        public static final int UR_FLAG_ALLOW_CACHED_CREDENTIALS = 1 << 1;
++        /** Require a cached response; incompatible with SKIP_CACHE and DISABLE_CACHE. */
++        public static final int UR_FLAG_ONLY_FROM_CACHE = 1 << 1;
+ 
+-        /**
+-         * If set upload progress events will be generated when a request has a body.
+-         */
+-        public static final int UR_FLAG_REPORT_UPLOAD_PROGRESS = 1 << 3;
++        /** Do not read from or write to the cache. */
++        public static final int UR_FLAG_DISABLE_CACHE = 1 << 2;
+ 
+-        /**
+-         * If set the headers sent and received for the request will be recorded.
+-         */
+-        public static final int UR_FLAG_REPORT_RAW_HEADERS = 1 << 5;
++        /** Allow stored credentials and cookies from the request context. */
++        public static final int UR_FLAG_ALLOW_STORED_CREDENTIALS = 1 << 3;
+ 
+-        /**
+-         *  If set the CefURLRequestClient.onDownloadData method will not be called.
+-         */
+-        public static final int UR_FLAG_NO_DOWNLOAD_DATA = 1 << 6;
++        /** @deprecated Use UR_FLAG_ALLOW_STORED_CREDENTIALS. */
++        @Deprecated
++        public static final int UR_FLAG_ALLOW_CACHED_CREDENTIALS = UR_FLAG_ALLOW_STORED_CREDENTIALS;
+ 
+-        /**
+-         * If set 5XX redirect errors will be propagated to the observer instead of
+-         * automatically re-tried. This currently only applies for requests
+-         * originated in the browser process.
+-         */
+-        public static final int UR_FLAG_NO_RETRY_ON_5XX = 1 << 7;
++        /** Generate upload progress events for requests with a body. */
++        public static final int UR_FLAG_REPORT_UPLOAD_PROGRESS = 1 << 4;
++
++        /** @deprecated Removed from CEF; retained as a no-op for source compatibility. */
++        @Deprecated
++        public static final int UR_FLAG_REPORT_RAW_HEADERS = 0;
++
++        /** Do not call CefURLRequestClient.onDownloadData. */
++        public static final int UR_FLAG_NO_DOWNLOAD_DATA = 1 << 5;
++
++        /** Do not automatically retry 5XX responses in the browser process. */
++        public static final int UR_FLAG_NO_RETRY_ON_5XX = 1 << 6;
++
++        /** Stop at a 3XX response instead of following its redirect. */
++        public static final int UR_FLAG_STOP_ON_REDIRECT = 1 << 7;
+     }
+ 
+     /**

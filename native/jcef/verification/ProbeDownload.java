@@ -72,7 +72,7 @@ public final class ProbeDownload {
             request.setURL(origin + path);
             request.setMethod("GET");
             request.setFirstPartyForCookies(origin);
-            request.setFlags(CefRequest.CefUrlRequestFlags.UR_FLAG_ALLOW_CACHED_CREDENTIALS
+            request.setFlags(CefRequest.CefUrlRequestFlags.UR_FLAG_ALLOW_STORED_CREDENTIALS
                 | CefRequest.CefUrlRequestFlags.UR_FLAG_SKIP_CACHE);
             nativeRequest = Objects.requireNonNull(CefURLRequest.create(request, client, context),
                 "Context-aware native URLRequest creation failed");

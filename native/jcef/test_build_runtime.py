@@ -109,6 +109,15 @@ class RuntimePackagingTest(unittest.TestCase):
             with patch.object(runtime, "lock", return_value=dict(inputs, **{name: "changed"})):
                 self.assertNotEqual(initial, runtime.cache_key())
 
+    def test_request_flags_are_checked_against_downloaded_cef_headers(self):
+        native = "UR_FLAG_NONE = 0, UR_FLAG_ALLOW_STORED_CREDENTIALS = 1 << 3,"
+        java = "public static final int UR_FLAG_NONE = 0; int UR_FLAG_ALLOW_STORED_CREDENTIALS = 1 << 3;"
+        runtime.verify_request_flags(java, native)
+        with self.assertRaisesRegex(ValueError, "pinned CEF ABI"):
+            runtime.verify_request_flags(java.replace("1 << 3", "1 << 1"), native)
+        with self.assertRaisesRegex(ValueError, "pinned CEF ABI"):
+            runtime.verify_request_flags(java, "")
+
     def test_api_order_is_identical_with_windows_and_posix_path_semantics(self):
         names = ["org/cef/browser/CefBrowser_N.class", "org/cef/browser/CefBrowserWr.class"]
         windows = [path.as_posix() for path in runtime.canonical_paths(map(PureWindowsPath, names))]
