@@ -64,6 +64,7 @@ public sealed interface PlantUmlResult {
         public val width: Float,
         public val height: Float,
         public val scale: Float,
+        public val links: List<PlantUmlLink> = emptyList(),
     ) : PlantUmlResult
 
     /** The source is invalid; [line] is 1-based in the fence source, null when unknown. */
@@ -75,3 +76,13 @@ public sealed interface PlantUmlResult {
     /** Not drawn here: the renderer is off, or the diagram type needs external tools. Show the source instead. */
     public data object Unsupported : PlantUmlResult
 }
+
+/** A clickable rectangle in logical image coordinates; [destination] is data, never opened by the renderer. */
+public data class PlantUmlLink(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+    val destination: String,
+    val tooltip: String,
+)

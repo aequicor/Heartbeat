@@ -125,6 +125,12 @@ internal fun StudioComposer(
         withFrameNanos { }
         focus.requestFocus()
     }
+    LaunchedEffect(content.diagram.focusRequest) {
+        if (content.diagram.focusRequest > 0L) {
+            withFrameNanos { }
+            focus.requestFocus()
+        }
+    }
     var previousPhase by remember(session?.id) { mutableStateOf(content.worktree?.phase) }
     SideEffect {
         if (previousPhase == WorktreePhaseUi.AwaitingDecision && content.worktree?.phase == WorktreePhaseUi.Idle) {

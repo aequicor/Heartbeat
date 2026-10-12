@@ -44,6 +44,9 @@ import io.aequicor.heartbeat.ds.components.HbBadge
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbChatTranscript
 import io.aequicor.heartbeat.ds.components.HbChip
+import io.aequicor.heartbeat.ds.components.HbDiagramAction
+import io.aequicor.heartbeat.ds.components.HbDiagramActionKind
+import io.aequicor.heartbeat.ds.components.HbDiagramActionsProvider
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbMenuButton
@@ -59,12 +62,16 @@ import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentPreviewUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.DiagramDraftReasonUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PrimarySubSession
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_failed
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.connect_model_hint
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.diagram_draft_busy
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.diagram_draft_rejected
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_connect_failed
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.jump_latest
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.new_heading
@@ -159,6 +166,7 @@ internal fun StudioPaneView(
             key(feedId) {
                 SessionTranscript(
                     feedId = feedId,
+                    onDiagramAction = content.diagramActionHandler(onIntent),
                     timelineState = timelineState,
                     messages = transcript,
                     checklists = checklists,
@@ -573,6 +581,7 @@ private fun NewSessionStarters(onDraft: (String) -> Unit) {
 @Composable
 private fun SessionTranscript(
     feedId: String,
+    onDiagramAction: ((HbDiagramAction) -> Unit)?,
     timelineState: StudioTimelineState,
     messages: ImmutableList<MessageUi>,
     worktree: WorktreeTimeline,
@@ -594,31 +603,33 @@ private fun SessionTranscript(
         worktree.retained,
     )
     val links = LocalUriHandler.current
-    HbChatTranscript(
-        timeline = timeline,
-        modifier = modifier.fillMaxSize().testTag("transcript-$feedId"),
-        streamingLabel = stringResource(Res.string.streaming),
-        jumpToLatestLabel = stringResource(Res.string.jump_latest),
-        toolLabels = studioToolLabels(),
-        contentPadding = contentPadding,
-        overlapInsets = overlapInsets,
-        showSectionHeaders = true,
-        onToolAction = { call, action ->
-            worktree.dispatch(call.id, action.id, onIntent) { openPullRequest(links, it) }
-        },
-        messageEmbeddedContent = { rendered ->
-            val reply = messages.firstOrNull { it.id == rendered.id } as? MessageUi.Reply
-            HbColumn(gap = HbTheme.spacing.m) {
-                reply?.checklistIds?.forEach { id -> key(id) { checklists[id]?.Content(Modifier) } }
-            }
-        },
-        messageFooterContent = { rendered ->
-            val prompt = messages.firstOrNull { it.id == rendered.id } as? MessageUi.Prompt
-            if (prompt != null && prompt.attachments.isNotEmpty()) {
-                StudioAttachments(prompt.attachments, onIntent, previews = attachmentPreviews)
-            }
-        },
-    )
+    HbDiagramActionsProvider(onDiagramAction) {
+        HbChatTranscript(
+            timeline = timeline,
+            modifier = modifier.fillMaxSize().testTag("transcript-$feedId"),
+            streamingLabel = stringResource(Res.string.streaming),
+            jumpToLatestLabel = stringResource(Res.string.jump_latest),
+            toolLabels = studioToolLabels(),
+            contentPadding = contentPadding,
+            overlapInsets = overlapInsets,
+            showSectionHeaders = true,
+            onToolAction = { call, action ->
+                worktree.dispatch(call.id, action.id, onIntent) { openPullRequest(links, it) }
+            },
+            messageEmbeddedContent = { rendered ->
+                val reply = messages.firstOrNull { it.id == rendered.id } as? MessageUi.Reply
+                HbColumn(gap = HbTheme.spacing.m) {
+                    reply?.checklistIds?.forEach { id -> key(id) { checklists[id]?.Content(Modifier) } }
+                }
+            },
+            messageFooterContent = { rendered ->
+                val prompt = messages.firstOrNull { it.id == rendered.id } as? MessageUi.Prompt
+                if (prompt != null && prompt.attachments.isNotEmpty()) {
+                    StudioAttachments(prompt.attachments, onIntent, previews = attachmentPreviews)
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -643,6 +654,7 @@ private fun PaneFooter(
         } else if (content.session?.isWaiting == true) {
             SessionWaitStatus(content.session, column)
         }
+        DiagramDraftNotice(content.diagram.draftReason, column)
         if (content.isSubmitFailed) {
             HbBadge(stringResource(Res.string.submit_failed), column, tone = HbTone.Danger)
         }
@@ -729,5 +741,28 @@ private fun Modifier.focusOnPress(isFocused: Boolean, key: Any, onFocus: () -> U
             awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
             onFocus()
         }
+    }
+}
+
+private fun PaneContent.diagramActionHandler(onIntent: (AiStudioScreenIntent) -> Unit): ((HbDiagramAction) -> Unit)? =
+    session?.takeIf { it.isContinuable && subSession == PrimarySubSession && !diagram.isPending }?.let { source ->
+        { action ->
+            onIntent(
+                AiStudioScreenIntent.DiagramAction(source.id, action.text, action.kind == HbDiagramActionKind.Send),
+            )
+        }
+    }
+
+@Composable
+private fun DiagramDraftNotice(reason: DiagramDraftReasonUi?, modifier: Modifier = Modifier) {
+    if (reason != null) {
+        val message = if (reason ==
+            DiagramDraftReasonUi.Busy
+        ) {
+            Res.string.diagram_draft_busy
+        } else {
+            Res.string.diagram_draft_rejected
+        }
+        HbText(stringResource(message), modifier, color = HbTheme.colors.textSecondary)
     }
 }

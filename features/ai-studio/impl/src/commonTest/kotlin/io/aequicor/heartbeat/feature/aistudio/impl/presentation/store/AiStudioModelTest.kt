@@ -262,6 +262,47 @@ class AiStudioModelTest {
     }
 
     @Test
+    fun `diagram send keeps draft rejects duplicate clicks and appends native rejection once`() = runTest {
+        val fixture = Fixture(this, ready)
+        val screen = fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "Typed"))
+        fixture.model.store.intent(AiStudioScreenIntent.DiagramAction("s-facade", "Button", true))
+        fixture.model.store.intent(AiStudioScreenIntent.DiagramAction("s-facade", "Button", true))
+        runCurrent()
+        val sent = fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.FollowUp>().single()
+        assertEquals("s-facade", sent.sessionId)
+        assertEquals("Button", sent.prompt)
+        assertEquals("Typed", screen.states.value.draft(0))
+        fixture.machine.outputs.emit(AiStudioOutput.SubmitRejected(null, sent.submissionId, "s-facade"))
+        runCurrent()
+        assertEquals("Typed\nButton", screen.states.value.draft(0))
+        assertTrue(screen.states.value.diagramSubmissions.isEmpty())
+        fixture.machine.outputs.emit(AiStudioOutput.SubmitRejected(null, sent.submissionId, "s-facade"))
+        runCurrent()
+        assertEquals("Typed\nButton", screen.states.value.draft(0))
+    }
+
+    @Test
+    fun `ignored diagram send saves a draft while accepted send preserves existing text`() = runTest {
+        val fixture = Fixture(this, ready.copy(running = setOf("s-facade")))
+        val screen = fixture.subscribe()
+        fixture.machine.result = SendResult.Ignored
+        fixture.model.store.intent(AiStudioScreenIntent.DiagramAction("s-facade", "Later", true))
+        runCurrent()
+        assertEquals("Later", screen.states.value.draft(0))
+        assertEquals(DiagramDraftReasonUi.Busy, screen.states.value.diagramDraftReasons["s-facade"])
+        fixture.machine.result = SendResult.Accepted
+        fixture.machine.state.value = ready
+        fixture.model.store.intent(AiStudioScreenIntent.DiagramAction("s-facade", "Now", true))
+        runCurrent()
+        val sent = fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.FollowUp>().single()
+        fixture.machine.outputs.emit(AiStudioOutput.SubmitAccepted(null, sent.submissionId, "s-facade"))
+        runCurrent()
+        assertEquals("Later", screen.states.value.draft(0))
+        assertTrue(screen.states.value.diagramSubmissions.isEmpty())
+    }
+
+    @Test
     fun `submit preserves the draft until native acceptance`() = runTest {
         val fixture = Fixture(this, ready)
         val screen = fixture.subscribe()

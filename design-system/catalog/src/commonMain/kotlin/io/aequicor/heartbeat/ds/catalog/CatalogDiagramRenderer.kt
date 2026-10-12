@@ -14,11 +14,13 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import io.aequicor.heartbeat.ds.components.HbDiagramFailure
 import io.aequicor.heartbeat.ds.components.HbDiagramLabels
+import io.aequicor.heartbeat.ds.components.HbDiagramLink
 import io.aequicor.heartbeat.ds.components.HbDiagramRenderer
 import io.aequicor.heartbeat.ds.components.HbDiagramRequest
 import io.aequicor.heartbeat.ds.components.HbDiagramResult
 import io.aequicor.heartbeat.ds.resources.HbString
 import io.aequicor.heartbeat.ds.resources.hbString
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
@@ -35,6 +37,7 @@ internal class CatalogDiagramRenderer : HbDiagramRenderer {
         return when {
             "error" in request.source -> HbDiagramResult.SyntaxError(line = 2, message = SAMPLE_SYNTAX_ERROR)
             "busy" in request.source && busySources.add(request.source) -> HbDiagramResult.Failed(HbDiagramFailure.Busy)
+            "[[" in request.source -> buttons(request)
             "wide" in request.source -> sketch(request, WIDE_WIDTH, WIDE_HEIGHT)
             else -> sketch(request, WIDTH, HEIGHT)
         }
@@ -73,6 +76,34 @@ internal class CatalogDiagramRenderer : HbDiagramRenderer {
         return HbDiagramResult.Image(bitmap, DpSize(width.dp, height.dp))
     }
 
+    /** Three button-shaped elements demonstrate external, draft and send targets (chat actions disabled here). */
+    private fun buttons(request: HbDiagramRequest): HbDiagramResult.Image {
+        val scale = request.density
+        val height = 192f
+        val bitmap = ImageBitmap((WIDTH * scale).roundToInt(), (height * scale).roundToInt())
+        val canvas = Canvas(bitmap)
+        val fill = Paint().apply { color = request.style.accentFill }
+        val border = Paint().apply {
+            color = request.style.border
+            style = PaintingStyle.Stroke
+            strokeWidth = scale
+        }
+        val targets = listOf(
+            "https://example.com" to "Docs",
+            "heartbeat://diagram/insert?text=Hello%20chat" to "Insert into chat",
+            "heartbeat://diagram/send?text=Hello%20chat" to "Send to chat",
+        )
+        val links = targets.mapIndexed { index, (url, label) ->
+            val top = MARGIN + index * (BOX_HEIGHT + MARGIN)
+            val bounds = Rect(MARGIN, top, WIDTH - MARGIN, top + BOX_HEIGHT)
+            val drawn = Rect(bounds.left * scale, bounds.top * scale, bounds.right * scale, bounds.bottom * scale)
+            canvas.drawRect(drawn, fill)
+            canvas.drawRect(drawn, border)
+            HbDiagramLink(bounds, url, label)
+        }
+        return HbDiagramResult.Image(bitmap, DpSize(WIDTH.dp, height.dp), links.toImmutableList())
+    }
+
     private companion object {
         const val RENDER_DELAY_MILLIS = 600L
         const val WIDTH = 320f
@@ -91,6 +122,13 @@ internal class CatalogDiagramRenderer : HbDiagramRenderer {
 
 @Composable
 internal fun catalogDiagramLabels(): HbDiagramLabels = HbDiagramLabels(
+    zoomIn = hbString(HbString.DiagramZoomIn),
+    zoomOut = hbString(HbString.DiagramZoomOut),
+    fit = hbString(HbString.DiagramFit),
+    actualSize = hbString(HbString.DiagramActualSize),
+    insertText = hbString(HbString.DiagramInsertText),
+    sendText = hbString(HbString.DiagramSendText),
+    unavailableAction = hbString(HbString.DiagramUnavailableAction),
     rendering = hbString(HbString.DiagramRendering),
     diagram = hbString(HbString.DiagramTitle),
     openFullSize = hbString(HbString.DiagramOpenFullSize),

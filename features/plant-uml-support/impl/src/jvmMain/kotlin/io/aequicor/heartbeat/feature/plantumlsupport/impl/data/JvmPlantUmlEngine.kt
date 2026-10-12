@@ -96,7 +96,14 @@ internal class JvmPlantUmlEngine : PlantUmlEngine {
 
             else -> {
                 val scale = size.first.toFloat() / image.width
-                PlantUmlResult.Image(png, size.first / scale, size.second / scale, scale)
+                val width = size.first / scale
+                val height = size.second / scale
+                val links = if (image.containsCMapData()) {
+                    plantUmlLinks(image.getCMapData("heartbeat"), scale, width, height)
+                } else {
+                    emptyList()
+                }
+                PlantUmlResult.Image(png, width, height, scale, links)
             }
         }
     }
