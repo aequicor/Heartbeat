@@ -70,6 +70,8 @@ internal data class ChromiumBridgeScreenState(
     val isAgentControlEnabled: Boolean = false,
     val controlledTabs: Int = 0,
     val extensionId: String = ExtensionIdentity.ids.first(),
+    /** The folder to load unpacked, or `null` when this build has none. */
+    val extensionFolder: String? = null,
     val error: RegistrationError? = null,
 ) : MVIState
 
@@ -86,6 +88,9 @@ internal sealed interface ChromiumBridgeScreenIntent : MVIIntent {
 
     /** Takes the tabs agents drive back. */
     data object RevokeTabs : ChromiumBridgeScreenIntent
+
+    /** Opens the extension folder in the file manager. */
+    data object RevealExtension : ChromiumBridgeScreenIntent
 
     /** Hides the last registration error. */
     data object DismissError : ChromiumBridgeScreenIntent
@@ -132,6 +137,9 @@ internal class ChromiumBridgeModel(
 
                 ChromiumBridgeScreenIntent.RevokeTabs -> sendTo(machine, ChromiumBridgeIntent.Public.RevokeTabs)
 
+                ChromiumBridgeScreenIntent.RevealExtension ->
+                    sendTo(machine, ChromiumBridgeIntent.Public.RevealExtension)
+
                 ChromiumBridgeScreenIntent.DismissError -> updateState { copy(error = null) }
             }
         }
@@ -164,6 +172,7 @@ internal fun ChromiumBridgeScreenState.reflectState(state: ChromiumBridgeState):
             busy = state.registering?.toUi(),
             isAgentControlEnabled = state.isAgentControlEnabled,
             controlledTabs = state.controlledTabs,
+            extensionFolder = state.extensionFolder,
         )
     }
 

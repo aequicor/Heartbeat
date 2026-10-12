@@ -43,3 +43,12 @@ internal interface BridgeServer {
     /** Asks every extension allowing agent control to release the tabs agents drive; returns how many answered. */
     suspend fun revokeTabs(): Int
 }
+
+/** The extension folder this build ships or, in development, the repository's. */
+internal interface ExtensionFolder {
+    /** The folder to load unpacked, or `null` when there is none. */
+    suspend fun locate(): String?
+
+    /** Opens [folder] in the system file manager. */
+    suspend fun reveal(folder: String)
+}

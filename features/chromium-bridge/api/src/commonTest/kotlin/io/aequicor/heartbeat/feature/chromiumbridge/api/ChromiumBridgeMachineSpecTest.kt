@@ -18,7 +18,11 @@ class ChromiumBridgeMachineSpecTest {
                 from = from,
                 intent = availability(isEnabled = true, isAgentControl = true),
                 to = ChromiumBridgeState.Enabled(isAgentControlEnabled = true),
-                effects = listOf(ChromiumBridgeEffect.Serve, ChromiumBridgeEffect.ScanHosts),
+                effects = listOf(
+                    ChromiumBridgeEffect.Serve,
+                    ChromiumBridgeEffect.ScanHosts,
+                    ChromiumBridgeEffect.LocateExtension,
+                ),
             )
         }
     }
@@ -90,6 +94,19 @@ class ChromiumBridgeMachineSpecTest {
             ChromiumBridgeIntent.Public.RevokeTabs,
             enabled,
             effects = listOf(ChromiumBridgeEffect.RevokeTabs),
+        )
+    }
+
+    @Test
+    fun `the extension folder is remembered and shown only once known`() {
+        spec.assertIgnored(enabled, ChromiumBridgeIntent.Public.RevealExtension)
+        val located = enabled.copy(extensionFolder = "/app/chromium-plugin")
+        spec.assertTransition(enabled, ChromiumBridgeIntent.Internal.ExtensionLocated("/app/chromium-plugin"), located)
+        spec.assertTransition(
+            located,
+            ChromiumBridgeIntent.Public.RevealExtension,
+            located,
+            effects = listOf(ChromiumBridgeEffect.RevealExtension("/app/chromium-plugin")),
         )
     }
 

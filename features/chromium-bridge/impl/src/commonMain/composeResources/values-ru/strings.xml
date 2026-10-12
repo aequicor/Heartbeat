@@ -32,7 +32,10 @@
     <string name="chromium_bridge_register_description">Зарегистрировать Heartbeat в %1$s</string>
     <string name="chromium_bridge_unregister_description">Удалить Heartbeat из %1$s</string>
     <string name="chromium_bridge_section_extension">Расширение</string>
-    <string name="chromium_bridge_extension_hint">Откройте chrome://extensions, включите режим разработчика, нажмите «Загрузить распакованное расширение» и выберите папку chromium-plugin.</string>
+    <string name="chromium_bridge_extension_hint">Откройте chrome://extensions, включите режим разработчика, нажмите «Загрузить распакованное расширение» и выберите папку ниже.</string>
+    <string name="chromium_bridge_extension_folder">Папка расширения</string>
+    <string name="chromium_bridge_extension_folder_missing">Не найдена в этой сборке</string>
+    <string name="chromium_bridge_reveal">Показать папку</string>
     <string name="chromium_bridge_extension_id">Идентификатор расширения</string>
     <string name="chromium_bridge_section_agents">Агенты</string>
     <string name="chromium_bridge_controlled_tabs">Вкладки под управлением агентов</string>

@@ -11,7 +11,7 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  *
  * | From | Intent | Guard | To | Effect / Output |
  * |---|---|---|---|---|
- * | Idle / Disabled | AvailabilityChanged | enabled and supported | Enabled | Serve, ScanHosts |
+ * | Idle / Disabled | AvailabilityChanged | enabled and supported | Enabled | Serve, ScanHosts, LocateExtension |
  * | Idle / Disabled | AvailabilityChanged | otherwise | Disabled(isSupported) | |
  * | Enabled | AvailabilityChanged | enabled and supported | stay(isAgentControlEnabled) | |
  * | Enabled | AvailabilityChanged | otherwise | Disabled(isSupported) | |
@@ -24,6 +24,8 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Enabled | ConnectionsChanged | | stay(connections) | |
  * | Enabled | TabsChanged | | stay(controlledTabs) | |
  * | Enabled | RevokeTabs | | stay | RevokeTabs |
+ * | Enabled | ExtensionLocated | | stay(extensionFolder) | |
+ * | Enabled | RevealExtension | extension folder known | stay | RevealExtension |
  * | any | EffectFailed | | stay | |
  *
  * A failed registration effect becomes RegistrationFailed(WriteFailed), a failed Serve becomes
@@ -40,6 +42,7 @@ public val ChromiumBridgeMachineSpec: MachineSpec<
             goto<ChromiumBridgeState.Enabled> { intent.enabledState() }
             effect { ChromiumBridgeEffect.Serve }
             effect { ChromiumBridgeEffect.ScanHosts }
+            effect { ChromiumBridgeEffect.LocateExtension }
         }
         on<ChromiumBridgeIntent.Internal.AvailabilityChanged>(guard = { !intent.isActive }) {
             goto<ChromiumBridgeState.Disabled> { ChromiumBridgeState.Disabled(intent.isSupported) }
@@ -50,6 +53,7 @@ public val ChromiumBridgeMachineSpec: MachineSpec<
             goto<ChromiumBridgeState.Enabled> { intent.enabledState() }
             effect { ChromiumBridgeEffect.Serve }
             effect { ChromiumBridgeEffect.ScanHosts }
+            effect { ChromiumBridgeEffect.LocateExtension }
         }
         on<ChromiumBridgeIntent.Internal.AvailabilityChanged>(guard = { !intent.isActive }) {
             stay { ChromiumBridgeState.Disabled(intent.isSupported) }
@@ -83,6 +87,10 @@ public val ChromiumBridgeMachineSpec: MachineSpec<
         on<ChromiumBridgeIntent.Internal.ConnectionsChanged> { stay { state.copy(connections = intent.connections) } }
         on<ChromiumBridgeIntent.Internal.TabsChanged> { stay { state.copy(controlledTabs = intent.controlledTabs) } }
         on<ChromiumBridgeIntent.Public.RevokeTabs> { effect { ChromiumBridgeEffect.RevokeTabs } }
+        on<ChromiumBridgeIntent.Internal.ExtensionLocated> { stay { state.copy(extensionFolder = intent.folder) } }
+        on<ChromiumBridgeIntent.Public.RevealExtension>(guard = { state.extensionFolder != null }) {
+            effect { ChromiumBridgeEffect.RevealExtension(checkNotNull(state.extensionFolder)) }
+        }
     }
     any { on<ChromiumBridgeIntent.Internal.EffectFailed>() }
     onEffectFailure { effect, _ ->
@@ -95,8 +103,11 @@ public val ChromiumBridgeMachineSpec: MachineSpec<
 
             ChromiumBridgeEffect.Serve -> ChromiumBridgeIntent.Internal.ServerChanged(BridgeServerStatus.Failed)
 
-            ChromiumBridgeEffect.ScanHosts, ChromiumBridgeEffect.RevokeTabs ->
-                ChromiumBridgeIntent.Internal.EffectFailed
+            ChromiumBridgeEffect.ScanHosts,
+            ChromiumBridgeEffect.RevokeTabs,
+            ChromiumBridgeEffect.LocateExtension,
+            is ChromiumBridgeEffect.RevealExtension,
+            -> ChromiumBridgeIntent.Internal.EffectFailed
         }
     }
 }

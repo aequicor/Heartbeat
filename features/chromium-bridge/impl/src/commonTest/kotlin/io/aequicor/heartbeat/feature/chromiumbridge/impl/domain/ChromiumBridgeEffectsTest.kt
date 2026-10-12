@@ -22,7 +22,15 @@ class ChromiumBridgeEffectsTest {
     private val server = FakeServer()
     private val hosts = FakeHosts()
     private val machine = RecordingScope()
-    private val effects = ChromiumBridgeEffects(lazyOf(server), lazyOf(hosts))
+    private val revealed = mutableListOf<String>()
+    private val folder = object : ExtensionFolder {
+        override suspend fun locate(): String = "/app/chromium-plugin"
+
+        override suspend fun reveal(folder: String) {
+            revealed += folder
+        }
+    }
+    private val effects = ChromiumBridgeEffects(lazyOf(server), lazyOf(hosts), lazyOf(folder))
 
     @Test
     fun `serving reports status and connections until the socket is given up`() = runTest {
@@ -73,6 +81,18 @@ class ChromiumBridgeEffectsTest {
             ),
             machine.sent,
         )
+    }
+
+    @Test
+    fun `the extension folder is located and revealed`() = runTest {
+        effects.handle(ChromiumBridgeEffect.LocateExtension, machine)
+        effects.handle(ChromiumBridgeEffect.RevealExtension("/app/chromium-plugin"), machine)
+
+        assertEquals<List<ChromiumBridgeIntent>>(
+            listOf(ChromiumBridgeIntent.Internal.ExtensionLocated("/app/chromium-plugin")),
+            machine.sent,
+        )
+        assertEquals(listOf("/app/chromium-plugin"), revealed)
     }
 
     @Test

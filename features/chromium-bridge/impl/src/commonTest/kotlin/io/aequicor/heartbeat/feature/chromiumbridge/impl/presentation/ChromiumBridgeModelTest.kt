@@ -44,6 +44,7 @@ class ChromiumBridgeModelTest {
         controlledTabs = 2,
         registering = ChromiumBrowser.Chrome,
         isAgentControlEnabled = true,
+        extensionFolder = "/app/chromium-plugin",
     )
 
     @Test
@@ -64,6 +65,7 @@ class ChromiumBridgeModelTest {
         assertEquals(BrowserUi.Chrome, state.busy)
         assertEquals(listOf(ConnectionRow(3, "Google Chrome", "140", "0.1.0", true)), state.connections)
         assertEquals(2, state.controlledTabs)
+        assertEquals("/app/chromium-plugin", state.extensionFolder)
     }
 
     @Test
@@ -87,6 +89,7 @@ class ChromiumBridgeModelTest {
         screen.intent(ChromiumBridgeScreenIntent.Unregister(BrowserUi.Chrome))
         screen.intent(ChromiumBridgeScreenIntent.Rescan)
         screen.intent(ChromiumBridgeScreenIntent.RevokeTabs)
+        screen.intent(ChromiumBridgeScreenIntent.RevealExtension)
         runCurrent()
 
         assertEquals<List<ChromiumBridgeIntent>>(
@@ -95,6 +98,7 @@ class ChromiumBridgeModelTest {
                 ChromiumBridgeIntent.Public.Unregister(ChromiumBrowser.Chrome),
                 ChromiumBridgeIntent.Public.Rescan,
                 ChromiumBridgeIntent.Public.RevokeTabs,
+                ChromiumBridgeIntent.Public.RevealExtension,
             ),
             fixture.machine.sent,
         )

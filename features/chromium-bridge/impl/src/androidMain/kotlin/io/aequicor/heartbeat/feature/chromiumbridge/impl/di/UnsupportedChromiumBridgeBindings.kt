@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.chromiumbridge.api.ConnectedBrowser
 import io.aequicor.heartbeat.feature.chromiumbridge.api.HostRegistration
 import io.aequicor.heartbeat.feature.chromiumbridge.api.HostRegistrationFailure
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.BridgeServer
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.ExtensionFolder
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.HostRegistrationException
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.NativeHostRegistry
 import kotlinx.coroutines.flow.Flow
@@ -42,5 +43,13 @@ public object UnsupportedChromiumBridgeBindings {
 
         override suspend fun unregister(browser: ChromiumBrowser): BrowserHost =
             BrowserHost(browser, isDetected = false, HostRegistration.NotRegistered)
+    }
+
+    /** No extension folder on mobile. */
+    @Provides
+    internal fun extension(): ExtensionFolder = object : ExtensionFolder {
+        override suspend fun locate(): String? = null
+
+        override suspend fun reveal(folder: String) = Unit
     }
 }

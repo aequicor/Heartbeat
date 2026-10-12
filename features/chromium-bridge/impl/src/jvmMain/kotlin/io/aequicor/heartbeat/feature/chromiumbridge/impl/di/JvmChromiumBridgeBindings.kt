@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalBrowser
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.DesktopBridgeEnvironment
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.DesktopExtensionFolder
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.ToggleBridgeFeatures
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.agent.ChromiumExternalBrowser
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.hosts.DesktopNativeHostRegistry
@@ -24,6 +25,7 @@ import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeReque
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.DesktopBridgeServer
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.HelloHandler
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.BridgeServer
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.ExtensionFolder
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.ExtensionIdentity
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.NativeHostRegistry
 
@@ -73,6 +75,10 @@ public object JvmChromiumBridgeBindings {
         connections: BridgeConnections,
         @ForScope(ProfileScope::class) profile: ScopeHandle,
     ): ExternalBrowser = ChromiumExternalBrowser(connections.sessions, profile.coroutineScope)
+
+    /** The extension folder to load unpacked. */
+    @Provides
+    internal fun extension(dispatchers: DispatcherProvider): ExtensionFolder = DesktopExtensionFolder(dispatchers.io)
 
     /** Browser registrations. */
     @Provides

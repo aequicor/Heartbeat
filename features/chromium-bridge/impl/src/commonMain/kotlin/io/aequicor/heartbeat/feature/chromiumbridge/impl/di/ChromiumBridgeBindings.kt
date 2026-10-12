@@ -28,6 +28,7 @@ import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeState
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.ToggleBridgeFeatures
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.BridgeServer
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.ChromiumBridgeEffects
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.ExtensionFolder
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.NativeHostRegistry
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -52,7 +53,8 @@ public object ChromiumBridgeBindings {
     internal fun effects(
         server: Lazy<BridgeServer>,
         hosts: Lazy<NativeHostRegistry>,
-    ): EffectHandler<ChromiumBridgeEffect, ChromiumBridgeIntent> = ChromiumBridgeEffects(server, hosts)
+        extension: Lazy<ExtensionFolder>,
+    ): EffectHandler<ChromiumBridgeEffect, ChromiumBridgeIntent> = ChromiumBridgeEffects(server, hosts, extension)
 
     /** Features offered to extensions. */
     @Provides

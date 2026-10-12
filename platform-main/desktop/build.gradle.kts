@@ -101,6 +101,18 @@ val preparePiRuntime = piTarget?.let { target ->
 // A plain IDE main() launch builds classes only; preparing Pi here lets that launch find it (see Main.kt).
 preparePiRuntime?.let { task -> tasks.named("processResources") { dependsOn(task) } }
 
+// App resources of the distribution: the Pi runtime and the Chromium extension folder that settings offer for
+// "Load unpacked". Runs from a checkout use the repository's extension folder instead (DesktopExtensionFolder).
+val collectAppResources = tasks.register<Sync>("collectAppResources") {
+    preparePiRuntime?.let { task -> from(task.flatMap { it.outputDirectory }) }
+    from(layout.settingsDirectory.dir("chromium-plugin")) {
+        into("common/chromium-plugin")
+        // Tests, editor typings and a private signing key are not part of the extension.
+        exclude("tests/**", "jsconfig.json", "src/types/**", "*.pem")
+    }
+    into(layout.buildDirectory.dir("generated/appResources"))
+}
+
 compose.desktop {
     application {
         mainClass = "io.aequicor.heartbeat.platform.desktop.MainKt"
@@ -144,7 +156,7 @@ compose.desktop {
             linux {
                 iconFile.set(layout.projectDirectory.file("icons/heartbeat.png"))
             }
-            preparePiRuntime?.let { task -> appResourcesRootDir.set(task.flatMap { it.outputDirectory }) }
+            appResourcesRootDir.set(layout.dir(collectAppResources.map { it.destinationDir }))
         }
     }
 }

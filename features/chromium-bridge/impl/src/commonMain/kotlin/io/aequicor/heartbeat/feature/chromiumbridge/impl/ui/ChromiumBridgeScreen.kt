@@ -56,6 +56,8 @@ import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_brid
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_controlled_tabs_count
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_disabled
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_dismiss
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_extension_folder
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_extension_folder_missing
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_extension_hint
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_extension_id
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_failure
@@ -73,6 +75,7 @@ import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_brid
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_registration_none
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_registration_other
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_rescan
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_reveal
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_revoke
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_section_agents
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_section_browsers
@@ -154,7 +157,7 @@ private fun LazyListScope.enabledItems(
     state.error?.let { error -> item(key = "error") { ErrorBanner(error, onIntent) } }
     item(key = "connection") { ConnectionSection(state) }
     item(key = "browsers") { BrowsersSection(state, onIntent) }
-    item(key = "extension") { ExtensionSection(state.extensionId) }
+    item(key = "extension") { ExtensionSection(state, onIntent) }
     if (state.isAgentControlEnabled) item(key = "agents") { AgentsSection(state, onIntent) }
 }
 
@@ -271,15 +274,29 @@ private fun BrowserRowItem(row: BrowserRow, isLocked: Boolean, onIntent: (Chromi
 }
 
 @Composable
-private fun ExtensionSection(extensionId: String) {
+private fun ExtensionSection(state: ChromiumBridgeScreenState, onIntent: (ChromiumBridgeScreenIntent) -> Unit) {
     HbSettingsSection(
         stringResource(Res.string.chromium_bridge_section_extension),
         description = stringResource(Res.string.chromium_bridge_extension_hint),
     ) {
         HbSettingsRow(
+            stringResource(Res.string.chromium_bridge_extension_folder),
+            Modifier.fillMaxWidth().testTag("chromium-bridge-extension-folder"),
+            description = state.extensionFolder ?: stringResource(Res.string.chromium_bridge_extension_folder_missing),
+        ) {
+            HbButton(
+                stringResource(Res.string.chromium_bridge_reveal),
+                { onIntent(ChromiumBridgeScreenIntent.RevealExtension) },
+                Modifier.testTag("chromium-bridge-reveal"),
+                style = HbButtonStyle.Secondary,
+                enabled = state.extensionFolder != null,
+                size = HbButtonSize.Small,
+            )
+        }
+        HbSettingsRow(
             stringResource(Res.string.chromium_bridge_extension_id),
             Modifier.fillMaxWidth().testTag("chromium-bridge-extension-id"),
-            description = extensionId,
+            description = state.extensionId,
         )
     }
 }
@@ -343,6 +360,7 @@ private val previewState = ChromiumBridgeScreenState(
     connections = persistentListOf(ConnectionRow(1, "Google Chrome", "140", "0.1.0", isAgentControlAllowed = true)),
     isAgentControlEnabled = true,
     controlledTabs = 2,
+    extensionFolder = "/Applications/Heartbeat.app/Contents/app/resources/chromium-plugin",
     error = RegistrationError(BrowserUi.Edge, FailureUi.WriteFailed),
 )
 

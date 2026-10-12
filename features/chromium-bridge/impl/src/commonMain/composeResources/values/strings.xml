@@ -32,7 +32,10 @@
     <string name="chromium_bridge_register_description">Register Heartbeat in %1$s</string>
     <string name="chromium_bridge_unregister_description">Remove Heartbeat from %1$s</string>
     <string name="chromium_bridge_section_extension">Extension</string>
-    <string name="chromium_bridge_extension_hint">Open chrome://extensions, turn on developer mode, choose “Load unpacked” and select the chromium-plugin folder.</string>
+    <string name="chromium_bridge_extension_hint">Open chrome://extensions, turn on developer mode, choose “Load unpacked” and select the folder below.</string>
+    <string name="chromium_bridge_extension_folder">Extension folder</string>
+    <string name="chromium_bridge_extension_folder_missing">Not found in this build</string>
+    <string name="chromium_bridge_reveal">Show folder</string>
     <string name="chromium_bridge_extension_id">Extension ID</string>
     <string name="chromium_bridge_section_agents">Agents</string>
     <string name="chromium_bridge_controlled_tabs">Tabs controlled by agents</string>

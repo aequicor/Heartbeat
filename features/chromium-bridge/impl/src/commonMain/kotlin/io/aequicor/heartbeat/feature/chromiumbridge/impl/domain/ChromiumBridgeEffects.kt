@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 internal class ChromiumBridgeEffects(
     private val server: Lazy<BridgeServer>,
     private val hosts: Lazy<NativeHostRegistry>,
+    private val extension: Lazy<ExtensionFolder>,
 ) : EffectHandler<ChromiumBridgeEffect, ChromiumBridgeIntent> {
     private val log = Log.tag("ChromiumBridgeEffects")
 
@@ -30,6 +31,11 @@ internal class ChromiumBridgeEffects(
             is ChromiumBridgeEffect.Register -> change(effect.browser, machine) { hosts.value.register(it) }
 
             is ChromiumBridgeEffect.Unregister -> change(effect.browser, machine) { hosts.value.unregister(it) }
+
+            ChromiumBridgeEffect.LocateExtension ->
+                machine.send(ChromiumBridgeIntent.Internal.ExtensionLocated(extension.value.locate()))
+
+            is ChromiumBridgeEffect.RevealExtension -> extension.value.reveal(effect.folder)
 
             ChromiumBridgeEffect.RevokeTabs -> {
                 val answered = server.value.revokeTabs()

@@ -25,6 +25,8 @@ public sealed interface ChromiumBridgeState : MachineState {
         public val registering: ChromiumBrowser? = null,
         /** `chromium_bridge.agent_control`: agents may drive external browsers. */
         public val isAgentControlEnabled: Boolean = false,
+        /** Folder of the extension to load unpacked, when this build ships or sits next to one. */
+        public val extensionFolder: String? = null,
     ) : ChromiumBridgeState
 }
 
@@ -84,6 +86,9 @@ public sealed interface ChromiumBridgeIntent : MachineIntent {
 
         /** Takes every tab agents drive in external browsers back from them. */
         public data object RevokeTabs : Public
+
+        /** Shows the extension folder in the system file manager. */
+        public data object RevealExtension : Public
     }
 
     /** Results the feature sends to itself. */
@@ -116,6 +121,9 @@ public sealed interface ChromiumBridgeIntent : MachineIntent {
         /** The number of tabs agents drive changed. */
         public data class TabsChanged(public val controlledTabs: Int) : Internal
 
+        /** The extension folder was looked up; `null` when this build has none. */
+        public data class ExtensionLocated(public val folder: String?) : Internal
+
         /** An effect without a dedicated failure intent failed; the runtime logged it. */
         public data object EffectFailed : Internal
     }
@@ -137,6 +145,12 @@ public sealed interface ChromiumBridgeEffect : MachineEffect {
 
     /** Asks every connected extension to release the tabs agents drive. */
     public data object RevokeTabs : ChromiumBridgeEffect
+
+    /** Looks up the extension folder of this build. */
+    public data object LocateExtension : ChromiumBridgeEffect
+
+    /** Opens [folder] in the system file manager. */
+    public data class RevealExtension(public val folder: String) : ChromiumBridgeEffect
 }
 
 /** One-off events for the settings screen. */
