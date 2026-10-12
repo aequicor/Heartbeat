@@ -44,7 +44,7 @@ internal class HarnessScriptTools(
     private val origins: Lazy<HarnessRequestOrigins>,
 ) : AgentToolContribution {
     private val log = Log.tag("HarnessTools")
-    override val group: String = "harness"
+    override val group: String = HarnessTools.GROUP
     override val title: String = "Харнессы"
     override val isDetachedSupported: Boolean = true
     override val catalog get() = runtime.value.declaredTools.toolCatalog()
@@ -101,6 +101,7 @@ internal class HarnessScriptTools(
     /**
      * A session being opened (Codex declares tools at thread start, before the ref exists) declares the tools of the
      * harnesses its creator chose; they are connected before its first prompt, and calls are bound by that connection.
+     * If connecting fails, the thread keeps declaring those tools and every call to them is refused.
      */
     private suspend fun openingIds(chosen: Set<String>): Set<HarnessId>? = closedOnFailure {
         access.value.opening(chosen.mapTo(hashSetOf(), ::HarnessId)).take(HarnessLimits.ACTIVE_PER_SESSION)

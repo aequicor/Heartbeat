@@ -80,7 +80,7 @@ internal class HarnessAuthoringTools(
     private val clock: Clock,
 ) : AgentToolContribution {
     private val log = Log.tag("HarnessTools")
-    override val group: String = "harness"
+    override val group: String = HarnessTools.GROUP
     override val title: String = "Харнессы"
     override val isDetachedSupported: Boolean = true
     override val catalog get() = HARNESS_AUTHORING_SPECS.toolCatalog()
@@ -105,8 +105,8 @@ internal class HarnessAuthoringTools(
                         "workflow — оркестрация помощников.",
                 )
                 add(
-                    "Код, включение инструментов, снятие их ограничений, а также подключение, отключение, " +
-                        "удаление харнесса со скриптом пользователь подтверждает всегда. " +
+                    "Код, включение инструментов, снятие их ограничений, а также подключение, отключение " +
+                        "и удаление харнесса со скриптом пользователь подтверждает всегда. " +
                         "Не сохраняй секреты.",
                 )
             }

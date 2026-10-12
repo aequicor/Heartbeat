@@ -39,14 +39,14 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
         route: ExecutionRoute,
         areDetachedToolsEnabled: Boolean,
         preselected: Map<String, Set<String>> = emptyMap(),
-    ): CodexThreadRequest = CodexThreadRequest(
-        nativeId,
-        target,
-        route,
-        areDetachedToolsEnabled,
-        policy(ToolPolicyScope(identity.engine, route.workspace, nativeId?.let(::sessionRef), target)),
-        preselected.takeIf { nativeId == null }.orEmpty(),
-    ).also { restoreForOpening(it) }
+    ): CodexThreadRequest {
+        // A new thread's process and native policy already follow the creator's choices, as its declarations do.
+        val chosen = preselected.takeIf { nativeId == null }.orEmpty()
+        val session = nativeId?.let(::sessionRef)
+        val policy = policy(ToolPolicyScope(identity.engine, route.workspace, session, target, chosen))
+        return CodexThreadRequest(nativeId, target, route, areDetachedToolsEnabled, policy, chosen)
+            .also { restoreForOpening(it) }
+    }
 
     /** A persisted stop fence forbids both creating another execution process and resuming the native thread. */
     private suspend fun restoreForOpening(request: CodexThreadRequest): CodexTurnSnapshot? {

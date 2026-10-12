@@ -95,7 +95,7 @@ class HarnessScriptToolsTest {
         val owner = fixture.request.harness
         val connectedOnly = object : HarnessActiveAccess {
             override suspend fun active(workspace: WorkspaceRef?, session: SessionRef?) =
-                if (session == null) emptyList() else listOf(owner)
+                if (session == dispatchSession) listOf(owner) else emptyList()
 
             override suspend fun opening(harnesses: Set<HarnessId>) = listOf(owner).filter { it.id in harnesses }
         }
@@ -105,7 +105,8 @@ class HarnessScriptToolsTest {
         assertTrue(tools.specifications(AgentToolScope(null)).isEmpty())
         // Once the session exists only its connections count, never the creator's earlier choice.
         val other = dispatchSession.copy(nativeId = "other")
-        assertEquals(1, tools.specifications(AgentToolScope(null, session = other, preselected = chosen)).size)
+        assertTrue(tools.specifications(AgentToolScope(null, session = other, preselected = chosen)).isEmpty())
+        assertEquals(1, tools.specifications(AgentToolScope(null, session = dispatchSession)).size)
     }
 
     @Test

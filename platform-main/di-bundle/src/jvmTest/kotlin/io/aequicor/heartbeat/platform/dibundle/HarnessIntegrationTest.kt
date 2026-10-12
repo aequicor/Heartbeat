@@ -122,6 +122,11 @@ class HarnessIntegrationTest {
                     it.harnesses.singleOrNull()?.itemStatus?.get(code.id) is ItemStatus.Active
                 }
                 assertTrue(saved.isRuntimeAvailable)
+                // Only an explicit connection activates a harness, so the hooks run for the connected chat.
+                machine.send(HarnessIntent.Public.Attach(RequestId("attach"), HarnessId("harness"), HOOKED_SESSION))
+                machine.state.filterIsInstance<HarnessState.Ready>().first {
+                    HarnessId("harness") in it.attachments[HOOKED_SESSION].orEmpty()
+                }
                 val call = assertSchedulerHooks(hooks, (profile.graph as TestHarnessHookAccessors).harnessSchedulerBus)
                 val generation = assertIs<ItemStatus.Active>(saved.harnesses.single().itemStatus[code.id]).generation
                 toggles.toggleControl.setOverride(HarnessEnabled, false)
@@ -164,7 +169,7 @@ class HarnessIntegrationTest {
             HarnessIntent.Internal.Create(
                 RequestId("create"),
                 HarnessId("harness"),
-                HarnessDraft(HarnessName("test"), "Test", scope = HarnessScope.Profile, items = listOf(code)),
+                HarnessDraft(HarnessName("test"), "Test", scope = HarnessScope.Attached, items = listOf(code)),
                 null,
                 Instant.fromEpochMilliseconds(1_000),
             ),
@@ -185,7 +190,7 @@ class HarnessIntegrationTest {
 
     private suspend fun assertDirectHooks(hooks: Set<SessionHook>): HookedToolCall {
         val context = SessionHookContext(
-            SessionRef(EngineId("test"), SessionSourceId("test"), "harness-session"),
+            HOOKED_SESSION,
             null,
             null,
             null,
@@ -229,3 +234,5 @@ interface TestHarnessHookAccessors {
     val harnessProfileRoutes: Set<RouteEntry<*>>
     val studioHarnesses: StudioHarnesses
 }
+
+private val HOOKED_SESSION = SessionRef(EngineId("test"), SessionSourceId("test"), "harness-session")

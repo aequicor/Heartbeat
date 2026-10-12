@@ -68,7 +68,10 @@ class MachineHarnessActiveAccessTest {
         val first = async { assertFailsWith<HarnessActivationUnavailable> { access.active(null, dispatchSession) } }
         advanceTimeBy(1_001)
         first.await()
-        val probe = async { assertFailsWith<HarnessActivationUnavailable> { access.active(null, dispatchSession) } }
+        // One latch for every read: a read with a workspace after a failed one without it only probes.
+        val probe = async {
+            assertFailsWith<HarnessActivationUnavailable> { access.active(WorkspaceRef("project"), dispatchSession) }
+        }
         advanceTimeBy(51)
         runCurrent()
         assertTrue(probe.isCompleted)
@@ -85,7 +88,7 @@ class MachineHarnessActiveAccessTest {
     }
 
     @Test
-    fun `workspace reads need no project catalog after the library is ready`() = runTest {
+    fun `a connection activates in any workspace, including for a legacy project scope`() = runTest {
         val entry = harness.copy(scope = HarnessScope.Projects(setOf(WorkspaceRef("project"))))
         registry.library.value = SchedulerAccessMachine(
             HarnessState.Ready(

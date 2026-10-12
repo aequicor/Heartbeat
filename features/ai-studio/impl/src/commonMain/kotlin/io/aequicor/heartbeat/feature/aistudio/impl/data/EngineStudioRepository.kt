@@ -66,6 +66,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolChoices
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
@@ -604,7 +605,7 @@ internal class EngineStudioRepository(
         nativeSession.mirrorHistory(historyMirror, id, history, isFinal = false)
     }
 
-    private suspend fun open(id: String, target: EngineTarget, tools: ToolChoices) = conversationLocks.withLock(id) {
+    private suspend fun open(id: String, target: EngineTarget, chosen: ToolChoices) = conversationLocks.withLock(id) {
         val record = record(id)
         check(record.worktreeTaskId == null || record.executionWorkspace != null) {
             "The conversation worktree is not ready"
@@ -635,7 +636,7 @@ internal class EngineStudioRepository(
         }
         val active = if (record.ref == null) {
             facade.engines.features(target.engine).requireFeature(CreatesSessions)
-                .create(studioCreateRequest(target, workspace, tools))
+                .create(studioCreateRequest(target, workspace, chosen))
         } else {
             check(
                 record.target?.engine == target.engine && record.target.binding == target.binding,

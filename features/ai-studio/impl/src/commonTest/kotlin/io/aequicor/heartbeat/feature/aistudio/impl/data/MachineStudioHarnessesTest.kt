@@ -160,13 +160,16 @@ class MachineStudioHarnessesTest {
         val projects = libraryEntry("verify").let {
             it.copy(harness = it.harness.copy(scope = HarnessScope.Projects(setOf(WorkspaceRef("project")))))
         }
-        library.state.value = HarnessState.Ready(harnesses = listOf(profile, projects))
+        library.state.value = HarnessState.Ready(
+            harnesses = listOf(profile, projects),
+            attachments = mapOf(other to setOf(HarnessId("verify"))),
+        )
         val harnesses = MachineStudioHarnesses(HarnessRegistry(library), HarnessToggleOn)
 
         val choices = harnesses.choices.first()
 
         assertEquals(listOf("compose", "verify"), choices.harnesses.map { it.id })
-        assertTrue(choices.attached.isEmpty())
+        assertEquals(mapOf(other to setOf("verify")), choices.attached)
     }
 }
 

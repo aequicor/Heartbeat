@@ -36,15 +36,25 @@ class HarnessAuthoringDraftsTest {
             args("name" to "ok_name", "title" to "line\nbreak"),
             args("name" to "ok_name", "title" to "T", "extra" to "secret-ish"),
             args("name" to "ok_name", "title" to "T", "scope" to "galaxy"),
+            args("name" to "ok_name", "title" to "T", "scope" to ""),
+            buildJsonObject {
+                put("name", "ok_name")
+                put("title", "T")
+                put("scope", true)
+            },
         ).forEach { arguments ->
             val invalid = assertIs<Parsed.Invalid>(parseCreate(arguments))
             assertFalse(invalid.message.contains("secret-ish"))
         }
+        assertIs<Parsed.Valid<AuthoringCommand.Create>>(
+            parseCreate(args("name" to "ok_name", "title" to "T", "scope" to "attached")),
+        )
     }
 
     @Test
     fun `update requires at least one change`() {
         assertIs<Parsed.Invalid>(parseUpdate(args("harness" to "compose_ui")))
+        assertIs<Parsed.Invalid>(parseUpdate(args("harness" to "compose_ui", "scope" to "attached")))
         val update = assertIs<Parsed.Valid<AuthoringCommand.Update>>(
             parseUpdate(args("harness" to "compose_ui", "description" to "")),
         ).value

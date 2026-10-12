@@ -264,8 +264,10 @@ private fun itemName(value: String?): ItemName {
  * instead of being ignored, so an agent never believes a harness became active without a connection.
  */
 private fun attachedOnly(arguments: JsonObject) {
-    val scope = arguments.text("scope") ?: return
-    argument(scope == "attached") { "only attached scope is supported; connect this harness to a chat" }
+    val scope = arguments["scope"] ?: return
+    argument(arguments.raw("scope")?.trim() == "attached" && scope is JsonPrimitive) {
+        "only attached scope is supported; connect this harness to a chat"
+    }
 }
 
 private fun line(value: String?, field: String, limit: Int, isRequired: Boolean): String {

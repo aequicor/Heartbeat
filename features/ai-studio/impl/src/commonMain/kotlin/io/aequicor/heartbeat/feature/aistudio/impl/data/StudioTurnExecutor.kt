@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.NoStudioHarnessAttach
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessAttach
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolChoices
 import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
@@ -31,9 +32,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-
-/** Choices made before a session exists, by tool contribution group ([CreateSessionRequest.preselected]). */
-internal typealias ToolChoices = Map<String, Set<String>>
 
 /** The repository supplies persistence and native features; this executor owns a single accepted turn. */
 internal interface StudioTurnHost {

@@ -70,7 +70,7 @@ class HarnessSchedulerSnapshotTest {
     }
 
     @Test
-    fun `connection works even when project evidence is unavailable`() {
+    fun `a connection admits its harness for any workspace of the chat`() {
         val orphan = HarnessTarget(dispatchSession, WorkspaceRef("removed"))
         val profile = harness.copy(
             id = HarnessId("profile"),

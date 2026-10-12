@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarness
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessAttach
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessChoices
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolChoices
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
@@ -102,7 +103,7 @@ internal class MachineStudioHarnesses(private val machines: MachineRegistry, pri
         log.d { "New chat submission claims its harness choice count=${harnesses.size}" }
     }
 
-    override fun preselected(submissionId: String): Map<String, Set<String>> =
+    override fun preselected(submissionId: String): ToolChoices =
         claims.value[submissionId]?.let { mapOf(HarnessTools.GROUP to it) }.orEmpty()
 
     override fun release(submissionId: String) {

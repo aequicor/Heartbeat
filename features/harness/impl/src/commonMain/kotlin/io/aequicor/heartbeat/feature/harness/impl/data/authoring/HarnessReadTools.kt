@@ -40,7 +40,7 @@ internal class HarnessReadTools(
     private val catalogs: Lazy<HarnessToolCatalogs>,
     private val access: Lazy<HarnessActiveAccess>,
 ) : AgentToolContribution {
-    override val group: String = "harness"
+    override val group: String = HarnessTools.GROUP
     override val title: String = "Харнессы"
     override val isDetachedSupported: Boolean = true
     override val catalog get() = HARNESS_READ_SPECS.toolCatalog()

@@ -41,13 +41,16 @@ interface StudioHarnesses {
     }
 }
 
+/** Choices made before a session exists, by tool contribution group ([CreateSessionRequest.preselected]). */
+internal typealias ToolChoices = Map<String, Set<String>>
+
 /** Connects a new chat's chosen harnesses between opening its session and submitting the first prompt. */
 internal interface StudioHarnessAttach {
     /**
      * The claim of [submissionId] as [CreateSessionRequest.preselected] choices, without using it: an engine that
      * declares tools when it opens the session (Codex) already sees the chosen harnesses.
      */
-    fun preselected(submissionId: String): Map<String, Set<String>>
+    fun preselected(submissionId: String): ToolChoices
 
     /** Connects the harnesses claimed by [submissionId] to [session]; a claim is used once, other turns pass. */
     suspend fun beforeSubmit(submissionId: String, session: SessionRef)
@@ -58,7 +61,7 @@ internal interface StudioHarnessAttach {
 
 /** Default without the harness feature. */
 internal object NoStudioHarnessAttach : StudioHarnessAttach {
-    override fun preselected(submissionId: String): Map<String, Set<String>> = emptyMap()
+    override fun preselected(submissionId: String): ToolChoices = emptyMap()
     override suspend fun beforeSubmit(submissionId: String, session: SessionRef) = Unit
     override fun release(submissionId: String) = Unit
 }

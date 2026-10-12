@@ -84,7 +84,8 @@ public data class CreateSessionRequest(
      * Choices the creator made before the session exists, by [AgentToolContribution.group] (for example harnesses
      * chosen in a new chat's composer). Adapters that declare tools before the native session has a ref pass them as
      * [AgentToolScope.preselected] and [ToolPolicyScope.preselected]; the creator still records the choice durably
-     * once the session exists, and later reads use that record.
+     * once the session exists, and later reads use that record. Only the user's own choices made through host UI
+     * belong here, never values derived from model output or tool arguments.
      */
     val preselected: Map<String, Set<String>> = emptyMap(),
 )

@@ -32,7 +32,7 @@ internal class HarnessContentTools(
     private val scripts: Lazy<HarnessScriptInstructionAccess> = lazy { HarnessScriptInstructionAccess { "" } },
 ) : AgentToolContribution {
     private val log = Log.tag("HarnessTools")
-    override val group: String = "harness"
+    override val group: String = HarnessTools.GROUP
     override val title: String = "Харнессы"
     override val isDetachedSupported: Boolean = true
     override val hasIndependentInstructions: Boolean = true

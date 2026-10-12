@@ -202,6 +202,21 @@ class HarnessAuthoringToolsTest {
     }
 
     @Test
+    fun `an update keeps a legacy scope and changes only the metadata at the shown revision`() = runTest {
+        library.scope = HarnessScope.Profile
+        val arguments = buildJsonObject {
+            put("harness", harness.name.value)
+            put("title", "Renamed")
+        }
+        val approval = tools.approval(context, spec(HarnessTools.UPDATE), arguments)
+        val result = tools.execute(context.copy(authorization = approval), HarnessTools.UPDATE, arguments)
+        assertFalse(result.isError, result.text)
+        val update = assertIs<HarnessIntent.Internal.Update>(library.sent.single())
+        assertEquals(HarnessChange.Meta("Renamed", harness.description), update.change)
+        assertEquals(harness.revision, update.expectedRevision)
+    }
+
+    @Test
     fun `enabling native tools always asks and unknown or ungated tools are refused`() = runTest {
         library.approval = HarnessApproval.AcceptAll
         val off = tools(native = "WebFetch" to "off")

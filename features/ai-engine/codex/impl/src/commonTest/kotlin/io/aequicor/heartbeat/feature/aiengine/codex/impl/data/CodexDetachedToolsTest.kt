@@ -56,6 +56,8 @@ class CodexDetachedToolsTest {
         fixture.runtime.create(request)
         assertEquals(chosen, tools.scopes.last().preselected)
         assertNull(tools.scopes.last().session)
+        // The process and native policy of the new thread follow the same choices.
+        assertTrue(tools.policyScopes.any { it.preselected == chosen && it.session == null })
         fixture.runtime.close()
     }
 
@@ -128,7 +130,11 @@ class CodexDetachedToolsTest {
 }
 
 private class ScopedTools(private val names: List<String>) : ProfileAgentTools {
-    override suspend fun nativeToolsForExecution(scope: ToolPolicyScope): ResolvedToolPolicy = ResolvedToolPolicy()
+    val policyScopes = mutableListOf<ToolPolicyScope>()
+    override suspend fun nativeToolsForExecution(scope: ToolPolicyScope): ResolvedToolPolicy {
+        policyScopes += scope
+        return ResolvedToolPolicy()
+    }
 
     val scopes = mutableListOf<AgentToolScope>()
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
