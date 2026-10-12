@@ -59,6 +59,22 @@ class JvmPlantUmlEngineTest {
     }
 
     @Test
+    fun `links and chat buttons retain destinations and density independent hit areas`() {
+        val source = "@startuml\nrectangle \"Docs\" [[https://example.com?q=1&lang=ru]]\n" +
+            "rectangle \"Send\" [[heartbeat://diagram/send?text=%D0%94%D0%B0 {Отправить}]]\n@enduml"
+        val one = assertIs<PlantUmlResult.Image>(render(source, scale = 1f))
+        val two = assertIs<PlantUmlResult.Image>(render(source, scale = 2f))
+        assertEquals(2, one.links.size)
+        assertEquals(one.links.map { it.destination }, two.links.map { it.destination })
+        one.links.zip(two.links).forEach { (a, b) ->
+            assertTrue(abs(a.left - b.left) < 2f, "$a / $b")
+            assertTrue(abs(a.right - b.right) < 2f)
+            assertTrue(b.right <= two.width && b.bottom <= two.height)
+        }
+        assertTrue(one.links.any { it.destination == "https://example.com?q=1&lang=ru" })
+    }
+
+    @Test
     fun `syntax errors point at the author's line`() {
         val error = assertIs<PlantUmlResult.SyntaxError>(
             render("@startuml\nA -> B\nthis is -> not -> valid ]]\n@enduml"),

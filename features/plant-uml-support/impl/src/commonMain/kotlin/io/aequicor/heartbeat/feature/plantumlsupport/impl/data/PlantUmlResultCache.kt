@@ -34,5 +34,13 @@ internal class PlantUmlResultCache(private val maxEntries: Int, private val maxB
         is PlantUmlResult.Failed -> reason == PlantUmlFailure.TooLarge
     }
 
-    private fun PlantUmlResult.byteSize(): Long = (this as? PlantUmlResult.Image)?.png?.size?.toLong() ?: 0L
+    private fun PlantUmlResult.byteSize(): Long = (this as? PlantUmlResult.Image)?.let { image ->
+        image.png.size.toLong() +
+            image.links.sumOf {
+                (it.destination.length + it.tooltip.length) * Char.SIZE_BYTES.toLong() +
+                    LINK_COORDINATE_BYTES
+            }
+    } ?: 0L
 }
+
+private const val LINK_COORDINATE_BYTES = 4L * Float.SIZE_BYTES

@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.plantumlsupport.impl
 
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlFailure
+import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlLink
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlRequest
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlResult
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlStyle
@@ -71,6 +72,27 @@ class PlantUmlDomainTest {
         cache.put(request("large"), PlantUmlResult.Image(ByteArray(8), 1f, 1f, 1f))
         assertNull(cache[request("small")], "evicted by bytes")
         assertTrue(cache[request("large")] is PlantUmlResult.Image)
+    }
+
+    @Test
+    fun `result cache includes link text in its budget`() {
+        val cache = PlantUmlResultCache(maxEntries = 8, maxBytes = 100)
+        val style = PlantUmlStyle(0, 0, 0, 0, 0, 0, fontSize = 14f, isDark = false)
+        val first = PlantUmlRequest("first", style, 1f)
+        val linked = first.copy(source = "linked")
+        cache.put(first, PlantUmlResult.Image(ByteArray(1), 1f, 1f, 1f))
+        cache.put(
+            linked,
+            PlantUmlResult.Image(
+                ByteArray(1),
+                1f,
+                1f,
+                1f,
+                listOf(PlantUmlLink(0f, 0f, 1f, 1f, "https://example.com/" + "x".repeat(100), "")),
+            ),
+        )
+        assertNull(cache[first])
+        assertTrue(cache[linked] is PlantUmlResult.Image)
     }
 
     @Test
