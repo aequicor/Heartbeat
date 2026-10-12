@@ -75,7 +75,7 @@ public fun HbMarkdownBlockContent(
     when (block.kind) {
         HbMarkdownBlockKind.Code -> MarkdownCode(block, modifier, foreground)
 
-        HbMarkdownBlockKind.Diagram -> MarkdownDiagram(block, modifier, foreground)
+        HbMarkdownBlockKind.Diagram -> MarkdownDiagram(block, modifier, foreground, onLinkClick)
 
         HbMarkdownBlockKind.TableRow -> MarkdownTableRow(block, modifier, foreground, onLinkClick)
 

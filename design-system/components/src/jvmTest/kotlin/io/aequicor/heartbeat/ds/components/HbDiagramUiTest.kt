@@ -60,6 +60,7 @@ class HbDiagramUiTest {
     fun `the focused viewer scrolls from the keyboard`() = runSkikoComposeUiTest(size = Size(800f, 600f)) {
         show { HbDiagramResult.Image(ImageBitmap(40, 40), DpSize(2000.dp, 2000.dp)) }
         onNodeWithTag(DIAGRAM_PREVIEW_TAG).performClick()
+        onNodeWithText("100%", substring = false).performClick()
         val viewer = onNodeWithTag(DIAGRAM_VIEWER_TAG)
         viewer.requestFocus()
         viewer.performKeyInput { pressKey(Key.PageDown) }

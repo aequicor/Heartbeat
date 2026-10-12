@@ -24,8 +24,8 @@ paths:
   терминал), и перетаскиванием этой плитки в список; закрытие — `dismiss()`. Когда показывать и скрывать гид,
   решает фича.
   Так же подключаются диаграммы markdown: desktop берёт `PlantUmlRenderer` через `PlantUmlAccessors` (jvmMain
-  `di-bundle`), адаптирует его к SPI ДС (`PlantUmlDiagramRenderer`: стиль строки → запрос, PNG декодируется на
-  `dispatchers.default`) и передаёт в `App(root, diagramRenderer = …)`, пока `availability` фичи true; `App` оборачивает
+  `di-bundle`), адаптирует его к SPI ДС (`PlantUmlDiagramRenderer`: стиль строки → запрос, PNG и кликабельные
+  области передаются вместе, PNG декодируется на `dispatchers.default`) и передаёт в `App(root, diagramRenderer = …)`, пока `availability` фичи true; `App` оборачивает
   дерево в `HbDiagramsProvider` с подписями из ресурсов `shared`. Что и как рисовать, решает фича; мобильные хосты
   рендерера не передают — fence остаётся кодом. Рисует процесс-воркер фичи: в упакованном jlink-рантайме нет `java`,
   поэтому `Main`/`DevelopmentMain` до любой инициализации передают аргумент `--heartbeat-plantuml-worker` в

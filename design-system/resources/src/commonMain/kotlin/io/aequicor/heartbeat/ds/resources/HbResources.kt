@@ -50,14 +50,18 @@ import io.aequicor.heartbeat.ds.resources.generated.en_danger_action
 import io.aequicor.heartbeat.ds.resources.generated.en_dark
 import io.aequicor.heartbeat.ds.resources.generated.en_demo_model
 import io.aequicor.heartbeat.ds.resources.generated.en_development_icons
+import io.aequicor.heartbeat.ds.resources.generated.en_diagram_actual_size
 import io.aequicor.heartbeat.ds.resources.generated.en_diagram_busy
 import io.aequicor.heartbeat.ds.resources.generated.en_diagram_close
 import io.aequicor.heartbeat.ds.resources.generated.en_diagram_copy_failed
 import io.aequicor.heartbeat.ds.resources.generated.en_diagram_copy_source
 import io.aequicor.heartbeat.ds.resources.generated.en_diagram_failed
+import io.aequicor.heartbeat.ds.resources.generated.en_diagram_fit
+import io.aequicor.heartbeat.ds.resources.generated.en_diagram_insert_text
 import io.aequicor.heartbeat.ds.resources.generated.en_diagram_open_full_size
 import io.aequicor.heartbeat.ds.resources.generated.en_diagram_rendering
 import io.aequicor.heartbeat.ds.resources.generated.en_diagram_sample
+import io.aequicor.heartbeat.ds.resources.generated.en_diagram_send_text
 import io.aequicor.heartbeat.ds.resources.generated.en_diagram_show_diagram
 import io.aequicor.heartbeat.ds.resources.generated.en_diagram_show_source
 import io.aequicor.heartbeat.ds.resources.generated.en_diagram_source_copied
@@ -66,6 +70,9 @@ import io.aequicor.heartbeat.ds.resources.generated.en_diagram_syntax_error_at_l
 import io.aequicor.heartbeat.ds.resources.generated.en_diagram_timeout
 import io.aequicor.heartbeat.ds.resources.generated.en_diagram_title
 import io.aequicor.heartbeat.ds.resources.generated.en_diagram_too_large
+import io.aequicor.heartbeat.ds.resources.generated.en_diagram_unavailable_action
+import io.aequicor.heartbeat.ds.resources.generated.en_diagram_zoom_in
+import io.aequicor.heartbeat.ds.resources.generated.en_diagram_zoom_out
 import io.aequicor.heartbeat.ds.resources.generated.en_dialog_body
 import io.aequicor.heartbeat.ds.resources.generated.en_dialog_title
 import io.aequicor.heartbeat.ds.resources.generated.en_disabled
@@ -266,14 +273,18 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_danger_action
 import io.aequicor.heartbeat.ds.resources.generated.ru_dark
 import io.aequicor.heartbeat.ds.resources.generated.ru_demo_model
 import io.aequicor.heartbeat.ds.resources.generated.ru_development_icons
+import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_actual_size
 import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_busy
 import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_close
 import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_copy_failed
 import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_copy_source
 import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_failed
+import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_fit
+import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_insert_text
 import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_open_full_size
 import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_rendering
 import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_sample
+import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_send_text
 import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_show_diagram
 import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_show_source
 import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_source_copied
@@ -282,6 +293,9 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_syntax_error_at_l
 import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_timeout
 import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_title
 import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_too_large
+import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_unavailable_action
+import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_zoom_in
+import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_zoom_out
 import io.aequicor.heartbeat.ds.resources.generated.ru_dialog_body
 import io.aequicor.heartbeat.ds.resources.generated.ru_dialog_title
 import io.aequicor.heartbeat.ds.resources.generated.ru_disabled
@@ -651,6 +665,13 @@ public enum class HbString(internal val english: StringResource, internal val ru
     WorktreeFailed(Res.string.en_worktree_failed, Res.string.ru_worktree_failed),
     WorktreeFailure(Res.string.en_worktree_failure, Res.string.ru_worktree_failure),
     WorktreeRecheck(Res.string.en_worktree_recheck, Res.string.ru_worktree_recheck),
+    DiagramZoomIn(Res.string.en_diagram_zoom_in, Res.string.ru_diagram_zoom_in),
+    DiagramZoomOut(Res.string.en_diagram_zoom_out, Res.string.ru_diagram_zoom_out),
+    DiagramFit(Res.string.en_diagram_fit, Res.string.ru_diagram_fit),
+    DiagramActualSize(Res.string.en_diagram_actual_size, Res.string.ru_diagram_actual_size),
+    DiagramInsertText(Res.string.en_diagram_insert_text, Res.string.ru_diagram_insert_text),
+    DiagramSendText(Res.string.en_diagram_send_text, Res.string.ru_diagram_send_text),
+    DiagramUnavailableAction(Res.string.en_diagram_unavailable_action, Res.string.ru_diagram_unavailable_action),
     DiagramSample(Res.string.en_diagram_sample, Res.string.ru_diagram_sample),
     DiagramRendering(Res.string.en_diagram_rendering, Res.string.ru_diagram_rendering),
     DiagramTitle(Res.string.en_diagram_title, Res.string.ru_diagram_title),

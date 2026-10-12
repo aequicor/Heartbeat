@@ -11,15 +11,16 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -28,7 +29,10 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.input.key.Key
@@ -63,6 +67,7 @@ internal fun MarkdownDiagram(
     block: HbMarkdownBlock,
     modifier: Modifier = Modifier,
     foreground: Color = HbTheme.colors.textPrimary,
+    onLinkClick: ((String) -> Unit)? = null,
 ) {
     val diagrams = currentHbDiagrams
     val language = block.diagram
@@ -72,7 +77,7 @@ internal fun MarkdownDiagram(
     }
     // A different source never shows the previous image; a new theme or density keeps it until redrawn.
     key(language, block.content.text) {
-        DrawnDiagram(block, language, diagrams, modifier, foreground)
+        DrawnDiagram(block, language, diagrams, modifier, foreground, onLinkClick)
     }
 }
 
@@ -83,6 +88,7 @@ private fun DrawnDiagram(
     diagrams: HbDiagrams,
     modifier: Modifier = Modifier,
     foreground: Color = HbTheme.colors.textPrimary,
+    onLinkClick: ((String) -> Unit)? = null,
 ) {
     val style = rememberDiagramStyle()
     val density = LocalDensity.current.density
@@ -90,8 +96,8 @@ private fun DrawnDiagram(
         HbDiagramRequest(language, block.content.text, style, density)
     }
     var attempt by remember(request) { mutableIntStateOf(0) }
-    val cached = remember(diagrams, request) { diagrams.images.peek(request) }
-    val result by produceState<HbDiagramResult?>(cached, diagrams, request, attempt) {
+    val cached = remember(diagrams.images, request) { diagrams.images.peek(request) }
+    val result by produceState<HbDiagramResult?>(cached, diagrams.renderer, diagrams.images, request, attempt) {
         if (value !is HbDiagramResult.Image) value = null
         value = diagrams.render(request)
     }
@@ -99,7 +105,7 @@ private fun DrawnDiagram(
     when (val current = result) {
         null -> MarkdownDiagramSource(block, modifier, foreground, status = labels.rendering)
 
-        is HbDiagramResult.Image -> DiagramPreview(block, current, labels, modifier, foreground)
+        is HbDiagramResult.Image -> DiagramPreview(block, current, labels, modifier, foreground, onLinkClick)
 
         is HbDiagramResult.SyntaxError -> DiagramProblem(block, current.message(labels), labels, modifier, foreground)
 
@@ -164,6 +170,7 @@ private fun DiagramPreview(
     labels: HbDiagramLabels,
     modifier: Modifier = Modifier,
     foreground: Color = HbTheme.colors.textPrimary,
+    onLinkClick: ((String) -> Unit)? = null,
 ) {
     var isViewerOpen by remember { mutableStateOf(false) }
     val interactions = remember { MutableInteractionSource() }
@@ -196,53 +203,7 @@ private fun DiagramPreview(
         }
     }
     if (isViewerOpen) {
-        DiagramViewer(block, image, labels, foreground, onDismiss = { isViewerOpen = false })
-    }
-}
-
-/** Full-size image or its source; both scroll on two axes, by pointer and by keyboard once the viewport is focused. */
-@Composable
-private fun DiagramViewer(
-    block: HbMarkdownBlock,
-    image: HbDiagramResult.Image,
-    labels: HbDiagramLabels,
-    foreground: Color,
-    onDismiss: () -> Unit,
-) {
-    var isSourceShown by remember { mutableStateOf(false) }
-    HbDialog(
-        title = labels.diagram,
-        onDismissRequest = onDismiss,
-        width = HbDialogWidth.Wide,
-        isContentScrollable = false,
-        actions = {
-            HbButton(
-                if (isSourceShown) labels.showDiagram else labels.showSource,
-                {
-                    log.i { "Diagram viewer source shown=${!isSourceShown}" }
-                    isSourceShown = !isSourceShown
-                },
-                style = HbButtonStyle.Ghost,
-            )
-            HbCopyButton(block.content.text, labels.copySource, labels.sourceCopied, labels.copyFailed)
-            HbButton(labels.close, onDismiss, style = HbButtonStyle.Secondary)
-        },
-    ) {
-        DiagramViewport {
-            if (isSourceShown) {
-                SelectionContainer {
-                    HbCodeText(
-                        text = block.content.text,
-                        spans = remember(block.content.text, block.language) {
-                            highlightHbCode(block.content.text, block.language)
-                        },
-                        foreground = foreground,
-                    )
-                }
-            } else {
-                Image(image.bitmap, contentDescription = labels.diagram, modifier = Modifier.size(image.size))
-            }
-        }
+        DiagramViewer(block, image, labels, foreground, onLinkClick, onDismiss = { isViewerOpen = false })
     }
 }
 
@@ -251,7 +212,12 @@ private fun DiagramViewer(
  * content; arrows, Page Up/Down and Home/End scroll it from the keyboard.
  */
 @Composable
-private fun DiagramViewport(content: @Composable () -> Unit) {
+internal fun DiagramSourceViewport(content: @Composable () -> Unit) {
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        withFrameNanos { }
+        focus.requestFocus()
+    }
     val vertical = rememberScrollState()
     val horizontal = rememberScrollState()
     val scope = rememberCoroutineScope()
@@ -261,7 +227,7 @@ private fun DiagramViewport(content: @Composable () -> Unit) {
     val step = with(LocalDensity.current) { HbTheme.dimensions.keyboardScrollStep.toPx() }
     var viewportHeight by remember { mutableIntStateOf(0) }
     Box(
-        Modifier.testTag(DIAGRAM_VIEWER_TAG)
+        Modifier.fillMaxSize().testTag("diagram-source").focusRequester(focus)
             .onSizeChanged { viewportHeight = it.height }
             .hbFocusOutline(isFocused, shape)
             .onKeyEvent { event ->

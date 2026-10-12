@@ -178,3 +178,38 @@ private fun DrawScope.drawScrollbar(
         cornerRadius = CornerRadius(thickness / 2f),
     )
 }
+
+/** A custom viewport's scrollbar, using the same hover, drag and auto-hide behavior as scrolling lists. */
+@Composable
+public fun Modifier.hbScrollbars(state: HbScrollbarState, orientation: Orientation): Modifier {
+    val adapter = remember(state) {
+        object : HbScrollbarAdapter {
+            override val isScrollInProgress: Boolean get() = state.isScrollInProgress
+            override val positionKey: Long get() = state.position.toRawBits().toLong()
+            override fun metrics(): HbScrollbarMetrics = HbScrollbarMetrics(
+                position = state.position.coerceIn(0f, 1f),
+                extent = state.extent.coerceIn(0f, 1f),
+                isScrollable = state.extent < 1f,
+            )
+            override suspend fun seek(position: Float) {
+                state.scrollTo(position.coerceIn(0f, 1f))
+            }
+        }
+    }
+    return hbScrollbar(adapter, orientation, reverseScrolling = false, color = HbTheme.colors.outline)
+}
+
+/** Normalized geometry for a viewport that owns its own pan/zoom transform. Values must be observable by Compose. */
+public interface HbScrollbarState {
+    /** Position within the scrollable range, from zero to one. */
+    public val position: Float
+
+    /** Visible fraction of the content, from zero to one. */
+    public val extent: Float
+
+    /** Whether the viewport is currently moving from direct input. */
+    public val isScrollInProgress: Boolean
+
+    /** Moves to a normalized position within the scrollable range. */
+    public fun scrollTo(position: Float)
+}
