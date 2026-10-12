@@ -19,7 +19,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CompactsContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextCompaction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
@@ -60,6 +62,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.accepts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
 import io.aequicor.heartbeat.feature.aiengine.koog.api.koogProvider
+import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogContextSummary
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogRecord
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogSessionRecords
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
@@ -170,6 +173,7 @@ internal class KoogNativeSession(
                     override val mediaTypes: Set<String> get() = inputSupport().resourceMediaTypes
                 },
                 AppliesTrustLevels to object : AppliesTrustLevels {},
+                CompactsContext to KoogCompactsContext,
                 SessionContextUsage to contextUsage,
                 ChangesSessionConfiguration to object : ChangesSessionConfiguration {
                     override val configuration = this@KoogNativeSession.configuration.asStateFlow()
@@ -273,11 +277,7 @@ internal class KoogNativeSession(
             ::closeClient,
         )
         val turn = Turn(TurnId(Uuid.random().toString()), request.id, EngineTarget(route.engine, route.binding, model))
-        val user = SessionItem.Message(
-            ItemInfo(ItemId(Uuid.random().toString()), history.items.size.toLong(), 0, turn.id),
-            MessageRole.User,
-            request.parts.toList(),
-        )
+        val user = userItems(request, turn)
         // The local runtime is the native authority: acceptance occurs only after its durable checkpoint.
         var isSaved = false
         try {
@@ -296,15 +296,28 @@ internal class KoogNativeSession(
             install(configuration.value.copy(reasoningEffort = effort))
         }
         history.append { SessionEvent.TurnStarted(it, turn) }
-        history.append { SessionEvent.ItemUpserted(it, user) }
+        user.forEach { item -> history.append { SessionEvent.ItemUpserted(it, item) } }
         active = turn
         isTurnDetached = areDetachedToolsEnabled
         isTurnHooked = areSessionHooksEnabled
         publish(ActiveSessionState.Running(turn))
         job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            runTurn(turn, client, provider, origin, model.value, request.trust ?: TrustLevel.Ask)
+            val compaction = request.compaction
+            if (compaction != null) {
+                compact(turn, client, provider, compaction)
+            } else {
+                runTurn(turn, client, provider, origin, model.value, request.trust ?: TrustLevel.Ask)
+            }
         }
         return turn.id
+    }
+
+    /** The prompt as a user message; a compaction has no user input, its turn adds only the boundary notice. */
+    private fun userItems(request: PromptRequest, turn: Turn): List<SessionItem> = if (request.compaction != null) {
+        emptyList()
+    } else {
+        val info = ItemInfo(ItemId(Uuid.random().toString()), history.items.size.toLong(), 0, turn.id)
+        listOf(SessionItem.Message(info, MessageRole.User, request.parts.toList()))
     }
 
     /** Project tools for a project session; detached hosted tools for a chat whose caller opted in. */
@@ -415,6 +428,26 @@ internal class KoogNativeSession(
             val safe = e.sanitized()
             log.w(safe) { "Generation failed: ${e::class.simpleName.orEmpty()}" }
             outcome = TurnOutcome.Failed(safe.failure)
+        } finally {
+            try {
+                closeClient(client)
+            } finally {
+                withContext(NonCancellable) { finish(turn, outcome) }
+            }
+        }
+    }
+
+    /** Replaces the model's view of the transcript with a summary; see [KoogContextSummary]. */
+    private suspend fun compact(turn: Turn, client: KoogClient, provider: KoogProvider, request: ContextCompaction) {
+        var outcome: TurnOutcome = TurnOutcome.Unknown
+        try {
+            val input = koogCompactionPrompt(history.items, record.context, request)
+            outcome = client.koogCompaction(provider.textModel(model.value), input) { summary ->
+                val notice = koogCompactedNotice(history.items.size, turn.id)
+                history.append { SessionEvent.ItemUpserted(it, notice) }
+                mutex.withLock { record = record.copy(context = KoogContextSummary(notice.info.id, summary)) }
+                contextUsage.clear()
+            }
         } finally {
             try {
                 closeClient(client)
@@ -582,7 +615,7 @@ internal class KoogNativeSession(
     }
 
     private suspend fun initialPrompt(provider: KoogProvider, instructions: String?): Prompt =
-        koogHistoryPrompt(record.items, provider, inputSupport(), access.resources, instructions)
+        koogHistoryPrompt(record.items, provider, inputSupport(), access.resources, instructions, record.context)
 
     private fun inputSupport(): io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport =
         access.inputs.cached(route.binding, model.value)
