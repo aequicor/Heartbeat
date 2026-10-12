@@ -11,7 +11,8 @@ import javax.swing.Timer
 /**
  * A Compose draw callback precedes the native compositor presenting its first popup frame. Checks the pixel at
  * the centre of the drawn popup surface (not of its layer window, which may cover the whole client area) and that
- * the rest of the layer stays transparent over the host background at the window's left eighth.
+ * the rest of the layer stays transparent over the host background at the window's left eighth. Both must hold on
+ * the same captured frame; until then the check keeps polling.
  */
 internal fun awaitNativeMenuVisible(
     window: ComposeWindow,
@@ -40,12 +41,11 @@ internal fun awaitNativeMenuVisible(
                 check(x in 0 until frame.width && y in 0 until frame.height) { observation }
                 val outsideX = frame.width / 8
                 val outsideY = frame.height / 2
-                if (frame.getRGB(x, y) != background.getRGB(x, y)) {
-                    check(frame.getRGB(outsideX, outsideY) == background.getRGB(outsideX, outsideY)) {
-                        "The popup layer must stay transparent outside its surface; $observation"
-                    }
-                    visible.complete(Unit)
-                }
+                // Both conditions must hold on one frame: an intermediate frame may still paint the whole layer.
+                val isDrawn = frame.getRGB(x, y) != background.getRGB(x, y)
+                val isOutsideClear = frame.getRGB(outsideX, outsideY) == background.getRGB(outsideX, outsideY)
+                observation += ", drawn=$isDrawn, transparentOutside=$isOutsideClear"
+                if (isDrawn && isOutsideClear) visible.complete(Unit)
             }
         } catch (failure: Exception) {
             visible.completeExceptionally(failure)
@@ -55,7 +55,10 @@ internal fun awaitNativeMenuVisible(
     try {
         visible.awaitNative()
     } catch (failure: TimeoutException) {
-        throw AssertionError("The popup must be visible over the native page; $observation", failure)
+        throw AssertionError(
+            "The popup must be visible over the native page and its layer transparent outside it; $observation",
+            failure,
+        )
     } finally {
         nativeEdt { timer.stop() }
         File("build/native-ui/menu-window.txt").writeText(observation)

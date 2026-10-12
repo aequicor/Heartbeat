@@ -49,22 +49,43 @@ internal class NativeComposeBrowserFixture :
         override val default = Dispatchers.Default
     }
     private val cache = Files.createTempDirectory("heartbeat-compose-jcef")
-    private val resources = DesktopDefaultBrowserResources(
-        StorageRoot { cache.toString() },
-        dispatchers,
-        DesktopBrowserProfiles(handle, dispatchers, lazy { BrowserNativeTestStores(cache) }),
-        handle,
-    )
     val pageLoads = AtomicInteger()
     val runtimeStarts = AtomicInteger()
     val loaded = CompletableFuture<Unit>()
-    private val server = createServer()
-    override val initialUrl = "http://127.0.0.1:${server.address.port}/fixture"
-    val panel = DesktopBrowserPanel(this, scope, dispatchers) { released, changed ->
-        val app = resources.app()
-        runtimeStarts.incrementAndGet()
-        DesktopBrowserEngine(app, dispatchers, DefaultBrowserUrlResolver(), released, changed) { handler ->
-            checkNotNull(CefRequestContext.createContext(handler))
+    private val resources: DesktopDefaultBrowserResources
+    private val server: HttpServer
+    override val initialUrl: String
+    val panel: DesktopBrowserPanel
+
+    init {
+        var started: HttpServer? = null
+        try {
+            resources = DesktopDefaultBrowserResources(
+                StorageRoot { cache.toString() },
+                dispatchers,
+                DesktopBrowserProfiles(handle, dispatchers, lazy { BrowserNativeTestStores(cache) }),
+                handle,
+            )
+            val created = createServer()
+            started = created
+            server = created
+            initialUrl = "http://127.0.0.1:${created.address.port}/fixture"
+            panel = DesktopBrowserPanel(this, scope, dispatchers) { released, changed ->
+                val app = resources.app()
+                runtimeStarts.incrementAndGet()
+                DesktopBrowserEngine(app, dispatchers, DefaultBrowserUrlResolver(), released, changed) { handler ->
+                    checkNotNull(CefRequestContext.createContext(handler))
+                }
+            }
+        } catch (failure: Throwable) {
+            // Nothing native has started yet: release the server, scopes and temporary profile of this fixture.
+            runCleanup(
+                { started?.stop(0) },
+                handle::close,
+                { scope.cancel() },
+                ::deleteCache,
+            )?.let(failure::addSuppressed)
+            throw failure
         }
     }
     override val nativeResources = object : DesktopBrowserPanelFactory {
@@ -101,18 +122,25 @@ internal class NativeComposeBrowserFixture :
     }
 
     override fun close() {
-        try {
-            runBlocking {
-                withTimeout(60_000) {
-                    panel.awaitClosed()
-                    resources.shutdown()
+        runCleanup(
+            {
+                runBlocking {
+                    withTimeout(60_000) {
+                        panel.awaitClosed()
+                        resources.shutdown()
+                    }
                 }
-            }
-        } finally {
-            handle.close()
-            scope.cancel()
-            server.stop(0)
-        }
+            },
+            handle::close,
+            { scope.cancel() },
+            { server.stop(0) },
+            // After the runtime shutdown: the temporary Chromium profile is no longer in use.
+            ::deleteCache,
+        )?.let { throw it }
+    }
+
+    private fun deleteCache() {
+        check(cache.toFile().deleteRecursively()) { "Cannot delete the temporary Chromium profile $cache" }
     }
 
     private fun createServer(): HttpServer = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
@@ -133,6 +161,17 @@ internal class NativeComposeBrowserFixture :
         }
         start()
     }
+}
+
+/** Runs every cleanup step even when earlier ones fail; returns the first failure with the others suppressed. */
+internal fun runCleanup(vararg steps: () -> Unit): Throwable? {
+    var failure: Throwable? = null
+    steps.forEach { step ->
+        val error = runCatching(step).exceptionOrNull() ?: return@forEach
+        val first = failure
+        if (first == null) failure = error else first.addSuppressed(error)
+    }
+    return failure
 }
 
 internal fun <T> nativeEdt(action: () -> T): T {

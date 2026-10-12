@@ -8,6 +8,7 @@ import com.arkivanov.essenty.lifecycle.LifecycleRegistry
 import com.arkivanov.essenty.lifecycle.destroy
 import com.arkivanov.essenty.lifecycle.resume
 import dev.zacsweers.metro.createGraphFactory
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.profilefacade.ProfileSession
@@ -41,6 +42,7 @@ import io.aequicor.heartbeat.feature.researchchat.api.ResearchRecoveryAction
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResource
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceKind
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -65,7 +67,10 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** Dedicated browserRecoveryNativeTest task: real profile, UI surface, Chromium, research and attachment storage. */
+/**
+ * Real profile, UI surface, Chromium, research and attachment storage. Opt-in, run locally in its own JVM:
+ * `./gradlew :platform-main:di-bundle:browserRecoveryNativeTest` (`jvmTest` skips it).
+ */
 class ResearchBrowserNativeIntegrationTest {
     @Test
     fun `human browser unlock persists actual HTML and PDF into the original research resources`() {
@@ -238,17 +243,33 @@ private class NativeResearchRun {
         it is ResearchChatState.Ready && (it.hasError || (!it.isMutating && predicate(it)))
     }.let { it as ResearchChatState.Ready }.also { assertFalse(it.hasError) }
 
+    /**
+     * Flushes and terminates before cancelling scopes. Gradle removes files after this worker exits: Windows keeps
+     * the extracted JCEF DLLs mapped until process termination. Every step runs even when an earlier one fails;
+     * the first failure is thrown with the others suppressed. Cancellation stops cleanup at once.
+     */
     suspend fun close() {
-        // Flush and terminate before cancelling scopes. Gradle removes files after this worker exits:
-        // Windows keeps the extracted JCEF DLLs mapped until process termination.
-        (app as AppShutdownAccessors).shutdownParticipants.forEach { it.shutdown() }
-        withContext(Dispatchers.Swing) {
-            window?.dispose()
-            lifecycle.destroy()
-            app.closeAndAwaitStorages()
+        var failure: Throwable? = null
+        suspend fun step(action: suspend () -> Unit) {
+            try {
+                action()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                log.w(error) { "Native research cleanup step failed; continuing with the remaining steps" }
+                val first = failure
+                if (first == null) failure = error else first.addSuppressed(error)
+            }
         }
-        site.close()
+        (app as AppShutdownAccessors).shutdownParticipants.forEach { participant -> step { participant.shutdown() } }
+        step { withContext(Dispatchers.Swing) { window?.dispose() } }
+        step { withContext(Dispatchers.Swing) { lifecycle.destroy() } }
+        step { withContext(Dispatchers.Swing) { app.closeAndAwaitStorages() } }
+        step { site.close() }
+        failure?.let { throw it }
     }
 }
+
+private val log = Log.tag("NativeResearchRun")
 
 private typealias NativeResearchMachine = MachineRef<ResearchChatState, ResearchChatIntent.Public, ResearchChatOutput>
