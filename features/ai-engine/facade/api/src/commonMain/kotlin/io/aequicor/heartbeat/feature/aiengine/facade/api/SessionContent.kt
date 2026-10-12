@@ -97,9 +97,12 @@ public sealed interface SessionItem {
     @Serializable
     public data class Plan(override val info: ItemInfo, val steps: List<PlanStep>) : SessionItem
 
-    /** Engine-provided service notice, including context compaction. */
+    /**
+     * Engine-provided service notice, including context compaction. [kind] marks notices the host recognizes and
+     * presents itself (a localized divider); [text] is then a fallback for consumers that do not know the kind.
+     */
     @Serializable
-    public data class Notice(override val info: ItemInfo, val text: String) : SessionItem
+    public data class Notice(override val info: ItemInfo, val text: String, val kind: NoticeKind? = null) : SessionItem
 
     /** Unsupported native content is retained as a safe placeholder, never a raw protocol dump. */
     @Serializable

@@ -95,7 +95,10 @@ public data class ResumeSessionRequest(
     val areSessionHooksEnabled: Boolean = false,
 )
 
-/** Accepted request correlation and multimodal content. RequestId is not a promise of native deduplication. */
+/**
+ * Accepted request correlation and multimodal content. RequestId is not a promise of native deduplication.
+ * A [compaction] request has no [parts]: it asks a session declaring [CompactsContext] to summarize its context.
+ */
 @Serializable
 public data class PromptRequest(
     val id: RequestId,
@@ -110,12 +113,15 @@ public data class PromptRequest(
      * Sessions that do not declare [AppliesTrustLevels] reject a non-null value before acceptance.
      */
     val trust: TrustLevel? = null,
+    /** Native context compaction instead of a prompt; see [CompactsContext]. */
+    val compaction: ContextCompaction? = null,
 ) {
     init {
-        require(parts.isNotEmpty())
+        require(parts.isNotEmpty() == (compaction == null)) { "A prompt has parts, a compaction has none" }
         require(reasoningEffort == null || reasoningEffort.isNotBlank())
     }
-    override fun toString(): String = "PromptRequest(id=$id, parts=${parts.size})"
+    override fun toString(): String =
+        "PromptRequest(id=$id, parts=${parts.size}${if (compaction != null) ", compaction" else ""})"
 }
 
 /** How much the user trusts the agent with actions that have side effects. */
