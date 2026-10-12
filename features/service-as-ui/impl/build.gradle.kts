@@ -16,6 +16,8 @@ kotlin {
             implementation(projects.core.profileFacade.api)
             implementation(projects.core.logging)
             implementation(libs.kotlinx.collectionsImmutable)
+            implementation(projects.core.mvi)
         }
+        commonTest.dependencies { implementation(libs.flowmvi.test) }
     }
 }
