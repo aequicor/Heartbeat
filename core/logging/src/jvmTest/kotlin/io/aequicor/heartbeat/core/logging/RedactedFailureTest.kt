@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.core.logging
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -16,5 +17,7 @@ class RedactedFailureTest {
         assertContentEquals(failure.stackTrace, redacted.stackTrace)
         assertNull(redacted.cause)
         assertTrue(redacted.suppressed.isEmpty())
+        assertFalse(redacted.stackTraceToString().contains("intranet"))
+        assertFalse(redacted.stackTraceToString().contains("suppressed"))
     }
 }

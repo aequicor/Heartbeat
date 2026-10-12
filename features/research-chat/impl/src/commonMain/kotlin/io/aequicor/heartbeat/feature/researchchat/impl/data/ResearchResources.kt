@@ -164,7 +164,7 @@ internal fun discoveredResources(
             } catch (error: IllegalArgumentException) {
                 // JSON parser messages can contain source content; log a safe wrapper instead.
                 if (reported.add(result.call)) {
-                    resourceLog.w(IllegalArgumentException(error::class.simpleName.orEmpty())) {
+                    resourceLog.w(error.redactedFailure()) {
                         "Search result could not be imported"
                     }
                 }
@@ -201,7 +201,7 @@ private fun SessionItem.ToolCall.failedResource(reported: MutableSet<ToolCallId>
     }
 } catch (error: IllegalArgumentException) {
     if (reported.add(call)) {
-        resourceLog.w(IllegalArgumentException(error::class.simpleName.orEmpty())) {
+        resourceLog.w(error.redactedFailure()) {
             "Failed fetch arguments could not be imported"
         }
     }

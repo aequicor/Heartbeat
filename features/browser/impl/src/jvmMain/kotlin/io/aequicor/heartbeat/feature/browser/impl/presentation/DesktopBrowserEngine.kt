@@ -2,8 +2,8 @@ package io.aequicor.heartbeat.feature.browser.impl.presentation
 
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserUrlResolver
-import io.aequicor.heartbeat.feature.browser.impl.domain.desktopBrowserFailure
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -314,7 +314,7 @@ internal class DesktopBrowserEngine(
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
-                    log.e(error.desktopBrowserFailure()) { "Desktop browser native operation failed" }
+                    log.e(error.redactedFailure()) { "Desktop browser native operation failed" }
                     changed(BrowserViewState(error = BrowserViewError.EngineUnavailable))
                     release()
                 }
@@ -380,7 +380,7 @@ internal class DesktopBrowserDevToolsCalls(private val log: Log) {
             throw error
         } catch (error: Exception) {
             // Only this call fails: a rejected CDP dispatch says nothing about the page or the native browser.
-            log.w(error.desktopBrowserFailure()) { "Browser automation call could not be dispatched" }
+            log.w(error.redactedFailure()) { "Browser automation call could not be dispatched" }
             call.finish(Result.failure(IllegalStateException("Browser automation call failed")))
         }
     }

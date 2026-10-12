@@ -2,8 +2,8 @@ package io.aequicor.heartbeat.feature.browser.impl.presentation
 
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.browser.api.isBrowserUrlAllowed
-import io.aequicor.heartbeat.feature.browser.impl.domain.desktopBrowserFailure
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -152,10 +152,10 @@ internal class DesktopBrowserPanel(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                log.e(error.desktopBrowserFailure()) { "Desktop browser initialization failed" }
+                log.e(error.redactedFailure()) { "Desktop browser initialization failed" }
                 fail()
             } catch (error: LinkageError) {
-                log.e(error.desktopBrowserFailure()) { "Desktop browser native runtime is unavailable" }
+                log.e(error.redactedFailure()) { "Desktop browser native runtime is unavailable" }
                 fail()
             }
         }

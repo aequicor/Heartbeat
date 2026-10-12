@@ -11,8 +11,8 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.browser.impl.domain.DesktopBrowserProfile
-import io.aequicor.heartbeat.feature.browser.impl.domain.desktopBrowserFailure
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
@@ -90,7 +90,7 @@ internal class DesktopPersistentBrowserProfile(
                 clearJob = job
                 job.invokeOnCompletion { error ->
                     if (error != null && error !is CancellationException) {
-                        log.e(error.desktopBrowserFailure()) { "Browser data cleanup failed; it may be retried" }
+                        log.e(error.redactedFailure()) { "Browser data cleanup failed; it may be retried" }
                     }
                 }
             }

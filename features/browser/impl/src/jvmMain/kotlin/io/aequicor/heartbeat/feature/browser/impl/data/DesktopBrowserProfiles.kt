@@ -10,8 +10,8 @@ import io.aequicor.heartbeat.core.datastore.ProfileStorageCleaner
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
-import io.aequicor.heartbeat.feature.browser.impl.domain.desktopBrowserFailure
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -172,10 +172,10 @@ internal class DesktopBrowserLifetime(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                log.e(error.desktopBrowserFailure()) { "Browser profile shutdown failed" }
+                log.e(error.redactedFailure()) { "Browser profile shutdown failed" }
                 closed.completeExceptionally(error)
             } catch (error: LinkageError) {
-                log.e(error.desktopBrowserFailure()) { "Browser native shutdown is unavailable" }
+                log.e(error.redactedFailure()) { "Browser native shutdown is unavailable" }
                 closed.completeExceptionally(error)
             }
         }.invokeOnCompletion { error ->

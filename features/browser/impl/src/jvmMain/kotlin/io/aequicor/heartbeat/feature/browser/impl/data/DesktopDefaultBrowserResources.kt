@@ -9,8 +9,8 @@ import io.aequicor.heartbeat.core.datastore.StorageRoot
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.browser.impl.domain.DesktopBrowserResources
-import io.aequicor.heartbeat.feature.browser.impl.domain.desktopBrowserFailure
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -67,7 +67,7 @@ internal class DesktopDefaultBrowserResources(
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
-                    log.e(error.desktopBrowserFailure()) { "Desktop browser runtime shutdown failed" }
+                    log.e(error.redactedFailure()) { "Desktop browser runtime shutdown failed" }
                 }
             }
         }
@@ -102,7 +102,7 @@ internal class DesktopDefaultBrowserResources(
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
-        log.e(error.desktopBrowserFailure()) { "Browser profiles failed to close; disposing the runtime anyway" }
+        log.e(error.redactedFailure()) { "Browser profiles failed to close; disposing the runtime anyway" }
         error
     }
 
@@ -118,7 +118,7 @@ internal class DesktopDefaultBrowserResources(
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
-        log.e(error.desktopBrowserFailure()) { "Browser runtime disposal failed" }
+        log.e(error.redactedFailure()) { "Browser runtime disposal failed" }
         error
     }
 

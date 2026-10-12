@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.browser.impl.domain
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.feature.browser.api.BrowserEffect
@@ -93,7 +94,7 @@ internal class BrowserEffects(private val availability: BrowserAvailability, pri
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            log.e(error.redactedBrowserFailure()) { "Browser session could not be revoked after observer failure" }
+            log.e(error.redactedFailure()) { "Browser session could not be revoked after observer failure" }
         }
     }
 
@@ -103,7 +104,7 @@ internal class BrowserEffects(private val availability: BrowserAvailability, pri
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            log.w(error.redactedBrowserFailure()) { "Browser tab selection failed" }
+            log.w(error.redactedFailure()) { "Browser tab selection failed" }
         }
     }
 
@@ -114,7 +115,7 @@ internal class BrowserEffects(private val availability: BrowserAvailability, pri
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            log.w(error.redactedBrowserFailure()) { "Browser operation cancellation failed" }
+            log.w(error.redactedFailure()) { "Browser operation cancellation failed" }
         }
         machine.send(BrowserIntent.Internal.OperationCancelled(id))
     }
@@ -125,7 +126,7 @@ internal class BrowserEffects(private val availability: BrowserAvailability, pri
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            log.w(error.redactedBrowserFailure()) { "Browser operation failed" }
+            log.w(error.redactedFailure()) { "Browser operation failed" }
             BrowserResult(effect.request.id, error = "Browser operation failed")
         }
         machine.send(BrowserIntent.Internal.Completed(result))
