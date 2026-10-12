@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningEnabled
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import io.aequicor.heartbeat.feature.settings.api.SettingsSection
@@ -32,11 +33,13 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
         toggles.observe(SearchEngineTools),
         toggles.observe(ComputerUseEnabled),
         // Profile features beyond the five-flow overload are combined first.
-        combine(toggles.observe(AgentLearningEnabled), toggles.observe(HarnessEnabled)) { learning, harness ->
-            learning to harness
-        },
+        combine(
+            toggles.observe(AgentLearningEnabled),
+            toggles.observe(HarnessEnabled),
+            toggles.observe(ContextOptimizationEnabled),
+        ) { learning, harness, context -> Triple(learning, harness, context) },
         sessions.active,
-    ) { connections, search, computerUse, (learning, harness), session ->
+    ) { connections, search, computerUse, (learning, harness, context), session ->
         availableSections(
             isModelsEnabled = connections,
             isSearchEnabled = search,
@@ -44,6 +47,7 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             isComputerUseEnabled = computerUse,
             isLearningEnabled = learning,
             isHarnessEnabled = harness,
+            isContextEnabled = context,
         )
     }
         // Sections without a toggle appear at once; gated ones join when their toggles are read from storage.

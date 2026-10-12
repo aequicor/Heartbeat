@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.COMPACT_COMMAND
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssistOrigin
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
@@ -13,8 +14,10 @@ import kotlinx.collections.immutable.toImmutableMap
 
 /** Host commands the composer offers; the semantics of each stay with the studio. */
 @HighFrequency
-internal fun AiStudioScreenState.hostCommands(): List<HostCommand> =
-    if (isRememberEnabled) listOf(HostCommand("remember", "/remember", "", "/remember ")) else emptyList()
+internal fun AiStudioScreenState.hostCommands(): List<HostCommand> = listOfNotNull(
+    HostCommand("remember", "/remember", "", "/remember ").takeIf { isRememberEnabled },
+    HostCommand("compact", COMPACT_COMMAND, "", "$COMPACT_COMMAND ").takeIf { isCompactEnabled },
+)
 
 /** Engine route, workspace and input limits the pane's suggestions are resolved against. */
 @HighFrequency

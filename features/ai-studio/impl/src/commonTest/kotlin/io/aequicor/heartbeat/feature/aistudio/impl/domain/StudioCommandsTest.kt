@@ -14,4 +14,12 @@ class StudioCommandsTest {
         assertNull(rememberText("/remembering things"))
         assertNull(rememberText("please /remember this"))
     }
+
+    @Test
+    fun `compact command takes optional focus instructions`() {
+        assertEquals(CompactCommand(null), compactCommand("  /compact  "))
+        assertEquals(CompactCommand("keep the API decisions"), compactCommand("/compact keep the API decisions"))
+        assertNull(compactCommand("/compacting"))
+        assertNull(compactCommand("please /compact"))
+    }
 }

@@ -65,6 +65,7 @@ python scripts/check_commit_size.py --base <base-ref> --head HEAD
 
 Для изменений только Python-инструмента, workflow и документации Gradle-проверки не нужны;
 выполни `python -m unittest discover -s scripts/tests -v` и проверку размера изменений.
+Изменённые workflow — по `.claude/rules/ci.md`. `verify` выполняется локально до push: CI его не заменяет.
 
 ## 6. Отчёт
 

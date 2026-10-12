@@ -10,8 +10,10 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPolicyProvider
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextPolicyProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HarnessNativeTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolOutputOffload
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyUnavailable
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineRegistry
@@ -28,6 +30,14 @@ public interface ToolPolicyBindings {
     /** Profiles without harnesses have no policy providers. */
     @Multibinds(allowEmpty = true)
     public fun toolPolicyProviders(): Set<AgentToolPolicyProvider>
+
+    /** Profiles without context optimization leave rebuilt prompts verbatim. */
+    @Multibinds(allowEmpty = true)
+    public fun contextPolicyProviders(): Set<ContextPolicyProvider>
+
+    /** Profiles without context optimization keep tool output whole. */
+    @Multibinds(allowEmpty = true)
+    public fun toolOutputOffloads(): Set<ToolOutputOffload>
 }
 
 /**

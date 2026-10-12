@@ -53,6 +53,7 @@ internal class CodexLease(private val session: CodexSession) :
         this,
         session.contextUsage,
         session.contextRevision,
+        CodexCompactsContext,
         object : AcceptsImages {
             override val mediaTypes: Set<String> get() = session.runtime.inputSupport(
                 session.target.model,

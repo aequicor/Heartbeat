@@ -32,7 +32,8 @@ internal class EngineStudioHelperChatRecords(
 
     override suspend fun createHelper(request: HelperCreateRequest): HelperId {
         val parent = request.parent?.let { session ->
-            checkNotNull(store.get(ChatsKey).orEmpty().singleOrNull { it.ref == session }) {
+            // A parent that rolled over still owns the session the helper was requested from.
+            checkNotNull(store.get(ChatsKey).orEmpty().singleOrNull { it.owns(session) }) {
                 "The helper parent must identify exactly one studio conversation"
             }
         }

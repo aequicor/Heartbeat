@@ -106,6 +106,10 @@
     <string name="working_for">Working for %1$s</string>
     <string name="stopping">Stopping…</string>
     <string name="stopped_after">You stopped the run after %1$s</string>
+    <string name="usage_compact">Compact context</string>
+    <string name="collapsed_tool_calls">Tool calls: %1$d</string>
+    <string name="context_compacted">Context compacted: the agent continues from a summary</string>
+    <string name="context_rolled_over">Continued in a new session with a summary of this one</string>
     <string name="run_failed">The run failed. Try again.</string>
     <string name="run_failed_limit">The engine usage limit has been reached. Try again after it resets or switch the model.</string>
     <string name="run_failed_context">The conversation exceeds the model context window. Start a new chat or pick a model with a larger context.</string>

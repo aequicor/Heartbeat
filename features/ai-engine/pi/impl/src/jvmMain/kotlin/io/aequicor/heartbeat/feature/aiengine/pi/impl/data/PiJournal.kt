@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NoticeKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
@@ -52,6 +53,7 @@ internal class PiJournal(private val originals: (JsonObject) -> List<ContentPart
             "message_update" -> updateMessage(record)
             "message_end" -> endMessage(record, turn)
             "tool_execution_start", "tool_execution_end" -> updateTool(record)
+            "compaction_end" -> if (record["result"] is JsonObject) compacted(turn)
         }
     }
 
@@ -106,6 +108,12 @@ internal class PiJournal(private val originals: (JsonObject) -> List<ContentPart
             statuses[call] = if (isFailed) ToolCallStatus.Failed else ToolCallStatus.Succeeded
         }
         return statuses
+    }
+
+    /** Pi replaced its model context with a summary; the transcript before the notice stays as observed. */
+    private fun compacted(turn: TurnId?) {
+        log.d { "Pi context compacted in history" }
+        publish(SessionItem.Notice(info(items.size, turn), COMPACTED_NOTICE, NoticeKind.ContextCompacted))
     }
 
     fun started(turn: Turn) = synchronized(lock) {
@@ -265,6 +273,7 @@ internal class PiJournal(private val originals: (JsonObject) -> List<ContentPart
 
     private companion object {
         const val REPLAY_LIMIT = 512
+        const val COMPACTED_NOTICE = "Context compacted"
         const val CURSOR_FIELDS = 3
         const val REVISION_LOG_STRIDE = 100L
     }

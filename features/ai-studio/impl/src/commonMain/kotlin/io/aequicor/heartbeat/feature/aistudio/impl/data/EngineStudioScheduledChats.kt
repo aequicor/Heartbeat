@@ -52,7 +52,7 @@ internal class EngineStudioScheduledChats(
         log.v { "find the chat of a session" }
         return store.get(
             ChatsKey,
-        ).orEmpty().firstOrNull { it.ref == session }?.let { StudioScheduledChat(it.id, it.projectId) }
+        ).orEmpty().firstOrNull { it.owns(session) }?.let { StudioScheduledChat(it.id, it.projectId) }
     }
 
     override suspend fun sessionOf(chatId: String): SessionRef? {

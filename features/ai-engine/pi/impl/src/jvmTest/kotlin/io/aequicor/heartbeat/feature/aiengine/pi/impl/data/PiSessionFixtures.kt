@@ -226,6 +226,7 @@ internal class FakeConnection : PiConnection {
     val promptAck = CompletableDeferred<JsonObject>()
     val abortAck = CompletableDeferred<JsonObject>()
     val modelAck = CompletableDeferred<JsonObject>()
+    val compactAck = CompletableDeferred<JsonObject>()
     val commands = mutableListOf<String>()
     val fields = mutableListOf<JsonObject>()
     val sent = mutableListOf<JsonObject>()
@@ -271,6 +272,7 @@ internal class FakeConnection : PiConnection {
             "get_entries" -> Json.parseToJsonElement(entries).jsonObject
             "prompt" -> promptAck.await()
             "abort" -> abortAck.await()
+            "compact" -> compactAck.await()
             "set_model" -> setModel(fields)
             "set_thinking_level" -> setThinking(fields)
             else -> JsonObject(emptyMap())

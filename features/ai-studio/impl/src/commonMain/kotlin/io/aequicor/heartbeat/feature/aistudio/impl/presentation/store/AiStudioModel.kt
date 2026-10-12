@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAttachmentPreviews
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioCompactionPort
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
@@ -100,6 +101,7 @@ class AiStudioModel(
     assists: ComposerAssists,
     previews: StudioAttachmentPreviews,
     private val harnesses: StudioHarnesses = StudioHarnesses.None,
+    private val compactions: StudioCompactionPort = StudioCompactionPort.None,
 ) {
     private val log = Log.tag("AiStudioModel")
     private val harnessSelection = StudioHarnessSelection(harnesses, backend)
@@ -176,6 +178,8 @@ class AiStudioModel(
                     entries.showsAttachments.collect { updateState { copy(isAttachmentsEnabled = it) } }
                 }
                 launch { entries.showsRemember.collect { updateState { copy(isRememberEnabled = it) } } }
+                launch { compactions.availability.collect { updateState { copy(isCompactEnabled = it) } } }
+                launch { compactions.feed.collect { updateState { copy(feedCollapse = it) } } }
                 launch { entries.showsOrganism.collect { updateState { copy(isOrganismEnabled = it) } } }
                 launch { harnessSelection.observe(pipeline) }
                 launch { organisms.observe(pipeline) }
@@ -468,11 +472,30 @@ class AiStudioModel(
         if (result == SendResult.Accepted) updateState { afterNavigation(intent, replaced) }
     }
 
+    private suspend fun usage(pipeline: StudioPipeline, intent: AiStudioScreenIntent.Usage) = with(pipeline) {
+        when (intent) {
+            is AiStudioScreenIntent.RefreshUsage -> sendTo(machine, AiStudioIntent.Public.RefreshUsage(intent.modelId))
+
+            is AiStudioScreenIntent.CompactContext -> {
+                var chat: String? = null
+                withState { chat = panes.firstOrNull { it.id == intent.paneId }?.sessionId }
+                val id = chat
+                val isQueued = id != null && compactions.request(id, null)
+                if (!isQueued) updateState { copy(failedPanes = (failedPanes + intent.paneId).toImmutableSet()) }
+            }
+        }
+    }
+
+    /** A draft typed as `/compact` compacts the chat; anything else is sent as a prompt. */
+    private suspend fun submit(pipeline: StudioPipeline, paneId: Int) {
+        if (!compactStudioDraft(pipeline, compactions, paneId)) submitStudioDraft(pipeline, machine, harnesses, paneId)
+    }
+
     private suspend fun compose(pipeline: StudioPipeline, intent: AiStudioScreenIntent.Composer) = with(pipeline) {
         when (intent) {
             is AiStudioScreenIntent.Worktree -> composeWorktree(pipeline, intent)
 
-            is AiStudioScreenIntent.RefreshUsage -> sendTo(machine, AiStudioIntent.Public.RefreshUsage(intent.modelId))
+            is AiStudioScreenIntent.Usage -> usage(pipeline, intent)
 
             is AiStudioScreenIntent.RespondPermission -> sendTo(
                 machine,
@@ -481,7 +504,7 @@ class AiStudioModel(
 
             is AiStudioScreenIntent.Suggestions -> suggestions.handle(pipeline, intent)
 
-            is AiStudioScreenIntent.Submit -> submitStudioDraft(pipeline, machine, harnesses, intent.paneId)
+            is AiStudioScreenIntent.Submit -> submit(pipeline, intent.paneId)
 
             is AiStudioScreenIntent.Attachment -> attach(pipeline, intent)
 
