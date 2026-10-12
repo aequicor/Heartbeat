@@ -48,6 +48,30 @@ class DraftReleaseTest(unittest.TestCase):
                 publish_draft.main()
         gh.assert_not_called()
 
+    def test_candidate_version_must_be_explicitly_selected(self):
+        with patch("sys.argv", self.arguments + ["--version", "152.0.6-hb2"]), \
+                patch.object(publish_draft, "gh") as gh:
+            with self.assertRaisesRegex(ValueError, "Unexpected release version"):
+                publish_draft.main()
+        gh.assert_not_called()
+
+    def test_explicit_candidate_creates_new_tag_without_overwriting_old_release(self):
+        path = self.directory / "source-lock.json"
+        lock = json.loads(path.read_text())
+        lock["artifactVersion"] = "152.0.6-hb2"
+        for artifact in [lock["apiArtifact"], *lock["nativeArtifacts"].values()]:
+            renamed = artifact["file"].replace("hb1", "hb2")
+            (self.directory / artifact["file"]).rename(self.directory / renamed)
+            artifact["file"] = renamed
+        path.write_text(json.dumps(lock))
+        responses = [subprocess.CompletedProcess([], 1, "", "release not found"),
+                     subprocess.CompletedProcess([], 0, "candidate release", "")]
+        with patch("sys.argv", self.arguments + ["--version", "152.0.6-hb2"]), \
+                patch.object(publish_draft, "gh", side_effect=responses) as gh:
+            publish_draft.main()
+        self.assertEqual("152.0.6-hb2", gh.call_args.args[2])
+        self.assertNotIn("--clobber", gh.call_args.args)
+
     def test_existing_release_with_different_checksums_is_never_overwritten(self):
         def response(*arguments, **kwargs):
             if arguments[1] == "view":

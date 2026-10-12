@@ -235,7 +235,8 @@ def main() -> int:
         marker_a, marker_b, marker_next = seed + "-a", seed + "-b", seed + "-after-clear"
         phases = [("write", "write", marker_a), ("restart", "read", marker_a),
                   ("clear", "clear", marker_a), ("restart-after-clear", "read", marker_next),
-                  ("delete", "delete", marker_next), ("restart-after-delete", "read", "EMPTY")]
+                  ("delete", "delete", marker_next), ("restart-after-delete", "read", "EMPTY"),
+                  ("visibility-close", "visibility-close", "EMPTY")]
         for scale in args.scales.split(","):
             scale = scale.strip()
             if scale != "native" and not 0.5 <= float(scale) <= 4:

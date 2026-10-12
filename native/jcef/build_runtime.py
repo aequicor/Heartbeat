@@ -24,6 +24,8 @@ TARGETS = {
 }
 VERSION = "152.0.6-hb1"
 RELEASE_TAG = "jcef-17e805a+cef-152.0.6+g708dc14+chromium-152.0.7977.83+heartbeat-hb1"
+SOURCE_LOCK = HERE / "source-lock.json"
+PATCH_FILE = HERE / "request-context-settings.patch"
 
 
 def run(*args: object, cwd: Path | None = None) -> None:
@@ -44,10 +46,23 @@ def canonical_paths(paths):
 
 
 def lock() -> dict:
-    data = json.loads((HERE / "source-lock.json").read_text())
-    if sha256(HERE / "request-context-settings.patch") != data["patchSha256"]:
-        raise ValueError("JCEF patch differs from source-lock.json")
+    data = json.loads(SOURCE_LOCK.read_text())
+    if sha256(PATCH_FILE) != data["patchSha256"]:
+        raise ValueError("JCEF patch differs from selected source lock")
     return data
+
+
+def select_inputs(source_lock: Path, patch_file: Path) -> None:
+    """Stage a new immutable release while the application still consumes its old lock."""
+    global SOURCE_LOCK, PATCH_FILE, VERSION, RELEASE_TAG
+    data = json.loads(source_lock.read_text())
+    version = data["artifactVersion"]
+    if not re.fullmatch(re.escape(data["cefVersion"].split("+")[0]) + r"-hb[1-9][0-9]*", version):
+        raise ValueError("Artifact version must identify the locked CEF release and Heartbeat revision")
+    if sha256(patch_file) != data["patchSha256"]:
+        raise ValueError("JCEF patch differs from selected source lock")
+    SOURCE_LOCK, PATCH_FILE, VERSION = source_lock.resolve(), patch_file.resolve(), version
+    RELEASE_TAG = f"jcef-{data['jcefCommit'][:7]}+cef-{data['cefVersion']}+heartbeat-{version.rsplit('-', 1)[1]}"
 
 
 def cache_key() -> str:
@@ -68,8 +83,8 @@ def prepare(source: Path) -> None:
     actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip()
     if actual != data["jcefCommit"]:
         raise ValueError("Unexpected JCEF checkout")
-    run("git", "apply", "--check", HERE / "request-context-settings.patch", cwd=source)
-    run("git", "apply", HERE / "request-context-settings.patch", cwd=source)
+    run("git", "apply", "--check", PATCH_FILE, cwd=source)
+    run("git", "apply", PATCH_FILE, cwd=source)
 
 
 def build(source: Path, target: str) -> None:
@@ -303,7 +318,10 @@ def main() -> None:
     parser.add_argument("--source", type=Path, default=Path("build/jcef-source"))
     parser.add_argument("--target", choices=TARGETS)
     parser.add_argument("--output", type=Path, default=Path("build/jcef-artifacts"))
+    parser.add_argument("--source-lock", type=Path, default=SOURCE_LOCK)
+    parser.add_argument("--patch", type=Path, default=PATCH_FILE)
     options = parser.parse_args()
+    select_inputs(options.source_lock, options.patch)
     source, output = options.source.resolve(), options.output.resolve()
     if options.command == "cache-key":
         key = cache_key()
