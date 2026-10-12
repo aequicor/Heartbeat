@@ -101,7 +101,7 @@ class BrowserUiTest {
         )
         setContent { HbTheme { BrowserScreenContent(state, {}) } }
         onNodeWithTag("browser-group-session-a").assertIsDisplayed()
-        onNodeWithTag("browser-group-session-b").assertExists()
+        onNodeWithTag("browser-group-session-b").assertDoesNotExist()
         onAllNodesWithText("Docs").assertCountEquals(1)
     }
 
