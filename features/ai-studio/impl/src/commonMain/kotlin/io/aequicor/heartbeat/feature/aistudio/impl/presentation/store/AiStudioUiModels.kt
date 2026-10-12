@@ -191,7 +191,10 @@ sealed interface MessageUi {
         val parts: ImmutableList<ReplyPartUi> = persistentListOf(),
         override val isTimestampKnown: Boolean = true,
         val checklistIds: ImmutableList<String> = persistentListOf(),
-    ) : MessageUi
+    ) : MessageUi {
+        /** How this instance looks in a collapsed feed, computed once per settings; not part of equality. */
+        internal val collapseMemo: CollapseMemo = CollapseMemo()
+    }
 
     /** The user stopped the run after [elapsed]. */
     data class Stopped(override val id: String, override val createdAt: Instant, val elapsed: Duration) : MessageUi

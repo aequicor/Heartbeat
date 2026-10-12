@@ -50,9 +50,9 @@ internal data class TimelineLabels(
     val isGroupedByDate: Boolean = false,
     val feedback: FeedbackLabels? = null,
     val learning: LearningLabels? = null,
-    val compacted: String = "Context compacted",
-    val rolledOver: String = "Continued in a new session",
-    val collapsedTools: String = "%1${'$'}d tool calls",
+    val compacted: String,
+    val rolledOver: String,
+    val collapsedTools: String,
 )
 
 /** Failed-run notices, one per [FailureUi]. */
@@ -315,7 +315,7 @@ internal fun MessageUi.toHb(labels: TimelineLabels): HbChatMessage = when (this)
         toolCalls = tools.map { it.toHb(labels) }.toImmutableList(),
         appearance = labels.replyAppearance,
         parts = parts.mapIndexed { index, part ->
-            part.toHb(labels, isStreaming = isStreaming && index == parts.lastIndex)
+            part.toHb(labels, isStreaming = isStreaming && index == streamingPartIndex)
         }.toImmutableList(),
         label = labels.calendar.timeLabel(createdAt).takeIf { isTimestampKnown },
     )
@@ -345,6 +345,13 @@ internal fun MessageUi.toHb(labels: TimelineLabels): HbChatMessage = when (this)
         appearance = HbMessageAppearance(tone = HbTone.Danger),
     )
 }
+
+/**
+ * The part showing the reply's progress: the last one, unless the collapsed line already runs for hidden work that
+ * follows it; then a visible reasoning before the hidden calls does not pose as the latest activity.
+ */
+private val MessageUi.Reply.streamingPartIndex: Int
+    get() = if (parts.any { it is ReplyPartUi.CollapsedTools && it.isRunning }) -1 else parts.lastIndex
 
 private fun ToolUi.toHb(labels: TimelineLabels): HbToolCall = HbToolCall(
     id = id,

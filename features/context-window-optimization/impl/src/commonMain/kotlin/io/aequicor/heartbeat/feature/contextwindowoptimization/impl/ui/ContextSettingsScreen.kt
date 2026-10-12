@@ -2,10 +2,12 @@ package io.aequicor.heartbeat.feature.contextwindowoptimization.impl.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -123,26 +125,30 @@ private fun CompactionSection(state: ContextSettingsScreenState, onIntent: (Cont
             "context-auto",
         ) { onIntent(ContextSettingsScreenIntent.SetAutoCompaction(it)) }
         HbText(stringResource(Res.string.context_threshold), color = HbTheme.colors.textSecondary)
-        ThresholdChoices.forEach { percent ->
-            HbChoiceRow(
-                stringResource(Res.string.context_threshold_value, percent),
-                selected = settings.thresholdPercent == percent,
-                isMultiple = false,
-                onClick = { onIntent(ContextSettingsScreenIntent.SetThreshold(percent)) },
-                modifier = Modifier.fillMaxWidth().testTag("context-threshold-$percent"),
-                enabled = isEditable,
-            )
+        ChoiceGroup {
+            ThresholdChoices.forEach { percent ->
+                HbChoiceRow(
+                    stringResource(Res.string.context_threshold_value, percent),
+                    selected = settings.thresholdPercent == percent,
+                    isMultiple = false,
+                    onClick = { onIntent(ContextSettingsScreenIntent.SetThreshold(percent)) },
+                    modifier = Modifier.fillMaxWidth().testTag("context-threshold-$percent"),
+                    enabled = isEditable,
+                )
+            }
         }
         HbText(stringResource(Res.string.context_strategy), color = HbTheme.colors.textSecondary)
-        StrategyUi.entries.forEach { strategy ->
-            HbChoiceRow(
-                stringResource(strategy.title()),
-                selected = settings.strategy == strategy,
-                isMultiple = false,
-                onClick = { onIntent(ContextSettingsScreenIntent.SetStrategy(strategy)) },
-                modifier = Modifier.fillMaxWidth().testTag("context-strategy-${strategy.name}"),
-                enabled = state.isLoaded,
-            )
+        ChoiceGroup {
+            StrategyUi.entries.forEach { strategy ->
+                HbChoiceRow(
+                    stringResource(strategy.title()),
+                    selected = settings.strategy == strategy,
+                    isMultiple = false,
+                    onClick = { onIntent(ContextSettingsScreenIntent.SetStrategy(strategy)) },
+                    modifier = Modifier.fillMaxWidth().testTag("context-strategy-${strategy.name}"),
+                    enabled = state.isLoaded,
+                )
+            }
         }
     }
 }
@@ -168,6 +174,12 @@ private fun FeedSection(state: ContextSettingsScreenState, onIntent: (ContextSet
     }
 }
 
+/** Exclusive options announced by screen readers as one group with each option's position. */
+@Composable
+private fun ChoiceGroup(content: @Composable ColumnScope.() -> Unit) {
+    HbColumn(Modifier.fillMaxWidth().selectableGroup(), gap = HbTheme.spacing.xs, content = content)
+}
+
 @Composable
 private fun SwitchRow(
     title: String,
@@ -190,6 +202,12 @@ private fun StrategyUi.title() = when (this) {
 
 @Preview
 @Composable
-private fun ContextSettingsPreview() {
+private fun ContextSettingsLightPreview() {
     HbTheme(darkTheme = false) { ContextSettingsContent(ContextSettingsScreenState(isLoaded = true), {}, {}) }
+}
+
+@Preview
+@Composable
+private fun ContextSettingsDarkPreview() {
+    HbTheme(darkTheme = true) { ContextSettingsContent(ContextSettingsScreenState(isLoaded = true), {}, {}) }
 }

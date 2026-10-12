@@ -82,7 +82,7 @@ private fun UsageDetails(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(HbTheme.spacing.l)) {
         if (context != null) ContextDetails(context)
-        if (content.isCompactEnabled && content.pane.sessionId != null) CompactButton(content, onCompact)
+        if (content.isCompactOffered) CompactButton(content, onCompact)
         if (context != null && provider != null) HbDivider()
         if (provider != null) ProviderDetails(provider, content.calendar)
     }
