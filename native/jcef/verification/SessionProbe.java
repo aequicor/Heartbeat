@@ -1,5 +1,6 @@
 import java.awt.BorderLayout;
 import java.awt.Component;
+import java.awt.Graphics2D;
 import java.awt.GraphicsEnvironment;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
@@ -307,7 +308,8 @@ public final class SessionProbe {
             require("retained".equals(survivor.evaluate("window.visibilitySentinel")),
                 "Closing another native view disturbed the surviving tab");
             require(remainingClients() == 1, "Closed tab retained a native client in iteration " + index);
-            passed("visibility-close-iteration", Map.of("iteration", index, "visibilityPairs", visibilityPairs));
+            passed("visibility-close-iteration", Map.of("iteration", index, "visibilityPairs", visibilityPairs,
+                "resizePaintCalls", visibilityPairs * 2));
         }
         survivor.close();
         anchor.close();
@@ -466,17 +468,30 @@ public final class SessionProbe {
         void closeWithPendingVisibility(int pairs) throws Exception {
             assertSingleCreation();
             onEdt(() -> {
-                // No AppKit/CEF queue barrier: exercise visibility callbacks already queued when
-                // forced close destroys their NSView, then calls queued while close is pending.
-                for (int index = 0; index < pairs; index++) {
-                    browser.setWindowVisibility(false);
-                    browser.setWindowVisibility(true);
-                }
-                closeRequested = true;
-                browser.close(true);
-                for (int index = 0; index < pairs; index++) {
-                    browser.setWindowVisibility(true);
-                    browser.setWindowVisibility(false);
+                Component surface = browser.getUIComponent();
+                BufferedImage target = new BufferedImage(800, 600, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D graphics = target.createGraphics();
+                try {
+                    // CefBrowserWr.paint runs doUpdate/UpdateUI and schedules its delayed Swing
+                    // update. Offscreen graphics exercise that entry without capturing the desktop.
+                    // No AppKit/CEF queue barrier before forced close: queued view work must retain
+                    // the browser and resolve the native view only on its owning thread.
+                    for (int index = 0; index < pairs; index++) {
+                        surface.setSize(760 + index % 8, 540 + index % 8);
+                        surface.paint(graphics);
+                        browser.setWindowVisibility(false);
+                        browser.setWindowVisibility(true);
+                    }
+                    closeRequested = true;
+                    browser.close(true);
+                    for (int index = 0; index < pairs; index++) {
+                        surface.setSize(780 + index % 8, 560 + index % 8);
+                        surface.paint(graphics);
+                        browser.setWindowVisibility(true);
+                        browser.setWindowVisibility(false);
+                    }
+                } finally {
+                    graphics.dispose();
                 }
                 return null;
             });

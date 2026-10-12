@@ -306,7 +306,7 @@ index e5a73ab..0c9eb00 100644
      private final native Status N_GetRequestStatus(long self);
      private final native ErrorCode N_GetRequestError(long self);
 diff --git a/native/CefBrowser_N.cpp b/native/CefBrowser_N.cpp
-index ceea3a6..21648cb 100644
+index ceea3a6..99c54e4 100644
 --- a/native/CefBrowser_N.cpp
 +++ b/native/CefBrowser_N.cpp
 @@ -932,13 +932,17 @@ void create(std::shared_ptr<JNIObjectsForCreate> objs,
@@ -363,6 +363,16 @@ index ceea3a6..21648cb 100644
  #endif
  }
  JNIEXPORT jdouble JNICALL
+@@ -2106,8 +2109,7 @@ Java_org_cef_browser_CefBrowser_1N_N_1UpdateUI(JNIEnv* env,
+   CefRect contentRect = GetJNIRect(env, jcontentRect);
+ #if defined(OS_MACOSX)
+   CefRect browserRect = GetJNIRect(env, jbrowserRect);
+-  util_mac::UpdateView(browser->GetHost()->GetWindowHandle(), contentRect,
+-                       browserRect);
++  util_mac::UpdateView(browser, contentRect, browserRect);
+ #else
+   CefWindowHandle windowHandle = browser->GetHost()->GetWindowHandle();
+   if (CefCurrentlyOn(TID_UI)) {
 diff --git a/native/CefRequestContext_N.cpp b/native/CefRequestContext_N.cpp
 index db6b2dd..987f503 100644
 --- a/native/CefRequestContext_N.cpp
@@ -632,7 +642,7 @@ index 5b9dfc1..df8cc9f 100644
    virtual void OnRequestComplete(CefRefPtr<CefURLRequest> request) override;
  
 diff --git a/native/util_mac.h b/native/util_mac.h
-index 6af234f..3d4b28a 100644
+index 6af234f..9cec326 100644
 --- a/native/util_mac.h
 +++ b/native/util_mac.h
 @@ -10,6 +10,7 @@
@@ -643,17 +653,20 @@ index 6af234f..3d4b28a 100644
  
  #include "client_app.h"
  
-@@ -40,7 +41,7 @@ void CefShutdownOnMainThread();
+@@ -40,9 +41,9 @@ void CefShutdownOnMainThread();
  
  void CefDoMessageLoopWorkOnMainThread();
  
 -void SetVisibility(CefWindowHandle handle, bool isVisible);
 +void SetVisibility(CefRefPtr<CefBrowser> browser, bool isVisible);
  
- void UpdateView(CefWindowHandle handle,
+-void UpdateView(CefWindowHandle handle,
++void UpdateView(CefRefPtr<CefBrowser> browser,
                  CefRect contentRect,
+                 CefRect browserRect);
+ 
 diff --git a/native/util_mac.mm b/native/util_mac.mm
-index 55eac97..86c3ea1 100644
+index 55eac97..886832a 100644
 --- a/native/util_mac.mm
 +++ b/native/util_mac.mm
 @@ -10,11 +10,14 @@
@@ -716,7 +729,7 @@ index 55eac97..86c3ea1 100644
  @end  // implementation CefHandler
  
  // Instead of adding CefBrowser as child of the windows main view, a content
-@@ -464,13 +443,37 @@ void CefDoMessageLoopWorkOnMainThread() {
+@@ -464,29 +443,74 @@ void CefDoMessageLoopWorkOnMainThread() {
                  modes:@[ NSDefaultRunLoopMode, NSEventTrackingRunLoopMode ]];
  }
  
@@ -727,21 +740,19 @@ index 55eac97..86c3ea1 100644
 -  [[CefHandler class] performSelectorOnMainThread:@selector(setVisibility:)
 -                                       withObject:params
 -                                    waitUntilDone:NO];
-+void SetVisibility(CefRefPtr<CefBrowser> browser, bool isVisible) {
-+  if (!CefCurrentlyOn(TID_UI)) {
-+    // A queued NSView pointer can outlive its native browser. Own the CEF
-+    // browser while queued and obtain its window only when this task runs.
-+    CefPostTask(TID_UI, base::BindOnce(&SetVisibility, browser, isVisible));
-+    return;
-+  }
-+  if (!g_client_app_ || !browser || !browser->IsValid())
-+    return;
++namespace {
++
++// The caller retains the browser and must use the returned view on this task.
++NSView* GetLiveBrowserView(CefRefPtr<CefBrowser> browser) {
++  if (!CefCurrentlyOn(TID_UI) || !g_client_app_ || !browser ||
++      !browser->IsValid())
++    return nil;
 +  CefRefPtr<CefBrowserHost> host = browser->GetHost();
 +  if (!host || host->IsWindowRenderingDisabled())
-+    return;
++    return nil;
 +  CefWindowHandle handle = host->GetWindowHandle();
 +  if (!handle)
-+    return;
++    return nil;
 +
 +  // Forced close unregisters/removes the view before OnBeforeClose marks the
 +  // browser invalid. This check and the dereference share the CEF/AppKit UI
@@ -750,9 +761,23 @@ index 55eac97..86c3ea1 100644
 +  bool browser_exists = g_browsers_.count(handle) > 0;
 +  g_browsers_lock_.Unlock();
 +  if (!browser_exists)
-+    return;
++    return nil;
 +
-+  NSView* view = CAST_CEF_WINDOW_HANDLE_TO_NSVIEW(handle);
++  return CAST_CEF_WINDOW_HANDLE_TO_NSVIEW(handle);
++}
++
++}  // namespace
++
++void SetVisibility(CefRefPtr<CefBrowser> browser, bool isVisible) {
++  if (!CefCurrentlyOn(TID_UI)) {
++    // A queued NSView pointer can outlive its native browser. Own the CEF
++    // browser while queued and obtain its window only when this task runs.
++    CefPostTask(TID_UI, base::BindOnce(&SetVisibility, browser, isVisible));
++    return;
++  }
++  NSView* view = GetLiveBrowserView(browser);
++  if (!view)
++    return;
 +  if ([view isHidden] == isVisible) {
 +    [view setHidden:!isVisible];
 +    [view needsDisplay];
@@ -760,8 +785,53 @@ index 55eac97..86c3ea1 100644
 +  }
  }
  
- void UpdateView(CefWindowHandle handle,
-@@ -551,8 +554,11 @@ void SetParent(CefWindowHandle handle,
+-void UpdateView(CefWindowHandle handle,
++void UpdateView(CefRefPtr<CefBrowser> browser,
+                 CefRect contentRect,
+                 CefRect browserRect) {
+-  util_mac::TranslateRect(handle, contentRect);
+-  CefBrowserContentView* browser =
+-      (CefBrowserContentView*)[CAST_CEF_WINDOW_HANDLE_TO_NSVIEW(handle)
+-          superview];
++  if (!CefCurrentlyOn(TID_UI)) {
++    CefPostTask(TID_UI,
++                base::BindOnce(&UpdateView, browser, contentRect, browserRect));
++    return;
++  }
++  NSView* view = GetLiveBrowserView(browser);
++  if (!view)
++    return;
++  util_mac::TranslateRect(view, contentRect);
++  NSView* parent = [view superview];
++  if (![parent isKindOfClass:[CefBrowserContentView class]])
++    return;
++  CefBrowserContentView* browserView = (CefBrowserContentView*)parent;
+   browserRect.y = contentRect.height - browserRect.height - browserRect.y;
+ 
+   // Only update the view if nobody is currently resizing the main window.
+   // Otherwise the CefBrowser part may start flickering because there's a
+   // significant delay between the native window resize event and the java
+   // resize event
+-  if (![browser isLiveResizing]) {
++  if (![browserView isLiveResizing]) {
+     NSString* contentStr = [[NSString alloc]
+         initWithFormat:@"{{%d,%d},{%d,%d}", contentRect.x, contentRect.y,
+                        contentRect.width, contentRect.height];
+@@ -496,9 +520,10 @@ void UpdateView(CefWindowHandle handle,
+     NSDictionary* dict = [[NSDictionary alloc]
+         initWithObjectsAndKeys:contentStr, @"content", browserStr, @"browser",
+                                nil];
+-    [browser performSelectorOnMainThread:@selector(updateView:)
+-                              withObject:dict
+-                           waitUntilDone:NO];
++    [browserView updateView:dict];
++    [dict release];
++    [browserStr release];
++    [contentStr release];
+   }
+ }
+ 
+@@ -551,8 +576,11 @@ void SetParent(CefWindowHandle handle,
      g_browsers_lock_.Lock();
      bool browser_exists = g_browsers_.count(handle) > 0;
      g_browsers_lock_.Unlock();
