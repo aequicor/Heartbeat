@@ -8,6 +8,7 @@ import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
@@ -15,8 +16,12 @@ import org.gradle.work.DisableCachingByDefault
 import java.io.File
 import java.security.MessageDigest
 
-/** Rejects incomplete platform manifests and mismatched Java/native inputs before tests or packaging. */
-@DisableCachingByDefault(because = "Checks pinned runtime inputs without producing an output")
+/**
+ * Rejects incomplete platform manifests and mismatched Java/native inputs before tests or packaging.
+ * Registered by [JcefRuntimeExtension.registerRuntimeVerification]; [marker] keeps the task up to date until
+ * the lock, the patch or the resolved jars change.
+ */
+@DisableCachingByDefault(because = "Hashing the local jars is cheaper than storing the marker in the build cache")
 abstract class VerifyBrowserRuntime : DefaultTask() {
     @get:Input abstract val version: Property<String>
 
@@ -31,8 +36,11 @@ abstract class VerifyBrowserRuntime : DefaultTask() {
     abstract val patch: RegularFileProperty
 
     @get:InputFiles
-    @get:PathSensitive(PathSensitivity.NONE)
+    @get:PathSensitive(PathSensitivity.NAME_ONLY)
     abstract val artifacts: ConfigurableFileCollection
+
+    /** Records the verified jars; written only after every check passes. */
+    @get:OutputFile abstract val marker: RegularFileProperty
 
     @TaskAction
     fun verify() {
@@ -53,10 +61,12 @@ abstract class VerifyBrowserRuntime : DefaultTask() {
         check(artifacts.files.map { it.name }.toSet() == expected.map { it["file"] }.toSet()) {
             "JCEF runtime must contain the exact locked API and host native pair"
         }
-        expected.forEach { entry ->
+        val verified = expected.map { entry ->
             val artifact = artifacts.files.single { it.name == entry["file"] }
             check(artifact.sha256() == entry["sha256"]) { "JCEF artifact checksum mismatch: ${artifact.name}" }
+            "${entry["sha256"]}  ${artifact.name}"
         }
+        marker.get().asFile.writeText(verified.sorted().joinToString("\n", postfix = "\n"))
     }
 
     private fun File.sha256(): String {

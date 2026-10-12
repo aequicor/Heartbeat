@@ -41,8 +41,8 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
- * Opt-in real Chromium smoke test: -Pheartbeat.browser.nativeTest=true --tests
- * '*DesktopBrowserNativeTest'.
+ * Opt-in real Chromium smoke test, run locally in its own JVM: `./gradlew :features:browser:impl:browserNativeTest`
+ * (`jvmTest` skips it). Requires a desktop session.
  */
 class DesktopBrowserNativeTest {
     private val contexts = mutableListOf<CefRequestContext>()

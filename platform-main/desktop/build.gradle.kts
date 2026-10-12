@@ -12,6 +12,7 @@ plugins {
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.heartbeat.detekt)
+    alias(libs.plugins.heartbeat.jcef)
 }
 
 dependencies {
@@ -38,11 +39,7 @@ val heartbeatApplicationVersion = "1.0.0"
 
 tasks.withType<Test>().configureEach {
     // Match launchHeartbeat's owned-window layers, including tests that do not enter main().
-    systemProperty("compose.layers.type", "WINDOW")
-    if (providers.systemProperty("os.name").get().startsWith("Windows")) {
-        val architecture = providers.systemProperty("os.arch").get().lowercase()
-        systemProperty("skiko.renderApi", if (architecture in listOf("aarch64", "arm64")) "SOFTWARE_FAST" else "OPENGL")
-    }
+    systemProperties(heartbeatJcef.renderingProperties)
 }
 
 // SHA-256 of each Pi release asset for the version pinned as `pi` in gradle/libs.versions.toml.
@@ -70,28 +67,11 @@ val piArch = when (piArchName.lowercase()) {
 val piTarget = if (piOs != null && piArch != null) "$piOs-$piArch" else null
 
 // One bundled native archive per host distribution; the browser never downloads a runtime at launch.
-val jcefNative = when (piTarget) {
-    "darwin-x64" -> libs.jcef.macos.x64
-    "darwin-arm64" -> libs.jcef.macos.arm64
-    "windows-x64" -> libs.jcef.windows.x64
-    "windows-arm64" -> libs.jcef.windows.arm64
-    else -> null
-}
-jcefNative?.let { dependencies { runtimeOnly(it) } }
-// JBR SDKs may bundle an older jcef module. Limit roots to the app's standard JDK modules so the
-// pinned classpath API/native pair wins consistently in development and packaged distributions.
-val jcefJdkModules = listOf(
-    "java.se", "jdk.unsupported", "jdk.httpserver", "jdk.crypto.ec", "jdk.zipfs", "jdk.attach", "jdk.compiler",
-)
-val jcefJvmArgs = listOf("--limit-modules=${jcefJdkModules.joinToString(",")}") + if (piOs == "darwin") {
-    listOf(
-        "--add-opens=java.desktop/sun.awt=ALL-UNNAMED",
-        "--add-opens=java.desktop/sun.lwawt=ALL-UNNAMED",
-        "--add-opens=java.desktop/sun.lwawt.macosx=ALL-UNNAMED",
-    )
-} else {
-    emptyList()
-}
+heartbeatJcef.nativeBundle?.let { dependencies { runtimeOnly(it) } }
+// Module roots that keep the pinned API/native pair ahead of JBR's own jcef module, see heartbeat.jcef.
+val jcefJvmArgs = heartbeatJcef.jvmArguments
+// Packaging checks the JCEF jars this application actually ships, not another module's test classpath.
+val verifyBrowserRuntime = heartbeatJcef.registerRuntimeVerification("runtimeClasspath")
 val verifyWindowRuntime = tasks.register<JavaExec>("verifyWindowRuntime") {
     group = "verification"
     description = "Checks the JBR native caption service before packaging desktop distributions."
@@ -139,7 +119,7 @@ compose.desktop {
             // jdk.unsupported: DataStore's protobuf accesses sun.misc.Unsafe; jdk.httpserver: the loopback search bridge;
             // java.prefs and java.scripting: the PlantUML engine of the diagram worker process. Its launcher passes
             // the app's JVM options to that worker, which refuses to draw with an -Xmx above its own cap.
-            modules(*jcefJdkModules.toTypedArray())
+            modules(*heartbeatJcef.jdkModules.toTypedArray())
             modules(
                 "java.instrument",
                 "java.compiler",
@@ -211,7 +191,7 @@ afterEvaluate {
     }
     tasks.withType<AbstractJPackageTask>().configureEach {
         dependsOn(verifyWindowRuntime)
-        dependsOn(":features:browser:impl:verifyBrowserRuntime")
+        dependsOn(verifyBrowserRuntime)
         if (!name.contains("Release")) {
             launcherMainClass.set("io.aequicor.heartbeat.platform.desktop.DevelopmentMainKt")
         }

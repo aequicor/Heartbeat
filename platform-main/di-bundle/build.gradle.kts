@@ -1,8 +1,18 @@
+import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
+
 plugins {
-    alias(libs.plugins.heartbeat.kmp.compose)
+    alias(libs.plugins.heartbeat.kmp.library)
     alias(libs.plugins.heartbeat.metro)
     alias(libs.plugins.kotlinSerialization)
+    alias(libs.plugins.heartbeat.jcef)
+    // Only for jvmTest: the host Skiko runtime (`compose.desktop.currentOs`) of the native recovery window.
+    alias(libs.plugins.composeMultiplatform)
+    alias(libs.plugins.composeCompiler)
 }
+
+// The production graph has no composables: the Compose compiler runs for the jvmTest compilation alone.
+composeCompiler { targetKotlinPlatforms.set(emptySet<KotlinPlatformType>()) }
+dependencies { "kotlinCompilerPluginClasspathJvmTest"(libs.kotlin.composeCompilerPlugin) }
 
 // Единственный модуль, который видит все impl: здесь Metro собирает контрибуции и генерирует граф.
 // Граф объявляется per-platform (androidMain/jvmMain/iosMain), чтобы видеть платформенные контрибуции.
@@ -106,18 +116,9 @@ kotlin {
 val recoveryNativeRuntime by configurations.creating {
     isCanBeConsumed = false
 }
-val recoveryHostOs = providers.systemProperty("os.name").get()
-val recoveryHostArm = providers.systemProperty("os.arch").get().lowercase() in setOf("arm64", "aarch64")
-val recoveryNativeBundle = when {
-    recoveryHostOs.startsWith("Mac") && recoveryHostArm -> libs.jcef.macos.arm64
-    recoveryHostOs.startsWith("Mac") -> libs.jcef.macos.x64
-    recoveryHostOs.startsWith("Windows") && recoveryHostArm -> libs.jcef.windows.arm64
-    recoveryHostOs.startsWith("Windows") -> libs.jcef.windows.x64
-    else -> null
-}
-dependencies { recoveryNativeBundle?.let { recoveryNativeRuntime(it) } }
+heartbeatJcef.nativeBundle?.let { dependencies { recoveryNativeRuntime(it) } }
+heartbeatJcef.registerRuntimeVerification("jvmTestRuntimeClasspath", recoveryNativeRuntime.name)
 
-val regularJvmTest = tasks.named<Test>("jvmTest")
 val recoveryNativeRoot = layout.buildDirectory.dir("native-research-profile")
 val prepareRecoveryNativeProfile = tasks.register<Delete>("prepareBrowserRecoveryNativeProfile") {
     delete(recoveryNativeRoot)
@@ -125,36 +126,14 @@ val prepareRecoveryNativeProfile = tasks.register<Delete>("prepareBrowserRecover
 val cleanRecoveryNativeProfile = tasks.register<Delete>("cleanBrowserRecoveryNativeProfile") {
     delete(recoveryNativeRoot)
 }
-tasks.register<Test>("browserRecoveryNativeTest") {
-    group = "verification"
-    description = "Checks actual Chromium recovery into research and attachment storage in an isolated JVM."
-    dependsOn(":features:browser:impl:verifyBrowserRuntime")
+heartbeatJcef.registerNativeTest(
+    name = "browserRecoveryNativeTest",
+    description = "Checks actual Chromium recovery into research and attachment storage in an isolated JVM.",
+    testClass = "ResearchBrowserNativeIntegrationTest",
+    enablingProperty = "heartbeat.browser.recoveryNativeTest",
+) {
     dependsOn(prepareRecoveryNativeProfile)
     finalizedBy(cleanRecoveryNativeProfile)
-    testClassesDirs = regularJvmTest.get().testClassesDirs
-    classpath = regularJvmTest.get().classpath + recoveryNativeRuntime
-    filter { includeTestsMatching("*ResearchBrowserNativeIntegrationTest") }
-    maxParallelForks = 1
-    forkEvery = 1
-    outputs.upToDateWhen { false }
-    outputs.doNotCacheIf("Native integration must execute in a fresh worker") { true }
-    systemProperty("heartbeat.browser.recoveryNativeTest", "true")
+    classpath += recoveryNativeRuntime
     systemProperty("heartbeat.browser.recoveryNativeRoot", recoveryNativeRoot.get().asFile.absolutePath)
-    systemProperty("java.awt.headless", "false")
-    systemProperty("compose.layers.type", "WINDOW")
-    if (recoveryHostOs.startsWith("Windows")) {
-        systemProperty("skiko.renderApi", if (recoveryHostArm) "SOFTWARE_FAST" else "OPENGL")
-    }
-    javaLauncher.set(javaToolchains.launcherFor {
-        languageVersion.set(JavaLanguageVersion.of(libs.versions.desktop.jdk.get().toInt()))
-        vendor.set(JvmVendorSpec.JETBRAINS)
-    })
-    jvmArgs("--limit-modules=java.se,jdk.unsupported,jdk.httpserver,jdk.crypto.ec,jdk.zipfs,jdk.attach")
-    if (recoveryHostOs.startsWith("Mac")) {
-        jvmArgs(
-            "--add-opens=java.desktop/sun.awt=ALL-UNNAMED",
-            "--add-opens=java.desktop/sun.lwawt=ALL-UNNAMED",
-            "--add-opens=java.desktop/sun.lwawt.macosx=ALL-UNNAMED",
-        )
-    }
 }

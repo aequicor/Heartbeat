@@ -31,8 +31,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Run alone in a fresh JVM: -Pheartbeat.browser.composeNativeTest=true --tests
- * '*DesktopBrowserComposeNativeTest'. Requires a foreground desktop; macOS needs Accessibility.
+ * Opt-in, run locally in its own JVM: `./gradlew :features:browser:impl:browserComposeNativeTest`
+ * (`jvmTest` skips it). Requires a foreground desktop; macOS needs Accessibility and Screen Recording.
  */
 class DesktopBrowserComposeNativeTest {
     @Test

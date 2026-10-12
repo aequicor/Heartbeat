@@ -49,6 +49,7 @@ jbr-api = "1.10.1"
 [libraries]
 jcefmaven = { module = "me.friwi:jcefmaven", version.ref = "jcefmaven" }
 kotlin-compiler-embeddable = { module = "org.jetbrains.kotlin:kotlin-compiler-embeddable", version.ref = "kotlin" }
+kotlin-composeCompilerPlugin = { module = "org.jetbrains.kotlin:kotlin-compose-compiler-plugin-embeddable", version.ref = "kotlin" }
 kotlin-scripting-common = { module = "org.jetbrains.kotlin:kotlin-scripting-common", version.ref = "kotlin" }
 kotlin-scripting-jvm = { module = "org.jetbrains.kotlin:kotlin-scripting-jvm", version.ref = "kotlin" }
 kotlin-scripting-jvm-host = { module = "org.jetbrains.kotlin:kotlin-scripting-jvm-host", version.ref = "kotlin" }
@@ -154,3 +155,4 @@ heartbeat-kmp-library = { id = "heartbeat.kmp.library" }
 heartbeat-kmp-compose = { id = "heartbeat.kmp.compose" }
 heartbeat-metro = { id = "heartbeat.metro" }
 heartbeat-room = { id = "heartbeat.room" }
+heartbeat-jcef = { id = "heartbeat.jcef" }
