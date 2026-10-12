@@ -28,6 +28,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -63,7 +64,9 @@ internal class ResearchBrowserRecovery(
 
     init {
         profile.coroutineScope.launch {
-            toggles.observe(BrowserResearchAccess).collect { enabled ->
+            combine(toggles.observe(BrowserEnabled), toggles.observe(BrowserResearchAccess)) { browser, recovery ->
+                browser && recovery
+            }.collect { enabled ->
                 if (!enabled) lock.withLock { jobs.values.toList() }.forEach { it.cancel() }
             }
         }
@@ -173,6 +176,7 @@ internal class ResearchBrowserRecovery(
         }
         val source =
             storage.read().first { it.id == sessionId }.resources.first { it.id == resourceId }
+        if (source.loadState == ResearchLoadState.Ready) return
         val attempt = Uuid.random().toString()
         val pending =
             source.copy(
@@ -180,7 +184,7 @@ internal class ResearchBrowserRecovery(
                 loadState = ResearchLoadState.Loading,
                 loadError = null,
             )
-        update(sessionId, source, pending)
+        if (!update(sessionId, source, pending)) return
         var isSettled = false
         try {
             if (action == ResearchRecoveryAction.Open) {
@@ -310,8 +314,10 @@ internal class ResearchBrowserRecovery(
         )
     }
 
-    private suspend fun update(sessionId: String, previous: ResearchResource, next: ResearchResource) {
+    private suspend fun update(sessionId: String, previous: ResearchResource, next: ResearchResource): Boolean {
+        var isApplied = false
         storage.update(sessionId) { session ->
+            isApplied = session.resources.any { it == previous }
             session.copy(
                 resources =
                     session.resources.map {
@@ -319,6 +325,7 @@ internal class ResearchBrowserRecovery(
                     },
             )
         }
+        return isApplied
     }
 
     private suspend fun call(request: BrowserRequest): BrowserResult = coroutineScope {
@@ -371,11 +378,11 @@ internal fun readableRecoveryContent(data: JsonObject): String {
     return content
 }
 
-/** Late native completion cannot overwrite a cancelled or superseded recovery attempt. */
+/** Late callbacks cannot overwrite cancellation or new evidence, even when both attempts are null. */
 internal fun ResearchResource.applyRecoveryUpdate(
     previous: ResearchResource,
     next: ResearchResource,
-): ResearchResource = if (id == previous.id && recoveryAttempt == previous.recoveryAttempt) next else this
+): ResearchResource = if (this == previous) next else this
 
 /** An old cancellation cannot discard completed evidence or a newer recovery attempt. */
 internal fun ResearchResource.cancelRecoveryAttempt(expectedAttempt: String?): ResearchResource =
