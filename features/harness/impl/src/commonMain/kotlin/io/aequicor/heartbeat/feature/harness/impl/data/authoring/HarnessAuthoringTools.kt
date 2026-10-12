@@ -34,6 +34,7 @@ import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.AuthoringCommand
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.CodeCheck
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeChecks
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeReviews
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessToolCatalogs
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.ItemDraft
@@ -57,6 +58,8 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.reEnabled
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.requiresDecision
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeKind
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okio.ByteString.Companion.encodeUtf8
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -66,7 +69,8 @@ import kotlin.uuid.Uuid
  * Agent side of the library: creating harnesses, their items and tool policy. Every call resolves the committed
  * library, presents the whole content and binds the approval to the harness revision; the machine applies the
  * edit only to that revision. Item texts and code are never logged. Code is compiled before the question, and a
- * failing compile is reported to the agent without asking the user or saving anything. Code, switching a tool on,
+ * failing compile is reported to the agent without asking the user or saving anything. Code is independently
+ * reviewed: only a safe verdict saves without asking. Switching a tool on,
  * anything that gives a tool back to a chat and any change of where an enabled script runs (connecting,
  * disconnecting, widening, narrowing, deleting the harness or the script) always ask, whatever the approval level.
  */
@@ -78,6 +82,7 @@ internal class HarnessAuthoringTools(
     private val checks: Lazy<HarnessCodeChecks>,
     private val catalogs: Lazy<HarnessToolCatalogs>,
     private val clock: Clock,
+    private val reviews: Lazy<HarnessCodeReviews>,
 ) : AgentToolContribution {
     private val log = Log.tag("HarnessTools")
     override val group: String = HarnessTools.GROUP
@@ -105,7 +110,9 @@ internal class HarnessAuthoringTools(
                         "workflow — оркестрация помощников.",
                 )
                 add(
-                    "Код, включение инструментов, снятие их ограничений, а также подключение, отключение " +
+                    "Код проходит компиляцию и независимое ревью: безопасный сохраняется автоматически, " +
+                        "при риске или неопределённости решает пользователь. Включение инструментов, снятие " +
+                        "их ограничений, а также подключение, отключение " +
                         "и удаление харнесса со скриптом пользователь подтверждает всегда. " +
                         "Не сохраняй секреты.",
                 )
@@ -120,8 +127,8 @@ internal class HarnessAuthoringTools(
         context: AgentToolContext,
         spec: AgentToolSpec,
         arguments: JsonObject,
-    ): Boolean = when (val plan = plan(spec.name, arguments)) {
-        is Plan.Ready -> plan.level.requiresDecision(context.trust, plan.isAlwaysAsked)
+    ): Boolean = when (val plan = reviewed(context, plan(spec.name, arguments), canStart = true)) {
+        is Plan.Ready -> plan.isReviewDecisionRequired ?: plan.level.requiresDecision(context.trust, plan.isAlwaysAsked)
 
         // A refusal resting on mutable state may not hold at execution, which would then save without a
         // decision; only refusals execution repeats deterministically are kept from the user.
@@ -132,7 +139,7 @@ internal class HarnessAuthoringTools(
         context: AgentToolContext,
         spec: AgentToolSpec,
         arguments: JsonObject,
-    ): AgentToolApproval = when (val plan = plan(spec.name, arguments)) {
+    ): AgentToolApproval = when (val plan = reviewed(context, plan(spec.name, arguments), canStart = true)) {
         is Plan.Ready -> plan.approval
 
         // A non-final refusal still asks; the question says what execution is expected to answer.
@@ -146,7 +153,7 @@ internal class HarnessAuthoringTools(
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
         if (!toggles.get(HarnessEnabled)) return failure("harnesses are turned off")
-        val plan = when (val planned = plan(name, arguments)) {
+        val plan = when (val planned = reviewed(context, plan(name, arguments), canStart = false)) {
             is Plan.Invalid -> {
                 log.d { "Harness authoring request refused name=$name final=${planned.isFinal}" }
                 return failure("not saved: ${planned.message}")
@@ -159,6 +166,31 @@ internal class HarnessAuthoringTools(
             return failure("the harness changed while awaiting approval; request it again")
         }
         return apply(context, plan)
+    }
+
+    /** The assessment and authorization are pinned to exact content, caller, model and committed revision. */
+    private suspend fun reviewed(context: AgentToolContext, plan: Plan, canStart: Boolean): Plan {
+        if (plan !is Plan.Ready || plan.reviewChange == null) return plan
+        val key = buildJsonObject {
+            put("session", context.session.toString())
+            put("turn", context.turn.value)
+            put("request", context.request?.value)
+            put("call", context.callId?.value)
+            put("target", context.target?.toString())
+            put("binding", plan.approval.binding)
+            put("change", plan.reviewChange)
+        }.toString().digest()
+        val review = reviews.value.check(key, context.target, plan.reviewChange, canStart)
+            ?: return Plan.Invalid("the script review expired; request it again", isFinal = true)
+        val resultBinding = "${review.verdict}\u0000${review.reason}".digest()
+        val explanation = if (review.isSafe) "Автоматическое ревью: безопасно." else "Требуется ваше решение."
+        return plan.copy(
+            isReviewDecisionRequired = !review.isSafe,
+            approval = plan.approval.copy(
+                description = "$explanation ${review.reason}\n\n${plan.approval.description.orEmpty()}",
+                binding = "${plan.approval.binding.orEmpty()};review=$key:$resultBinding",
+            ),
+        )
     }
 
     private suspend fun plan(name: String, arguments: JsonObject): Plan {
@@ -313,7 +345,29 @@ internal class HarnessAuthoringTools(
         val title = "Save ${draft.kind.key} ${draft.name.value} in ${harness.name.value}"
         val plan = ready(state, harness, title, itemText(harness, draft, existing == null, check), command)
         val item = draft.toItem(id, existing?.isEnabled ?: true)
-        return (plan as Plan.Ready).copy(isAlwaysAsked = draft.kind.isCode, item = item)
+        return (plan as Plan.Ready).copy(
+            isAlwaysAsked = draft.kind.isCode,
+            item = item,
+            reviewChange = if (draft.kind.isCode) {
+                buildJsonObject {
+                    put("kind", draft.kind.key)
+                    put("name", draft.name.value)
+                    put("description", draft.description)
+                    put("source", draft.body)
+                    put(
+                        "previousSource",
+                        when (existing) {
+                            is HarnessItem.Script -> existing.source
+                            is HarnessItem.Workflow -> existing.source
+                            is HarnessItem.Skill, is HarnessItem.Instruction, is HarnessItem.Template, null -> null
+                        },
+                    )
+                    put("input", command.item.input)
+                }.toString()
+            } else {
+                null
+            },
+        )
     }
 
     /** Code is compiled before the question; texts need no compilation and yield null. */
@@ -508,6 +562,8 @@ internal class HarnessAuthoringTools(
             val isAlwaysAsked: Boolean = false,
             val item: HarnessItem? = null,
             val tools: ToolPolicySpec? = null,
+            val reviewChange: String? = null,
+            val isReviewDecisionRequired: Boolean? = null,
         ) : Plan {
             override fun toString(): String = "Plan.Ready(***)"
         }

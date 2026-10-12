@@ -9,7 +9,8 @@ import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
 
 /**
  * Full turn trust approves ordinary agent edits even when the profile defaults to Ask. Otherwise Ask and ByTrust
- * require a decision (including AutoEdits), while AcceptAll approves them. Code, anything that can make a tool
+ * require a decision (including AutoEdits), while AcceptAll approves them. Code uses independent review.
+ * Anything that can make a tool
  * usable again and membership changes of a harness with an enabled script always ask, whatever the level:
  * see [reEnabled], [hasEnabledScript] and the callers' membership checks.
  */

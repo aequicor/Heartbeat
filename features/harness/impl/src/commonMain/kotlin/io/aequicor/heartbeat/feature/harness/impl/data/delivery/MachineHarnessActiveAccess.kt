@@ -41,7 +41,7 @@ import kotlin.time.Duration.Companion.milliseconds
 internal class MachineHarnessActiveAccess(private val machines: MachineRegistry, private val toggles: FeatureToggles) :
     HarnessActiveAccess {
     private val log = Log.tag("HarnessActive")
-    private val isUnavailable = MutableStateFlow(false)
+    private val unavailability = MutableStateFlow(false)
 
     override suspend fun active(workspace: WorkspaceRef?, session: SessionRef?): List<Harness> =
         resolve { select(session) }
@@ -55,7 +55,7 @@ internal class MachineHarnessActiveAccess(private val machines: MachineRegistry,
     @OptIn(ExperimentalCoroutinesApi::class)
     private suspend fun resolve(selection: HarnessActiveSnapshot.() -> List<Harness>?): List<Harness> {
         if (!toggles.get(HarnessEnabled)) return emptyList()
-        val wait = if (isUnavailable.value) UNAVAILABLE_PROBE else COLD_START_WAIT
+        val wait = if (unavailability.value) UNAVAILABLE_PROBE else COLD_START_WAIT
         val selected = try {
             withTimeoutOrNull(wait) {
                 combine(
@@ -70,7 +70,7 @@ internal class MachineHarnessActiveAccess(private val machines: MachineRegistry,
         } catch (error: Exception) {
             fail(error)
         } ?: fail(HarnessActivationUnavailable())
-        if (isUnavailable.compareAndSet(expect = true, update = false)) {
+        if (unavailability.compareAndSet(expect = true, update = false)) {
             log.i { "harness activation is available again" }
         }
         return selected
@@ -78,7 +78,7 @@ internal class MachineHarnessActiveAccess(private val machines: MachineRegistry,
 
     /** Reports the transition once and throws the already reported marker instead of the original error. */
     private fun fail(error: Exception): Nothing {
-        if (isUnavailable.compareAndSet(expect = false, update = true)) {
+        if (unavailability.compareAndSet(expect = false, update = true)) {
             log.w(error) { "Harness activation unavailable; harness tools and content are closed" }
         } else {
             log.v { "harness activation still unavailable" }

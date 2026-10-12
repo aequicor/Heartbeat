@@ -44,7 +44,7 @@ public data class ToolPolicySpec(
     }
 }
 
-/** Applies to non-code agent edits; code and enabling native tools always require a user decision. */
+/** Applies to non-code edits. Code is independently reviewed; unsafe or uncertain changes ask the user. */
 @Serializable
 public enum class HarnessApproval {
     @SerialName("ask")

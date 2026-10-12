@@ -40,6 +40,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.activeSessionMachineSpec
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiActiveSession
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -157,6 +158,7 @@ internal class PiSession(
         { isHandleClosed },
         { turn?.id == it },
         ::failed,
+        CoroutineScope(profile.coroutineScope.coroutineContext + dispatchers.main),
     )
 
     // Hosted tools are prepared once per process from the request that launched it.
@@ -605,25 +607,19 @@ internal class PiSession(
         }
     }
 
-    private suspend fun uiRequest(record: JsonObject) {
-        val id = record.string("id") ?: return
-        // Fire-and-forget UI (notify, status, widgets) needs no answer.
-        if (record.string("method") !in DIALOG_METHODS) return
-        if (record.string("method") == "confirm" && record.string("title") == APPROVAL_TITLE) {
-            approval(id, record.string("message"))
-        } else if (record.string("method") == "input" && record.string("title") == "heartbeat.tool-result") {
-            approval(id, record.string("placeholder"), isResult = true)
-        } else {
-            val dialog = turn?.let { PiDialog.from(record, id, it.id) }
-            sessionPermissions.await(id, dialog)
-        }
-    }
+    private suspend fun uiRequest(record: JsonObject) =
+        handlePiUiRequest(record, turn?.id, sessionPermissions, ::approval)
 
-    private suspend fun approval(id: String, message: String?, isResult: Boolean = false) {
+    private suspend fun approval(
+        id: String,
+        message: String?,
+        isResult: Boolean = false,
+        timeoutMillis: Long? = null,
+    ) {
         val call = approvalCall(message, isResult) ?: return dismiss(id)
         val active = turn ?: return dismiss(id)
         val process = connection ?: return dismiss(id)
-        if (isHandleClosed || !nativeApprovals.launch(id, call, active, process, generation)) dismiss(id)
+        if (isHandleClosed || !nativeApprovals.launch(id, call, active, process, generation, timeoutMillis)) dismiss(id)
     }
 
     private fun decide(decision: PermissionDecision) {
@@ -732,10 +728,6 @@ internal class PiSession(
 }
 
 private fun profileClosed() = EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
-
-// Must match APPROVAL_TITLE in resources/pi/heartbeat-approval.ts.
-private const val APPROVAL_TITLE = "heartbeat.tool-approval"
-private val DIALOG_METHODS = setOf("select", "confirm", "input", "editor")
 
 // Prompts without an explicit trust keep every action behind a user decision.
 private val DefaultTrust = TrustLevel.Ask

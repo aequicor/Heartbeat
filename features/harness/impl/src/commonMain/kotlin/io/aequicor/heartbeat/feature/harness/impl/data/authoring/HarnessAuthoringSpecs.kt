@@ -15,8 +15,8 @@ import kotlinx.serialization.json.putJsonObject
 private val ITEM_KINDS = listOf("skill", "instruction", "template", "script", "workflow")
 
 /**
- * Library edits are Read in the trust table: the profile approval level adds the decision instead, and code or
- * native enabling always asks. Declarations never change while the feature is on.
+ * Library edits are Read in the trust table: the profile approval level adds the decision instead.
+ * Code uses independent safety review; native enabling always asks. Declarations never change while the feature is on.
  */
 internal val HARNESS_AUTHORING_SPECS = listOf(
     AgentToolSpec(
@@ -48,8 +48,8 @@ internal val HARNESS_AUTHORING_SPECS = listOf(
     AgentToolSpec(HarnessTools.DETACH, "Disconnect a harness from this chat.", harnessOnly()),
     AgentToolSpec(
         HarnessTools.ITEM_PUT,
-        "Add or replace a harness item by name. Kotlin scripts and workflows are compiled first and always need the " +
-            "user's approval; read harness_api_reference before writing code. Never include secrets.",
+        "Add or replace a harness item by name. Kotlin code is compiled and independently reviewed; risky or " +
+            "uncertain changes need the user's approval. Read harness_api_reference first. Never include secrets.",
         schema(required = listOf("harness", "kind", "name", "content")) {
             text("harness", "Harness slug")
             choice("kind", "skill, instruction, template, script or workflow", ITEM_KINDS)

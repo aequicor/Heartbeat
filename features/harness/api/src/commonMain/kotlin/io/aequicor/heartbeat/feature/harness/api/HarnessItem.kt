@@ -4,7 +4,9 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
-/** Agent-authored content. User edits are direct; agent code changes always require explicit approval. */
+/**
+ * Agent-authored content. User edits are direct; agent code requires independent review or explicit user approval.
+ */
 @Serializable
 public sealed interface HarnessItem {
     public val id: ItemId

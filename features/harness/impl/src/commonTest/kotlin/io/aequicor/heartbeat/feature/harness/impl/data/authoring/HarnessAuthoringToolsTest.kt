@@ -68,6 +68,11 @@ import kotlin.time.Clock
 import kotlin.time.Instant
 
 class HarnessAuthoringToolsTest {
+    private var review = io.aequicor.heartbeat.feature.harness.impl.domain.authoring.CodeReview(
+        "uncertain",
+        "Needs review",
+    )
+    private val reviewedChanges = mutableListOf<String>()
     private val toggles = AuthoringToggles()
     private val library = FakeLibrary()
     private val host = FakeHost()
@@ -78,8 +83,59 @@ class HarnessAuthoringToolsTest {
         lazyOf(HarnessCodeChecks(host) { it.hashCode().toString() }),
         lazyOf(catalogs),
         FixedClock,
+        lazyOf(
+            io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeReviews { _, change ->
+                reviewedChanges += change
+                review
+            },
+        ),
     )
     private val context = AgentToolContext(dispatchSession, PROJECT, TurnId("turn"), trust = TrustLevel.Full)
+
+    private val reviewContext = context.copy(
+        target = io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget(
+            dispatchSession.engine,
+            io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId("binding"),
+            io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId("model"),
+        ),
+    )
+
+    @Test
+    fun `safe compiled scripts are saved without asking even at Ask trust`() = runTest {
+        review = io.aequicor.heartbeat.feature.harness.impl.domain.authoring.CodeReview("safe", "Only formats JSON")
+        val arguments = put("script", "format", "hooks.toString()")
+        val asking = reviewContext.copy(trust = TrustLevel.Ask)
+        val approval = tools.approval(asking, spec(HarnessTools.ITEM_PUT), arguments)
+        assertFalse(tools.requiresDecision(asking, spec(HarnessTools.ITEM_PUT), arguments))
+        assertFalse(tools.execute(asking.copy(authorization = approval), HarnessTools.ITEM_PUT, arguments).isError)
+        assertEquals(1, reviewedChanges.size)
+        assertTrue(approval.description.orEmpty().contains(review.reason))
+        assertEquals(1, library.sent.size)
+    }
+
+    @Test
+    fun `risk and uncertainty ask with a reason even at full trust`() = runTest {
+        for (verdict in listOf("risk", "uncertain")) {
+            review = io.aequicor.heartbeat.feature.harness.impl.domain.authoring.CodeReview(verdict, "Concrete concern")
+            val arguments = put("script", verdict, "hooks.toString()")
+            assertTrue(tools.requiresDecision(reviewContext, spec(HarnessTools.ITEM_PUT), arguments))
+            val approval = tools.approval(reviewContext, spec(HarnessTools.ITEM_PUT), arguments)
+            assertTrue(approval.description.orEmpty().contains("Concrete concern"))
+        }
+    }
+
+    @Test
+    fun `review cannot authorize different code or a different turn`() = runTest {
+        review = io.aequicor.heartbeat.feature.harness.impl.domain.authoring.CodeReview("safe", "Only formats JSON")
+        val arguments = put("script", "format", "hooks.toString()")
+        val approval = tools.approval(reviewContext, spec(HarnessTools.ITEM_PUT), arguments)
+        val granted = reviewContext.copy(authorization = approval)
+        val changed = put("script", "format", "hooks.hashCode()")
+        assertTrue(tools.execute(granted, HarnessTools.ITEM_PUT, changed).isError)
+        assertTrue(tools.execute(granted.copy(turn = TurnId("other")), HarnessTools.ITEM_PUT, arguments).isError)
+        assertTrue(library.sent.isEmpty())
+        assertEquals(1, reviewedChanges.size)
+    }
 
     @Test
     fun `texts follow the approval level while code always asks`() = runTest {
