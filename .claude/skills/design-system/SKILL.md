@@ -14,7 +14,8 @@ description: "Работа с дизайн-системой Heartbeat (плот�
 ## Порядок работы над экраном
 1. Каркас: хост рисует сайдбар/шапку/titlebar; фича — только содержимое. Контент — колонка ≤ `HbTheme.dimensions.messageMaxWidth`
    (настройки — `settingsMaxWidth`), фон — `HbTheme.surfaces.backdrop`, без карточек вокруг экрана.
-2. Списки и настройки — `HbSettingsSection` + `HbSettingsRow` (или `HbNavigationItem` в сайдбаре), разделители `HbDivider`.
+2. Списки и настройки — `HbSettingsSection` + `HbSettingsRow` (или `HbNavigationItem` в сайдбаре), строки таблиц с действием —
+   `HbPressableRow`, разделители `HbDivider`.
 3. Действия — `HbButton` (`Primary` один на регион, `Secondary`/`Ghost`, `Danger` для деструктивного) размеров `Regular`/`Small`.
 4. Состояния — `HbLoadingState`, `HbEmptyState`, `HbBanner` (ошибка + «Повторить»); модальное — `HbDialog`.
 5. Однострочный текст — `HbText(maxLines = 1)` (гаснет к краю, тултип); `TextOverflow.Ellipsis` не использовать.

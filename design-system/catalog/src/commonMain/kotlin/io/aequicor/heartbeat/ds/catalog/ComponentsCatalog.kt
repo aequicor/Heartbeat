@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.ds.components.HbMessageAppearance
 import io.aequicor.heartbeat.ds.components.HbMessageKind
 import io.aequicor.heartbeat.ds.components.HbMessageStatus
 import io.aequicor.heartbeat.ds.components.HbPanel
+import io.aequicor.heartbeat.ds.components.HbPressableRow
 import io.aequicor.heartbeat.ds.components.HbQuestionnaireCard
 import io.aequicor.heartbeat.ds.components.HbSearchField
 import io.aequicor.heartbeat.ds.components.HbText
@@ -54,6 +55,22 @@ internal fun ComponentsCatalog(state: SandboxState, modifier: Modifier = Modifie
                 HbChoiceRow(hbString(HbString.Ready), isChecked, true, { isChecked = !isChecked })
                 HbChoiceRow(hbString(HbString.Working), !isChecked, false, { isChecked = false })
                 HbChoiceRow(hbString(HbString.Disabled), true, true, {}, enabled = false)
+            }
+        }
+        item {
+            HbColumn(gap = HbTheme.spacing.none) {
+                HbPressableRow(state::showActionFeedback) {
+                    HbText(hbString(HbString.Ready), Modifier.weight(1f), maxLines = 1)
+                    HbBadge(hbString(HbString.Ready), tone = HbTone.Success)
+                }
+                HbPressableRow(null) { HbText(hbString(HbString.Working), Modifier.weight(1f), maxLines = 1) }
+                HbPressableRow(state::showActionFeedback) {
+                    HbText(hbString(HbString.LongSession), Modifier.weight(1f), maxLines = 1)
+                    HbText(hbString(HbString.LongSessionHint), Modifier.weight(2f), maxLines = 1)
+                }
+                HbPressableRow({}, enabled = false) {
+                    HbText(hbString(HbString.Disabled), color = HbTheme.colors.textSecondary)
+                }
             }
         }
         item { UsageCatalog() }
