@@ -23,6 +23,10 @@ public enum class SettingsSection {
     @SerialName("computer_use")
     ComputerUse,
 
+    /** The Chromium browser bridge: host registration, connected extensions and agent tabs. */
+    @SerialName("chromium_browser")
+    ChromiumBrowser,
+
     /** Instructions the agent learned and how new ones are accepted. */
     @SerialName("agent_learning")
     AgentLearning,
@@ -75,6 +79,7 @@ public val SettingsSection.deepLinkName: String
         SettingsSection.Models -> "models"
         SettingsSection.Search -> "search"
         SettingsSection.ComputerUse -> "computer_use"
+        SettingsSection.ChromiumBrowser -> "chromium_browser"
         SettingsSection.AgentLearning -> "agent_learning"
         SettingsSection.Context -> "context"
         SettingsSection.Harness -> "harness"
