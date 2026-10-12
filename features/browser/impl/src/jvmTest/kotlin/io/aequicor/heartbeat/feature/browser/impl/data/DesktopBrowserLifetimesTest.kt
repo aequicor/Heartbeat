@@ -14,6 +14,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -113,6 +114,41 @@ class DesktopBrowserLifetimesTest {
         assertFailsWith<IllegalStateException> { next.awaitAvailable() }
         next.close()
         assertFailsWith<IllegalStateException> { next.awaitClosed() }
+    }
+
+    @Test
+    fun `app close awaits every generation and reports all native failures together`() = runTest {
+        val lifetimes = DesktopBrowserLifetimes(backgroundScope)
+        val nativeClosed = CompletableDeferred<Unit>()
+        var isSlowClosed = false
+        lifetimes.register(ProfileId("first")) { error("first failure") }
+        lifetimes.register(ProfileId("slow")) {
+            nativeClosed.await()
+            isSlowClosed = true
+        }
+        lifetimes.register(ProfileId("cancelled")) { throw CancellationException("native teardown interrupted") }
+        val shutdown = async { assertFailsWith<IllegalStateException> { lifetimes.closeAll() } }
+        runCurrent()
+        assertFalse(shutdown.isCompleted)
+        nativeClosed.complete(Unit)
+        val failure = shutdown.await()
+        assertTrue(isSlowClosed)
+        assertEquals("first failure", failure.cause?.message)
+        assertIs<CancellationException>(failure.suppressed.single())
+        val retry = assertFailsWith<IllegalStateException> { lifetimes.closeAll() }
+        assertEquals("first failure", retry.cause?.message)
+    }
+
+    @Test
+    fun `profile wipe gives up waiting for a stuck native closure and can be retried`() = runTest {
+        val lifetimes = DesktopBrowserLifetimes(backgroundScope)
+        val profile = ProfileId("first")
+        val nativeClosed = CompletableDeferred<Unit>()
+        lifetimes.register(profile) { nativeClosed.await() }.close()
+        val timeout = assertFailsWith<IllegalStateException> { lifetimes.awaitClosed(profile) }
+        assertTrue(timeout.message.orEmpty().contains("retry"))
+        nativeClosed.complete(Unit)
+        lifetimes.awaitClosed(profile)
     }
 
     @Test

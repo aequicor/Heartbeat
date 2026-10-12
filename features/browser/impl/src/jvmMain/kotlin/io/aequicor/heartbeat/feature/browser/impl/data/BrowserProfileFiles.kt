@@ -14,31 +14,58 @@ import java.nio.file.Path
 import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
 
-/** One direct child of the app DataStores Chromium root; never an arbitrary deletion path. */
+/**
+ * One direct child of the Chromium root that app DataStores resolved; never an arbitrary deletion path.
+ * The root itself is trusted as returned (its ancestors may be platform links such as macOS `/var`) and is
+ * canonicalized; only the profile slot below it must be a plain directory. A sibling marker records an unfinished
+ * deletion so that a crash or failed clear is completed before Chromium opens the slot again.
+ */
 internal class BrowserProfileFiles(val directory: File, chromiumRoot: File) {
     private val log = Log.tag("BrowserProfileFiles")
-    private val chromium = chromiumRoot.toPath().toAbsolutePath().normalize()
-    private val root = chromium.resolve("../../../..").normalize()
+    private val root = chromiumRoot.toPath().toAbsolutePath().normalize()
     private val path = directory.toPath().toAbsolutePath()
-    private val relative = root.relativize(path)
+    private val name: String
 
     init {
-        require(path == path.normalize() && path.parent == chromium && relative.nameCount == PROFILE_PATH_PARTS)
-        require(chromium.endsWith(Path.of("storage", "app", "files", "browser_profiles")))
-        require(relative.fileName.toString().matches(Regex("(?:[0-9a-f]{2})+")))
+        require(path == path.normalize() && path.parent == root) { "Browser profile must be a Chromium root child" }
+        name = path.fileName.toString()
+        require(name.matches(Regex("(?:[0-9a-f]{2})+"))) { "Browser profile slot must be hex-encoded" }
+    }
+
+    /** Whether a previous deletion of this slot started and did not finish. */
+    fun isDeletionPending(): Boolean =
+        canonicalRoot(create = false)?.let { Files.exists(it.resolve(name + PENDING_SUFFIX), NOFOLLOW_LINKS) } ?: false
+
+    /** Prepares the slot for Chromium, first finishing a deletion that a crash or failed clear left behind. */
+    suspend fun open(dispatchers: DispatcherProvider) = withContext(dispatchers.io) {
+        if (isDeletionPending()) {
+            log.i { "Finishing an interrupted browser data clear before Chromium opens the profile" }
+            delete(dispatchers)
+        }
+        create()
     }
 
     fun create() {
-        checkedDirectory(create = true)
+        canonicalRoot(create = true)?.let { checkedSlot(it, create = true) }
     }
 
     /** CEF can briefly retain Windows handles after its close callback; retries never follow links. */
     suspend fun delete(dispatchers: DispatcherProvider) = withContext(dispatchers.io) {
+        val canonical = canonicalRoot(create = false) ?: return@withContext
+        val marker = canonical.resolve(name + PENDING_SUFFIX)
+        if (!Files.exists(marker, NOFOLLOW_LINKS)) Files.createFile(marker)
+        deleteSlotWithRetries(canonical)
+        Files.deleteIfExists(marker)
+    }
+
+    private suspend fun deleteSlotWithRetries(canonicalRoot: Path) {
         var failure: IOException? = null
         repeat(DELETE_ATTEMPTS) { attempt ->
             try {
-                checkedDirectory(create = false)?.let(::deleteTreeWithoutLinks)
-                return@withContext
+                if (Files.exists(canonicalRoot.resolve(name), NOFOLLOW_LINKS)) {
+                    deleteTreeWithoutLinks(checkedSlot(canonicalRoot, create = false))
+                }
+                return
             } catch (error: UnsafeBrowserProfilePath) {
                 throw error
             } catch (error: IOException) {
@@ -48,31 +75,26 @@ internal class BrowserProfileFiles(val directory: File, chromiumRoot: File) {
             if (attempt + 1 < DELETE_ATTEMPTS) delay(DELETE_RETRY_MILLIS)
         }
         throw IOException("Browser profile files are still in use", failure).also { error ->
-            log.e(error) { "Browser data cleanup failed; profile reuse is blocked" }
+            log.e(error) { "Browser data cleanup failed; it resumes before the profile opens again" }
         }
     }
 
-    private fun checkedDirectory(create: Boolean): Path? {
+    private fun canonicalRoot(create: Boolean): Path? {
         if (create) Files.createDirectories(root)
         return try {
-            checkSegments(root.toRealPath(), create)
+            root.toRealPath()
         } catch (error: NoSuchFileException) {
             if (create) throw error
             null
         }
     }
 
-    private fun checkSegments(canonicalRoot: Path, create: Boolean): Path {
-        var current = canonicalRoot
-        for (segment in relative) {
-            current = current.resolve(segment)
-            if (create && !Files.exists(current, NOFOLLOW_LINKS)) Files.createDirectory(current)
-            val attributes = attributes(current)
-            if (!attributes.isDirectory || isRedirected(current, attributes)) {
-                throw UnsafeBrowserProfilePath()
-            }
-        }
-        return current
+    private fun checkedSlot(canonicalRoot: Path, create: Boolean): Path {
+        val slot = canonicalRoot.resolve(name)
+        if (create && !Files.exists(slot, NOFOLLOW_LINKS)) Files.createDirectory(slot)
+        val attributes = attributes(slot)
+        if (!attributes.isDirectory || isRedirected(slot, attributes)) throw UnsafeBrowserProfilePath()
+        return slot
     }
 
     private fun deleteTreeWithoutLinks(directory: Path) {
@@ -114,6 +136,6 @@ internal class BrowserProfileFiles(val directory: File, chromiumRoot: File) {
 
 private class UnsafeBrowserProfilePath : IOException("Browser profile path contains a redirected directory")
 
-private const val PROFILE_PATH_PARTS = 5
+private const val PENDING_SUFFIX = ".clearing"
 private const val DELETE_ATTEMPTS = 40
 private const val DELETE_RETRY_MILLIS = 250L

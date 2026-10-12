@@ -79,16 +79,48 @@ class DesktopBrowserProfileFilesTest {
     }
 
     @Test
-    fun `redirected files ancestor is rejected before traversing the target`() = runTest {
+    fun `any root resolved by the data stores is accepted without the app storage layout`() = runTest {
+        Fixture(rootPath = "custom/feature-files/browser").use { fixture ->
+            val files = fixture.files()
+            files.create()
+            Files.writeString(fixture.browser.resolve("Cookies"), "private")
+            files.delete(dispatchers(StandardTestDispatcher(testScheduler)))
+            assertFalse(Files.exists(fixture.browser))
+            assertTrue(Files.isDirectory(fixture.root))
+        }
+    }
+
+    @Test
+    fun `interrupted deletion is finished before the profile opens again`() = runTest {
         Fixture().use { fixture ->
-            Files.createDirectories(fixture.root.parent.parent)
-            val outsideBrowser = Files.createDirectories(fixture.outside.resolve("browser_profiles/616c696365"))
-            val sentinel = Files.writeString(outsideBrowser.resolve("keep"), "outside")
-            fixture.link(fixture.root.parent, fixture.outside)
-            assertFailsWith<IOException> {
-                fixture.files().delete(dispatchers(StandardTestDispatcher(testScheduler)))
-            }
-            assertEquals("outside", Files.readString(sentinel))
+            val dispatchers = dispatchers(StandardTestDispatcher(testScheduler))
+            Files.createDirectories(fixture.root)
+            fixture.link(fixture.browser, fixture.outside)
+            val files = fixture.files()
+            assertFailsWith<IOException> { files.delete(dispatchers) }
+            assertTrue(files.isDeletionPending())
+            Files.delete(fixture.browser)
+            Files.createDirectories(fixture.browser)
+            Files.writeString(fixture.browser.resolve("Cookies"), "partially deleted")
+            files.open(dispatchers)
+            assertFalse(files.isDeletionPending())
+            assertTrue(Files.isDirectory(fixture.browser))
+            assertFalse(Files.exists(fixture.browser.resolve("Cookies")))
+        }
+    }
+
+    @Test
+    fun `completed deletion leaves no pending marker and opening keeps existing data`() = runTest {
+        Fixture().use { fixture ->
+            val dispatchers = dispatchers(StandardTestDispatcher(testScheduler))
+            val files = fixture.files()
+            files.open(dispatchers)
+            val cookies = Files.writeString(fixture.browser.resolve("Cookies"), "kept")
+            files.open(dispatchers)
+            assertEquals("kept", Files.readString(cookies))
+            files.delete(dispatchers)
+            assertFalse(files.isDeletionPending())
+            assertEquals(emptyList(), Files.list(fixture.root).use { it.toList() })
         }
     }
 
@@ -114,9 +146,9 @@ class DesktopBrowserProfileFilesTest {
         override val io = dispatcher
     }
 
-    private class Fixture : AutoCloseable {
+    private class Fixture(rootPath: String = "storage/app/files/browser_profiles") : AutoCloseable {
         val application: Path = Files.createTempDirectory("heartbeat-browser-storage")
-        val root: Path = application.resolve("storage/app/files/browser_profiles")
+        val root: Path = application.resolve(rootPath)
         val outside: Path = Files.createTempDirectory("heartbeat-browser-neighbor")
         val browser: Path = root.resolve("616c696365")
         private val links = mutableListOf<Path>()

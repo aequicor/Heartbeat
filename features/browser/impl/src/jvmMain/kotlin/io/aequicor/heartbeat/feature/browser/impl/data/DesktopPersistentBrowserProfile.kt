@@ -26,7 +26,11 @@ import org.cef.CefRequestContextSettings
 import org.cef.browser.CefRequestContext
 import kotlin.coroutines.resume
 
-/** Owns persistent Chromium storage independently of the presentation layer and active profile job. */
+/**
+ * Owns persistent Chromium storage independently of the presentation layer and active profile job.
+ * A failed [clearData] may be retried; until a clear succeeds the profile does not reopen Chromium storage,
+ * and the on-disk pending marker makes the next open finish the deletion even after a restart.
+ */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
 @Inject
@@ -41,7 +45,10 @@ internal class DesktopPersistentBrowserProfile(
     private val monitor = Any()
     private val contextLock = Mutex()
     private val shutdownLock = Mutex()
-    private val profileId = (stores.owner as StorageOwner.Profile).id
+    private val profileId = when (val owner = stores.owner) {
+        is StorageOwner.Profile -> owner.id
+        StorageOwner.App -> error("Persistent browser storage requires profile-owned DataStores")
+    }
     private val files = profiles.files(profileId)
     private var anchor: CefRequestContext? = null
     private var closeSurfaces: (suspend () -> Unit)? = null
@@ -75,47 +82,48 @@ internal class DesktopPersistentBrowserProfile(
     override suspend fun clearData() {
         val request = synchronized(monitor) {
             check(!lifetime.isClosed) { "Browser profile is closed" }
-            if (isClearing) {
-                checkNotNull(clearJob)
-            } else {
+            // A running clear is shared; a finished one (successful or failed) is forgotten, so a retry starts anew.
+            clearJob ?: appScope.coroutineScope.async(NonCancellable, start = CoroutineStart.LAZY) {
+                clearStorage()
+            }.also { job ->
                 isClearing = true
-                appScope.coroutineScope.async(NonCancellable, start = CoroutineStart.LAZY) {
-                    clearStorage()
-                }.also { clearJob = it }
+                clearJob = job
+                job.invokeOnCompletion { error ->
+                    if (error != null && error !is CancellationException) {
+                        log.e(error.desktopBrowserFailure()) { "Browser data cleanup failed; it may be retried" }
+                    }
+                }
             }
         }
         request.start()
         awaitBrowserTeardown(request)
     }
 
+    /** Failures propagate to every waiting caller and are logged once when the clear job completes. */
     private suspend fun clearStorage() {
         var isComplete = false
         try {
-            lifetime.awaitPrevious()
+            log.i { "Clearing persistent browser data" }
+            lifetime.awaitPreviousClosed()
             shutdownLock.withLock {
                 closeResources()
                 files.delete(dispatchers)
             }
-            synchronized(monitor) { isClearing = false }
+            lifetime.storageCleared()
             isComplete = true
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            log.e(error.desktopBrowserFailure()) { "Browser data cleanup failed" }
-            reportCleanupFailure(error)
-        } catch (error: LinkageError) {
-            log.e(error.desktopBrowserFailure()) { "Browser native cleanup is unavailable" }
-            reportCleanupFailure(error)
+            log.i { "Persistent browser data cleared" }
         } finally {
             if (!isComplete) lifetime.invalidateStorage()
+            synchronized(monitor) {
+                isClearing = false
+                clearJob = null
+            }
         }
     }
 
-    private fun reportCleanupFailure(error: Throwable): Nothing = throw error
-
     private suspend fun context(): CefRequestContext {
         anchor?.let { return it }
-        withContext(dispatchers.io) { files.create() }
+        files.open(dispatchers)
         return checkNotNull(
             CefRequestContext.createContext(
                 CefRequestContextSettings().apply {

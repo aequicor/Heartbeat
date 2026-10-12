@@ -13,8 +13,9 @@ import io.aequicor.heartbeat.feature.browser.impl.domain.DesktopBrowserResources
 import io.aequicor.heartbeat.feature.browser.impl.domain.desktopBrowserFailure
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -33,6 +34,8 @@ import java.io.File
  * Extracts the bundled, versioned native archive inside app data on IO. No download fallback exists.
  * CEF stays alive until all profile contexts close; each profile owns persistent Chromium storage.
  * Failed extraction may be retried with a new builder (CefAppBuilder retains a failed building flag).
+ * Shutdown disposes CEF even when a profile fails to close, reports every failure, and a failed shutdown
+ * may be retried; a timed-out one keeps running and a retry awaits it.
  */
 @SingleIn(AppScope::class)
 @ContributesBinding(AppScope::class)
@@ -49,12 +52,16 @@ internal class DesktopDefaultBrowserResources(
     private var shutdown: Deferred<Unit>? = null
     private val terminated = CompletableDeferred<Unit>()
 
+    // Owned by this app singleton and never cancelled: DI cancels the app scope before close hooks run, while
+    // native teardown must still finish. The process exit ends it.
+    private val teardownScope = CoroutineScope(SupervisorJob() + dispatchers.io)
+
     @Volatile
     private var nativeApp: CefApp? = null
 
     init {
         scope.onClose {
-            scope.coroutineScope.launch(NonCancellable) {
+            teardownScope.launch {
                 try {
                     shutdown()
                 } catch (error: CancellationException) {
@@ -75,18 +82,44 @@ internal class DesktopDefaultBrowserResources(
 
     override suspend fun shutdown() {
         val request = mutex.withLock {
-            shutdown ?: scope.coroutineScope.async(NonCancellable + dispatchers.io) {
-                profiles.closeAll()
-                // A cancelled initializer can still be finishing native startup on another thread.
-                initialization?.join()
-                nativeApp?.let { app ->
-                    withContext(dispatchers.main) { app.dispose() }
-                    terminated.await()
-                }
-                Unit
-            }.also { shutdown = it }
+            // A failed attempt is not cached: the retry closes what remains and reports again.
+            shutdown?.takeUnless { it.isCancelled } ?: teardownScope.async { teardown() }.also { shutdown = it }
         }
         awaitBrowserTeardown(request)
+    }
+
+    /** Disposes the runtime even when a profile fails to close, then reports both failures together. */
+    private suspend fun teardown() {
+        val profileFailure = closeProfiles()
+        val runtimeFailure = disposeRuntime()
+        if (runtimeFailure != null && profileFailure != null) runtimeFailure.addSuppressed(profileFailure)
+        (runtimeFailure ?: profileFailure)?.let { throw it }
+    }
+
+    private suspend fun closeProfiles(): Exception? = try {
+        profiles.closeAll()
+        null
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        log.e(error.desktopBrowserFailure()) { "Browser profiles failed to close; disposing the runtime anyway" }
+        error
+    }
+
+    private suspend fun disposeRuntime(): Exception? = try {
+        // A cancelled initializer can still be finishing native startup on another thread.
+        initialization?.join()
+        nativeApp?.let { app ->
+            // CefApp.dispose ignores repeated calls once the runtime is shutting down or terminated.
+            withContext(dispatchers.main) { app.dispose() }
+            terminated.await()
+        }
+        null
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        log.e(error.desktopBrowserFailure()) { "Browser runtime disposal failed" }
+        error
     }
 
     private fun initialize(): CefApp {

@@ -16,6 +16,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import java.io.File
@@ -30,6 +32,7 @@ internal class DesktopBrowserProfiles(
     private val dispatchers: DispatcherProvider,
     @ForScope(AppScope::class) stores: Lazy<DataStores>,
 ) {
+    private val log = Log.tag("DesktopBrowserProfiles")
     private val lifetimes = DesktopBrowserLifetimes(scope.coroutineScope)
 
     // Lazy breaks StoreRegistry -> ProfileStorageCleaner -> browser -> App DataStores construction.
@@ -44,15 +47,21 @@ internal class DesktopBrowserProfiles(
     fun register(id: ProfileId, dispose: suspend () -> Unit): DesktopBrowserLifetime = lifetimes.register(id, dispose)
 
     suspend fun wipeProfile(id: ProfileId) {
+        log.i { "Wiping persistent browser data of a deleted profile" }
         lifetimes.awaitClosed(id)
         files(id).delete(dispatchers)
         lifetimes.storageWiped(id)
+        log.i { "Persistent browser data of a deleted profile wiped" }
     }
 
     suspend fun closeAll() = lifetimes.closeAll()
 }
 
-/** Pure lifetime coordinator; failed shutdown remains a barrier until application restart. */
+/**
+ * Pure lifetime coordinator; failed shutdown remains a barrier until application restart.
+ * [closeAll] waits for every generation and reports all failures together, so one failed native close
+ * never leaves the others unawaited.
+ */
 internal class DesktopBrowserLifetimes(private val scope: CoroutineScope) {
     private val monitor = Any()
     private val owners = mutableMapOf<ProfileId, DesktopBrowserLifetime>()
@@ -75,11 +84,12 @@ internal class DesktopBrowserLifetimes(private val scope: CoroutineScope) {
         }
     }
 
+    /** Bounded like other native teardown waits; a timeout leaves the closure running and the call may be retried. */
     suspend fun awaitClosed(id: ProfileId) {
         val owner = synchronized(monitor) { owners[id] }
         if (owner != null) {
             check(owner.isClosed) { "Browser profile is still open" }
-            owner.awaitClosed()
+            awaitBrowserTeardown(owner.closure)
         }
     }
 
@@ -89,7 +99,12 @@ internal class DesktopBrowserLifetimes(private val scope: CoroutineScope) {
             owners.values.toList()
         }
         current.forEach(DesktopBrowserLifetime::close)
-        current.forEach { it.awaitClosed() }
+        val failures = current.mapNotNull { it.awaitClosedOutcome() }
+        if (failures.isNotEmpty()) {
+            throw IllegalStateException("Browser profiles failed to close", failures.first()).also { error ->
+                failures.drop(1).forEach(error::addSuppressed)
+            }
+        }
     }
 }
 
@@ -107,9 +122,15 @@ internal class DesktopBrowserLifetime(
     private val closed = CompletableDeferred<Unit>()
     val isClosed: Boolean get() = closing.get()
     val isFinished: Boolean get() = closed.isCompleted && !closed.isCancelled
+    val closure: Deferred<Unit> get() = closed
 
     fun invalidateStorage() {
         reuseAllowed.set(false)
+    }
+
+    /** A completed clear removed the partially deleted storage, so later generations may reuse the profile again. */
+    fun storageCleared() {
+        reuseAllowed.set(true)
     }
 
     suspend fun awaitAvailable() {
@@ -118,12 +139,24 @@ internal class DesktopBrowserLifetime(
     }
 
     suspend fun awaitPrevious() {
+        awaitPreviousClosed()
+        check(reuseAllowed.get()) { "Browser storage cleanup failed; clear browser data again before reopening" }
+    }
+
+    /** Waits for the previous generation without the reuse gate: a retried clear is what lifts that gate. */
+    suspend fun awaitPreviousClosed() {
         previous?.awaitClosed()
         previous = null
-        check(reuseAllowed.get()) { "Browser storage cleanup failed; wipe the profile before reopening" }
     }
 
     suspend fun awaitClosed() = closed.await()
+
+    /** Waits for native closure without throwing its failure; cancellation of the caller still propagates. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    suspend fun awaitClosedOutcome(): Throwable? {
+        closed.join()
+        return closed.getCompletionExceptionOrNull()
+    }
 
     fun close() {
         if (!closing.compareAndSet(false, true)) return

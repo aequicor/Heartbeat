@@ -79,6 +79,11 @@ private fun launchLoggedHeartbeat(isDevelopment: Boolean, classes: Result<Path?>
             lifecycle::destroy,
             ::exitApplication,
         )
+        // Every handler instance shares the same remembered closing state, so the first one is installed once.
+        DisposableEffect(Unit) {
+            installDesktopQuitHandler(closeRequest)
+            onDispose { }
+        }
         val icon = remember(applicationIcons) { applicationIcons.last().toPainter() }
         val windowState = rememberWindowState(width = dimensions.windowWidth, height = dimensions.windowHeight)
         val computerUse by root.computerUse.collectAsState()
