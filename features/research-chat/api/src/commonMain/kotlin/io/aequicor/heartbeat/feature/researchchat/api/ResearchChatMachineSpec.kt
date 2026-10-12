@@ -20,11 +20,13 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * |Ready|NewSession/Question, enabled and no mutation|Ready, mutating|Create|
  * |Ready|AddAttachments/Add/Select/Share/RemoveResource, idle and enabled|Ready, mutating|source mutation|
  * |Ready|Created/Mutated/ResourceAdded/MutationFailed|Ready|import acknowledgement on success|
+ * |Ready|OperationFailed|Ready, error|— (another mutation keeps its reservation)|
  * |Ready|Submit, text or selected sources, idle question and enabled|Ready, submitting|Run|
  * |Ready|Submitted|Ready|Submitted|
  * |Ready|RunFinished|Ready|—|
  * |Ready|Stop, native question running or waiting for sources|Ready|Stop|
- * |Ready|RecoverResource, enabled and exists|Ready|RecoverResource|
+ * |Ready|RecoverResource Cancel, enabled and exists|Ready|RecoverResource|
+ * |Ready|RecoverResource Open/Continue, enabled, exists and browser recovery available|Ready|RecoverResource|
  * |Ready|DecidePermission, question selected|Ready|DecidePermission|
  *
  * Unknown selections, overlapping source mutations and duplicate submissions are ignored. Turning
@@ -119,6 +121,7 @@ public val ResearchChatMachineSpec: MachineSpec<
         on<ResearchChatIntent.Internal.MutationFailed> {
             stay { state.copy(isMutating = false, hasError = true) }
         }
+        on<ResearchChatIntent.Internal.OperationFailed> { stay { state.copy(hasError = true) } }
         on<ResearchChatIntent.Public.DismissError> { stay { state.copy(hasError = false) } }
     }
     onEffectFailure { effect, _ ->
@@ -127,13 +130,16 @@ public val ResearchChatMachineSpec: MachineSpec<
 
             is ResearchChatEffect.Run -> ResearchChatIntent.Internal.RunFinished(effect.questionId, true)
 
-            ResearchChatEffect.Observe, is ResearchChatEffect.CreateSession, is ResearchChatEffect.CreateQuestion,
-            is ResearchChatEffect.DecidePermission,
-            is ResearchChatEffect.RecoverResource,
+            // These effects never reserve isMutating, so their failure must not release another mutation.
+            ResearchChatEffect.Observe, is ResearchChatEffect.DecidePermission,
+            is ResearchChatEffect.RecoverResource, is ResearchChatEffect.Stop,
+            -> ResearchChatIntent.Internal.OperationFailed
+
+            is ResearchChatEffect.CreateSession, is ResearchChatEffect.CreateQuestion,
             is ResearchChatEffect.AddResource, is ResearchChatEffect.AddAttachments,
             is ResearchChatEffect.SelectResource,
             is ResearchChatEffect.ShareResource,
-            is ResearchChatEffect.RemoveResource, is ResearchChatEffect.Stop,
+            is ResearchChatEffect.RemoveResource,
             -> ResearchChatIntent.Internal.MutationFailed
         }
     }
@@ -179,7 +185,10 @@ private fun ResearchTransitions.selection() {
 
 private fun ResearchTransitions.recovery() {
     on<ResearchChatIntent.Public.RecoverResource>(
-        guard = { state.isEnabled && state.hasResource(intent.resourceId) },
+        guard = {
+            state.isEnabled && state.hasResource(intent.resourceId) &&
+                (intent.action == ResearchRecoveryAction.Cancel || state.workspace.isBrowserRecoveryAvailable)
+        },
     ) {
         effect {
             ResearchChatEffect.RecoverResource(

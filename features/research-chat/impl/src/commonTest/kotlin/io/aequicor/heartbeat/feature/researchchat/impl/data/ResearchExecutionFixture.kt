@@ -76,6 +76,9 @@ internal class ResearchExecutionFixture(
     fetchResource: suspend (String) -> ResourceContent = {
         error("Web-fetch tool already supplied complete source content")
     },
+    onRecover: suspend (String, String, ResearchRecoveryAction) -> Unit = { _, _, _ ->
+        error("Unexpected browser recovery in execution fixture")
+    },
 ) {
     val storage = ExecutionStorage()
     val native = mutableListOf<ExecutionSession>()
@@ -131,7 +134,7 @@ internal class ResearchExecutionFixture(
     private val recovery = object : ResearchSourceRecovery {
         override suspend fun restore() = Unit
         override suspend fun recover(sessionId: String, resourceId: String, action: ResearchRecoveryAction): Unit =
-            error("Unexpected browser recovery in execution fixture")
+            onRecover(sessionId, resourceId, action)
     }
     val repository = ProfileResearchRepository(storage, facade, search, toggles, profile, attachments, recovery)
 }

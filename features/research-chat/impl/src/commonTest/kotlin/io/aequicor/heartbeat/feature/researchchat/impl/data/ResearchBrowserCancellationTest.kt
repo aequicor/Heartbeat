@@ -35,7 +35,6 @@ import io.aequicor.heartbeat.feature.researchchat.api.ResearchResource
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceKind
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchSession
 import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchAttachments
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
@@ -54,14 +53,13 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class ResearchBrowserCancellationTest {
     @Test
-    fun `profile closure cancels import and rejects the late attachment result`() = runTest {
+    fun `profile closure cancels import, rejects the late attachment result and settles the live caller`() = runTest {
         val profileJob = Job(backgroundScope.coroutineContext[Job])
         val attachments = PendingAttachments()
         val fixture = Fixture(CoroutineScope(backgroundScope.coroutineContext + profileJob), attachments)
@@ -73,7 +71,7 @@ class ResearchBrowserCancellationTest {
         profileJob.cancel()
         runCurrent()
         attachments.finish()
-        assertFailsWith<CancellationException> { operation.await() }
+        operation.await()
         assertEquals(ResearchLoadState.NeedsUserAction, fixture.source().loadState)
         assertEquals(null, fixture.source().attachmentId)
     }
@@ -91,7 +89,7 @@ class ResearchBrowserCancellationTest {
         }
         runCurrent()
         attachments.finish()
-        assertFailsWith<CancellationException> { operation.await() }
+        operation.await()
         assertEquals(listOf("other"), fixture.storage.read().single().resources.map { it.id })
     }
 
@@ -110,7 +108,7 @@ class ResearchBrowserCancellationTest {
             fixture.toggles.set(flag, true)
             attachments.finish()
             runCurrent()
-            assertFailsWith<CancellationException> { operation.await() }
+            operation.await()
             assertEquals(ResearchLoadState.NeedsUserAction, fixture.source().loadState)
             assertEquals(null, fixture.source().attachmentId)
             assertEquals(null, fixture.source().recoveryAttempt)
@@ -154,7 +152,8 @@ class ResearchBrowserCancellationTest {
         assertTrue(otherRequest.arguments.getValue("url").jsonPrimitive.content.endsWith("/other"))
         fixture.machine.outputs.emit(BrowserOutput.Cancelled(firstRequest.id))
         cancellation.await()
-        assertFailsWith<CancellationException> { first.await() }
+        // The user's cancellation is expected: the original live caller settles without an error.
+        first.await()
         runCurrent()
         assertEquals(3, fixture.machine.requests.size)
         val retryRequest = fixture.machine.requests.last()
@@ -187,6 +186,53 @@ class ResearchBrowserCancellationTest {
         }
         val newer = completed.copy(loadState = ResearchLoadState.Loading, recoveryAttempt = "new")
         assertEquals(newer, newer.cancelRecoveryAttempt("old"))
+    }
+
+    @Test
+    fun `completed operation keeps its result without waiting for or requesting cancellation`() = runTest {
+        val fixture = Fixture(backgroundScope)
+        fixture.prepare()
+        val operation = async { fixture.recover("source", ResearchRecoveryAction.Open) }
+        runCurrent()
+        val request = fixture.machine.requests.single()
+        fixture.machine.outputs.emit(
+            BrowserOutput.Completed(BrowserResult(request.id, buildJsonObject { put("tabId", "opened") })),
+        )
+        operation.await()
+        assertTrue(fixture.machine.cancellations.isEmpty())
+        assertEquals("opened", fixture.source().browserTabId)
+        assertEquals(ResearchLoadState.NeedsUserAction, fixture.source().loadState)
+    }
+
+    @Test
+    fun `operation timeout is a retryable error and unconfirmed cancellation does not mask it`() = runTest {
+        val fixture = Fixture(backgroundScope)
+        fixture.prepare()
+        val operation = async { fixture.recover("source", ResearchRecoveryAction.Open) }
+        runCurrent()
+        val request = fixture.machine.requests.single()
+        operation.await()
+        assertEquals(listOf(request.id), fixture.machine.cancellations)
+        assertEquals(ResearchLoadState.NeedsUserAction, fixture.source().loadState)
+        assertEquals("browser_retry_required", fixture.source().loadError)
+    }
+
+    @Test
+    fun `source changed during capture is not imported`() = runTest {
+        val attachments = PendingAttachments()
+        val fixture = Fixture(backgroundScope, attachments)
+        fixture.prepare()
+        val operation = async { fixture.recover("source", ResearchRecoveryAction.Continue) }
+        runCurrent()
+        fixture.storage.update("session") { session ->
+            session.copy(
+                resources = session.resources.map { if (it.id == "source") it.copy(title = "Renamed") else it },
+            )
+        }
+        complete(fixture, fixture.machine.requests.single(), documentResult())
+        operation.await()
+        assertFalse(attachments.started.isCompleted)
+        assertEquals(null, fixture.source().attachmentId)
     }
 
     private suspend fun TestScope.complete(

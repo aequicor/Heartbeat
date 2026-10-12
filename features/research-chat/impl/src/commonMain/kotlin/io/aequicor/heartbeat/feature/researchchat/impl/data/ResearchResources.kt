@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchLoadState
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchQuestion
@@ -56,6 +57,12 @@ internal fun ResearchSession.attach(
         },
     )
 }
+
+/** Applies [transform] to one question; other questions and an unknown id leave the session unchanged. */
+internal fun ResearchSession.updateQuestion(
+    questionId: String,
+    transform: (ResearchQuestion) -> ResearchQuestion,
+): ResearchSession = copy(questions = questions.map { if (it.id == questionId) transform(it) else it })
 
 /** History snapshots replay old tool results; they cannot replace an ongoing browser recovery. */
 internal fun ResearchSession.attachDiscovered(questionId: String, source: ResearchResource): ResearchSession {
@@ -129,8 +136,15 @@ private fun textResource(value: String) = ContentPart.Resource(
 /**
  * Structured search results and, with recovery enabled, the requested URL of failed fetches.
  * Prose URLs in answers and errors are never automatically imported.
+ *
+ * History snapshots replay every earlier item, so a malformed tool call is warned about only once per
+ * [reported] set (one per mirrored segment).
  */
-internal fun discoveredResources(items: List<SessionItem>, recoverFailures: Boolean = false): List<ResearchResource> {
+internal fun discoveredResources(
+    items: List<SessionItem>,
+    recoverFailures: Boolean = false,
+    reported: MutableSet<ToolCallId> = mutableSetOf(),
+): List<ResearchResource> {
     val calls = items.filterIsInstance<SessionItem.ToolCall>()
         .filter { it.status == ToolCallStatus.Succeeded && it.name in setOf("web_search", "web_fetch") }
         .associateBy { it.call }
@@ -148,8 +162,10 @@ internal fun discoveredResources(items: List<SessionItem>, recoverFailures: Bool
                 objects.mapNotNull { it.toResource() }
             } catch (error: IllegalArgumentException) {
                 // JSON parser messages can contain source content; log a safe wrapper instead.
-                resourceLog.w(IllegalArgumentException(error::class.simpleName.orEmpty())) {
-                    "Search result could not be imported"
+                if (reported.add(result.call)) {
+                    resourceLog.w(IllegalArgumentException(error::class.simpleName.orEmpty())) {
+                        "Search result could not be imported"
+                    }
                 }
                 emptyList()
             }
@@ -157,7 +173,7 @@ internal fun discoveredResources(items: List<SessionItem>, recoverFailures: Bool
     val failed = if (recoverFailures) {
         items.asSequence().filterIsInstance<SessionItem.ToolCall>()
             .filter { it.name == "web_fetch" && it.status == ToolCallStatus.Failed }
-            .mapNotNull { it.failedResource() }
+            .mapNotNull { it.failedResource(reported) }
             .toList()
     } else {
         emptyList()
@@ -167,7 +183,7 @@ internal fun discoveredResources(items: List<SessionItem>, recoverFailures: Bool
     }.values.map { versions -> versions.lastOrNull { it.text.isNotBlank() } ?: versions.last() }
 }
 
-private fun SessionItem.ToolCall.failedResource(): ResearchResource? = try {
+private fun SessionItem.ToolCall.failedResource(reported: MutableSet<ToolCallId>): ResearchResource? = try {
     val url = (Json.parseToJsonElement(arguments) as? JsonObject)?.string("url").orEmpty().trim()
     if (isWebUrl(url)) {
         ResearchResource(
@@ -183,8 +199,10 @@ private fun SessionItem.ToolCall.failedResource(): ResearchResource? = try {
         null
     }
 } catch (error: IllegalArgumentException) {
-    resourceLog.w(IllegalArgumentException(error::class.simpleName.orEmpty())) {
-        "Failed fetch arguments could not be imported"
+    if (reported.add(call)) {
+        resourceLog.w(IllegalArgumentException(error::class.simpleName.orEmpty())) {
+            "Failed fetch arguments could not be imported"
+        }
     }
     null
 }

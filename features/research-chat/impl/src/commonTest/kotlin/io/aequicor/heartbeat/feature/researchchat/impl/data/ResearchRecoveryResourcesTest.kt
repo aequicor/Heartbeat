@@ -69,6 +69,16 @@ class ResearchRecoveryResourcesTest {
     }
 
     @Test
+    fun `replayed history reports a malformed failed fetch once per segment`() {
+        val malformed = failedCall("not json")
+        val reported = mutableSetOf<ToolCallId>()
+        repeat(2) {
+            assertTrue(discoveredResources(listOf(malformed), recoverFailures = true, reported).isEmpty())
+        }
+        assertEquals(setOf(malformed.call), reported)
+    }
+
+    @Test
     fun `failed refresh preserves ready evidence and its catalog identity`() {
         val failed = source.copy(
             id = "retry",

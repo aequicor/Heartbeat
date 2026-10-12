@@ -164,6 +164,12 @@ public sealed interface ResearchChatIntent : MachineIntent {
         /** A source/session mutation failed; the previous state remains usable. */
         public data object MutationFailed : Internal
 
+        /**
+         * A permission decision, source recovery, stop or observation failed. Shows the generic error
+         * without releasing a concurrent source/session mutation.
+         */
+        public data object OperationFailed : Internal
+
         /** Initial load failed. */
         public data object LoadFailed : Internal
 

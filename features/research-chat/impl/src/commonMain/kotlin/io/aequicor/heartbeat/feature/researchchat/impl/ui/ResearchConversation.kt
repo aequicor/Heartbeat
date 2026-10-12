@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.researchchat.impl.ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -82,8 +83,19 @@ internal fun ResearchConversation(
             gap = HbTheme.spacing.s,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            state.permissions.forEach { permission ->
-                key(permission.id) { ResearchPermission(permission, onIntent) }
+            if (state.permissions.isNotEmpty()) {
+                // Several pending requests must not push the composer off screen.
+                HbColumn(
+                    column
+                        .heightIn(max = HbTheme.dimensions.toolPayloadMaxHeight)
+                        .hbVerticalScroll(rememberScrollState())
+                        .testTag("research-permissions"),
+                    gap = HbTheme.spacing.s,
+                ) {
+                    state.permissions.forEach { permission ->
+                        key(permission.id) { ResearchPermission(permission, onIntent, Modifier.fillMaxWidth()) }
+                    }
+                }
             }
             if (state.hasQuestionFailed) {
                 HbText(
