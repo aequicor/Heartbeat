@@ -21,6 +21,7 @@ import com.arkivanov.essenty.lifecycle.LifecycleRegistry
 import com.arkivanov.essenty.lifecycle.destroy
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
+import io.aequicor.heartbeat.platform.dibundle.AppShutdownAccessors
 import io.aequicor.heartbeat.platform.dibundle.PlantUmlAccessors
 import io.aequicor.heartbeat.platform.dibundle.createHeartbeatGraph
 import io.aequicor.heartbeat.platform.dibundle.root.HeartbeatRoot
@@ -69,6 +70,11 @@ private fun launchLoggedHeartbeat(isDevelopment: Boolean, classes: Result<Path?>
     }
     val dimensions = HbDimensions()
     application {
+        val closeRequest = rememberDesktopCloseHandler(
+            (graph as AppShutdownAccessors).shutdownParticipants,
+            lifecycle::destroy,
+            ::exitApplication,
+        )
         val icon = remember(applicationIcons) { applicationIcons.last().toPainter() }
         val windowState = rememberWindowState(width = dimensions.windowWidth, height = dimensions.windowHeight)
         val computerUse by root.computerUse.collectAsState()
@@ -78,11 +84,7 @@ private fun launchLoggedHeartbeat(isDevelopment: Boolean, classes: Result<Path?>
         val areDiagramsAvailable by plantUml.availability.collectAsState(false)
         LifecycleController(lifecycle, windowState)
         Window(
-            onCloseRequest = {
-                Log.tag("Desktop").i { "close window" }
-                lifecycle.destroy()
-                exitApplication()
-            },
+            onCloseRequest = closeRequest,
             title = "Heartbeat",
             icon = icon,
             state = windowState,
