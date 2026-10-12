@@ -16,7 +16,7 @@
     <string name="browser_load_failed">The page could not load. Check the address and connection, then reload.</string>
     <string name="browser_engine_unavailable">The browser engine is unavailable on this device.</string>
     <string name="browser_new_tab">New tab</string>
-    <string name="browser_close_tab">Close tab</string>
+    <string name="browser_close_tab">Close tab: %1$s</string>
     <string name="browser_expand">Expand</string>
     <string name="browser_panel">Side panel</string>
     <string name="browser_hide">Hide browser</string>
@@ -26,4 +26,8 @@
     <string name="browser_clear_data">Clear browser data and close all tabs</string>
     <string name="browser_approve_control">Allow agent to control this tab</string>
     <string name="browser_reject_control">Decline</string>
+    <string name="browser_clear_data_title">Clear browser data?</string>
+    <string name="browser_clear_data_message">Cookies, sign-ins and site data of this browser profile will be deleted, and all tabs will close. This cannot be undone.</string>
+    <string name="browser_clear_data_confirm">Clear data</string>
+    <string name="browser_cancel">Cancel</string>
 </resources>

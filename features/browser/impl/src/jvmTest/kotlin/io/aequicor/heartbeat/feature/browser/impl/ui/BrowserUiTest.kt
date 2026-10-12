@@ -12,6 +12,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
@@ -24,6 +25,8 @@ import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserPhase
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserScreenIntent
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserScreenState
+import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserTabUi
+import kotlinx.collections.immutable.persistentListOf
 import java.io.File
 import javax.imageio.ImageIO
 import kotlin.test.Test
@@ -86,6 +89,31 @@ class BrowserUiTest {
         }
         onNodeWithTag("browser-reload-stop").performClick()
         runOnIdle { assertEquals(BrowserScreenIntent.Stop, events.last()) }
+    }
+
+    @Test
+    fun `clearing browser data asks first and only confirmation sends the intent`() = runSkikoComposeUiTest {
+        val events = mutableListOf<BrowserScreenIntent>()
+        val state = BrowserScreenState(
+            phase = BrowserPhase.Ready,
+            tabs = persistentListOf(BrowserTabUi("tab", "Docs", isHumanControlled = true, hasAgent = false)),
+            hasTabs = true,
+            selectedTabId = "tab",
+        )
+        setContent { HbTheme { BrowserScreenContent(state, { events += it }) } }
+
+        // The close action names its tab (the prefix is localized).
+        onNodeWithContentDescription(": Docs", substring = true).assertIsDisplayed()
+        onNodeWithTag("browser-clear-data").performClick()
+        onNodeWithTag("browser-clear-data-dialog").assertIsDisplayed()
+        onNodeWithTag("browser-clear-data-cancel").performClick()
+        onNodeWithTag("browser-clear-data-dialog").assertDoesNotExist()
+        runOnIdle { assertTrue(events.none { it == BrowserScreenIntent.ClearData }) }
+
+        onNodeWithTag("browser-clear-data").performClick()
+        onNodeWithTag("browser-clear-data-confirm").performClick()
+        onNodeWithTag("browser-clear-data-dialog").assertDoesNotExist()
+        runOnIdle { assertEquals(listOf<BrowserScreenIntent>(BrowserScreenIntent.ClearData), events) }
     }
 
     @Test
