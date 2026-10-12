@@ -1,12 +1,17 @@
 package io.aequicor.heartbeat.feature.questionnaire.impl.ui
 
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbChip
@@ -14,8 +19,10 @@ import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbQuestionnaireCard
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTextField
+import io.aequicor.heartbeat.ds.layouts.HbBoxWithConstraints
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbFlowRow
+import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.questionnaire.impl.presentation.store.QuestionKindUi
 import io.aequicor.heartbeat.feature.questionnaire.impl.presentation.store.QuestionUi
@@ -39,9 +46,19 @@ internal fun QuestionnaireScreen(
     modifier: Modifier = Modifier,
 ) {
     if (state.questions.isEmpty()) return
-    HbColumn(modifier.fillMaxWidth().testTag("questionnaire"), gap = HbTheme.spacing.m) {
-        state.questions.forEach { question ->
-            key(question.id) { QuestionCard(question, onIntent) }
+    HbBoxWithConstraints(modifier.fillMaxWidth()) {
+        val descriptionHeight = if (constraints.hasBoundedHeight) {
+            minOf(HbTheme.dimensions.toolPayloadMaxHeight, maxHeight / 3)
+        } else {
+            HbTheme.dimensions.toolPayloadMaxHeight
+        }
+        HbColumn(
+            Modifier.fillMaxWidth().hbVerticalScroll(rememberScrollState()).testTag("questionnaire"),
+            gap = HbTheme.spacing.m,
+        ) {
+            state.questions.forEach { question ->
+                key(question.id) { QuestionCard(question, descriptionHeight, onIntent) }
+            }
         }
     }
 }
@@ -49,6 +66,7 @@ internal fun QuestionnaireScreen(
 @Composable
 private fun QuestionCard(
     question: QuestionUi,
+    descriptionHeight: Dp,
     onIntent: (QuestionnaireScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -58,15 +76,26 @@ private fun QuestionCard(
         attentionLabel = stringResource(Res.string.questionnaire_attention),
         modifier = modifier,
     ) {
-        question.description?.let {
-            HbText(it, style = HbTheme.typography.caption, color = HbTheme.colors.textSecondary)
-        }
         when (val kind = question.kind) {
             is QuestionKindUi.Confirm -> ConfirmActions(question, kind, onIntent)
             is QuestionKindUi.Choice -> ChoiceInput(question, kind, onIntent)
             is QuestionKindUi.Text -> TextInput(question, kind, onIntent)
         }
         if (question.kind !is QuestionKindUi.Confirm) AnswerActions(question, onIntent)
+        question.description?.takeIf { it.isNotBlank() }?.let {
+            Box(
+                Modifier.fillMaxWidth().heightIn(max = descriptionHeight)
+                    .hbVerticalScroll(rememberScrollState()).focusable()
+                    .testTag("question-description-scroll-${question.id}"),
+            ) {
+                HbText(
+                    it,
+                    Modifier.testTag("question-description-${question.id}"),
+                    style = HbTheme.typography.caption,
+                    color = HbTheme.colors.textSecondary,
+                )
+            }
+        }
     }
 }
 

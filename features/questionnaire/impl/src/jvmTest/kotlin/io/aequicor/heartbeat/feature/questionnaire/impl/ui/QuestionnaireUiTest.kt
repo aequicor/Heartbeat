@@ -17,8 +17,10 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toAwtImage
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
@@ -30,7 +32,10 @@ import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.unit.Density
 import io.aequicor.heartbeat.ds.theme.HbTheme
@@ -69,6 +74,56 @@ class QuestionnaireUiTest {
             QuestionUi("name", "Name", null, QuestionKindUi.Text(null, false), false, false),
         ),
     )
+
+    @Test
+    fun `large script keeps confirmation actions visible and source scrollable`() {
+        for (width in listOf(420f, 1280f)) {
+            for (isDark in listOf(false, true)) {
+                runSkikoComposeUiTest(size = Size(width, 360f)) {
+                    val events = mutableListOf<QuestionnaireScreenIntent>()
+                    val source = (1..500).joinToString("\n") { "val line$it = \"script\"" }
+                    setContent {
+                        CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                            HbTheme(darkTheme = isDark, dimensions = HbDimensions.Desktop) {
+                                QuestionnaireScreen(
+                                    QuestionnaireScreenState(
+                                        persistentListOf(
+                                            QuestionUi(
+                                                "script",
+                                                "Save script",
+                                                source,
+                                                QuestionKindUi.Confirm("Принять", "Отклонить"),
+                                                false,
+                                                false,
+                                            ),
+                                        ),
+                                    ),
+                                    events::add,
+                                )
+                            }
+                        }
+                    }
+                    val yes = onNodeWithTag("question-yes-script").assertIsDisplayed()
+                    val no = onNodeWithTag("question-no-script").assertIsDisplayed()
+                    val text = onNodeWithTag("question-description-script")
+                    val top = text.fetchSemanticsNode().positionInRoot.y
+                    val scroll = onNodeWithTag("question-description-scroll-script").assertIsDisplayed()
+                    scroll.performSemanticsAction(SemanticsActions.RequestFocus)
+                    scroll.performKeyInput { pressKey(Key.PageDown) }
+                    assertTrue(text.fetchSemanticsNode().positionInRoot.y < top)
+                    yes.assertIsDisplayed()
+                    no.assertIsDisplayed().performClick()
+                    assertEquals(
+                        listOf<QuestionnaireScreenIntent>(QuestionnaireScreenIntent.Confirm("script", false)),
+                        events,
+                    )
+                    val file = File("build/previews/script-confirm-$width-$isDark.png")
+                    file.parentFile.mkdirs()
+                    ImageIO.write(captureToImage().toAwtImage(), "png", file)
+                }
+            }
+        }
+    }
 
     @Test
     fun `choices confirmations and text are forwarded as intents`() = runSkikoComposeUiTest {

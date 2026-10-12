@@ -7,7 +7,6 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -249,7 +248,7 @@ private fun PaneComposerRegion(
                         content,
                         onIntent,
                         questions,
-                        organismNoticesModifier(content.session?.isOrganism == true),
+                        Modifier.weight(1f, fill = false),
                     )
                     PaneFooter(content, onIntent, isCompact, onOpenResearch)
                 }
@@ -262,10 +261,6 @@ private fun PaneComposerRegion(
         }
     }
 }
-
-/** Reserves the composer before measuring a potentially long list of cell requests. */
-private fun ColumnScope.organismNoticesModifier(isOrganism: Boolean): Modifier =
-    if (isOrganism) Modifier.weight(1f, fill = false) else Modifier
 
 @Composable
 private fun PaneNotices(

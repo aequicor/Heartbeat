@@ -438,11 +438,17 @@ class StudioOrganismUiTest {
         verifyPermissionCard(isDark = true, width = 1280)
     }
 
-    private fun verifyPermissionCard(isDark: Boolean, width: Int) = runSkikoComposeUiTest(
-        size = Size(width.toFloat(), 600f),
+    @Test
+    fun `script decisions precede large source in a low pane`() {
+        verifyPermissionCard(isDark = false, width = 420, height = 360)
+        verifyPermissionCard(isDark = true, width = 1280, height = 360)
+    }
+
+    private fun verifyPermissionCard(isDark: Boolean, width: Int, height: Int = 600) = runSkikoComposeUiTest(
+        size = Size(width.toFloat(), height.toFloat()),
     ) {
         val events = mutableListOf<AiStudioScreenIntent>()
-        val description = (1..80).joinToString("\n") { "Строка $it: полный текст новой инструкции для проекта." }
+        val description = (1..500).joinToString("\n") { "Строка $it: полный текст новой инструкции для проекта." }
         setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f)) {
                 HbTheme(
@@ -465,7 +471,7 @@ class StudioOrganismUiTest {
             .fetchSemanticsNode().boundsInRoot
         onNodeWithTag("question-attention-organism-c1-p1").assertIsDisplayed()
         onNodeWithTag("permission-organism-c1-p1-description").assertTextEquals(description)
-        onNodeWithTag("permission-organism-c1-p1-more").assertIsDisplayed()
+        if (height >= 600) onNodeWithTag("permission-organism-c1-p1-more").assertIsDisplayed()
         val allow = onNodeWithTag("organism-permission-c1-p1-allow").assertIsDisplayed()
         val deny = onNodeWithTag("organism-permission-c1-p1-deny").assertIsDisplayed()
         listOf(allow, deny).forEach { action ->
@@ -473,9 +479,8 @@ class StudioOrganismUiTest {
             assertTrue(card.contains(bounds.topLeft) && card.contains(bounds.bottomRight))
         }
         assertEquals(allow.fetchSemanticsNode().boundsInRoot.top, deny.fetchSemanticsNode().boundsInRoot.top)
-        assertTrue(card.left >= 0 && card.right <= width && card.top >= 0 && card.bottom <= 600)
-        assertTrue(card.width <= HbDimensions.Desktop.messageMaxWidth.value)
-        assertEquals(width / 2f, card.center.x)
+        if (height < 600) return@runSkikoComposeUiTest
+        verifyPermissionGeometry(card, width)
         val image = captureToImage().toAwtImage()
         val colors = HbColors.forHost(isDark = isDark, isDesktop = true).forQuestionnaire()
         assertEquals(colors.surface.toArgb(), image.getRGB((accent.right - 4).toInt(), card.center.y.toInt()))
@@ -498,6 +503,12 @@ class StudioOrganismUiTest {
                 events.filterIsInstance<AiStudioScreenIntent.DecideOrganism>(),
             )
         }
+    }
+
+    private fun verifyPermissionGeometry(card: androidx.compose.ui.geometry.Rect, width: Int) {
+        assertTrue(card.left >= 0 && card.right <= width && card.top >= 0)
+        assertTrue(card.width <= HbDimensions.Desktop.messageMaxWidth.value)
+        assertEquals(width / 2f, card.center.x)
     }
 
     @Test

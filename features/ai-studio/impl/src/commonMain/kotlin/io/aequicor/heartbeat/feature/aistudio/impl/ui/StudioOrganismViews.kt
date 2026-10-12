@@ -266,9 +266,6 @@ private fun OrganismPermissionCard(
         modifier = Modifier.widthIn(max = HbTheme.dimensions.messageMaxWidth)
             .padding(HbTheme.spacing.m).testTag("organism-permission-$id"),
     ) {
-        request.description?.takeIf { it.isNotBlank() }?.let {
-            PermissionDescription(it, "organism-$id", descriptionMaxHeight)
-        }
         HbFlowRow(gap = HbTheme.spacing.m) {
             request.options.forEachIndexed { index, option ->
                 HbButton(
@@ -288,6 +285,9 @@ private fun OrganismPermissionCard(
                     modifier = Modifier.testTag("organism-permission-$id-${option.id}"),
                 )
             }
+        }
+        request.description?.takeIf { it.isNotBlank() }?.let {
+            PermissionDescription(it, "organism-$id", descriptionMaxHeight)
         }
     }
 }
