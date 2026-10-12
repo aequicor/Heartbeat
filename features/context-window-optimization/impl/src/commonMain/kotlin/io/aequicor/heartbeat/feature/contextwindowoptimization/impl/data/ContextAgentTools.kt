@@ -68,7 +68,7 @@ internal class ContextAgentTools(
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
         if (!isEnabled()) return AgentToolResult("Context tools are disabled", isError = true)
-        log.i { "context tool $name" }
+        log.v { "context tool $name" }
         return when (name) {
             ContextOptimizationTools.STATUS -> AgentToolResult(status(context))
             ContextOptimizationTools.CHECKPOINT -> checkpoint(context, arguments)

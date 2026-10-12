@@ -476,8 +476,11 @@ class AiStudioModel(
         when (intent) {
             is AiStudioScreenIntent.RefreshUsage -> sendTo(machine, AiStudioIntent.Public.RefreshUsage(intent.modelId))
 
-            is AiStudioScreenIntent.CompactContext -> withState {
-                panes.firstOrNull { it.id == intent.paneId }?.sessionId?.let { compactions.request(it, null) }
+            is AiStudioScreenIntent.CompactContext -> {
+                var chat: String? = null
+                withState { chat = panes.firstOrNull { it.id == intent.paneId }?.sessionId }
+                val isQueued = chat?.let { compactions.request(it, null) } == true
+                if (!isQueued) updateState { copy(failedPanes = (failedPanes + intent.paneId).toImmutableSet()) }
             }
         }
     }

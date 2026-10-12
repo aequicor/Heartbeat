@@ -74,9 +74,7 @@ private fun PromptBuilder.historyItem(
             }
         }
 
-        is SessionItem.ToolCall -> if (item.status == ToolCallStatus.Succeeded ||
-            item.status == ToolCallStatus.Failed
-        ) {
+        is SessionItem.ToolCall -> if (item.status in SETTLED_CALLS) {
             toolCall(tool = item.name, args = item.arguments, id = item.call.value)
         }
 

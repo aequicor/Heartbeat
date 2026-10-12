@@ -27,10 +27,13 @@ internal data class StoredOutput(val session: SessionRef, val tool: String, val 
     override fun toString(): String = "StoredOutput(tool=$tool, chars=${text.length})"
 }
 
+/** An offloaded output [id] keeping its first [chars] characters. */
+internal data class Stored(val id: String, val chars: Int)
+
 /** Profile storage of offloaded tool outputs. */
 internal interface ContextOutputs {
-    /** Stores [output] and returns its id. */
-    suspend fun put(output: StoredOutput): String
+    /** Stores [output], at most a bounded beginning of it, and tells what was kept. */
+    suspend fun put(output: StoredOutput): Stored
 
     /** The stored output [id], or null when it expired or never existed. */
     suspend fun get(id: String): StoredOutput?
@@ -52,7 +55,7 @@ internal class KeyValueContextOutputs(
     private val store by lazy { stores.keyValue(SPEC) }
     private val lock = Mutex()
 
-    override suspend fun put(output: StoredOutput): String = lock.withLock {
+    override suspend fun put(output: StoredOutput): Stored = lock.withLock {
         val id = Uuid.random().toHexString().take(ID_LENGTH)
         val kept = output.copy(text = output.text.take(MAX_OUTPUT_CHARS))
         val now = clock.now()
@@ -62,7 +65,7 @@ internal class KeyValueContextOutputs(
         (index - retained.toSet()).forEach { store.remove(entry(it.id)) }
         store.set(INDEX, retained)
         log.d { "offloaded a tool output: chars=${kept.text.length} stored=${retained.size}" }
-        id
+        Stored(id, kept.text.length)
     }
 
     override suspend fun get(id: String): StoredOutput? {

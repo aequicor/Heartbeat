@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -64,18 +65,19 @@ internal class PiCompactionTurns(
                 // A timeout leaves the summary running: compaction_end settles it.
                 if (error.failure is EngineFailure.Transport) return@launch log.w(error) { "Pi compaction pending" }
                 log.w(error) { "Pi compaction refused" }
-                if (!claim(turn)) return@launch
-                finish(
-                    if (state() is ActiveSessionState.Interrupting) {
-                        TurnOutcome.Cancelled
-                    } else {
-                        TurnOutcome.Failed(
-                            error.failure,
-                        )
-                    },
-                )
+                refused(turn, error.failure)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                log.w(error) { "Pi compaction failed" }
+                refused(turn, EngineFailure.Engine(EngineFailureReason.Crashed))
             }
         }
+    }
+
+    private suspend fun refused(turn: TurnId, failure: EngineFailure) {
+        if (!claim(turn)) return
+        finish(if (state() is ActiveSessionState.Interrupting) TurnOutcome.Cancelled else TurnOutcome.Failed(failure))
     }
 
     suspend fun ended(record: JsonObject, turn: TurnId?) {

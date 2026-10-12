@@ -8,9 +8,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.CompactCommand
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioCompactionPort
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.compactCommand
+import kotlinx.collections.immutable.toImmutableSet
 import pro.respawn.flowmvi.api.PipelineContext
 import kotlin.uuid.Uuid
 
@@ -60,24 +62,23 @@ internal fun AiStudioScreenState.selectedNative(sessionId: String?): String = su
 } ?: PrimarySubSession
 
 /**
- * Handles a draft typed as `/compact`: the chat's context is compacted instead of sending a prompt, and the draft is
- * cleared once the request is queued. False when the draft is not that command or the chat cannot be compacted, so it
- * is sent as a prompt.
+ * Handles a draft typed as `/compact` while compaction is offered: the chat's context is compacted instead of sending
+ * a prompt and the draft is cleared once the request is queued; a request that cannot be queued now (no session yet,
+ * a compaction already running) keeps the draft and marks the pane failed. False when the draft is anything else.
  */
 internal suspend fun compactStudioDraft(
     pipeline: PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>,
     compactions: StudioCompactionPort,
     paneId: Int,
 ): Boolean = with(pipeline) {
-    var isHandled = false
+    var target: Pair<String?, CompactCommand>? = null
     withState {
-        val chat = panes.firstOrNull { it.id == paneId }?.sessionId
         val command = compactCommand(draft(paneId)).takeIf { isCompactEnabled && attachments(paneId).isEmpty() }
-        if (chat != null && command != null && compactions.request(chat, command.instructions)) {
-            log.i { "Compaction of the pane chat requested from the composer" }
-            updateState { withDraft(paneId, "") }
-            isHandled = true
-        }
+        if (command != null) target = panes.firstOrNull { it.id == paneId }?.sessionId to command
     }
-    isHandled
+    val (chat, command) = target ?: return@with false
+    val isQueued = chat != null && compactions.request(chat, command.instructions)
+    log.i { "Compaction of the pane chat requested from the composer: queued=$isQueued" }
+    updateState { if (isQueued) withDraft(paneId, "") else copy(failedPanes = (failedPanes + paneId).toImmutableSet()) }
+    true
 }

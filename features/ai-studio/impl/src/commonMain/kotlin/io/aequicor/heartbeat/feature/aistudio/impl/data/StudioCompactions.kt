@@ -42,8 +42,11 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.getAndUpdate
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.uuid.Uuid
 
@@ -60,8 +63,10 @@ internal fun interface StudioCompactionHost {
 
 /**
  * Host of the compactions of studio chats. Requests of every origin (the user, the threshold, the agent, other
- * features) wait in the context optimization machine; this host claims those of its chats and runs each as a turn of
- * the chat after the chat becomes idle, then reports the result. Sessions of other hosts are left alone.
+ * features) wait in the context optimization machine; this host claims them and runs each as a turn of the chat after
+ * the chat becomes idle, then reports the result. The studio is the only host: a request for a session that is not a
+ * studio chat, or for a helper or organism chat (whose turns their owners track), finishes as unsupported instead of
+ * waiting forever. Each session is handled by one coroutine at a time, which runs the request it actually claimed.
  */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class, binding = binding<StudioCompactionPort>())
@@ -84,6 +89,7 @@ internal class StudioCompactions(
     StudioRolloverObserver {
     private val log = Log.tag("StudioCompactions")
     private val store by lazy { stores.keyValue(ChatSpec) }
+    private val inFlight = MutableStateFlow(emptySet<SessionRef>())
 
     override val isAvailable: Flow<Boolean> get() = toggles.observe(ContextOptimizationEnabled)
 
@@ -115,9 +121,9 @@ internal class StudioCompactions(
     override suspend fun settled(request: StudioTurnRequest, active: ActiveSession, outcome: TurnOutcome) {
         if (request.compaction != null || outcome == TurnOutcome.Cancelled) return
         if (!toggles.get(ContextOptimizationEnabled)) return
+        val chat = chats().firstOrNull { it.id == request.id }?.takeIf { it.isCompactable } ?: return
         val usage = (active.features.resolve(SessionContextUsage) as? FeatureAccess.Available)?.feature?.state?.value
-        val chat = chats().firstOrNull { it.id == request.id }
-        val isRollover = chat?.isRolloverAllowed == true && toggles.get(ContextRolloverEnabled)
+        val isRollover = chat.isRolloverAllowed && toggles.get(ContextRolloverEnabled)
         val support = CompactionSupport(
             isNative = active.features.resolve(CompactsContext) is FeatureAccess.Available,
             isRollover = isRollover,
@@ -137,20 +143,30 @@ internal class StudioCompactions(
         combine(toggles.observe(ContextOptimizationEnabled), view.state) { isEnabled, state ->
             if (isEnabled) (state as? ContextOptimizationState.Ready)?.pending.orEmpty() else emptyMap()
         }.distinctUntilChanged().collect { pending ->
-            pending.forEach { (session, compaction) -> launch { execute(session, compaction) } }
+            pending.keys.forEach { session ->
+                if (inFlight.getAndUpdate { it + session }.contains(session)) return@forEach
+                log.d { "handle a pending compaction: in flight=${inFlight.value.size}" }
+                launch {
+                    try {
+                        execute(session)
+                    } finally {
+                        inFlight.update { it - session }
+                        log.d { "pending compaction handled: in flight=${inFlight.value.size}" }
+                    }
+                }
+            }
         }
     }
 
-    private suspend fun execute(session: SessionRef, compaction: PendingCompaction) {
-        val chat = chats().firstOrNull { it.ref == session } ?: return
-        if (machines.send(ContextOptimizationMachineKey, ContextOptimizationIntent.Public.Claim(session)) !=
-            SendResult.Accepted
-        ) {
-            return
-        }
-        log.i { "run compaction method=${compaction.method} origin=${compaction.origin}" }
+    /** Claims the pending compaction of [session] and runs the request the machine moved to running. */
+    private suspend fun execute(session: SessionRef) {
+        val claim = ContextOptimizationIntent.Public.Claim(session)
+        if (machines.send(ContextOptimizationMachineKey, claim) != SendResult.Accepted) return
         val result = try {
-            compact(chat, compaction)
+            val compaction = (view.state.value as? ContextOptimizationState.Ready)?.running?.get(session)
+            val chat = chats().firstOrNull { it.ref == session }?.takeIf { it.isCompactable }
+            log.i { "run compaction method=${compaction?.method} origin=${compaction?.origin} chat=${chat != null}" }
+            if (compaction == null || chat == null) CompactionResult.Unsupported else compact(chat, compaction)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -162,10 +178,9 @@ internal class StudioCompactions(
     }
 
     private suspend fun compact(chat: StudioChatRecord, compaction: PendingCompaction): CompactionResult {
-        val isRollover = compaction.method == CompactionMethod.Rollover
-        if (isRollover && (!chat.isRolloverAllowed || !toggles.get(ContextRolloverEnabled))) {
-            return CompactionResult.Unsupported
-        }
+        // Without rollover in this chat a request for it falls back to the engine's own compaction.
+        val isRollover = compaction.method == CompactionMethod.Rollover &&
+            chat.isRolloverAllowed && toggles.get(ContextRolloverEnabled)
         val applied = runtime.value.state.value.configurations[chat.id]?.applied
         val settings = hostRunSettings(chat, applied, runtime.value.defaults())
         val request = StudioTurnRequest(

@@ -39,7 +39,7 @@ class ContextOffloadTest {
     private val outputs = KeyValueContextOutputs(MemoryStores(), Clock.System)
     private val view = object : ContextOptimizationView {
         override val state = MutableStateFlow<ContextOptimizationState>(
-            ContextOptimizationState.Ready(ContextOptimizationSettings(offloadThresholdChars = 2_000)),
+            ContextOptimizationState.Ready(ContextOptimizationSettings(offloadThresholdChars = 4_000)),
         )
     }
     private val offload = ContextOutputOffload(view, EnabledToggles(), outputs)
@@ -52,17 +52,18 @@ class ContextOffloadTest {
         val stub = assertNotNull(offload.offload(Session, "run_command", output))
 
         assertTrue(stub.startsWith("a".repeat(2_000)) && stub.contains("c".repeat(1_000)) && "context_recall" in stub)
+        assertTrue(stub.length < output.length)
         assertNull(offload.offload(Session, "run_command", "short"))
         assertNull(offload.offload(Session, ContextOptimizationTools.RECALL, output))
     }
 
     @Test
     fun `recall reads parts of an output of the same session only`() = runTest {
-        val output = "x".repeat(2_500) + "TAIL"
+        val output = "x".repeat(5_000) + "TAIL"
         val stub = assertNotNull(offload.offload(Session, "read_file", output))
         val id = Regex("id=\"(\\w+)\"").find(stub)!!.groupValues[1]
 
-        val part = recall.execute(context(Session), ContextOptimizationTools.RECALL, arguments(id, 2_500))
+        val part = recall.execute(context(Session), ContextOptimizationTools.RECALL, arguments(id, 5_000))
         val foreign = recall.execute(context(Other), ContextOptimizationTools.RECALL, arguments(id, 0))
 
         assertTrue(part.text.startsWith("TAIL") && "This is the end" in part.text)
@@ -71,7 +72,7 @@ class ContextOffloadTest {
 
     @Test
     fun `the oldest outputs are dropped beyond the limit`() = runTest {
-        val first = outputs.put(StoredOutput(Session, "tool", "first"))
+        val first = outputs.put(StoredOutput(Session, "tool", "first")).id
         repeat(64) { outputs.put(StoredOutput(Session, "tool", "next $it")) }
 
         assertNull(outputs.get(first))

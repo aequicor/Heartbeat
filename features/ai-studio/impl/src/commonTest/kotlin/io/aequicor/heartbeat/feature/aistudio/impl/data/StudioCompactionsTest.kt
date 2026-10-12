@@ -89,7 +89,7 @@ class StudioCompactionsTest {
     }
 
     @Test
-    fun `foreign sessions are left to their hosts and a rollover runs as a reserved run`() = runTest {
+    fun `unknown sessions finish as unsupported and a rollover runs as a reserved run`() = runTest {
         val fixture = Fixture(this)
         val job = launch { fixture.compactions.run() }
 
@@ -101,9 +101,14 @@ class StudioCompactionsTest {
 
         val rollover = fixture.executed.single()
         assertTrue(rollover.isRollover && rollover.compaction == null)
-        assertEquals<List<MachineIntent>>(
-            listOf(Public.Claim(Chat), Public.Finished(Chat, CompactionResult.Compacted)),
-            fixture.registry.sent,
+        assertEquals<Set<MachineIntent>>(
+            setOf(
+                Public.Claim(Foreign),
+                Public.Finished(Foreign, CompactionResult.Unsupported),
+                Public.Claim(Chat),
+                Public.Finished(Chat, CompactionResult.Compacted),
+            ),
+            fixture.registry.sent.toSet(),
         )
         job.cancel()
     }
@@ -159,9 +164,18 @@ class StudioCompactionsTest {
     }
 
     private class Fixture(scope: TestScope) {
-        val registry = Registry()
-        val executed = mutableListOf<StudioTurnRequest>()
         private val state = MutableStateFlow<ContextOptimizationState>(ContextOptimizationState.Ready())
+        val registry = Registry { intent ->
+            val ready = state.value as ContextOptimizationState.Ready
+            if (intent is Public.Claim) {
+                val claimed = ready.pending.getValue(intent.session)
+                state.value = ready.copy(
+                    pending = ready.pending - intent.session,
+                    running = ready.running + (intent.session to claimed),
+                )
+            }
+        }
+        val executed = mutableListOf<StudioTurnRequest>()
         private val stores = ChecklistTestStores()
         private val host = RunHost(mutableListOf()).apply {
             execute = { request ->
@@ -198,7 +212,7 @@ class StudioCompactionsTest {
         }
     }
 
-    private class Registry : MachineRegistry {
+    private class Registry(private val applied: (MachineIntent) -> Unit = {}) : MachineRegistry {
         val sent = mutableListOf<MachineIntent>()
 
         override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> find(
@@ -214,6 +228,7 @@ class StudioCompactionsTest {
             intent: P,
         ): SendResult {
             sent += intent
+            applied(intent)
             return SendResult.Accepted
         }
     }

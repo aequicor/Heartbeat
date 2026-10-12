@@ -12,7 +12,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 
@@ -37,8 +36,8 @@ class StudioRolloverTest {
 
         val seed = rolloverSeed(items)
 
-        assertTrue(seed != null && "Fix the parser" in seed && "Frozen text" !in seed)
-        assertNull(rolloverSeed(listOf(message("old", 0)).frozen(1)))
+        assertTrue("Fix the parser" in seed && "Frozen text" !in seed)
+        assertFalse("Earlier conversation" in rolloverSeed(listOf(message("old", 0)).frozen(1)))
     }
 
     @Test

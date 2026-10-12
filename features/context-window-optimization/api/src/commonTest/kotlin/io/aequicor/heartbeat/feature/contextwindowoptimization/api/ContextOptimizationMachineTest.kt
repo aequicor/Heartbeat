@@ -152,6 +152,16 @@ class ContextOptimizationMachineTest {
     }
 
     @Test
+    fun `stale finishes, claims and self rollovers are ignored`() {
+        spec.assertIgnored(Ready(), Public.Finished(Session, CompactionResult.Compacted))
+        spec.assertIgnored(
+            Ready(pending = mapOf(Session to Pending), running = mapOf(Session to Pending)),
+            Public.Claim(Session),
+        )
+        spec.assertIgnored(Ready(), Public.RolledOver(Session, Session))
+    }
+
+    @Test
     fun `a failed save is reported`() {
         spec.assertTransition(
             from = Ready(),

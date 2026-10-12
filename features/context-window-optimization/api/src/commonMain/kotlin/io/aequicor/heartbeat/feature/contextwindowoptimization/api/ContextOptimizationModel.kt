@@ -95,7 +95,7 @@ public data class ContextOptimizationSettings(
         public val TOOL_STUB_CHARS_RANGE: IntRange = 0..2_000
 
         /** Allowed offload thresholds. */
-        public val OFFLOAD_THRESHOLD_RANGE: IntRange = 2_000..200_000
+        public val OFFLOAD_THRESHOLD_RANGE: IntRange = 4_000..200_000
     }
 }
 

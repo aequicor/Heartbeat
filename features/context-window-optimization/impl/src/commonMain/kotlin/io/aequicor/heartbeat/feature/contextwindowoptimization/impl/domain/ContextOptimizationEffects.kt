@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextLedger
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationEffect
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationIntent
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationSettings
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.time.Clock
@@ -44,11 +45,22 @@ internal class ContextOptimizationEffects(
     private var savedRevision = -1L
     private var savedLedgerRevision = -1L
 
+    // Stored ledgers that could not be read are never overwritten by this run's ledgers.
+    private var isLedgerStoreUnreadable = false
+
     override suspend fun handle(effect: ContextOptimizationEffect, machine: EffectScope<ContextOptimizationIntent>) {
         when (effect) {
             ContextOptimizationEffect.Load -> {
                 val settings = store.load()
-                val stored = store.loadLedgers()
+                val stored = try {
+                    store.loadLedgers()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    log.w(e) { "stored ledgers are unreadable; they are kept and not overwritten" }
+                    isLedgerStoreUnreadable = true
+                    emptyMap()
+                }
                 val ledgers = stored.recent()
                 log.i { "context settings loaded: stored=${settings != null} ledgers=${ledgers.size}/${stored.size}" }
                 machine.send(ContextOptimizationIntent.Internal.Loaded(settings, ledgers))
@@ -68,7 +80,9 @@ internal class ContextOptimizationEffects(
             }
 
             is ContextOptimizationEffect.SaveLedgers -> saving.withLock {
-                if (effect.revision <= savedLedgerRevision) {
+                if (isLedgerStoreUnreadable) {
+                    log.w { "ledger save skipped: the stored ledgers could not be read" }
+                } else if (effect.revision <= savedLedgerRevision) {
                     log.d { "stale ledger save skipped: ${effect.revision} <= $savedLedgerRevision" }
                 } else {
                     store.saveLedgers(effect.ledgers)

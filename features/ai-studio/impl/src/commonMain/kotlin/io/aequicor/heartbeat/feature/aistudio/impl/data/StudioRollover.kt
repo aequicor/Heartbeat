@@ -23,8 +23,11 @@ internal const val ROLLOVER_SEED_CHARS = 40_000
 /** Whether [this] item belongs to a frozen segment of an earlier native session. */
 internal val SessionItem.isFrozenSegment: Boolean get() = info.id.value.startsWith(FROZEN_PREFIX)
 
-/** Chats that may continue in a new session: helpers and organisms keep their native identity. */
-internal val StudioChatRecord.isRolloverAllowed: Boolean get() = helper == null && organismId == null && ref != null
+/** Chats whose context the studio compacts: helpers and organisms keep their turns and identity to their owners. */
+internal val StudioChatRecord.isCompactable: Boolean get() = helper == null && organismId == null
+
+/** Chats that may continue in a new session. */
+internal val StudioChatRecord.isRolloverAllowed: Boolean get() = isCompactable && ref != null
 
 /** The record after a rollover: detached from its session, which joins [StudioChatRecord.previousRefs]. */
 internal fun StudioChatRecord.rolledOver(seed: String?): StudioChatRecord {
@@ -56,10 +59,10 @@ internal fun List<SessionItem>.frozen(segment: Int): List<SessionItem> {
     return frozen + notice
 }
 
-/** Host directive for the first turn of the new session, or null when the old one had nothing to carry. */
-internal fun rolloverSeed(items: List<SessionItem>): String? {
+/** Host directive for the first turn of the new session; it also marks that turn as the first one. */
+internal fun rolloverSeed(items: List<SessionItem>): String {
     val essence = sessionEssence(items.filterNot { it.isFrozenSegment }, ROLLOVER_SEED_CHARS)
-    if (essence.text.isBlank()) return null
+    if (essence.text.isBlank()) return SEED_HEADER
     val omitted = if (essence.omittedItems > 0) "\nEarlier parts were omitted to keep it short." else ""
     return "$SEED_HEADER$omitted\n\n--- Earlier conversation ---\n\n${essence.text}\n\n$SEED_END"
 }

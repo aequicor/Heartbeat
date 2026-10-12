@@ -38,6 +38,21 @@ class StudioCompactionModelTest {
     }
 
     @Test
+    fun `a compact command that cannot be queued keeps the draft and marks the pane`() = runTest {
+        val compactions = FakeCompactions(isQueued = false)
+        val fixture = AiStudioModelTest.Fixture(this, ready, compactions = compactions)
+        val screen = fixture.subscribe()
+
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "/compact"))
+        fixture.model.store.intent(AiStudioScreenIntent.Submit(0))
+        runCurrent()
+
+        assertTrue(fixture.machine.sent.none { it is AiStudioIntent.Public.Submit })
+        assertEquals("/compact", screen.states.value.draft(0))
+        assertTrue(0 in screen.states.value.failedPanes)
+    }
+
+    @Test
     fun `the context indicator compacts the pane chat`() = runTest {
         val compactions = FakeCompactions()
         val fixture = AiStudioModelTest.Fixture(this, ready, compactions = compactions)
@@ -61,13 +76,13 @@ class StudioCompactionModelTest {
         assertEquals("/compact", fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.Submit>().single().prompt)
     }
 
-    private class FakeCompactions : StudioCompactionPort {
+    private class FakeCompactions(private val isQueued: Boolean = true) : StudioCompactionPort {
         val requests = mutableListOf<Pair<String, String?>>()
         override val isAvailable: Flow<Boolean> = flowOf(true)
 
         override suspend fun request(chatId: String, instructions: String?): Boolean {
             requests += chatId to instructions
-            return true
+            return isQueued
         }
     }
 }

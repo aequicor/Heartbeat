@@ -41,15 +41,18 @@ internal class ContextOutputOffload(
         if (tool == ContextOptimizationTools.RECALL || !isOffloadEnabled(toggles)) return null
         val threshold = (view.state.value as? ContextOptimizationState.Ready)?.settings?.offloadThresholdChars
         if (threshold == null || text.length <= threshold) return null
-        val id = outputs.put(StoredOutput(session, tool, text))
+        // A threshold below the stub size would make the output longer.
+        if (text.length <= HEAD_CHARS + TAIL_CHARS + NOTE_CHARS) return null
+        val stored = outputs.put(StoredOutput(session, tool, text))
         return text.take(HEAD_CHARS) + "\n…\n" + text.takeLast(TAIL_CHARS) +
-            "\n[The output had ${text.length} characters; only its beginning and end are shown. Read the rest " +
-            "with ${ContextOptimizationTools.RECALL}(id=\"$id\", offset=$HEAD_CHARS).]"
+            "\n[The output had ${text.length} characters; only its beginning and end are shown. Read the first " +
+            "${stored.chars} with ${ContextOptimizationTools.RECALL}(id=\"${stored.id}\", offset=$HEAD_CHARS).]"
     }
 
     private companion object {
         const val HEAD_CHARS = 2_000
         const val TAIL_CHARS = 1_000
+        const val NOTE_CHARS = 300
     }
 }
 
@@ -75,7 +78,7 @@ internal class ContextRecallTools(private val toggles: FeatureToggles, private v
         val offset = ((arguments["offset"] as? JsonPrimitive)?.intOrNull ?: 0).coerceIn(0, output.text.length)
         val length = ((arguments["length"] as? JsonPrimitive)?.intOrNull ?: DEFAULT_LENGTH).coerceIn(1, MAX_LENGTH)
         val end = (offset + length).coerceAtMost(output.text.length)
-        log.i { "recall an offloaded output: chars=${end - offset}" }
+        log.v { "recall an offloaded output: chars=${end - offset}" }
         val next = if (end < output.text.length) " Continue with offset=$end." else " This is the end."
         val range = "\n[Characters $offset-$end of ${output.text.length}.$next]"
         return AgentToolResult(output.text.substring(offset, end) + range)

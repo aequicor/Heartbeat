@@ -753,7 +753,7 @@ internal class EngineStudioRepository(
         RunOutcome.Completed
     }
 
-    override suspend fun consumeSeed(id: String) = update(id) { copy(pendingSeed = null) }.also { log.d { "seed" } }
+    override suspend fun consumeSeed(id: String) = update(id) { copy(pendingSeed = null) }.also { log.d { "seeded" } }
 
     /** Closes under the conversation lock, so a concurrent open never receives a closing handle. */
     private suspend fun release(id: String) = conversationLocks.withLock(id) {

@@ -8,10 +8,13 @@ import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.CompactionStrategy
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationIntent
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationMachineKey
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationOutput
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationSettings
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationState
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationView
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
 import pro.respawn.flowmvi.api.MVIState
@@ -81,16 +84,23 @@ internal class ContextSettingsModel(
         ContextSettingsScreenState().reflecting(view.state.value),
         onError = { this },
     ) {
-        whileSubscribed { view.state.collect { updateState { reflecting(it) } } }
-        reduce { intent ->
-            withState {
-                val current = (view.state.value as? ContextOptimizationState.Ready)?.settings
-                if (!isLoaded || current == null) return@withState
-                log.i { "change context settings: ${intent::class.simpleName.orEmpty()}" }
-                val update = ContextOptimizationIntent.Public.UpdateSettings(current.changed(intent))
-                val result = machines.send(ContextOptimizationMachineKey, update)
-                updateState { copy(isSaveFailed = result != SendResult.Accepted) }
+        whileSubscribed {
+            launch { view.state.collect { updateState { reflecting(it) } } }
+            // A persist failure is an output of the machine, not a send result.
+            machines.observe(ContextOptimizationMachineKey).collectLatest { machine ->
+                machine?.outputs?.collect { output ->
+                    when (output) {
+                        ContextOptimizationOutput.SaveFailed -> updateState { copy(isSaveFailed = true) }
+                    }
+                }
             }
+        }
+        reduce { intent ->
+            val current = (view.state.value as? ContextOptimizationState.Ready)?.settings ?: return@reduce
+            log.i { "change context settings: ${intent::class.simpleName.orEmpty()}" }
+            val update = ContextOptimizationIntent.Public.UpdateSettings(current.changed(intent))
+            val result = machines.send(ContextOptimizationMachineKey, update)
+            updateState { copy(isSaveFailed = result != SendResult.Accepted) }
         }
     }
 
@@ -100,7 +110,10 @@ internal class ContextSettingsModel(
 }
 
 private fun ContextSettingsScreenState.reflecting(state: ContextOptimizationState): ContextSettingsScreenState =
-    if (state is ContextOptimizationState.Ready) copy(settings = state.settings.toUi(), isLoaded = true) else this
+    when (state) {
+        is ContextOptimizationState.Ready -> copy(settings = state.settings.toUi(), isLoaded = true)
+        ContextOptimizationState.Idle, ContextOptimizationState.Loading -> copy(isLoaded = false)
+    }
 
 private fun ContextOptimizationSettings.toUi() = ContextSettingsUi(
     isAutoCompactionEnabled = isAutoCompactionEnabled,

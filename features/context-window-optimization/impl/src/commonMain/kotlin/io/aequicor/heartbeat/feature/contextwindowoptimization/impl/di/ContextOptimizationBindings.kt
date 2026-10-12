@@ -64,6 +64,7 @@ object ContextOptimizationBindings {
     /** Delivers the progress ledger to engines that keep their context natively. */
     @Provides
     @IntoSet
+    @SingleIn(ProfileScope::class)
     internal fun ledgerHook(
         view: ContextOptimizationView,
         toggles: FeatureToggles,
