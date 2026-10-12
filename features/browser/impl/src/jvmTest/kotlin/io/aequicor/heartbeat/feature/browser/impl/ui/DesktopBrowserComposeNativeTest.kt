@@ -94,6 +94,7 @@ class DesktopBrowserComposeNativeTest {
         nativeEdt { state.isMenuVisible = true }
         state.menuFocused.awaitNative()
         state.menuDrawn.awaitNative()
+        awaitNativeOwnedFocus(window)
         awaitNativeMenuVisible(window, nativeImage) { capture(window, "menu") }
         awaitNativeDialogClosed(window) {
             typeKey(Robot(), KeyEvent.VK_ENTER, window)
@@ -102,6 +103,7 @@ class DesktopBrowserComposeNativeTest {
         assertEquals("13", fixture.evaluate("document.getElementById('entry').value").jsonPrimitive.content)
         val clicksBefore = fixture.evaluate("window.pageClicks").jsonPrimitive.content.toInt()
         nativeEdt { state.isMenuVisible = true }
+        awaitNativeOwnedFocus(window)
         awaitNativeMenuVisible(window, nativeImage) { capture(window, "menu-reopened") }
         awaitNativeDialogClosed(window) {
             clickPageInput(fixture, component, Robot(), window, areOwnedDialogsAllowed = true)
@@ -142,6 +144,7 @@ class DesktopBrowserComposeNativeTest {
         val pageClicks = fixture.evaluate("window.pageClicks").jsonPrimitive.content
         nativeEdt { state.isDialogVisible = true }
         state.dialogFocused.awaitNative()
+        awaitNativeOwnedFocus(window)
         typeKey(robot, KeyEvent.VK_2, window)
         assertEquals("2", state.dialogTyped.awaitNative(), "Native keys must reach the Compose dialog")
         assertEquals("1", fixture.evaluate("document.getElementById('entry').value").jsonPrimitive.content)
