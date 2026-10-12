@@ -171,7 +171,8 @@ class UiSpecValidatorTest {
                 {"type":"select","bind":"link","options":[{"value":"a","label":"A"},{"value":"a","label":"B"}]},
                 {"type":"native","widget":"date","bind":"link","extensions":["json"]},
                 {"type":"button","label":"o","id":"bad id","action":{"type":"open","modal":"m","presentation":"panel"}},
-                {"type":"button","label":"q","action":{"type":"sequence","actions":[]}}
+                {"type":"button","label":"q","action":{"type":"sequence","actions":[]}},
+                {"type":"button","label":" ","icon":"copy","action":{"type":"copy","text":"x"}}
             ]}""",
             state = """{"link":""}""",
             modals = """{"m":{"title":"M","body":{"type":"divider"}},
@@ -190,6 +191,7 @@ class UiSpecValidatorTest {
                 "$.body.children[6].action.presentation" to UiSpecProblem.InvalidValue,
                 "$.body.children[6].id" to UiSpecProblem.InvalidName,
                 "$.body.children[7].action.actions" to UiSpecProblem.LimitExceeded,
+                "$.body.children[8].label" to UiSpecProblem.InvalidValue,
             ),
             problems(spec, library),
         )

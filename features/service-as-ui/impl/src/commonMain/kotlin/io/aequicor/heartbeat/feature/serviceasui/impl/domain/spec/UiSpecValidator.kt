@@ -191,6 +191,8 @@ private class SpecValidator(private val spec: UiSpec, private val rules: UiSpecR
     }
 
     private fun button(node: UiNode.Button, path: String, scope: Scope) {
+        // The label names the button for screen readers and in the tooltip of an icon button.
+        if (node.label.isBlank()) report("$path.label", UiSpecProblem.InvalidValue, "a visible label")
         template(node.label, "$path.label", scope)
         action(node.action, "$path.action", scope)
         node.enabledWhen?.let { binding(it, "$path.enabledWhen", scope) }
