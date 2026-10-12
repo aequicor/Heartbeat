@@ -430,6 +430,7 @@ internal class ProfileResearchRepository(
 
     /**
      * A clean native segment cannot replay attachments excluded from the current source selection.
+     * Interactive questions opt into profile hooks as well as detached tools and their permission bridge.
      */
     private suspend fun openQuestion(
         session: ResearchSession,
@@ -439,7 +440,13 @@ internal class ProfileResearchRepository(
         requireEnabled(session.target)
         log.i { "Open research native segment" }
         val active = facade.engines.features(session.target.engine).requireFeature(CreatesSessions)
-            .create(CreateSessionRequest(session.target, areDetachedToolsEnabled = true))
+            .create(
+                CreateSessionRequest(
+                    session.target,
+                    areDetachedToolsEnabled = true,
+                    areSessionHooksEnabled = true,
+                ),
+            )
         executionLock.withLock { handles[question.id] = active }
         storage.update(session.id) { stored ->
             stored.copy(

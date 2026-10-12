@@ -66,6 +66,7 @@ import kotlinx.serialization.json.put
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 internal class ResearchExecutionFixture(
     scope: CoroutineScope,
@@ -79,6 +80,8 @@ internal class ResearchExecutionFixture(
     private val creator = object : CreatesSessions {
         override suspend fun create(request: CreateSessionRequest): ActiveSession {
             assertNull(request.workspace)
+            assertTrue(request.areDetachedToolsEnabled, "Research questions expose hosted tools and permissions")
+            assertTrue(request.areSessionHooksEnabled, "Interactive research must honor profile session hooks")
             return ExecutionSession(request.target, "native-${native.size}") { ref ->
                 val question = storage.read().flatMap { it.questions }.first { it.ref == ref }
                 assertNotNull(question.pendingSegmentStart, "Native acceptance must have a durable recovery marker")
