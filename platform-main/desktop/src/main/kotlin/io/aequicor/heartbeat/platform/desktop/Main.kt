@@ -20,6 +20,7 @@ import com.arkivanov.decompose.extensions.compose.lifecycle.LifecycleController
 import com.arkivanov.essenty.lifecycle.LifecycleRegistry
 import com.arkivanov.essenty.lifecycle.destroy
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.ds.components.HbDesktopPopupRendering
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.platform.dibundle.AppShutdownAccessors
 import io.aequicor.heartbeat.platform.dibundle.PlantUmlAccessors
@@ -98,6 +99,7 @@ private fun launchLoggedHeartbeat(isDevelopment: Boolean, classes: Result<Path?>
                 window.iconImages = applicationIcons
                 onDispose { }
             }
+            HbDesktopPopupRendering(window)
             DesktopWindowContent(windowState) { App(root, diagramRenderer = diagrams.takeIf { areDiagramsAvailable }) }
             DesktopComputerUsePresentation(window, windowState, computerUse, graph.capturePresentation)
         }

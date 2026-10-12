@@ -22,6 +22,10 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.window.Popup
 import io.aequicor.heartbeat.ds.components.HbDialog
 import io.aequicor.heartbeat.ds.components.HbMenu
 import io.aequicor.heartbeat.ds.components.HbMenuItem
@@ -38,6 +42,7 @@ internal class NativeBrowserContentState {
     var isDarkTheme by mutableStateOf(false)
     var isDialogVisible by mutableStateOf(false)
     var isMenuVisible by mutableStateOf(false)
+    var isSmallPopupVisible by mutableStateOf(false)
     var dialogText by mutableStateOf("")
     val dialogFocused = CompletableFuture<Unit>()
     val dialogTyped = CompletableFuture<String>()
@@ -46,6 +51,11 @@ internal class NativeBrowserContentState {
     val menuFocused = CompletableFuture<Unit>()
     val menuDrawn = CompletableFuture<Unit>()
     val menuSelected = CompletableFuture<String>()
+    val smallPopupDrawn = CompletableFuture<Unit>()
+
+    /** Last drawn popup surface in window-container pixels; written on the EDT. */
+    @Volatile
+    var popupBounds: Rect? = null
 }
 
 /** Production SwingPanel with test host geometry; this does not substitute for StudioBrowserLayout. */
@@ -94,12 +104,31 @@ private fun NativeBrowserPanel(
                 label = "Browser popup",
                 modifier = Modifier.onFocusChanged {
                     if (it.hasFocus) state.menuFocused.complete(Unit)
-                }.focusGroup().drawWithContent {
+                }.focusGroup().onGloballyPositioned {
+                    state.popupBounds = it.boundsInWindow()
+                }.drawWithContent {
                     drawContent()
                     state.menuDrawn.complete(Unit)
                 },
             )
+            if (state.isSmallPopupVisible) NativeSmallPopup(state)
         }
+    }
+}
+
+/** An anchored non-focusable layer smaller than the window, like composer suggestions. */
+@Composable
+private fun NativeSmallPopup(state: NativeBrowserContentState) {
+    Popup(alignment = Alignment.BottomStart) {
+        Box(
+            Modifier.size(HbTheme.dimensions.touchTarget * 3, HbTheme.dimensions.touchTarget)
+                .background(HbTheme.colors.brand)
+                .onGloballyPositioned { state.popupBounds = it.boundsInWindow() }
+                .drawWithContent {
+                    drawContent()
+                    state.smallPopupDrawn.complete(Unit)
+                },
+        )
     }
 }
 

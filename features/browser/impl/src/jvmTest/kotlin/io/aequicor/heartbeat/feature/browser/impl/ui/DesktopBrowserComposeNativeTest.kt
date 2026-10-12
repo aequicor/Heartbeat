@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.browser.impl.ui
 
 import androidx.compose.ui.awt.ComposeWindow
+import io.aequicor.heartbeat.ds.components.HbDesktopPopupRendering
 import kotlinx.serialization.json.double
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -51,7 +52,10 @@ class DesktopBrowserComposeNativeTest {
                     })
                     val usable = GraphicsEnvironment.getLocalGraphicsEnvironment().maximumWindowBounds
                     setBounds(usable.x, usable.y, minOf(1280, usable.width), minOf(800, usable.height))
-                    setContent { NativeComposeBrowserContent(fixture, state) }
+                    setContent {
+                        HbDesktopPopupRendering(window)
+                        NativeComposeBrowserContent(fixture, state)
+                    }
                     isVisible = true
                     toFront()
                 }
@@ -75,6 +79,7 @@ class DesktopBrowserComposeNativeTest {
                     )
                 }
                 verifyMenu(fixture, state, component, window, nativeImage)
+                verifySmallPopup(state, window, nativeImage)
                 capture(window, "restored")
                 assertEquals(1, fixture.pageLoads.get(), "A Compose transition reloaded the document")
                 assertEquals(1, fixture.runtimeStarts.get(), "A Compose transition recreated Chromium")
@@ -95,21 +100,34 @@ class DesktopBrowserComposeNativeTest {
         state.menuFocused.awaitNative()
         state.menuDrawn.awaitNative()
         awaitNativeOwnedFocus(window)
-        awaitNativeMenuVisible(window, nativeImage) { capture(window, "menu") }
+        awaitNativeMenuVisible(window, state, nativeImage) { capture(window, "menu") }
         awaitNativeDialogClosed(window) {
             typeKey(Robot(), KeyEvent.VK_ENTER, window)
             assertEquals("verify", state.menuSelected.awaitNative())
         }
         assertEquals("13", fixture.evaluate("document.getElementById('entry').value").jsonPrimitive.content)
-        val clicksBefore = fixture.evaluate("window.pageClicks").jsonPrimitive.content.toInt()
+        val clicksBefore = fixture.evaluate("window.pageClicks").jsonPrimitive.content
         nativeEdt { state.isMenuVisible = true }
         awaitNativeOwnedFocus(window)
-        awaitNativeMenuVisible(window, nativeImage) { capture(window, "menu-reopened") }
+        awaitNativeMenuVisible(window, state, nativeImage) { capture(window, "menu-reopened") }
         awaitNativeDialogClosed(window) {
+            // The menu layer absorbs an outside click over Chromium: it dismisses and never activates the page.
             clickPageInput(fixture, component, Robot(), window, areOwnedDialogsAllowed = true)
         }
-        assertEquals(clicksBefore + 1, fixture.evaluate("window.pageClicks").jsonPrimitive.content.toInt())
+        assertEquals(false, nativeEdt { state.isMenuVisible }, "An outside click over Chromium must dismiss the menu")
+        assertEquals(clicksBefore, fixture.evaluate("window.pageClicks").jsonPrimitive.content)
         assertEquals("13", fixture.evaluate("document.getElementById('entry').value").jsonPrimitive.content)
+    }
+
+    /** Layers smaller than the window (suggestions, tooltips) must stay inside their own native window. */
+    private fun verifySmallPopup(state: NativeBrowserContentState, window: ComposeWindow, nativeImage: BufferedImage) {
+        nativeEdt {
+            state.popupBounds = null
+            state.isSmallPopupVisible = true
+        }
+        state.smallPopupDrawn.awaitNative()
+        awaitNativeMenuVisible(window, state, nativeImage) { capture(window, "small-popup") }
+        awaitNativeDialogClosed(window) { nativeEdt { state.isSmallPopupVisible = false } }
     }
 
     private fun verifyLayout(
