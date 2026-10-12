@@ -38,8 +38,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
@@ -98,11 +96,7 @@ internal fun ComposerSuggestionsPopup(
             ComposerPopupPosition(anchor, gutter.roundToPx(), dimensions.composerMenuOffset.roundToPx())
         }
     }
-    Popup(
-        popupPositionProvider = position,
-        onDismissRequest = onDismiss,
-        properties = PopupProperties(focusable = false),
-    ) {
+    HbMenuPopup(position, onDismiss, focusable = false) {
         HbColumn(
             modifier = modifier
                 .padding(gutter)

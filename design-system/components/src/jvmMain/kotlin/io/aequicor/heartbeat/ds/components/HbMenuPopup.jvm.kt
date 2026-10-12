@@ -28,15 +28,17 @@ private val log = Log.tag("DS/MenuPopup")
  * The desktop host uses WINDOW Compose layers. A click on a heavyweight native child (Chromium) never
  * reaches Compose, so an anchored layer would stay open. The menu layer covers the client area instead:
  * its transparent backdrop absorbs the outside click and dismisses, while the sheet keeps [position].
+ * A non-[focusable] layer takes the same clicks but leaves keyboard focus in the window beneath.
  */
 @Composable
 internal actual fun HbMenuPopup(
     position: PopupPositionProvider,
     onDismissRequest: () -> Unit,
+    focusable: Boolean,
     content: @Composable () -> Unit,
 ) {
     val anchor = remember { HbMenuAnchor() }
-    Popup(anchor, onDismissRequest, PopupProperties(focusable = true)) {
+    Popup(anchor, onDismissRequest, PopupProperties(focusable = focusable)) {
         HbDesktopMenuContent({ anchor.bounds }, position, onDismissRequest, content = content)
     }
 }

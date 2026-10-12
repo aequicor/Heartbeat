@@ -30,8 +30,6 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
@@ -62,11 +60,7 @@ internal fun ComposerMenuPopup(
             ComposerPopupPosition(anchor, gutter.roundToPx(), dimensions.composerMenuOffset.roundToPx())
         }
     }
-    Popup(
-        popupPositionProvider = position,
-        onDismissRequest = onDismiss,
-        properties = PopupProperties(focusable = true),
-    ) {
+    HbMenuPopup(position, onDismiss) {
         Box(modifier = modifier.padding(gutter)) {
             ComposerMenuSheet(actions, label, onDismiss, onAction, menuWidth, menuHeight, headerLabel = headerLabel)
         }
