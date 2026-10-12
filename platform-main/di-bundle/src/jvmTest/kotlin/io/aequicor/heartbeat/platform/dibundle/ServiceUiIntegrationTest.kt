@@ -1,20 +1,28 @@
 package io.aequicor.heartbeat.platform.dibundle
 
+import com.arkivanov.decompose.DefaultComponentContext
+import com.arkivanov.essenty.lifecycle.LifecycleRegistry
+import com.arkivanov.essenty.lifecycle.destroy
+import com.arkivanov.essenty.lifecycle.resume
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.createGraphFactory
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiEnabled
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiIntent
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiMachineKey
+import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiPanelRoute
+import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiSlotRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiState
 import io.aequicor.heartbeat.feature.serviceasui.api.UiCallContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiDockId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiLibrary
+import io.aequicor.heartbeat.feature.serviceasui.api.UiSlot
 import io.aequicor.heartbeat.feature.serviceasui.api.spi.ServiceUiProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filterIsInstance
@@ -32,6 +40,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
@@ -78,6 +87,30 @@ class ServiceUiIntegrationTest {
         assertEquals(kinds.toSet().size, kinds.size)
         assertTrue("harness" in kinds, kinds.toString())
         app.profileSessions.close()
+    }
+
+    @Test
+    fun `slot and panel routes build their places from the profile graph`() = runTest {
+        val profile = app.profileSessions.open(ProfileId("service-ui-places"))
+        val lifecycle = LifecycleRegistry().apply { resume() }
+        try {
+            val slot = ServiceUiSlotRoute("test.pane.1", UiSlot.Composer)
+            val root = (profile.graph as ProfileNavigation).navigation.create(
+                DefaultComponentContext(lifecycle),
+                listOf(slot),
+                name = "service-ui",
+            )
+            assertEquals(slot, root.stack.value.active.configuration.route)
+            assertIs<ComposableComponent>(root.stack.value.active.instance)
+
+            val panel = ServiceUiPanelRoute("test")
+            root.navigator.navigate(panel)
+            assertEquals(panel, root.stack.value.active.configuration.route)
+            assertIs<ComposableComponent>(root.stack.value.active.instance)
+        } finally {
+            lifecycle.destroy()
+            app.profileSessions.close()
+        }
     }
 }
 

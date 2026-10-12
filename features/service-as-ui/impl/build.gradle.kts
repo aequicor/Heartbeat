@@ -17,6 +17,8 @@ kotlin {
             implementation(projects.core.logging)
             implementation(libs.kotlinx.collectionsImmutable)
             implementation(projects.core.mvi)
+            implementation(projects.core.navigation.compose)
+            implementation(projects.core.stateMachine.flowmviExt)
             implementation(projects.designSystem.components)
             implementation(projects.designSystem.theme)
             implementation(projects.designSystem.layouts)

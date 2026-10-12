@@ -1,5 +1,8 @@
 package io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store
 
+import dev.zacsweers.metro.Assisted
+import dev.zacsweers.metro.AssistedFactory
+import dev.zacsweers.metro.AssistedInject
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodFailure
@@ -39,13 +42,20 @@ private typealias SurfacePipeline = PipelineContext<SurfaceState, SurfaceIntent,
  * typed by inputs and runs actions. Calls run beside intent processing, at most [CALLS_PER_SURFACE] at a time, and
  * are cancelled with the store. Every change re-evaluates the spec, so the screen only draws resolved models.
  */
+@AssistedInject
 internal class SurfaceModel(
-    private val session: SurfaceSession,
+    @Assisted private val session: SurfaceSession,
     private val calls: UiMethodCalls,
     private val platform: UiPlatform,
     factory: HeartbeatStoreFactory,
-    scope: CoroutineScope,
+    @Assisted scope: CoroutineScope,
 ) {
+    /** Creates the store of one drawn surface in its own [scope]. */
+    @AssistedFactory
+    fun interface Factory {
+        fun create(session: SurfaceSession, scope: CoroutineScope): SurfaceModel
+    }
+
     private val log = Log.tag("ServiceUiSurface")
     private val evaluator = UiEvaluator(session.spec)
     private val calling = Semaphore(CALLS_PER_SURFACE)
@@ -204,10 +214,7 @@ internal class SurfaceModel(
                 surface != null && action.presentation == UiPresentation.Panel ->
                     session.host.openPanel(surface, arguments) || notice(NoticeUi.Unsupported)
 
-                surface != null -> {
-                    pipeline.action(SurfaceAction.OpenSurface(surface, arguments))
-                    true
-                }
+                surface != null -> session.host.openSurface(surface, arguments) || notice(NoticeUi.Unsupported)
 
                 else -> false
             }

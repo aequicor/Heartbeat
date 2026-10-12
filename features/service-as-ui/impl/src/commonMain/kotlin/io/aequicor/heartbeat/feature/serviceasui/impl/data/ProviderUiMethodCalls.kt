@@ -17,7 +17,9 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiMethodCalls
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import kotlin.time.Duration.Companion.seconds
@@ -32,6 +34,26 @@ import kotlin.time.TimeSource
 @Inject
 internal class ProviderUiMethodCalls(private val providers: Set<ServiceUiProvider>) : UiMethodCalls {
     private val log = Log.tag("ServiceUiCalls")
+
+    override fun activeOwners(context: UiCallContext): Flow<Set<UiOwner>> {
+        if (providers.isEmpty()) return flowOf(emptySet())
+        val active = providers.map { provider ->
+            provider.activeOwners(context)
+                .map<Set<String>, Set<UiOwner>> { ids -> ids.mapNotNullTo(mutableSetOf()) { owner(provider.kind, it) } }
+                .catch { e ->
+                    log.w(e.redactedFailure()) { "Active owners of ${provider.kind} stopped" }
+                    emit(emptySet())
+                }
+        }
+        return combine(active) { sets -> sets.flatMapTo(mutableSetOf()) { it } }
+    }
+
+    private fun owner(kind: String, id: String): UiOwner? = try {
+        UiOwner(kind, id)
+    } catch (e: IllegalArgumentException) {
+        log.w(e) { "Provider $kind reported an invalid owner id" }
+        null
+    }
 
     override fun methods(owner: UiOwner): Flow<UiMethods> {
         val provider = providers.firstOrNull { it.kind == owner.kind } ?: return flowOf(UiMethods(isAvailable = false))

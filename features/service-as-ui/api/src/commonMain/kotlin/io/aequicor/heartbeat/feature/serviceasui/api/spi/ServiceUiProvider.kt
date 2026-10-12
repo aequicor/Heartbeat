@@ -23,7 +23,10 @@ public interface ServiceUiProvider {
     /** Owners that exist now. A complete snapshot without an owner deletes that owner's surfaces. */
     public val owners: Flow<UiOwners>
 
-    /** Ids of owners active in [context]: connected to its chat, or preselected for a chat that is not created yet. */
+    /**
+     * Ids of owners active in [context]: connected to its chat, or preselected for a chat that is not created yet.
+     * Emits the current set at once: places combine every provider and show nothing until each one has reported.
+     */
     public fun activeOwners(context: UiCallContext): Flow<Set<String>>
 
     /** Methods [owner] publishes now. */

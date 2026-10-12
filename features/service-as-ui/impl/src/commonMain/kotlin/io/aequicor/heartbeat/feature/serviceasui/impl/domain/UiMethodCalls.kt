@@ -7,8 +7,11 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiOwner
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.JsonObject
 
-/** Methods of surface owners, reached through their providers. */
+/** Methods and activity of surface owners, reached through their providers. */
 internal interface UiMethodCalls {
+    /** Owners of every provider that are active in [context]; emits once every provider has reported its owners. */
+    fun activeOwners(context: UiCallContext): Flow<Set<UiOwner>>
+
     /** Methods [owner] publishes now; unavailable when no provider knows its kind. */
     fun methods(owner: UiOwner): Flow<UiMethods>
 

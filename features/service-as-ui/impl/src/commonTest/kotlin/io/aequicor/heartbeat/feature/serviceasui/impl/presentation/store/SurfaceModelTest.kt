@@ -22,6 +22,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -139,11 +140,9 @@ class SurfaceModelTest {
 
         assertEquals(listOf("Rank 2 PRs" to true), fixture.host.prompts)
         assertEquals(listOf("map" to JsonObject(mapOf("pr" to JsonPrimitive(7)))), fixture.host.panels)
+        assertEquals(listOf("details" to JsonObject(emptyMap())), fixture.host.surfaces)
         assertEquals(
-            listOf(
-                SurfaceAction.OpenUrl("https://github.com/pulls", isTrusted = true),
-                SurfaceAction.OpenSurface("details", JsonObject(emptyMap())),
-            ),
+            listOf<SurfaceAction>(SurfaceAction.OpenUrl("https://github.com/pulls", isTrusted = true)),
             actions,
         )
 
@@ -271,6 +270,8 @@ class SurfaceModelTest {
             methods.value = methods.value.copy(isAvailable = isAvailable)
         }
 
+        override fun activeOwners(context: UiCallContext): Flow<Set<UiOwner>> = flowOf(emptySet())
+
         override fun methods(owner: UiOwner): Flow<UiMethods> = methods
 
         override suspend fun call(
@@ -287,6 +288,7 @@ class SurfaceModelTest {
     private class FakeHost : SurfaceHost {
         val prompts = mutableListOf<Pair<String, Boolean>>()
         val panels = mutableListOf<Pair<String, JsonObject>>()
+        val surfaces = mutableListOf<Pair<String, JsonObject>>()
 
         override suspend fun prompt(text: String, isSubmitted: Boolean): Boolean {
             prompts += text to isSubmitted
@@ -295,6 +297,11 @@ class SurfaceModelTest {
 
         override suspend fun openPanel(name: String, args: JsonObject): Boolean {
             panels += name to args
+            return true
+        }
+
+        override suspend fun openSurface(name: String, args: JsonObject): Boolean {
+            surfaces += name to args
             return true
         }
     }

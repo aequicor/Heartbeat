@@ -24,4 +24,5 @@
     <string name="service_ui_invalid_link">Only http and https links can be opened</string>
     <string name="service_ui_broken">The interface stopped working; reopen it</string>
     <string name="service_ui_file_failed">The file could not be saved, shown or chosen</string>
+    <string name="service_ui_close_panel">Close the panel</string>
 </resources>

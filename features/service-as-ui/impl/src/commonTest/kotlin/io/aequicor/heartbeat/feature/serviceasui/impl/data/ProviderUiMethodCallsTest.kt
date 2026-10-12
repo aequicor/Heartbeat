@@ -71,14 +71,32 @@ class ProviderUiMethodCallsTest {
         assertEquals(UiMethods(isAvailable = false), broken.methods(owner).first())
     }
 
+    @Test
+    fun `active owners of every provider combine and a broken provider counts as none`() = runTest {
+        val calls = ProviderUiMethodCalls(
+            setOf(
+                FakeProvider(active = flowOf(setOf("h_1", "bad:id"))) { error("unused") },
+                FakeProvider(kind = "plugin", active = flowOf(setOf("p_1"))) { error("unused") },
+                FakeProvider(kind = "broken", active = flow { error("stream bug") }) { error("unused") },
+            ),
+        )
+
+        assertEquals(
+            setOf(owner, UiOwner("plugin", "p_1")),
+            calls.activeOwners(UiCallContext()).first(),
+        )
+        assertEquals(emptySet(), ProviderUiMethodCalls(emptySet()).activeOwners(UiCallContext()).first())
+    }
+
     private class FakeProvider(
+        override val kind: String = "harness",
         private val methods: Flow<UiMethods> = flowOf(UiMethods(true)),
+        private val active: Flow<Set<String>> = flowOf(emptySet()),
         private val handler: suspend (UiMethodCall) -> UiMethodResult,
     ) : ServiceUiProvider {
         var calls = 0
-        override val kind = "harness"
         override val owners: Flow<UiOwners> = flowOf(UiOwners(isComplete = true))
-        override fun activeOwners(context: UiCallContext): Flow<Set<String>> = flowOf(emptySet())
+        override fun activeOwners(context: UiCallContext): Flow<Set<String>> = active
         override fun methods(owner: String): Flow<UiMethods> = methods
 
         override suspend fun call(owner: String, call: UiMethodCall): UiMethodResult {

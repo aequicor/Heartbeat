@@ -107,11 +107,6 @@ internal sealed interface SurfaceAction : MVIAction {
     data class Copy(val text: String) : SurfaceAction {
         override fun toString(): String = "Copy(***)"
     }
-
-    /** Opens the owner's surface [name] as a modal over this one. */
-    data class OpenSurface(val name: String, val args: JsonObject) : SurfaceAction {
-        override fun toString(): String = "OpenSurface(name=$name)"
-    }
 }
 
 /** The host side of a surface: the place it is drawn in. */
@@ -121,6 +116,9 @@ internal interface SurfaceHost {
 
     /** Opens the owner's surface [name] in the host's dock with [args]; false when it cannot. */
     suspend fun openPanel(name: String, args: JsonObject): Boolean
+
+    /** Opens the owner's surface [name] with [args] as a modal over this one; false when it cannot. */
+    suspend fun openSurface(name: String, args: JsonObject): Boolean
 }
 
 /**

@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.serviceasui.impl.presentation
 
+import io.aequicor.heartbeat.core.common.HostPlatform
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiPath
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiPathRoot
@@ -35,6 +36,13 @@ internal sealed interface UiSourceStatus {
 
 /** Facts about where the surface runs, readable as `context.*`. */
 internal data class UiFacts(val platform: String = "desktop", val hasSession: Boolean = false)
+
+/** The `context.platform` fact of [host]: `desktop`, `android` or `ios`. */
+internal fun platformFact(host: HostPlatform): String = when (host) {
+    HostPlatform.Android -> "android"
+    HostPlatform.Ios -> "ios"
+    HostPlatform.MacOs, HostPlatform.Windows, HostPlatform.Linux -> "desktop"
+}
 
 /** The current list element and its position, readable as `item` and `index`. */
 internal data class UiScope(val item: JsonElement? = null, val index: Int? = null) {

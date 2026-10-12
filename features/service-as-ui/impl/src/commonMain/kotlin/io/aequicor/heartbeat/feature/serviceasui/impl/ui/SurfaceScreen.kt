@@ -6,7 +6,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboard
@@ -48,7 +47,6 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_open_
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_unsupported
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.JsonObject
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import pro.respawn.flowmvi.api.Store
@@ -58,17 +56,12 @@ private val log = Log.tag("ServiceUiScreen")
 
 /**
  * A surface drawn from its [store]: notice, content and the open modal. Links of cards without an owner are opened
- * only after the user confirms them; [onOpenSurface] opens another surface of the owner as a modal.
+ * only after the user confirms them.
  */
 @Composable
-internal fun SurfaceScreen(
-    store: Store<SurfaceState, SurfaceIntent, SurfaceAction>,
-    onOpenSurface: (String, JsonObject) -> Unit,
-    modifier: Modifier = Modifier,
-) {
+internal fun SurfaceScreen(store: Store<SurfaceState, SurfaceIntent, SurfaceAction>, modifier: Modifier = Modifier) {
     val uriHandler = LocalUriHandler.current
     val clipboard = LocalClipboard.current
-    val openSurface by rememberUpdatedState(onOpenSurface)
     var link by remember { mutableStateOf<String?>(null) }
     val state by produceState(SurfaceState(), store) {
         store.collect {
@@ -82,8 +75,6 @@ internal fun SurfaceScreen(
                         }
 
                         is SurfaceAction.Copy -> hbCopyText(clipboard, action.text)
-
-                        is SurfaceAction.OpenSurface -> openSurface(action.name, action.args)
                     }
                 }
             }
