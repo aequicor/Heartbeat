@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HookedToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict
+import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.HarnessName
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.event.HarnessEvent
@@ -17,6 +18,9 @@ import io.aequicor.heartbeat.feature.harness.api.script.ScriptHooks
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptRegistration
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptToolCall
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptToolResult
+import io.aequicor.heartbeat.feature.harness.api.script.ScriptUi
+import io.aequicor.heartbeat.feature.harness.api.script.ScriptUiCall
+import io.aequicor.heartbeat.feature.harness.api.script.ScriptUiResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -28,6 +32,7 @@ internal typealias HarnessBeforeTool = suspend (HookedToolCall) -> ToolHookVerdi
 internal typealias HarnessAfterTool = suspend (HookedToolCall, ScriptToolResult) -> String?
 internal typealias HarnessInstructions = suspend (AgentToolScope) -> String
 internal typealias HarnessToolHandler = suspend (ScriptToolCall) -> ScriptToolResult
+internal typealias HarnessUiHandler = suspend (ScriptUiCall) -> ScriptUiResult
 
 /** Typed event matcher paired with an erased callback; matching must precede callback acquisition. */
 internal data class HarnessEventRegistration(
@@ -45,6 +50,15 @@ internal data class HarnessToolRegistration(
     override fun toString(): String = "HarnessToolRegistration(***)"
 }
 
+/** A method for the harness's interfaces; its name and description are author data, never logged. */
+internal data class HarnessUiMethodRegistration(
+    val name: ItemName,
+    val description: String,
+    val callback: HarnessCallback<HarnessUiHandler>,
+) {
+    override fun toString(): String = "HarnessUiMethodRegistration(***)"
+}
+
 /** Candidate-local registrations. Only the runtime publishes their enclosing context. */
 internal class HarnessScriptRegistrations(
     private val name: HarnessName,
@@ -52,7 +66,8 @@ internal class HarnessScriptRegistrations(
     private val origins: HarnessCallOrigins,
 ) : ScriptEvents,
     ScriptHooks,
-    ScriptAgent {
+    ScriptAgent,
+    ScriptUi {
     private val state = MutableStateFlow(HarnessRegistrationState())
     private val log = Log.tag("HarnessScriptRegistrations")
 
@@ -62,6 +77,7 @@ internal class HarnessScriptRegistrations(
     fun afterTool(): List<HarnessCallback<HarnessAfterTool>> = state.value.afterTool.toList()
     fun instructions(): List<HarnessCallback<HarnessInstructions>> = state.value.instructions.toList()
     fun tools(): List<HarnessToolRegistration> = state.value.tools.toList()
+    fun methods(): List<HarnessUiMethodRegistration> = state.value.methods.filter { it.callback.isActive }
 
     @HighFrequency
     override fun <E : HarnessEvent> on(type: KClass<E>, handler: suspend (E) -> Unit): ScriptRegistration {
@@ -133,6 +149,18 @@ internal class HarnessScriptRegistrations(
         }
     }
 
+    @HighFrequency
+    override fun method(name: ItemName, description: String, handler: HarnessUiHandler): ScriptRegistration {
+        log.v { "register script ui method" }
+        return register { previous, id ->
+            check(previous.methods.none { it.name == name }) { "UI method is already registered" }
+            check(previous.methods.size < HarnessLimits.UI_METHODS) { "Too many UI methods" }
+            val callback = HarnessCallback(id, origins.current(), handler)
+            previous.copy(methods = previous.methods + HarnessUiMethodRegistration(name, description, callback)) to
+                callback
+        }
+    }
+
     /** One atomic snapshot freezes candidate tools; later disposal cannot mutate the declaration snapshot. */
     @HighFrequency
     fun sealTools(): List<AgentToolSpec> {
@@ -185,6 +213,7 @@ private data class HarnessRegistrationState(
     val afterTool: List<HarnessCallback<HarnessAfterTool>> = emptyList(),
     val instructions: List<HarnessCallback<HarnessInstructions>> = emptyList(),
     val tools: List<HarnessToolRegistration> = emptyList(),
+    val methods: List<HarnessUiMethodRegistration> = emptyList(),
 ) {
     override fun toString(): String = "HarnessRegistrationState(***)"
 
@@ -196,8 +225,10 @@ private data class HarnessRegistrationState(
         afterTool = afterTool.filter { it.isActive },
         instructions = instructions.filter { it.isActive },
         tools = tools.filter { it.callback.isActive },
+        methods = methods.filter { it.callback.isActive },
     )
 
     fun callbacks(): List<HarnessCallback<*>> =
-        events.map { it.callback } + beforePrompt + beforeTool + afterTool + instructions + tools.map { it.callback }
+        events.map { it.callback } + beforePrompt + beforeTool + afterTool + instructions + tools.map { it.callback } +
+            methods.map { it.callback }
 }

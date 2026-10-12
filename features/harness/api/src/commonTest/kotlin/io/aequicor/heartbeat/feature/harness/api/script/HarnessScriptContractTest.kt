@@ -14,6 +14,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.reflect.KClass
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -63,19 +64,43 @@ class HarnessScriptContractTest {
 
             override fun instructions(handler: suspend (AgentToolScope) -> String): ScriptRegistration = error("unused")
         }
-        val context = ContractScriptScope(backgroundScope, events, agent)
+        val methods = mutableListOf<ItemName>()
+        val ui = object : ScriptUi {
+            override fun method(
+                name: ItemName,
+                description: String,
+                handler: suspend (ScriptUiCall) -> ScriptUiResult,
+            ): ScriptRegistration {
+                methods += name
+                return ScriptRegistration { }
+            }
+        }
+        val context = ContractScriptScope(backgroundScope, events, agent, ui)
         val evaluated = object : HarnessScriptBase(context) {
             init {
                 this.events.on<SystemEvent.Started> { }
                 this.agent.tool(ItemName("inspect"), "Private description", JsonObject(emptyMap())) {
                     ScriptToolResult("Private output")
                 }
+                this.ui.method(ItemName("prs"), "Private description") { ScriptUiResult.Value(JsonObject(emptyMap())) }
             }
         }
         assertSame(context, evaluated.script)
         assertEquals(listOf<KClass<out HarnessEvent>>(SystemEvent.Started::class), subscribed)
         assertEquals(listOf(AgentToolAction.Command), actions)
-        assertEquals(1, HARNESS_API_VERSION)
+        assertEquals(listOf(ItemName("prs")), methods)
+        assertEquals(2, HARNESS_API_VERSION)
+    }
+
+    @Test
+    fun `ui calls and results never print user data`() {
+        val secret = "private-value"
+        val texts = listOf(
+            ScriptUiCall(JsonObject(mapOf("token" to JsonPrimitive(secret)))).toString(),
+            ScriptUiResult.Value(JsonPrimitive(secret)).toString(),
+            ScriptUiResult.Error(secret).toString(),
+        )
+        for (text in texts) assertFalse(secret in text, text)
     }
 }
 
@@ -83,6 +108,7 @@ private class ContractScriptScope(
     override val scope: CoroutineScope,
     override val events: ScriptEvents,
     override val agent: ScriptAgent,
+    override val ui: ScriptUi,
 ) : HarnessScriptScope {
     override val harness = HarnessId("harness")
     override val name = HarnessName("sample")

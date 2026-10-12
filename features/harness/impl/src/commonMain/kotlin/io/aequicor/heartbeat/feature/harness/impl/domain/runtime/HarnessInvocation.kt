@@ -45,6 +45,9 @@ internal object HarnessInvocationBudget {
     val Tool: Duration = 60.seconds
     val Instructions: Duration = 500.milliseconds
 
+    /** A method called by a user action in one of the harness's interfaces. */
+    val UiMethod: Duration = 60.seconds
+
     /** Longest continuous worker hold by an instance's background code before it counts as the instance's fault. */
     val Background: Duration = 30.seconds
 }

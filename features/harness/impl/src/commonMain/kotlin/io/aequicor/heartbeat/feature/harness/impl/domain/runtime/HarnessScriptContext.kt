@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.harness.api.script.ScriptHooks
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptPrompts
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptScheduler
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptSessions
+import io.aequicor.heartbeat.feature.harness.api.script.ScriptUi
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptWorkflows
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessScriptPrompts
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationContext
@@ -38,6 +39,7 @@ internal class HarnessScriptContext(
         override val scheduler: ScriptScheduler get() = this@HarnessScriptContext.scheduler
         override val prompts: ScriptPrompts get() = this@HarnessScriptContext.prompts
         override val workflows: ScriptWorkflows get() = this@HarnessScriptContext.workflows
+        override val ui: ScriptUi get() = registrations
     })
 
     override fun sealForPublication(): Boolean {
