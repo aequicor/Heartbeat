@@ -15,6 +15,7 @@ kotlin {
             implementation(projects.core.featureToggles.api)
             implementation(projects.core.profileFacade.api)
             implementation(projects.core.logging)
+            implementation(libs.kotlinx.collectionsImmutable)
         }
     }
 }

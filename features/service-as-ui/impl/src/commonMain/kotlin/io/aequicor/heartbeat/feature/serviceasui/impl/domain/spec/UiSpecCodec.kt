@@ -38,6 +38,9 @@ internal object UiSpecLimits {
 
     /** UTF-8 bytes of the HTML of a web node. */
     const val HTML_BYTES: Int = 48 * 1024
+
+    /** Elements of a list or rows of a table drawn; the rest are counted. */
+    const val LIST_ITEMS: Int = 200
 }
 
 /** What is wrong with a spec; [message] is shown to the agent and in the editor. */
