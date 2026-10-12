@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.heartbeat.kmp.compose)
     alias(libs.plugins.heartbeat.metro)
+    alias(libs.plugins.heartbeat.room)
     alias(libs.plugins.kotlinSerialization)
 }
 
@@ -28,6 +29,7 @@ kotlin {
         }
         commonTest.dependencies { implementation(libs.flowmvi.test) }
         jvmTest.dependencies {
+            implementation(libs.androidx.sqlite.bundled)
             implementation(libs.compose.uiTest)
             implementation(compose.desktop.currentOs)
         }

@@ -8,14 +8,15 @@ import io.aequicor.heartbeat.core.datastore.jsonKey
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
-import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextLedger
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.CompactionStrategy
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationSettings
 import io.aequicor.heartbeat.feature.contextwindowoptimization.impl.domain.ContextSettingsStore
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.builtins.ListSerializer
 
-/** Context optimization settings in the profile key-value store, one JSON document. */
+/**
+ * Context optimization settings in the profile key-value store, one JSON document. Values outside the allowed ranges
+ * are brought into them on load, so an invalid stored value never discards the other settings.
+ */
 @ContributesBinding(ProfileScope::class)
 @Inject
 internal class KeyValueContextSettings(
@@ -24,31 +25,53 @@ internal class KeyValueContextSettings(
     private val log = Log.tag("KeyValueContextSettings")
     private val store by lazy { stores.keyValue(SPEC) }
 
-    override suspend fun load(): ContextOptimizationSettings? = store.get(KEY).also {
+    override suspend fun load(): ContextOptimizationSettings? = store.get(KEY)?.toSettings().also {
         log.v { "read context settings: stored=${it != null}" }
     }
 
     override suspend fun save(settings: ContextOptimizationSettings) {
         log.v { "write context settings" }
-        store.set(KEY, settings)
-    }
-
-    override suspend fun loadLedgers(): Map<SessionRef, ContextLedger> = store.get(LEDGERS).orEmpty()
-        .associate { it.session to it.ledger }
-        .also { log.v { "read ledgers: ${it.size}" } }
-
-    override suspend fun saveLedgers(ledgers: Map<SessionRef, ContextLedger>) {
-        log.v { "write ledgers: ${ledgers.size}" }
-        store.set(LEDGERS, ledgers.map { (session, ledger) -> StoredLedger(session, ledger) })
+        store.set(KEY, StoredSettings(settings))
     }
 
     private companion object {
         val SPEC = KeyValueSpec("context_optimization")
-        val KEY = jsonKey("settings", ContextOptimizationSettings.serializer())
-        val LEDGERS = jsonKey("ledgers", ListSerializer(StoredLedger.serializer()))
+        val KEY = jsonKey("settings", StoredSettings.serializer())
     }
 }
 
-/** One stored ledger; the ledger text is user data and never logged. */
+/** The stored form of [ContextOptimizationSettings]: the same JSON, read without its range checks. */
 @Serializable
-private data class StoredLedger(val session: SessionRef, val ledger: ContextLedger)
+internal data class StoredSettings(
+    val thresholdPercent: Int = ContextOptimizationSettings.DEFAULT_THRESHOLD_PERCENT,
+    val strategy: CompactionStrategy = CompactionStrategy.Auto,
+    val isAutoCompactionEnabled: Boolean = true,
+    val koogKeepRecentTurns: Int = ContextOptimizationSettings.DEFAULT_KEEP_RECENT_TURNS,
+    val koogToolStubChars: Int = ContextOptimizationSettings.DEFAULT_TOOL_STUB_CHARS,
+    val offloadThresholdChars: Int = ContextOptimizationSettings.DEFAULT_OFFLOAD_THRESHOLD_CHARS,
+    val isReasoningCollapsed: Boolean = false,
+    val isToolCallsCollapsed: Boolean = false,
+) {
+    constructor(settings: ContextOptimizationSettings) : this(
+        settings.thresholdPercent,
+        settings.strategy,
+        settings.isAutoCompactionEnabled,
+        settings.koogKeepRecentTurns,
+        settings.koogToolStubChars,
+        settings.offloadThresholdChars,
+        settings.isReasoningCollapsed,
+        settings.isToolCallsCollapsed,
+    )
+
+    /** The settings with every value brought into its allowed range. */
+    fun toSettings(): ContextOptimizationSettings = ContextOptimizationSettings(
+        thresholdPercent = thresholdPercent.coerceIn(ContextOptimizationSettings.THRESHOLD_RANGE),
+        strategy = strategy,
+        isAutoCompactionEnabled = isAutoCompactionEnabled,
+        koogKeepRecentTurns = koogKeepRecentTurns.coerceIn(ContextOptimizationSettings.KEEP_RECENT_TURNS_RANGE),
+        koogToolStubChars = koogToolStubChars.coerceIn(ContextOptimizationSettings.TOOL_STUB_CHARS_RANGE),
+        offloadThresholdChars = offloadThresholdChars.coerceIn(ContextOptimizationSettings.OFFLOAD_THRESHOLD_RANGE),
+        isReasoningCollapsed = isReasoningCollapsed,
+        isToolCallsCollapsed = isToolCallsCollapsed,
+    )
+}

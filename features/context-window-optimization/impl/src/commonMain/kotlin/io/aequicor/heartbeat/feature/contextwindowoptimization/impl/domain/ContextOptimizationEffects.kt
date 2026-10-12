@@ -11,66 +11,57 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlin.time.Clock
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.days
 
-/** Storage of the profile's context optimization settings and progress ledgers. */
+/** Storage of the profile's context optimization settings. */
 internal interface ContextSettingsStore {
     /** Stored settings, or null when nothing was saved. */
     suspend fun load(): ContextOptimizationSettings?
 
     /** Replaces the stored settings. */
     suspend fun save(settings: ContextOptimizationSettings)
+}
 
-    /** Stored ledgers by session. */
-    suspend fun loadLedgers(): Map<SessionRef, ContextLedger> = emptyMap()
+/** Storage of the progress ledgers, one record per session. */
+internal interface ContextLedgerStore {
+    /** Stored ledgers by session; a record that cannot be read is skipped and left untouched. */
+    suspend fun load(): Map<SessionRef, ContextLedger>
 
-    /** Replaces the stored ledgers. */
-    suspend fun saveLedgers(ledgers: Map<SessionRef, ContextLedger>) = Unit
+    /** Writes the ledger of [session] only. */
+    suspend fun save(session: SessionRef, ledger: ContextLedger)
+
+    /** Deletes the ledger of [session] only. */
+    suspend fun delete(session: SessionRef)
 }
 
 /**
  * Executes the effects of the context optimization machine; failures are mapped by the spec's `onEffectFailure`.
- * Saves run one at a time and a save older than the last written revision is dropped. Ledgers untouched for
- * [ledgerLifetime] are forgotten when the profile loads, and at most [MAX_LEDGERS] of the newest are kept.
+ * Settings and ledgers load independently: an unreadable one does not keep the other from loading. Saves run one at a
+ * time; a settings save older than the last written revision, and a ledger save older than the last written revision
+ * of its session, are dropped. Every ledger save writes only its session's record, so it never touches the others.
  */
 internal class ContextOptimizationEffects(
-    private val store: ContextSettingsStore,
-    private val clock: Clock = Clock.System,
-    private val ledgerLifetime: Duration = LEDGER_LIFETIME,
+    private val settings: ContextSettingsStore,
+    private val ledgers: ContextLedgerStore,
 ) : EffectHandler<ContextOptimizationEffect, ContextOptimizationIntent> {
     private val log = Log.tag("ContextOptimizationEffects")
     private val saving = Mutex()
     private var savedRevision = -1L
-    private var savedLedgerRevision = -1L
-
-    // Stored ledgers that could not be read are never overwritten by this run's ledgers.
-    private var isLedgerStoreUnreadable = false
+    private val savedLedgerRevisions = mutableMapOf<SessionRef, Long>()
 
     override suspend fun handle(effect: ContextOptimizationEffect, machine: EffectScope<ContextOptimizationIntent>) {
         when (effect) {
             ContextOptimizationEffect.Load -> {
-                val settings = store.load()
-                val stored = try {
-                    store.loadLedgers()
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    log.w(e) { "stored ledgers are unreadable; they are kept and not overwritten" }
-                    isLedgerStoreUnreadable = true
-                    emptyMap()
-                }
-                val ledgers = stored.recent()
-                log.i { "context settings loaded: stored=${settings != null} ledgers=${ledgers.size}/${stored.size}" }
-                machine.send(ContextOptimizationIntent.Internal.Loaded(settings, ledgers))
+                val stored = loadOrNull("settings") { settings.load() }
+                val ledgers = loadOrNull("ledgers") { ledgers.load() }.orEmpty()
+                log.i { "context settings loaded: stored=${stored != null} ledgers=${ledgers.size}" }
+                machine.send(ContextOptimizationIntent.Internal.Loaded(stored, ledgers))
             }
 
             is ContextOptimizationEffect.Save -> saving.withLock {
                 if (effect.revision <= savedRevision) {
                     log.d { "stale context settings save skipped: ${effect.revision} <= $savedRevision" }
                 } else {
-                    store.save(effect.settings)
+                    settings.save(effect.settings)
                     savedRevision = effect.revision
                     log.i {
                         "context settings saved: threshold=${effect.settings.thresholdPercent} " +
@@ -79,30 +70,26 @@ internal class ContextOptimizationEffects(
                 }
             }
 
-            is ContextOptimizationEffect.SaveLedgers -> saving.withLock {
-                if (isLedgerStoreUnreadable) {
-                    log.w { "ledger save skipped: the stored ledgers could not be read" }
-                } else if (effect.revision <= savedLedgerRevision) {
-                    log.d { "stale ledger save skipped: ${effect.revision} <= $savedLedgerRevision" }
+            is ContextOptimizationEffect.SaveLedger -> saving.withLock {
+                val saved = savedLedgerRevisions[effect.session] ?: -1L
+                if (effect.revision <= saved) {
+                    log.v { "stale ledger save skipped: ${effect.revision} <= $saved" }
                 } else {
-                    store.saveLedgers(effect.ledgers)
-                    savedLedgerRevision = effect.revision
-                    log.v { "ledgers saved: ${effect.ledgers.size}, revision ${effect.revision}" }
+                    val ledger = effect.ledger
+                    if (ledger == null) ledgers.delete(effect.session) else ledgers.save(effect.session, ledger)
+                    savedLedgerRevisions[effect.session] = effect.revision
+                    log.v { "ledger saved: deleted=${ledger == null} revision=${effect.revision}" }
                 }
             }
         }
     }
 
-    private fun Map<SessionRef, ContextLedger>.recent(): Map<SessionRef, ContextLedger> {
-        val oldest = clock.now() - ledgerLifetime
-        return entries.filter { it.value.updatedAt >= oldest }
-            .sortedByDescending { it.value.updatedAt }
-            .take(MAX_LEDGERS)
-            .associate { it.key to it.value }
-    }
-
-    private companion object {
-        val LEDGER_LIFETIME = 30.days
-        const val MAX_LEDGERS = 200
+    private suspend fun <T> loadOrNull(what: String, load: suspend () -> T): T? = try {
+        load()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e) { "stored context $what are unreadable; they are left as they are" }
+        null
     }
 }

@@ -5,24 +5,18 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.datastore.Expiry
-import io.aequicor.heartbeat.core.datastore.KeyValueSpec
+import io.aequicor.heartbeat.core.datastore.RecordRetentions
 import io.aequicor.heartbeat.core.datastore.Retention
-import io.aequicor.heartbeat.core.datastore.jsonKey
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
-import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /** A long tool output kept out of the context; its text is user data and never logged. */
-@Serializable
 internal data class StoredOutput(val session: SessionRef, val tool: String, val text: String) {
     override fun toString(): String = "StoredOutput(tool=$tool, chars=${text.length})"
 }
@@ -40,59 +34,56 @@ internal interface ContextOutputs {
 }
 
 /**
- * Offloaded outputs in the profile key-value store, one record each, kept for [LIFETIME]. The newest
- * [MAX_OUTPUTS] stay while together they hold at most [MAX_TOTAL_CHARS]; older ones are dropped first. One output
- * keeps at most [MAX_OUTPUT_CHARS].
+ * Offloaded outputs in the feature's profile database, one row each, kept for [LIFETIME]. The newest
+ * [MAX_OUTPUTS] stay while together they hold at most [MAX_TOTAL_CHARS]; older ones are dropped first, in the same
+ * transaction as the insert. One output keeps at most [MAX_OUTPUT_CHARS].
  */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
 @Inject
-internal class KeyValueContextOutputs(
+internal class RoomContextOutputs(
     @ForScope(ProfileScope::class) private val stores: DataStores,
+    private val retentions: RecordRetentions,
     private val clock: Clock,
 ) : ContextOutputs {
     private val log = Log.tag("ContextOutputs")
-    private val store by lazy { stores.keyValue(SPEC) }
-    private val lock = Mutex()
+    private val dao by lazy { stores.database(ContextOptimizationDatabaseSpec).outputs() }
 
-    override suspend fun put(output: StoredOutput): Stored = lock.withLock {
+    override suspend fun put(output: StoredOutput): Stored {
         val id = Uuid.random().toHexString().take(ID_LENGTH)
-        val kept = output.copy(text = output.text.take(MAX_OUTPUT_CHARS))
-        val now = clock.now()
-        store.set(entry(id), kept, Retention.expiring(Expiry.After(LIFETIME)))
-        val index = store.get(INDEX).orEmpty().filter { it.at > now - LIFETIME } + IndexEntry(id, kept.text.length, now)
-        val retained = index.retained()
-        (index - retained.toSet()).forEach { store.remove(entry(it.id)) }
-        store.set(INDEX, retained)
-        log.d { "offloaded a tool output: chars=${kept.text.length} stored=${retained.size}" }
-        Stored(id, kept.text.length)
+        val text = output.text.take(MAX_OUTPUT_CHARS)
+        val row = OutputEntity(
+            id = id,
+            session = Json.encodeToString(SessionRef.serializer(), output.session),
+            tool = output.tool,
+            text = text,
+            chars = text.length,
+            retention = retentions.stamp(Retention.expiring(Expiry.After(LIFETIME))),
+        )
+        val stored = dao.insertCapped(row, MAX_OUTPUTS, MAX_TOTAL_CHARS)
+        log.d { "offloaded a tool output: chars=${text.length} stored=$stored" }
+        return Stored(id, text.length)
     }
 
     override suspend fun get(id: String): StoredOutput? {
         log.v { "read an offloaded tool output" }
-        return if (id.length == ID_LENGTH && id.all { it.isLetterOrDigit() }) store.get(entry(id)) else null
+        val isValid = id.length == ID_LENGTH && id.all { it.isLetterOrDigit() }
+        return if (isValid) dao.get(id, clock.now().toEpochMilliseconds())?.decoded() else null
     }
 
-    private fun List<IndexEntry>.retained(): List<IndexEntry> {
-        var total = 0
-        return asReversed().takeWhile { entry ->
-            total += entry.chars
-            total <= MAX_TOTAL_CHARS
-        }.take(MAX_OUTPUTS).asReversed()
+    private fun OutputEntity.decoded(): StoredOutput? = try {
+        StoredOutput(Json.decodeFromString(SessionRef.serializer(), session), tool, text)
+    } catch (e: IllegalArgumentException) {
+        // Also a SerializationException: the stored session is not readable.
+        log.w(e) { "an offloaded tool output has an unreadable session" }
+        null
     }
-
-    private fun entry(id: String) = jsonKey("output.$id", StoredOutput.serializer())
-
-    @Serializable
-    private data class IndexEntry(val id: String, val chars: Int, val at: Instant)
 
     private companion object {
-        val SPEC = KeyValueSpec("context_offload")
-        val INDEX = jsonKey("index", ListSerializer(IndexEntry.serializer()))
         val LIFETIME = 7.days
         const val ID_LENGTH = 12
         const val MAX_OUTPUTS = 64
         const val MAX_OUTPUT_CHARS = 500_000
-        const val MAX_TOTAL_CHARS = 4_000_000
+        const val MAX_TOTAL_CHARS = 4_000_000L
     }
 }

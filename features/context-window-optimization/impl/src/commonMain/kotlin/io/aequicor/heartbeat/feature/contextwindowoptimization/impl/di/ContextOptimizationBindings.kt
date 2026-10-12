@@ -27,6 +27,7 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContinuationB
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.KoogMaskingEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.impl.data.ContextHandoffHook
 import io.aequicor.heartbeat.feature.contextwindowoptimization.impl.data.ContextLedgerHook
+import io.aequicor.heartbeat.feature.contextwindowoptimization.impl.domain.ContextLedgerStore
 import io.aequicor.heartbeat.feature.contextwindowoptimization.impl.domain.ContextOptimizationEffects
 import io.aequicor.heartbeat.feature.contextwindowoptimization.impl.domain.ContextOptimizationMachine
 import io.aequicor.heartbeat.feature.contextwindowoptimization.impl.domain.ContextSettingsStore
@@ -35,7 +36,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlin.time.Clock
 
 private val log = Log.tag("ContextOptimizationBindings")
 
@@ -52,10 +52,11 @@ object ContextOptimizationBindings {
         launcher: MachineLauncher,
         @ForScope(ProfileScope::class) scope: ScopeHandle,
         toggles: FeatureToggles,
-        store: ContextSettingsStore,
-        clock: Clock,
+        settings: ContextSettingsStore,
+        ledgers: ContextLedgerStore,
     ): ContextOptimizationMachine {
-        val machine = launcher.launch(ContextOptimizationMachineSpec, scope, ContextOptimizationEffects(store, clock))
+        val effects = ContextOptimizationEffects(settings, ledgers)
+        val machine = launcher.launch(ContextOptimizationMachineSpec, scope, effects)
         scope.coroutineScope.launch {
             // Storage stays untouched while the feature is off.
             toggles.observe(ContextOptimizationEnabled).first { it }

@@ -93,7 +93,10 @@ public sealed interface ContextOptimizationIntent : MachineIntent {
 
     /** Results of effects. */
     public sealed interface Internal : ContextOptimizationIntent {
-        /** Stored settings and ledgers were read; null settings when nothing was saved. */
+        /**
+         * Stored settings and ledgers were read, each independently: null settings when nothing was saved or they
+         * could not be read, no ledgers when they could not be read.
+         */
         public data class Loaded(
             val settings: ContextOptimizationSettings?,
             val ledgers: Map<SessionRef, ContextLedger> = emptyMap(),
@@ -115,8 +118,11 @@ public sealed interface ContextOptimizationEffect : MachineEffect {
     /** Writes [settings]; a save older than the last written [revision] is dropped. */
     public data class Save(val settings: ContextOptimizationSettings, val revision: Long) : ContextOptimizationEffect
 
-    /** Writes all [ledgers]; a save older than the last written [revision] is dropped. */
-    public data class SaveLedgers(val ledgers: Map<SessionRef, ContextLedger>, val revision: Long) :
+    /**
+     * Writes the ledger of [session] only, or deletes it when [ledger] is null; a save older than the last written
+     * [revision] of the session is dropped.
+     */
+    public data class SaveLedger(val session: SessionRef, val ledger: ContextLedger?, val revision: Long) :
         ContextOptimizationEffect
 }
 

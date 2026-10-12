@@ -1,15 +1,5 @@
 package io.aequicor.heartbeat.feature.contextwindowoptimization.impl.data
 
-import androidx.room.RoomDatabase
-import io.aequicor.heartbeat.core.datastore.DataEvent
-import io.aequicor.heartbeat.core.datastore.DataStores
-import io.aequicor.heartbeat.core.datastore.DatabaseSpec
-import io.aequicor.heartbeat.core.datastore.KeyValueSpec
-import io.aequicor.heartbeat.core.datastore.KeyValueStore
-import io.aequicor.heartbeat.core.datastore.Retention
-import io.aequicor.heartbeat.core.datastore.StorageOwner
-import io.aequicor.heartbeat.core.datastore.StoreKey
-import io.aequicor.heartbeat.core.datastore.StoreValueType
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
@@ -21,22 +11,18 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimi
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationState
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationTools
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationView
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlin.time.Clock
 
 class ContextOffloadTest {
-    private val outputs = KeyValueContextOutputs(MemoryStores(), Clock.System)
+    private val outputs = MemoryOutputs()
     private val view = object : ContextOptimizationView {
         override val state = MutableStateFlow<ContextOptimizationState>(
             ContextOptimizationState.Ready(ContextOptimizationSettings(offloadThresholdChars = 4_000)),
@@ -70,14 +56,6 @@ class ContextOffloadTest {
         assertTrue(foreign.isError)
     }
 
-    @Test
-    fun `the oldest outputs are dropped beyond the limit`() = runTest {
-        val first = outputs.put(StoredOutput(Session, "tool", "first")).id
-        repeat(64) { outputs.put(StoredOutput(Session, "tool", "next $it")) }
-
-        assertNull(outputs.get(first))
-    }
-
     private fun context(session: SessionRef) = AgentToolContext(session = session, workspace = null, turn = TurnId("t"))
 
     private fun arguments(id: String, offset: Int) =
@@ -91,35 +69,16 @@ class ContextOffloadTest {
         private fun <T : Any> enabled(): T = true as T
     }
 
-    private class MemoryStores : DataStores {
-        private val stores = mutableMapOf<KeyValueSpec, MemoryStore>()
-        override val owner = StorageOwner.App
-        override fun filesDirectory(name: String): String = error("unused")
-        override fun keyValue(spec: KeyValueSpec): KeyValueStore = stores.getOrPut(spec) { MemoryStore(spec) }
-        override fun <T : RoomDatabase> database(spec: DatabaseSpec<T>): T = error("unused")
-        override suspend fun fire(event: DataEvent) = Unit
-    }
+    private class MemoryOutputs : ContextOutputs {
+        private val stored = mutableMapOf<String, StoredOutput>()
 
-    private class MemoryStore(override val spec: KeyValueSpec) : KeyValueStore {
-        private val values = MutableStateFlow(emptyMap<String, String>())
-        override fun <T : Any> observe(key: StoreKey<T>): Flow<T?> = values.map { decode(key, it[key.name]) }
-        override suspend fun <T : Any> get(key: StoreKey<T>): T? = decode(key, values.value[key.name])
-        override suspend fun <T : Any> set(key: StoreKey<T>, value: T, retention: Retention) {
-            val json = key.type as StoreValueType.Json<T>
-            values.value += key.name to Json.encodeToString(json.serializer, value)
+        override suspend fun put(output: StoredOutput): Stored {
+            val id = "out${stored.size}"
+            stored[id] = output
+            return Stored(id, output.text.length)
         }
 
-        override suspend fun remove(key: StoreKey<*>) {
-            values.value -= key.name
-        }
-
-        override suspend fun clear() {
-            values.value = emptyMap()
-        }
-
-        @Suppress("UNCHECKED_CAST") // Every key of the offload store is JSON.
-        private fun <T : Any> decode(key: StoreKey<T>, value: String?): T? =
-            value?.let { Json.decodeFromString((key.type as StoreValueType.Json<T>).serializer, it) }
+        override suspend fun get(id: String): StoredOutput? = stored[id]
     }
 
     private companion object {

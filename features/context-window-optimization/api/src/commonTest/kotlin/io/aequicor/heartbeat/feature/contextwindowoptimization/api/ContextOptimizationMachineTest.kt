@@ -135,19 +135,22 @@ class ContextOptimizationMachineTest {
             from = Ready(),
             intent = Public.UpdateLedger(Session, LedgerUpdate(goal = "Fix issues", done = listOf("#1")), at),
             to = Ready(ledgers = mapOf(Session to ledger), ledgerRevision = 1),
-            effects = listOf(ContextOptimizationEffect.SaveLedgers(mapOf(Session to ledger), 1)),
+            effects = listOf(ContextOptimizationEffect.SaveLedger(Session, ledger, 1)),
         )
         spec.assertTransition(
             from = Ready(ledgers = mapOf(Session to ledger), ledgerRevision = 1),
             intent = Public.RolledOver(Session, Next),
             to = Ready(ledgers = mapOf(Next to ledger), ledgerRevision = 2),
-            effects = listOf(ContextOptimizationEffect.SaveLedgers(mapOf(Next to ledger), 2)),
+            effects = listOf(
+                ContextOptimizationEffect.SaveLedger(Session, null, 2),
+                ContextOptimizationEffect.SaveLedger(Next, ledger, 2),
+            ),
         )
         spec.assertTransition(
             from = Ready(ledgers = mapOf(Session to ledger), ledgerRevision = 1),
             intent = Public.SessionClosed(Session),
             to = Ready(ledgerRevision = 2),
-            effects = listOf(ContextOptimizationEffect.SaveLedgers(emptyMap(), 2)),
+            effects = listOf(ContextOptimizationEffect.SaveLedger(Session, null, 2)),
         )
     }
 
