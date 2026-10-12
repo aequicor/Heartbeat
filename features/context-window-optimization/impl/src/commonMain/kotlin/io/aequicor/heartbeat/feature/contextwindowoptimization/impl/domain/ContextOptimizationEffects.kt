@@ -38,6 +38,7 @@ internal interface ContextLedgerStore {
  * Settings and ledgers load independently: an unreadable one does not keep the other from loading. Saves run one at a
  * time; a settings save older than the last written revision, and a ledger save older than the last written revision
  * of its session, are dropped. Every ledger save writes only its session's record, so it never touches the others.
+ * When the stored ledgers could not be read at all, ledger saves of this run are skipped rather than replace them.
  */
 internal class ContextOptimizationEffects(
     private val settings: ContextSettingsStore,
@@ -50,6 +51,7 @@ internal class ContextOptimizationEffects(
 
     // When the stored ledgers could not be read at all, this run never replaces them with its own.
     private var isLedgerStoreUnreadable = false
+    private var isSkipReported = false
 
     override suspend fun handle(effect: ContextOptimizationEffect, machine: EffectScope<ContextOptimizationIntent>) {
         when (effect) {
@@ -75,19 +77,31 @@ internal class ContextOptimizationEffects(
                 }
             }
 
-            is ContextOptimizationEffect.SaveLedger -> saving.withLock {
-                val saved = savedLedgerRevisions[effect.session] ?: -1L
-                if (isLedgerStoreUnreadable) {
-                    log.w { "ledger save skipped: the stored ledgers could not be read" }
-                } else if (effect.revision <= saved) {
-                    log.v { "stale ledger save skipped: ${effect.revision} <= $saved" }
-                } else {
-                    val ledger = effect.ledger
-                    if (ledger == null) ledgers.delete(effect.session) else ledgers.save(effect.session, ledger)
-                    savedLedgerRevisions[effect.session] = effect.revision
-                    log.v { "ledger saved: deleted=${ledger == null} revision=${effect.revision}" }
-                }
-            }
+            is ContextOptimizationEffect.SaveLedger -> saving.withLock { saveLedger(effect) }
+        }
+    }
+
+    private suspend fun saveLedger(effect: ContextOptimizationEffect.SaveLedger) {
+        val saved = savedLedgerRevisions[effect.session] ?: -1L
+        if (isLedgerStoreUnreadable) {
+            reportSkippedSave()
+        } else if (effect.revision <= saved) {
+            log.v { "stale ledger save skipped: ${effect.revision} <= $saved" }
+        } else {
+            val ledger = effect.ledger
+            if (ledger == null) ledgers.delete(effect.session) else ledgers.save(effect.session, ledger)
+            savedLedgerRevisions[effect.session] = effect.revision
+            log.v { "ledger saved: deleted=${ledger == null} revision=${effect.revision}" }
+        }
+    }
+
+    // The load failure itself is logged with its cause; only the first skipped save is reported again.
+    private fun reportSkippedSave() {
+        if (isSkipReported) {
+            log.v { "ledger save skipped: the stored ledgers could not be read" }
+        } else {
+            isSkipReported = true
+            log.w { "ledger saves are skipped: the stored ledgers could not be read" }
         }
     }
 

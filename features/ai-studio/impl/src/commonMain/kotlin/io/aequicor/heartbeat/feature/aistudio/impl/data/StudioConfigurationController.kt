@@ -164,8 +164,9 @@ internal class StudioConfigurationController(
             } else {
                 applyIdle(access, session, selected, actual, nativeChange)
             }
-            val isChatTrustKept = keepsChatTrust(id, session, nativeChange)
-            if (isChatTrustKept) actual = actual.copy(trust = stored.trust)
+            // Without a stored configuration the chat has no trust of its own to keep.
+            val isStored = record.configuration != null
+            if (isStored && keepsChatTrust(id, session, nativeChange)) actual = actual.copy(trust = stored.trust)
             val confirmedTarget = target.copy(model = actual.model)
             val settings = actual.studio(confirmedTarget)
             // Reflect the native acknowledgement even if persisting the preference subsequently fails.
@@ -173,7 +174,9 @@ internal class StudioConfigurationController(
             publish(report.copy(revision = 1, outcome = FeedbackOutcome.Applied(actual)))
             persist(access, id, settings)
             val native = capability?.configuration?.value ?: actual
-            val latest = if (isChatTrustKept) native.copy(trust = stored.trust) else native
+            // Checked again: the session may have been retired while the change was persisted.
+            val isTrustKept = isStored && keepsChatTrust(id, session, nativeChange)
+            val latest = if (isTrustKept) native.copy(trust = stored.trust) else native
             val latestTarget = target.copy(model = latest.model)
             observe(access, id, session, confirmedTarget)
             latest.studio(latestTarget)

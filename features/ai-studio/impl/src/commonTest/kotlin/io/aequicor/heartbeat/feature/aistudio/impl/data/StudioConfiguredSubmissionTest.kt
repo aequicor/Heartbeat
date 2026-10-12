@@ -95,6 +95,7 @@ class StudioConfiguredSubmissionTest {
 
         assertEquals(ApprovalMode.AutoEdits, fixture.storedApproval())
         assertEquals("high", fixture.access.records.getValue("chat").configuration?.reasoningEffort)
+        assertEquals(ApprovalMode.AutoEdits, fixture.access.states.getValue("chat").applied?.approval)
     }
 
     @Test
