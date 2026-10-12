@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.researchchat.impl.data
 
+import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ForScope
@@ -21,6 +22,7 @@ import io.aequicor.heartbeat.feature.researchchat.api.ResearchLoadState
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchRecoveryAction
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResource
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceKind
+import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchSourceRecovery
 import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchStorage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
@@ -47,6 +49,7 @@ import kotlin.uuid.Uuid
  * unlocked.
  */
 @SingleIn(ProfileScope::class)
+@ContributesBinding(ProfileScope::class)
 @Inject
 internal class ResearchBrowserRecovery(
     private val storage: ResearchStorage,
@@ -54,7 +57,7 @@ internal class ResearchBrowserRecovery(
     private val toggles: FeatureToggles,
     private val attachments: io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchAttachments,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
-) {
+) : ResearchSourceRecovery {
     private val log = Log.tag("ResearchBrowserRecovery")
 
     private val lock = Mutex()
@@ -87,7 +90,7 @@ internal class ResearchBrowserRecovery(
      * Persisted native identifiers are invalid after process restart; resuming always requires a
      * new click.
      */
-    suspend fun restore() = lock.withLock {
+    override suspend fun restore() = lock.withLock {
         if (isRestored) return@withLock
         storage.read().forEach { session ->
             storage.update(session.id) { current ->
@@ -113,7 +116,7 @@ internal class ResearchBrowserRecovery(
         isRestored = true
     }
 
-    suspend fun recover(sessionId: String, resourceId: String, action: ResearchRecoveryAction) {
+    override suspend fun recover(sessionId: String, resourceId: String, action: ResearchRecoveryAction) {
         val key = sessionId to resourceId
         val resourceLock = lock.withLock { resourceLocks.getOrPut(key) { Mutex() } }
         if (action == ResearchRecoveryAction.Cancel) {

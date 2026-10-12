@@ -49,8 +49,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import io.aequicor.heartbeat.feature.researchchat.api.ResearchRecoveryAction
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchSession
 import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchAttachments
+import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchSourceRecovery
 import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchStorage
 import io.aequicor.heartbeat.feature.searchengine.api.ResourceContent
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
@@ -126,7 +128,12 @@ internal class ResearchExecutionFixture(
         override val isClosed = false
         override fun onClose(action: () -> Unit): DisposableHandle = DisposableHandle { }
     }
-    val repository = ProfileResearchRepository(storage, facade, search, toggles, profile, attachments)
+    private val recovery = object : ResearchSourceRecovery {
+        override suspend fun restore() = Unit
+        override suspend fun recover(sessionId: String, resourceId: String, action: ResearchRecoveryAction): Unit =
+            error("Unexpected browser recovery in execution fixture")
+    }
+    val repository = ProfileResearchRepository(storage, facade, search, toggles, profile, attachments, recovery)
 }
 
 internal class ExecutionStorage : ResearchStorage {
