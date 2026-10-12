@@ -132,6 +132,14 @@ lint/            detekt-rules — собственный набор правил
 > Агентские задания сохраняют чат и квитанцию принятого хода. `RestoresSessionTurns` в Pi/Codex делает свежую
 > проверку движка: совпавший ход наблюдается, подтверждённо свободный чат получает recovery-ход с историей,
 > неопределённый исход остаётся ожидающим восстановления. Текст ответа не определяет успех.
+> `features:context-window-optimization:{api,impl}` — оптимизация контекстного окна (тогл `context_optimization.enabled`,
+> по умолчанию false): сжатие как ход через `CompactsContext` (`facade:api`; Codex `thread/compact/start`, Pi RPC `compact`,
+> Claude `/compact`, Koog — своя выжимка с границей контекста), `/compact` и кнопка в индикаторе контекста ai-studio,
+> автосжатие между ходами по порогу (`.auto_compaction`, гистерезис и эскалация native → rollover в `decideCompaction`),
+> rollover — продолжение чата в новой сессии с выжимкой (`.rollover`, замороженные сегменты ленты), журнал прогресса,
+> переживающий сжатие, и инструменты `context_status`/`context_checkpoint`/`context_compact` (`.ledger_tools`),
+> маскирование старых результатов инструментов в промпте Koog (`.koog_masking`), выгрузка длинных выводов с
+> `context_recall` (`.offload`), раздел настроек «Контекст» и сворачивание размышлений/инструментов в ленте.
 > `features:checklist:{api,impl}` — встроенные карточки с чекбоксами, одним выбором и текстом
 > (`checklist.enabled`, по умолчанию false). `checklist_create`/`checklist_get` создают и читают карточки;
 > ответы вводит пользователь. Атомарный профильный журнал сохраняет черновики и outbox; события и ACK идут
