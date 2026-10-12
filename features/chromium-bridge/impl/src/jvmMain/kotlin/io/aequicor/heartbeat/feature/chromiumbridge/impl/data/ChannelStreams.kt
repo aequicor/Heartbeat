@@ -1,9 +1,11 @@
 package io.aequicor.heartbeat.feature.chromiumbridge.impl.data
 
+import java.io.Closeable
 import java.io.InputStream
 import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.nio.channels.ReadableByteChannel
+import java.nio.channels.SocketChannel
 import java.nio.channels.WritableByteChannel
 
 /**
@@ -40,6 +42,25 @@ internal class ChannelOutputStream(private val channel: WritableByteChannel) : O
         val bytes = ByteBuffer.wrap(buffer, offset, length)
         while (bytes.hasRemaining()) channel.write(bytes)
     }
+
+    override fun close() {
+        channel.close()
+    }
+}
+
+/** A bidirectional framed connection: the app socket seen from the host, or a host seen from the app. */
+internal interface FrameLink : Closeable {
+    /** Incoming frames. */
+    val input: InputStream
+
+    /** Outgoing frames; writers serialize on the link. */
+    val output: OutputStream
+}
+
+/** [FrameLink] over a connected socket channel. */
+internal class SocketFrameLink(private val channel: SocketChannel) : FrameLink {
+    override val input: InputStream = ChannelInputStream(channel)
+    override val output: OutputStream = ChannelOutputStream(channel)
 
     override fun close() {
         channel.close()

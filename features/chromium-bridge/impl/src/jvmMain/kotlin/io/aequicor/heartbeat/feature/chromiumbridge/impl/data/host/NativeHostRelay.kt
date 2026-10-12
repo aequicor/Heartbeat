@@ -2,12 +2,12 @@ package io.aequicor.heartbeat.feature.chromiumbridge.impl.data.host
 
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.FrameLink
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.NativeFraming
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeFrame
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeProtocol
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.HostState
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.encodeFrame
-import java.io.Closeable
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -15,22 +15,13 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
-/** A live connection from the host to the app socket. */
-internal interface AppLink : Closeable {
-    /** Frames from the app. */
-    val input: InputStream
-
-    /** Frames to the app. */
-    val output: OutputStream
-}
-
 /** Chrome's end of standard output is closed; ends the host instead of the current app link. */
 internal class BrowserGoneException(cause: IOException) : IOException("Browser output closed", cause)
 
-/** Opens [AppLink]s; `null` while Heartbeat is not listening. */
+/** Opens links to the app socket; `null` while Heartbeat is not listening. */
 internal fun interface AppConnector {
     /** @throws IOException when a socket exists but refuses the connection (stale after a crash). */
-    fun connect(): AppLink?
+    fun connect(): FrameLink?
 }
 
 /**
@@ -48,7 +39,7 @@ internal class NativeHostRelay(
 ) {
     private val stopped = CountDownLatch(1)
     private val lock = Any()
-    private var link: AppLink? = null
+    private var link: FrameLink? = null
 
     private val isStopped: Boolean get() = stopped.count == 0L
 
@@ -95,7 +86,7 @@ internal class NativeHostRelay(
         }
     }
 
-    private fun serve(connected: AppLink) {
+    private fun serve(connected: FrameLink) {
         try {
             val hello = BridgeFrame.Host(origin = origin, hostVersion = HOST_VERSION)
             NativeFraming.write(connected.output, encodeFrame(hello))
@@ -117,7 +108,7 @@ internal class NativeHostRelay(
         log.i { "Chromium host disconnected from Heartbeat" }
     }
 
-    private fun pumpApp(connected: AppLink) {
+    private fun pumpApp(connected: FrameLink) {
         while (true) {
             val frame = NativeFraming.read(connected.input, BridgeProtocol.MAX_FROM_BROWSER_BYTES) ?: return
             if (frame.size > BridgeProtocol.MAX_TO_BROWSER_BYTES) {
