@@ -194,6 +194,8 @@ def arguments() -> argparse.Namespace:
     parser.add_argument("--scales", default="native,1,1.5,2", help="Native OS scale plus forced Chromium scale factors")
     parser.add_argument("--phase-timeout", type=float, default=240)
     parser.add_argument("--compile-only", action="store_true", help="Compile patched Java API usage without native startup")
+    parser.add_argument("--anchor-close-only", action="store_true",
+                        help="Run only the focused persistent-context teardown phase, without storage/visual phases")
     return parser.parse_args()
 
 
@@ -212,12 +214,16 @@ def main() -> int:
         command = [args.javac, "--release", "21", "-encoding", "UTF-8", "-classpath",
                    os.pathsep.join(map(str, classpath)), "-d", str(classes),
                    str(sources / "ProbeJson.java"), str(sources / "ProbeDownload.java"),
-                   str(sources / "SessionProbe.java")]
+                   str(sources / "SessionProbe.java"), str(sources / "DevToolsClientProbe.java")]
         with (output / "compile.log").open("wb") as log:
             subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=90)
         if args.compile_only:
             summary.update(passed=True, compileOnly=True, nativeExecuted=False)
             return 0
+        launch([args.java, "-Djava.awt.headless=true", "-classpath",
+                os.pathsep.join(map(str, [classes, *classpath])), "org.cef.browser.DevToolsClientProbe"],
+               output / "devtools-client.log", 30, os.environ.copy())
+        summary["devToolsCallbackOrdersPassed"] = True
         layout = native_layout(args.native_dir)
         summary["nativeLibrarySha256"] = sha256(layout["library"])
         profiles = output / "profiles"
@@ -233,7 +239,8 @@ def main() -> int:
         summary["origin"] = origin
         seed = uuid.uuid4().hex
         marker_a, marker_b, marker_next = seed + "-a", seed + "-b", seed + "-after-clear"
-        phases = [("write", "write", marker_a), ("restart", "read", marker_a),
+        phases = [("anchor-close", "anchor-close", "EMPTY"),
+                  ("write", "write", marker_a), ("restart", "read", marker_a),
                   ("clear", "clear", marker_a), ("restart-after-clear", "read", marker_next),
                   ("delete", "delete", marker_next), ("restart-after-delete", "read", "EMPTY"),
                   ("visibility-close", "visibility-close", "EMPTY")]
@@ -242,6 +249,9 @@ def main() -> int:
             if scale != "native" and not 0.5 <= float(scale) <= 4:
                 raise ValueError("Scale must be native or a number from 0.5 to 4")
             phases.append(("visual-" + scale, "visual", "EMPTY"))
+        if args.anchor_close_only:
+            phases = [("anchor-close", "anchor-close", "EMPTY")]
+            summary["focusedPhase"] = "anchor-close"
         env = os.environ.copy()
         env["PATH"] = str(args.native_dir.resolve()) + os.pathsep + env.get("PATH", "")
         try:
@@ -269,7 +279,7 @@ def main() -> int:
             server.shutdown()
             server.server_close()
             worker.join(timeout=10)
-        expected_deletions = ["/clear-profile", "/delete-profile"]
+        expected_deletions = [] if args.anchor_close_only else ["/clear-profile", "/delete-profile"]
         if [event["operation"] for event in summary["deletions"]] != expected_deletions:
             raise AssertionError("Not every required deletion was exercised")
         if any(not event["passed"] for event in summary["deletions"]):

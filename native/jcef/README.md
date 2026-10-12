@@ -25,6 +25,10 @@ browser reference when the view has already been removed.
 Content-view destruction removes a snapshot of its children before detaching
 itself from its last owner; no access to `self` follows `removeFromSuperview`.
 This path also runs during deallocation, so it must not resurrect the view.
+The Java DevTools client also retains early method results until the native
+message ID reaches the caller. Closing it fails both operations waiting for an
+ID and operations waiting for a response; late callbacks cannot recreate them.
+Deterministic fake-browser tests exercise both callback orders without JNI.
 
 The patch exposes all five CEF request-context settings and independently owned
 Java wrappers sharing a profile context. Each browser needs its own wrapper:
