@@ -108,6 +108,26 @@ jobs:
           --extra-classpath build/jcef-source/third_party/jogamp/jar/jogl-all.jar
           --extra-classpath build/jcef-source/third_party/jogamp/jar/gluegen-rt.jar
           --output build/jcef-verification
+      - name: Preserve macOS native crash evidence
+        if: failure() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p build/jcef-verification/macos-crashes
+          # SIGTRAP can terminate below the JVM fatal handler, leaving no hs_err.
+          # Allow CrashReporter to finish its asynchronous report, without retrying the probe.
+          sleep 5
+          for directory in "$HOME/Library/Logs/DiagnosticReports" /Library/Logs/DiagnosticReports; do
+            if [ -d "$directory" ]; then
+              find "$directory" -type f \( -name '*.ips' -o -name '*.crash' -o -name '*.diag' \) \
+                -mmin -120 -exec cp {} build/jcef-verification/macos-crashes/ \; 2>/dev/null || true
+            fi
+          done
+          /usr/bin/log show --last 20m --style compact \
+            --predicate 'process == "java" OR process == "ReportCrash" OR process == "diagnosticd" OR process CONTAINS[c] "jcef" OR process CONTAINS[c] "Chromium"' \
+            > build/jcef-verification/macos-crashes/system.log 2>&1 || true
+          find build/jcef-source -type f -name debug.log \
+            -exec cp {} build/jcef-verification/macos-crashes/ \; 2>/dev/null || true
+          ls -lah build/jcef-verification/macos-crashes
       - name: Native verification reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -117,6 +137,7 @@ jobs:
             build/jcef-verification/*.json
             build/jcef-verification/*.log
             build/jcef-verification/*.png
+            build/jcef-verification/macos-crashes/**
           if-no-files-found: warn
       - name: Native build diagnostics
         if: failure()
