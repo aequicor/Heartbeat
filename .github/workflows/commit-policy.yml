@@ -2,7 +2,7 @@ name: Commit policy
 
 # Mandatory for every PR, drafts included: no path filter and no skip condition, since a skipped job reports success
 # over an earlier failure. `edited` reruns it for a changed base branch; `ready_for_review` cannot change the verdict.
-# Tests of the checker itself run in scripts.yml, only when the scripts change.
+# Tests of the checker itself run in scripts.yml, only when scripts/ or what they exercise change.
 on:
   pull_request:
     types: [opened, synchronize, reopened, edited]

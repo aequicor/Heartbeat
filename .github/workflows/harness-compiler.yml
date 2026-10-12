@@ -2,8 +2,10 @@ name: Packaged harness compiler
 
 # Builds the release app image and probes its harness compiler on macOS and Windows: tens of runner minutes per run.
 # It runs only for ready PRs whose diff can change the packaged compiler — harness sources (not tests, resources or
-# UI), the desktop app, its runtime classpath, dependency versions and build logic. Drafts skip it until ready.
-# The PR run already builds the merge with master, so master pushes do not repeat it; workflow_dispatch reruns it.
+# UI), the APIs on the script classpath (ai-engine facade, scheduler), the desktop app and its build classpath,
+# dependency versions and build logic. Drafts skip it until ready.
+# A PR run checks its merge with master as of its last push; master pushes do not repeat it, so a run after risky
+# merges is a manual workflow_dispatch at the user's request.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -14,9 +16,17 @@ on:
       - '!features/harness/impl/schemas/**'
       - '!features/harness/impl/src/commonMain/kotlin/**/presentation/**'
       - '!features/harness/impl/src/commonMain/kotlin/**/ui/**'
+      - 'features/ai-engine/facade/api/build.gradle.kts'
+      - 'features/ai-engine/facade/api/src/commonMain/**'
+      - 'features/scheduler/api/build.gradle.kts'
+      - 'features/scheduler/api/src/commonMain/**'
       - 'platform-main/desktop/**'
       - '!platform-main/desktop/src/test/**'
       - 'platform-main/di-bundle/build.gradle.kts'
+      - 'platform-main/shared/build.gradle.kts'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle.properties'
       - 'gradle/**'
       - 'build-logic/**'
       - '.github/workflows/harness-compiler.yml'
@@ -52,7 +62,7 @@ jobs:
       - name: Probe the release app image
         shell: bash
         run: ./gradlew :platform-main:desktop:verifyReleaseHarnessCompiler --stacktrace
-      - name: Detect harness sources of the mobile hosts
+      - name: Detect changes to the mobile host compilation
         id: mobile
         if: runner.os == 'macOS'
         shell: bash
@@ -60,7 +70,8 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" != pull_request ] || ! git diff --quiet HEAD^1 HEAD -- \
             features/harness/api/build.gradle.kts features/harness/api/src/commonMain \
             features/harness/impl/build.gradle.kts features/harness/impl/src/commonMain \
-            features/harness/impl/src/androidMain features/harness/impl/src/iosMain; then
+            features/harness/impl/src/androidMain features/harness/impl/src/iosMain \
+            gradle build-logic .github/workflows/harness-compiler.yml; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
       - name: Compile the unsupported mobile hosts
