@@ -16,12 +16,13 @@ def main():
     parser.add_argument("--artifacts", type=Path, required=True)
     parser.add_argument("--repository", required=True)
     parser.add_argument("--commit", required=True)
+    parser.add_argument("--version", default="152.0.6-hb1", help="Exact release approved for this workflow")
     options = parser.parse_args()
     directory = options.artifacts.resolve()
     lock = json.loads((directory / "source-lock.json").read_text())
     version = lock["artifactVersion"]
     targets = {"windows-amd64", "windows-arm64", "macosx-amd64", "macosx-arm64"}
-    if version != "152.0.6-hb1" or set(lock["nativeArtifacts"]) != targets:
+    if version != options.version or set(lock["nativeArtifacts"]) != targets:
         raise ValueError("Unexpected release version or native targets")
     for artifact in [lock["apiArtifact"], *lock["nativeArtifacts"].values()]:
         if Path(artifact["file"]).name != artifact["file"]:

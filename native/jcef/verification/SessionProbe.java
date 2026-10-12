@@ -150,6 +150,7 @@ public final class SessionProbe {
             case "read" -> read();
             case "clear", "delete" -> removeProfile(required("mode"));
             case "visual" -> visual();
+            case "visibility-close" -> visibilityClose();
             default -> throw new IllegalArgumentException("Unknown mode");
         }
     }
@@ -292,6 +293,26 @@ public final class SessionProbe {
         passed("screenshot-and-native-input", Map.of("geometry", geometry, "awtScale", awtScale,
             "pngWidth", image.getWidth(), "pngHeight", image.getHeight(),
             "scaleMode", arguments.getOrDefault("scale", "native")));
+    }
+
+    private void visibilityClose() throws Exception {
+        final int iterations = 20;
+        final int visibilityPairs = 64;
+        Anchor anchor = anchor("profile-visibility");
+        Tab survivor = tab(anchor, "visibility-survivor");
+        survivor.evaluate("window.visibilitySentinel = 'retained'");
+        for (int index = 0; index < iterations; index++) {
+            Tab closing = tab(anchor, "visibility-closing-" + index);
+            closing.closeWithPendingVisibility(visibilityPairs);
+            require("retained".equals(survivor.evaluate("window.visibilitySentinel")),
+                "Closing another native view disturbed the surviving tab");
+            require(remainingClients() == 1, "Closed tab retained a native client in iteration " + index);
+            passed("visibility-close-iteration", Map.of("iteration", index, "visibilityPairs", visibilityPairs));
+        }
+        survivor.close();
+        anchor.close();
+        require(remainingClients() == 0, "Visibility stress leaked clients");
+        passed("queued-visibility-close-lifecycle", Map.of("freshTabs", iterations, "survivingTabs", 1));
     }
 
     private void close() throws Exception {
@@ -440,6 +461,26 @@ public final class SessionProbe {
             }
             await(closed, "browser onBeforeClose");
             onEdt(() -> { frame.dispose(); return null; });
+        }
+
+        void closeWithPendingVisibility(int pairs) throws Exception {
+            assertSingleCreation();
+            onEdt(() -> {
+                // No AppKit/CEF queue barrier: exercise visibility callbacks already queued when
+                // forced close destroys their NSView, then calls queued while close is pending.
+                for (int index = 0; index < pairs; index++) {
+                    browser.setWindowVisibility(false);
+                    browser.setWindowVisibility(true);
+                }
+                closeRequested = true;
+                browser.close(true);
+                for (int index = 0; index < pairs; index++) {
+                    browser.setWindowVisibility(true);
+                    browser.setWindowVisibility(false);
+                }
+                return null;
+            });
+            close();
         }
     }
 

@@ -1,5 +1,7 @@
 Patched JCEF 152.0.6 for Heartbeat: persistent request-context settings, shared
 profile ownership, cookie flush and asynchronous disposal completion.
+The hb2 revision also fixes macOS queued visibility updates retaining destroyed
+NSView pointers: tasks now retain the browser and validate its view on CEF UI.
 
 The five matching Java/native jars cover Windows and macOS on x64 and ARM64.
 `source-lock.json` identifies the exact upstream JCEF commit, CEF version, patch
@@ -9,7 +11,7 @@ the collected build outputs. Reproduction commands and packaging layout are in
 
 The publishing job requires successful native probes on all four architectures:
 cross-process cookies/localStorage/IndexedDB persistence, sibling-tab ownership,
-profile isolation, clear/delete and screenshot/input checks. CI retains the probe
+profile isolation, clear/delete, visibility/close stress and screenshot/input checks. CI retains the probe
 reports. These standalone native tests do not replace Heartbeat Compose UI tests.
 
 This release is created as a draft for inspection. Existing assets are never

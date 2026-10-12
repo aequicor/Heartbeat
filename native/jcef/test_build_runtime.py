@@ -24,6 +24,27 @@ class RuntimePackagingTest(unittest.TestCase):
         path.write_bytes(data)
         return path
 
+    def test_candidate_inputs_use_separate_version_cache_and_native_resource(self):
+        previous = {name: getattr(runtime, name) for name in
+                    ("SOURCE_LOCK", "PATCH_FILE", "VERSION", "RELEASE_TAG")}
+        self.addCleanup(lambda: [setattr(runtime, name, value) for name, value in previous.items()])
+        old_key = runtime.cache_key()
+        canonical_bytes = runtime.SOURCE_LOCK.read_bytes()
+        runtime.select_inputs(runtime.HERE / "source-lock-hb2.json",
+                              runtime.HERE / "request-context-settings-hb2.patch")
+        self.assertEqual("152.0.6-hb2", runtime.VERSION)
+        self.assertTrue(runtime.RELEASE_TAG.endswith("+heartbeat-hb2"))
+        self.assertNotEqual(old_key, runtime.cache_key())
+        self.assertEqual({}, runtime.lock()["nativeArtifacts"])
+        self.assertEqual(canonical_bytes, previous["SOURCE_LOCK"].read_bytes())
+
+    def test_candidate_rejects_patch_mismatch_without_changing_active_inputs(self):
+        previous = runtime.SOURCE_LOCK
+        with self.assertRaisesRegex(ValueError, "differs from selected source lock"):
+            runtime.select_inputs(runtime.HERE / "source-lock-hb2.json",
+                                  runtime.HERE / "request-context-settings.patch")
+        self.assertEqual(previous, runtime.SOURCE_LOCK)
+
     def test_windows_archive_matches_jcefmaven_resource_and_is_reproducible(self):
         source = self.root / "source"
         for name in ["jcef.dll", "libcef.dll", "jcef_helper.exe", "icudtl.dat", "resources.pak", "locales/en-US.pak"]:

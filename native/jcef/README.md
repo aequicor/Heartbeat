@@ -4,6 +4,22 @@ Heartbeat builds Java-CEF `17e805ad387d89839fdd2b864466b6510b2a783c` with CEF
 `152.0.6+g708dc14+chromium-152.0.7977.83`. `source-lock.json` pins the source and
 SHA-256 of `request-context-settings.patch`. Upstream files retain their BSD license.
 
+The workflow currently stages **152.0.6-hb2** using `source-lock-hb2.json` and
+`request-context-settings-hb2.patch`. The canonical lock and application stay on
+the published hb1 until hb2 passes all native probes and its immutable artifacts
+are published. Pass `--source-lock native/jcef/source-lock-hb2.json --patch
+native/jcef/request-context-settings-hb2.patch` to every `build_runtime.py`
+command to reproduce the candidate. Its jars, archive resource tags and draft
+release all use hb2; source inputs create an independent native build cache.
+
+hb2 fixes a confirmed macOS use-after-free in queued visibility updates. The old
+AppKit selector retained a raw NSView pointer after browser destruction. The new
+CEF UI task owns a `CefRefPtr<CefBrowser>`, checks browser validity and the native
+view registry on that thread, and resolves the window handle only then. Forced
+close removes the view before `OnBeforeClose`, so the registry check is required
+in addition to `IsValid()`. A separate native process stresses visibility changes
+and immediate close across twenty new tabs before checking profile disposal.
+
 The patch exposes all five CEF request-context settings and independently owned
 Java wrappers sharing a profile context. Each browser needs its own wrapper:
 closing a browser disposes that wrapper. Close every browser first, then call

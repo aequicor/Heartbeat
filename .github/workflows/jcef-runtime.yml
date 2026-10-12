@@ -52,7 +52,7 @@ jobs:
         run: python -m unittest discover -s native/jcef -p "test_*.py" -v
       - name: Compute immutable source identity
         id: native-inputs
-        run: python native/jcef/build_runtime.py cache-key
+        run: python native/jcef/build_runtime.py --source-lock native/jcef/source-lock-hb2.json --patch native/jcef/request-context-settings-hb2.patch cache-key
       - name: Restore matching native build
         id: native-cache
         uses: actions/cache/restore@v4
@@ -67,7 +67,7 @@ jobs:
         run: brew install ninja ant
       - name: Check out and patch locked JCEF sources
         if: steps.native-cache.outputs.cache-hit != 'true'
-        run: python native/jcef/build_runtime.py prepare
+        run: python native/jcef/build_runtime.py --source-lock native/jcef/source-lock-hb2.json --patch native/jcef/request-context-settings-hb2.patch prepare
       - name: Compile Windows JNI with the target architecture toolchain
         if: runner.os == 'Windows' && steps.native-cache.outputs.cache-hit != 'true'
         shell: cmd
@@ -75,15 +75,15 @@ jobs:
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do set "VS_INSTALL=%%i"
           call "%VS_INSTALL%\Common7\Tools\VsDevCmd.bat" -arch=${{ matrix.msvc-arch }} -host_arch=${{ matrix.msvc-arch }}
           if errorlevel 1 exit /b %errorlevel%
-          python native/jcef/build_runtime.py build --target ${{ matrix.target }}
+          python native/jcef/build_runtime.py --source-lock native/jcef/source-lock-hb2.json --patch native/jcef/request-context-settings-hb2.patch build --target ${{ matrix.target }}
       - name: Compile macOS JNI
         if: runner.os == 'macOS' && steps.native-cache.outputs.cache-hit != 'true'
-        run: python native/jcef/build_runtime.py build --target ${{ matrix.target }}
+        run: python native/jcef/build_runtime.py --source-lock native/jcef/source-lock-hb2.json --patch native/jcef/request-context-settings-hb2.patch build --target ${{ matrix.target }}
       - name: Package and hash matching Java and native artifacts
         if: steps.native-cache.outputs.cache-hit != 'true'
-        run: python native/jcef/build_runtime.py package --target ${{ matrix.target }}
+        run: python native/jcef/build_runtime.py --source-lock native/jcef/source-lock-hb2.json --patch native/jcef/request-context-settings-hb2.patch package --target ${{ matrix.target }}
       - name: Verify built or restored artifact checksums
-        run: python native/jcef/build_runtime.py verify --target ${{ matrix.target }}
+        run: python native/jcef/build_runtime.py --source-lock native/jcef/source-lock-hb2.json --patch native/jcef/request-context-settings-hb2.patch verify --target ${{ matrix.target }}
       - name: Save native build independently of verification outcome
         if: steps.native-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
@@ -102,9 +102,9 @@ jobs:
       - name: Verify Chromium profile persistence across processes
         run: >-
           python native/jcef/verification/run_probe.py
-          --jcef-api build/jcef-artifacts/jcef-api-152.0.6-hb1.jar
+          --jcef-api build/jcef-artifacts/jcef-api-152.0.6-hb2.jar
           --native-dir build/jcef-source/heartbeat-native-stage
-          --extra-classpath build/jcef-artifacts/jcef-natives-${{ matrix.target }}-152.0.6-hb1.jar
+          --extra-classpath build/jcef-artifacts/jcef-natives-${{ matrix.target }}-152.0.6-hb2.jar
           --extra-classpath build/jcef-source/third_party/jogamp/jar/jogl-all.jar
           --extra-classpath build/jcef-source/third_party/jogamp/jar/gluegen-rt.jar
           --output build/jcef-verification
@@ -143,10 +143,10 @@ jobs:
         with:
           pattern: jcef-*
           path: build/jcef-platform-artifacts
-      - run: python native/jcef/build_runtime.py collect --source build/jcef-platform-artifacts --output build/jcef-release
+      - run: python native/jcef/build_runtime.py --source-lock native/jcef/source-lock-hb2.json --patch native/jcef/request-context-settings-hb2.patch collect --source build/jcef-platform-artifacts --output build/jcef-release
       - uses: actions/upload-artifact@v4
         with:
-          name: jcef-release-152.0.6-hb1
+          name: jcef-release-152.0.6-hb2
           path: build/jcef-release/*
           if-no-files-found: error
           compression-level: 0
@@ -166,13 +166,14 @@ jobs:
           python-version: '3.13'
       - uses: actions/download-artifact@v4
         with:
-          name: jcef-release-152.0.6-hb1
+          name: jcef-release-152.0.6-hb2
           path: build/jcef-release
       - name: Verify and create immutable draft assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
           python native/jcef/publish_draft.py
+          --version 152.0.6-hb2
           --artifacts build/jcef-release
           --repository ${{ github.repository }}
           --commit ${{ github.sha }}
