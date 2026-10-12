@@ -47,9 +47,19 @@ internal fun PlantUmlLink.isValid(width: Float, height: Float): Boolean =
 internal fun PlantUmlLink.metadataBytes(): Int =
     destination.encodeToByteArray().size + tooltip.encodeToByteArray().size + RECTANGLE_COORDINATES * Float.SIZE_BYTES
 
-private fun decodeTooltip(text: String): String = text.replace("&#34;", "\"").replace("&#39;", "'")
-    .replace("&quot;", "\"").replace("&apos;", "'").replace("&lt;", "<").replace("&gt;", ">")
-    .replace("&#38;", "&").replace("&amp;", "&")
+/** Decodes one exporter escaping layer without reinterpreting entity text authored in the tooltip. */
+private fun decodeTooltip(text: String): String = TooltipEntity.replace(text) { match ->
+    when (match.value) {
+        "&#34;", "&quot;" -> "\""
+        "&#39;", "&apos;" -> "'"
+        "&lt;" -> "<"
+        "&gt;" -> ">"
+        "&#38;", "&amp;" -> "&"
+        else -> match.value
+    }
+}
+
+private val TooltipEntity = Regex("&#(?:34|39|38);|&(?:quot|apos|lt|gt|amp);")
 
 private val Area = Regex(
     """<area shape="rect" id="[^"]*" href="([^"]*)" title="([^"]*)" alt="" coords="([0-9., -]+)"/>""",

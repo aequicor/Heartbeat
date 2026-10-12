@@ -32,6 +32,17 @@ class PlantUmlLinksTest {
     }
 
     @Test
+    fun `tooltip decoding preserves literal entity text`() {
+        val links = plantUmlLinks(
+            area(tooltip = "&#38;amp; &amp;quot; &#38;#34; &#38;lt;", coords = "1,1,2,2"),
+            1f,
+            10f,
+            10f,
+        )
+        assertEquals("&amp; &quot; &#34; &lt;", links.single().tooltip)
+    }
+
+    @Test
     fun `malformed out of bounds and excessive maps cannot create hit targets`() {
         assertTrue(plantUmlLinks(area(coords = "-1,0,2,3"), 1f, 10f, 10f).isEmpty())
         assertTrue(plantUmlLinks(area(coords = "0,0,20,30"), 1f, 10f, 10f).isEmpty())

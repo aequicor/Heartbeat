@@ -75,6 +75,17 @@ class JvmPlantUmlEngineTest {
     }
 
     @Test
+    fun `link tooltip preserves literal HTML entity text from source`() {
+        val source = """
+            @startuml
+            rectangle "Docs" [[https://example.com{&amp;}]]
+            @enduml
+        """.trimIndent()
+        val image = assertIs<PlantUmlResult.Image>(render(source))
+        assertEquals("&amp;", image.links.single().tooltip)
+    }
+
+    @Test
     fun `syntax errors point at the author's line`() {
         val error = assertIs<PlantUmlResult.SyntaxError>(
             render("@startuml\nA -> B\nthis is -> not -> valid ]]\n@enduml"),
