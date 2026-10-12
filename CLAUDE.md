@@ -23,6 +23,7 @@ features/<name>/ api  — контракт: state-machine (состояния, �
                  impl — UI, FlowMVI-сторы, Decompose-компоненты, репозитории, эффекты машины, DI-контрибуции
 build-logic/     convention-плагины Gradle (heartbeat.kmp.library, heartbeat.feature.api/impl, heartbeat.detekt…)
 lint/            detekt-rules — собственный набор правил `heartbeat` (политика логирования и обработки ошибок)
+chromium-plugin/ расширение для Chrome и других Chromium-браузеров (MV3, JS без сборки) — клиент `features:chromium-bridge`
 ```
 
 > Текущее состояние: шаблон перенесён в `platform-main` — `shared` (общий вход, iOS framework `Shared`), `android`, `desktop`,
@@ -118,6 +119,18 @@ lint/            detekt-rules — собственный набор правил
 > по SHA-256 (`heartbeat.jcef`, `verifyBrowserRuntime`) и входят в дистрибутив. Нативные проверки с настоящим Chromium —
 > только локальные задачи `browserNativeTest`, `browserComposeNativeTest`, `browserRecoveryNativeTest` (нужен рабочий стол, вне `check`). Восстановление источника запускается только кнопкой пользователя и использует тот же профиль.
 > iOS — WKWebView с непостоянным хранилищем, Android — WebView без cookies и DOM storage; автоматизация только Desktop.
+> `features:chromium-bridge:{api,impl}` + `chromium-plugin/` — расширение для Chrome и других Chromium-браузеров
+> (MV3, чистый JS без сборки, `node --test chromium-plugin/tests/`) и мост к нему (тогл `chromium_bridge.enabled`, по умолчанию false;
+> только Desktop Windows/macOS). Транспорт — Native Messaging: браузер запускает лаунчер Heartbeat с `--heartbeat-chromium-host`,
+> хост ретранслирует кадры (JSON с 4-байтовым LE-префиксом, протокол v1) в Unix-сокет профиля; приложение принимает только
+> origin своего расширения (ID закреплён ключом в `manifest.json`). Раздел настроек «Браузер Chrome» регистрирует хост
+> в Chrome/Edge/Brave/Chromium/Vivaldi и показывает папку расширения (входит в ресурсы дистрибутива, `collectAppResources`).
+> Side panel — полный чат студии через `StudioChats` (`ai-studio:api`; нужны чаты профиля `ai_studio.engine_runtime`):
+> все чаты, новый чат, стриминг, «Стоп», разрешения, вложение страницы или выделения. `chromium_bridge.agent_control`
+> (по умолчанию false) плюс переключатель согласия в расширении дают агентам инструменты `ex_control_*` (`browser:impl`,
+> группа `external_browser`) поверх `ExternalBrowser` (`chromium-bridge:api`): вкладки агента — в группе «Heartbeat»
+> текущего окна, вкладка пользователя — только после подтверждения, CDP через `chrome.debugger` по allowlist,
+> документы вне публичного веба — по одобрению; отзыв — «Забрать все» в панели, настройки, плашка Chrome, выключение тогла.
 > `features:plant-uml-support:{api,impl}` — диаграммы PlantUML в markdown чатов и кодинг-сессий (тогл `plantuml.enabled`,
 > по умолчанию false): закрытый fence `plantuml`/`puml` ДС делает строкой `Diagram` и рисует через SPI `HbDiagramRenderer`;
 > только Desktop — встроенный `plantuml-mit` в отдельном процессе-воркере (свой малый heap, убивается по таймауту; SANDBOX,
