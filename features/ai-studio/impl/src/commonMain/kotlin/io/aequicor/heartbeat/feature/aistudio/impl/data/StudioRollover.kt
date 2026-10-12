@@ -7,7 +7,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.NoticeKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.sessionEssence
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.BriefMode
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.HANDOFF_REQUEST_PREFIX
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.continuationBrief
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.handoffSplit
 
 /**
  * Rollover continues a chat in a new native session of the same engine, workspace and model. The transcript of
@@ -22,6 +24,9 @@ internal const val FROZEN_PREFIX = "hb.seg."
 
 /** Largest essence carried into the new session. */
 internal const val ROLLOVER_SEED_CHARS = 40_000
+
+/** Whether [this] request is the handoff summary turn before a rollover. */
+internal val StudioTurnRequest.isHandoff: Boolean get() = request.value.startsWith(HANDOFF_REQUEST_PREFIX)
 
 /** Whether [this] item belongs to a frozen segment of an earlier native session. */
 internal val SessionItem.isFrozenSegment: Boolean get() = info.id.value.startsWith(FROZEN_PREFIX)
@@ -72,10 +77,13 @@ internal fun rolloverSeed(items: List<SessionItem>): String {
 
 /**
  * Host directive for the first turn of the new session built from the continuation brief: every user message of all
- * segments, the agent's earlier work in the session that ends and its last turn.
+ * segments, the handoff summary of the session that ends (or, without one, its earlier work) and its last turn.
  */
 internal fun continuationSeed(items: List<SessionItem>): String {
-    val brief = continuationBrief(items, items.filterNot { it.isFrozenSegment }, summary = null, BriefMode.Rollover)
+    // The handoff summary turn of the session that ends is the summary, not its last turn.
+    val handoff = handoffSplit(items.filterNot { it.isFrozenSegment })
+    val history = items.filter { it.isFrozenSegment } + handoff.items
+    val brief = continuationBrief(history, handoff.items, handoff.summary, BriefMode.Rollover)
     log.i { "Rollover carries the continuation brief: $brief" }
     return brief.text
 }

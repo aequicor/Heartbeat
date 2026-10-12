@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimi
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextRolloverEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContinuationBriefEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.KoogMaskingEnabled
+import io.aequicor.heartbeat.feature.contextwindowoptimization.impl.data.ContextHandoffHook
 import io.aequicor.heartbeat.feature.contextwindowoptimization.impl.data.ContextLedgerHook
 import io.aequicor.heartbeat.feature.contextwindowoptimization.impl.domain.ContextOptimizationEffects
 import io.aequicor.heartbeat.feature.contextwindowoptimization.impl.domain.ContextSettingsStore
@@ -79,6 +80,21 @@ object ContextOptimizationBindings {
             facade.value.engines.state.value.find { it.descriptor.id == session.engine }
                 ?.descriptor?.areInstructionsRefreshedPerTurn == true
         }
+    }
+
+    /** Refuses tool calls of the handoff summary turn before a rollover. */
+    @Provides
+    @IntoSet
+    @SingleIn(ProfileScope::class)
+    internal fun handoffHook(
+        toggles: FeatureToggles,
+        @ForScope(ProfileScope::class) scope: ScopeHandle,
+    ): SessionHook {
+        val main = toggles.observe(ContextOptimizationEnabled)
+        val brief = toggles.observe(ContinuationBriefEnabled)
+        val isEnabled = combine(main, brief) { isMain, isBrief -> isMain && isBrief }
+            .stateIn(scope.coroutineScope, SharingStarted.Eagerly, false)
+        return ContextHandoffHook { isEnabled.value }
     }
 }
 

@@ -9,6 +9,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.NoticeKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.withHostDirectives
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.HANDOFF_SUMMARY_PROMPT
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -50,6 +52,19 @@ class StudioRolloverTest {
         assertTrue("[1] Fix every open issue" in seed && "[2] Skip #7" in seed)
         assertTrue("Assistant: Fixing #8" in seed)
         assertFalse("Old work" in seed)
+    }
+
+    @Test
+    fun `the continuation seed takes the handoff summary and the turn before it`() {
+        val handoff = message("handoff", 2, withHostDirectives("", listOf(HANDOFF_SUMMARY_PROMPT)))
+        val items = listOf(message("task", 0, "Fix the parser"), reply("work", 1, "Fixing the lexer"), handoff) +
+            reply("summary", 3, "Decided to rewrite the lexer")
+
+        val seed = continuationSeed(items)
+
+        assertTrue("## Work so far\nDecided to rewrite the lexer" in seed)
+        assertTrue("Assistant: Fixing the lexer" in seed.substringAfter("## Last turn"))
+        assertFalse("handoff-summary" in seed)
     }
 
     @Test

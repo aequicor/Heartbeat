@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
+import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioCompactionPort
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioFeedCollapse
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
@@ -38,6 +39,8 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimi
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationView
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextRolloverEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContinuationBriefEnabled
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.HANDOFF_REQUEST_PREFIX
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.HANDOFF_SUMMARY_PROMPT
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.PendingCompaction
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CancellationException
@@ -117,10 +120,11 @@ internal class StudioCompactions(
 
     /**
      * Reports the occupancy after a prompt turn; while automatic compaction is on the machine also decides whether a
-     * compaction becomes pending. Compaction turns themselves are not reported, so they never trigger another one.
+     * compaction becomes pending. Compaction and handoff summary turns are not reported, so they never trigger another
+     * compaction.
      */
     override suspend fun settled(request: StudioTurnRequest, active: ActiveSession, outcome: TurnOutcome) {
-        if (request.compaction != null || outcome == TurnOutcome.Cancelled) return
+        if (request.compaction != null || request.isHandoff || outcome == TurnOutcome.Cancelled) return
         if (!toggles.get(ContextOptimizationEnabled)) return
         val chat = chats().firstOrNull { it.id == request.id }?.takeIf { it.isCompactable } ?: return
         val usage = (active.features.resolve(SessionContextUsage) as? FeatureAccess.Available)?.feature?.state?.value
@@ -184,6 +188,8 @@ internal class StudioCompactions(
             chat.isRolloverAllowed && toggles.get(ContextRolloverEnabled)
         val applied = runtime.value.state.value.configurations[chat.id]?.applied
         val settings = hostRunSettings(chat, applied, runtime.value.defaults())
+        val isBriefed = isRollover && toggles.get(ContinuationBriefEnabled)
+        if (isBriefed) summarize(chat, settings)
         val request = StudioTurnRequest(
             chat.id,
             prompt = "",
@@ -192,10 +198,27 @@ internal class StudioCompactions(
             request = RequestId("compact-${Uuid.random()}"),
             compaction = ContextCompaction(compaction.instructions).takeUnless { isRollover },
             isRollover = isRollover,
-            isBriefed = isRollover && toggles.get(ContinuationBriefEnabled),
+            isBriefed = isBriefed,
         )
         val outcome = runs.run(host.value, request, waitForIdle = true)
         return if (outcome == RunOutcome.Completed) CompactionResult.Compacted else CompactionResult.Failed
+    }
+
+    /**
+     * The handoff summary turn: the old session writes the summary of its work for the new one, without tools
+     * ([HANDOFF_REQUEST_PREFIX]). A failed turn leaves no summary and the brief falls back to the agent's messages.
+     */
+    private suspend fun summarize(chat: StudioChatRecord, settings: RunSettings) {
+        val request = StudioTurnRequest(
+            chat.id,
+            prompt = "",
+            settings = settings,
+            kind = WorktreeRunKind.Coding,
+            request = RequestId("$HANDOFF_REQUEST_PREFIX${Uuid.random()}"),
+            directives = listOf(HANDOFF_SUMMARY_PROMPT),
+        )
+        val outcome = runs.run(host.value, request, waitForIdle = true)
+        log.i { "handoff summary before rollover: $outcome" }
     }
 
     private suspend fun chats(): List<StudioChatRecord> = store.get(ChatsKey).orEmpty()

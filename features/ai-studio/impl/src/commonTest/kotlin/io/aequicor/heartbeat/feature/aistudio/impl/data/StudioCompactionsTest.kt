@@ -40,6 +40,8 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.CompactionSup
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationIntent.Public
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationState
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationView
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContinuationBriefEnabled
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.HANDOFF_SUMMARY_PROMPT
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.PendingCompaction
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -90,7 +92,7 @@ class StudioCompactionsTest {
 
     @Test
     fun `unknown sessions finish as unsupported and a rollover runs as a reserved run`() = runTest {
-        val fixture = Fixture(this)
+        val fixture = Fixture(this, disabled = setOf(ContinuationBriefEnabled))
         val job = launch { fixture.compactions.run() }
 
         fixture.pending(
@@ -100,7 +102,7 @@ class StudioCompactionsTest {
         runCurrent()
 
         val rollover = fixture.executed.single()
-        assertTrue(rollover.isRollover && rollover.isBriefed && rollover.compaction == null)
+        assertTrue(rollover.isRollover && !rollover.isBriefed && rollover.compaction == null)
         assertEquals<Set<MachineIntent>>(
             setOf(
                 Public.Claim(Foreign),
@@ -109,6 +111,26 @@ class StudioCompactionsTest {
                 Public.Finished(Chat, CompactionResult.Compacted),
             ),
             fixture.registry.sent.toSet(),
+        )
+        job.cancel()
+    }
+
+    @Test
+    fun `a briefed rollover first runs the handoff summary turn without reporting it`() = runTest {
+        val fixture = Fixture(this)
+        val job = launch { fixture.compactions.run() }
+
+        fixture.pending(Chat to PendingCompaction(CompactionMethod.Rollover, CompactionOrigin.Agent))
+        runCurrent()
+
+        val (summary, rollover) = fixture.executed
+        assertTrue(summary.isHandoff && summary.directives == listOf(HANDOFF_SUMMARY_PROMPT))
+        assertTrue(!summary.isRollover && summary.compaction == null)
+        assertTrue(rollover.isRollover && rollover.isBriefed)
+        fixture.compactions.settled(summary, Active(ContextUsage(90, 100)), TurnOutcome.Completed)
+        assertEquals<List<MachineIntent>>(
+            listOf(Public.Claim(Chat), Public.Finished(Chat, CompactionResult.Compacted)),
+            fixture.registry.sent,
         )
         job.cancel()
     }
@@ -163,7 +185,7 @@ class StudioCompactionsTest {
         override suspend fun close() = Unit
     }
 
-    private class Fixture(scope: TestScope) {
+    private class Fixture(scope: TestScope, disabled: Set<FeatureToggle<*>> = emptySet()) {
         private val state = MutableStateFlow<ContextOptimizationState>(ContextOptimizationState.Ready())
         val registry = Registry { intent ->
             val ready = state.value as ContextOptimizationState.Ready
@@ -192,7 +214,7 @@ class StudioCompactionsTest {
                 override val state = this@Fixture.state
             },
             registry,
-            EnabledToggles(),
+            Toggles(disabled),
         )
 
         init {
@@ -246,12 +268,12 @@ class StudioCompactionsTest {
         ) = Unit
     }
 
-    private class EnabledToggles : FeatureToggles {
-        override fun <T : Any> observe(toggle: FeatureToggle<T>) = flowOf(enabled<T>())
-        override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = enabled()
+    private class Toggles(private val disabled: Set<FeatureToggle<*>>) : FeatureToggles {
+        override fun <T : Any> observe(toggle: FeatureToggle<T>) = flowOf(value(toggle))
+        override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = value(toggle)
 
         @Suppress("UNCHECKED_CAST") // The host reads only flags.
-        private fun <T : Any> enabled(): T = true as T
+        private fun <T : Any> value(toggle: FeatureToggle<T>): T = (toggle !in disabled) as T
     }
 
     private companion object {
