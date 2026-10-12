@@ -68,7 +68,10 @@ interface TestAppGraph : HeartbeatGraph {
     }
 }
 
-class PersistedProfile(val isOperationSuspensionEnabled: Boolean = true) {
+class PersistedProfile(
+    val isOperationSuspensionEnabled: Boolean = true,
+    private val storageRootOverride: String? = null,
+) {
     var id: ProfileId? = null
     var beforeProfileWipe: suspend () -> Unit = {}
     val secretsConfig: SecretsConfig by lazy {
@@ -76,7 +79,7 @@ class PersistedProfile(val isOperationSuspensionEnabled: Boolean = true) {
     }
 
     /** Storage directory of the "device"; created lazily, deleted by the tests that use storages. */
-    val storageRoot: String by lazy { Files.createTempDirectory("hb-storage").toString() }
+    val storageRoot: String by lazy { storageRootOverride ?: Files.createTempDirectory("hb-storage").toString() }
 }
 
 /** Keeps the storages of core:datastore in the temporary directory of the "device". */
