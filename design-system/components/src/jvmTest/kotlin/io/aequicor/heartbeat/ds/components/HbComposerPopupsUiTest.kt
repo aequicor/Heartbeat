@@ -9,14 +9,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.input.pointer.PointerButton
+import androidx.compose.ui.input.pointer.PointerButtons
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SkikoComposeUiTest
-import androidx.compose.ui.test.isRoot
-import androidx.compose.ui.test.onFirst
-import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
@@ -30,6 +31,9 @@ import kotlin.test.assertEquals
  * The composer's popups share the menu host: on desktop an outside click dismisses a focusable popup and never
  * activates the content beneath (which may be an embedded native surface that Compose never sees). Suggestions
  * are not focusable and let outside input reach the editor beneath.
+ *
+ * Outside clicks go through the scene, which hit-tests its layers like a window does; `performMouseInput` on a
+ * root would hand the event to that root's owner directly and skip the layer that actually covers the point.
  */
 @OptIn(ExperimentalTestApi::class)
 class HbComposerPopupsUiTest {
@@ -52,18 +56,18 @@ class HbComposerPopupsUiTest {
             val suggestions = HbComposerSuggestions(persistentListOf(HbComposerSuggestion("help", "/help")))
             ComposerSuggestionsPopup(suggestions, "Suggestions", onDismiss, {})
         }
-        CORNERS.forEach { point ->
+        CORNERS.forEachIndexed { index, point ->
             host.isOpen = true
             waitForIdle()
             onNodeWithText("/help").assertExists()
-            // The suggestions layer has no backdrop: the window content takes the click directly.
-            onAllNodes(isRoot()).onFirst().performMouseInput {
-                moveTo(point)
-                press()
-                release()
+            // No backdrop covers the window: the layer only sees an outside press, the content takes the click.
+            clickInScene(point)
+            runOnIdle {
+                assertEquals(index + 1, host.underlyingClicks)
+                assertEquals(index + 1, host.dismissed)
+                assertEquals(false, host.isOpen)
             }
         }
-        runOnIdle { assertEquals(CORNERS.size, host.underlyingClicks) }
     }
 
     @Test
@@ -96,12 +100,8 @@ class HbComposerPopupsUiTest {
             CORNERS.forEach { point ->
                 host.isOpen = true
                 waitForIdle()
-                // The popup layer is the last root: outside its sheet it must cover the whole window.
-                onAllNodes(isRoot()).onLast().performMouseInput {
-                    moveTo(point)
-                    press()
-                    release()
-                }
+                // Outside its sheet the popup layer must cover the whole window and absorb the click.
+                clickInScene(point)
                 runOnIdle { assertEquals(false, host.isOpen) }
             }
             runOnIdle {
@@ -109,6 +109,26 @@ class HbComposerPopupsUiTest {
                 assertEquals(0, host.underlyingClicks)
             }
         }
+
+    /** A primary click dispatched to the scene, so the topmost layer containing [point] receives it. */
+    @OptIn(InternalComposeUiApi::class)
+    private fun SkikoComposeUiTest.clickInScene(point: Offset) {
+        runOnUiThread {
+            scene.sendPointerEvent(
+                PointerEventType.Press,
+                point,
+                buttons = PointerButtons(isPrimaryPressed = true),
+                button = PointerButton.Primary,
+            )
+            scene.sendPointerEvent(
+                PointerEventType.Release,
+                point,
+                buttons = PointerButtons(),
+                button = PointerButton.Primary,
+            )
+        }
+        waitForIdle()
+    }
 
     private fun SkikoComposeUiTest.setPopup(host: PopupHost, popup: @Composable (onDismiss: () -> Unit) -> Unit) =
         setContent {
