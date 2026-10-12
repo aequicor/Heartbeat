@@ -28,6 +28,8 @@ kotlin {
         commonTest.dependencies { implementation(libs.flowmvi.test) }
         jvmMain.dependencies {
             implementation(projects.core.datastore.api)
+            // Agent navigation without approval is limited to the same public URLs as web_fetch.
+            implementation(projects.features.searchEngine.api)
             implementation(libs.jcefmaven.get().toString()) { exclude(group = "me.friwi", module = "jcef-api") }
             implementation(libs.jcef.api)
             // The flat, checksum-pinned API artifact retains upstream JCEF's JOGL dependencies.

@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.browser.api.BrowserAgentControl
 import io.aequicor.heartbeat.feature.browser.api.BrowserEnabled
@@ -22,9 +23,11 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserIntent
 import io.aequicor.heartbeat.feature.browser.api.BrowserMachineKey
 import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserOutput
+import io.aequicor.heartbeat.feature.browser.api.BrowserPage
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserState
+import io.aequicor.heartbeat.feature.browser.api.BrowserTab
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -82,10 +85,23 @@ class BrowserAgentToolsTest {
     }
 
     @Test
-    fun `navigation and observation are read actions while every input requires command trust`() = runTest {
+    fun `public navigation and observation are read actions while every input requires command trust`() = runTest {
         val fixture = Fixture()
         assertTrue(fixture.tools.isDetachedSupported)
         val specs = fixture.tools.specifications(null).associateBy { it.name }
+        for (name in listOf("browser_open", "browser_new_tab")) {
+            for (url in listOf("https://example.com/page", "example.org", "http://93.184.216.34/")) {
+                for (trust in TrustLevel.entries) {
+                    val arguments = buildJsonObject { put("url", url) }
+                    assertFalse(
+                        fixture.tools.requiresDecision(context.copy(trust = trust), specs.getValue(name), arguments),
+                    )
+                }
+            }
+        }
+        val search = buildJsonObject { put("query", "localhost") }
+        assertFalse(fixture.tools.requiresDecision(context, specs.getValue("browser_search"), search))
+        assertFalse(fixture.tools.requiresDecision(context, specs.getValue("browser_new_tab"), JsonObject(emptyMap())))
         val reads = setOf(
             "browser_tabs",
             "browser_new_tab",
@@ -104,6 +120,95 @@ class BrowserAgentToolsTest {
             assertFalse(spec.inputSchema.getValue("properties").jsonObject.containsKey("owner"))
             assertFalse(spec.inputSchema.getValue("additionalProperties").jsonPrimitive.boolean)
         }
+    }
+
+    @Test
+    fun `navigation to local or private addresses follows the command trust row`() = runTest {
+        val fixture = Fixture()
+        val specs = fixture.tools.specifications(null).associateBy { it.name }
+        val private = listOf(
+            "http://localhost:8080/admin",
+            "localhost:3000",
+            "https://127.0.0.1/",
+            "http://10.0.0.5/router",
+            "http://192.168.1.1/",
+            "http://172.16.4.2/",
+            "https://printer.local/",
+            "http://[::1]:8080/",
+        )
+        for (name in listOf("browser_open", "browser_new_tab")) {
+            for (url in private) {
+                val arguments = buildJsonObject { put("url", url) }
+                val spec = specs.getValue(name)
+                assertTrue(fixture.tools.requiresDecision(context.copy(trust = TrustLevel.Ask), spec, arguments), url)
+                assertTrue(fixture.tools.requiresDecision(context.copy(trust = TrustLevel.AutoEdits), spec, arguments))
+                assertFalse(fixture.tools.requiresDecision(context.copy(trust = TrustLevel.Full), spec, arguments))
+                val approval = fixture.tools.approval(context, spec, arguments)
+                assertTrue(approval.description.orEmpty().contains(url.substringAfter("://")), url)
+            }
+        }
+    }
+
+    @Test
+    fun `input approvals show the tab address and exactly what is typed pressed or clicked`() = runTest {
+        val fixture = Fixture()
+        fixture.machine.state.value = BrowserState.Running(
+            isConfigured = true,
+            isEnabled = true,
+            tabs = listOf(BrowserTab("tab", BrowserPage("https://bank.example/transfer"))),
+        )
+        val specs = fixture.tools.specifications(null).associateBy { it.name }
+        suspend fun approve(name: String, vararg arguments: Pair<String, Any>): String {
+            val json = buildJsonObject {
+                arguments.forEach { (key, value) ->
+                    if (value is Number) put(key, value) else put(key, value.toString())
+                }
+            }
+            return fixture.tools.approval(context, specs.getValue(name), json).description.orEmpty()
+        }
+
+        val typed = approve("browser_type", "tabId" to "tab", "text" to "pay 100\nconfirm")
+        assertTrue(typed.contains("pay 100\\nconfirm"))
+        assertTrue(typed.contains("https://bank.example/transfer"))
+        val long = approve("browser_type", "text" to "x".repeat(2_000))
+        assertTrue(long.contains("2000"))
+        assertTrue(long.length < 1_000)
+        assertTrue(approve("browser_key", "tabId" to "tab", "key" to "Enter").contains("Enter"))
+        assertTrue(approve("browser_click", "tabId" to "tab", "element" to 7).contains("7"))
+        val point = approve("browser_drag", "x" to 10, "y" to 20, "toX" to 30, "toY" to 40)
+        assertTrue(point.contains("10, 20"))
+        assertTrue(point.contains("30, 40"))
+        assertFalse(approve("browser_key", "tabId" to "missing", "key" to "Tab").contains("bank.example"))
+    }
+
+    @Test
+    fun `timeout is reported as an error and cancels the pending operation`() = runTest {
+        val fixture = Fixture()
+        fixture.machine.completeImmediately = false
+        val result = fixture.tools.execute(context, "browser_read", buildJsonObject { put("tabId", "tab") })
+        assertTrue(result.isError)
+        assertEquals("Browser operation timed out", result.text)
+        val request = fixture.machine.requests.single()
+        val cancellation = fixture.machine.sent.filterIsInstance<BrowserIntent.Public.CancelOperation>().single()
+        assertEquals(request.id, cancellation.id)
+    }
+
+    @Test
+    fun `unacknowledged cancellation is bounded and keeps the timeout result`() = runTest {
+        val fixture = Fixture()
+        fixture.machine.completeImmediately = false
+        fixture.machine.acknowledgeImmediately = false
+        val result = fixture.tools.execute(context, "browser_read", buildJsonObject { put("tabId", "tab") })
+        assertEquals("Browser operation timed out", result.text)
+    }
+
+    @Test
+    fun `refused request needs no cancellation acknowledgement`() = runTest {
+        val fixture = Fixture()
+        fixture.machine.performResult = SendResult.Ignored
+        val result = fixture.tools.execute(context, "browser_read", buildJsonObject { put("tabId", "tab") })
+        assertTrue(result.isError)
+        assertTrue(fixture.machine.sent.none { it is BrowserIntent.Public.CancelOperation })
     }
 
     @Test
@@ -127,8 +232,7 @@ class BrowserAgentToolsTest {
         assertFalse(operation.isCompleted)
         fixture.machine.outputs.emit(BrowserOutput.Completed(BrowserResult(request.id)))
         assertFalse(operation.await().isError)
-        val cancellation = fixture.machine.sent.filterIsInstance<BrowserIntent.Public.CancelOperation>().single()
-        assertEquals(request.id, cancellation.id)
+        assertTrue(fixture.machine.sent.none { it is BrowserIntent.Public.CancelOperation })
     }
 
     @Test
@@ -165,15 +269,11 @@ class BrowserAgentToolsTest {
     }
 
     @Test
-    fun `successful completion also waits for cleanup acknowledgement`() = runTest {
+    fun `successful completion needs no cancellation`() = runTest {
         val fixture = Fixture()
         fixture.machine.acknowledgeImmediately = false
-        val operation = async { fixture.tools.execute(context, "browser_tabs", JsonObject(emptyMap())) }
-        runCurrent()
-        val request = fixture.machine.requests.single()
-        assertFalse(operation.isCompleted)
-        fixture.machine.outputs.emit(BrowserOutput.Cancelled(request.id))
-        assertFalse(operation.await().isError)
+        assertFalse(fixture.tools.execute(context, "browser_tabs", JsonObject(emptyMap())).isError)
+        assertTrue(fixture.machine.sent.none { it is BrowserIntent.Public.CancelOperation })
     }
 
     private class Fixture {
@@ -192,11 +292,14 @@ class BrowserAgentToolsTest {
             get() = sent.filterIsInstance<BrowserIntent.Public.Perform>().map { it.request }
         var completeImmediately = true
         var acknowledgeImmediately = true
+        var performResult = SendResult.Accepted
 
         override suspend fun send(intent: BrowserIntent.Public): SendResult {
             sent += intent
             when (intent) {
-                is BrowserIntent.Public.Perform -> if (completeImmediately) {
+                is BrowserIntent.Public.Perform -> if (performResult != SendResult.Accepted) {
+                    return performResult
+                } else if (completeImmediately) {
                     outputs.emit(BrowserOutput.Completed(BrowserResult(intent.request.id)))
                 }
 
