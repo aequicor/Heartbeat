@@ -12,7 +12,8 @@ import org.intellij.markdown.MarkdownElementTypes as Elements
 import org.intellij.markdown.MarkdownTokenTypes as Tokens
 
 /**
- * Parses CommonMark/GFM into immutable, bounded display rows. Call during model preparation, not per row.
+ * Parses CommonMark/GFM into immutable display blocks (bounded prose/code and complete tables).
+ * Call during model preparation, not per row.
  * Unfinished fences remain code while streaming; a closed fence in a [HbDiagramLanguage] becomes one
  * [HbMarkdownBlockKind.Diagram] row. HTML and images never execute or fetch resources.
  * CRLF and CR line endings are normalized first: the parser only recognizes `\n` line ends.
@@ -151,19 +152,25 @@ private class MarkdownBlockParser(private val source: String) {
         .trimEnd('\n')
 
     private fun table(node: ASTNode) {
-        node.children.filter { it.type == GFMElementTypes.HEADER || it.type == GFMElementTypes.ROW }.forEach { row ->
-            val cells = row.children.filter { it.type == GFMTokenTypes.CELL }.map { inline.parse(it).trimmed() }
-            val chunks = cells.map { chunkHbText(it) }
-            val chunkCount = chunks.maxOfOrNull { it.size } ?: 0
-            repeat(chunkCount) { index ->
-                rows += HbMarkdownBlock(
-                    id = "${row.startOffset}:$index",
-                    kind = HbMarkdownBlockKind.TableRow,
-                    cells = chunks.map { it.getOrElse(index) { HbMarkdownText("") } }.toImmutableList(),
-                    isTableHeader = row.type == GFMElementTypes.HEADER,
+        val tableRows = node.children.filter {
+            it.type == GFMElementTypes.HEADER || it.type == GFMElementTypes.ROW
+        }.flatMapIndexed { rowIndex, row ->
+            val cells = row.children.filter { it.type == GFMTokenTypes.CELL }
+                .map { chunkHbText(inline.parse(it).trimmed(), preferWordBoundary = true) }
+            val count = cells.maxOfOrNull { it.size } ?: 0
+            List(count) { segment ->
+                HbMarkdownTableRow(
+                    cells = cells.map { it.getOrElse(segment) { HbMarkdownText("") } }.toImmutableList(),
+                    index = rowIndex,
+                    isFirstSegment = segment == 0,
                 )
             }
-        }
+        }.toImmutableList()
+        rows += HbMarkdownBlock(
+            id = "${node.startOffset}:table",
+            kind = HbMarkdownBlockKind.Table,
+            tableRows = tableRows,
+        )
     }
 
     private fun append(

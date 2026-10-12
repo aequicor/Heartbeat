@@ -8,9 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -34,14 +32,13 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbLazyColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
-import io.aequicor.heartbeat.ds.layouts.hbHorizontalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
 
 private val log = Log.tag("DS/Markdown")
 
 /**
  * Standalone bounded Markdown viewport. Transcripts should prepare [parseHbMarkdown] once and render
- * [HbMarkdownBlockContent] in their own lazy list, avoiding nested scrolling for long agent messages.
+ * [HbMarkdownBlockContent] in their own lazy list. Only oversized tables need a nested bounded viewport.
  */
 @Composable
 public fun HbMarkdown(
@@ -64,7 +61,7 @@ public fun HbMarkdown(
     }
 }
 
-/** Renders one bounded, prepared row. Link handling belongs exclusively to the caller. */
+/** Renders one prepared block, with a bounded viewport for large tables. The caller owns link handling. */
 @Composable
 public fun HbMarkdownBlockContent(
     block: HbMarkdownBlock,
@@ -77,7 +74,7 @@ public fun HbMarkdownBlockContent(
 
         HbMarkdownBlockKind.Diagram -> MarkdownDiagram(block, modifier, foreground, onLinkClick)
 
-        HbMarkdownBlockKind.TableRow -> MarkdownTableRow(block, modifier, foreground, onLinkClick)
+        HbMarkdownBlockKind.Table -> MarkdownTable(block, modifier, foreground, onLinkClick)
 
         HbMarkdownBlockKind.Rule -> Box(
             modifier = modifier.fillMaxWidth().height(
@@ -192,31 +189,7 @@ private fun MarkdownParagraph(
 }
 
 @Composable
-private fun MarkdownTableRow(
-    block: HbMarkdownBlock,
-    modifier: Modifier = Modifier,
-    foreground: Color = HbTheme.colors.textPrimary,
-    onLinkClick: ((String) -> Unit)? = null,
-) {
-    HbRow(modifier = modifier.hbHorizontalScroll(rememberScrollState()), gap = HbTheme.spacing.xxs) {
-        block.cells.forEach { cell ->
-            MarkdownRichText(
-                content = cell,
-                modifier = Modifier.width(HbTheme.dimensions.markdownTableCellWidth)
-                    .background(
-                        if (block.isTableHeader) HbTheme.colors.primaryContainer else HbTheme.colors.surfaceElevated,
-                    )
-                    .padding(HbTheme.spacing.m),
-                style = if (block.isTableHeader) HbTheme.typography.label else HbTheme.typography.body,
-                foreground = foreground,
-                onLinkClick = onLinkClick,
-            )
-        }
-    }
-}
-
-@Composable
-private fun MarkdownRichText(
+internal fun MarkdownRichText(
     content: HbMarkdownText,
     modifier: Modifier = Modifier,
     style: TextStyle = HbTheme.typography.body,
@@ -231,7 +204,7 @@ private fun MarkdownRichText(
     BasicText(text = annotated, modifier = modifier, style = style.copy(color = foreground))
 }
 
-private fun annotatedMarkdown(
+internal fun annotatedMarkdown(
     content: HbMarkdownText,
     codeStyle: SpanStyle,
     emphasis: FontWeight,

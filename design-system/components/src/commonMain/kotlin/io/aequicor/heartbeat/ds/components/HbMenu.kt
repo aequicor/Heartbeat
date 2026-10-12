@@ -41,6 +41,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -63,6 +64,7 @@ private val log = Log.tag("DS/Menu")
  * A localized menu command. The owner handles [id] through [HbMenu]'s callback.
  * [shortcut] is a caller-formatted hint shown at the end of the row; [isChecked] marks the current choice
  * of a single-selection group; [isGroupStart] draws a divider above the item.
+ * [badge] is a compact leading count or status, replacing the icon slot.
  * Set [isFocusRestoredOnSelect] to false when the command opens an editor or another focused destination.
  */
 @Immutable
@@ -75,6 +77,7 @@ public data class HbMenuItem(
     val isChecked: Boolean = false,
     val isGroupStart: Boolean = false,
     val isFocusRestoredOnSelect: Boolean = true,
+    val badge: String? = null,
 )
 
 /**
@@ -123,6 +126,8 @@ public fun HbMenu(
  * Icon trigger with its [HbMenu]. Dismissal returns focus to the trigger; selected commands may opt out
  * through [HbMenuItem.isFocusRestoredOnSelect] so their destination can retain focus.
  * [contentDescription] labels both the trigger and the menu pane.
+ * [label] changes the icon-only trigger into a labeled selector; [badge] precedes that label.
+ * Constrain the labeled trigger width through [modifier].
  */
 @Composable
 public fun HbMenuButton(
@@ -135,6 +140,8 @@ public fun HbMenuButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     size: Dp = HbTheme.dimensions.touchTarget,
+    label: String? = null,
+    badge: String? = null,
 ) {
     val triggerFocus = remember { FocusRequester() }
     var hasOpened by remember { mutableStateOf(false) }
@@ -146,15 +153,28 @@ public fun HbMenuButton(
         hasOpened = isOpen
     }
     Box(modifier = modifier) {
-        HbIconButton(
-            icon = icon,
-            contentDescription = contentDescription,
-            onClick = { onExpandedChange(!isOpen) },
-            modifier = Modifier.focusRequester(triggerFocus),
-            enabled = enabled && items.isNotEmpty(),
-            isSelected = isOpen,
-            size = size,
-        )
+        if (label == null) {
+            HbIconButton(
+                icon = icon,
+                contentDescription = contentDescription,
+                onClick = { onExpandedChange(!isOpen) },
+                modifier = Modifier.focusRequester(triggerFocus),
+                enabled = enabled && items.isNotEmpty(),
+                isSelected = isOpen,
+                size = size,
+            )
+        } else {
+            HbMenuLabelTrigger(
+                label,
+                badge,
+                icon,
+                contentDescription,
+                isOpen,
+                enabled && items.isNotEmpty(),
+                triggerFocus,
+                onExpandedChange,
+            )
+        }
         HbMenu(
             items = items,
             isExpanded = isOpen,
@@ -165,6 +185,52 @@ public fun HbMenuButton(
             },
             label = contentDescription,
         )
+    }
+}
+
+/** Shares the menu row's quiet interaction states and the window caption hit-test contract. */
+@Composable
+private fun HbMenuLabelTrigger(
+    label: String,
+    badge: String?,
+    icon: ImageVector,
+    description: String,
+    isOpen: Boolean,
+    isEnabled: Boolean,
+    focus: FocusRequester,
+    onExpandedChange: (Boolean) -> Unit,
+) {
+    val interactions = remember { MutableInteractionSource() }
+    val isFocused by interactions.collectIsFocusedAsState()
+    val isHovered by interactions.collectIsHoveredAsState()
+    val isPressed by interactions.collectIsPressedAsState()
+    HbRow(
+        Modifier.fillMaxWidth().captionClientArea()
+            .heightIn(min = HbTheme.dimensions.touchTarget)
+            .focusRequester(focus)
+            .onPreviewKeyEvent { event ->
+                val isOpenKey = event.key == Key.DirectionDown || event.key == Key.DirectionUp
+                if (isEnabled && event.type == KeyEventType.KeyDown && isOpenKey) {
+                    log.i { "menu selector opened from keyboard" }
+                    onExpandedChange(true)
+                    true
+                } else {
+                    false
+                }
+            }
+            .semantics { contentDescription = description }
+            .hbFocusOutline(isFocused, HbTheme.shapes.small)
+            .clickable(interactions, indication = null, enabled = isEnabled, role = Role.Button) {
+                log.i { "menu selector expanded=${!isOpen}" }
+                onExpandedChange(!isOpen)
+            }
+            .background(menuRowBackground(isEnabled, isPressed, isOpen || isHovered), HbTheme.shapes.small)
+            .padding(horizontal = HbTheme.spacing.xs),
+        gap = HbTheme.spacing.xs,
+    ) {
+        if (badge != null) HbBadge(badge)
+        HbText(label, Modifier.weight(1f), style = HbTheme.typography.label, maxLines = 1)
+        HbIcon(icon, null, Modifier.size(HbTheme.dimensions.iconSmallSize))
     }
 }
 
@@ -232,9 +298,13 @@ private fun MenuRow(item: HbMenuItem, onClick: () -> Unit, modifier: Modifier = 
             .padding(horizontal = HbTheme.spacing.m),
         gap = HbTheme.spacing.m,
     ) {
-        MenuRowIcon(item.icon ?: HbIcons.Check.takeIf { item.isChecked }, foreground)
+        if (item.badge != null) {
+            HbBadge(item.badge)
+        } else {
+            MenuRowIcon(item.icon ?: HbIcons.Check.takeIf { item.isChecked }, foreground)
+        }
         HbText(item.label, Modifier.weight(1f), style = HbTheme.typography.label, color = foreground, maxLines = 1)
-        if (item.icon != null && item.isChecked) MenuRowIcon(HbIcons.Check, foreground)
+        if ((item.icon != null || item.badge != null) && item.isChecked) MenuRowIcon(HbIcons.Check, foreground)
         item.shortcut?.let { HbText(it, style = HbTheme.typography.caption, color = colors.textSecondary) }
     }
 }

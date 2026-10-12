@@ -40,7 +40,7 @@ public data class BrowserPage(
     val error: BrowserError? = null,
 )
 
-/** The feature keeps no process-persistent browsing data. */
+/** Runtime projection; desktop restores tab metadata from profile storage, without native history or approvals. */
 public sealed interface BrowserState : MachineState {
     /** Observation begins when the retained screen model starts. */
     public data object Idle : BrowserState
