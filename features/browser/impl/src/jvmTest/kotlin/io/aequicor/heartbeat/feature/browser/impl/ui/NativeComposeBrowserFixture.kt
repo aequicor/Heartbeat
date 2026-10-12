@@ -30,6 +30,7 @@ import kotlinx.serialization.json.put
 import org.cef.browser.CefRequestContext
 import java.net.InetSocketAddress
 import java.nio.file.Files
+import java.nio.file.Path
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
@@ -48,7 +49,15 @@ internal class NativeComposeBrowserFixture :
         override val io = Dispatchers.IO
         override val default = Dispatchers.Default
     }
-    private val cache = Files.createTempDirectory("heartbeat-compose-jcef")
+
+    /**
+     * Storage root under `build/`, fresh per run: Gradle Delete tasks clear it before and after
+     * `browserComposeNativeTest`. JCEF natives unpacked here stay mapped until the JVM exits (Windows locks
+     * them), so the fixture never deletes it itself.
+     */
+    private val cache = Files.createDirectories(
+        Path.of(requireNotNull(System.getProperty(NATIVE_ROOT_PROPERTY)) { "$NATIVE_ROOT_PROPERTY is not set" }),
+    )
     val pageLoads = AtomicInteger()
     val runtimeStarts = AtomicInteger()
     val loaded = CompletableFuture<Unit>()
@@ -78,12 +87,11 @@ internal class NativeComposeBrowserFixture :
                 }
             }
         } catch (failure: Throwable) {
-            // Nothing native has started yet: release the server, scopes and temporary profile of this fixture.
+            // Nothing native has started yet: release the server and scopes; Gradle clears the storage root.
             runCleanup(
                 { started?.stop(0) },
                 handle::close,
                 { scope.cancel() },
-                ::deleteCache,
             )?.let(failure::addSuppressed)
             throw failure
         }
@@ -134,13 +142,7 @@ internal class NativeComposeBrowserFixture :
             handle::close,
             { scope.cancel() },
             { server.stop(0) },
-            // After the runtime shutdown: the temporary Chromium profile is no longer in use.
-            ::deleteCache,
         )?.let { throw it }
-    }
-
-    private fun deleteCache() {
-        check(cache.toFile().deleteRecursively()) { "Cannot delete the temporary Chromium profile $cache" }
     }
 
     private fun createServer(): HttpServer = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
@@ -160,6 +162,10 @@ internal class NativeComposeBrowserFixture :
             exchange.responseBody.use { it.write(bytes) }
         }
         start()
+    }
+
+    private companion object {
+        const val NATIVE_ROOT_PROPERTY = "heartbeat.browser.composeNativeRoot"
     }
 }
 

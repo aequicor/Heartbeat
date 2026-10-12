@@ -59,9 +59,21 @@ heartbeatJcef.registerNativeTest(
     testClass = "DesktopBrowserNativeTest",
     enablingProperty = "heartbeat.browser.nativeTest",
 )
+// Its storage root (with unpacked JCEF natives, locked on Windows until the JVM exits) is cleared by Gradle.
+val composeNativeRoot = layout.buildDirectory.dir("native-compose-browser")
+val prepareComposeNativeRoot = tasks.register<Delete>("prepareBrowserComposeNativeRoot") {
+    delete(composeNativeRoot)
+}
+val cleanComposeNativeRoot = tasks.register<Delete>("cleanBrowserComposeNativeRoot") {
+    delete(composeNativeRoot)
+}
 heartbeatJcef.registerNativeTest(
     name = "browserComposeNativeTest",
     description = "Checks the production SwingPanel embedding with physical input in an isolated JVM.",
     testClass = "DesktopBrowserComposeNativeTest",
     enablingProperty = "heartbeat.browser.composeNativeTest",
-)
+) {
+    dependsOn(prepareComposeNativeRoot)
+    finalizedBy(cleanComposeNativeRoot)
+    systemProperty("heartbeat.browser.composeNativeRoot", composeNativeRoot.get().asFile.absolutePath)
+}
