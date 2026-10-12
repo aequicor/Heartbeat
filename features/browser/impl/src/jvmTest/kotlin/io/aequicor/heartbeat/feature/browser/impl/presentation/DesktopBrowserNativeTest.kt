@@ -97,6 +97,7 @@ class DesktopBrowserNativeTest {
             }
             awaitTitle(reopenedStates, "empty-empty")
             verifyRejectedNavigation(assertNotNull(reopened), reopenedStates, base)
+            runBlocking { verifyChangedLinkBase(assertNotNull(reopened)) }
             verifyEmbeddedContent(assertNotNull(reopened), reopenedStates, base)
             verifyRecovery(assertNotNull(reopened), reopenedStates, base)
             verifyReattachment(assertNotNull(reopened), assertNotNull(frame))

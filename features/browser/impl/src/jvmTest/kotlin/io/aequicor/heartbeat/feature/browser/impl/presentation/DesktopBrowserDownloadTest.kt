@@ -255,6 +255,38 @@ class DesktopBrowserDownloadTest {
     }
 
     @Test
+    fun `closing waits for native cleanup after the capture caller is cancelled`() = runTest {
+        val entered = CompletableDeferred<Unit>()
+        val cleanupStarted = CompletableDeferred<Unit>()
+        val cleanupAllowed = CompletableDeferred<Unit>()
+        val downloader = DesktopBrowserDownload(dispatchers(StandardTestDispatcher(testScheduler))) {
+            entered.complete(Unit)
+            try {
+                awaitCancellation()
+            } finally {
+                withContext(NonCancellable) {
+                    cleanupStarted.complete(Unit)
+                    cleanupAllowed.await()
+                }
+            }
+        }
+        val capture = async { downloader.capture("https://source.test/paper.pdf") }
+        entered.await()
+        capture.cancel()
+        cleanupStarted.await()
+        val closing = async { downloader.awaitClosed() }
+        try {
+            runCurrent()
+            assertFalse(capture.isCompleted)
+            assertFalse(closing.isCompleted, "Native cleanup must stay in the profile closure barrier")
+        } finally {
+            cleanupAllowed.complete(Unit)
+        }
+        closing.await()
+        assertFailsWith<CancellationException> { capture.await() }
+    }
+
+    @Test
     fun `missing native callback releases the waiter after a bound and ignores a late callback`() = runTest {
         var done: (() -> Unit)? = null
         val isDone = awaitNativeCallback(1_000L, Log.tag("Test"), "Native disposal") { done = it }

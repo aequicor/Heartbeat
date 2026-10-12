@@ -44,19 +44,18 @@ internal class DesktopBrowserDownload(
             val isOpen = synchronized(monitor) { !isClosed && operations.add(operation) }
             if (!isOpen) operation.cancel()
             check(isOpen) { "Browser is closed" }
-            try {
-                // join() throws only for the caller's own cancellation, which then also cancels the transfer.
-                if (withTimeoutOrNull(REQUEST_TIMEOUT) { operation.join() } == null) {
-                    operation.cancelAndJoin()
-                    val failure = IllegalStateException("Source transfer timed out")
-                    log.w(failure) { "Source transfer timed out after ${REQUEST_TIMEOUT}ms" }
-                    throw failure
-                }
-                check(!operation.isCancelled || !synchronized(monitor) { isClosed }) { "Browser is closed" }
-                operation.await()
-            } finally {
-                synchronized(monitor) { operations.remove(operation) }
+            // The caller may cancel while the transfer is still disposing native resources under NonCancellable.
+            // Keep it in the profile closure barrier until the transfer itself has finished.
+            operation.invokeOnCompletion { synchronized(monitor) { operations.remove(operation) } }
+            // join() throws only for the caller's own cancellation, which then also cancels the transfer.
+            if (withTimeoutOrNull(REQUEST_TIMEOUT) { operation.join() } == null) {
+                operation.cancelAndJoin()
+                val failure = IllegalStateException("Source transfer timed out")
+                log.w(failure) { "Source transfer timed out after ${REQUEST_TIMEOUT}ms" }
+                throw failure
             }
+            check(!operation.isCancelled || !synchronized(monitor) { isClosed }) { "Browser is closed" }
+            operation.await()
         }
     }
 

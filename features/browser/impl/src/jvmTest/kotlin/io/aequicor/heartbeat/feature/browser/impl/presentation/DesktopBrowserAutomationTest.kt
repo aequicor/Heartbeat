@@ -68,7 +68,7 @@ class DesktopBrowserAutomationTest {
         assertTrue(scripts.first { "querySelectorAll" in it }.contains("__heartbeatFingerprints="))
         val check = scripts.first { "elementFromPoint" in it }
         assertTrue(check.contains("__heartbeatFingerprints?.[0]"))
-        assertTrue(check.contains("getAttribute('href')"))
+        assertTrue(check.contains("e.href||null"))
         assertTrue(check.contains("hit.closest("))
     }
 

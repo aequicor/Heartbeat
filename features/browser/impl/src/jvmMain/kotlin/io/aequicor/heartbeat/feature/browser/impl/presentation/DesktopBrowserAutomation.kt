@@ -437,11 +437,11 @@ internal class DesktopBrowserAutomation(
 
         /**
          * What a reference means to the agent and to the user approving a click: tag, role, type, link target and
-         * label. A page that rewrites the element between read and click changes it.
+         * label. The resolved link target also detects changes to the document base URL between read and click.
          */
         const val FINGERPRINT_SCRIPT =
-            "(e=>JSON.stringify([e.tagName,e.getAttribute('role'),e.getAttribute('type'),e.getAttribute('href')," +
-                "e.getAttribute('aria-label'),$LABEL_SCRIPT(e)]))"
+            "(e=>JSON.stringify([e.tagName,e.getAttribute('role'),e.getAttribute('type')," +
+                "e.getAttribute('href'),e.href||null,e.getAttribute('aria-label'),$LABEL_SCRIPT(e)]))"
 
         /**
          * Elements that act on a click by themselves. A click lands on its referenced element only when the nearest
