@@ -32,4 +32,5 @@
     <string name="browser_cancel">Отмена</string>
     <string name="browser_user_group">Личные</string>
     <string name="browser_session_group">Сессия %1$d</string>
+    <string name="browser_all_tabs">Все вкладки</string>
 </resources>

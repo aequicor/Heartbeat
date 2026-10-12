@@ -275,7 +275,14 @@ private fun PlaceholderContent(
     modifier: Modifier = Modifier,
 ) {
     Box(modifier, contentAlignment = if (isSingleLine) Alignment.CenterStart else Alignment.TopStart) {
-        if (isEmpty) HbText(placeholder.text, style = placeholder.style, color = HbTheme.colors.textSecondary)
+        if (isEmpty) {
+            HbText(
+                placeholder.text,
+                style = placeholder.style,
+                color = HbTheme.colors.textSecondary,
+                maxLines = if (isSingleLine) 1 else Int.MAX_VALUE,
+            )
+        }
         innerTextField()
     }
 }
