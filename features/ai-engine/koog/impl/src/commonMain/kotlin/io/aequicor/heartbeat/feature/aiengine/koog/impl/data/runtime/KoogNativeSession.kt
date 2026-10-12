@@ -615,7 +615,7 @@ internal class KoogNativeSession(
     }
 
     private suspend fun initialPrompt(provider: KoogProvider, instructions: String?): Prompt =
-        koogHistoryPrompt(record.items, provider, inputSupport(), access.resources, instructions, record.context)
+        access.historyPrompt(record, provider, inputSupport(), instructions)
 
     private fun inputSupport(): io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport =
         access.inputs.cached(route.binding, model.value)

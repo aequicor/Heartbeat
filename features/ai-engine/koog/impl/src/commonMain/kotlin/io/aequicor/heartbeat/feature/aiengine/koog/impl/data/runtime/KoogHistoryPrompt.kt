@@ -6,6 +6,7 @@ import ai.koog.prompt.dsl.prompt
 import ai.koog.prompt.message.MessagePart
 import ai.koog.prompt.params.LLMParams
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
@@ -15,6 +16,23 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogContextSummary
+import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogRecord
+
+/** The prompt of [record]: its visible context after the last compaction, shaped by the profile's policy. */
+internal suspend fun KoogAccess.historyPrompt(
+    record: KoogRecord,
+    provider: KoogProvider,
+    support: PromptInputSupport,
+    instructions: String?,
+): Prompt = koogHistoryPrompt(
+    record.items,
+    provider,
+    support,
+    resources,
+    instructions,
+    record.context,
+    contextPolicy(record.summary.ref),
+)
 
 /**
  * Builds transient provider input while keeping stable application parts in the session record. After a compaction
@@ -27,8 +45,9 @@ internal suspend fun koogHistoryPrompt(
     resources: ResourceResolver,
     instructions: String?,
     context: KoogContextSummary? = null,
+    policy: ContextPolicy? = null,
 ): Prompt {
-    val items = transcript.koogContextItems(context)
+    val items = transcript.koogContextItems(context).masked(policy)
     val userInputs = koogUserInputs(items, provider, support, resources)
     return prompt("heartbeat", LLMParams()) {
         instructions?.let { system(it) }

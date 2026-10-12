@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimi
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationMachineSpec
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationView
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextRolloverEnabled
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.KoogMaskingEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.impl.data.ContextLedgerHook
 import io.aequicor.heartbeat.feature.contextwindowoptimization.impl.domain.ContextOptimizationEffects
 import io.aequicor.heartbeat.feature.contextwindowoptimization.impl.domain.ContextSettingsStore
@@ -101,4 +102,9 @@ object ContextOptimizationToggleBindings {
     @Provides
     @IntoSet
     fun ledger(): FeatureToggle<*> = ContextLedgerEnabled
+
+    /** Masking of older tool results in Koog prompts. */
+    @Provides
+    @IntoSet
+    fun koogMasking(): FeatureToggle<*> = KoogMaskingEnabled
 }

@@ -29,6 +29,12 @@ public val ContextLedgerEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "Журнал прогресса сессии и инструменты агента context_*",
 )
 
+/** Observation masking of older tool results in prompts that engines rebuild every turn (Koog). */
+public val KoogMaskingEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
+    "context_optimization.koog_masking",
+    "Маскирование старых результатов инструментов в промпте Koog",
+)
+
 /** Names of the agent's hosted context tools. */
 public object ContextOptimizationTools {
     /** Reports context occupancy, the ledger and pending compaction. */
