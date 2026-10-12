@@ -4,6 +4,7 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextCompaction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
@@ -87,6 +88,8 @@ internal data class StudioTurnRequest(
     val causes: Set<RequestInitiator> = emptySet(),
     /** The screen submission that created this chat; its claimed harnesses connect before this first prompt. */
     val submissionId: String = "",
+    /** A native context compaction instead of [prompt]; it runs no tools, so it needs no worktree isolation. */
+    val compaction: ContextCompaction? = null,
 ) {
     override fun toString(): String = "StudioTurnRequest(id=$id, kind=$kind, attachments=${attachments.size})"
 }
@@ -104,7 +107,7 @@ internal class StudioTurnExecutor(
     suspend fun execute(host: StudioTurnHost, request: StudioTurnRequest): RunOutcome {
         val progress = Progress()
         try {
-            progress.isIsolated = host.isWorktree(request.id)
+            progress.isIsolated = request.compaction == null && host.isWorktree(request.id)
             if (progress.isIsolated) prepare(host, request, progress)
             val active = host.openTurn(request.id, request.settings)
             return runNative(host, request, active, progress)

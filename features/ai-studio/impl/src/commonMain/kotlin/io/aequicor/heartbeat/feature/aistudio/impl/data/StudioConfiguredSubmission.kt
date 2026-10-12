@@ -109,7 +109,8 @@ internal class StudioConfiguredSubmission(
         val helper = request.submission as? StudioHelperSubmission
         val submit: suspend () -> SubmittedPrompt = {
             origins.record(active.ref, request.request, request.causes)
-            val prompt = learning.prompt(request.id, request.prompt, request.directives)
+            val compaction = request.compaction
+            val prompt = if (compaction == null) learning.prompt(request.id, request.prompt, request.directives) else ""
             val finalTrust = if (helper != null) {
                 helper.begin(trust)
             } else {
@@ -117,7 +118,14 @@ internal class StudioConfiguredSubmission(
                 trust()
             }
             val native: suspend () -> TurnId = {
-                active.submitStudioPrompt(prompt, reasoningEffort, finalTrust, request.attachments, request.request)
+                active.submitStudioPrompt(
+                    prompt,
+                    reasoningEffort,
+                    finalTrust,
+                    request.attachments,
+                    request.request,
+                    compaction,
+                )
             }
             // A helper receipt must not stay Submitting when the engine refused the request before acceptance.
             val turn = if (helper != null) helper.send(native) else native()

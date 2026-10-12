@@ -3,7 +3,9 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CompactsContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextCompaction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
@@ -28,15 +30,21 @@ internal suspend fun ActiveSession.submitStudioPrompt(
     trust: TrustLevel?,
     attachments: List<ResourceRef>,
     requestId: RequestId,
+    compaction: ContextCompaction? = null,
 ): TurnId {
-    val request = PromptRequest(
-        requestId,
-        listOfNotNull(prompt.takeIf(String::isNotBlank)?.let(ContentPart::Text)) + attachments.map {
-            if (it.mediaType.startsWith("image/")) ContentPart.Image(it) else ContentPart.Resource(it)
-        },
-        reasoningEffort = reasoningEffort,
-        trust = trust,
-    )
+    // A compaction carries neither input nor turn options: it only summarizes the native context.
+    val request = if (compaction != null) {
+        PromptRequest(requestId, emptyList(), compaction = supportedCompaction(compaction))
+    } else {
+        PromptRequest(
+            requestId,
+            listOfNotNull(prompt.takeIf(String::isNotBlank)?.let(ContentPart::Text)) + attachments.map {
+                if (it.mediaType.startsWith("image/")) ContentPart.Image(it) else ContentPart.Resource(it)
+            },
+            reasoningEffort = reasoningEffort,
+            trust = trust,
+        )
+    }
     return try {
         features.requireFeature(SendsPrompts).send(request)
     } catch (e: EngineException) {
@@ -48,6 +56,14 @@ internal suspend fun ActiveSession.submitStudioPrompt(
         }
         resolveUnknownSubmission(request.id, e)
     }
+}
+
+/** Focus instructions reach only engines that take them; others compact with their own prompt. */
+private fun ActiveSession.supportedCompaction(compaction: ContextCompaction): ContextCompaction {
+    val compacts = (features.resolve(CompactsContext) as? FeatureAccess.Available)?.feature
+    if (compaction.instructions == null || compacts?.isInstructionsSupported != false) return compaction
+    log.i { "Compaction instructions dropped: the engine compacts with its own prompt" }
+    return ContextCompaction()
 }
 
 /** Keeps the profile reservation until reconciliation establishes acceptance or a known idle native session. */
