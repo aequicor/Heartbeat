@@ -141,6 +141,7 @@ class DesktopBrowserNativeTest {
         DefaultBrowserUrlResolver(),
         { false },
         states::offer,
+        guard = DesktopBrowserAgentGuard(),
         createContext = temporaryContextFactory(),
     )
 
@@ -297,6 +298,7 @@ class DesktopBrowserNativeTest {
                 { false },
                 { callbacks.incrementAndGet() },
                 closed::countDown,
+                guard = DesktopBrowserAgentGuard(),
                 createContext = temporaryContextFactory(),
             )
             unstarted.release()
@@ -308,6 +310,7 @@ class DesktopBrowserNativeTest {
                 { false },
                 { callbacks.incrementAndGet() },
                 closed::countDown,
+                guard = DesktopBrowserAgentGuard(),
                 createContext = temporaryContextFactory(),
             )
             pending.start("")

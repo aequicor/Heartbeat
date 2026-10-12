@@ -32,6 +32,7 @@ import javax.swing.SwingUtilities
  * creates its own client and separately owned wrapper sharing the profile's persistent context.
  * Patched JCEF confirms wrapper disposal and registry cleanup before the client is released.
  */
+@Suppress("LongParameterList") // Native collaborators; the agent guard is required so no engine runs unguarded.
 internal class DesktopBrowserEngine(
     app: CefApp,
     dispatchers: DispatcherProvider,
@@ -39,7 +40,7 @@ internal class DesktopBrowserEngine(
     private val isReleased: () -> Boolean,
     private val changed: (BrowserViewState) -> Unit,
     private val onClosed: () -> Unit = {},
-    guard: DesktopBrowserAgentGuard = DesktopBrowserAgentGuard(),
+    guard: DesktopBrowserAgentGuard,
     createContext: (CefRequestContextHandler) -> CefRequestContext,
 ) : DesktopBrowserRuntime {
     private val log = Log.tag("DesktopBrowserEngine")

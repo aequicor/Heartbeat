@@ -244,7 +244,7 @@ class DesktopBrowserSessionTest {
         // Opening another address withdraws the approval.
         redirect = null
         assertNull(open("https://example.com/"))
-        assertFalse(fixture.guards.single().allows("http://192.168.1.1/"))
+        assertFalse(fixture.guards.single().allows("http://192.168.1.1/", BrowserRequestKind.MainDocument))
         // Numeric shorthands of loopback are not addresses the browser accepts at all.
         assertEquals("Invalid URL", open("2130706433"))
         assertEquals("Invalid URL", open("127.1"))
@@ -276,8 +276,45 @@ class DesktopBrowserSessionTest {
         val request = fixture.request(BrowserOperation.RequestControl, user, "session-b")
         assertNull(fixture.request(BrowserOperation.ApproveControl, user, controlRequestId = request.requestId).error)
         assertTrue(userGuard.isRestricted)
-        assertTrue(userGuard.allows("http://192.168.1.1/settings"))
-        assertFalse(userGuard.allows("http://10.0.0.1/"))
+        assertTrue(userGuard.allows("http://192.168.1.1/settings", BrowserRequestKind.MainDocument))
+        assertFalse(userGuard.allows("http://10.0.0.1/", BrowserRequestKind.MainDocument))
+    }
+
+    @Test
+    fun `agent tabs block private iframes and sockets of a loaded page and say so separately`() = runTest {
+        val fixture = Fixture(this)
+        val tab = fixture.create("session-a")
+        fixture.attachNavigation(0, embedded = listOf("http://192.168.1.1/", "ws://10.0.0.1/socket")) { null }
+        runCurrent()
+        val result = fixture.request(BrowserOperation.Navigate, tab, "session-a", url = "https://example.com/")
+        assertNull(result.error)
+        assertTrue(result.data["blockedContent"]?.jsonPrimitive?.content.orEmpty().contains("private-network"))
+        assertNull(result.data["blockedNavigation"])
+        val again = fixture.request(BrowserOperation.Navigate, tab, "session-a", url = "https://example.com/")
+        assertTrue(again.data.containsKey("blockedContent"))
+
+        val user = fixture.create()
+        fixture.attachNavigation(1, embedded = listOf("http://192.168.1.1/")) { null }
+        runCurrent()
+        val own = fixture.request(BrowserOperation.Navigate, user, url = "https://example.com/")
+        assertNull(own.error)
+        assertFalse(own.data.containsKey("blockedContent"))
+    }
+
+    @Test
+    fun `a handed over tab approves the origin of the page it shows now`() = runTest {
+        val fixture = Fixture(this)
+        val user = fixture.create()
+        val guard = fixture.guards.single()
+        fixture.attachNavigation(0) { url ->
+            "http://192.168.1.1:8080/".takeIf { url.startsWith("http://192.168.1.1/") }
+        }
+        runCurrent()
+        assertNull(fixture.request(BrowserOperation.Navigate, user, url = "http://192.168.1.1/").error)
+        val request = fixture.request(BrowserOperation.RequestControl, user, "session-b")
+        assertNull(fixture.request(BrowserOperation.ApproveControl, user, controlRequestId = request.requestId).error)
+        assertTrue(guard.allows("http://192.168.1.1:8080/next", BrowserRequestKind.MainDocument))
+        assertFalse(guard.allows("http://192.168.1.1/", BrowserRequestKind.MainDocument))
     }
 
     private class Fixture(
@@ -312,10 +349,10 @@ class DesktopBrowserSessionTest {
             override fun create(surface: BrowserSurface, guard: DesktopBrowserAgentGuard): DesktopBrowserPanel {
                 surfaces += surface
                 guards += guard
-                return create(surface)
+                return panel(surface)
             }
 
-            override fun create(surface: BrowserSurface) =
+            private fun panel(surface: BrowserSurface) =
                 DesktopBrowserPanel(surface, scope.backgroundScope, dispatchers) { _, _ ->
                     val command = checkNotNull(nativeCommand) { "Native runtime must not be created for empty tabs" }
                     object : DesktopBrowserRuntime {
@@ -359,7 +396,7 @@ class DesktopBrowserSessionTest {
          * Attaches a native view that follows each load through [redirect] and passes every main-document hop
          * through the tab's real policy, as the engine does.
          */
-        fun attachNavigation(index: Int, redirect: (String) -> String?) {
+        fun attachNavigation(index: Int, embedded: List<String> = emptyList(), redirect: (String) -> String?) {
             val surface = surfaces[index]
             val policy = DesktopBrowserPolicy({ false }, { false }, {}, {}, {}, guards[index])
             val controller = object : BrowserViewController {
@@ -367,6 +404,8 @@ class DesktopBrowserSessionTest {
                     if (command !is BrowserViewCommand.Load) return
                     val hops = listOfNotNull(command.url, redirect(command.url))
                     val isAllowed = hops.all { policy.allows(it, BrowserRequestKind.MainDocument) }
+                    // The loaded page's iframes and sockets pass the same policy; a refused one leaves the page loaded.
+                    if (isAllowed) embedded.forEach { policy.allows(it, kindOf(it)) }
                     val state = if (isAllowed) {
                         BrowserViewState(url = hops.last())
                     } else {
@@ -382,3 +421,6 @@ class DesktopBrowserSessionTest {
             request(BrowserOperation.ListTabs, owner = owner).data.getValue("tabs").jsonArray
     }
 }
+
+private fun kindOf(url: String) =
+    if (url.startsWith("ws")) BrowserRequestKind.Subresource else BrowserRequestKind.ChildDocument

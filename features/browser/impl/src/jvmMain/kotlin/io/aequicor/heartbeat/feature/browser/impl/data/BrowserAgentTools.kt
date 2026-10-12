@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.browser.impl.data
 
 import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
@@ -56,10 +57,10 @@ import kotlin.uuid.Uuid
  * `browser_open`/`browser_new_tab` with any other address (localhost, private networks, `.local` names) asks
  * through [requiresDecision] exactly as a command would: a decision unless the session has full trust.
  * `browser_search` always opens the public search engine. As `web_fetch` checks every redirect hop, the agent's tab
- * checks every main document the page itself starts (redirects, scripts, meta refresh, links, popups) and stops
- * one outside the public web unless it stays on the host the user approved; the agent learns about it from the
- * operation's result. Host names are not resolved, as for `web_fetch`: DNS pointing at a private address is not
- * detected.
+ * checks every document the page itself starts (redirects, scripts, meta refresh, links, popups, iframes) and every
+ * WebSocket connection, and stops one outside the public web unless it stays on the origin the user approved; the
+ * agent learns about it from the operation's result. Host names are not resolved, as for `web_fetch`: DNS pointing
+ * at a private address is not detected.
  *
  * Approvals name the tab's current address and what exactly is typed, pressed or clicked; a click on an element
  * reference shows the element as the agent's latest read of that snapshot reported it, and the click is refused if
@@ -69,16 +70,21 @@ import kotlin.uuid.Uuid
  * A call that times out is reported to the agent as an error. The native operation is cancelled, and its
  * acknowledgement awaited within a bound, only while a possibly accepted request has no result yet.
  */
+@SingleIn(ProfileScope::class)
 @ContributesIntoSet(ProfileScope::class)
 @Inject
 internal class BrowserAgentTools(private val machines: MachineRegistry, private val toggles: FeatureToggles) :
     AgentToolContribution {
     private val log = Log.tag("BrowserAgentTools")
 
-    /** The latest reads of all sessions, keyed by owner and snapshot; older ones only lose their approval text. */
-    private val reads = object : LinkedHashMap<String, Map<Int, ReadElement>>() {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Map<Int, ReadElement>>?): Boolean =
-            size > MAX_REMEMBERED_READS
+    /**
+     * The latest read of each session, so one session's reads never displace another's; an older snapshot only
+     * loses its approval text. Bounded in sessions, elements and text, and forgotten once its tab is gone (closing
+     * the tab, clearing browser data).
+     */
+    private val reads = object : LinkedHashMap<String, LatestRead>() {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, LatestRead>?): Boolean =
+            size > MAX_REMEMBERED_SESSIONS
     }
     override val group: String = "browser"
     override val title: String = "Встроенный браузер"
@@ -157,7 +163,7 @@ internal class BrowserAgentTools(private val machines: MachineRegistry, private 
                     return@coroutineScope AgentToolResult("Browser operation timed out", true)
                 }
                 isPending = false
-                toolResult(operation, owner, completed)
+                toolResult(request, completed)
             } finally {
                 result.cancel()
                 if (isPending) withContext(NonCancellable) { cancelPending(machine, id) }
@@ -165,8 +171,12 @@ internal class BrowserAgentTools(private val machines: MachineRegistry, private 
         }
 
     /** A successful read is remembered so a later click approval can name its element without IO. */
-    private fun toolResult(operation: BrowserOperation, owner: String, completed: BrowserResult): AgentToolResult {
-        if (operation == BrowserOperation.Read && completed.error == null) remember(owner, completed.data)
+    private fun toolResult(request: BrowserRequest, completed: BrowserResult): AgentToolResult {
+        forgetClosedTabs()
+        val owner = request.owner
+        val tabId = request.tabId
+        val isRead = request.operation == BrowserOperation.Read && completed.error == null
+        if (isRead && owner != null && tabId != null) remember(owner, tabId, completed.data)
         return AgentToolResult(
             completed.error ?: completed.data.toString(),
             completed.error != null,
@@ -250,19 +260,36 @@ internal class BrowserAgentTools(private val machines: MachineRegistry, private 
         return "$shown: ${visible(element.tag, MAX_SHORT_CHARS)} «${visible(element.label)}»$link"
     }
 
-    private fun remember(owner: String, data: JsonObject) {
-        val snapshot = data.text("snapshotId") ?: return
-        val elements = (data["elements"] as? JsonArray).orEmpty().mapNotNull { element ->
+    /** Texts are kept only as far as an approval shows them; a longer one still shows as shortened. */
+    private fun remember(owner: String, tabId: String, data: JsonObject) {
+        val snapshot = data.text("snapshotId")?.takeIf { it.length <= MAX_SHORT_CHARS } ?: return
+        val elements = (data["elements"] as? JsonArray).orEmpty().asSequence().mapNotNull { element ->
             val fields = element as? JsonObject ?: return@mapNotNull null
             val id = (fields["id"] as? JsonPrimitive)?.intOrNull ?: return@mapNotNull null
-            id to ReadElement(fields.text("tag").orEmpty(), fields.text("label").orEmpty(), fields.text("href"))
-        }.toMap()
-        synchronized(reads) { reads["$owner\n$snapshot"] = elements }
+            id to ReadElement(
+                fields.text("tag").orEmpty().take(MAX_SHORT_CHARS + 1),
+                fields.text("label").orEmpty().take(MAX_APPROVAL_CHARS + 1),
+                fields.text("href")?.take(MAX_APPROVAL_CHARS + 1),
+            )
+        }.take(MAX_REMEMBERED_ELEMENTS).toMap()
+        synchronized(reads) {
+            reads.remove(owner)
+            reads[owner] = LatestRead(tabId, snapshot, elements)
+        }
     }
 
     private fun remembered(owner: String, snapshot: String?, id: Int?): ReadElement? {
         if (snapshot == null || id == null) return null
-        return synchronized(reads) { reads["$owner\n$snapshot"]?.get(id) }
+        forgetClosedTabs()
+        return synchronized(reads) { reads[owner]?.takeIf { it.snapshot == snapshot }?.elements?.get(id) }
+    }
+
+    /** Reads of closed tabs, including all of them once browser data is cleared, are dropped. */
+    private fun forgetClosedTabs() {
+        val open = (machines.find(BrowserMachineKey)?.state?.value as? BrowserState.Running)?.tabs
+            ?.mapTo(mutableSetOf()) { it.id }
+            .orEmpty()
+        synchronized(reads) { reads.values.removeAll { it.tabId !in open } }
     }
 
     private fun describeText(text: String?): String {
@@ -318,12 +345,16 @@ internal class BrowserAgentTools(private val machines: MachineRegistry, private 
     /** An element as the agent's read reported it. */
     private data class ReadElement(val tag: String, val label: String, val href: String?)
 
+    /** A session's latest read: its tab, snapshot and elements. */
+    private data class LatestRead(val tabId: String, val snapshot: String, val elements: Map<Int, ReadElement>)
+
     private companion object {
         const val OPERATION_TIMEOUT = 45_000L
         const val CANCELLATION_TIMEOUT = 5_000L
         const val MAX_APPROVAL_CHARS = 500
         const val MAX_SHORT_CHARS = 40
-        const val MAX_REMEMBERED_READS = 32
+        const val MAX_REMEMBERED_SESSIONS = 32
+        const val MAX_REMEMBERED_ELEMENTS = 200
         const val TRUNCATED = "… (показано начало)"
         const val HEX_RADIX = 16
         const val UNICODE_DIGITS = 4

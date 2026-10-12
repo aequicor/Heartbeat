@@ -43,8 +43,8 @@ import kotlin.uuid.Uuid
 
 /**
  * Profile-owned tabs. All registry mutations run on main; each tab serializes its native
- * operations. Each tab's [DesktopBrowserAgentGuard] keeps an agent's main documents on the public web and the
- * host its owner approved; a refused navigation is reported to the agent with its next operation on the tab.
+ * operations. Each tab's [DesktopBrowserAgentGuard] keeps an agent's documents and sockets on the public web and the
+ * origin its owner approved; what it refuses is reported to the agent with its next operation on the tab.
  */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class, binding = binding<BrowserSession>(), priority = 1)
@@ -317,8 +317,9 @@ internal class DesktopBrowserSession(
                         isHumanControlled = request.operation == BrowserOperation.TakeControl,
                     )
             }
-        // The user hands the agent the tab on its current page, which counts as approving that page's host.
-        entry.syncGuard(approved = entry.tab.page.url)
+        // The user hands the agent the tab on its current page, which counts as approving that page's origin; the
+        // native page is read directly, as the tab projection may lag behind it.
+        entry.syncGuard(approved = entry.surface.pages.value.url)
         publish()
         return result(request, entry)
     }
@@ -343,13 +344,7 @@ internal class DesktopBrowserSession(
         BrowserOperation.Key,
         BrowserOperation.Scroll,
         BrowserOperation.Drag,
-        -> entry.driver.perform(request).let { result ->
-            if (request.owner != null && entry.guard.consumeRefusal()) {
-                result.copy(data = JsonObject(result.data + ("blockedNavigation" to JsonPrimitive(BLOCKED_NAVIGATION))))
-            } else {
-                result
-            }
-        }
+        -> withGuardNotes(request, entry, entry.driver.perform(request))
 
         BrowserOperation.RequestControl,
         BrowserOperation.ApproveControl,
@@ -378,21 +373,39 @@ internal class DesktopBrowserSession(
         if (url != null) {
             entry.driver.invalidate()
             // The dispatcher asks the user before an agent opens a non-public address, so only the owner's own
-            // navigation approves its host; any other address it opens withdraws that approval.
+            // navigation approves its origin; any other address it opens withdraws that approval.
             if (request.owner != null) entry.syncGuard(approved = url)
             entry.guard.consumeRefusal()
+            entry.guard.consumeContentRefusal()
             entry.surface.execute(BrowserCommand.Load(url))
             if (request.operation != BrowserOperation.NewTab) {
                 val loaded =
                     withFailureTimeout(NAVIGATION_TIMEOUT, log, "Page load") {
                         entry.surface.pages.first { !it.isLoading && it.url.isNotEmpty() }
                     }
-                check(loaded.error == null) {
-                    if (entry.guard.consumeRefusal()) BLOCKED_NAVIGATION else "Page failed to load"
+                if (loaded.error != null && entry.guard.consumeRefusal()) {
+                    log.i { "Agent tab navigation blocked" }
+                    error(BLOCKED_NAVIGATION)
                 }
+                check(loaded.error == null) { "Page failed to load" }
             }
         }
-        return result(request, entry)
+        return withGuardNotes(request, entry, result(request, entry))
+    }
+
+    /**
+     * Tells the agent what its tab's guard stopped since the previous operation: a navigation the page started, or
+     * embedded content (an iframe, a socket) of a local or private-network address. The page keeps loading otherwise.
+     */
+    private fun withGuardNotes(request: BrowserRequest, entry: Entry, result: BrowserResult): BrowserResult {
+        if (request.owner == null) return result
+        val notes = buildMap {
+            if (entry.guard.consumeRefusal()) put("blockedNavigation", JsonPrimitive(BLOCKED_NAVIGATION))
+            if (entry.guard.consumeContentRefusal()) put("blockedContent", JsonPrimitive(BLOCKED_CONTENT))
+        }
+        if (notes.isEmpty()) return result
+        log.i { "Agent tab guard blocked: ${notes.keys.joinToString()}" }
+        return result.copy(data = JsonObject(result.data + notes))
     }
 
     private suspend fun create(owner: String?): Entry {
@@ -461,6 +474,9 @@ internal class DesktopBrowserSession(
         const val BLOCKED_NAVIGATION =
             "The page tried to open a local or private-network address and was stopped. " +
                 "Open such an address with browser_open so the user can approve it."
+        const val BLOCKED_CONTENT =
+            "The page embedded or connected to a local or private-network address; that content was blocked. " +
+                "Open such an address with browser_open so the user can approve it."
     }
 
     private class Entry(
@@ -473,8 +489,8 @@ internal class DesktopBrowserSession(
         var observer: Job? = null
 
         /**
-         * Main documents of an agent tab are limited to the public web and the host of [approved]; the user's own
-         * tab, or one the user currently controls, is unrestricted.
+         * Documents and sockets of an agent tab are limited to the public web and the origin of [approved]; the
+         * user's own tab, or one the user currently controls, is unrestricted.
          */
         fun syncGuard(approved: String?) {
             if (tab.owner == null || tab.isHumanControlled) guard.unrestrict() else guard.restrict(approved)

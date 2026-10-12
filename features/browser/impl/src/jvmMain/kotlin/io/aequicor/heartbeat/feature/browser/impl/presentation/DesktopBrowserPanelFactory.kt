@@ -18,13 +18,11 @@ import org.cef.browser.CefRequestContext
 
 /** Presentation entry point injected through the common native-resource port. */
 internal interface DesktopBrowserPanelFactory : BrowserNativeResources {
-    fun create(surface: BrowserSurface): DesktopBrowserPanel
-
     /**
-     * The panel of a session tab whose main documents [guard] restricts for an agent owner. The first creation of a
-     * surface fixes its guard; the production factory overrides this, test doubles may ignore the guard.
+     * The panel of [surface] whose documents [guard] restricts for an agent owner. The first creation of a surface
+     * fixes its guard: the session creates each tab's panel with the tab's guard before any view can ask for it.
      */
-    fun create(surface: BrowserSurface, guard: DesktopBrowserAgentGuard): DesktopBrowserPanel = create(surface)
+    fun create(surface: BrowserSurface, guard: DesktopBrowserAgentGuard): DesktopBrowserPanel
     fun close(surface: BrowserSurface)
 
     /** Closes all surfaces and native context before deleting site data; failure prevents reuse. */
@@ -65,8 +63,6 @@ internal class DefaultDesktopBrowserPanelFactory(
         }
     }
 
-    override fun create(surface: BrowserSurface): DesktopBrowserPanel = create(surface, DesktopBrowserAgentGuard())
-
     override fun create(surface: BrowserSurface, guard: DesktopBrowserAgentGuard): DesktopBrowserPanel =
         synchronized(monitor) {
             check(profile.isAvailable) { "Browser profile is unavailable" }
@@ -99,6 +95,10 @@ internal class DefaultDesktopBrowserPanelFactory(
     }
 }
 
-/** UI receives presentation only, without knowing the runtime's filesystem or bootstrap implementation. */
+/**
+ * UI receives presentation only, without knowing the runtime's filesystem or bootstrap implementation. A session tab
+ * already has its panel and keeps its guard; any other surface belongs to the user and is unrestricted.
+ */
 internal fun BrowserSurface.createDesktopPanel(): DesktopBrowserPanel =
-    checkNotNull(nativeResources as? DesktopBrowserPanelFactory) { "Desktop browser factory is not bound" }.create(this)
+    checkNotNull(nativeResources as? DesktopBrowserPanelFactory) { "Desktop browser factory is not bound" }
+        .create(this, DesktopBrowserAgentGuard())

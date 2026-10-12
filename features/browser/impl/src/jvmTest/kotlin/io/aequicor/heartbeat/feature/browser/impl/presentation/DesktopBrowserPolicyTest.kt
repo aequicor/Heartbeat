@@ -45,7 +45,7 @@ class DesktopBrowserPolicyTest {
     }
 
     @Test
-    fun `agent tab main documents stay on the public web except the approved host`() {
+    fun `agent tab main documents stay on the public web except the approved origin`() {
         val guard = DesktopBrowserAgentGuard()
         var opened = 0
         var unsupported = 0
@@ -75,7 +75,8 @@ class DesktopBrowserPolicyTest {
         private.forEach { assertFalse(policy.allows(it, main), it) }
         assertTrue(guard.consumeRefusal())
         assertFalse(guard.consumeRefusal())
-        // Subresources and child documents are not navigations of the agent's tab.
+        assertFalse(guard.consumeContentRefusal())
+        // Plain resources are not documents the agent sees or acts on.
         assertTrue(policy.allows("http://192.168.1.1/image.png", BrowserRequestKind.Subresource))
         policy.popup("http://10.0.0.1/")
         policy.popup("https://example.com/")
@@ -84,7 +85,8 @@ class DesktopBrowserPolicyTest {
 
         guard.restrict(approved = "http://192.168.1.1/admin")
         assertTrue(policy.allows("http://192.168.1.1/login", main))
-        assertTrue(policy.allows("https://192.168.1.1:8443/", main))
+        assertTrue(policy.allows("http://192.168.1.1:80/login", main))
+        assertTrue(policy.allows("http://192.168.1.1./login", main))
         assertFalse(policy.allows("http://192.168.1.2/", main))
         assertFalse(policy.allows("http://localhost/", main))
         guard.restrict(approved = "https://example.com/")
@@ -92,6 +94,61 @@ class DesktopBrowserPolicyTest {
 
         guard.unrestrict()
         assertTrue(policy.allows("http://192.168.1.1/login", main))
+    }
+
+    @Test
+    fun `approval covers one origin, not the host on another port or scheme`() {
+        val guard = DesktopBrowserAgentGuard()
+        val policy = DesktopBrowserPolicy({ false }, { false }, {}, {}, {}, guard)
+        val main = BrowserRequestKind.MainDocument
+        guard.restrict(approved = "http://LOCALHOST:3000/app")
+        assertTrue(policy.allows("http://localhost:3000/other", main))
+        assertFalse(policy.allows("http://localhost/", main))
+        assertFalse(policy.allows("http://localhost:3001/", main))
+        assertFalse(policy.allows("https://localhost:3000/", main))
+        // The approved origin's own socket, as a development server's live reload uses.
+        assertTrue(policy.allows("ws://localhost:3000/hmr", BrowserRequestKind.Subresource))
+        assertFalse(policy.allows("wss://localhost:3000/hmr", BrowserRequestKind.Subresource))
+
+        guard.restrict(approved = "https://192.168.1.1/")
+        assertTrue(policy.allows("https://192.168.1.1:443/", main))
+        assertFalse(policy.allows("http://192.168.1.1/", main))
+        assertFalse(policy.allows("https://192.168.1.1:8443/", main))
+        // Credentials make the authority ambiguous: such an address never matches an approval.
+        guard.restrict(approved = "http://a:b@10.0.0.1/")
+        assertFalse(guard.allows("http://10.0.0.1/", main))
+        guard.restrict(approved = "http://10.0.0.1/")
+        assertFalse(guard.allows("http://a:b@10.0.0.1/", main))
+    }
+
+    @Test
+    fun `agent tab iframes and sockets to private addresses are blocked without failing the page`() {
+        val guard = DesktopBrowserAgentGuard().apply { restrict(approved = null) }
+        var unsupported = 0
+        val policy = DesktopBrowserPolicy({ false }, { false }, { unsupported++ }, {}, {}, guard)
+        val child = BrowserRequestKind.ChildDocument
+        val socket = BrowserRequestKind.Subresource
+        assertTrue(policy.allows("https://example.com/embed", child))
+        assertTrue(policy.allows("wss://example.com/socket", socket))
+        assertTrue(policy.allows("about:srcdoc", child))
+        assertFalse(policy.allows("http://192.168.1.1/", child))
+        assertFalse(policy.allows("http://localhost:8080/frame", child))
+        assertFalse(policy.allows("ws://192.168.1.1/socket", socket))
+        assertFalse(policy.allows("wss://[fd00::1]/socket", socket))
+        // Embedded content is not a navigation of the tab: the agent hears about it separately.
+        assertFalse(guard.consumeRefusal())
+        assertTrue(guard.consumeContentRefusal())
+        assertFalse(guard.consumeContentRefusal())
+        assertEquals(0, unsupported)
+
+        guard.restrict(approved = "http://192.168.1.1/")
+        assertTrue(policy.allows("http://192.168.1.1/frame", child))
+        assertTrue(policy.allows("ws://192.168.1.1/socket", socket))
+        assertFalse(policy.allows("http://192.168.1.2/frame", child))
+
+        guard.unrestrict()
+        assertTrue(policy.allows("http://10.0.0.1/", child))
+        assertTrue(policy.allows("ws://10.0.0.1/", socket))
     }
 
     @Test

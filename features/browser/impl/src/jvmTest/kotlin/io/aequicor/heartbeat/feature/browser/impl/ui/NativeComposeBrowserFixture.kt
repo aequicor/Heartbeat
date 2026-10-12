@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserSurface
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserTestScope
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserViewController
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserViewState
+import io.aequicor.heartbeat.feature.browser.impl.presentation.DesktopBrowserAgentGuard
 import io.aequicor.heartbeat.feature.browser.impl.presentation.DesktopBrowserEngine
 import io.aequicor.heartbeat.feature.browser.impl.presentation.DesktopBrowserPanel
 import io.aequicor.heartbeat.feature.browser.impl.presentation.DesktopBrowserPanelFactory
@@ -82,7 +83,14 @@ internal class NativeComposeBrowserFixture :
             panel = DesktopBrowserPanel(this, scope, dispatchers) { released, changed ->
                 val app = resources.app()
                 runtimeStarts.incrementAndGet()
-                DesktopBrowserEngine(app, dispatchers, DefaultBrowserUrlResolver(), released, changed) { handler ->
+                DesktopBrowserEngine(
+                    app,
+                    dispatchers,
+                    DefaultBrowserUrlResolver(),
+                    released,
+                    changed,
+                    guard = DesktopBrowserAgentGuard(),
+                ) { handler ->
                     checkNotNull(CefRequestContext.createContext(handler))
                 }
             }
@@ -97,7 +105,7 @@ internal class NativeComposeBrowserFixture :
         }
     }
     override val nativeResources = object : DesktopBrowserPanelFactory {
-        override fun create(surface: BrowserSurface) = panel
+        override fun create(surface: BrowserSurface, guard: DesktopBrowserAgentGuard) = panel
         override fun close(surface: BrowserSurface) = panel.release()
         override suspend fun clearData() = error("Not part of the Compose embedding test")
     }

@@ -37,12 +37,15 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -192,17 +195,8 @@ class BrowserAgentToolsTest {
     @Test
     fun `click approval shows the element as the latest read of that snapshot reported it`() = runTest {
         val fixture = Fixture()
-        fixture.machine.data = { request ->
-            if (request.operation == BrowserOperation.Read) {
-                Json.parseToJsonElement(
-                    """{"snapshotId":"snap","elements":[
-                        {"id":0,"tag":"A","label":"Pay ‮001","href":"https://bank.example/pay"},
-                        {"id":1,"tag":"BUTTON","label":"Cancel","href":null}]}""",
-                ).jsonObject
-            } else {
-                JsonObject(emptyMap())
-            }
-        }
+        fixture.openTabs("tab")
+        fixture.readReturns("snap")
         assertFalse(fixture.tools.execute(context, "browser_read", buildJsonObject { put("tabId", "tab") }).isError)
         val click = fixture.tools.specifications(null).single { it.name == "browser_click" }
         suspend fun describe(element: Int, snapshot: String, session: AgentToolContext = context) =
@@ -223,6 +217,39 @@ class BrowserAgentToolsTest {
         assertTrue(describe(1, "older").contains("описание недоступно"))
         val other = context.copy(session = SessionRef(EngineId("pi"), SessionSourceId("local"), "other-session"))
         assertTrue(describe(0, "snap", other).contains("описание недоступно"))
+    }
+
+    @Test
+    fun `remembered reads are kept per session, bounded and forgotten with their tab`() = runTest {
+        val fixture = Fixture()
+        fixture.openTabs("tab")
+        fixture.readReturns("snap", label = "x".repeat(5_000))
+        val click = fixture.tools.specifications(null).single { it.name == "browser_click" }
+        suspend fun describe(snapshot: String) = fixture.tools.approval(
+            context,
+            click,
+            buildJsonObject {
+                put("snapshotId", snapshot)
+                put("element", 0)
+            },
+        ).description.orEmpty()
+        val read = buildJsonObject { put("tabId", "tab") }
+        assertFalse(fixture.tools.execute(context, "browser_read", read).isError)
+        assertTrue(describe("snap").length < 1_500)
+        // Other sessions reading many times do not displace this session's latest read.
+        repeat(50) { index ->
+            val session = SessionRef(EngineId("pi"), SessionSourceId("local"), "session-${index % 5}")
+            fixture.tools.execute(context.copy(session = session), "browser_read", read)
+        }
+        assertTrue(describe("snap").contains("A «x"))
+        // A newer read of the same session replaces the older snapshot.
+        fixture.readReturns("newer")
+        fixture.tools.execute(context, "browser_read", read)
+        assertTrue(describe("snap").contains("описание недоступно"))
+        assertTrue(describe("newer").contains("A «Pay"))
+        // Clearing browser data closes every tab, and the reads go with them.
+        fixture.openTabs()
+        assertTrue(describe("newer").contains("описание недоступно"))
     }
 
     @Test
@@ -357,6 +384,40 @@ class BrowserAgentToolsTest {
         val registry = ToolRegistry(machine)
         val toggles = ToolToggles()
         val tools = BrowserAgentTools(registry, toggles)
+
+        fun openTabs(vararg ids: String) {
+            machine.state.value = BrowserState.Running(
+                isConfigured = true,
+                isEnabled = true,
+                tabs = ids.map { BrowserTab(it, BrowserPage("https://example.com/")) },
+            )
+        }
+
+        fun readReturns(snapshot: String, label: String = "Pay ‮001") {
+            machine.data = { request ->
+                if (request.operation == BrowserOperation.Read) {
+                    buildJsonObject {
+                        put("snapshotId", snapshot)
+                        putJsonArray("elements") {
+                            addJsonObject {
+                                put("id", 0)
+                                put("tag", "A")
+                                put("label", label)
+                                put("href", "https://bank.example/pay")
+                            }
+                            addJsonObject {
+                                put("id", 1)
+                                put("tag", "BUTTON")
+                                put("label", "Cancel")
+                                put("href", JsonNull)
+                            }
+                        }
+                    }
+                } else {
+                    JsonObject(emptyMap())
+                }
+            }
+        }
     }
 
     private class ToolMachine : MachineRef<BrowserState, BrowserIntent.Public, BrowserOutput> {

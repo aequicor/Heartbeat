@@ -449,7 +449,8 @@ internal class DesktopBrowserAutomation(
          */
         const val INTERACTIVE_SELECTOR =
             "a[href],area[href],button,input,textarea,select,summary,[role=button],[role=link],[role=checkbox]," +
-                "[role=radio],[role=switch],[role=tab],[role=menuitem],[role=option],[onclick],[contenteditable]"
+                "[role=radio],[role=switch],[role=tab],[role=menuitem],[role=option],[onclick]," +
+                "[contenteditable]:not([contenteditable=false i])"
 
         /** Synchronous: the geometry ("view") and the content describe the same moment. */
         const val READ_SCRIPT =
