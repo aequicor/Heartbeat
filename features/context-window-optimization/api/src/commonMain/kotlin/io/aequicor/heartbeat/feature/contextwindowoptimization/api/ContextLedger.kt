@@ -40,7 +40,8 @@ public data class LedgerUpdate(
 
 /**
  * The ledger after [update] at [at]: entries are trimmed to [LEDGER_ENTRY_CHARS], blank ones dropped, repeated done
- * items and facts kept once, and the oldest done items, then the oldest facts, dropped until it fits [LEDGER_MAX_CHARS].
+ * items and facts kept once, and the oldest done items, then the oldest facts, dropped until it fits
+ * [LEDGER_MAX_CHARS].
  */
 public fun ContextLedger?.updated(update: LedgerUpdate, at: Instant): ContextLedger {
     val current = this ?: ContextLedger(updatedAt = at, version = -1)
@@ -53,10 +54,13 @@ public fun ContextLedger?.updated(update: LedgerUpdate, at: Instant): ContextLed
         version = current.version + 1,
     )
     while (next.render().length > LEDGER_MAX_CHARS && (next.done.isNotEmpty() || next.facts.isNotEmpty())) {
-        next = if (next.done.isNotEmpty()) next.copy(done = next.done.drop(1)) else next.copy(facts = next.facts.drop(1))
+        next = next.withoutOldest()
     }
     return next
 }
+
+private fun ContextLedger.withoutOldest(): ContextLedger =
+    if (done.isNotEmpty()) copy(done = done.drop(1)) else copy(facts = facts.drop(1))
 
 /** The ledger as the agent reads it. */
 public fun ContextLedger.render(): String = buildString {

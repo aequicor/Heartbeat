@@ -22,7 +22,7 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimi
  * | Ready | UpdateLedger | | Ready(ledger updated, ledgerRevision + 1) | SaveLedgers |
  * | Ready | Claim | session pending, not running | Ready(pending → running) | |
  * | Ready | Finished | session running | Ready(running removed) | |
- * | Ready | RolledOver | old ≠ new | Ready(pending, mark and ledger of old moved to new, old dropped) | SaveLedgers if a ledger moved |
+ * | Ready | RolledOver | old ≠ new | Ready(pending, mark, ledger of old moved to new) | SaveLedgers if moved |
  * | Ready | SessionClosed | | Ready(session dropped) | SaveLedgers if a ledger was dropped |
  * | Ready | SaveFailed | | Ready | SaveFailed |
  * | Idle / Loading | any other Public | — | ignored | settings are not known before loading |
@@ -74,7 +74,9 @@ public val ContextOptimizationMachineSpec: ContextOptimizationSpec =
             }
             on<Public.RolledOver>(guard = { intent.old != intent.new }) {
                 stay { state.rolledOver(intent.old, intent.new) }
-                effect { state.rolledOver(intent.old, intent.new).ledgersSaved().takeIf { intent.old in state.ledgers } }
+                effect {
+                    state.rolledOver(intent.old, intent.new).ledgersSaved().takeIf { intent.old in state.ledgers }
+                }
             }
             on<Public.SessionClosed> {
                 stay { state.without(intent.session) }
