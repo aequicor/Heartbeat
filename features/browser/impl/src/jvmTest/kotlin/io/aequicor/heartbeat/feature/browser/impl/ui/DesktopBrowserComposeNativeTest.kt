@@ -9,7 +9,6 @@ import java.awt.Component
 import java.awt.Dimension
 import java.awt.GraphicsEnvironment
 import java.awt.KeyboardFocusManager
-import java.awt.Point
 import java.awt.Rectangle
 import java.awt.Robot
 import java.awt.event.ComponentAdapter
@@ -75,7 +74,7 @@ class DesktopBrowserComposeNativeTest {
                         "The modal scrim must also cover the native page outside the dialog",
                     )
                 }
-                verifyMenu(fixture, state, window, nativeImage)
+                verifyMenu(fixture, state, component, window, nativeImage)
                 capture(window, "restored")
                 assertEquals(1, fixture.pageLoads.get(), "A Compose transition reloaded the document")
                 assertEquals(1, fixture.runtimeStarts.get(), "A Compose transition recreated Chromium")
@@ -88,26 +87,26 @@ class DesktopBrowserComposeNativeTest {
     private fun verifyMenu(
         fixture: NativeComposeBrowserFixture,
         state: NativeBrowserContentState,
+        component: Component,
         window: ComposeWindow,
         nativeImage: BufferedImage,
     ) {
         nativeEdt { state.isMenuVisible = true }
         state.menuFocused.awaitNative()
         state.menuDrawn.awaitNative()
-        val menuImage = capture(window, "menu")
-        val center = nativeEdt {
-            val menu = window.ownedWindows.single { it.isShowing }
-            val origin = window.locationOnScreen
-            Point(menu.x - origin.x + menu.width / 2, menu.y - origin.y + menu.height / 2)
-        }
-        assertTrue(
-            menuImage.getRGB(center.x, center.y) != nativeImage.getRGB(center.x, center.y),
-            "The menu must be visible over the native page",
-        )
+        awaitNativeMenuVisible(window, nativeImage) { capture(window, "menu") }
         awaitNativeDialogClosed(window) {
             typeKey(Robot(), KeyEvent.VK_ENTER, window)
             assertEquals("verify", state.menuSelected.awaitNative())
         }
+        assertEquals("13", fixture.evaluate("document.getElementById('entry').value").jsonPrimitive.content)
+        val clicksBefore = fixture.evaluate("window.pageClicks").jsonPrimitive.content.toInt()
+        nativeEdt { state.isMenuVisible = true }
+        awaitNativeMenuVisible(window, nativeImage) { capture(window, "menu-reopened") }
+        awaitNativeDialogClosed(window) {
+            clickPageInput(fixture, component, Robot(), window, areOwnedDialogsAllowed = true)
+        }
+        assertEquals(clicksBefore + 1, fixture.evaluate("window.pageClicks").jsonPrimitive.content.toInt())
         assertEquals("13", fixture.evaluate("document.getElementById('entry').value").jsonPrimitive.content)
     }
 
@@ -175,7 +174,7 @@ class DesktopBrowserComposeNativeTest {
     ): BufferedImage {
         val normalWidth = nativeEdt { component.width }
         val normalSize = nativeEdt { Dimension(window.size) }
-        capture(window, "light-panel")
+        val lightImage = capture(window, "light-panel")
         awaitComponent(component, { width < normalWidth }) { window.setSize(320, minOf(700, normalSize.height)) }
         capture(window, "light-narrow")
         nativeEdt { state.isDarkTheme = true }
@@ -183,6 +182,11 @@ class DesktopBrowserComposeNativeTest {
         capture(window, "dark-narrow")
         awaitComponent(component, { width >= normalWidth }) { window.size = normalSize }
         val nativeImage = capture(window, "dark-panel")
+        assertTrue(
+            lightImage.getRGB(lightImage.width / 8, lightImage.height / 2) !=
+                nativeImage.getRGB(nativeImage.width / 8, nativeImage.height / 2),
+            "The Compose host background must visibly change with its theme",
+        )
         assertEquals("proof-after-load", fixture.evaluate("window.retainedMarker").jsonPrimitive.content)
         return nativeImage
     }

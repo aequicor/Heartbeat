@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.browser.impl.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
@@ -51,7 +52,7 @@ internal class NativeBrowserContentState {
 @Composable
 internal fun NativeComposeBrowserContent(fixture: NativeComposeBrowserFixture, state: NativeBrowserContentState) {
     HbTheme(darkTheme = state.isDarkTheme) {
-        HbRow(Modifier.fillMaxSize(), gap = HbTheme.spacing.none) {
+        HbRow(Modifier.fillMaxSize().background(HbTheme.colors.background), gap = HbTheme.spacing.none) {
             if (state.mode != NativeBrowserMode.Expanded) Spacer(Modifier.weight(1f))
             if (state.mode != NativeBrowserMode.Hidden) {
                 NativeBrowserPanel(
