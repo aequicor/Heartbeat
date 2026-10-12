@@ -42,11 +42,11 @@ private val GUIDE = """
     5. Check with harness_get, then tell the user what was set up.
 
     Approval: texts follow the profile approval level; code, switching a tool on and giving a turned-off tool
-    back (removing an off switch, disconnecting, deleting or narrowing a harness that turns tools off, connecting or
-    widening one that switches native tools on) always ask the user. A harness with an enabled script asks for every
-    connection, disconnection, scope change and deletion, and deleting an enabled script asks too.
-    Off switches and Deny/Ask hooks apply in every chat a harness covers; everything else comes from the first
-    ${HarnessLimits.ACTIVE_PER_SESSION} covering harnesses of a chat by name.
+    back (removing an off switch, disconnecting or deleting a harness that turns tools off, connecting one that
+    switches native tools on) always ask the user. A harness with an enabled script asks for every
+    connection, disconnection and deletion, and deleting an enabled script asks too.
+    Off switches and Deny/Ask hooks apply in every chat a harness is connected to; everything else comes from the
+    first ${HarnessLimits.ACTIVE_PER_SESSION} connected harnesses of a chat by name.
     Never store secrets, tokens or personal data in a harness. Keep instructions short: the whole harness block
     shares $HARNESS_CONTEXT_CHARS characters per chat; skills are not in the block, only their index.
     Limits: ${HarnessLimits.HARNESSES} harnesses, ${HarnessLimits.ITEMS} items each, ${HarnessLimits.SCRIPT_TOOLS}

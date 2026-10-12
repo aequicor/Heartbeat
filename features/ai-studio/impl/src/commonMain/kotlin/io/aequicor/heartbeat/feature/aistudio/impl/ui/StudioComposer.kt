@@ -14,8 +14,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import io.aequicor.heartbeat.ds.components.HbChatComposer
 import io.aequicor.heartbeat.ds.components.HbComposerAction
 import io.aequicor.heartbeat.ds.components.HbComposerCaretRequest

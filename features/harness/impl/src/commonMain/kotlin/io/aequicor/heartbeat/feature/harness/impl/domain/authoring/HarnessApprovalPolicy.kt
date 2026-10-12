@@ -5,15 +5,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessApproval
 import io.aequicor.heartbeat.feature.harness.api.HarnessItem
-import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
 
 /**
  * Full turn trust approves ordinary agent edits even when the profile defaults to Ask. Otherwise Ask and ByTrust
  * require a decision (including AutoEdits), while AcceptAll approves them. Code, anything that can make a tool
  * usable again and membership changes of a harness with an enabled script always ask, whatever the level:
- * see [reEnabled], [isWiderThan],
- * [hasEnabledScript] and the callers' membership checks.
+ * see [reEnabled], [hasEnabledScript] and the callers' membership checks.
  */
 internal fun HarnessApproval.requiresDecision(trust: TrustLevel, isAlwaysAsked: Boolean): Boolean =
     isAlwaysAsked || (trust != TrustLevel.Full && this != HarnessApproval.AcceptAll)
@@ -57,22 +55,6 @@ internal val ToolPolicySpec.hasNativeOn: Boolean get() = native.values.any { Too
 /** The policy hides tools: losing membership in a chat gives them back there. */
 internal val ToolPolicySpec.hasRestrictions: Boolean
     get() = hostedOff.isNotEmpty() || native.values.any { ToolSwitch.Off in it.values }
-
-/**
- * Whether this scope covers a chat that [other] does not. Connected chats are covered by every scope, so
- * Attached is never wider; Profile covers everything; projects compare as sets.
- */
-internal fun HarnessScope.isWiderThan(other: HarnessScope): Boolean = when (this) {
-    HarnessScope.Attached -> false
-
-    HarnessScope.Profile -> other != HarnessScope.Profile
-
-    is HarnessScope.Projects -> when (other) {
-        HarnessScope.Profile -> false
-        HarnessScope.Attached -> true
-        is HarnessScope.Projects -> !other.projects.containsAll(projects)
-    }
-}
 
 /**
  * Human-readable difference shown in the question, one line per change: hosted tools turned off or back on, then

@@ -102,7 +102,7 @@ internal val HARNESS_AUTHORING_SPECS = listOf(
 internal val HARNESS_READ_SPECS = listOf(
     AgentToolSpec(
         HarnessTools.LIST,
-        "List harnesses of the profile with scope, state and which are active or only restrict here.",
+        "List harnesses of the profile with state and which are active or only restrict here.",
         schema(),
     ),
     AgentToolSpec(

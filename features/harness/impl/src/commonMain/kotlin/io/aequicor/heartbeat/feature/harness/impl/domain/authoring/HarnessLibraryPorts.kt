@@ -5,7 +5,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolGroup
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
-import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
 import io.aequicor.heartbeat.feature.harness.api.HarnessOutput
 import io.aequicor.heartbeat.feature.harness.api.HarnessRejection
@@ -42,9 +41,6 @@ internal interface HarnessLibraryClient {
 
     /** Sends one command and waits for its own receipt. */
     suspend fun submit(intent: HarnessIntent.Command): LibraryOutcome
-
-    /** Source project of a session workspace: a worktree maps to its project; unknown folders have none. */
-    suspend fun sourceProject(workspace: WorkspaceRef?): WorkspaceRef?
 }
 
 /** Static tool metadata for policy authoring; reads never start an engine or a session. */

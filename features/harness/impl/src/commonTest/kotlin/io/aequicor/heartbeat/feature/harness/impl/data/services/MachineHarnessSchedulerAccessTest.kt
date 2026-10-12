@@ -23,7 +23,6 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessEventGat
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.dispatchSession
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.runtimeRequest
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessAccess
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -143,23 +142,21 @@ internal class SchedulerAccessRegistry : MachineRegistry {
     val library = MutableStateFlow<SchedulerAccessMachine?>(null)
     var observations = 0
 
-    @Suppress("UNCHECKED_CAST") // The fixture publishes only the harness key and an absent worktree registration.
+    @Suppress("UNCHECKED_CAST") // The fixture publishes only the harness key.
     override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> find(
         key: MachineKey<S, I, P, E, O>,
     ): MachineRef<S, P, O>? = when (key) {
         HarnessMachineKey -> library.value as MachineRef<S, P, O>?
-        WorktreeMachineKey -> null
         else -> error("unexpected key")
     }
 
-    @Suppress("UNCHECKED_CAST") // The two known registrations have the exact state/output types of their keys.
+    @Suppress("UNCHECKED_CAST") // The only registration has the exact state/output types of its key.
     override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> observe(
         key: MachineKey<S, I, P, E, O>,
     ): StateFlow<MachineRef<S, P, O>?> {
         observations++
         return when (key) {
             HarnessMachineKey -> library as StateFlow<MachineRef<S, P, O>?>
-            WorktreeMachineKey -> MutableStateFlow(null)
             else -> error("unexpected key")
         }
     }

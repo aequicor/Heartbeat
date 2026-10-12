@@ -35,7 +35,6 @@ import io.aequicor.heartbeat.feature.harness.impl.presentation.HarnessLibraryMod
 import io.aequicor.heartbeat.feature.harness.impl.presentation.HarnessLibraryState
 import io.aequicor.heartbeat.feature.harness.impl.presentation.HarnessRowUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.PhaseUi
-import io.aequicor.heartbeat.feature.harness.impl.presentation.ScopeUi
 import io.aequicor.heartbeat.feature.harness.impl.resources.Res
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_approval_accept_all
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_approval_accept_all_hint
@@ -211,8 +210,8 @@ private val previewState = HarnessLibraryState(
     phase = PhaseUi.Ready,
     approval = ApprovalUi.ByTrust,
     harnesses = persistentListOf(
-        HarnessRowUi("1", "compose_ui", "Compose UI", ScopeUi.Projects, 1, 6, isEnabled = true, hasFailures = false),
-        HarnessRowUi("2", "release", "Release", ScopeUi.Attached, 0, 2, isEnabled = false, hasFailures = true),
+        HarnessRowUi("1", "compose_ui", "Compose UI", 6, isEnabled = true, hasFailures = false),
+        HarnessRowUi("2", "release", "Release", 2, isEnabled = false, hasFailures = true),
     ),
     isCodeSupported = true,
 )

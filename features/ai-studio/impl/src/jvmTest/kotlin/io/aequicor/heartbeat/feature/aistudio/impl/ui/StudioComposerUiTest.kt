@@ -341,7 +341,10 @@ class StudioComposerUiTest {
             onNodeWithContentDescription(addLabel).performClick()
             onNodeWithText("Compose UI").performClick()
             runOnIdle {
-                assertEquals(listOf<AiStudioScreenIntent>(AiStudioScreenIntent.SelectHarness(0, "compose", true)), events)
+                assertEquals(
+                    listOf<AiStudioScreenIntent>(AiStudioScreenIntent.SelectHarness(0, "compose", true)),
+                    events,
+                )
             }
         }
 }

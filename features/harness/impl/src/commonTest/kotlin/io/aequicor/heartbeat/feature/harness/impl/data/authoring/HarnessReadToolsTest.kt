@@ -180,8 +180,6 @@ private class ReadLibrary(private val state: HarnessState.Ready) : HarnessLibrar
     override suspend fun ready(): HarnessState.Ready = state
 
     override suspend fun submit(intent: HarnessIntent.Command): LibraryOutcome = error("Reads never write")
-
-    override suspend fun sourceProject(workspace: WorkspaceRef?): WorkspaceRef? = workspace
 }
 
 private object ReadCatalogs : HarnessToolCatalogs {

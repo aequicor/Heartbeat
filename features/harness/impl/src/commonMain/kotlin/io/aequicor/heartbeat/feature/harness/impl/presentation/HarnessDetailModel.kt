@@ -5,11 +5,8 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.core.statemachine.flowmvi.reflect
 import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
-import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspace
-import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
-import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessAuthor
 import io.aequicor.heartbeat.feature.harness.api.HarnessChange
@@ -17,7 +14,6 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
 import io.aequicor.heartbeat.feature.harness.api.HarnessOutput
 import io.aequicor.heartbeat.feature.harness.api.HarnessRejection
-import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsIntent
@@ -38,7 +34,6 @@ import pro.respawn.flowmvi.api.MVIIntent
 import pro.respawn.flowmvi.api.MVIState
 import pro.respawn.flowmvi.api.PipelineContext
 import pro.respawn.flowmvi.plugins.reduce
-import pro.respawn.flowmvi.plugins.whileSubscribed
 import kotlin.time.Clock
 
 /** Title and description being edited. */
@@ -58,8 +53,6 @@ internal data class HarnessDetailState(
     val title: String = "",
     val description: String = "",
     val isEnabled: Boolean = false,
-    val scope: ScopeUi = ScopeUi.Attached,
-    val projects: ImmutableList<ProjectChoiceUi> = persistentListOf(),
     val attachments: ImmutableList<AttachmentUi> = persistentListOf(),
     val items: ImmutableList<ItemRowUi> = persistentListOf(),
     val runs: ImmutableList<RunUi> = persistentListOf(),
@@ -76,8 +69,6 @@ internal sealed interface HarnessDetailIntent : MVIIntent {
     data class SetItemEnabled(val item: String, val isEnabled: Boolean) : HarnessDetailIntent
     data class OpenItem(val item: String) : HarnessDetailIntent
     data object OpenTools : HarnessDetailIntent
-    data class SelectScope(val scope: ScopeUi) : HarnessDetailIntent
-    data class ToggleProject(val key: String) : HarnessDetailIntent
     data class Detach(val key: String) : HarnessDetailIntent
     data class CancelRun(val run: String) : HarnessDetailIntent
     data object EditMeta : HarnessDetailIntent
@@ -111,13 +102,11 @@ internal class HarnessDetailModel(
     harness: String,
     private val machine: HarnessMachine,
     private val runs: HarnessRunsMachine,
-    workspaces: LocalWorkspaces,
     factory: HeartbeatStoreFactory,
     scope: CoroutineScope,
     private val clock: Clock = Clock.System,
 ) {
     private val id = HarnessId(harness)
-    private val saved = MutableStateFlow<List<LocalWorkspace>>(emptyList())
     private val issued = MutableStateFlow<Set<RequestId>>(emptySet())
 
     val store = factory.create<HarnessDetailState, HarnessDetailIntent, HarnessDetailAction>(
@@ -127,13 +116,6 @@ internal class HarnessDetailModel(
     ) {
         reflect(machine, onOutput = { output -> onLibraryOutput(output) }) { reflectHarness(it) }
         reflect(runs) { reflectRuns(it) }
-        whileSubscribed {
-            workspaces.observe().collect { list ->
-                log.v { "Saved projects for the scope: ${saved.value.size} -> ${list.size}" }
-                saved.value = list
-                updateState { reflectHarness(machine.state.value) }
-            }
-        }
         reduce { intent -> handle(intent) }
     }
 
@@ -184,8 +166,6 @@ internal class HarnessDetailModel(
 
             is HarnessDetailIntent.SetEnabled,
             is HarnessDetailIntent.SetItemEnabled,
-            is HarnessDetailIntent.SelectScope,
-            is HarnessDetailIntent.ToggleProject,
             is HarnessDetailIntent.Detach,
             HarnessDetailIntent.EditMeta,
             HarnessDetailIntent.SaveMeta,
@@ -212,12 +192,6 @@ internal class HarnessDetailModel(
                     clock.now(),
                 ),
             )
-
-            is HarnessDetailIntent.SelectScope ->
-                scopeOf(intent.scope, harness)?.let { change(harness, HarnessChange.Scope(it)) }
-
-            is HarnessDetailIntent.ToggleProject ->
-                toggled(harness, intent.key)?.let { change(harness, HarnessChange.Scope(it)) }
 
             is HarnessDetailIntent.Detach -> sessionOf(intent.key)?.let { session ->
                 send(HarnessIntent.Public.Detach(request(), id, session))
@@ -270,23 +244,6 @@ internal class HarnessDetailModel(
         null
     }
 
-    /** A projects scope needs at least one project; without saved projects it cannot be selected. */
-    private fun scopeOf(scope: ScopeUi, harness: Harness): HarnessScope? = when (scope) {
-        ScopeUi.Attached -> HarnessScope.Attached
-
-        ScopeUi.Profile -> HarnessScope.Profile
-
-        ScopeUi.Projects -> (harness.scope as? HarnessScope.Projects)
-            ?: saved.value.firstOrNull()?.let { HarnessScope.Projects(setOf(it.ref)) }
-    }
-
-    private fun toggled(harness: Harness, key: String): HarnessScope? {
-        val selected = (harness.scope as? HarnessScope.Projects)?.projects.orEmpty()
-        val ref = WorkspaceRef(key)
-        val next = if (ref in selected) selected - ref else selected + ref
-        return next.takeIf { it.isNotEmpty() }?.let(HarnessScope::Projects)
-    }
-
     private fun current(): Harness? =
         (machine.state.value as? HarnessState.Ready)?.harnesses?.firstOrNull { it.harness.id == id }?.harness
 
@@ -294,18 +251,12 @@ internal class HarnessDetailModel(
         val ready = state as? HarnessState.Ready ?: return copy(phase = state.phase())
         val entry = ready.harnesses.firstOrNull { it.harness.id == id } ?: return copy(phase = PhaseUi.NotFound)
         val harness = entry.harness
-        val selected = (harness.scope as? HarnessScope.Projects)?.projects.orEmpty()
-        val known = saved.value.map { ProjectChoiceUi(it.ref.value, it.name, it.ref in selected) }
-        val removed = selected.filter { ref -> saved.value.none { it.ref == ref } }
-            .map { ProjectChoiceUi(it.value, it.value, true) }
         return copy(
             phase = PhaseUi.Ready,
             name = harness.name.value,
             title = harness.title,
             description = harness.description,
             isEnabled = harness.isEnabled,
-            scope = harness.scope.toUi(),
-            projects = (known + removed).toImmutableList(),
             attachments = ready.attachments.filterValues { id in it }.keys
                 .map { AttachmentUi(it.key(), it.label()) }.sortedBy { it.label }.toImmutableList(),
             items = entry.itemRows(ready.isRuntimeAvailable).toImmutableList(),

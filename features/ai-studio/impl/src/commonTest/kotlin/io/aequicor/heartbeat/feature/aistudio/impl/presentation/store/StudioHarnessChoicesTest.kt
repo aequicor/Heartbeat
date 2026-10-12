@@ -13,8 +13,8 @@ class StudioHarnessChoicesTest {
     private val state = AiStudioScreenState(
         harnessChoices = HarnessChoicesUi(
             options = persistentListOf(
-                StudioHarness("everywhere", "Everywhere"),
-                StudioHarness("project", "Project"),
+                StudioHarness("compose", "Compose"),
+                StudioHarness("verify", "Verify"),
                 StudioHarness("chosen", "Chosen"),
             ),
             chats = persistentMapOf("chat" to persistentSetOf("chosen")),
@@ -27,8 +27,8 @@ class StudioHarnessChoicesTest {
         val choices = state.harnessChoices(PaneUi(0, sessionId = "chat"))
         assertEquals(
             listOf(
-                HarnessChoiceUi("everywhere", "Everywhere", isSelected = false),
-                HarnessChoiceUi("project", "Project", isSelected = false),
+                HarnessChoiceUi("compose", "Compose", isSelected = false),
+                HarnessChoiceUi("verify", "Verify", isSelected = false),
                 HarnessChoiceUi("chosen", "Chosen", isSelected = true),
             ),
             choices.toList(),

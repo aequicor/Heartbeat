@@ -39,10 +39,8 @@ import io.aequicor.heartbeat.feature.harness.impl.presentation.ItemRowUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.ItemStatusUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.MetaDraftUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.PhaseUi
-import io.aequicor.heartbeat.feature.harness.impl.presentation.ProjectChoiceUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.RunStatusUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.RunUi
-import io.aequicor.heartbeat.feature.harness.impl.presentation.ScopeUi
 import io.aequicor.heartbeat.feature.harness.impl.resources.Res
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_attachments
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_attachments_hint
@@ -92,7 +90,7 @@ import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import pro.respawn.flowmvi.dsl.collect
 
-/** One harness: switch, metadata, scope, connected chats, items, tools and workflow runs. */
+/** One harness: switch, metadata, connected chats, items, tools and workflow runs. */
 @Composable
 internal fun HarnessDetailScreen(
     model: HarnessDetailModel,
@@ -411,8 +409,6 @@ private val previewState = HarnessDetailState(
     title = "Compose UI",
     description = "Native Compose screens with the design system",
     isEnabled = true,
-    scope = ScopeUi.Attached,
-    projects = persistentListOf(ProjectChoiceUi("p", "Heartbeat", isSelected = true)),
     attachments = persistentListOf(AttachmentUi("a", "claude · 7f3a91c2")),
     items = persistentListOf(
         ItemRowUi("1", "tokens", ItemKindUi.Instruction, "Use only tokens", true, ItemStatusUi.None),

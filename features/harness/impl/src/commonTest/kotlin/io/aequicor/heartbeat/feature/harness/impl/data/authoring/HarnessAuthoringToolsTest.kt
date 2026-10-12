@@ -9,7 +9,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HarnessNativeTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolSpec
-import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolGroup
@@ -255,15 +254,12 @@ class HarnessAuthoringToolsTest {
         assertFalse(tools.requiresDecision(context, spec(HarnessTools.ATTACH), ref))
         assertTrue(tools.requiresDecision(context, spec(HarnessTools.DETACH), ref))
         assertTrue(tools.requiresDecision(context, spec(HarnessTools.DELETE), ref))
+        // A legacy scope activates nothing, so renaming such a harness lifts nothing either.
         library.scope = HarnessScope.Profile
-        val narrow = buildJsonObject {
-            put("harness", harness.name.value)
-            put("scope", "attached")
-        }
-        assertTrue(tools.requiresDecision(context, spec(HarnessTools.UPDATE), narrow))
         val title = buildJsonObject {
             put("harness", harness.name.value)
             put("title", "Renamed")
+            put("scope", "attached")
         }
         assertFalse(tools.requiresDecision(context, spec(HarnessTools.UPDATE), title))
     }
@@ -314,8 +310,12 @@ class HarnessAuthoringToolsTest {
             put("title", "Renamed")
             put("scope", "project")
         }
-        assertTrue(tools.execute(context, HarnessTools.CREATE, create).isError)
-        assertTrue(tools.execute(context, HarnessTools.UPDATE, update).isError)
+        listOf(HarnessTools.CREATE to create, HarnessTools.UPDATE to update).forEach { (name, arguments) ->
+            val approval = tools.approval(context, spec(name), arguments)
+            val result = tools.execute(context.copy(authorization = approval), name, arguments)
+            assertTrue(result.isError, name)
+            assertTrue(result.text.contains("only attached scope is supported"), result.text)
+        }
         assertTrue(library.sent.isEmpty())
     }
 
@@ -360,14 +360,6 @@ class HarnessAuthoringToolsTest {
         assertTrue(tools.requiresDecision(context, spec(HarnessTools.ITEM_DELETE), removeScript))
         val removal = tools.approval(context, spec(HarnessTools.ITEM_DELETE), removeScript).description.orEmpty()
         assertTrue(removal.contains("hooks stop guarding"), removal)
-        library.scope = HarnessScope.Profile
-        val narrow = buildJsonObject {
-            put("harness", harness.name.value)
-            put("scope", "attached")
-        }
-        assertTrue(tools.requiresDecision(context, spec(HarnessTools.UPDATE), narrow))
-        val text = tools.approval(context, spec(HarnessTools.UPDATE), narrow).description.orEmpty()
-        assertTrue(text.contains("Hooks of enabled scripts stop guarding"), text)
     }
 
     @Test
@@ -420,7 +412,6 @@ class HarnessAuthoringToolsTest {
 }
 
 private val PROJECT = WorkspaceRef("worktree")
-private val SOURCE = WorkspaceRef("project")
 
 private object FixedClock : Clock {
     override fun now(): Instant = Instant.fromEpochMilliseconds(10_000)
@@ -465,8 +456,6 @@ private class FakeLibrary : HarnessLibraryClient {
         return outcomes.removeFirstOrNull() ?: outcome
             ?: LibraryOutcome.Committed(HarnessOutput.Updated(intent.requestId, HarnessId("any")))
     }
-
-    override suspend fun sourceProject(workspace: WorkspaceRef?): WorkspaceRef? = SOURCE.takeIf { workspace == PROJECT }
 }
 
 private class FakeHost : HarnessScriptHost {
