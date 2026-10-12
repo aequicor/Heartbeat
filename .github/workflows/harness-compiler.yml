@@ -1,20 +1,22 @@
 name: Packaged harness compiler
 
+# Builds the release app image and probes its harness compiler on macOS and Windows: tens of runner minutes per run.
+# It runs only for ready PRs whose diff can change the packaged compiler — harness sources (not tests, resources or
+# UI), the desktop app, its runtime classpath, dependency versions and build logic. Drafts skip it until ready.
+# The PR run already builds the merge with master, so master pushes do not repeat it; workflow_dispatch reruns it.
 on:
-  push:
-    branches: [master]
-    paths:
-      - 'features/harness/**'
-      - 'platform-main/desktop/**'
-      - 'platform-main/di-bundle/**'
-      - 'gradle/**'
-      - 'build-logic/**'
-      - '.github/workflows/harness-compiler.yml'
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'features/harness/**'
+      - '!features/harness/**/src/*Test/**'
+      - '!features/harness/**/composeResources/**'
+      - '!features/harness/impl/schemas/**'
+      - '!features/harness/impl/src/commonMain/kotlin/**/presentation/**'
+      - '!features/harness/impl/src/commonMain/kotlin/**/ui/**'
       - 'platform-main/desktop/**'
-      - 'platform-main/di-bundle/**'
+      - '!platform-main/desktop/src/test/**'
+      - 'platform-main/di-bundle/build.gradle.kts'
       - 'gradle/**'
       - 'build-logic/**'
       - '.github/workflows/harness-compiler.yml'
@@ -30,6 +32,7 @@ concurrency:
 jobs:
   release-probe:
     name: Release probe (${{ matrix.os }})
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     strategy:
       fail-fast: false
       matrix:
@@ -39,6 +42,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          # The PR merge commit and its parents: the first one is the base the PR diff is measured against.
+          fetch-depth: 2
           persist-credentials: false
       - uses: actions/setup-java@v6
         with:
@@ -47,7 +52,18 @@ jobs:
       - name: Probe the release app image
         shell: bash
         run: ./gradlew :platform-main:desktop:verifyReleaseHarnessCompiler --stacktrace
-      - name: Compile the unsupported mobile hosts
+      - name: Detect harness sources of the mobile hosts
+        id: mobile
         if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != pull_request ] || ! git diff --quiet HEAD^1 HEAD -- \
+            features/harness/api/build.gradle.kts features/harness/api/src/commonMain \
+            features/harness/impl/build.gradle.kts features/harness/impl/src/commonMain \
+            features/harness/impl/src/androidMain features/harness/impl/src/iosMain; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Compile the unsupported mobile hosts
+        if: steps.mobile.outputs.changed == 'true'
         shell: bash
         run: ./gradlew :features:harness:impl:compileAndroidMain :features:harness:impl:compileKotlinIosSimulatorArm64 --stacktrace
