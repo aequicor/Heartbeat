@@ -2,7 +2,6 @@ package io.aequicor.heartbeat.feature.browser.impl.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -50,12 +49,15 @@ import org.jetbrains.compose.resources.stringResource
 
 /** Shrinking tabs scroll at their minimum width; inventory and creation stay outside the scroll area. */
 @Composable
-internal fun BrowserTabStrip(state: BrowserScreenState, onIntent: (BrowserScreenIntent) -> Unit) {
+internal fun BrowserTabStrip(
+    state: BrowserScreenState,
+    onIntent: (BrowserScreenIntent) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val groups = state.tabs.groupBy { it.groupId }
     var revealRequest by remember { mutableIntStateOf(0) }
     HbRow(
-        Modifier.fillMaxWidth().background(HbTheme.surfaces.sidebar)
-            .padding(start = HbTheme.spacing.xs, end = HbTheme.spacing.xs, top = HbTheme.spacing.xs),
+        modifier,
         gap = HbTheme.spacing.xxs,
     ) {
         BrowserTabMenu(state) {

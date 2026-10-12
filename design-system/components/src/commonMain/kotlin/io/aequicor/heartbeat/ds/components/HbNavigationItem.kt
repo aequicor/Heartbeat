@@ -100,6 +100,7 @@ public fun HbNavigationItem(
     HbRow(
         modifier = modifier
             .fillMaxWidth()
+            .captionClientArea()
             .heightIn(min = navigationMinHeight(minHeight))
             .semantics { if (isSelected) selected = true }
             .navigationPointerInput(onTouchChanged)

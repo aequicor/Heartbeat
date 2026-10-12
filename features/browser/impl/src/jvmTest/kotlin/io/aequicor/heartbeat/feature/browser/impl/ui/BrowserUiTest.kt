@@ -311,6 +311,13 @@ class BrowserUiTest {
                             }
                         }
                     }
+                    val header = onNodeWithTag("browser-header").fetchSemanticsNode().boundsInRoot
+                    val create = onNodeWithTag("browser-new-tab").fetchSemanticsNode().boundsInRoot
+                    val hide = onNodeWithTag("browser-hide").fetchSemanticsNode().boundsInRoot
+                    val address = onNodeWithTag("browser-address").fetchSemanticsNode().boundsInRoot
+                    assertTrue(create.top >= header.top && create.bottom <= header.bottom)
+                    assertTrue(hide.top >= header.top && hide.bottom <= header.bottom)
+                    assertTrue(address.top >= header.bottom)
                     onNodeWithTag("browser-address").assertIsDisplayed()
                     onNodeWithTag("browser-open").assertIsDisplayed()
                     onNodeWithTag("browser-back").assertIsNotEnabled()
