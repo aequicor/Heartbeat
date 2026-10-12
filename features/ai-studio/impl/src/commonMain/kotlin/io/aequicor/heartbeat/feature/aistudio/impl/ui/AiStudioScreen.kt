@@ -392,7 +392,7 @@ private fun StudioChatArea(
         ChatAreaHeader(
             onToggleSidebar,
             isAtWindowLeadingEdge,
-            exits.chatAreaTitle ?: stringResource(Res.string.research_mode),
+            stringResource(Res.string.research_mode),
             exits.onCloseChatArea,
         )
         Box(Modifier.weight(1f).fillMaxWidth()) { component.Content(Modifier.fillMaxSize()) }

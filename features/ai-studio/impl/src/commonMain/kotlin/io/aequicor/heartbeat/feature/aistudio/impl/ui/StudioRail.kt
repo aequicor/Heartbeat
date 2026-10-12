@@ -64,6 +64,7 @@ internal fun StudioRail(
                     open()
                 },
                 "rail-browser",
+                isSelected = exits.isBrowserOpen,
             )
         }
         val openSettings = exits.onOpenSettings

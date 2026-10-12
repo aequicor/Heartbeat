@@ -88,6 +88,7 @@ class AiStudioComponent(
         local = listOf(routeEntry<StudioChatRoute> { _, _, _ -> StudioChat }),
         global = GlobalRoutes.Only(setOf(ResearchChatRoute::class)),
     )
+    private val workspaceNavigation = StudioWorkspaceNavigation(workspace.navigator)
 
     /** Browser has its own navigation host, independent of the chat/research workspace. */
     val browser: StackHost =
@@ -101,21 +102,44 @@ class AiStudioComponent(
         )
     private val browserPresentation = MutableStateFlow(BrowserPaneMode.Hidden)
     val browserMode: StateFlow<BrowserPaneMode> = browserPresentation
+    private val browserBack = StudioBrowserBack(::hideBrowser)
 
     init {
-        scope.coroutineScope.launch {
+        // Registered before the dialog host: an open attachment dialog above the browser handles "back" first.
+        backHandler.register(browserBack.callback)
+        val presentation = scope.coroutineScope.launch {
             machines.observe(BrowserMachineKey).collectLatest { machine ->
                 log.v { "Browser presentation observed" }
-                if (machine == null) browserPresentation.value = BrowserPaneMode.Hidden
+                if (machine == null) showBrowser(BrowserPaneMode.Hidden)
                 machine?.state?.collect { state ->
-                    browserPresentation.value =
+                    showBrowser(
                         when ((state as? BrowserState.Running)?.display) {
                             BrowserDisplay.Panel -> BrowserPaneMode.Panel
                             BrowserDisplay.Expanded -> BrowserPaneMode.Expanded
                             BrowserDisplay.Hidden, null -> BrowserPaneMode.Hidden
-                        }
+                        },
+                    )
                 }
             }
+        }
+        lifecycle.doOnDestroy {
+            presentation.cancel()
+            backHandler.unregister(browserBack.callback)
+        }
+    }
+
+    private fun showBrowser(mode: BrowserPaneMode) {
+        val old = browserPresentation.value
+        if (old == mode) return
+        log.i { "browserPresentation: $old -> $mode" }
+        browserPresentation.value = mode
+        browserBack.update(mode)
+    }
+
+    private fun hideBrowser() {
+        log.i { "Hide browser on back" }
+        scope.coroutineScope.launch {
+            machines.send(BrowserMachineKey, BrowserIntent.Public.Display(BrowserDisplay.Hidden))
         }
     }
 
@@ -251,9 +275,6 @@ class AiStudioComponent(
     /** Whether the browser entry is offered in the active profile. */
     val showsBrowser: Flow<Boolean> = entries.showsBrowser
 
-    /** Presentation identity for the workspace header, without exposing feature routes to UI. */
-    val isBrowserActive: Boolean = false
-
     /** Opens the browser inside the studio while preserving its sidebar. */
     fun openBrowser() {
         scope.coroutineScope.launch {
@@ -261,11 +282,14 @@ class AiStudioComponent(
         }
     }
 
-    /** Returns to the studio chat area, releasing the visible browser surface. */
-    fun closeChatArea() = workspace.navigator.navigate(
-        StudioChatRoute,
-        NavOptions(LaunchMode.BringToFront, NavTarget.Nearest, NavTransition.Fade),
-    )
+    /**
+     * Returns the chat area to the studio's chat panes: every workspace entry above them (research) is
+     * destroyed, so "back" from the chats never shows a closed research again.
+     */
+    fun closeChatArea() {
+        log.i { "Close chat area" }
+        workspaceNavigation.closeChatArea()
+    }
 
     /** Whether the engine connection settings are offered. */
     val showsConnections: Flow<Boolean> = entries.showsConnections
@@ -322,10 +346,7 @@ class AiStudioComponent(
         }
         if (target.engine != KoogEngineId) return
         log.i { "Open research chat" }
-        workspace.navigator.navigate(
-            ResearchChatRoute(target),
-            NavOptions(LaunchMode.SingleTop, NavTarget.Nearest, NavTransition.Fade),
-        )
+        workspaceNavigation.openResearch(target)
     }
 
     /** Metro factory for a lifecycle-owned feature instance. */

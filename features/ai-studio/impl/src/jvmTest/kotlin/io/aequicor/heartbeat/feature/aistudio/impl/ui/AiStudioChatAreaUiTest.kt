@@ -9,9 +9,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.isSelected
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
@@ -51,7 +53,6 @@ class AiStudioChatAreaUiTest {
                         onBack = {},
                         onOpenToggles = {},
                         onOpenBrowser = { isBrowserOpen = true },
-                        chatAreaTitle = "Browser",
                     ),
                     chatArea = FakeResearch.takeIf { isBrowserOpen },
                 )
@@ -62,7 +63,7 @@ class AiStudioChatAreaUiTest {
         onNodeWithTag("studio-drawer").assertDoesNotExist()
         onNodeWithTag("studio-scrim").assertDoesNotExist()
         onNodeWithTag("fake-research").assertIsDisplayed()
-        onNodeWithText("Browser").assertIsDisplayed()
+        onNodeWithTag("studio-chat-area").assertIsDisplayed()
     }
 
     @Test
@@ -77,16 +78,17 @@ class AiStudioChatAreaUiTest {
                         onBack = {},
                         onOpenToggles = {},
                         onOpenBrowser = { isBrowserOpen = true },
+                        isBrowserOpen = isBrowserOpen,
                         onCloseChatArea = { isBrowserOpen = false },
-                        chatAreaTitle = "Browser",
                     ),
                     chatArea = FakeResearch.takeIf { isBrowserOpen },
                 )
             }
         }
-        onNodeWithText("Browser").assertIsDisplayed()
-        onNodeWithTag("rail-browser").assertIsDisplayed()
+        onNodeWithTag("studio-chat-area").assertIsDisplayed()
+        onNodeWithTag("rail-browser").assertIsDisplayed().assertIsSelected()
         onNodeWithTag("chat-area-close").performClick()
+        onNodeWithTag("rail-browser").assert(!isSelected())
         onNodeWithTag("fake-research").assertDoesNotExist()
         onNodeWithTag("composer-0").assertIsDisplayed()
         onNodeWithTag("rail-browser").performClick()
@@ -107,7 +109,6 @@ class AiStudioChatAreaUiTest {
                                 onBack = {},
                                 onOpenToggles = {},
                                 onCloseChatArea = { isBrowserOpen = false },
-                                chatAreaTitle = "Browser",
                             ),
                             chatArea = FakeResearch.takeIf { isBrowserOpen },
                         )
