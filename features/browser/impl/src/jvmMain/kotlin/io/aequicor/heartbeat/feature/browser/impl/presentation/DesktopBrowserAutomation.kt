@@ -12,6 +12,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.double
 import kotlinx.serialization.json.doubleOrNull
@@ -26,7 +27,10 @@ import kotlin.uuid.Uuid
  * Private CDP transport: no debugging port and no arbitrary JavaScript tool. Coordinates use
  * viewport CSS pixels.
  */
-internal class DesktopBrowserAutomation(private val transport: suspend (String, JsonObject) -> String) {
+internal class DesktopBrowserAutomation(
+    private val transport: suspend (String, JsonObject) -> String,
+    private val loadResource: suspend (String) -> JsonObject = { error("Browser resource loading is unavailable") },
+) {
     private var executionContext: JsonElement? = null
     private val worldName = "heartbeat-" + Uuid.random()
     private var snapshot: String? = null
@@ -42,7 +46,7 @@ internal class DesktopBrowserAutomation(private val transport: suspend (String, 
 
     suspend fun captureResource(request: BrowserRequest): BrowserResult {
         val address = requireNotNull(request.arguments["url"]?.jsonPrimitive?.content)
-        val resource = DesktopBrowserDownload(::evaluate).capture(address)
+        val resource = loadResource(address)
         if (resource["kind"]?.jsonPrimitive?.content == "document") {
             return BrowserResult(request.id, resource)
         }
@@ -165,11 +169,22 @@ internal class DesktopBrowserAutomation(private val transport: suspend (String, 
                         const e = window.__heartbeatElements?.[$ref];
                         if (!e || !e.isConnected) throw Error('Stale element');
                         const r=e.getBoundingClientRect();
-                        return {x:r.x+r.width/2,y:r.y+r.height/2};
+                        const x=r.x+r.width/2,y=r.y+r.height/2;
+                        const hit=document.elementFromPoint(x,y);
+                        return {x,y,isVisible:e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true}),
+                            isTarget:hit===e||e.contains(hit)};
                     })()
                     """.trimIndent(),
                 )
                     .jsonObject
+                    .also { target ->
+                        require(target["isVisible"]?.jsonPrimitive?.booleanOrNull == true) {
+                            "Element is hidden; read the page again"
+                        }
+                        require(target["isTarget"]?.jsonPrimitive?.booleanOrNull == true) {
+                            "Element is covered or outside the viewport; read or capture the page again"
+                        }
+                    }
             } else {
                 args
             }
@@ -356,7 +371,7 @@ internal class DesktopBrowserAutomation(private val transport: suspend (String, 
         const val READ_SCRIPT =
             """(() => {
             const elements=Array.from(document.querySelectorAll('a[href],button,input,textarea,select,[role=button]'))
-                .filter(e=>{const r=e.getBoundingClientRect();return r.width>0&&r.height>0}).slice(0,200);
+                .filter(e=>{const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true})}).slice(0,200);
             window.__heartbeatElements=elements;
             return {url:location.href,title:document.title,
                 requiresUserAction:!!document.querySelector('input[type=password],iframe[src*="captcha"]'),content:(document.body?.innerText||'').slice(0,100000),

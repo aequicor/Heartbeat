@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
 import java.awt.BorderLayout
@@ -34,13 +35,18 @@ internal class DesktopBrowserPanel(
     private val log = Log.tag("DesktopBrowserPanel")
     private val isReleased = AtomicBoolean(false)
     private var native: DesktopBrowserRuntime? = null
+    private val runtimes = mutableListOf<DesktopBrowserRuntime>()
     private val ready = MutableStateFlow<DesktopBrowserRuntime?>(null)
 
     suspend fun devTools(method: String, arguments: JsonObject): String =
         withTimeout(DEVTOOLS_TIMEOUT) { ready.filterNotNull().first().devTools(method, arguments) }
 
+    suspend fun captureResource(url: String): JsonObject =
+        withTimeout(RESOURCE_TIMEOUT) { ready.filterNotNull().first().captureResource(url) }
+
     private companion object {
         const val DEVTOOLS_TIMEOUT = 30_000L
+        const val RESOURCE_TIMEOUT = 60_000L
     }
 
     private var container: JPanel? = null
@@ -92,7 +98,6 @@ internal class DesktopBrowserPanel(
         onSwing {
             generation++
             initialization?.cancel()
-            initialization = null
             pending.clear()
             if (isAttached) surface.detached(this)
             native?.release()
@@ -104,6 +109,16 @@ internal class DesktopBrowserPanel(
         }
     }
 
+    /** Waits for startup cancellation and every native close callback, including a failed startup's runtime. */
+    suspend fun awaitClosed() {
+        release()
+        val starting = withContext(dispatchers.main) { initialization }
+        starting?.join()
+        val retired = withContext(dispatchers.main) { runtimes.toList() }
+        retired.forEach { it.awaitClosed() }
+        withContext(dispatchers.main) { runtimes.removeAll(retired.toSet()) }
+    }
+
     private fun initialize() {
         val attempt = ++generation
         publish(BrowserViewState(url = currentUrl, isLoading = true))
@@ -113,6 +128,7 @@ internal class DesktopBrowserPanel(
                     { isReleased.get() || attempt != generation },
                     { state -> onSwing { onNativeState(attempt, state) } },
                 )
+                runtimes += runtime
                 if (isReleased.get() || attempt != generation) {
                     runtime.release()
                     return@launch
@@ -176,7 +192,11 @@ internal interface DesktopBrowserRuntime : BrowserViewController {
     suspend fun devTools(method: String, arguments: JsonObject): String =
         throw UnsupportedOperationException("Browser automation is unavailable")
 
+    suspend fun captureResource(url: String): JsonObject =
+        throw UnsupportedOperationException("Browser resource loading is unavailable")
+
     val component: Component
     fun start(initialUrl: String)
     fun release()
+    suspend fun awaitClosed() = Unit
 }

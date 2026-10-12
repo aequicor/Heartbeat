@@ -16,6 +16,78 @@ import kotlin.test.assertTrue
 
 class DesktopBrowserAutomationTest {
     @Test
+    fun `hidden or covered element reference cannot dispatch input to another control`() = runTest {
+        listOf(false to true, true to false).forEach { (isVisible, isTarget) ->
+            val transport = Transport().apply {
+                isElementVisible = isVisible
+                isElementTarget = isTarget
+            }
+            val driver = DesktopBrowserAutomation(transport::call)
+            val read = driver.perform(request(BrowserOperation.Read))
+            assertFailsWith<IllegalArgumentException> {
+                driver.perform(
+                    request(
+                        BrowserOperation.Click,
+                        buildJsonObject {
+                            put("snapshotId", read.data.getValue("snapshotId"))
+                            put("element", 0)
+                        },
+                    ),
+                )
+            }
+            assertTrue(transport.calls.none { it.first.startsWith("Input.") })
+        }
+    }
+
+    @Test
+    fun `visible hit tested element receives click before focused text insertion`() = runTest {
+        val transport = Transport()
+        val driver = DesktopBrowserAutomation(transport::call)
+        val read = driver.perform(request(BrowserOperation.Read))
+        driver.perform(
+            request(
+                BrowserOperation.Click,
+                buildJsonObject {
+                    put("snapshotId", read.data.getValue("snapshotId"))
+                    put("element", 0)
+                },
+            ),
+        )
+        driver.perform(request(BrowserOperation.Type, buildJsonObject { put("text", "Search text") }))
+        val input = transport.calls.filter { it.first.startsWith("Input.") }
+        assertEquals(
+            listOf("mousePressed", "mouseReleased"),
+            input.take(2).map { it.second["type"]?.jsonPrimitive?.content },
+        )
+        assertTrue(
+            input.take(2).all { it.second["x"] == JsonPrimitive(40.0) && it.second["y"] == JsonPrimitive(30.0) },
+        )
+        assertEquals("Input.insertText", input.last().first)
+        assertEquals(JsonPrimitive("Search text"), input.last().second["text"])
+    }
+
+    @Test
+    fun `document recovery uses original URL without reading an unrelated or blank page`() = runTest {
+        val transport = Transport()
+        val document = buildJsonObject {
+            put("kind", "document")
+            put("mediaType", "application/pdf")
+            put("base64", "JVBERi0=")
+        }
+        val urls = mutableListOf<String>()
+        val driver = DesktopBrowserAutomation(transport::call) { url ->
+            urls += url
+            document
+        }
+        val result = driver.captureResource(
+            request(BrowserOperation.CaptureResource, buildJsonObject { put("url", "https://example.com/paper") }),
+        )
+        assertEquals(listOf("https://example.com/paper"), urls)
+        assertEquals(document, result.data)
+        assertTrue(transport.calls.isEmpty(), "Document loading must not depend on the active DOM")
+    }
+
+    @Test
     fun `read uses an isolated execution world`() = runTest {
         val transport = Transport()
         DesktopBrowserAutomation(transport::call).perform(request(BrowserOperation.Read))
@@ -101,6 +173,8 @@ class DesktopBrowserAutomationTest {
         val calls = mutableListOf<Pair<String, JsonObject>>()
         var revision = 0
         var cancelPress = false
+        var isElementVisible = true
+        var isElementTarget = true
 
         suspend fun call(method: String, args: JsonObject): String {
             calls += method to args
@@ -129,6 +203,8 @@ class DesktopBrowserAutomationTest {
                                 .contains("MutationObserver")
                         ) {
                             """{"width":800,"height":600,"revision":$revision}"""
+                        } else if (args.getValue("expression").jsonPrimitive.content.contains("elementFromPoint")) {
+                            """{"x":40,"y":30,"isVisible":$isElementVisible,"isTarget":$isElementTarget}"""
                         } else {
                             """{"url":"https://example.com","title":"Example","content":"Text"}"""
                         }

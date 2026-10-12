@@ -1,8 +1,11 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
+import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserUrlResolver
 import io.aequicor.heartbeat.feature.browser.impl.domain.desktopBrowserFailure
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.JsonObject
 import org.cef.CefApp
@@ -14,6 +17,7 @@ import org.cef.handler.CefDisplayHandlerAdapter
 import org.cef.handler.CefLifeSpanHandlerAdapter
 import org.cef.handler.CefLoadHandler
 import org.cef.handler.CefLoadHandlerAdapter
+import org.cef.handler.CefRequestContextHandler
 import org.cef.network.CefRequest
 import java.awt.Component
 import java.util.concurrent.atomic.AtomicBoolean
@@ -23,17 +27,21 @@ import kotlin.coroutines.resumeWithException
 
 /**
  * Windowed Swing embedding works on macOS and Windows (including ARM64 without JOGL). Each instance
- * creates its own client and request context with empty native cache settings. JCEF disposes that
- * context in CefBrowser.onBeforeClose; clients close after their browser closes.
+ * creates its own client and separately owned wrapper sharing the profile's persistent context.
+ * Patched JCEF confirms wrapper disposal and registry cleanup before the client is released.
  */
 internal class DesktopBrowserEngine(
     app: CefApp,
+    dispatchers: DispatcherProvider,
+    urlResolver: BrowserUrlResolver,
     private val isReleased: () -> Boolean,
     private val changed: (BrowserViewState) -> Unit,
     private val onClosed: () -> Unit = {},
+    createContext: (CefRequestContextHandler) -> CefRequestContext,
 ) : DesktopBrowserRuntime {
     private val log = Log.tag("DesktopBrowserEngine")
     private val isClosed = AtomicBoolean(false)
+    private val closed = CompletableDeferred<Unit>()
     private val isCreationRequested = AtomicBoolean(false)
     private val isNativeCreated = AtomicBoolean(false)
     private val isCloseIssued = AtomicBoolean(false)
@@ -49,9 +57,7 @@ internal class DesktopBrowserEngine(
         unavailable = { onSwing { changed(BrowserViewState(error = BrowserViewError.EngineUnavailable)) } },
     )
     private val context = try {
-        checkNotNull(
-            CefRequestContext.createContext(policy.contextHandler),
-        ) { "Browser request context is unavailable" }
+        createContext(policy.contextHandler)
     } catch (error: CancellationException) {
         client.dispose()
         throw error
@@ -62,8 +68,11 @@ internal class DesktopBrowserEngine(
         client.dispose()
         throw error
     }
+    private val downloads = DesktopBrowserDownload(createContext, dispatchers, urlResolver)
     private val browser: CefBrowser
     private var isReady = false
+
+    override suspend fun captureResource(url: String): JsonObject = downloads.capture(url)
 
     override suspend fun devTools(method: String, arguments: JsonObject): String =
         suspendCancellableCoroutine { continuation ->
@@ -104,12 +113,19 @@ internal class DesktopBrowserEngine(
                     }
 
                     override fun onBeforeClose(browser: CefBrowser) {
-                        // CefClient invokes browser.onBeforeClose (which disposes the context),
-                        // then removes
-                        // this browser from its registry and finally releases the marked client.
                         isClosed.set(true)
+                        downloads.cancel()
+                    }
+
+                    override fun onAfterClose(browser: CefBrowser) {
+                        // This hook follows JCEF's wrapper disposal and browser registry removal.
+                        // A queued Swing callback alone cannot establish that barrier on AppKit.
                         client.dispose()
-                        onClosed()
+                        completeClose()
+                    }
+
+                    override fun onCreationFailed(browser: CefBrowser) {
+                        creationFailed()
                     }
 
                     override fun onAfterCreated(browser: CefBrowser) {
@@ -254,6 +270,7 @@ internal class DesktopBrowserEngine(
 
     override fun release() {
         check(SwingUtilities.isEventDispatchThread())
+        downloads.cancel()
         if (!isClosed.compareAndSet(false, true)) return
         pending.clear()
         if (!isCreationRequested.get()) {
@@ -261,12 +278,33 @@ internal class DesktopBrowserEngine(
             // callback can race.
             browser.onBeforeClose()
             client.dispose()
-            onClosed()
+            completeClose()
         } else if (isNativeCreated.get()) {
             closeCreatedBrowser(browser)
         }
         // A pending create owns client/context until onAfterCreated; closing earlier loses the
         // native close.
+    }
+
+    override suspend fun awaitClosed() {
+        downloads.awaitClosed()
+        closed.await()
+    }
+
+    private fun creationFailed() {
+        // JCEF has already disposed the unregistered browser wrapper on this terminal path.
+        isClosed.set(true)
+        downloads.cancel()
+        client.dispose()
+        completeClose()
+        log.e(IllegalStateException("JCEF browser creation failed")) { "Desktop browser initialization failed" }
+        SwingUtilities.invokeLater {
+            if (!isReleased()) changed(BrowserViewState(error = BrowserViewError.EngineUnavailable))
+        }
+    }
+
+    private fun completeClose() {
+        if (closed.complete(Unit)) onClosed()
     }
 
     private fun closeCreatedBrowser(browser: CefBrowser) {

@@ -11,10 +11,15 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.browser.impl.domain.DesktopBrowserResources
 import io.aequicor.heartbeat.feature.browser.impl.domain.desktopBrowserFailure
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import me.friwi.jcefmaven.CefAppBuilder
 import me.friwi.jcefmaven.CefBuildInfo
 import me.friwi.jcefmaven.EnumOS
@@ -23,11 +28,10 @@ import me.friwi.jcefmaven.MavenCefAppHandlerAdapter
 import org.cef.CefApp
 import org.cef.CefSettings
 import java.io.File
-import javax.swing.SwingUtilities
 
 /**
  * Extracts the bundled, versioned native archive inside app data on IO. No download fallback exists.
- * CEF stays alive until AppScope closes; its clients and in-memory request contexts belong to views.
+ * CEF stays alive until all profile contexts close; each profile owns persistent Chromium storage.
  * Failed extraction may be retried with a new builder (CefAppBuilder retains a failed building flag).
  */
 @SingleIn(AppScope::class)
@@ -36,17 +40,54 @@ import javax.swing.SwingUtilities
 internal class DesktopDefaultBrowserResources(
     private val storageRoot: StorageRoot,
     private val dispatchers: DispatcherProvider,
+    private val profiles: DesktopBrowserProfiles,
     @ForScope(AppScope::class) private val scope: ScopeHandle,
 ) : DesktopBrowserResources {
     private val log = Log.tag("DesktopBrowserResources")
     private val mutex = Mutex()
     private var initialization: Deferred<CefApp>? = null
+    private var shutdown: Deferred<Unit>? = null
+    private val terminated = CompletableDeferred<Unit>()
+
+    @Volatile
+    private var nativeApp: CefApp? = null
+
+    init {
+        scope.onClose {
+            scope.coroutineScope.launch(NonCancellable) {
+                try {
+                    shutdown()
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    log.e(error.desktopBrowserFailure()) { "Desktop browser runtime shutdown failed" }
+                }
+            }
+        }
+    }
 
     override suspend fun app(): CefApp = mutex.withLock {
+        check(shutdown == null) { "Browser runtime is closing" }
         initialization?.takeUnless { it.isCancelled } ?: scope.coroutineScope.async(dispatchers.io) {
             initialize()
         }.also { initialization = it }
     }.await()
+
+    override suspend fun shutdown() {
+        val request = mutex.withLock {
+            shutdown ?: scope.coroutineScope.async(NonCancellable + dispatchers.io) {
+                profiles.closeAll()
+                // A cancelled initializer can still be finishing native startup on another thread.
+                initialization?.join()
+                nativeApp?.let { app ->
+                    withContext(dispatchers.main) { app.dispose() }
+                    terminated.await()
+                }
+                Unit
+            }.also { shutdown = it }
+        }
+        awaitBrowserTeardown(request)
+    }
 
     private fun initialize(): CefApp {
         val info = CefBuildInfo.fromClasspath()
@@ -58,28 +99,22 @@ internal class DesktopDefaultBrowserResources(
             setInstallDir(directory)
             setMirrors(emptyList())
             setProgressHandler { _, _ -> }
-            setAppHandler(object : MavenCefAppHandlerAdapter() {})
+            setAppHandler(object : MavenCefAppHandlerAdapter() {
+                override fun stateHasChanged(state: CefApp.CefAppState) {
+                    if (state == CefApp.CefAppState.TERMINATED) terminated.complete(Unit)
+                }
+            })
             cefSettings.useBundledBrowserPaths(directory, platform.os)
             cefSettings.windowless_rendering_enabled = false
-            cefSettings.root_cache_path = File(
-                storageRoot.path(),
-                "cache/browser/cef-${ProcessHandle.current().pid()}",
-            ).path
+            // CEF 152 Chrome mode only persists root_cache_path itself or its immediate children.
+            cefSettings.root_cache_path = profiles.rootDirectory.absolutePath
             cefSettings.cache_path = ""
             cefSettings.persist_session_cookies = false
             cefSettings.log_severity = CefSettings.LogSeverity.LOGSEVERITY_DISABLE
             addJcefArgs("--disable-extensions", "--disable-background-networking")
         }
         val app = builder.build()
-        scope.onClose {
-            SwingUtilities.invokeLater {
-                try {
-                    app.dispose()
-                } catch (error: IllegalStateException) {
-                    log.w(error.desktopBrowserFailure()) { "Desktop browser runtime shutdown failed" }
-                }
-            }
-        }
+        nativeApp = app
         // createClient triggers CEF initialization and marshals native startup to EDT internally.
         app.createClient().dispose()
         check(CefApp.getState() == CefApp.CefAppState.INITIALIZED) { "Browser runtime initialization failed" }

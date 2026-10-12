@@ -5,16 +5,22 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.datastore.StorageRoot
 import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
+import io.aequicor.heartbeat.feature.browser.impl.data.DefaultBrowserUrlResolver
+import io.aequicor.heartbeat.feature.browser.impl.data.DesktopBrowserProfiles
 import io.aequicor.heartbeat.feature.browser.impl.data.DesktopDefaultBrowserResources
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.swing.Swing
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import org.cef.browser.CefRequestContext
+import org.cef.handler.CefRequestContextHandler
 import org.junit.Assume.assumeTrue
 import java.awt.BorderLayout
 import java.net.CookieHandler
@@ -26,6 +32,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.JFrame
 import javax.swing.SwingUtilities
+import kotlin.coroutines.resume
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -38,12 +45,16 @@ import kotlin.test.assertTrue
  * '*DesktopBrowserNativeTest'.
  */
 class DesktopBrowserNativeTest {
+    private val contexts = mutableListOf<CefRequestContext>()
+    private val loopRequests = AtomicInteger()
+
     @Test
     fun `native surfaces isolate cookies and storage and reopen after close`() {
         assumeTrue(System.getProperty("heartbeat.browser.nativeTest") == "true")
         val server = localServer()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Swing)
         val handle = BrowserTestScope(scope)
+        val resources = nativeResources(handle)
         val cookieHandler = CookieHandler.getDefault()
         val firstStates = LinkedBlockingQueue<BrowserViewState>()
         val secondStates = LinkedBlockingQueue<BrowserViewState>()
@@ -54,11 +65,12 @@ class DesktopBrowserNativeTest {
         var frame: JFrame? = null
         val base = "http://127.0.0.1:${server.address.port}"
         try {
-            val app = nativeApp(handle)
+            val app = runBlocking { resources.app() }
             verifyEarlyClose(app)
+            verifyDirectDocument(app, base)
             SwingUtilities.invokeAndWait {
                 frame = nativeFrame()
-                first = DesktopBrowserEngine(app, { false }, firstStates::offer)
+                first = testEngine(app, firstStates)
                 frame?.add(first?.component, BorderLayout.CENTER)
                 frame?.validate()
                 first?.start("$base/start")
@@ -67,7 +79,7 @@ class DesktopBrowserNativeTest {
 
             SwingUtilities.invokeAndWait {
                 frame?.remove(first?.component)
-                second = DesktopBrowserEngine(app, { false }, secondStates::offer)
+                second = testEngine(app, secondStates)
                 frame?.add(second?.component, BorderLayout.CENTER)
                 frame?.validate()
                 second?.start("$base/check")
@@ -78,7 +90,7 @@ class DesktopBrowserNativeTest {
                 first?.release()
                 second?.release()
                 frame?.remove(second?.component)
-                reopened = DesktopBrowserEngine(app, { false }, reopenedStates::offer)
+                reopened = testEngine(app, reopenedStates)
                 frame?.add(reopened?.component, BorderLayout.CENTER)
                 frame?.validate()
                 reopened?.start("$base/check")
@@ -95,9 +107,66 @@ class DesktopBrowserNativeTest {
                 reopened?.release()
                 frame?.dispose()
             }
+            closeNativeTest(resources, handle, scope, server, listOfNotNull(first, second, reopened))
+        }
+    }
+
+    private fun closeNativeTest(
+        resources: DesktopDefaultBrowserResources,
+        handle: BrowserTestScope,
+        scope: CoroutineScope,
+        server: HttpServer,
+        engines: List<DesktopBrowserEngine>,
+    ) {
+        try {
+            runBlocking {
+                withTimeout(60_000) {
+                    engines.forEach { it.awaitClosed() }
+                    contexts.forEach { context ->
+                        suspendCancellableCoroutine { continuation -> context.dispose { continuation.resume(Unit) } }
+                    }
+                    resources.shutdown()
+                }
+            }
+        } finally {
             handle.close()
             scope.cancel()
             server.stop(0)
+        }
+    }
+
+    private fun testEngine(app: org.cef.CefApp, states: LinkedBlockingQueue<BrowserViewState>) = DesktopBrowserEngine(
+        app,
+        nativeDispatchers(),
+        DefaultBrowserUrlResolver(),
+        { false },
+        states::offer,
+        createContext = temporaryContextFactory(),
+    )
+
+    private fun verifyDirectDocument(app: org.cef.CefApp, base: String) {
+        var engine: DesktopBrowserEngine? = null
+        SwingUtilities.invokeAndWait { engine = testEngine(app, LinkedBlockingQueue()) }
+        val runtime = assertNotNull(engine)
+        try {
+            runBlocking {
+                val document = runtime.captureResource("$base/document")
+                assertEquals("application/pdf", document.getValue("mediaType").jsonPrimitive.content)
+                val redirected = runtime.captureResource("$base/document-redirect")
+                assertEquals("$base/document", redirected.getValue("url").jsonPrimitive.content)
+                val external = runtime.captureResource("$base/external-redirect")
+                assertEquals("application/pdf", external.getValue("mediaType").jsonPrimitive.content)
+                assertEquals(
+                    "${base.replace("127.0.0.1", "localhost")}/document",
+                    external.getValue("url").jsonPrimitive.content,
+                )
+                assertFailsWith<IllegalStateException> { runtime.captureResource("$base/forbidden-redirect") }
+                assertFailsWith<IllegalStateException> { runtime.captureResource("$base/redirect-loop") }
+                assertEquals(11, loopRequests.get(), "The eleventh redirect must be rejected before another request")
+            }
+        } finally {
+            SwingUtilities.invokeAndWait(runtime::release)
+            runBlocking { runtime.awaitClosed() }
         }
     }
 
@@ -133,7 +202,7 @@ class DesktopBrowserNativeTest {
     ) {
         SwingUtilities.invokeAndWait { engine.execute(BrowserViewCommand.Load("$base/locked")) }
         awaitTitle(states, "Unlock source")
-        val driver = DesktopBrowserAutomation(engine::devTools)
+        val driver = DesktopBrowserAutomation(engine::devTools, engine::captureResource)
         fun request(url: String) = BrowserRequest(
             "capture",
             BrowserOperation.CaptureResource,
@@ -178,6 +247,8 @@ class DesktopBrowserNativeTest {
             )
             val pdf = driver.captureResource(request("$base/document"))
             assertEquals("application/pdf", pdf.data.getValue("mediaType").jsonPrimitive.content)
+            val protectedPdf = driver.captureResource(request("$base/protected-document"))
+            assertEquals("application/pdf", protectedPdf.data.getValue("mediaType").jsonPrimitive.content)
             assertFailsWith<IllegalStateException> {
                 driver.captureResource(request("$base/unsupported"))
             }
@@ -216,17 +287,23 @@ class DesktopBrowserNativeTest {
         SwingUtilities.invokeAndWait {
             val unstarted = DesktopBrowserEngine(
                 app,
+                nativeDispatchers(),
+                DefaultBrowserUrlResolver(),
                 { false },
                 { callbacks.incrementAndGet() },
                 closed::countDown,
+                createContext = temporaryContextFactory(),
             )
             unstarted.release()
             unstarted.release()
             val pending = DesktopBrowserEngine(
                 app,
+                nativeDispatchers(),
+                DefaultBrowserUrlResolver(),
                 { false },
                 { callbacks.incrementAndGet() },
                 closed::countDown,
+                createContext = temporaryContextFactory(),
             )
             pending.start("")
             // createImmediately is queued on EDT; release runs before its native creation.
@@ -242,14 +319,14 @@ class DesktopBrowserNativeTest {
         isVisible = true
     }
 
-    private fun nativeApp(handle: BrowserTestScope): org.cef.CefApp {
+    private fun nativeResources(handle: BrowserTestScope): DesktopDefaultBrowserResources {
         val cache = Files.createTempDirectory("heartbeat-jcef-native-test")
-        val resources = DesktopDefaultBrowserResources(
+        return DesktopDefaultBrowserResources(
             StorageRoot { cache.toString() },
             nativeDispatchers(),
+            DesktopBrowserProfiles(handle, nativeDispatchers(), lazy { BrowserNativeTestStores(cache) }),
             handle,
         )
-        return runBlocking { resources.app() }
     }
 
     private fun localServer(): HttpServer {
@@ -266,6 +343,7 @@ class DesktopBrowserNativeTest {
             exchange.close()
         }
         recoveryEndpoints(server)
+        redirectEndpoints(server)
         server.createContext("/") { exchange ->
             val page = if (exchange.requestURI.path == "/start") {
                 exchange.responseHeaders.add(
@@ -313,11 +391,50 @@ class DesktopBrowserNativeTest {
             exchange.sendResponseHeaders(200, bytes.size.toLong())
             exchange.responseBody.use { it.write(bytes) }
         }
+        server.createContext("/protected-document") { exchange ->
+            val unlocked = exchange.requestHeaders.getFirst("Cookie").orEmpty().contains("source_unlocked=yes")
+            val bytes = if (unlocked) "%PDF-1.4\nprotected\n%%EOF".toByteArray() else "Blocked".toByteArray()
+            exchange.responseHeaders.add("Content-Type", if (unlocked) "application/pdf" else "text/html")
+            exchange.sendResponseHeaders(if (unlocked) 200 else 403, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        }
         server.createContext("/unsupported") { exchange ->
             exchange.responseHeaders.add("Content-Type", "application/octet-stream")
             exchange.sendResponseHeaders(200, 1)
             exchange.responseBody.use { it.write(byteArrayOf(0)) }
         }
+    }
+
+    private fun redirectEndpoints(server: HttpServer) {
+        server.createContext("/document-redirect") { exchange ->
+            exchange.responseHeaders.add("Location", "/document")
+            exchange.sendResponseHeaders(302, -1)
+            exchange.close()
+        }
+        server.createContext("/external-redirect") { exchange ->
+            exchange.responseHeaders.add("Location", "http://localhost:${server.address.port}/document")
+            exchange.sendResponseHeaders(302, -1)
+            exchange.close()
+        }
+        server.createContext("/forbidden-redirect") { exchange ->
+            exchange.responseHeaders.add("Location", "file:///heartbeat-forbidden-document")
+            exchange.sendResponseHeaders(302, -1)
+            exchange.close()
+        }
+        server.createContext("/redirect-loop") { exchange ->
+            loopRequests.incrementAndGet()
+            exchange.responseHeaders.add("Location", "/redirect-loop")
+            exchange.sendResponseHeaders(302, -1)
+            exchange.close()
+        }
+    }
+
+    // Each engine represents an isolated profile. Its tab and managed requests share an anchor;
+    // restart durability is exercised separately by the native multi-process probe.
+    private fun temporaryContextFactory(): (CefRequestContextHandler) -> CefRequestContext {
+        val anchor = requireNotNull(CefRequestContext.createContext(null))
+        contexts += anchor
+        return { handler -> requireNotNull(CefRequestContext.createContext(anchor, handler)) }
     }
 
     private fun nativeDispatchers(): DispatcherProvider = object : DispatcherProvider {
