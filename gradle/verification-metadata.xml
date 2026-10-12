@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<verification-metadata xmlns="https://schema.gradle.org/dependency-verification"
+                       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                       xsi:schemaLocation="https://schema.gradle.org/dependency-verification https://schema.gradle.org/dependency-verification/dependency-verification-1.3.xsd">
+   <configuration>
+      <verify-metadata>false</verify-metadata>
+      <verify-signatures>false</verify-signatures>
+      <trusted-artifacts>
+         <!-- Preserve the existing dependency policy; require checksums for the patched Java/JNI release. -->
+         <trust group="(?!io\.aequicor\.heartbeat\.jcef$).*" regex="true"/>
+      </trusted-artifacts>
+   </configuration>
+   <components>
+      <component group="io.aequicor.heartbeat.jcef" name="jcef-api" version="152.0.6-hb2">
+         <artifact name="jcef-api-152.0.6-hb2.jar">
+            <sha256 value="1b6ae8615a6ba80bd8f31068883a5b555aa04db47cfc5aadd7f383301305278e" origin="Verified four-platform JCEF release"/>
+         </artifact>
+      </component>
+      <component group="io.aequicor.heartbeat.jcef" name="jcef-natives-macosx-amd64" version="152.0.6-hb2">
+         <artifact name="jcef-natives-macosx-amd64-152.0.6-hb2.jar">
+            <sha256 value="30a296ec850d91a9658358ce43eb76a4f9a56a88a431f42a17b79dd9073e750b" origin="Verified four-platform JCEF release"/>
+         </artifact>
+      </component>
+      <component group="io.aequicor.heartbeat.jcef" name="jcef-natives-macosx-arm64" version="152.0.6-hb2">
+         <artifact name="jcef-natives-macosx-arm64-152.0.6-hb2.jar">
+            <sha256 value="8c124be0065aa62192f3514a3a0e93df9eb3193203c9ed05e261e838ecaa5bed" origin="Verified four-platform JCEF release"/>
+         </artifact>
+      </component>
+      <component group="io.aequicor.heartbeat.jcef" name="jcef-natives-windows-amd64" version="152.0.6-hb2">
+         <artifact name="jcef-natives-windows-amd64-152.0.6-hb2.jar">
+            <sha256 value="c682696e88a1b95a56bdc3256524d9e70c3c44387100fef284db8d3b70af71e1" origin="Verified four-platform JCEF release"/>
+         </artifact>
+      </component>
+      <component group="io.aequicor.heartbeat.jcef" name="jcef-natives-windows-arm64" version="152.0.6-hb2">
+         <artifact name="jcef-natives-windows-arm64-152.0.6-hb2.jar">
+            <sha256 value="743e89fb7a810b0a8460a080e498ca3a1fcab7d47273d6bbc54cc9db83a77951" origin="Verified four-platform JCEF release"/>
+         </artifact>
+      </component>
+   </components>
+</verification-metadata>

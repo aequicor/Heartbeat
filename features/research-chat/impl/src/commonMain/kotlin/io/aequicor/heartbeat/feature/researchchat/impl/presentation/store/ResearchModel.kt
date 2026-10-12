@@ -59,23 +59,39 @@ internal class ResearchModel(
             .reflectResearch(machine.state.value),
         onError = { copy(hasError = true) },
     ) {
-        reflect(machine, onOutput = { output ->
-            when (output) {
-                is ResearchChatOutput.Submitted -> updateState {
-                    val submitted = submittedDrafts[output.questionId]
-                    val isUnchangedDraft = submitted != null && drafts[output.questionId] == submitted
-                    copy(
-                        drafts = if (isUnchangedDraft) (drafts - output.questionId).toImmutableMap() else drafts,
-                        draft = if (isUnchangedDraft && questionId == output.questionId) "" else draft,
-                        submittedDrafts = (submittedDrafts - output.questionId).toImmutableMap(),
-                    )
-                }
+        reflect(
+            machine,
+            onOutput = { output ->
+                when (output) {
+                    is ResearchChatOutput.Submitted -> updateState {
+                        val submitted = submittedDrafts[output.questionId]
+                        val isUnchangedDraft = submitted != null && drafts[output.questionId] == submitted
+                        copy(
+                            drafts = if (isUnchangedDraft) {
+                                (drafts - output.questionId).toImmutableMap()
+                            } else {
+                                drafts
+                            },
+                            draft = if (isUnchangedDraft && questionId == output.questionId) {
+                                ""
+                            } else {
+                                draft
+                            },
+                            submittedDrafts = (submittedDrafts - output.questionId).toImmutableMap(),
+                        )
+                    }
 
-                ResearchChatOutput.ResourceAdded -> updateState {
-                    copy(isResourceDialogOpen = false, resourceTitle = "", resourceValue = "", resourceMediaType = null)
+                    ResearchChatOutput.ResourceAdded -> updateState {
+                        copy(
+                            isResourceDialogOpen = false,
+                            resourceTitle = "",
+                            resourceValue = "",
+                            resourceMediaType = null,
+                        )
+                    }
                 }
-            }
-        }) { reflectResearch(it) }
+            },
+        ) { reflectResearch(it) }
         reduce { handle(this, it) }
     }
 
@@ -96,7 +112,10 @@ internal class ResearchModel(
     private suspend fun handle(pipeline: ResearchPipeline, intent: ResearchScreenIntent) = with(pipeline) {
         when (intent) {
             is ResearchScreenIntent.DraftChanged -> updateState {
-                copy(draft = intent.value, drafts = (drafts + (questionId.orEmpty() to intent.value)).toImmutableMap())
+                copy(
+                    draft = intent.value,
+                    drafts = (drafts + (questionId.orEmpty() to intent.value)).toImmutableMap(),
+                )
             }
 
             is ResearchScreenIntent.ShowResourceDialog -> updateState { copy(isResourceDialogOpen = intent.isOpen) }
@@ -130,6 +149,10 @@ internal class ResearchModel(
             ResearchScreenIntent.Retry, ResearchScreenIntent.NewSession, is ResearchScreenIntent.SelectSession,
             ResearchScreenIntent.NewQuestion, is ResearchScreenIntent.SelectQuestion, ResearchScreenIntent.Stop,
             is ResearchScreenIntent.SetResourceSelected, is ResearchScreenIntent.ShareResource,
+            is ResearchScreenIntent.DecidePermission,
+            is ResearchScreenIntent.OpenSourceBrowser,
+            is ResearchScreenIntent.ContinueSource,
+            is ResearchScreenIntent.CancelSource,
             is ResearchScreenIntent.RemoveResource,
             -> {
                 val command = command(intent)
@@ -156,7 +179,10 @@ internal class ResearchModel(
                 )
 
                 is ResearchScreenIntent.AttachmentPolicyChanged -> updateState {
-                    copy(isFileImportAvailable = intent.policy.isEnabled, attachmentSupport = intent.policy.support)
+                    copy(
+                        isFileImportAvailable = intent.policy.isEnabled,
+                        attachmentSupport = intent.policy.support,
+                    )
                         .reflectResearch(machine.state.value)
                 }
 
@@ -179,7 +205,10 @@ internal class ResearchModel(
             }
         }
 
-    /** Capture input before dispatch so a late acknowledgement never erases edits made after sending. */
+    /**
+     * Capture input before dispatch so a late acknowledgement never erases edits made after
+     * sending.
+     */
     private suspend fun submit(pipeline: ResearchPipeline): Unit = with(pipeline) {
         var submission: Triple<String?, String, String?>? = null
         withState { submission = submissionSnapshot() }
@@ -207,7 +236,11 @@ internal class ResearchModel(
         with(pipeline) {
             when (intent) {
                 is ResearchScreenIntent.ResourceKindChanged -> updateState {
-                    copy(resourceKind = intent.kind, resourceValue = "", resourceMediaType = null)
+                    copy(
+                        resourceKind = intent.kind,
+                        resourceValue = "",
+                        resourceMediaType = null,
+                    )
                 }
 
                 is ResearchScreenIntent.ResourceScopeChanged -> updateState { copy(resourceScope = intent.scope) }
@@ -308,6 +341,11 @@ private fun command(intent: ResearchScreenIntent): ResearchChatIntent.Public? = 
 
     is ResearchScreenIntent.ShareResource -> ResearchChatIntent.Public.ShareResource(intent.id)
 
+    is ResearchScreenIntent.DecidePermission ->
+        ResearchChatIntent.Public.DecidePermission(intent.id, intent.option, intent.answer)
+
+    is ResearchScreenIntent.SourceRecovery -> recoveryCommand(intent)
+
     is ResearchScreenIntent.RemoveResource -> ResearchChatIntent.Public.RemoveResource(intent.id)
 
     is ResearchScreenIntent.DraftChanged, is ResearchScreenIntent.ShowResourceDialog,
@@ -320,4 +358,24 @@ private fun command(intent: ResearchScreenIntent): ResearchChatIntent.Public? = 
     is ResearchScreenIntent.SaveAttachment, is ResearchScreenIntent.LoadThumbnail,
     is ResearchScreenIntent.ReleaseThumbnail, is ResearchScreenIntent.ThumbnailsChanged,
     -> null
+}
+
+private fun recoveryCommand(intent: ResearchScreenIntent.SourceRecovery): ResearchChatIntent.Public = when (intent) {
+    is ResearchScreenIntent.OpenSourceBrowser ->
+        ResearchChatIntent.Public.RecoverResource(
+            intent.id,
+            io.aequicor.heartbeat.feature.researchchat.api.ResearchRecoveryAction.Open,
+        )
+
+    is ResearchScreenIntent.ContinueSource ->
+        ResearchChatIntent.Public.RecoverResource(
+            intent.id,
+            io.aequicor.heartbeat.feature.researchchat.api.ResearchRecoveryAction.Continue,
+        )
+
+    is ResearchScreenIntent.CancelSource ->
+        ResearchChatIntent.Public.RecoverResource(
+            intent.id,
+            io.aequicor.heartbeat.feature.researchchat.api.ResearchRecoveryAction.Cancel,
+        )
 }

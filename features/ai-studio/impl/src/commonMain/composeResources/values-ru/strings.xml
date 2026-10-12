@@ -264,4 +264,6 @@
     <string name="session_checklist_ready">Готово</string>
     <string name="harness_menu_section">Харнессы</string>
     <string name="harness_connect_failed">Не удалось изменить харнессы этого чата. Повторите попытку.</string>
+    <string name="browser_mode">Браузер</string>
+    <string name="composer_suggestions_close">Закрыть подсказки</string>
 </resources>

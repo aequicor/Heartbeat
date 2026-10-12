@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionAnswer
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentDescriptor
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import kotlin.test.Test
@@ -17,6 +18,60 @@ class ResearchChatMachineTest {
     private val session = ResearchSession("s1", "", target, listOf(question))
     private val workspace = ResearchWorkspace(listOf(session))
     private val ready = ResearchChatState.Ready(target, workspace, session.id, question.id)
+
+    @Test
+    fun `waiting for a source can be stopped and cannot submit twice`() {
+        val waiting = question.copy(pendingSourcePrompt = "original prompt")
+        val state =
+            ready.copy(
+                workspace =
+                    workspace.copy(sessions = listOf(session.copy(questions = listOf(waiting)))),
+            )
+        ResearchChatMachineSpec.assertTransition(
+            state,
+            ResearchChatIntent.Public.Stop,
+            state,
+            listOf(ResearchChatEffect.Stop(question.id)),
+        )
+        ResearchChatMachineSpec.assertIgnored(state, ResearchChatIntent.Public.Submit("duplicate"))
+    }
+
+    @Test
+    fun `failed source can be recovered during a pending question`() {
+        val source =
+            ResearchResource(
+                "source",
+                "Site",
+                ResearchResourceKind.Website,
+                "https://example.com",
+                "text/html",
+                loadState = ResearchLoadState.NeedsUserAction,
+            )
+        val state =
+            ready.copy(
+                workspace =
+                    workspace.copy(
+                        sessions = listOf(session.copy(resources = listOf(source))),
+                        isBrowserRecoveryAvailable = true,
+                    ),
+            )
+        ResearchChatMachineSpec.assertTransition(
+            state,
+            ResearchChatIntent.Public.RecoverResource(source.id, ResearchRecoveryAction.Continue),
+            state,
+            listOf(
+                ResearchChatEffect.RecoverResource(
+                    session.id,
+                    source.id,
+                    ResearchRecoveryAction.Continue,
+                ),
+            ),
+        )
+        ResearchChatMachineSpec.assertIgnored(
+            state,
+            ResearchChatIntent.Public.RecoverResource("removed", ResearchRecoveryAction.Continue),
+        )
+    }
 
     @Test
     fun `opening loads once and disabled routes never enter ready`() {
@@ -89,9 +144,15 @@ class ResearchChatMachineTest {
     @Test
     fun `blank input and disabled workspace reject new work but permit stopping active turn`() {
         ResearchChatMachineSpec.assertIgnored(ready, ResearchChatIntent.Public.Submit("  "))
-        ResearchChatMachineSpec.assertIgnored(ready.copy(isEnabled = false), ResearchChatIntent.Public.NewSession)
+        ResearchChatMachineSpec.assertIgnored(
+            ready.copy(isEnabled = false),
+            ResearchChatIntent.Public.NewSession,
+        )
         val disabledRunning = ready.copy(isEnabled = false, workspace = workspace.copy(running = setOf(question.id)))
-        ResearchChatMachineSpec.assertIgnored(disabledRunning, ResearchChatIntent.Public.Submit("question"))
+        ResearchChatMachineSpec.assertIgnored(
+            disabledRunning,
+            ResearchChatIntent.Public.Submit("question"),
+        )
         ResearchChatMachineSpec.assertTransition(
             disabledRunning,
             ResearchChatIntent.Public.Stop,
@@ -103,13 +164,18 @@ class ResearchChatMachineTest {
     @Test
     fun `question selection isolates drafts and ignores foreign questions`() {
         val next = ResearchQuestion("q2")
-        val state = ready.copy(workspace = ResearchWorkspace(listOf(session.copy(questions = listOf(question, next)))))
+        val state = ready.copy(
+            workspace = ResearchWorkspace(listOf(session.copy(questions = listOf(question, next)))),
+        )
         ResearchChatMachineSpec.assertTransition(
             state,
             ResearchChatIntent.Public.SelectQuestion(next.id),
             state.copy(questionId = next.id),
         )
-        ResearchChatMachineSpec.assertIgnored(state, ResearchChatIntent.Public.SelectQuestion("foreign"))
+        ResearchChatMachineSpec.assertIgnored(
+            state,
+            ResearchChatIntent.Public.SelectQuestion("foreign"),
+        )
     }
 
     @Test
@@ -126,7 +192,10 @@ class ResearchChatMachineTest {
             ready.copy(isMutating = true),
             effects = listOf(ResearchChatEffect.CreateSession(target)),
         )
-        ResearchChatMachineSpec.assertIgnored(ready.copy(isMutating = true), ResearchChatIntent.Public.NewQuestion)
+        ResearchChatMachineSpec.assertIgnored(
+            ready.copy(isMutating = true),
+            ResearchChatIntent.Public.NewQuestion,
+        )
         ResearchChatMachineSpec.assertTransition(
             ready.copy(isMutating = true),
             ResearchChatIntent.Internal.MutationFailed,
@@ -230,6 +299,98 @@ class ResearchChatMachineTest {
         assertEquals(
             ResearchChatIntent.Internal.RunFinished(question.id, true),
             ResearchChatMachineSpec.onEffectFailure(effect, IllegalStateException("test")),
+        )
+    }
+
+    @Test
+    fun `permission decision targets the selected question and is ignored without one`() {
+        val answer = PermissionAnswer.Selected(listOf("choice"))
+        ResearchChatMachineSpec.assertTransition(
+            ready,
+            ResearchChatIntent.Public.DecidePermission("request", "allow", answer),
+            ready,
+            effects = listOf(ResearchChatEffect.DecidePermission(question.id, "request", "allow", answer)),
+        )
+        ResearchChatMachineSpec.assertIgnored(
+            ready.copy(questionId = null),
+            ResearchChatIntent.Public.DecidePermission("request", "allow"),
+        )
+    }
+
+    @Test
+    fun `source recovery needs the research switch and browser recovery except for cancellation`() {
+        val source = ResearchResource(
+            "source",
+            "Site",
+            ResearchResourceKind.Website,
+            "https://example.com",
+            "text/html",
+            loadState = ResearchLoadState.NeedsUserAction,
+        )
+        val unavailable = ready.copy(
+            workspace = workspace.copy(sessions = listOf(session.copy(resources = listOf(source)))),
+        )
+        ResearchRecoveryAction.entries.forEach { action ->
+            ResearchChatMachineSpec.assertIgnored(
+                unavailable.copy(
+                    isEnabled = false,
+                    workspace = unavailable.workspace.copy(isBrowserRecoveryAvailable = true),
+                ),
+                ResearchChatIntent.Public.RecoverResource(source.id, action),
+            )
+        }
+        listOf(ResearchRecoveryAction.Open, ResearchRecoveryAction.Continue).forEach { action ->
+            ResearchChatMachineSpec.assertIgnored(
+                unavailable,
+                ResearchChatIntent.Public.RecoverResource(source.id, action),
+            )
+        }
+        ResearchChatMachineSpec.assertTransition(
+            unavailable,
+            ResearchChatIntent.Public.RecoverResource(source.id, ResearchRecoveryAction.Cancel),
+            unavailable,
+            effects = listOf(
+                ResearchChatEffect.RecoverResource(session.id, source.id, ResearchRecoveryAction.Cancel),
+            ),
+        )
+    }
+
+    @Test
+    fun `submission still being accepted can be stopped`() {
+        val submitting = ready.copy(submitting = setOf(question.id))
+        ResearchChatMachineSpec.assertTransition(
+            submitting,
+            ResearchChatIntent.Public.Stop,
+            submitting,
+            effects = listOf(ResearchChatEffect.Stop(question.id)),
+        )
+        ResearchChatMachineSpec.assertIgnored(ready, ResearchChatIntent.Public.Stop)
+    }
+
+    @Test
+    fun `non mutating effect failures keep a concurrent mutation reserved`() {
+        listOf(
+            ResearchChatEffect.DecidePermission(question.id, "request", "allow"),
+            ResearchChatEffect.RecoverResource(session.id, "source", ResearchRecoveryAction.Open),
+            ResearchChatEffect.Stop(question.id),
+            ResearchChatEffect.Observe,
+        ).forEach { effect ->
+            assertEquals(
+                ResearchChatIntent.Internal.OperationFailed,
+                ResearchChatMachineSpec.onEffectFailure(effect, IllegalStateException("test")),
+            )
+        }
+        assertEquals(
+            ResearchChatIntent.Internal.MutationFailed,
+            ResearchChatMachineSpec.onEffectFailure(
+                ResearchChatEffect.CreateQuestion(session.id),
+                IllegalStateException("test"),
+            ),
+        )
+        ResearchChatMachineSpec.assertTransition(
+            ready.copy(isMutating = true),
+            ResearchChatIntent.Internal.OperationFailed,
+            ready.copy(isMutating = true, hasError = true),
         )
     }
 }

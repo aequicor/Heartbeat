@@ -20,9 +20,11 @@ import io.aequicor.heartbeat.feature.researchchat.api.ResearchResource
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceKind
 import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchAttachments
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import kotlin.io.encoding.Base64
 import kotlin.uuid.Uuid
 
@@ -113,9 +115,24 @@ internal class MachineResearchAttachments(
                 ),
             ) == SendResult.Accepted,
         ) { "Research attachment import was not accepted" }
-        when (val output = result.await()) {
+        var output: AttachmentsOutput? = null
+        try {
+            output = result.await()
+        } finally {
+            // An abandoned accepted import would otherwise finish without an owner; stale cancellation does nothing.
+            if (output == null) {
+                withContext(NonCancellable) {
+                    log.d { "Cancel abandoned research attachment import" }
+                    machines.send(AttachmentsMachineKey, AttachmentsIntent.Public.Cancel(request))
+                }
+            }
+        }
+        when (output) {
             is AttachmentsOutput.Imported -> output.attachments
-            else -> error("Research attachment import failed")
+
+            is AttachmentsOutput.Failed, is AttachmentsOutput.Cancelled, is AttachmentsOutput.NativeRequested,
+            is AttachmentsOutput.Completed, null,
+            -> error("Research attachment import failed")
         }
     }
 

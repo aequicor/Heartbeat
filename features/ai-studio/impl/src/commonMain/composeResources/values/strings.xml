@@ -70,6 +70,7 @@
 
     <string name="composer_placeholder">Work with Heartbeat</string>
     <string name="composer_suggestions">Composer suggestions</string>
+    <string name="composer_suggestions_close">Close suggestions</string>
     <string name="suggestions_section_commands">Commands</string>
     <string name="suggestions_section_engine_commands">Commands · %1$s</string>
     <string name="suggestions_section_skills">Skills</string>
@@ -270,4 +271,5 @@
     <string name="session_checklist_ready">Ready</string>
     <string name="harness_menu_section">Harnesses</string>
     <string name="harness_connect_failed">The harness change was not applied to this chat. Try again.</string>
+    <string name="browser_mode">Browser</string>
 </resources>

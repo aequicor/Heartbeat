@@ -1,0 +1,193 @@
+# Проверка нативного жизненного цикла JCEF
+
+Standalone harness для согласованных Java/native-артефактов Heartbeat. Нужны JDK 21,
+Python 3.11+, Windows или macOS с доступной графической сессией и бинарники **архитектуры
+самого хоста**. Gradle, сеть для загрузки зависимостей и запущенный Heartbeat не нужны.
+Проверка открывает настоящие JFrame с windowed JCEF; headless-режим не подменяет результат.
+
+## Запуск после сборки
+
+Из корня репозитория, заменив `<target>` на `windows-amd64`, `windows-arm64`,
+`macosx-amd64` или `macosx-arm64`:
+
+```text
+python native/jcef/verification/run_probe.py --jcef-api build/jcef-artifacts/jcef-api-152.0.6-hb2.jar --native-dir build/jcef-source/heartbeat-native-stage --extra-classpath build/jcef-artifacts/jcef-natives-<target>-152.0.6-hb2.jar --extra-classpath build/jcef-source/third_party/jogamp/jar/jogl-all.jar --extra-classpath build/jcef-source/third_party/jogamp/jar/gluegen-rt.jar --output build/jcef-verification
+```
+
+`--java` и `--javac` позволяют выбрать абсолютные пути к JDK. `--output` должен быть
+**новым каталогом**: существующий путь намеренно не переиспользуется и не очищается.
+Повторный запуск получает другое имя. Флаг `--compile-only` проверяет контракт Java,
+не загружая нативные библиотеки; такой результат явно имеет `nativeExecuted: false`.
+
+Ожидаемый native-stage:
+
+- Windows: `jcef.dll`, `libcef.dll`, `chrome_elf.dll`, `jcef_helper.exe`, ресурсы CEF и `locales/`.
+- macOS: `libjcef.dylib`, `Chromium Embedded Framework.framework`, `jcef Helper.app`
+  и остальные helper bundles. macOS bridge-классы должны быть в native JAR из команды выше.
+
+Native loader привязан к переданному каталогу, включая subprocess/framework paths.
+Harness не использует другую JCEF-копию из JBR, не скачивает runtime и не подменяет
+пропатченный API исходным. Компиляция требует:
+
+```java
+CefRequestContext.createContext(CefRequestContextSettings settings, CefRequestContextHandler handler);
+CefRequestContext.createContext(CefRequestContext anchor, CefRequestContextHandler handler);
+anchor.dispose(CefCompletionCallback completion);
+CefURLRequest.create(CefRequest request, CefURLRequestClient client, CefRequestContext context);
+```
+
+Также нужны lifecycle callbacks `CefLifeSpanHandler.onAfterClose` и `onCreationFailed`.
+
+## Что проверяется
+
+Python-процесс один раз запускает HTTP server на `127.0.0.1`. Все дочерние JVM используют
+один origin и один порт до конца проверки. `--port 0` выбирает свободный порт один раз;
+можно передать фиксированный порт явно. Сервер выдаёт только локальный fixture и
+синтетические cookies. Внешние сайты и профили пользователя не используются.
+
+Последовательно запускаются отдельные JVM:
+
+1. **write:** создать два профильных anchor; записать persistent cookie, session cookie
+   (оба HttpOnly), localStorage, IndexedDB и CacheStorage. Вторая вкладка того же anchor
+   видит данные; другой профиль не видит их. Закрытие первой вкладки не нарушает вторую
+   или новую вкладку. Закрытие одного профиля не нарушает другой. Нативный `CefURLRequest`
+   с общим контекстом отправляет обе HttpOnly cookies, а профиль B — ни одной; отмена
+   ответа после первого chunk завершается `UR_CANCELED`. Запрос и его shared context
+   освобождаются до закрытия anchor.
+2. **restart:** свежая JVM читает все пять видов данных обоих профилей.
+3. **clear:** закрыть вкладку A и дождаться `anchor.dispose(callback)`. Пока CefApp и
+   профиль B остаются живыми, parent удаляет только каталог браузера A. Повторное
+   открытие A должно быть пустым; B остаётся прежним. A получает новый marker.
+4. **restart-after-clear:** свежая JVM проверяет новый marker A и прежний B.
+5. **delete:** аналогично закрыть A, затем удалить его Chromium-каталог и отдельный каталог
+   профильной метаинформации. Повторное открытие A пустое, живой профиль B не затронут.
+6. **restart-after-delete:** свежая JVM подтверждает пустой A и сохранность B.
+7. **visibility-close:** 20 новых вкладок закрываются с ещё не обработанными изменениями
+   видимости и размеров; проверяются native cleanup и неизменность соседней вкладки.
+
+Перед нативными фазами запускается Java-only `DevToolsClientProbe`: десять детерминированных
+порядков CDP callbacks проверяют ранний результат до ID, ошибки, закрытие и отмену отдельного
+вызова, независимость соседнего вызова, очистку pending entries и отсутствие JNI-вызова под lock.
+Нужен JDK без встроенного JCEF module (например Microsoft или Temurin), иначе его пакет
+`org.cef.browser` перекроет тестовый класс и проверяемую API-библиотеку.
+
+Первой нативной фазой выполняется **anchor-close**: 20 отдельных persistent contexts проходят
+создание вкладки, запись данных, закрытие вкладки и flush/release контекста при живой контрольной
+вкладке. Для отдельной диагностики этой фазы добавьте `--anchor-close-only`; результат помечается
+`focusedPhase`, он не заменяет полный прогон хранения, снимков и ввода.
+
+После каждой JVM проверяется код выхода; Java завершается успешно только после callback
+`CefAppState.TERMINATED`. Вкладки ждут `onLoadEnd`/`onAfterClose`, сохранение — callback
+освобождения anchor, DOM-операции — CDP futures и browser events. `Thread.sleep`, задержек
+для «успевания записи», повторов удаления до успеха и автоматического пропуска ошибок нет.
+Таймаут этапа по умолчанию 240 секунд завершает всё дерево процесса и проваливает прогон.
+
+На macOS callback `onBeforeClose` идёт с AppKit thread, а Swing — с EDT. Harness освобождает
+клиент по patched `onAfterClose`, после освобождения wrapper и удаления браузера из registry JCEF.
+Размер registry читается рефлексией только для проверки контракта callback, без polling и мутаций.
+Терминальный `onCreationFailed` обязан освободить wrapper до callback. Диагностика выводит остаток
+клиентов перед shutdown и полный stack trace необработанных callback exceptions.
+Повторное нативное создание одного Java browser и отсутствие `TERMINATED` проваливают прогон.
+
+Удаление выполняется только внутри свежего `--output/profiles`; запрос требует случайный
+run token. Выход за каталог, symlink/junction и удаление корня profiles отвергаются.
+Невозможность удалить файлы после callback считается ошибкой lifecycle, а не ретраится.
+
+В Chrome CEF 152 `cache_path` должен быть самим `root_cache_path` или его **непосредственным**
+ребёнком. Harness использует `profiles/profile-a` и `profiles/profile-b`; профильная
+метаинформация хранится отдельно в `profiles/profile-a-owner`. Вложенный
+`profiles/profile-a/browser` Chromium отвергает с переходом в OffTheRecord и не проверяет
+дисковую persistence.
+
+## Снимки и координаты
+
+По умолчанию дополнительные JVM `visual-native`, `visual-1`, `visual-1.5`, `visual-2`
+проверяют PNG через CDP, размер `viewport × devicePixelRatio`, цвет контрольного пикселя
+по координатам DOM и настоящий trusted click через `Input.dispatchMouseEvent` в CSS pixels.
+Отпускание кнопки мыши выполняется в `finally`. Сохраняются PNG, геометрия и actual AWT scale.
+
+`native` использует текущий DPI графической сессии. Остальные значения — **принудительный
+Chromium device scale factor**, не доказательство наличия физических мониторов с такими DPI.
+Harness проверяет, что Chromium действительно применил указанный factor. Для проверки
+реальных дисплеев запустить на нужном дисплее с `--scales native` и сравнить отчёты.
+Проверка JFrame не заменяет проверки Compose/Swing overlay, диалогов, клавиатурного фокуса,
+смены физического монитора и полноэкранного режима в самом Heartbeat.
+
+## Производственное Compose-встраивание
+
+После подготовки runtime отдельная opt-in JVM-проверка использует настоящий
+`BrowserWebView` → `SwingPanel` → `DesktopBrowserPanel` → JCEF в `ComposeWindow`:
+
+```text
+./gradlew :features:browser:impl:browserComposeNativeTest
+```
+
+На Windows используется `gradlew.bat`. Проверка запускается только локально и только этой задачей:
+обычный `jvmTest` её пропускает, а задача выполняет один тестовый класс в свежей JVM на JBR
+приложения (глобальный CefApp не перезапускается в той же JVM). Так же устроены
+`:features:browser:impl:browserNativeTest` (поверхности Chromium без Compose) и
+`:platform-main:di-bundle:browserRecoveryNativeTest` (восстановление research-источника через граф профиля).
+Нужна активная графическая сессия; Robot использует настоящие мышь и клавиатуру, на macOS
+необходимо разрешение Accessibility для Java, а для снимков — Screen Recording.
+Тест не заменяет ввод вызовами JavaScript.
+
+Проверяются смена ширины боковой панели на всю область ComposeWindow, скрытие и возврат
+той же нативной поверхности, неизменность DOM marker, число загрузок HTTP и созданий runtime.
+Поверхность также переживает сужение окна до 320px и переключение light/dark темы хоста.
+Затем настоящий ввод проходит через страницу → `HbDialog` → страницу; ввод в диалог не
+должен попадать в Chromium. Клик по области Chromium за диалогом закрывает модальное окно,
+не увеличивая счётчик кликов страницы. Возврат ввода ждёт фактического скрытия owned-окна,
+а не только удаления Compose-контента. Обычный `HbMenu` проверяется поверх Chromium:
+видимый пиксель меню, выбор через Enter и неизменное поле страницы. Скриншоты сохраняются в
+`features/browser/impl/build/native-ui/compose-native-*.png` (панель, узкое окно, темы и диалог).
+Геометрией управляет тестовый контейнер: `StudioBrowserLayout`, переключение чатов и
+перенос между физическими мониторами эта проверка не покрывает.
+
+Production bootstrap и тестовые JVM используют `compose.layers.type=WINDOW`, чтобы
+диалоги и popup отображались над тяжеловесным Chromium. На Windows x64 выбран OpenGL:
+в Skiko 0.150.1 Direct3D синхронно перерисовывает поверхность из `SkiaLayer.reshape`,
+что вызывает рекурсивную отрисовку при изменении границ WINDOW-слоя. OpenGL при отказе
+драйвера переходит только на программный рендеринг; Windows ARM64 сразу использует
+`SOFTWARE_FAST`, поскольку Skiko не поддерживает там OpenGL. macOS сохраняет Metal.
+Явный внешний `SKIKO_RENDER_API` имеет приоритет над настройкой приложения.
+Desktop `HbDialog` рисует scrim внутри полноразмерного owned-слоя: обычный scrim Compose
+остаётся под тяжеловесным Chromium, а маленькое окно диалога не перехватывает клики за
+своими границами. Проверка сравнивает пиксели центра диалога и внешней области scrim со
+страницей без диалога и сохраняет снимок; одного успешного ввода недостаточно.
+Размер тестового окна ограничен рабочей областью монитора. Перед снимком и физическим
+вводом проверяется принадлежность foreground тестовому окну или его owned-окну; Windows
+дополнительно проверяет native HWND, видимость и отсутствие virtual-desktop cloaking.
+
+## Результаты
+
+Отдельный JVM-процесс `visibility-close` создаёт 20 новых вкладок. Каждая отправляет
+пачку изменений видимости непосредственно перед принудительным закрытием и после его
+запроса, не дожидаясь очереди CEF/AppKit. Проверяются завершение native close, отсутствие
+клиентов после закрытия и неизменность DOM соседней вкладки. Эта фаза воспроизводит окно
+гонки queued visibility с уничтожением NSView на macOS; не использует sleep или ретраи.
+В каждой вкладке 128 вызовов resize/paint до и после запроса close проходят через настоящий
+`CefBrowserWr.paint → doUpdate → UpdateUI` и его отложенный Swing timer. Рисование направлено
+в `BufferedImage`, не захватывает экран и проверяет безопасное завершение очереди обновлений
+native view; количество вызовов записывается в JSON каждой итерации.
+
+Успех: exit `0`, `summary.json` с `passed: true`, `nativeExecuted: true`, все phase reports
+успешны. Любая ошибка API, startup, storage, shutdown, очистки или координат даёт ненулевой exit.
+Отчёт содержит SHA-256 проверенных API/native библиотек. Это provenance результата;
+проверка ожидаемых release checksums остаётся задачей packaging pipeline.
+
+CI для этой проверки нет: harness запускается локально **после упаковки** на каждом из четырёх
+хостов, а `*.json`, `*.log`, `*.png` из output сохраняются для проверки релиза (в том числе при
+провале). Сборка на кросс-компиляторе не заменяет запуск на целевой архитектуре.
+Fatal JVM/native crashes сохраняют полный отчёт `hs_err_pid*.log` в том же output.
+
+Проверки самого harness без JCEF:
+
+```text
+python -m unittest discover -s native/jcef/verification -p test_runner.py -v
+javac --release 21 -encoding UTF-8 -d build/probe-json native/jcef/verification/ProbeJson.java native/jcef/verification/ProbeJsonTest.java
+java -cp build/probe-json ProbeJsonTest
+```
+
+На момент добавления harness прошли эти unit-проверки, синтаксис fixture JavaScript и
+компиляция SessionProbe против пропатченного Java API. Нативный прогон на всех четырёх хостах
+остаётся отдельным обязательным условием публикации; сама компиляция не считается проверкой persistence.

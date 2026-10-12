@@ -49,8 +49,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import io.aequicor.heartbeat.feature.researchchat.api.ResearchRecoveryAction
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchSession
 import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchAttachments
+import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchSourceRecovery
 import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchStorage
 import io.aequicor.heartbeat.feature.searchengine.api.ResourceContent
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
@@ -66,16 +68,25 @@ import kotlinx.serialization.json.put
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 internal class ResearchExecutionFixture(
     scope: CoroutineScope,
     attachments: ResearchAttachments = ResearchAttachments.Legacy,
+    fetchResource: suspend (String) -> ResourceContent = {
+        error("Web-fetch tool already supplied complete source content")
+    },
+    onRecover: suspend (String, String, ResearchRecoveryAction) -> Unit = { _, _, _ ->
+        error("Unexpected browser recovery in execution fixture")
+    },
 ) {
     val storage = ExecutionStorage()
     val native = mutableListOf<ExecutionSession>()
     private val creator = object : CreatesSessions {
         override suspend fun create(request: CreateSessionRequest): ActiveSession {
             assertNull(request.workspace)
+            assertTrue(request.areDetachedToolsEnabled, "Research questions expose hosted tools and permissions")
+            assertTrue(request.areSessionHooksEnabled, "Interactive research must honor profile session hooks")
             return ExecutionSession(request.target, "native-${native.size}") { ref ->
                 val question = storage.read().flatMap { it.questions }.first { it.ref == ref }
                 assertNotNull(question.pendingSegmentStart, "Native acceptance must have a durable recovery marker")
@@ -111,8 +122,7 @@ internal class ResearchExecutionFixture(
         override suspend fun search(query: String, count: Int, native: EngineFeatures?): List<SearchResult> =
             error("Unexpected search")
 
-        override suspend fun fetch(url: String, native: EngineFeatures?): ResourceContent =
-            error("Web-fetch tool already supplied complete source content")
+        override suspend fun fetch(url: String, native: EngineFeatures?): ResourceContent = fetchResource(url)
     }
     private val profile = object : ScopeHandle {
         override val name = "research-test-profile"
@@ -121,7 +131,12 @@ internal class ResearchExecutionFixture(
         override val isClosed = false
         override fun onClose(action: () -> Unit): DisposableHandle = DisposableHandle { }
     }
-    val repository = ProfileResearchRepository(storage, facade, search, toggles, profile, attachments)
+    private val recovery = object : ResearchSourceRecovery {
+        override suspend fun restore() = Unit
+        override suspend fun recover(sessionId: String, resourceId: String, action: ResearchRecoveryAction): Unit =
+            onRecover(sessionId, resourceId, action)
+    }
+    val repository = ProfileResearchRepository(storage, facade, search, toggles, profile, attachments, recovery)
 }
 
 internal class ExecutionStorage : ResearchStorage {

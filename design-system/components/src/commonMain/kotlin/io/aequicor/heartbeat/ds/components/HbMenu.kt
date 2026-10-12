@@ -49,9 +49,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
-import androidx.compose.ui.window.PopupProperties
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
@@ -83,7 +81,9 @@ public data class HbMenuItem(
  * Controlled popup menu anchored to its parent layout: place it in the same `Box` as its trigger.
  * Opens below the anchor and flips above when the window lacks space. Arrow keys, Home/End and Tab
  * move between enabled items; Enter/Space activate; Escape and outside clicks dismiss.
- * Every visual style shares this foundation popup; native menus cannot host the shared item semantics.
+ * Every visual style shares this foundation popup ([HbMenuPopup]); native menus cannot host the shared item
+ * semantics. On desktop the popup layer covers the window, so an outside click over an embedded native
+ * surface also dismisses the menu and never reaches that surface.
  */
 @Composable
 public fun HbMenu(
@@ -98,13 +98,12 @@ public fun HbMenu(
     require(items.map { it.id }.distinct().size == items.size) { "Menu item ids must be unique" }
     val gap = with(LocalDensity.current) { HbTheme.spacing.xs.roundToPx() }
     val position = remember(gap) { HbMenuPosition(gap) }
-    Popup(
-        popupPositionProvider = position,
+    HbMenuPopup(
+        position = position,
         onDismissRequest = {
             log.i { "menu dismissed" }
             onDismiss()
         },
-        properties = PopupProperties(focusable = true),
     ) {
         MenuSheet(
             items = items,

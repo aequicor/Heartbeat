@@ -1,0 +1,46 @@
+{
+  "jcefCommit": "17e805ad387d89839fdd2b864466b6510b2a783c",
+  "cefVersion": "152.0.6+g708dc14+chromium-152.0.7977.83",
+  "patchSha256": "0bedf8ebb93d4cfdfb4164631b434f7de5fdee5ff0bdb76cdf617725c1cb00fd",
+  "cefDistributions": {
+    "macosx-amd64": {
+      "file": "cef_binary_152.0.6+g708dc14+chromium-152.0.7977.83_macosx64.tar.bz2",
+      "sha1": "c994beead60894fc9c80942c3037381ad478b0cf"
+    },
+    "macosx-arm64": {
+      "file": "cef_binary_152.0.6+g708dc14+chromium-152.0.7977.83_macosarm64.tar.bz2",
+      "sha1": "a614e0f6eab52bd43f3c2823c06d631bb64b2aa9"
+    },
+    "windows-amd64": {
+      "file": "cef_binary_152.0.6+g708dc14+chromium-152.0.7977.83_windows64.tar.bz2",
+      "sha1": "2381a9a518f8608b1f99d7130bddd6e570df0736"
+    },
+    "windows-arm64": {
+      "file": "cef_binary_152.0.6+g708dc14+chromium-152.0.7977.83_windowsarm64.tar.bz2",
+      "sha1": "e60c2cf070958531b1cac5a22d9369c39b2760eb"
+    }
+  },
+  "nativeArtifacts": {
+    "macosx-amd64": {
+      "file": "jcef-natives-macosx-amd64-152.0.6-hb2.jar",
+      "sha256": "30a296ec850d91a9658358ce43eb76a4f9a56a88a431f42a17b79dd9073e750b"
+    },
+    "macosx-arm64": {
+      "file": "jcef-natives-macosx-arm64-152.0.6-hb2.jar",
+      "sha256": "8c124be0065aa62192f3514a3a0e93df9eb3193203c9ed05e261e838ecaa5bed"
+    },
+    "windows-amd64": {
+      "file": "jcef-natives-windows-amd64-152.0.6-hb2.jar",
+      "sha256": "c682696e88a1b95a56bdc3256524d9e70c3c44387100fef284db8d3b70af71e1"
+    },
+    "windows-arm64": {
+      "file": "jcef-natives-windows-arm64-152.0.6-hb2.jar",
+      "sha256": "743e89fb7a810b0a8460a080e498ca3a1fcab7d47273d6bbc54cc9db83a77951"
+    }
+  },
+  "artifactVersion": "152.0.6-hb2",
+  "apiArtifact": {
+    "file": "jcef-api-152.0.6-hb2.jar",
+    "sha256": "1b6ae8615a6ba80bd8f31068883a5b555aa04db47cfc5aadd7f383301305278e"
+  }
+}

@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.core.navigation.Navigator
 import io.aequicor.heartbeat.core.navigation.Route
 import io.aequicor.heartbeat.core.navigation.StackHost
 import io.aequicor.heartbeat.core.navigation.routeEntry
+import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
@@ -38,6 +39,11 @@ import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentPreviewRoute
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsPickRoute
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsPicked
+import io.aequicor.heartbeat.feature.browser.api.BrowserDisplay
+import io.aequicor.heartbeat.feature.browser.api.BrowserIntent
+import io.aequicor.heartbeat.feature.browser.api.BrowserMachineKey
+import io.aequicor.heartbeat.feature.browser.api.BrowserRoute
+import io.aequicor.heartbeat.feature.browser.api.BrowserState
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistRoute
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRoute
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatRoute
@@ -49,6 +55,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -63,13 +70,15 @@ class AiStudioComponent(
     val model: AiStudioModel,
     entries: StudioEntries,
     private val hosts: NavHostFactory,
-    @ForScope(AiStudioScope::class) scope: ScopeHandle,
+    @ForScope(AiStudioScope::class) private val scope: ScopeHandle,
+    private val machines: MachineRegistry,
 ) : ComponentContext by context {
     private val log = Log.tag("AiStudioComponent")
 
     /**
-     * The chat area of the studio. Its base entry is the studio's own chat panes; research opens on top of it,
-     * so the sidebar and the rest of the studio stay in place while the chat area switches its layout.
+     * The chat area of the studio. Its base entry is the studio's own chat panes; research opens on
+     * top of it, so the sidebar and the rest of the studio stay in place while the chat area
+     * switches its layout.
      */
     val workspace: StackHost = hosts.stack(
         context = this,
@@ -79,8 +88,64 @@ class AiStudioComponent(
         local = listOf(routeEntry<StudioChatRoute> { _, _, _ -> StudioChat }),
         global = GlobalRoutes.Only(setOf(ResearchChatRoute::class)),
     )
+    private val workspaceNavigation = StudioWorkspaceNavigation(workspace.navigator)
 
-    /** Attachment dialogs retain the workspace and sidebar underneath their native modal surface. */
+    /** Browser has its own navigation host, independent of the chat/research workspace. */
+    val browser: StackHost =
+        hosts.stack(
+            context = this,
+            parent = navigator,
+            name = "browser-panel",
+            initial = listOf(BrowserRoute),
+            local = emptyList(),
+            global = GlobalRoutes.Only(setOf(BrowserRoute::class)),
+        )
+    private val browserPresentation = MutableStateFlow(BrowserPaneMode.Hidden)
+    val browserMode: StateFlow<BrowserPaneMode> = browserPresentation
+    private val browserBack = StudioBrowserBack(::hideBrowser)
+
+    init {
+        // Registered before the dialog host: an open attachment dialog above the browser handles "back" first.
+        backHandler.register(browserBack.callback)
+        val presentation = scope.coroutineScope.launch {
+            machines.observe(BrowserMachineKey).collectLatest { machine ->
+                log.v { "Browser presentation observed" }
+                if (machine == null) showBrowser(BrowserPaneMode.Hidden)
+                machine?.state?.collect { state ->
+                    showBrowser(
+                        when ((state as? BrowserState.Running)?.display) {
+                            BrowserDisplay.Panel -> BrowserPaneMode.Panel
+                            BrowserDisplay.Expanded -> BrowserPaneMode.Expanded
+                            BrowserDisplay.Hidden, null -> BrowserPaneMode.Hidden
+                        },
+                    )
+                }
+            }
+        }
+        lifecycle.doOnDestroy {
+            presentation.cancel()
+            backHandler.unregister(browserBack.callback)
+        }
+    }
+
+    private fun showBrowser(mode: BrowserPaneMode) {
+        val old = browserPresentation.value
+        if (old == mode) return
+        log.i { "browserPresentation: $old -> $mode" }
+        browserPresentation.value = mode
+        browserBack.update(mode)
+    }
+
+    private fun hideBrowser() {
+        log.i { "Hide browser on back" }
+        scope.coroutineScope.launch {
+            machines.send(BrowserMachineKey, BrowserIntent.Public.Display(BrowserDisplay.Hidden))
+        }
+    }
+
+    /**
+     * Attachment dialogs retain the workspace and sidebar underneath their native modal surface.
+     */
     val dialogs: StackHost = hosts.stack(
         context = this,
         parent = navigator,
@@ -113,7 +178,8 @@ class AiStudioComponent(
 
     private val questionNavigation = ItemsNavigation<String>()
 
-    // One child per session with open questions; a session without questions destroys its child and host.
+    // One child per session with open questions; a session without questions destroys its child and
+    // host.
     private val questionItems = childItems(
         source = questionNavigation,
         serializer = null,
@@ -124,8 +190,9 @@ class AiStudioComponent(
     private val questionHosts = MutableStateFlow<Map<String, StackHost>>(emptyMap())
 
     /**
-     * Questionnaire hosts by session (toggle `questionnaire.enabled`): each session with open questions gets its own
-     * nested host, shown inside the pane of that session, and loses it once the session has no open questions.
+     * Questionnaire hosts by session (toggle `questionnaire.enabled`): each session with open
+     * questions gets its own nested host, shown inside the pane of that session, and loses it once
+     * the session has no open questions.
      */
     val questions: StateFlow<Map<String, StackHost>> = questionHosts.asStateFlow()
 
@@ -155,7 +222,10 @@ class AiStudioComponent(
                     )
 
                     is StudioAttachmentNavigation.Preview -> dialogs.navigator.navigate(
-                        AttachmentPreviewRoute(AttachmentId(event.id), event.isExportRequested),
+                        AttachmentPreviewRoute(
+                            AttachmentId(event.id),
+                            event.isExportRequested,
+                        ),
                         NavOptions(transition = NavTransition.None),
                     )
                 }
@@ -202,6 +272,25 @@ class AiStudioComponent(
         global = GlobalRoutes.Only(setOf(QuestionnaireRoute::class)),
     )
 
+    /** Whether the browser entry is offered in the active profile. */
+    val showsBrowser: Flow<Boolean> = entries.showsBrowser
+
+    /** Opens the browser inside the studio while preserving its sidebar. */
+    fun openBrowser() {
+        scope.coroutineScope.launch {
+            machines.send(BrowserMachineKey, BrowserIntent.Public.Display(BrowserDisplay.Panel))
+        }
+    }
+
+    /**
+     * Returns the chat area to the studio's chat panes: every workspace entry above them (research) is
+     * destroyed, so "back" from the chats never shows a closed research again.
+     */
+    fun closeChatArea() {
+        log.i { "Close chat area" }
+        workspaceNavigation.closeChatArea()
+    }
+
     /** Whether the engine connection settings are offered. */
     val showsConnections: Flow<Boolean> = entries.showsConnections
 
@@ -217,7 +306,10 @@ class AiStudioComponent(
     /** Opens the settings window above the studio; the studio keeps its state underneath. */
     fun openSettings() {
         log.i { "open settings" }
-        navigator.navigate(SettingsRoute(), NavOptions(LaunchMode.SingleTop, NavTarget.Root, NavTransition.Fade))
+        navigator.navigate(
+            SettingsRoute(),
+            NavOptions(LaunchMode.SingleTop, NavTarget.Root, NavTransition.Fade),
+        )
     }
 
     /** Opens the feature toggles panel above the studio; the studio keeps its state underneath. */
@@ -229,7 +321,10 @@ class AiStudioComponent(
     /** Opens profile-owned search provider settings. */
     fun openProfileSettings() {
         log.i { "open profile settings" }
-        navigator.navigate(ProfileSettingsRoute(), NavOptions(LaunchMode.SingleTop, NavTarget.Root, NavTransition.Fade))
+        navigator.navigate(
+            ProfileSettingsRoute(),
+            NavOptions(LaunchMode.SingleTop, NavTarget.Root, NavTransition.Fade),
+        )
     }
 
     /** Opens the engine × connection × model settings of the active profile above the studio. */
@@ -251,10 +346,7 @@ class AiStudioComponent(
         }
         if (target.engine != KoogEngineId) return
         log.i { "Open research chat" }
-        workspace.navigator.navigate(
-            ResearchChatRoute(target),
-            NavOptions(LaunchMode.SingleTop, NavTarget.Nearest, NavTransition.Fade),
-        )
+        workspaceNavigation.openResearch(target)
     }
 
     /** Metro factory for a lifecycle-owned feature instance. */
@@ -279,3 +371,10 @@ internal data object StudioChat : NavComponent
 internal data object StudioNoDialogRoute : Route
 
 internal data object StudioNoDialog : NavComponent
+
+/** UI-only browser placement. */
+enum class BrowserPaneMode {
+    Hidden,
+    Panel,
+    Expanded,
+}

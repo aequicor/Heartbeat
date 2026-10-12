@@ -2,6 +2,9 @@
 pi = "0.87.1" # SHA-256 of release assets: platform-main/desktop/build.gradle.kts (piChecksums)
 koog = "1.3.0"
 jna = "5.19.1"
+jcefmaven = "152.0.6"
+jcef-native = "152.0.6-hb2"
+jcef-jogl = "v2.4.0"
 agp = "9.1.1"
 android-compileSdk = "37"
 android-minSdk = "24"
@@ -44,10 +47,19 @@ desktop-jdk = "21"
 jbr-api = "1.10.1"
 
 [libraries]
+jcefmaven = { module = "me.friwi:jcefmaven", version.ref = "jcefmaven" }
 kotlin-compiler-embeddable = { module = "org.jetbrains.kotlin:kotlin-compiler-embeddable", version.ref = "kotlin" }
+kotlin-composeCompilerPlugin = { module = "org.jetbrains.kotlin:kotlin-compose-compiler-plugin-embeddable", version.ref = "kotlin" }
 kotlin-scripting-common = { module = "org.jetbrains.kotlin:kotlin-scripting-common", version.ref = "kotlin" }
 kotlin-scripting-jvm = { module = "org.jetbrains.kotlin:kotlin-scripting-jvm", version.ref = "kotlin" }
 kotlin-scripting-jvm-host = { module = "org.jetbrains.kotlin:kotlin-scripting-jvm-host", version.ref = "kotlin" }
+jcef-api = { module = "io.aequicor.heartbeat.jcef:jcef-api", version.ref = "jcef-native" }
+jcef-macos-x64 = { module = "io.aequicor.heartbeat.jcef:jcef-natives-macosx-amd64", version.ref = "jcef-native" }
+jcef-macos-arm64 = { module = "io.aequicor.heartbeat.jcef:jcef-natives-macosx-arm64", version.ref = "jcef-native" }
+jcef-windows-x64 = { module = "io.aequicor.heartbeat.jcef:jcef-natives-windows-amd64", version.ref = "jcef-native" }
+jcef-windows-arm64 = { module = "io.aequicor.heartbeat.jcef:jcef-natives-windows-arm64", version.ref = "jcef-native" }
+jcef-jogl = { module = "me.friwi:jogl-all", version.ref = "jcef-jogl" }
+jcef-gluegen = { module = "me.friwi:gluegen-rt", version.ref = "jcef-jogl" }
 jbr-api = { module = "org.jetbrains.runtime:jbr-api", version.ref = "jbr-api" }
 koog-executor = { module = "ai.koog:prompt-executor-model", version.ref = "koog" }
 koog-openai = { module = "ai.koog:prompt-executor-openai-client", version.ref = "koog" }
@@ -143,3 +155,4 @@ heartbeat-kmp-library = { id = "heartbeat.kmp.library" }
 heartbeat-kmp-compose = { id = "heartbeat.kmp.compose" }
 heartbeat-metro = { id = "heartbeat.metro" }
 heartbeat-room = { id = "heartbeat.room" }
+heartbeat-jcef = { id = "heartbeat.jcef" }

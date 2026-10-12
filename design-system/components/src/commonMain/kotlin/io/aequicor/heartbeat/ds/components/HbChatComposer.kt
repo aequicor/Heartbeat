@@ -65,6 +65,7 @@ public data class HbComposerCaretRequest(public val id: Long, public val text: S
  * touch platforms retain multiline Enter. Tab moves focus.
  * While [suggestions] are shown, arrows move their selection, Enter and Tab accept it and Escape closes
  * the list; these keys never reach the send shortcut, so accepting a suggestion cannot send the draft.
+ * The list also shows a close button labelled [suggestionsCloseLabel].
  * Sending, cancellation and clearing remain caller responsibilities.
  * Constrain [inputMaxHeight] to the minimum composer height in short viewports to preserve history space.
  * [leadingContent] and [trailingContent] populate the bottom toolbar; overflowing controls scroll
@@ -93,6 +94,7 @@ public fun HbChatComposer(
     canSend: Boolean = true,
     suggestions: HbComposerSuggestions? = null,
     suggestionsLabel: String = "",
+    suggestionsCloseLabel: String = "",
     onSuggestionMove: (Int) -> Unit = {},
     onSuggestionAccept: (Int) -> Unit = {},
     onSuggestionsDismiss: () -> Unit = {},
@@ -178,6 +180,7 @@ public fun HbChatComposer(
                 ComposerSuggestionsPopup(
                     suggestions = shownSuggestions,
                     label = suggestionsLabel,
+                    closeLabel = suggestionsCloseLabel,
                     onDismiss = onSuggestionsDismiss,
                     onSelect = { index -> onSuggestionAccept(index) },
                 )

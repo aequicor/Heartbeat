@@ -18,6 +18,17 @@ pluginManagement {
 
 dependencyResolutionManagement {
     repositories {
+        exclusiveContent {
+            forRepository {
+                ivy {
+                    name = "HeartbeatJcef"
+                    url = uri("https://github.com/aequicor/Heartbeat/releases/download")
+                    patternLayout { artifact("[revision]/[artifact]-[revision].[ext]") }
+                    metadataSources { artifact() }
+                }
+            }
+            filter { includeGroup("io.aequicor.heartbeat.jcef") }
+        }
         google {
             mavenContent {
                 includeGroupAndSubgroups("androidx")
@@ -112,3 +123,4 @@ include(":features:scheduler:api", ":features:scheduler:impl")
 
 include(":features:checklist:api", ":features:checklist:impl")
 include(":features:harness:api", ":features:harness:impl")
+include(":features:browser:api", ":features:browser:impl")

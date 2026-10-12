@@ -1,8 +1,18 @@
+import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
+
 plugins {
     alias(libs.plugins.heartbeat.kmp.library)
     alias(libs.plugins.heartbeat.metro)
     alias(libs.plugins.kotlinSerialization)
+    alias(libs.plugins.heartbeat.jcef)
+    // Only for jvmTest: the host Skiko runtime (`compose.desktop.currentOs`) of the native recovery window.
+    alias(libs.plugins.composeMultiplatform)
+    alias(libs.plugins.composeCompiler)
 }
+
+// The production graph has no composables: the Compose compiler runs for the jvmTest compilation alone.
+composeCompiler { targetKotlinPlatforms.set(emptySet<KotlinPlatformType>()) }
+dependencies { "kotlinCompilerPluginClasspathJvmTest"(libs.kotlin.composeCompilerPlugin) }
 
 // Единственный модуль, который видит все impl: здесь Metro собирает контрибуции и генерирует граф.
 // Граф объявляется per-platform (androidMain/jvmMain/iosMain), чтобы видеть платформенные контрибуции.
@@ -28,6 +38,7 @@ kotlin {
             implementation(projects.features.aiStudio.impl)
             implementation(projects.features.aiStudio.api)
             implementation(projects.features.researchChat.impl)
+            implementation(projects.features.browser.impl)
             implementation(projects.features.searchEngine.impl)
             implementation(projects.features.togglesPanel.impl)
             implementation(projects.features.settings.impl)
@@ -77,8 +88,13 @@ kotlin {
             implementation(projects.core.featureToggles.impl)
         }
         jvmTest.dependencies {
+            implementation(projects.core.navigation.compose)
+            implementation(projects.designSystem.theme)
+            implementation(libs.kotlinx.coroutinesSwing)
+            implementation(compose.desktop.currentOs)
             implementation(projects.features.checklist.api)
             implementation(projects.features.researchChat.api)
+            implementation(projects.features.browser.api)
             implementation(projects.features.aiEngine.acpInterface.api)
             implementation(projects.features.aiEngine.codex.api)
             implementation(projects.features.togglesPanel.api)
@@ -96,4 +112,30 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
         }
     }
+}
+
+// The native research integration uses one CefApp in a dedicated test worker, never the general DI worker.
+val recoveryNativeRuntime by configurations.creating {
+    isCanBeConsumed = false
+}
+heartbeatJcef.nativeBundle?.let { dependencies { recoveryNativeRuntime(it) } }
+heartbeatJcef.registerRuntimeVerification("jvmTestRuntimeClasspath", recoveryNativeRuntime.name)
+
+val recoveryNativeRoot = layout.buildDirectory.dir("native-research-profile")
+val prepareRecoveryNativeProfile = tasks.register<Delete>("prepareBrowserRecoveryNativeProfile") {
+    delete(recoveryNativeRoot)
+}
+val cleanRecoveryNativeProfile = tasks.register<Delete>("cleanBrowserRecoveryNativeProfile") {
+    delete(recoveryNativeRoot)
+}
+heartbeatJcef.registerNativeTest(
+    name = "browserRecoveryNativeTest",
+    description = "Checks actual Chromium recovery into research and attachment storage in an isolated JVM.",
+    testClass = "ResearchBrowserNativeIntegrationTest",
+    enablingProperty = "heartbeat.browser.recoveryNativeTest",
+) {
+    dependsOn(prepareRecoveryNativeProfile)
+    finalizedBy(cleanRecoveryNativeProfile)
+    classpath += recoveryNativeRuntime
+    systemProperty("heartbeat.browser.recoveryNativeRoot", recoveryNativeRoot.get().asFile.absolutePath)
 }

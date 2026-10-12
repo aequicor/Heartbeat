@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineKey
 import io.aequicor.heartbeat.core.statemachine.MachineOutput
 import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionAnswer
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentDescriptor
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -19,7 +20,9 @@ public val ResearchChatEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     default = false,
 )
 
-/** Opens the profile's research workspace with the selected Koog route for new research sessions. */
+/**
+ * Opens the profile's research workspace with the selected Koog route for new research sessions.
+ */
 @Serializable
 @SerialName("research_chat")
 public data class ResearchChatRoute(val target: EngineTarget) : Route
@@ -38,7 +41,10 @@ public sealed interface ResearchChatState : MachineState {
     /** Feature switch or route disallows research. */
     public data object Disabled : ResearchChatState
 
-    /** Selected session/question plus observed profile data. Mutations never own generation lifetime. */
+    /**
+     * Selected session/question plus observed profile data. Mutations never own generation
+     * lifetime.
+     */
     public data class Ready(
         val target: EngineTarget,
         val workspace: ResearchWorkspace,
@@ -56,7 +62,8 @@ public sealed interface ResearchChatState : MachineState {
         public val question: ResearchQuestion? get() = session?.questions?.firstOrNull { it.id == questionId }
 
         /** Pending submission and active native execution both disable a second submit. */
-        public val isRunning: Boolean get() = questionId in workspace.running || questionId in submitting
+        public val isRunning: Boolean get() = questionId in workspace.running || questionId in submitting ||
+            question?.pendingSourcePrompt != null
     }
 }
 
@@ -64,6 +71,16 @@ public sealed interface ResearchChatState : MachineState {
 public sealed interface ResearchChatIntent : MachineIntent {
     /** Commands accepted from the screen or other feature machines. */
     public sealed interface Public : ResearchChatIntent {
+        /** Responds to a current request of the selected question. */
+        public data class DecidePermission(
+            val requestId: String,
+            val optionId: String,
+            val answer: PermissionAnswer? = null,
+        ) : Public
+
+        /** Opens a failed source, retries through the same browser, or cancels its recovery. */
+        public data class RecoverResource(val resourceId: String, val action: ResearchRecoveryAction) : Public
+
         /** Opens the workspace once. */
         public data class Start(val target: EngineTarget) : Public
 
@@ -101,7 +118,9 @@ public sealed interface ResearchChatIntent : MachineIntent {
             override fun toString(): String = "AddResource(kind=$kind, scope=$scope)"
         }
 
-        /** Adds durable files to the question that opened the picker, even after a selection change. */
+        /**
+         * Adds durable files to the question that opened the picker, even after a selection change.
+         */
         public data class AddAttachments(
             val sessionId: String,
             val questionId: String,
@@ -145,6 +164,12 @@ public sealed interface ResearchChatIntent : MachineIntent {
         /** A source/session mutation failed; the previous state remains usable. */
         public data object MutationFailed : Internal
 
+        /**
+         * A permission decision, source recovery, stop or observation failed. Shows the generic error
+         * without releasing a concurrent source/session mutation.
+         */
+        public data object OperationFailed : Internal
+
         /** Initial load failed. */
         public data object LoadFailed : Internal
 
@@ -158,6 +183,21 @@ public sealed interface ResearchChatIntent : MachineIntent {
 
 /** IO requests executed by the profile repository. */
 public sealed interface ResearchChatEffect : MachineEffect {
+    /** Delivers an offered option to the current engine request. */
+    public data class DecidePermission(
+        val questionId: String,
+        val requestId: String,
+        val optionId: String,
+        val answer: PermissionAnswer? = null,
+    ) : ResearchChatEffect
+
+    /** A user-requested browser recovery tied to the original session and source. */
+    public data class RecoverResource(
+        val sessionId: String,
+        val resourceId: String,
+        val action: ResearchRecoveryAction,
+    ) : ResearchChatEffect
+
     /** Checks eligibility and reads or prepares the first session. */
     public data class Load(val target: EngineTarget) : ResearchChatEffect
 

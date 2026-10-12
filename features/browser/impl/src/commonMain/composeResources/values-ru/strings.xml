@@ -1,0 +1,33 @@
+<resources>
+    <string name="browser_address">Адрес сайта</string>
+    <string name="browser_back">Назад</string>
+    <string name="browser_forward">Вперёд</string>
+    <string name="browser_open">Открыть адрес</string>
+    <string name="browser_reload">Обновить</string>
+    <string name="browser_stop">Остановить загрузку</string>
+    <string name="browser_preparing">Подготовка браузера…</string>
+    <string name="browser_loading">Загрузка страницы…</string>
+    <string name="browser_empty">Откройте сайт</string>
+    <string name="browser_empty_hint">Введите HTTP- или HTTPS-адрес в строке выше.</string>
+    <string name="browser_disabled">Браузер выключен</string>
+    <string name="browser_disabled_hint">Включите браузер в настройках фича-тоглов.</string>
+    <string name="browser_invalid_address">Введите корректный HTTP- или HTTPS-адрес без пробелов и учётных данных.</string>
+    <string name="browser_unsupported_address">Этот адрес не поддерживается. Здесь можно открыть только HTTP- и HTTPS-страницы; на этом устройстве HTTP может быть доступен только для локальных адресов.</string>
+    <string name="browser_load_failed">Не удалось загрузить страницу. Проверьте адрес и подключение, затем обновите страницу.</string>
+    <string name="browser_engine_unavailable">Браузерный движок недоступен на этом устройстве.</string>
+    <string name="browser_new_tab">Новая вкладка</string>
+    <string name="browser_close_tab">Закрыть вкладку: %1$s</string>
+    <string name="browser_expand">Развернуть</string>
+    <string name="browser_panel">Боковая панель</string>
+    <string name="browser_hide">Скрыть браузер</string>
+    <string name="browser_take_control">Взять управление</string>
+    <string name="browser_return_agent">Вернуть агенту</string>
+    <string name="browser_title">Браузер</string>
+    <string name="browser_clear_data">Очистить данные браузера и закрыть все вкладки</string>
+    <string name="browser_approve_control">Разрешить агенту управление вкладкой</string>
+    <string name="browser_reject_control">Отклонить</string>
+    <string name="browser_clear_data_title">Очистить данные браузера?</string>
+    <string name="browser_clear_data_message">Cookies, входы на сайты и данные сайтов этого профиля браузера будут удалены, а все вкладки закроются. Это действие нельзя отменить.</string>
+    <string name="browser_clear_data_confirm">Очистить данные</string>
+    <string name="browser_cancel">Отмена</string>
+</resources>

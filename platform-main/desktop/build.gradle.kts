@@ -12,6 +12,7 @@ plugins {
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.heartbeat.detekt)
+    alias(libs.plugins.heartbeat.jcef)
 }
 
 dependencies {
@@ -36,6 +37,11 @@ val desktopRuntime = javaToolchains.launcherFor {
 val desktopJavaHome = desktopRuntime.map { it.metadata.installationPath.asFile.absolutePath }
 val heartbeatApplicationVersion = "1.0.0"
 
+tasks.withType<Test>().configureEach {
+    // Match launchHeartbeat's owned-window layers, including tests that do not enter main().
+    systemProperties(heartbeatJcef.renderingProperties)
+}
+
 // SHA-256 of each Pi release asset for the version pinned as `pi` in gradle/libs.versions.toml.
 val piChecksums = mapOf(
     "windows-x64" to "aab2ba67baf8ff97a52d05b62d88e9e65a840c6ea8fa1029a28d62d210d4e5fc",
@@ -59,6 +65,13 @@ val piArch = when (piArchName.lowercase()) {
     else -> null
 }
 val piTarget = if (piOs != null && piArch != null) "$piOs-$piArch" else null
+
+// One bundled native archive per host distribution; the browser never downloads a runtime at launch.
+heartbeatJcef.nativeBundle?.let { dependencies { runtimeOnly(it) } }
+// Module roots that keep the pinned API/native pair ahead of JBR's own jcef module, see heartbeat.jcef.
+val jcefJvmArgs = heartbeatJcef.jvmArguments
+// Packaging checks the JCEF jars this application actually ships, not another module's test classpath.
+val verifyBrowserRuntime = heartbeatJcef.registerRuntimeVerification("runtimeClasspath")
 val verifyWindowRuntime = tasks.register<JavaExec>("verifyWindowRuntime") {
     group = "verification"
     description = "Checks the JBR native caption service before packaging desktop distributions."
@@ -91,6 +104,7 @@ preparePiRuntime?.let { task -> tasks.named("processResources") { dependsOn(task
 compose.desktop {
     application {
         mainClass = "io.aequicor.heartbeat.platform.desktop.MainKt"
+        jvmArgs += jcefJvmArgs
         jvmArgs("-Dheartbeat.app.version=$heartbeatApplicationVersion")
         buildTypes.release.proguard {
             configurationFiles.from(
@@ -105,6 +119,7 @@ compose.desktop {
             // jdk.unsupported: DataStore's protobuf accesses sun.misc.Unsafe; jdk.httpserver: the loopback search bridge;
             // java.prefs and java.scripting: the PlantUML engine of the diagram worker process. Its launcher passes
             // the app's JVM options to that worker, which refuses to draw with an -Xmx above its own cap.
+            modules(*heartbeatJcef.jdkModules.toTypedArray())
             modules(
                 "java.instrument",
                 "java.compiler",
@@ -137,6 +152,7 @@ compose.desktop {
 // Compose bundles Hot Reload; keep its launchers on the same development-only entry point as run.
 tasks.withType<ComposeHotRun>().configureEach {
     mainClass.set("io.aequicor.heartbeat.platform.desktop.DevelopmentMainKt")
+    jvmArgs.addAll(jcefJvmArgs)
     // Hot Reload does not pass Compose app resources; attach the bundled Pi runtime the same way run does.
     preparePiRuntime?.let { task ->
         dependsOn(task)
@@ -175,12 +191,14 @@ afterEvaluate {
     }
     tasks.withType<AbstractJPackageTask>().configureEach {
         dependsOn(verifyWindowRuntime)
+        dependsOn(verifyBrowserRuntime)
         if (!name.contains("Release")) {
             launcherMainClass.set("io.aequicor.heartbeat.platform.desktop.DevelopmentMainKt")
         }
     }
     tasks.withType<JavaExec>().configureEach {
         javaLauncher.set(desktopRuntime)
+        jvmArgs(jcefJvmArgs)
         // Compose initializes an explicit executable. Gradle's non-null setter requires resolving the launcher here.
         setExecutable(desktopRuntime.get().executablePath.asFile.absolutePath)
         if (name == "run") mainClass.set("io.aequicor.heartbeat.platform.desktop.DevelopmentMainKt")

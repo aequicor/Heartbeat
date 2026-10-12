@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.researchchat.impl.presentation.store
 
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchThumbnailEncoder
@@ -69,7 +70,7 @@ internal class ResearchThumbnails(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                log.w(IllegalStateException(error::class.simpleName)) { "Source thumbnail failed" }
+                log.w(error.redactedFailure()) { "Source thumbnail failed" }
                 ResearchThumbnailUi(isUnavailable = true)
             }
             values.update { it + (key to preview) }

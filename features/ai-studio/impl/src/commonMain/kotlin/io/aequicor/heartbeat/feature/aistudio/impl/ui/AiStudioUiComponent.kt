@@ -9,6 +9,7 @@ import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.core.navigation.compose.NavStack
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.AiStudioComponent
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.BrowserPaneMode
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.StudioNoDialog
 import kotlinx.collections.immutable.toImmutableMap
 
@@ -16,6 +17,8 @@ import kotlinx.collections.immutable.toImmutableMap
 internal class AiStudioUiComponent(private val component: AiStudioComponent) : ComposableComponent {
     @Composable
     override fun Content(modifier: Modifier) {
+        val workspace by component.workspace.stack.subscribeAsState()
+        val isBrowserShown by component.showsBrowser.collectAsState(false)
         val isConnectionsShown by component.showsConnections.collectAsState(false)
         val isProfileSettingsShown by component.showsProfileSettings.collectAsState(false)
         val checklistHosts by component.checklists.collectAsState()
@@ -32,11 +35,15 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
             }.toMap().toImmutableMap()
         }
         val isUnifiedSettingsShown by component.showsUnifiedSettings.collectAsState(false)
+        val browserMode by component.browserMode.collectAsState()
+        val isBrowserOpen = browserMode != BrowserPaneMode.Hidden
         val exits = remember(
             component,
             isConnectionsShown,
             isProfileSettingsShown,
             isUnifiedSettingsShown,
+            isBrowserShown,
+            isBrowserOpen,
             questions,
             checklists,
         ) {
@@ -46,15 +53,20 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
                 onOpenProfileSettings = if (isProfileSettingsShown) component::openProfileSettings else null,
                 onOpenConnections = if (isConnectionsShown) component::openConnections else null,
                 onOpenResearch = component::openResearch,
+                onOpenBrowser = if (isBrowserShown) component::openBrowser else null,
+                isBrowserOpen = isBrowserOpen,
+                onCloseChatArea = component::closeChatArea,
                 questions = questions,
                 checklists = checklists,
                 onOpenSettings = if (isUnifiedSettingsShown) component::openSettings else null,
             )
         }
-        val workspace by component.workspace.stack.subscribeAsState()
-        // Any entry above the studio's own chat (research) takes over the chat area; the sidebar stays.
+        // Any entry above the studio's own chat (research) takes over the chat area; the sidebar
+        // stays.
         val chatArea = workspace.active.instance as? ComposableComponent
-        AiStudioScreen(component.model, exits, modifier, chatArea = chatArea)
+        StudioBrowserLayout(browserMode, modifier, browser = { NavStack(component.browser) }) {
+            AiStudioScreen(component.model, exits, Modifier, chatArea = chatArea)
+        }
         val dialogs by component.dialogs.stack.subscribeAsState()
         if (dialogs.active.instance !== StudioNoDialog) NavStack(component.dialogs)
     }
