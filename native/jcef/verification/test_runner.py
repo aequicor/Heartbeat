@@ -1,0 +1,115 @@
+"""Harness safety/protocol tests, independent of JCEF and a graphical desktop."""
+
+import http.cookiejar
+import http.server
+import json
+import os
+from pathlib import Path
+import tempfile
+import sys
+import threading
+import unittest
+import urllib.error
+import urllib.request
+
+from run_probe import handler_type, java_platform_options, launch, remove_owned_profile
+
+
+class LauncherTests(unittest.TestCase):
+    def test_mac_windowed_peer_packages_are_opened(self):
+        options = java_platform_options("darwin")
+        for package in ("sun.awt", "sun.lwawt", "sun.lwawt.macosx"):
+            self.assertIn(f"--add-opens=java.desktop/{package}=ALL-UNNAMED", options)
+        self.assertEqual(java_platform_options("win32"), [])
+
+    def test_failed_process_surfaces_diagnostic_in_ci_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            log = Path(temporary) / "failed.log"
+            with self.assertRaisesRegex(RuntimeError, "synthetic native diagnostic"):
+                launch([sys.executable, "-c", "print('synthetic native diagnostic'); exit(7)"],
+                       log, 10, os.environ.copy())
+
+
+class FixtureTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.profiles = Path(self.temporary.name) / "profiles"
+        self.a = self.profiles / "profile-a"
+        self.a.mkdir(parents=True)
+        (self.a / "cache").write_text("synthetic", encoding="utf-8")
+        self.owner = self.profiles / "profile-a-owner"
+        self.owner.mkdir()
+        (self.owner / "owner-marker.txt").write_text("owner", encoding="utf-8")
+        self.b = self.profiles / "profile-b"
+        self.b.mkdir()
+        (self.b / "marker").write_text("other profile", encoding="utf-8")
+        self.events = []
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0),
+                                                      handler_type(self.profiles, "test-token", self.events))
+        self.worker = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.worker.start()
+        self.addCleanup(self.close_server)
+        self.origin = f"http://127.0.0.1:{self.server.server_port}"
+
+    def close_server(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.worker.join(timeout=10)
+
+    def post(self, path, token="test-token"):
+        request = urllib.request.Request(self.origin + path, data=b"", headers={"X-Probe-Token": token})
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return json.load(response)
+
+    def test_origin_serves_session_and_persistent_httponly_cookies(self):
+        cookies = http.cookiejar.CookieJar()
+        client = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookies))
+        with client.open(self.origin + "/set-cookies?value=synthetic-marker", timeout=5) as response:
+            self.assertEqual(response.status, 200)
+        indexed = {cookie.name: cookie for cookie in cookies}
+        self.assertTrue(indexed["hb_session"].discard)
+        self.assertFalse(indexed["hb_persistent"].discard)
+        self.assertTrue(all(cookie.has_nonstandard_attr("HttpOnly") for cookie in cookies))
+        with client.open(self.origin + "/cookies", timeout=5) as response:
+            self.assertEqual(json.load(response), {"hb_session": "synthetic-marker", "hb_persistent": "synthetic-marker"})
+
+    def test_clear_preserves_owner_and_other_profile(self):
+        self.assertTrue(self.post("/clear-profile")["passed"])
+        self.assertFalse(self.a.exists())
+        self.assertTrue((self.owner / "owner-marker.txt").exists())
+        self.assertEqual((self.b / "marker").read_text(encoding="utf-8"), "other profile")
+
+    def test_held_response_streams_prefix_then_requires_explicit_release(self):
+        with urllib.request.urlopen(self.origin + "/held-response", timeout=5) as response:
+            try:
+                self.assertEqual(response.status, 200)
+                self.assertEqual(int(response.headers["Content-Length"]), 1024 * 1024)
+                self.assertEqual(response.read(len(b"native cancellation fixture")), b"native cancellation fixture")
+            finally:
+                self.post("/release-held")
+            self.assertEqual(response.read(1), b"")
+        self.assertEqual(self.events, [])
+
+    def test_delete_removes_only_selected_profile(self):
+        self.assertTrue(self.post("/delete-profile")["passed"])
+        self.assertFalse(self.a.exists())
+        self.assertFalse(self.owner.exists())
+        self.assertTrue((self.b / "marker").exists())
+
+    def test_unauthorized_mutation_is_rejected(self):
+        with self.assertRaises(urllib.error.HTTPError) as error:
+            self.post("/clear-profile", "wrong-token")
+        self.assertEqual(error.exception.code, 403)
+        self.assertTrue((self.a / "cache").exists())
+        self.assertEqual(self.events, [])
+
+    def test_deletion_cannot_target_root_or_outside_directory(self):
+        for target in (self.profiles, Path(self.temporary.name)):
+            with self.assertRaises(ValueError):
+                remove_owned_profile(self.profiles, target)
+        self.assertTrue((self.a / "cache").exists())
+
+
+if __name__ == "__main__":
+    unittest.main()

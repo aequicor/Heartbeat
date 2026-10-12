@@ -1,0 +1,62 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Heartbeat JCEF lifecycle probe</title>
+<style>
+  body { margin: 0; background: rgb(245, 245, 245); }
+  #target { position: fixed; left: 40px; top: 50px; width: 160px; height: 64px;
+    border: 0; border-radius: 0; background: rgb(17, 111, 221); color: white; }
+</style>
+<button id="target">Native coordinate target</button>
+<script>
+// All durable data uses this parent server's unchanged origin across JVM restarts.
+const dbName = "heartbeat-native-probe";
+async function database() {
+  return await new Promise((resolve, reject) => {
+    const request = indexedDB.open(dbName, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore("values");
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+  });
+}
+async function idb(write, value) {
+  const db = await database();
+  try {
+    return await new Promise((resolve, reject) => {
+      const transaction = db.transaction("values", write ? "readwrite" : "readonly");
+      const store = transaction.objectStore("values");
+      const request = write ? store.put(value, "marker") : store.get("marker");
+      transaction.oncomplete = () => resolve(request.result ?? null);
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error ?? Error("IDB aborted"));
+    });
+  } finally { db.close(); }
+}
+window.probe = {
+  async write(marker) {
+    const response = await fetch("/set-cookies?value=" + encodeURIComponent(marker), {cache: "no-store"});
+    if (!response.ok) throw Error("Cookie endpoint failed");
+    localStorage.setItem("marker", marker);
+    await idb(true, marker);
+    const cache = await caches.open(dbName);
+    await cache.put("/cache-marker", new Response(marker));
+    return true;
+  },
+  async read() {
+    const response = await fetch("/cookies", {cache: "no-store"});
+    if (!response.ok) throw Error("Cookie read failed");
+    const cached = await (await caches.open(dbName)).match("/cache-marker");
+    return {cookies: await response.json(), local: localStorage.getItem("marker"),
+      idb: await idb(false), cache: cached ? await cached.text() : null};
+  },
+  geometry() {
+    const rect = document.getElementById("target").getBoundingClientRect();
+    return {width: innerWidth, height: innerHeight, dpr: devicePixelRatio,
+      x: rect.x, y: rect.y, targetWidth: rect.width, targetHeight: rect.height};
+  },
+  nextClick: new Promise(resolve => {
+    document.getElementById("target").addEventListener("click", event => {
+      resolve({x: event.clientX, y: event.clientY, trusted: event.isTrusted});
+    }, {once: true});
+  })
+};
+</script>
