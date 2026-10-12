@@ -15,12 +15,14 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsComposerAssists
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.StopsOwnedTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
@@ -49,6 +51,7 @@ public val PiDescriptor: EngineDescriptor = EngineDescriptor(
     toggle = PiEnabled,
     declaredFeatures = setOf(
         CreatesSessions.id,
+        StopsOwnedTurns.id,
         AttachesSessions.id,
         SendsPrompts.id,
         CancelsTurns.id,
@@ -59,6 +62,7 @@ public val PiDescriptor: EngineDescriptor = EngineDescriptor(
         RequestsPermissions.id,
         AppliesTrustLevels.id,
         ChangesSessionConfiguration.id,
+        ListsComposerAssists.id,
     ),
     connectionMethods = listOf(
         ConnectionMethod.ApiKey(

@@ -44,6 +44,8 @@ internal class ProfileDataStores(
 @Inject
 internal class StorageMaintenanceImpl(private val registry: StoreRegistry, private val sessions: ProfileSessions) :
     StorageMaintenance {
+    override suspend fun awaitClosed() = registry.awaitClosed()
+
     override suspend fun wipeProfile(id: ProfileId) {
         check(sessions.active.value?.id != id) { "profile ${id.value} is active: close the session before wiping it" }
         registry.wipeProfile(id)

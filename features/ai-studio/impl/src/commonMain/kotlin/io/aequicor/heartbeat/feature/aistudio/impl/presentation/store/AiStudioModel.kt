@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAttachmentPreviews
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
@@ -31,6 +32,7 @@ import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsIntent
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsMachineKey
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsOutput
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureOwner
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineKey
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
@@ -95,15 +97,25 @@ class AiStudioModel(
     private val efforts: EffortChoicesView,
     private val machines: MachineRegistry,
     private val attachmentsCatalog: AttachmentsCatalog,
+    assists: ComposerAssists,
     previews: StudioAttachmentPreviews,
+    private val harnesses: StudioHarnesses = StudioHarnesses.None,
 ) {
     private val log = Log.tag("AiStudioModel")
+    private val harnessSelection = StudioHarnessSelection(harnesses, backend)
 
     /** Navigation is executed by the lifecycle component, never by a retained IO scope. */
     val attachmentNavigation = MutableSharedFlow<StudioAttachmentNavigation>(extraBufferCapacity = 8)
     private val previewRequests = MutableStateFlow<List<ResourceRef>>(emptyList())
+
     private val organisms = StudioOrganismView(machine, machines, backend) { it.withAttachmentMetadata() }
 
+    /** Late-bound file attach of an accepted suggestion: the store itself is created below. */
+    private var attachSuggestedFile: suspend (paneId: Int, location: String) -> Unit = { _, _ -> }
+
+    private val suggestions = StudioSuggestions(assists) { paneId, location ->
+        attachSuggestedFile(paneId, location)
+    }
     val store = factory.create<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>(
         name = "AiStudio",
         initial = AiStudioScreenState(now = clock.now()).reflectMachine(machine.state.value),
@@ -120,29 +132,36 @@ class AiStudioModel(
                     log.d { "attachment preview visibility: ${previewRequests.value.size} -> ${requests.size}" }
                     previewRequests.value = requests
                 }
-                next
+                suggestions.onState(next)
             }
         }
         reflect(machine, onOutput = { output ->
             when (output) {
-                is AiStudioOutput.SubmitFailed -> updateState {
-                    if (output.submissionId.isEmpty()) {
-                        restoreDraft(output, machine.state.value)
-                    } else {
-                        rejectSubmission(output.submissionId)
+                // A new chat's harness claim travels with its submission; the turn uses and releases it. A chat
+                // that failed to start, or whose session another request owns, runs no turn, so its claim is
+                // released and the choice returns to the pane.
+                is AiStudioOutput.SubmitFailed -> {
+                    if (output.submissionId.isNotEmpty()) harnesses.release(output.submissionId)
+                    updateState {
+                        if (output.submissionId.isEmpty()) {
+                            restoreDraft(output, machine.state.value)
+                        } else {
+                            rejectSubmission(output.submissionId)
+                        }
                     }
                 }
 
-                is AiStudioOutput.SubmitPrepared -> updateState {
-                    prepareSubmission(output.submissionId, output.sessionId)
+                is AiStudioOutput.SubmitPrepared -> {
+                    updateState { prepareSubmission(output.submissionId, output.sessionId) }
                 }
 
-                is AiStudioOutput.SubmitAccepted -> updateState {
-                    acceptSubmission(output.submissionId, output.sessionId)
+                is AiStudioOutput.SubmitAccepted -> {
+                    updateState { acceptSubmission(output.submissionId, output.sessionId) }
                 }
 
-                is AiStudioOutput.SubmitRejected -> updateState {
-                    rejectSubmission(output.submissionId, output.sessionId)
+                is AiStudioOutput.SubmitRejected -> {
+                    harnesses.release(output.submissionId)
+                    updateState { rejectSubmission(output.submissionId, output.sessionId) }
                 }
 
                 // Delivery results of engine questions are handled by the question bridge.
@@ -158,6 +177,7 @@ class AiStudioModel(
                 }
                 launch { entries.showsRemember.collect { updateState { copy(isRememberEnabled = it) } } }
                 launch { entries.showsOrganism.collect { updateState { copy(isOrganismEnabled = it) } } }
+                launch { harnessSelection.observe(pipeline) }
                 launch { organisms.observe(pipeline) }
                 launch {
                     machines.observe(AttachmentsMachineKey).collectLatest { ref ->
@@ -209,6 +229,7 @@ class AiStudioModel(
                 }
                 launch { observeTranscripts(pipeline) }
                 launch { observeAttachmentPreviews(pipeline, previews, previewRequests) }
+                launch { suggestions.observe(pipeline) }
                 launch { observeClock(pipeline) }
             }
         }
@@ -216,6 +237,11 @@ class AiStudioModel(
     }
 
     init {
+        attachSuggestedFile = { paneId, location ->
+            store.intent(
+                AiStudioScreenIntent.ImportAttachments(paneId, listOf(NativeAttachmentUi.File(location))),
+            )
+        }
         store.start(scope.coroutineScope)
         scope.coroutineScope.launch { machine.send(AiStudioIntent.Public.Start) }
     }
@@ -411,6 +437,7 @@ class AiStudioModel(
             is AiStudioScreenIntent.SessionAction -> act(pipeline, intent)
             is AiStudioScreenIntent.Sidebar -> updateState { copy(sidebar = sidebar.reduce(intent)) }
             is AiStudioScreenIntent.Organism -> organisms.handle(pipeline, intent)
+            is AiStudioScreenIntent.SelectHarness -> harnessSelection.select(pipeline, intent)
         }
     }
 
@@ -452,9 +479,9 @@ class AiStudioModel(
                 AiStudioIntent.Public.RespondPermission(intent.sessionId, intent.requestId, intent.optionId),
             )
 
-            is AiStudioScreenIntent.DraftChanged -> updateState { withDraft(intent.paneId, intent.text) }
+            is AiStudioScreenIntent.Suggestions -> suggestions.handle(pipeline, intent)
 
-            is AiStudioScreenIntent.Submit -> submitStudioDraft(pipeline, machine, intent.paneId)
+            is AiStudioScreenIntent.Submit -> submitStudioDraft(pipeline, machine, harnesses, intent.paneId)
 
             is AiStudioScreenIntent.Attachment -> attach(pipeline, intent)
 

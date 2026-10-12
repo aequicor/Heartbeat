@@ -36,6 +36,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
@@ -66,6 +68,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.job
 import kotlinx.coroutines.test.TestScope
+import kotlinx.serialization.json.JsonObject
 
 internal class KoogTestFixture(test: TestScope) {
     val source = AuthSource.NoAuth(
@@ -90,6 +93,9 @@ internal class KoogTestFixture(test: TestScope) {
     var modelSupportsImages = false
     var resources = emptyMap<String, ResolvedResource>()
     var hostedTools: ProfileAgentTools? = null
+
+    /** Hook opt-in of every project workspace opened for a turn. */
+    val openedHooks = mutableListOf<Boolean>()
     var modelContextLength: Long? = null
     var availableModels = listOf("test-model")
     var toolsByModel = emptyMap<String, Boolean>()
@@ -162,6 +168,10 @@ internal class KoogTestFixture(test: TestScope) {
         reasoning,
         KoogContextWindows(),
         ResourceResolver { resources[it.id] },
+        tools = object : ProfileAgentTools by NoAgentTools {
+            override suspend fun authorizeHosted(context: AgentToolContext, name: String, arguments: JsonObject) =
+                NativeVerdict.Allow
+        },
     )
     var searchResults = emptyList<SearchResult>()
     var fetchedResource: ResourceContent? = null
@@ -182,15 +192,22 @@ internal class KoogTestFixture(test: TestScope) {
         object : KoogWorkspaces {
             override val hasHostedTools: Boolean get() = hostedTools != null
             override suspend fun open(ref: WorkspaceRef): KoogWorkspace? = workspace
-            override suspend fun open(ref: WorkspaceRef, context: AgentToolContext): KoogWorkspace? {
+            override suspend fun open(
+                ref: WorkspaceRef,
+                context: AgentToolContext,
+                areSessionHooksEnabled: Boolean,
+            ): KoogWorkspace? {
+                openedHooks += areSessionHooksEnabled
                 val tools = hostedTools ?: return workspace
                 return KoogWorkspace(
                     koogHostedTools(tools.specifications(ref), tools, context),
                     tools.instructions(ref),
                 )
             }
-            override suspend fun openDetached(context: AgentToolContext): KoogWorkspace? =
-                hostedTools?.let { detachedKoogWorkspace(it, context) }
+            override suspend fun openDetached(context: AgentToolContext, areSessionHooksEnabled: Boolean) =
+                hostedTools?.let { detachedKoogWorkspace(it, context, areSessionHooksEnabled) }
+            override suspend fun instructions(context: AgentToolContext): String =
+                hostedTools?.let { independentKoogInstructions(it, context) }.orEmpty()
         },
         profile,
     )

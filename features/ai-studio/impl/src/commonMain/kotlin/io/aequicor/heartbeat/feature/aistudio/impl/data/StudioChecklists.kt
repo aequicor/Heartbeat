@@ -78,7 +78,7 @@ internal class StudioChecklists(
         val request = chat.lastRunRequest ?: return
         bus.publish(
             SchedulerEvents.RunStarted,
-            EventOrigin.Host,
+            EventOrigin.HostTurn(session, request),
             Json.encodeToString(RunStartedEvent(session, request, chat.runRevision)),
         )
     }

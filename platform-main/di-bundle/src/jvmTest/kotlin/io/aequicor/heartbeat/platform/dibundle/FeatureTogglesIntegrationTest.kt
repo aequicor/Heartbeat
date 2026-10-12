@@ -7,7 +7,6 @@ import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.createGraphFactory
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.booleanKey
-import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggleControl
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
@@ -37,8 +36,8 @@ class FeatureTogglesIntegrationTest {
     fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
 
     @AfterTest
-    fun tearDown() {
-        (app.appScope as OwnedScope).close()
+    fun tearDown() = runTest {
+        app.closeAndAwaitStorages()
         Dispatchers.resetMain()
         File(persisted.storageRoot).deleteRecursively()
     }

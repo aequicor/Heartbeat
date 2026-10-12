@@ -25,7 +25,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationChange
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationUpdate
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
@@ -33,6 +35,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -40,8 +43,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.getAndUpdate
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.withContext
 
 /**
  * Parts of one handle: the adapter's native handle, the machine that owns its lifecycle, its effects and the
@@ -69,10 +75,19 @@ class ManagedActiveSession(
     model: ModelId,
     private val parts: SessionParts,
     private val policy: SessionPolicy,
+    hookContext: SessionHookContext? = null,
 ) : ActiveSession {
     private val log = Log.tag("ActiveSession")
     private val machine = parts.machine
+    private val hookHandle = hookContext?.let { context ->
+        val revision = (parts.native.features.resolve(SessionContextRevision) as? FeatureAccess.Available)?.feature
+        SessionHookHandle(policy.hooks, context) { revision?.state?.value }
+    }
     private val currentModel = MutableStateFlow(model)
+
+    // Submitted turns whose acceptance this handle has not seen: their sender never learned the facade turn id,
+    // so no host can finish them. Released when reconciliation finishes them or when the handle closes.
+    private val unaccepted = MutableStateFlow(emptySet<TurnId>())
 
     override val state: StateFlow<ActiveSessionState> get() = machine.state
 
@@ -94,12 +109,46 @@ class ManagedActiveSession(
 
     /** Starts the native bridge and the closing watcher in the handle [scope]. */
     fun start(scope: CoroutineScope, onClosed: () -> Unit) {
+        hookHandle?.start(scope, machine)
+        // Accepted/Finished can both be emitted before native send returns. Subscribe before any submission.
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            machine.outputs.collect { output ->
+                when (output) {
+                    is ActiveSessionOutput.Accepted -> unaccepted.update { it - output.turn.id }
+
+                    is ActiveSessionOutput.Finished -> if (output.turn.id in unaccepted.getAndUpdate {
+                            it - output.turn.id
+                        }
+                    ) {
+                        log.i { "release recovered unaccepted turn engine=${ref.engine.value}" }
+                        policy.finishUnaccepted(ref, output.turn.id)
+                    }
+
+                    is ActiveSessionOutput.SubmissionFailed -> Unit
+                }
+            }
+        }
         scope.launch { bridge() }
         scope.launch {
             machine.state.first { it == ActiveSessionState.Closed }
+            releaseUnaccepted()
+            hookHandle?.closed()
             policy.registry.remove(this@ManagedActiveSession)
             onClosed()
         }
+    }
+
+    /**
+     * Nothing can accept or finish these submissions through this handle any more; their tools and hook bindings
+     * are released. This is fail-closed: a submission whose acceptance ended as OutcomeUnknown may still run
+     * natively, and such a turn loses its hosted tools and hooks instead of keeping them without an owner.
+     */
+    private suspend fun releaseUnaccepted() {
+        val abandoned = unaccepted.getAndUpdate { emptySet() }
+        hookHandle?.abandonUnaccepted()
+        if (abandoned.isEmpty()) return
+        log.i { "release unaccepted turns of the closed handle count=${abandoned.size}" }
+        abandoned.forEach { policy.finishUnaccepted(ref, it) }
     }
 
     override suspend fun close() {
@@ -141,14 +190,25 @@ class ManagedActiveSession(
                     (it is ActiveSessionOutput.SubmissionFailed && it.request == request.id)
             }
         }
+        log.v { "track unaccepted submission until its acceptance" }
+        unaccepted.update { it + turn.id }
         val result = machine.send(ActiveSessionIntent.Public.Submit(request, turn))
         if (result != SendResult.Accepted) {
             answer.cancel()
+            log.v { "forget refused submission" }
+            unaccepted.update { it - turn.id }
+            hookHandle?.refused(turn.id)
             fail(result.failure())
         }
         when (val outcome = untilStopped { answer.await() }) {
-            is ActiveSessionOutput.Accepted -> turn.id
+            is ActiveSessionOutput.Accepted -> {
+                // Finish the exact receipt enqueue before exclusive(ref) admits another preparation.
+                withContext(NonCancellable) { hookHandle?.accepted(outcome.turn) }
+                turn.id
+            }
+
             is ActiveSessionOutput.SubmissionFailed -> fail(outcome.failure)
+
             is ActiveSessionOutput.Finished -> error("filtered out")
         }
     }
@@ -195,7 +255,8 @@ class ManagedActiveSession(
                 }
                 val turn = Turn(policy.newTurnId(), request.id, EngineTarget(route.engine, route.binding, model))
                 policy.bindTurn(ref, request.id, turn)
-                submit(request, turn)
+                val prepared = hookHandle?.prepare(request, turn) ?: request
+                submit(prepared, turn)
             }
         }
     }

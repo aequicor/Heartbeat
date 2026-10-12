@@ -2,9 +2,13 @@ package io.aequicor.heartbeat.feature.scheduler.impl
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
+import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerTools
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerTools.Arguments
@@ -27,19 +31,28 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class SchedulerActionToolsTest {
-    private val inProject = AgentToolContext(SESSION, PROJECT, TurnId("t1"), target = TARGET)
+    private val inProject = AgentToolContext(
+        SESSION,
+        PROJECT,
+        TurnId("t1"),
+        request = RequestId("source"),
+        target = TARGET,
+    )
 
     private fun TestScope.tools(
         fixture: ActionsFixture,
         toggles: Toggles = Toggles(),
         hosts: Set<ScheduledSessionHost> = setOf(FakeHost(priority = 1, owned = setOf(SESSION))),
-    ) = SchedulerActionTools(
-        lazyOf(fixture.actions),
-        WakeScheduler(fixture.machine, lazyOf(hosts)),
-        fixture.machine,
-        toggles,
-        fixture.clock,
-    )
+    ): SchedulerActionTools {
+        persistEffects(fixture.machine, fixture.persistence)
+        return SchedulerActionTools(
+            lazyOf(fixture.actions),
+            WakeScheduler(fixture.machine, lazyOf(hosts), fixture.persistence),
+            fixture.machine,
+            toggles,
+            fixture.clock,
+        )
+    }
 
     @Test
     fun `an action with a wake note is not started without an owning host`() = runTest {
@@ -84,12 +97,15 @@ class SchedulerActionToolsTest {
         val action = fixture.journal.records.single().id
         assertEquals(setOf(EventKeys.actionFinished(action)), wake.request.condition.events)
         assertEquals("read results", wake.request.note)
+        val initiator = RequestInitiator(SESSION, RequestId("source"))
+        assertEquals(initiator, wake.request.initiator)
+        assertEquals(initiator, fixture.journal.records.single().initiator)
         assertTrue("end your turn" in result.text)
     }
 
     @Test
     fun `background commands use the session command trust policy without an extra decision`() = runTest {
-        val fixture = ActionsFixture(this, SpecMachine())
+        val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(HelperHostFake()))
         val tools = tools(fixture)
         val spec = tools.specifications(PROJECT).single()
         val command = args(Arguments.KIND to Kinds.COMMAND, Arguments.COMMAND to "ls")
@@ -112,7 +128,7 @@ class SchedulerActionToolsTest {
 
     @Test
     fun `helpers start no helpers`() = runTest {
-        val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(FakeHost(priority = 1)))
+        val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(HelperHostFake()))
         val tools = tools(fixture)
         val agent = args(Arguments.KIND to Kinds.AGENT, Arguments.PROMPT to "x")
         val started = tools.execute(inProject, SchedulerTools.START_ACTION, agent)
@@ -127,14 +143,18 @@ class SchedulerActionToolsTest {
 
     @Test
     fun `a refused action cancels its wake`() = runTest {
-        val fixture = ActionsFixture(this, SpecMachine())
+        val machine = SpecMachine()
+        val fixture = ActionsFixture(this, machine)
+        val request = RequestId("causal-request")
         val helper = tools(fixture).execute(
-            inProject,
+            inProject.copy(request = request),
             SchedulerTools.START_ACTION,
             args(Arguments.KIND to Kinds.AGENT, Arguments.PROMPT to "write docs", Arguments.WAKE_NOTE to "review"),
         )
         assertTrue(helper.isError && "helper" in helper.text, helper.text)
         assertTrue((fixture.machine.state.value as SchedulerState.Ready).wakes.isEmpty())
+        val cancel = machine.sent.filterIsInstance<SchedulerIntent.Public.Cancel>().single()
+        assertEquals(EventOrigin.Session(SESSION, request), cancel.cause)
     }
 
     @Test
@@ -186,7 +206,7 @@ class SchedulerActionToolsTest {
 
     @Test
     fun `failed journal write rolls back the helper wake and reserved slot`() = runTest {
-        val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(FakeHost(priority = 1)))
+        val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(HelperHostFake()))
         val tools = tools(fixture)
         val helper = args(Arguments.KIND to Kinds.AGENT, Arguments.PROMPT to "task", Arguments.WAKE_NOTE to "review")
         fixture.journal.beforeAdd = { error("storage unavailable") }

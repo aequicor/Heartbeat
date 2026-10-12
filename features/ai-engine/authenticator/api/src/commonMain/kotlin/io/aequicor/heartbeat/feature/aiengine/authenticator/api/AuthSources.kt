@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.authenticator.api
 
 import io.aequicor.heartbeat.core.secrets.Secret
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -79,6 +80,12 @@ public interface AuthSources {
 public interface AuthChecks {
     /** Last observation for this source and context; reading never starts a check. */
     public fun last(source: AuthSourceId, context: AuthContextKey): AuthCheck?
+
+    /**
+     * Replays [last] for this source and context, then emits changes after explicit [check] calls.
+     * Collecting does not run a check; source revisions and removal alone do not change the observation.
+     */
+    public fun observe(source: AuthSourceId, context: AuthContextKey): Flow<AuthCheck?>
 
     /** Explicit verification in [context] with the engine's [authenticators]; main-safe. */
     public suspend fun check(

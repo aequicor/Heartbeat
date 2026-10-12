@@ -125,7 +125,8 @@ class AiStudioDesktopAuditUiTest {
                             is AiStudioScreenIntent.NewSession ->
                                 state = state.copy(panes = persistentListOf(PaneUi(0)))
 
-                            is AiStudioScreenIntent.DraftChanged -> state = state.withDraft(intent.paneId, intent.text)
+                            is AiStudioScreenIntent.Suggestions.DraftChanged ->
+                                state = state.withDraft(intent.paneId, intent.text)
 
                             else -> Unit
                         }
@@ -309,7 +310,7 @@ private fun SkikoComposeUiTest.focusedAuditNodes(): List<String> =
 private fun AiStudioScreenState.auditIntent(intent: AiStudioScreenIntent): AiStudioScreenState = when (intent) {
     is AiStudioScreenIntent.Sidebar -> copy(sidebar = sidebar.reduce(intent))
 
-    is AiStudioScreenIntent.DraftChanged -> withDraft(intent.paneId, intent.text)
+    is AiStudioScreenIntent.Suggestions.DraftChanged -> withDraft(intent.paneId, intent.text)
 
     is AiStudioScreenIntent.OpenSession -> copy(panes = persistentListOf(PaneUi(0, sessionId = intent.sessionId)))
 
@@ -317,6 +318,7 @@ private fun AiStudioScreenState.auditIntent(intent: AiStudioScreenIntent): AiStu
     is AiStudioScreenIntent.Composer,
     is AiStudioScreenIntent.SessionAction,
     is AiStudioScreenIntent.Organism,
+    is AiStudioScreenIntent.SelectHarness,
     -> this
 }
 

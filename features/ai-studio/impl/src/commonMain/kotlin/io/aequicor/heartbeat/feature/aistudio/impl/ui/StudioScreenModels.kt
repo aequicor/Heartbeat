@@ -5,7 +5,10 @@ import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentPreviewUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ComposerCaretRequestUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ContextUsageUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.HarnessChoiceUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.HarnessChoicesUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.OrganismUi
@@ -29,7 +32,9 @@ import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableSet
 import kotlin.time.Duration
 
 /**
@@ -92,11 +97,16 @@ internal data class PaneContent(
     val isAttachmentsEnabled: Boolean = false,
     val isRememberEnabled: Boolean = false,
     val isOrganismEnabled: Boolean = false,
+    val harnesses: ImmutableList<HarnessChoiceUi> = persistentListOf(),
+    val isHarnessFailed: Boolean = false,
     val organism: OrganismUi? = null,
     val subSession: String = PrimarySubSession,
     val nativeTree: SessionTreeUi? = null,
     val isAttachmentFailed: Boolean = false,
     val attachmentPreviews: ImmutableMap<String, AttachmentPreviewUi> = persistentMapOf(),
+    /** Suggestions of the pane's active composer token; null hides the popup. */
+    val suggestions: io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ComposerSuggestionsUi? = null,
+    val caretRequest: ComposerCaretRequestUi? = null,
 ) {
     /** A descendant view has no execution controls; root ownership remains unchanged. */
     val isNativeChild: Boolean get() = nativeTree?.sessions?.any {
@@ -117,7 +127,23 @@ internal data class SidebarInput(
     val sidebar: SidebarUi,
     val selectedId: String?,
     val newSessionProjectId: String?,
+    val awaitingPermission: ImmutableSet<String> = persistentSetOf(),
 )
+
+/**
+ * Harness choices of a pane: a chat shows its committed connections, a new chat the choice kept on its pane.
+ * Harnesses active by profile or project scope are shown selected and cannot be toggled.
+ */
+internal fun AiStudioScreenState.harnessChoices(pane: PaneUi, projectId: String?): ImmutableList<HarnessChoiceUi> {
+    val selected = if (pane.sessionId != null) harnessChoices.chats[pane.sessionId] else harnessChoices.panes[pane.id]
+    return harnessChoices.options.map { harness ->
+        val isPermanent = harness.isProfile || (projectId != null && projectId in harness.projects)
+        HarnessChoiceUi(harness.id, harness.title, isPermanent || selected?.contains(harness.id) == true, isPermanent)
+    }.toImmutableList()
+}
+
+/** Whether the last harness connection change of [chat] was not confirmed. */
+private fun HarnessChoicesUi.isFailed(chat: String?): Boolean = chat != null && chat in failedChats
 
 /** Rename origin of the header of [paneId]. */
 internal fun paneOrigin(paneId: Int): String = "pane:$paneId"
@@ -142,11 +168,15 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         isAttachmentsEnabled = isAttachmentsEnabled,
         isRememberEnabled = isRememberEnabled,
         isOrganismEnabled = isOrganismEnabled,
+        harnesses = harnessChoices(pane, session?.projectId ?: pane.projectId),
+        isHarnessFailed = harnessChoices.isFailed(pane.sessionId),
         organism = organism,
         subSession = selectedSubSession(pane.sessionId, session),
         nativeTree = nativeTrees[pane.sessionId],
         isAttachmentFailed = pane.id in attachmentErrorPanes,
         attachmentPreviews = attachmentPreviews,
+        suggestions = composerSuggestions[draftKey(pane.id)]?.takeIf { it.items.isNotEmpty() },
+        caretRequest = caretRequest(pane.id),
         isSubmitFailed = pane.id in failedPanes,
         renaming = sidebar.renaming?.takeIf { it.origin == paneOrigin(pane.id) },
         settings = effectiveSettings,
@@ -238,6 +268,7 @@ internal fun AiStudioScreenState.sidebarInput(): SidebarInput {
     return SidebarInput(
         projects = projects,
         sessions = sessions,
+        awaitingPermission = permissions.map { it.sessionId }.toImmutableSet(),
         running = running,
         sidebar = sidebar,
         selectedId = focused?.sessionId,

@@ -183,3 +183,24 @@ public fun EngineFailure.retryAdvice(): RetryAdvice = when (this) {
         TransportFailureReason.Timeout, TransportFailureReason.ProtocolViolation -> RetryAdvice.Unknown
     }
 }
+
+/**
+ * Whether this failure of a prompt send proves the engine never took the prompt, so the sender may roll back its
+ * submission. Conservative: timeouts, service unavailability, protocol violations, crashes, closed handles or
+ * profiles and unclassified failures may follow a delivery and leave acceptance unknown.
+ */
+public fun EngineFailure.isRejection(): Boolean = when (this) {
+    is EngineFailure.Authentication, is EngineFailure.RateLimited, is EngineFailure.QuotaExceeded,
+    is EngineFailure.ContextLimitExceeded, is EngineFailure.Access, is EngineFailure.Session,
+    is EngineFailure.History,
+    -> true
+
+    is EngineFailure.Request -> reason != RequestFailureReason.OutcomeUnknown
+
+    is EngineFailure.Engine -> reason != EngineFailureReason.Crashed
+
+    // A gateway or a dropped stream can report the service as unavailable after the upstream took the prompt.
+    is EngineFailure.Transport -> reason == TransportFailureReason.NetworkUnavailable
+
+    is EngineFailure.Lifecycle, is EngineFailure.Unknown -> false
+}

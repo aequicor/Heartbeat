@@ -1,9 +1,11 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexLocalConfiguration
+import io.aequicor.heartbeat.feature.aiengine.facade.api.StopsOwnedTurns
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class CodexBindingsTest {
     /**
@@ -18,5 +20,6 @@ class CodexBindingsTest {
         assertEquals(1, registration.modelCatalogRevision)
         assertEquals(CodexManagementSpec, registration.management)
         assertFalse(manager.isInitialized())
+        assertTrue(StopsOwnedTurns.id in registration.descriptor.declaredFeatures)
     }
 }

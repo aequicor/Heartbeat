@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.ds.resources.generated.en_chat_description
 import io.aequicor.heartbeat.ds.resources.generated.en_chat_hint
 import io.aequicor.heartbeat.ds.resources.generated.en_chat_symbol
 import io.aequicor.heartbeat.ds.resources.generated.en_chat_title
+import io.aequicor.heartbeat.ds.resources.generated.en_code_error_sample
 import io.aequicor.heartbeat.ds.resources.generated.en_code_label
 import io.aequicor.heartbeat.ds.resources.generated.en_code_sample
 import io.aequicor.heartbeat.ds.resources.generated.en_collapse_tool
@@ -241,6 +242,7 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_chat_description
 import io.aequicor.heartbeat.ds.resources.generated.ru_chat_hint
 import io.aequicor.heartbeat.ds.resources.generated.ru_chat_symbol
 import io.aequicor.heartbeat.ds.resources.generated.ru_chat_title
+import io.aequicor.heartbeat.ds.resources.generated.ru_code_error_sample
 import io.aequicor.heartbeat.ds.resources.generated.ru_code_label
 import io.aequicor.heartbeat.ds.resources.generated.ru_code_sample
 import io.aequicor.heartbeat.ds.resources.generated.ru_collapse_tool
@@ -665,6 +667,7 @@ public enum class HbString(internal val english: StringResource, internal val ru
     DiagramCopySource(Res.string.en_diagram_copy_source, Res.string.ru_diagram_copy_source),
     DiagramSourceCopied(Res.string.en_diagram_source_copied, Res.string.ru_diagram_source_copied),
     DiagramCopyFailed(Res.string.en_diagram_copy_failed, Res.string.ru_diagram_copy_failed),
+    CodeErrorSample(Res.string.en_code_error_sample, Res.string.ru_code_error_sample),
     ;
 
     internal fun resource(locale: HbLocale): StringResource = when (locale) {

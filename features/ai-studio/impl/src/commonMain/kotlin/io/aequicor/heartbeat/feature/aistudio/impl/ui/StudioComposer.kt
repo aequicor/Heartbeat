@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -13,11 +14,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import io.aequicor.heartbeat.ds.components.HbChatComposer
 import io.aequicor.heartbeat.ds.components.HbComposerAction
+import io.aequicor.heartbeat.ds.components.HbComposerCaretRequest
 import io.aequicor.heartbeat.ds.components.HbComposerLayout
 import io.aequicor.heartbeat.ds.components.HbComposerMenuButton
 import io.aequicor.heartbeat.ds.components.HbComposerMenuStyle
+import io.aequicor.heartbeat.ds.components.HbComposerSuggestion
+import io.aequicor.heartbeat.ds.components.HbComposerSuggestions
 import io.aequicor.heartbeat.ds.components.HbComposerToggle
 import io.aequicor.heartbeat.ds.components.HbIcon
 import io.aequicor.heartbeat.ds.components.HbIconButton
@@ -30,6 +36,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioSc
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ApprovalUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.EffortUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.EnvironmentUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.HarnessChoiceUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.NativeAttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.OrganismStatusUi
@@ -37,6 +44,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PrimarySubSession
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioModelOptions
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SuggestionKindUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SuggestionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreePhaseUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.withRememberCommand
@@ -53,6 +62,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_effort_men
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_placeholder
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_send
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_stop
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_suggestions
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.connect_model_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_high
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_low
@@ -60,6 +70,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_medium
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_very_high
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.environment_cloud
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.environment_local
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_menu_permanent
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_menu_section
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.model_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.model_not_selected
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.no_project
@@ -69,6 +81,11 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_mode_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.research_mode
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestions_section_commands
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestions_section_engine_commands
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestions_section_engine_skills
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestions_section_files
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestions_section_skills
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan_prompt
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_remember
@@ -119,7 +136,7 @@ internal fun StudioComposer(
     }
     HbChatComposer(
         value = draft,
-        onValueChange = { onIntent(AiStudioScreenIntent.DraftChanged(pane.id, it)) },
+        onValueChange = { onIntent(AiStudioScreenIntent.Suggestions.DraftChanged(pane.id, it)) },
         onSend = { onIntent(AiStudioScreenIntent.Submit(pane.id)) },
         onStop = { session?.let { onIntent(AiStudioScreenIntent.Stop(it.id)) } },
         sendLabel = stringResource(Res.string.composer_send),
@@ -137,6 +154,14 @@ internal fun StudioComposer(
         isStreaming = session?.isRunning == true,
         enabled = content.isComposerEnabled(),
         inputModifier = Modifier.focusRequester(focus),
+        suggestions = composerSuggestions(content),
+        suggestionsLabel = stringResource(Res.string.composer_suggestions),
+        onSuggestionMove = { delta -> onIntent(AiStudioScreenIntent.Suggestions.MoveSuggestion(pane.id, delta)) },
+        onSuggestionAccept = { index -> onIntent(AiStudioScreenIntent.Suggestions.AcceptSuggestion(pane.id, index)) },
+        onSuggestionsDismiss = { onIntent(AiStudioScreenIntent.Suggestions.DismissSuggestions(pane.id)) },
+        onCaretChange = { caret -> onIntent(AiStudioScreenIntent.Suggestions.CaretMoved(pane.id, caret)) },
+        caretRequest = content.caretRequest?.let { HbComposerCaretRequest(it.id, it.text, it.caret) },
+        onCaretRequestApply = { id -> onIntent(AiStudioScreenIntent.Suggestions.CaretRequestApplied(pane.id, id)) },
         contextContent = if (content.hasComposerContext()) {
             { StudioComposerContext(content, onIntent) }
         } else {
@@ -160,9 +185,51 @@ internal fun StudioComposer(
     )
 }
 
+/** Chips of selected harnesses also need the context row, in chats without a project too. */
 private fun PaneContent.hasComposerContext(): Boolean {
     val hasWorktree = worktree != null || session?.isWorktree == true
-    return pane.sessionId == null || project != null || hasWorktree
+    return pane.sessionId == null || project != null || hasWorktree || harnesses.any { it.isSelected }
+}
+
+/** Suggestions of the pane's active token with section labels and icons for their kinds and origins. */
+@Composable
+private fun composerSuggestions(content: PaneContent): HbComposerSuggestions? {
+    val list = content.suggestions ?: return null
+    val rows = list.items.mapIndexed { index, suggestion ->
+        val section = suggestion.sectionKey()
+        val previousSection = list.items.getOrNull(index - 1)?.sectionKey()
+        HbComposerSuggestion(
+            id = suggestion.id,
+            label = suggestion.label,
+            supportingText = suggestion.description.takeIf(String::isNotEmpty),
+            sectionLabel = if (section != previousSection) sectionLabel(suggestion) else null,
+            icon = when (suggestion.kind) {
+                SuggestionKindUi.Command -> HbIcons.Terminal
+                SuggestionKindUi.Skill -> HbIcons.Sparkles
+                SuggestionKindUi.File -> HbIcons.FileText
+            },
+            isEnabled = suggestion.kind != SuggestionKindUi.File || suggestion.isSupported,
+            isSelected = index == list.selectedIndex,
+        )
+    }.toImmutableList()
+    return HbComposerSuggestions(rows, list.selectedIndex)
+}
+
+private fun SuggestionUi.sectionKey(): String = "${origin.engine?.value.orEmpty()}:${kind.name}"
+
+@Composable
+private fun sectionLabel(suggestion: SuggestionUi): String = when (suggestion.kind) {
+    SuggestionKindUi.Command -> when (val origin = suggestion.origin.engine) {
+        null -> stringResource(Res.string.suggestions_section_commands)
+        else -> stringResource(Res.string.suggestions_section_engine_commands, origin.value)
+    }
+
+    SuggestionKindUi.Skill -> when (val origin = suggestion.origin.engine) {
+        null -> stringResource(Res.string.suggestions_section_skills)
+        else -> stringResource(Res.string.suggestions_section_engine_skills, origin.value)
+    }
+
+    SuggestionKindUi.File -> stringResource(Res.string.suggestions_section_files)
 }
 
 @Composable
@@ -182,11 +249,15 @@ private fun StudioComposerLeading(
         } else {
             content.settings.approval.takeIf { hasRunPreferences || content.isTrustSupported() }
         },
-        onDraft = { onIntent(AiStudioScreenIntent.DraftChanged(content.pane.id, it)) },
+        onDraft = { onIntent(AiStudioScreenIntent.Suggestions.DraftChanged(content.pane.id, it)) },
         onApproval = { onIntent(AiStudioScreenIntent.SelectApproval(it, content.pane.id)) },
         approvalEnabled = !content.isSettingPending && content.organism == null,
         organism = content.pane.isOrganism.takeIf { content.isOrganismOffered() },
         onOrganism = { onIntent(AiStudioScreenIntent.SelectOrganism(content.pane.id, it)) },
+        harnesses = content.harnesses,
+        onHarness = { id, isSelected ->
+            onIntent(AiStudioScreenIntent.SelectHarness(content.pane.id, id, isSelected))
+        },
     )
     if (content.isResearchAvailable && onOpenResearch != null) {
         HbComposerToggle(
@@ -218,6 +289,7 @@ private fun StudioComposerContext(content: PaneContent, onIntent: (AiStudioScree
         HbText(stringResource(Res.string.worktree_this_computer), style = HbTheme.typography.caption)
     }
     OrganismModeToggle(content, onIntent)
+    HarnessChips(content, onIntent)
     if (content.worktree != null || content.session?.isWorktree == true) {
         HbComposerToggle(
             label = stringResource(Res.string.worktree_mode),
@@ -385,6 +457,8 @@ private fun TemplatesMenu(
     approvalEnabled: Boolean,
     organism: Boolean?,
     onOrganism: (Boolean) -> Unit,
+    harnesses: ImmutableList<HarnessChoiceUi>,
+    onHarness: (String, Boolean) -> Unit,
 ) {
     var isOpen by remember { mutableStateOf(false) }
     val templates = listOf(
@@ -411,14 +485,17 @@ private fun TemplatesMenu(
     }
     val actions = templates.map { HbComposerAction(it.id, stringResource(it.label)) } +
         listOfNotNull(rememberAction.takeIf { isRememberEnabled }, organismAction) +
-        approvalActions(approval, approvalEnabled)
+        harnessActions(harnesses) + approvalActions(approval, approvalEnabled)
     HbComposerMenuButton(
         label = stringResource(Res.string.composer_add),
         actions = actions.toImmutableList(),
         isExpanded = isOpen,
         onExpandedChange = { isOpen = it },
         onAction = { id ->
-            if (id.startsWith(APPROVAL_PREFIX)) {
+            if (id.startsWith(HARNESS_PREFIX)) {
+                val harness = id.removePrefix(HARNESS_PREFIX)
+                harnesses.firstOrNull { it.id == harness }?.let { onHarness(harness, !it.isSelected) }
+            } else if (id.startsWith(APPROVAL_PREFIX)) {
                 onApproval(ApprovalUi.valueOf(id.removePrefix(APPROVAL_PREFIX)))
             } else if (id == ORGANISM_ACTION) {
                 onOrganism(organism != true)
@@ -534,3 +611,51 @@ private fun PaneContent.canAddAttachments(): Boolean {
     return isAttachmentsEnabled && !pane.isCreating && takesPrompts() && session?.isRunning != true &&
         !support?.mediaTypes.isNullOrEmpty()
 }
+
+/** One flat menu section; harnesses active by scope are checked and disabled with an explanation. */
+@Composable
+private fun harnessActions(harnesses: ImmutableList<HarnessChoiceUi>): List<HbComposerAction> {
+    val section = stringResource(Res.string.harness_menu_section)
+    val permanent = stringResource(Res.string.harness_menu_permanent)
+    return harnesses.mapIndexed { index, harness ->
+        HbComposerAction(
+            HARNESS_PREFIX + harness.id,
+            harness.title,
+            supportingText = permanent.takeIf { harness.isPermanent },
+            isEnabled = !harness.isPermanent,
+            sectionLabel = section.takeIf { index == 0 },
+            isSelected = harness.isSelected,
+        )
+    }
+}
+
+/**
+ * Chips of the harnesses active in the chat; a connected one is disconnected by unchecking its chip. A harness
+ * active by its scope cannot be unchecked: its disabled chip explains why in a tooltip and to accessibility services.
+ */
+@Composable
+private fun HarnessChips(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit) {
+    val active = remember(content.harnesses) { content.harnesses.filter { it.isSelected } }
+    val permanent = stringResource(Res.string.harness_menu_permanent)
+    active.forEach { harness ->
+        key(harness.id) {
+            HbTooltip(permanent, isEnabled = harness.isPermanent) {
+                HbComposerToggle(
+                    label = harness.title,
+                    isChecked = true,
+                    onCheckedChange = {
+                        onIntent(AiStudioScreenIntent.SelectHarness(content.pane.id, harness.id, it))
+                    },
+                    enabled = !harness.isPermanent,
+                    icon = HbIcons.Code,
+                    modifier = Modifier.testTag("harness-chip-${content.pane.id}-${harness.id}")
+                        .then(
+                            if (harness.isPermanent) Modifier.semantics { stateDescription = permanent } else Modifier,
+                        ),
+                )
+            }
+        }
+    }
+}
+
+private const val HARNESS_PREFIX = "harness:"

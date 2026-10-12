@@ -53,6 +53,21 @@ class BrowserAgentToolsTest {
     )
 
     @Test
+    fun `catalog retains every tool and its trust category when either availability flag is disabled`() = runTest {
+        val fixture = Fixture()
+        val expected = fixture.tools.specifications(null).associate { it.name to it.action }
+        assertEquals(13, expected.size)
+        assertEquals("browser", fixture.tools.group)
+        assertTrue(fixture.tools.title.isNotBlank())
+        for ((browserEnabled, agentEnabled) in listOf(false to false, false to true, true to false, true to true)) {
+            fixture.toggles.values[BrowserEnabled.key] = browserEnabled
+            fixture.toggles.values[BrowserAgentControl.key] = agentEnabled
+            assertEquals(expected, fixture.tools.catalog.associate { it.name to it.action })
+        }
+        assertEquals(0, fixture.registry.lookups)
+    }
+
+    @Test
     fun `either disabled flag hides declarations and blocks calls before machine lookup`() = runTest {
         for ((browserEnabled, agentEnabled) in listOf(false to false, false to true, true to false)) {
             val fixture = Fixture()

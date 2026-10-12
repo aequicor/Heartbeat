@@ -29,12 +29,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import io.aequicor.heartbeat.feature.aiengine.facade.api.answerOf
+import io.aequicor.heartbeat.feature.organicai.api.OrganismBounds
 import io.aequicor.heartbeat.feature.organicai.api.ReleaseMode
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellHandle
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellKey
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellRoute
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellSessions
-import io.aequicor.heartbeat.feature.organicai.impl.domain.answerOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
@@ -289,7 +290,12 @@ private class FacadeCellHandle(private val active: ActiveSession) : CellHandle {
     override suspend fun answer(turn: TurnId, isUnconfirmed: Boolean): String? {
         val history = active.features.resolve(SessionHistory).orThrow()
         val items = history.page(HistoryPageRequest(limit = ANSWER_ITEMS)).items
-        return answerOf(items, turn, isMarkedOnly = isUnconfirmed && turn in doubtful)
+        return answerOf(
+            items,
+            turn,
+            maxChars = OrganismBounds.MAX_RESULT,
+            isMarkedOnly = isUnconfirmed && turn in doubtful,
+        )
     }
 
     private companion object {

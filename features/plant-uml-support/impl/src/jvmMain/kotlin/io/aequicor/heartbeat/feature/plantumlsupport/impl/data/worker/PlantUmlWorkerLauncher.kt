@@ -13,10 +13,10 @@ internal fun interface PlantUmlWorkerLauncher {
 }
 
 /**
- * Starts the worker with the runtime's Java launcher and the app's classpath in an argument file, so the Windows
- * command-line limit does not truncate a large app classpath. A packaged jlink runtime has no Java
- * launcher, so there the app launcher (`jpackage.app-path`) starts in its private worker mode, routed by the desktop
- * entry point before anything else initializes, and takes [jvmOptions] from `JAVA_TOOL_OPTIONS`. The worker runs in
+ * Starts the worker with the runtime's Java launcher and only the worker's runtime dependencies. An argument file
+ * keeps JVM options and dependency paths outside the Windows command-line limit. A packaged jlink runtime has no
+ * Java launcher, so the app launcher (`jpackage.app-path`) starts in its private worker mode. The desktop entry point
+ * routes it before anything else initializes, taking [jvmOptions] from `JAVA_TOOL_OPTIONS`. The worker runs in
  * the temporary directory with only the environment a JVM needs: none of the app's secrets reach diagram code.
  */
 internal class JavaPlantUmlWorkerLauncher(private val jvmOptions: List<String> = WORKER_JVM_OPTIONS) :
@@ -86,10 +86,12 @@ private val log = Log.tag("PlantUmlWorkerLauncher")
 
 private val WorkerEnvironment = setOf("TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL", "LC_CTYPE", "SystemRoot", "windir")
 
-/** The app's classpath, and the jars of the worker's own classes when a class loader hides them from it. */
+/**
+ * Only the worker's runtime dependencies, excluding unrelated app/test entries. Code-source locations also work
+ * when a host class loader hides dependencies from `java.class.path`.
+ */
 private fun workerClasspath(): String {
     val paths = linkedSetOf<String>()
-    paths += System.getProperty("java.class.path").split(File.pathSeparator).filter { it.isNotBlank() }
     val loader = PlantUmlWorkerLauncher::class.java.classLoader
     val types = mutableListOf<Class<*>>(
         PlantUmlWorkerLauncher::class.java,
@@ -101,8 +103,8 @@ private fun workerClasspath(): String {
     try {
         types += Class.forName(NAPIER, false, loader)
     } catch (e: ClassNotFoundException) {
-        // Only the fallback misses it; the classpath above normally holds it.
-        log.w(e) { "PlantUML worker classpath fallback misses the logging backend" }
+        // Without the logging backend the worker cannot initialize; preserve the diagnostic at the host.
+        log.w(e) { "PlantUML worker classpath misses the logging backend" }
     }
     types.forEach { type ->
         type.protectionDomain?.codeSource?.location?.let { paths += Path.of(it.toURI()).toString() }

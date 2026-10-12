@@ -12,7 +12,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolImage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.browser.api.BrowserAgentControl
 import io.aequicor.heartbeat.feature.browser.api.BrowserEnabled
 import io.aequicor.heartbeat.feature.browser.api.BrowserIntent
@@ -41,6 +43,9 @@ import kotlin.uuid.Uuid
 @Inject
 internal class BrowserAgentTools(private val machines: MachineRegistry, private val toggles: FeatureToggles) :
     AgentToolContribution {
+    override val group: String = "browser"
+    override val title: String = "Встроенный браузер"
+    override val catalog: List<ToolCatalogEntry> get() = specs().toolCatalog()
     override val isDetachedSupported: Boolean = true
 
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =

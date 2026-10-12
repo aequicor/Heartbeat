@@ -8,15 +8,20 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
 import pro.respawn.flowmvi.api.PipelineContext
 import kotlin.uuid.Uuid
 
 private val log = Log.tag("StudioDraftSubmission")
 
-/** Queues the exact draft snapshot before dispatch; only native acceptance may clear it. */
+/**
+ * Queues the exact draft snapshot before dispatch; only native acceptance may clear it. A new chat's harness choice
+ * travels with the snapshot and leaves the pane; a refused dispatch returns both (chats keep their own choice).
+ */
 internal suspend fun submitStudioDraft(
     pipeline: PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>,
     machine: Machine<AiStudioState, AiStudioIntent, AiStudioOutput>,
+    harnesses: StudioHarnesses,
     paneId: Int,
 ) = with(pipeline) {
     withState {
@@ -27,7 +32,10 @@ internal suspend fun submitStudioDraft(
         val submissionId = Uuid.random().toString()
         val pending = pendingSubmission(paneId, submissionId)
         log.i { "Submit pane draft with attachments count=${pending.attachments.size}" }
-        updateState { queueSubmission(submissionId, pending) }
+        harnesses.claim(submissionId, pending.harnesses)
+        updateState {
+            queueSubmission(submissionId, pending).copy(harnessChoices = harnessChoices.withoutPane(paneId))
+        }
         val result = sendTo(
             machine,
             AiStudioIntent.Public.Submit(
@@ -37,7 +45,10 @@ internal suspend fun submitStudioDraft(
                 submissionId,
             ),
         )
-        if (result != SendResult.Accepted) updateState { rejectSubmission(submissionId) }
+        if (result != SendResult.Accepted) {
+            harnesses.release(submissionId)
+            updateState { rejectSubmission(submissionId) }
+        }
     }
 }
 

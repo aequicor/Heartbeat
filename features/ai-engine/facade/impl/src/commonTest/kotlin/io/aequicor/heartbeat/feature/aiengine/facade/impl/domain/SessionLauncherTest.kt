@@ -89,8 +89,8 @@ class SessionLauncherTest {
         val policy = SessionPolicy(fixture.routes, enabled, registry, fixture.context)
         val assembler = ActiveSessionAssembler(policy, backgroundScope)
         var handles = 0
-        val host = ActiveSessionHost { native, route, model ->
-            assembler.assemble(native, route, model, TestHandleScope("h${++handles}", backgroundScope))
+        val host = ActiveSessionHost { native, route, model, hooks ->
+            assembler.assemble(native, route, model, TestHandleScope("h${++handles}", backgroundScope), hooks)
         }
         pool = RuntimePool(fixture.context, registry::hasActiveTurn, registry::closeHandles)
         val launcher = SessionLauncher(

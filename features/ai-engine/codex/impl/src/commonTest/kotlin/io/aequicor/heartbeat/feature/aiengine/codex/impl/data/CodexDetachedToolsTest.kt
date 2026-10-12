@@ -6,7 +6,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonArray
@@ -48,7 +50,7 @@ class CodexDetachedToolsTest {
     @Test
     fun `chat thread opens without detached tools when a contribution fails`() = runTest {
         val failingSpecifications = object : ProfileAgentTools by ScopedTools(listOf("remember")) {
-            override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
+            override suspend fun specifications(scope: AgentToolScope): List<AgentToolSpec> =
                 error("Contribution failed")
         }
         val failingInstructions = object : ProfileAgentTools by ScopedTools(listOf("remember")) {
@@ -114,6 +116,8 @@ class CodexDetachedToolsTest {
 }
 
 private class ScopedTools(private val names: List<String>) : ProfileAgentTools {
+    override suspend fun nativeToolsForExecution(scope: ToolPolicyScope): ResolvedToolPolicy = ResolvedToolPolicy()
+
     val scopes = mutableListOf<AgentToolScope>()
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
         names.map { AgentToolSpec(it, it, JsonObject(emptyMap())) }

@@ -8,7 +8,10 @@ import kotlinx.serialization.Serializable
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
 /** Identity of a scheduled wake, chosen by the caller; `[a-z0-9_-]`, at most 64 characters. */
 @Serializable
@@ -61,9 +64,9 @@ public sealed interface WakeOrigin {
     @Serializable
     public data class Agent(val turn: TurnId) : WakeOrigin
 
-    /** Another feature, by its [name]. */
+    /** Another feature, by its stable [name] and human-readable [label]; old records use the name as label. */
     @Serializable
-    public data class Feature(val name: String) : WakeOrigin
+    public data class Feature(val name: String, val label: String = name) : WakeOrigin
 }
 
 /**
@@ -84,18 +87,38 @@ public data class WakeRequest(
     val isDeduplicationRequired: Boolean = false,
     /** Optional host-owned workflow; never supplied by the scheduler signal tool. */
     val ownerFeature: String? = null,
+    /**
+     * Opaque host-owned admission context, persisted for recovery and never included in prompts or logs.
+     * Only an owned wake can carry it; the feature owner interprets and verifies its contents.
+     */
+    val ownerContext: String? = null,
+    /** Shows a feature owner's complete fenced note in the transcript instead of hiding it in the directive. */
+    val isNoteVisible: Boolean = false,
+    /** Exact initiating host request, retained across scheduling and deadline delivery. Never parsed from note. */
+    val initiator: RequestInitiator? = null,
 ) {
     init {
         require(note.length <= SchedulerLimits.MAX_NOTE) { "Wake note is too long" }
+        require(ownerContext == null || ownerFeature?.let(::isValidEventFeatureName) == true) {
+            "Wake context requires a valid feature owner"
+        }
+        require((ownerContext?.length ?: 0) <= SchedulerLimits.MAX_OWNER_CONTEXT) { "Wake context is too long" }
+        require(!isNoteVisible || (ownerFeature != null && origin is WakeOrigin.Feature)) {
+            "Visible wake note requires a feature owner and origin"
+        }
     }
 
     override fun toString(): String = "WakeRequest(id=$id, events=${condition.events.size}, " +
         "deadline=${condition.deadline ?: "none"}, origin=${origin::class.simpleName.orEmpty()})"
 }
 
-/** A pending wake, persisted in the profile until it is delivered or cancelled. */
+/**
+ * A pending wake, persisted in the profile until it is delivered or cancelled. [fenceNonce] is the secret nonce of
+ * the fence around foreign text in every delivery of this wake: random when scheduled, so redeliveries stay
+ * byte-identical while nobody can predict it. Null only for wakes persisted before it was stored.
+ */
 @Serializable
-public data class ScheduledWake(val request: WakeRequest, val createdAt: Instant) {
+public data class ScheduledWake(val request: WakeRequest, val createdAt: Instant, val fenceNonce: String? = null) {
     /** Wake identity. */
     public val id: WakeId get() = request.id
 
@@ -107,7 +130,14 @@ public data class ScheduledWake(val request: WakeRequest, val createdAt: Instant
 
     /** Whether the deadline has passed at [now]. */
     public fun isDue(now: Instant): Boolean = request.condition.deadline?.let { it <= now } == true
+
+    /** Omits [fenceNonce]: a nonce in diagnostics would no longer be secret. */
+    override fun toString(): String = "ScheduledWake(request=$request, createdAt=$createdAt)"
 }
+
+/** A fresh secret fence nonce for a newly scheduled wake: 128 random bits as hex letters and digits. */
+@OptIn(ExperimentalUuidApi::class)
+internal fun newWakeFenceNonce(): String = Uuid.random().toHexString()
 
 /** Why a session woke. */
 public sealed interface WakeReason {
@@ -144,6 +174,12 @@ public enum class WakeFailure {
     /** The session stayed busy longer than [SchedulerLimits.DELIVERY_TIMEOUT]. */
     Busy,
 
+    /** Owner is missing, ambiguous or failed to supply a current admission decision. */
+    OwnerUnavailable,
+
+    /** The owning feature revoked this wake before native submission. */
+    OwnerRejected,
+
     /** An unexpected error; details are in the log. */
     Unknown,
 }
@@ -162,6 +198,9 @@ public object SchedulerLimits {
     /** Characters of a wake note. */
     public const val MAX_NOTE: Int = 2_000
 
+    /** Characters of opaque host context persisted for an owned wake's admission and recovery. */
+    public const val MAX_OWNER_CONTEXT: Int = 4_096
+
     /** Characters of an event payload. */
     public const val MAX_PAYLOAD: Int = 8_192
 
@@ -173,6 +212,13 @@ public object SchedulerLimits {
 
     /** How long a delivery waits for a busy session before the wake is dropped as [WakeFailure.Busy]. */
     public val DELIVERY_TIMEOUT: Duration = 1.hours
+
+    /**
+     * How long a host waits for the combined first decision of the helper prompt owners, both before preparation
+     * and in the recheck immediately before native submission. A missing decision refuses that attempt, so an
+     * owner's own budget for durable writes before emitting must stay below this deadline.
+     */
+    public val HELPER_ADMISSION_DEADLINE: Duration = 2.seconds
 }
 
 private const val MAX_ID = 64

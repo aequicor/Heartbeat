@@ -22,6 +22,10 @@ import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectEngineRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsRoute
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRoute
+import io.aequicor.heartbeat.feature.harness.api.HarnessDetailRoute
+import io.aequicor.heartbeat.feature.harness.api.HarnessItemRoute
+import io.aequicor.heartbeat.feature.harness.api.HarnessRoute
+import io.aequicor.heartbeat.feature.harness.api.HarnessToolsRoute
 import io.aequicor.heartbeat.feature.searchengine.api.ProfileSettingsRoute
 import io.aequicor.heartbeat.feature.settings.api.SettingsRoute
 import io.aequicor.heartbeat.feature.settings.api.SettingsSection
@@ -142,6 +146,10 @@ class SettingsComponent(
             EngineConnectionsRoute::class,
             ComputerUseRoute::class,
             AgentLearningRoute::class,
+            HarnessRoute::class,
+            HarnessDetailRoute::class,
+            HarnessItemRoute::class,
+            HarnessToolsRoute::class,
             ConnectEngineRoute::class,
             ProfileSettingsRoute::class,
             TogglesPanelRoute::class,
@@ -155,6 +163,7 @@ internal fun SettingsSection.route(): Route = when (this) {
     SettingsSection.Search -> ProfileSettingsRoute(isEmbedded = true)
     SettingsSection.ComputerUse -> ComputerUseRoute(isEmbedded = true)
     SettingsSection.AgentLearning -> AgentLearningRoute(isEmbedded = true)
+    SettingsSection.Harness -> HarnessRoute(isEmbedded = true)
     SettingsSection.FeatureFlags -> TogglesPanelRoute(isEmbedded = true)
 }
 

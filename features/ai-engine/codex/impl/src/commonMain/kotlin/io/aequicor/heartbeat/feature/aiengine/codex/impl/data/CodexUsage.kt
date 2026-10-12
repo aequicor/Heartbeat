@@ -24,6 +24,23 @@ import kotlin.time.Instant
 
 /** Only the last native request describes occupied context; lifetime totals are never used. */
 internal class CodexContextUsage : SessionContextUsage {
+    suspend fun event(method: String?, params: JsonObject, isEnabled: suspend () -> Boolean): Boolean {
+        when (method) {
+            "thread/tokenUsage/updated" -> if (isEnabled()) receive(params)
+
+            "thread/compacted" -> clear()
+
+            else -> {
+                if (method == "item/started" || method == "item/completed") {
+                    val item = params["item"] as? JsonObject
+                    if (item?.text("type") == "contextCompaction") clear()
+                }
+                return false
+            }
+        }
+        return true
+    }
+
     private val log = Log.tag("CodexContextUsage")
     private val mutableState = MutableStateFlow<ContextUsage?>(null)
     override val state = mutableState.asStateFlow()

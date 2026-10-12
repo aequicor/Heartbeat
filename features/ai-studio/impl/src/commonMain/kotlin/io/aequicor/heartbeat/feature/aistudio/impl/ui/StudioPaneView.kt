@@ -66,6 +66,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_failed
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.connect_model_hint
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_connect_failed
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.jump_latest
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.new_heading
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.new_heading_general
@@ -150,7 +151,7 @@ internal fun StudioPaneView(
             ) {
                 NewSessionHero(
                     content.project,
-                    onDraft = { onIntent(AiStudioScreenIntent.DraftChanged(pane.id, it)) },
+                    onDraft = { onIntent(AiStudioScreenIntent.Suggestions.DraftChanged(pane.id, it)) },
                     modifier = Modifier.align(BiasAlignment(0f, HbTheme.dimensions.emptyStateVerticalBias))
                         .padding(HbTheme.spacing.xl),
                 )
@@ -255,7 +256,7 @@ private fun PaneComposerRegion(
             }
             if (isCentered) {
                 Box(Modifier.padding(top = HbTheme.spacing.l)) {
-                    NewSessionStarters { onIntent(AiStudioScreenIntent.DraftChanged(content.pane.id, it)) }
+                    NewSessionStarters { onIntent(AiStudioScreenIntent.Suggestions.DraftChanged(content.pane.id, it)) }
                 }
             }
         }
@@ -657,6 +658,13 @@ private fun PaneFooter(
             HbBadge(
                 stringResource(Res.string.attachments_failed),
                 column,
+                tone = HbTone.Danger,
+            )
+        }
+        if (content.isHarnessFailed) {
+            HbBadge(
+                stringResource(Res.string.harness_connect_failed),
+                column.testTag("harness-failed-${content.pane.id}"),
                 tone = HbTone.Danger,
             )
         }

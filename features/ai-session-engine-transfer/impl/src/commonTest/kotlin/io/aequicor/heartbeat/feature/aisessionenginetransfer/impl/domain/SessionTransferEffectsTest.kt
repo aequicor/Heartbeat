@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.isRejection
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.ConversationId
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.ConversationSegment
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.Handoff

@@ -7,7 +7,6 @@ import com.arkivanov.essenty.lifecycle.resume
 import dev.zacsweers.metro.createGraphFactory
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.jsonKey
-import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.secrets.Secret
 import io.aequicor.heartbeat.core.statemachine.SendResult
@@ -26,9 +25,11 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsS
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioMachineKey
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
@@ -47,12 +48,14 @@ import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfiguration
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationMachineKey
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
+import io.aequicor.heartbeat.feature.scheduler.api.ActionId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCreateRequest
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
@@ -97,9 +100,7 @@ class StudioEngineIntegrationTest {
 
     @AfterTest
     fun tearDown() = runTest {
-        (app.appScope as OwnedScope).close()
-        // close cancels without waiting; IO continuations must finish before replacing Dispatchers.Main.
-        app.appScope.coroutineScope.coroutineContext[Job]?.join()
+        app.closeAndAwaitStorages()
         Dispatchers.resetMain()
         File(persisted.storageRoot).deleteRecursively()
     }
@@ -150,6 +151,131 @@ class StudioEngineIntegrationTest {
         )
         services.modelSelections.observe().first { it.defaultTarget == target }
         return services
+    }
+
+    @Test
+    fun `graph notifications retain legacy dedupe and revoke origin preparation when paused`() = runStudioTest {
+        assertGraphWakeOrigins(configured())
+    }
+
+    @Test
+    fun `graph request provenance reaches native target before send and refuses incomplete writes`() = runStudioTest {
+        val services = configured()
+        assertGraphOrigins(services)
+    }
+
+    @Test
+    fun `empty helper identity survives restart and concurrent ordinary chat creation without native work`() =
+        runStudioTest {
+            val services = configured()
+            val target = requireNotNull(services.modelSelections.observe().first().defaultTarget)
+            val request = HelperCreateRequest(ActionId("workflow"), null, null, target, "Helper", TrustLevel.Full)
+            val helper = async { services.scheduledSessionHosts.maxBy { it.priority }.createHelper(request) }
+            val ordinary = async { services.studioRepository.createSession(null, "Ordinary") }
+            val helperId = helper.await()
+            val ordinaryId = ordinary.await().id
+            val metadata = requireNotNull(services.scheduledSessionHosts.maxBy { it.priority }.helperMetadata(helperId))
+            assertEquals(request.owner, metadata.owner)
+            assertNull(metadata.parent)
+            assertNull(metadata.session)
+            assertNull(metadata.lastRequest)
+            assertNull(services.scheduledSessionHosts.maxBy { it.priority }.helperMetadata(HelperId(ordinaryId)))
+            assertTrue(TestAdapter.runtimes.flatMap { it.natives }.isEmpty())
+            assertTrue(services.studioRepository.observeMessages(helperId.value).first().isEmpty())
+            app.profileSessions.close()
+            val restored = app.profileSessions.open(ProfileId("studio")).graph as AiEngineTestAccessors
+            assertEquals(metadata, restored.scheduledSessionHosts.maxBy { it.priority }.helperMetadata(helperId))
+            assertEquals(
+                setOf(helperId.value, ordinaryId),
+                restored.studioRepository.observeWorkspace().first().sessions.map { it.id }.toSet(),
+            )
+        }
+
+    @Test
+    fun `parentless helper opens its explicit workspace and retains marker after native reopen`() = runStudioTest {
+        TestAdapter.isLocalWorkspaceSupported = true
+        TestAdapter.isTrustSupported = true
+        try {
+            val services = configured()
+            val directory = File(persisted.storageRoot, "helper-workspace").apply { mkdirs() }
+            val workspace = services.localWorkspaces.registerManaged(directory.absolutePath).ref
+            val target = requireNotNull(services.modelSelections.observe().first().defaultTarget)
+            val helpers = services.scheduledSessionHosts.maxBy { it.priority }
+            val helper = helpers.createHelper(
+                HelperCreateRequest(ActionId("workflow"), null, workspace, target, "Helper", TrustLevel.Ask),
+            )
+            seedHelperFullApproval(services, helper)
+            val run = startAcceptedRun(services.studioRuntime, helper.value, "Hello", services.studioRuntime.defaults())
+            val engine = TestAdapter.runtimes.single()
+            val native = engine.natives.single()
+            assertEquals(workspace, engine.createdRequests.single().workspace)
+            assertEquals(TrustLevel.Ask, native.sent.single().trust)
+            assertTrue(
+                native.sent.single().parts.filterIsInstance<ContentPart.Text>().any {
+                    it.text.contains("Do not call scheduler_sleep")
+                },
+            )
+            assertTrue(helpers.isHelper(native.ref))
+            native.finish()
+            assertEquals(RunOutcome.Completed, run.await())
+            services.studioRepository.edit(helper.value, SessionEdit.SetArchived(true))
+            val resumed = startAcceptedRun(
+                services.studioRuntime,
+                helper.value,
+                "Again",
+                services.studioRuntime.defaults(),
+            )
+            assertEquals(1, engine.createdRequests.size)
+            assertTrue(helpers.isHelper(native.ref))
+            assertEquals(native.ref, helpers.helperMetadata(helper)?.session)
+            native.finish()
+            assertEquals(RunOutcome.Completed, resumed.await())
+            val before = services.studioRepository.observeWorkspace().first().sessions.size
+            assertFailsWith<IllegalStateException> {
+                helpers.createHelper(
+                    HelperCreateRequest(
+                        ActionId("other"),
+                        null,
+                        WorkspaceRef("unknown"),
+                        target,
+                        "Unavailable",
+                        TrustLevel.Ask,
+                    ),
+                )
+            }
+            assertEquals(before, services.studioRepository.observeWorkspace().first().sessions.size)
+        } finally {
+            TestAdapter.isLocalWorkspaceSupported = false
+            TestAdapter.isTrustSupported = false
+        }
+    }
+
+    @Test
+    fun `helper trust lowered during admission is sent and persisted without configuration capability`() =
+        runStudioTest {
+            // This test deliberately blocks a 2s admission on real disk IO; use a serial real-time Main clock.
+            Dispatchers.setMain(Dispatchers.Default.limitedParallelism(1))
+            TestAdapter.isTrustSupported = true
+            try {
+                val services = configured()
+                assertHelperAdmissionTrust(services)
+            } finally {
+                TestAdapter.isTrustSupported = false
+            }
+        }
+
+    @Test
+    fun `helper refuses native default when engine cannot enforce its trust cap`() = runStudioTest {
+        val services = configured()
+        val target = requireNotNull(services.modelSelections.observe().first().defaultTarget)
+        val helper = services.scheduledSessionHosts.maxBy { it.priority }.createHelper(
+            HelperCreateRequest(ActionId("workflow"), null, null, target, "Helper", TrustLevel.Ask),
+        )
+        assertEquals(
+            RunOutcome.Failed,
+            services.studioRuntime.run(helper.value, "Must not send", services.studioRuntime.defaults()),
+        )
+        assertTrue(TestAdapter.runtimes.single().natives.single().sent.isEmpty())
     }
 
     @Test
@@ -539,8 +665,7 @@ class StudioEngineIntegrationTest {
             block()
         } finally {
             withContext(NonCancellable) {
-                (app.appScope as OwnedScope).close()
-                app.appScope.coroutineScope.coroutineContext[Job]?.join()
+                app.closeAndAwaitStorages()
             }
         }
     }
@@ -557,8 +682,10 @@ class StudioEngineIntegrationTest {
             runtime.run(sessionId, prompt, settings, emptyList()) { accepted.complete(Unit) }
         }
         select {
-            accepted.onAwait {}
-            result.onAwait { outcome -> error("Studio run completed before acceptance: $outcome") }
+            accepted.onAwait { }
+            result.onAwait { outcome ->
+                error("Run completed before native acceptance: $outcome")
+            }
         }
         return result
     }

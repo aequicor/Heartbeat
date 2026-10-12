@@ -97,7 +97,13 @@ class EngineStudioEffects(
 
     private suspend fun runEffect(effect: AiStudioEffect.Run, machine: EffectScope<AiStudioIntent>) {
         var isAccepted = false
-        val outcome = runtime.run(effect.sessionId, effect.prompt, effect.settings, effect.attachments) {
+        val outcome = runtime.run(
+            effect.sessionId,
+            effect.prompt,
+            effect.settings,
+            effect.attachments,
+            effect.submissionId,
+        ) {
             isAccepted = true
             if (effect.submissionId.isNotEmpty()) {
                 machine.send(

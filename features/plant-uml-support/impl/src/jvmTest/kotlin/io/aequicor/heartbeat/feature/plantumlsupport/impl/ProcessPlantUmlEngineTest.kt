@@ -28,6 +28,7 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
+import java.io.File
 import java.io.FileDescriptor
 import java.io.FileOutputStream
 import java.nio.file.Path
@@ -85,6 +86,17 @@ class ProcessPlantUmlEngineTest {
     fun `worker launches beyond the Windows command line limit`() {
         val options = heap("128m") + "-Dheartbeat.worker.padding=${"x".repeat(40_000)}"
         assertIs<PlantUmlResult.Image>(engine(launcher = JavaPlantUmlWorkerLauncher(options)).draw(DIAGRAM))
+    }
+
+    @Test
+    fun `the worker draws even when the host classpath exceeds the Windows command limit`() {
+        val original = System.getProperty("java.class.path")
+        try {
+            System.setProperty("java.class.path", original + File.pathSeparator + "missing-entry".repeat(4_000))
+            assertIs<PlantUmlResult.Image>(engine().draw(DIAGRAM))
+        } finally {
+            System.setProperty("java.class.path", original)
+        }
     }
 
     @Test
@@ -146,15 +158,21 @@ class ProcessPlantUmlEngineTest {
         val app = ProcessBuilder(java, "-cp", System.getProperty("java.class.path"), HungAppMain::class.java.name)
             .redirectError(ProcessBuilder.Redirect.DISCARD)
             .start()
+        var worker: ProcessHandle? = null
         try {
-            val pid = app.inputStream.bufferedReader().readLine().toLong()
-            val worker = assertNotNull(ProcessHandle.of(pid).orElse(null))
-            Thread.sleep(500)
-            assertTrue(worker.isAlive, "the worker is drawing")
+            val pid = CompletableFuture.supplyAsync { app.inputStream.bufferedReader().readLine().toLong() }
+                .get(30, TimeUnit.SECONDS)
+            val started = assertNotNull(ProcessHandle.of(pid).orElse(null))
+            worker = started
+            assertTrue(started.isAlive, "the ready worker has received the drawing")
             app.destroyForcibly()
-            worker.onExit().get(10, TimeUnit.SECONDS)
+            started.onExit().get(10, TimeUnit.SECONDS)
         } finally {
+            // Capture descendants before stopping the helper, including a worker whose PID was not received.
+            val descendants = app.descendants().use { it.toList() }
             app.destroyForcibly()
+            worker?.destroyForcibly()
+            descendants.forEach { it.destroyForcibly() }
         }
     }
 
@@ -236,6 +254,8 @@ internal object HungAppMain {
     @JvmStatic
     fun main(arguments: Array<String>) {
         val worker = JavaPlantUmlWorkerLauncher().start()
+        // Match the production protocol: READY follows registration of the parent's exit callback.
+        check(DataInputStream(worker.inputStream).readInt() == PLANTUML_WORKER_READY)
         val output = DataOutputStream(worker.outputStream)
         val source = PlantUmlSource.parse(BACKTRACKING) ?: error("unsupported sample")
         output.writeRequest(PlantUmlWorkerRequest(source, emptyList(), PlantUmlLimits()))

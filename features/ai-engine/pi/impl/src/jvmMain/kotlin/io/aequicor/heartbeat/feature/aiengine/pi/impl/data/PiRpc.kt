@@ -12,6 +12,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -46,8 +47,14 @@ internal interface PiConnection {
     /** Writes an uncorrelated record, such as an `extension_ui_response`. */
     suspend fun send(record: JsonObject)
 
-    /** Terminates the process tree; idempotent. */
+    /** Requests termination; idempotent. A closed connection does not prove its process exited. */
     fun close()
+
+    /** Requests termination and waits for exit of this process and observed descendants; false is unconfirmed. */
+    suspend fun stopAndAwait(): Boolean
+
+    /** Read-only identity of this dedicated execution process; missing evidence forbids a future cold stop. */
+    suspend fun processOwner(): PiExecutionOwner? = null
 }
 
 /**
@@ -66,6 +73,8 @@ internal class PiRpc(
     override val contextWindows: Map<String, Long> = emptyMap(),
 ) : PiConnection {
     private val log = Log.tag("PiRpc")
+    private val termination = PiProcessStop(process, dispatchers)
+    private val ownership = PiProcessOwnership(process::toHandle, dispatchers)
     private val pending = ConcurrentHashMap<String, CompletableDeferred<JsonObject>>()
     private val writes = Mutex()
     private val writer = process.outputStream.bufferedWriter(Charsets.UTF_8)
@@ -76,6 +85,9 @@ internal class PiRpc(
     @Volatile private var closeRegistration: DisposableHandle? = null
 
     override val isOpen: Boolean get() = !isClosed && process.isAlive
+
+    override suspend fun processOwner(): PiExecutionOwner? =
+        if (isClosed) null else ownership.capture().takeUnless { isClosed }
 
     init {
         scope.launch(dispatchers.io) { read() }
@@ -127,22 +139,30 @@ internal class PiRpc(
         terminate(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
     }
 
-    /** Fails in-flight commands with [failure], then destroys the process tree before closing its input. */
+    override suspend fun stopAndAwait(): Boolean {
+        close()
+        return termination.awaitStopped()
+    }
+
+    /** Fails in-flight commands with [failure], then requests process termination before closing its input. */
     private fun terminate(failure: EngineFailure): Boolean {
         if (!closed.compareAndSet(false, true)) return false
         closeRegistration?.dispose()
         pending.values.forEach { it.completeExceptionally(EngineException(failure)) }
         pending.clear()
-        val descendants = process.descendants().use { it.toList() }
-        descendants.asReversed().forEach { it.destroyForcibly() }
-        process.destroy()
-        if (process.isAlive) process.destroyForcibly()
+        termination.request()
+        // Closing a BufferedWriter can wait for an in-flight write or flush. It must never block the stop
+        // caller, especially after a refused kill. Cleanup starts only after exit, on the injected IO executor.
+        process.onExit().whenCompleteAsync({ _, _ -> closeWriter() }, dispatchers.io.asExecutor())
+        return true
+    }
+
+    private fun closeWriter() {
         try {
             writer.close()
         } catch (e: IOException) {
             log.w(e) { "Pi input already closed" }
         }
-        return true
     }
 
     private suspend fun write(record: JsonObject) {

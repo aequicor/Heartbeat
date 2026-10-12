@@ -6,4 +6,5 @@
     <string name="settings_section_feature_flags">Фича-флаги</string>
     <string name="settings_section_computer_use">Управление компьютером</string>
     <string name="settings_section_agent_learning">Самообучение</string>
+    <string name="settings_section_harness">Харнесс</string>
 </resources>

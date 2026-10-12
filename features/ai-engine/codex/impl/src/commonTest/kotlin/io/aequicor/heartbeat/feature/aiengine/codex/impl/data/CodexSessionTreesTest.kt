@@ -1,12 +1,17 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexEngine
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionActivity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -14,8 +19,10 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class CodexSessionTreesTest {
     private val root = SessionRef(CodexEngine.Id, SessionSourceId("codex.local"), "root")
     private fun thread(id: String, parent: String?, status: String = "idle") = Json.parseToJsonElement(
@@ -80,6 +87,178 @@ class CodexSessionTreesTest {
         assertTrue(methods.none { it in setOf("thread/start", "thread/resume", "turn/start", "turn/interrupt") })
         assertTrue(methods.none { it == "thread/list" })
     }
+
+    @Test
+    fun `open session family is read through its execution process`() = runTest {
+        val fixture = Fixture(this)
+        val delegate = fixture.wire.handler
+        fixture.wire.handler = { message ->
+            val id = (message["params"] as? JsonObject)?.text("threadId").orEmpty()
+            when (message.text("method")) {
+                "thread/read" -> fixture.wire.reply(message, json("thread" to thread(id, null, "active")))
+                "thread/turns/list" -> fixture.wire.reply(message, json("data" to JsonArray(emptyList())))
+                else -> delegate(message)
+            }
+        }
+        val session = fixture.open()
+        val snapshot = fixture.runtime.trees.snapshot(session.ref, SessionTreeAccess(fixture.target))
+        assertEquals(SessionActivity.Running, snapshot.nodes.single().activity)
+        val reads = fixture.wire.written.filter { it.text("method") in setOf("thread/read", "thread/turns/list") }
+        assertTrue(reads.isNotEmpty())
+        assertTrue(reads.all { fixture.wire.origin(it) === fixture.wire.peers.single() })
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `idle execution process is kept while a native subagent still runs`() = runTest {
+        val fixture = Fixture(this)
+        var childStatus = "active"
+        val delegate = fixture.wire.handler
+        fixture.wire.handler = { message ->
+            val id = (message["params"] as? JsonObject)?.text("threadId").orEmpty()
+            when (message.text("method")) {
+                "thread/read" -> fixture.wire.reply(
+                    message,
+                    json("thread" to if (id == "child") thread(id, "thread", childStatus) else thread(id, null)),
+                )
+
+                "thread/turns/list" -> fixture.wire.reply(
+                    message,
+                    json("data" to JsonArray(if (id == "thread") listOf(spawn("child")) else emptyList())),
+                )
+
+                else -> delegate(message)
+            }
+        }
+        val session = fixture.open()
+        session.feature(SendsPrompts).send(Prompt)
+        fixture.event("item/completed", "turnId" to "native-turn".json(), "item" to spawn("child").items().single())
+        fixture.event("turn/completed", "turn" to json("id" to "native-turn".json(), "status" to "completed".json()))
+        runCurrent()
+        session.close()
+        runCurrent()
+        val execution = fixture.wire.peers.single()
+        assertFalse(execution.isClosed)
+        childStatus = "idle"
+        advanceTimeBy(CHILD_RECHECK)
+        runCurrent()
+        assertTrue(execution.isClosed)
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `idle execution process kept for subagents retires after the retention limit`() = runTest {
+        val fixture = Fixture(this)
+        val delegate = fixture.wire.handler
+        fixture.wire.handler = { message ->
+            val id = (message["params"] as? JsonObject)?.text("threadId").orEmpty()
+            when (message.text("method")) {
+                "thread/read" -> fixture.wire.reply(
+                    message,
+                    json("thread" to if (id == "child") thread(id, "thread", "active") else thread(id, null)),
+                )
+
+                "thread/turns/list" -> fixture.wire.reply(
+                    message,
+                    json("data" to JsonArray(if (id == "thread") listOf(spawn("child")) else emptyList())),
+                )
+
+                else -> delegate(message)
+            }
+        }
+        val session = fixture.open()
+        session.feature(SendsPrompts).send(Prompt)
+        fixture.event("item/completed", "turnId" to "native-turn".json(), "item" to spawn("child").items().single())
+        fixture.event("turn/completed", "turn" to json("id" to "native-turn".json(), "status" to "completed".json()))
+        runCurrent()
+        session.close()
+        runCurrent()
+        val execution = fixture.wire.peers.single()
+        val reads = { fixture.wire.written.count { it.text("method") == "thread/read" } }
+        val before = reads()
+        advanceTimeBy(HALF_HOUR)
+        runCurrent()
+        assertFalse(execution.isClosed)
+        // Rechecks back off to the maximum interval instead of polling every few seconds.
+        assertTrue(reads() - before < HALF_HOUR / CodexSessionChildren.RECHECK_MILLIS)
+        advanceTimeBy(CodexSessionChildren.MAX_RETENTION_MILLIS)
+        runCurrent()
+        assertTrue(execution.isClosed)
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `release while a retention recheck is pending does not restart the retention period`() = runTest {
+        val fixture = Fixture(this)
+        val session = fixture.keptForActiveChild()
+        val execution = fixture.wire.peers.single()
+        advanceTimeBy(CodexSessionChildren.MAX_RETENTION_MILLIS - TEN_MINUTES)
+        runCurrent()
+        assertFalse(execution.isClosed)
+        // A lease attached and released in between is another release of the same idle period.
+        fixture.runtime.attach(session.ref, ResumeSessionRequest(fixture.target)).close()
+        runCurrent()
+        advanceTimeBy(2 * TEN_MINUTES)
+        runCurrent()
+        assertTrue(execution.isClosed)
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `retention period ends while the session is in use`() = runTest {
+        val fixture = Fixture(this)
+        val session = fixture.keptForActiveChild()
+        val execution = fixture.wire.peers.single()
+        advanceTimeBy(CodexSessionChildren.MAX_RETENTION_MILLIS - TEN_MINUTES)
+        runCurrent()
+        val lease = fixture.runtime.attach(session.ref, ResumeSessionRequest(fixture.target))
+        // The pending recheck fires while the session is in use and ends the period.
+        advanceTimeBy(2 * TEN_MINUTES)
+        runCurrent()
+        lease.close()
+        runCurrent()
+        advanceTimeBy(HALF_HOUR)
+        runCurrent()
+        assertFalse(execution.isClosed)
+        fixture.runtime.close()
+    }
+
+    /** A closed session whose idle execution process is kept for an active native subagent. */
+    private suspend fun Fixture.keptForActiveChild(): ActiveSession {
+        val delegate = wire.handler
+        wire.handler = { message ->
+            val id = (message["params"] as? JsonObject)?.text("threadId").orEmpty()
+            when (message.text("method")) {
+                "thread/read" -> wire.reply(
+                    message,
+                    json("thread" to if (id == "child") thread(id, "thread", "active") else thread(id, null)),
+                )
+
+                "thread/turns/list" -> wire.reply(
+                    message,
+                    json("data" to JsonArray(if (id == "thread") listOf(spawn("child")) else emptyList())),
+                )
+
+                else -> delegate(message)
+            }
+        }
+        val session = open()
+        session.feature(SendsPrompts).send(Prompt)
+        event("item/completed", "turnId" to "native-turn".json(), "item" to spawn("child").items().single())
+        event("turn/completed", "turn" to json("id" to "native-turn".json(), "status" to "completed".json()))
+        test.runCurrent()
+        session.close()
+        test.runCurrent()
+        assertFalse(wire.peers.single().isClosed)
+        return session
+    }
+
+    private fun spawn(child: String): JsonObject = Json.parseToJsonElement(
+        """{"id":"native-turn","status":"completed","itemsView":"full","items":[
+        {"id":"spawn","type":"subAgentActivity","kind":"started","agentThreadId":"$child"}]}""",
+    ).jsonObject
+
+    private fun JsonObject.items(): List<JsonObject> = array("items").map { it as JsonObject }
 
     @Test
     fun `noncanonical child replay stays empty and partial so saved transcripts survive`() = runTest {
@@ -179,5 +358,11 @@ class CodexSessionTreesTest {
         assertEquals(root, node.parent)
         assertEquals(SessionActivity.AwaitingUser, node.activity)
         assertEquals(SessionActivity.Unknown, thread("child", "root", "notLoaded").treeNode(root).activity)
+    }
+
+    private companion object {
+        const val CHILD_RECHECK = 5_001L
+        const val HALF_HOUR = 30 * 60 * 1_000L
+        const val TEN_MINUTES = 10 * 60 * 1_000L
     }
 }

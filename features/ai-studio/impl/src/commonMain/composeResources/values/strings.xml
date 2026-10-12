@@ -37,6 +37,7 @@
     <string name="sidebar_collapsed">Collapsed</string>
     <string name="sidebar_project_empty">No sessions yet</string>
 
+    <string name="session_awaiting_permission">Waiting for permission</string>
     <string name="session_running">Agent is working</string>
     <string name="session_unread">Unread</string>
     <string name="session_branch">Branch %1$s</string>
@@ -68,6 +69,12 @@
     <string name="environment_cloud">Cloud</string>
 
     <string name="composer_placeholder">Work with Heartbeat</string>
+    <string name="composer_suggestions">Composer suggestions</string>
+    <string name="suggestions_section_commands">Commands</string>
+    <string name="suggestions_section_engine_commands">Commands · %1$s</string>
+    <string name="suggestions_section_skills">Skills</string>
+    <string name="suggestions_section_engine_skills">Skills · %1$s</string>
+    <string name="suggestions_section_files">Project files</string>
     <string name="composer_effort_menu">Reasoning mode</string>
     <string name="composer_send">Send</string>
     <string name="composer_stop">Stop</string>
@@ -258,4 +265,7 @@
     <string name="session_waiting_event">Waiting for an event</string>
     <string name="session_checklist_ready">Ready</string>
     <string name="browser_mode">Browser</string>
+    <string name="harness_menu_section">Harnesses</string>
+    <string name="harness_menu_permanent">Active by its scope in this chat</string>
+    <string name="harness_connect_failed">The harness change was not applied to this chat. Try again.</string>
 </resources>

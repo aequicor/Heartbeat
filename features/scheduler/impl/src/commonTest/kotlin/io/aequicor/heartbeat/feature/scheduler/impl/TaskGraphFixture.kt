@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.spi.WakePrompt
 import io.aequicor.heartbeat.feature.scheduler.impl.data.BackgroundActionSlots
 import io.aequicor.heartbeat.feature.scheduler.impl.data.CommandOutcome
 import io.aequicor.heartbeat.feature.scheduler.impl.data.CommandRunner
+import io.aequicor.heartbeat.feature.scheduler.impl.data.ProfileBackgroundCapacity
 import io.aequicor.heartbeat.feature.scheduler.impl.data.TaskGraphDriver
 import io.aequicor.heartbeat.feature.scheduler.impl.data.TaskGraphMachine
 import kotlinx.coroutines.CompletableDeferred
@@ -93,6 +94,7 @@ internal class GraphCommands : CommandRunner {
 }
 
 internal class GraphHost : ScheduledTaskHost {
+    override var isWakeAdmissionSupported = true
     override val priority = 100
     var isAvailable = true
     override suspend fun owns(session: io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef) = isAvailable
@@ -125,7 +127,9 @@ internal class GraphHost : ScheduledTaskHost {
 internal class GraphFixture(scope: TestScope, val machine: GraphMachine = GraphMachine()) {
     val commands = GraphCommands()
     val host = GraphHost()
-    val slots = BackgroundActionSlots()
+    val slots = BackgroundActionSlots(
+        ProfileBackgroundCapacity(CapacitySpecMachine(), TestScopeHandle(scope.backgroundScope), MemoryJournal()),
+    )
     val toggles = Toggles()
     val driver = TaskGraphDriver(
         machine,

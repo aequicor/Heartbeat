@@ -1,0 +1,173 @@
+package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
+
+import androidx.room.RoomDatabase
+import io.aequicor.heartbeat.core.datastore.DataEvent
+import io.aequicor.heartbeat.core.datastore.DataStores
+import io.aequicor.heartbeat.core.datastore.DatabaseSpec
+import io.aequicor.heartbeat.core.datastore.KeyValueSpec
+import io.aequicor.heartbeat.core.datastore.KeyValueStore
+import io.aequicor.heartbeat.core.datastore.Retention
+import io.aequicor.heartbeat.core.datastore.StorageOwner
+import io.aequicor.heartbeat.core.datastore.StoreKey
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+class CodexTurnRecordsTest {
+    @Test
+    fun `stored correlation survives reopening and isolates the full session reference`() = runTest {
+        val stores = TurnStores()
+        val fixture = Fixture(this)
+        val session = fixture.open()
+        val records = StoredCodexTurnRecords(stores)
+        val journal = CodexTurnJournal(records, session.ref, session.route, "owner")
+        val turn = Turn(TurnId("logical"), Prompt.id, fixture.target)
+        val process = CodexExecutionOwner("launch", CodexProcessIdentity(123, "2026-10-06T00:00:00.123456789Z"))
+        journal.begin(turn, TrustLevel.Ask, process)
+        journal.bind(turn.id, "native")
+        val reopened = StoredCodexTurnRecords(stores)
+        assertEquals(turn, reopened.get(session.ref)?.active?.turn)
+        assertEquals("native", reopened.get(session.ref)?.active?.nativeId)
+        assertEquals(process, reopened.get(session.ref)?.active?.processOwner)
+        assertNull(reopened.get(session.ref.copy(source = SessionSourceId("another"))))
+        journal.finish(turn.id, TurnOutcome.Completed)
+        journal.bind(turn.id, "native")
+        assertNull(reopened.get(session.ref)?.active)
+        assertEquals(TurnOutcome.Completed, reopened.get(session.ref)?.last?.turn?.outcome)
+        assertEquals(process, reopened.get(session.ref)?.last?.processOwner)
+        assertFailsWith<EngineException> { journal.bind(turn.id, "different") }
+    }
+
+    @Test
+    fun `missing or corrupt required record fails closed without exposing its contents`() = runTest {
+        for (corrupt in listOf<String?>(null, "private damaged record")) {
+            val stores = TurnStores()
+            val fixture = Fixture(this)
+            val session = fixture.open()
+            val records = StoredCodexTurnRecords(stores)
+            val journal = CodexTurnJournal(records, session.ref, session.route, "owner")
+            journal.begin(Turn(TurnId("logical"), Prompt.id, fixture.target), TrustLevel.Ask)
+            val key = "turn_${codexTurnKey(session.ref)}"
+            if (corrupt == null) stores.values.remove(key) else stores.values[key] = corrupt
+            val restored = CodexTurnJournal(StoredCodexTurnRecords(stores), session.ref, session.route, "owner")
+            val failure = assertFailsWith<EngineException> { restored.restore() }
+            assertFalse(failure.toString().contains("private damaged record"))
+        }
+    }
+
+    @Test
+    fun `failed terminal write remains retryable and cannot publish a terminal record`() = runTest {
+        val stores = TurnStores()
+        val fixture = Fixture(this)
+        val session = fixture.open()
+        val records = StoredCodexTurnRecords(stores)
+        val journal = CodexTurnJournal(records, session.ref, session.route, "owner")
+        val turn = Turn(TurnId("logical"), Prompt.id, fixture.target)
+        journal.begin(turn, TrustLevel.Ask)
+        journal.bind(turn.id, "native")
+        stores.isFailing = true
+        assertFailsWith<EngineException> { journal.finish(turn.id, TurnOutcome.Cancelled) }
+        assertEquals(turn, records.get(session.ref)?.active?.turn)
+        assertNull(records.get(session.ref)?.last)
+        stores.isFailing = false
+        journal.finish(turn.id, TurnOutcome.Cancelled)
+        assertEquals(TurnOutcome.Cancelled, records.get(session.ref)?.last?.turn?.outcome)
+    }
+
+    @Test
+    fun `interrupted first write never leaves a required marker without its record`() = runTest {
+        val stores = TurnStores()
+        val fixture = Fixture(this)
+        val session = fixture.open()
+        val turn = Turn(TurnId("logical"), Prompt.id, fixture.target)
+        val journal = CodexTurnJournal(StoredCodexTurnRecords(stores), session.ref, session.route, "owner")
+        stores.failingPrefix = "turn_"
+        assertFailsWith<EngineException> { journal.begin(turn, TrustLevel.Ask) }
+        assertTrue(stores.values.keys.none { it.startsWith("required_") })
+        stores.failingPrefix = null
+        val reopened = CodexTurnJournal(StoredCodexTurnRecords(stores), session.ref, session.route, "owner")
+        assertNull(reopened.restore())
+        reopened.begin(turn, TrustLevel.Ask)
+        assertEquals(turn, reopened.restore()?.active?.turn)
+    }
+
+    @Test
+    fun `unresolved previous turn is a domain refusal distinct from an unavailable journal`() = runTest {
+        val stores = TurnStores()
+        val fixture = Fixture(this)
+        val session = fixture.open()
+        val journal = CodexTurnJournal(StoredCodexTurnRecords(stores), session.ref, session.route, "owner")
+        journal.begin(Turn(TurnId("first"), Prompt.id, fixture.target), TrustLevel.Ask)
+        val next = Turn(TurnId("next"), Prompt.id, fixture.target)
+        val refusal = assertFailsWith<EngineException> { journal.begin(next, TrustLevel.Ask) }
+        assertEquals(EngineFailure.Session(SessionFailureReason.Busy), refusal.failure)
+        assertEquals(
+            EngineFailure.Request(RequestFailureReason.Invalid, next.request),
+            journal.admit(next, TrustLevel.Ask, null, null),
+        )
+        stores.isFailing = true
+        val failure = assertFailsWith<EngineException> { journal.finish(TurnId("first"), TurnOutcome.Cancelled) }
+        assertEquals(EngineFailure.Session(SessionFailureReason.NotResumable), failure.failure)
+    }
+
+    @Test
+    fun `unowned restored request closes as unknown while an owned or fenced one never does`() = runTest {
+        val fixture = Fixture(this)
+        val session = fixture.open()
+        val records = MemoryCodexTurnRecords()
+        val journal = CodexTurnJournal(records, session.ref, session.route, "owner")
+        val owned = Turn(TurnId("owned"), Prompt.id, fixture.target)
+        val process = CodexExecutionOwner("launch", CodexProcessIdentity(123, "2026-10-06T00:00:00Z"))
+        journal.begin(owned, TrustLevel.Ask, process)
+        assertNull(journal.closeUnowned(Prompt.id, owned.id))
+        assertEquals(owned, records.get(session.ref)?.active?.turn)
+        journal.finish(owned.id, TurnOutcome.Completed)
+        val orphan = Turn(TurnId("orphan"), Prompt.id, fixture.target)
+        journal.begin(orphan, TrustLevel.Ask)
+        val closed = journal.closeUnowned(Prompt.id, orphan.id)
+        assertEquals(TurnOutcome.Unknown, closed?.turn?.outcome)
+        assertNull(records.get(session.ref)?.active)
+        assertEquals(closed, journal.closeUnowned(Prompt.id, orphan.id))
+    }
+}
+
+private class TurnStores : DataStores {
+    val values = mutableMapOf<String, Any>()
+    var isFailing = false
+    var failingPrefix: String? = null
+    override val owner: StorageOwner = StorageOwner.App
+    override fun filesDirectory(name: String): String = error("Unused")
+    override fun <T : RoomDatabase> database(spec: DatabaseSpec<T>): T = error("Unused")
+    override suspend fun fire(event: DataEvent) = Unit
+    override fun keyValue(spec: KeyValueSpec): KeyValueStore = object : KeyValueStore {
+        override val spec = spec
+
+        // The production key carries its type; this fake stores only values written using that key.
+        @Suppress("UNCHECKED_CAST")
+        override suspend fun <T : Any> get(key: StoreKey<T>): T? = values[key.name] as T?
+        override fun <T : Any> observe(key: StoreKey<T>): Flow<T?> = flowOf(null)
+        override suspend fun <T : Any> set(key: StoreKey<T>, value: T, retention: Retention) {
+            check(!isFailing && failingPrefix?.let { key.name.startsWith(it) } != true) { "Storage unavailable" }
+            values[key.name] = value
+        }
+        override suspend fun remove(key: StoreKey<*>) {
+            values.remove(key.name)
+        }
+        override suspend fun clear() = values.clear()
+    }
+}

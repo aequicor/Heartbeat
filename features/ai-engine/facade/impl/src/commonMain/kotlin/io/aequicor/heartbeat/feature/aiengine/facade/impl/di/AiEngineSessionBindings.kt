@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.SessionHooks
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ActiveSessionAssembler
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ActiveSessionHost
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ActiveSessionRegistry
@@ -46,13 +47,15 @@ object AiEngineSessionBindings {
 
     /** Rules shared by every handle. */
     @Provides
+    @Suppress("LongParameterList") // DI mirrors the policy dependencies; a wrapper would hide graph edges.
     fun policy(
         routes: RouteResolver,
         enabled: EnabledEngines,
         handles: ActiveSessionRegistry,
         context: FacadeContext,
         tools: ProfileAgentTools,
-    ): SessionPolicy = SessionPolicy(routes, enabled, handles, context, tools)
+        hooks: SessionHooks,
+    ): SessionPolicy = SessionPolicy(routes, enabled, handles, context, tools, hooks)
 
     /** Builds handles; native commands run in the profile scope. */
     @Provides
