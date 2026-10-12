@@ -157,3 +157,97 @@
 -dontwarn org.openpdf.text.**
 -dontwarn org.apache.tools.ant.**
 -dontwarn net.sourceforge.plantuml.ant.CheckZipTask,net.sourceforge.plantuml.ant.PlantUmlTask
+
+# Optional browser dependency integrations: enumerate missing types so new warnings still fail.
+
+# JOGL SWT and OpenAL backends are not used by the windowed Swing browser.
+# No SWT widgets or OpenAL audio engine are loaded by Heartbeat.
+-dontwarn com.jogamp.openal.AL
+-dontwarn com.jogamp.openal.ALC
+-dontwarn com.jogamp.openal.ALCConstants
+-dontwarn com.jogamp.openal.ALCcontext
+-dontwarn com.jogamp.openal.ALCdevice
+-dontwarn com.jogamp.openal.ALConstants
+-dontwarn com.jogamp.openal.ALExt
+-dontwarn com.jogamp.openal.ALFactory
+-dontwarn com.jogamp.openal.JoalVersion
+-dontwarn com.jogamp.openal.util.ALHelpers
+-dontwarn org.eclipse.swt.SWT
+-dontwarn org.eclipse.swt.SWTException
+-dontwarn org.eclipse.swt.graphics.Color
+-dontwarn org.eclipse.swt.graphics.GCData
+-dontwarn org.eclipse.swt.graphics.Point
+-dontwarn org.eclipse.swt.graphics.Rectangle
+-dontwarn org.eclipse.swt.internal.DPIUtil
+-dontwarn org.eclipse.swt.layout.FillLayout
+-dontwarn org.eclipse.swt.widgets.Canvas
+-dontwarn org.eclipse.swt.widgets.Composite
+-dontwarn org.eclipse.swt.widgets.Control
+-dontwarn org.eclipse.swt.widgets.Display
+-dontwarn org.eclipse.swt.widgets.Event
+-dontwarn org.eclipse.swt.widgets.Listener
+-dontwarn org.eclipse.swt.widgets.Scrollable
+-dontwarn org.eclipse.swt.widgets.Shell
+
+# jcefmaven extracts the pinned tar.gz with Commons Compress. XZ, Brotli, Zstd and
+# Pack200 are optional codecs in its POM and are never selected for the browser archive.
+-dontwarn com.github.luben.zstd.BufferPool
+-dontwarn com.github.luben.zstd.Zstd
+-dontwarn com.github.luben.zstd.ZstdInputStream
+-dontwarn com.github.luben.zstd.ZstdOutputStream
+-dontwarn org.brotli.dec.BrotliInputStream
+-dontwarn org.objectweb.asm.AnnotationVisitor
+-dontwarn org.objectweb.asm.Attribute
+-dontwarn org.objectweb.asm.ClassReader
+-dontwarn org.objectweb.asm.ClassVisitor
+-dontwarn org.objectweb.asm.FieldVisitor
+-dontwarn org.objectweb.asm.Label
+-dontwarn org.objectweb.asm.MethodVisitor
+-dontwarn org.objectweb.asm.Opcodes
+-dontwarn org.objectweb.asm.Type
+-dontwarn org.tukaani.xz.ARMOptions
+-dontwarn org.tukaani.xz.ARMThumbOptions
+-dontwarn org.tukaani.xz.DeltaOptions
+-dontwarn org.tukaani.xz.FilterOptions
+-dontwarn org.tukaani.xz.FinishableWrapperOutputStream
+-dontwarn org.tukaani.xz.IA64Options
+-dontwarn org.tukaani.xz.LZMA2InputStream
+-dontwarn org.tukaani.xz.LZMA2Options
+-dontwarn org.tukaani.xz.LZMAInputStream
+-dontwarn org.tukaani.xz.LZMAOutputStream
+-dontwarn org.tukaani.xz.MemoryLimitException
+-dontwarn org.tukaani.xz.PowerPCOptions
+-dontwarn org.tukaani.xz.SPARCOptions
+-dontwarn org.tukaani.xz.SingleXZInputStream
+-dontwarn org.tukaani.xz.UnsupportedOptionsException
+-dontwarn org.tukaani.xz.X86Options
+-dontwarn org.tukaani.xz.XZ
+-dontwarn org.tukaani.xz.XZInputStream
+-dontwarn org.tukaani.xz.XZOutputStream
+
+# Inherited SWT/ASM members cannot resolve without those optional superclasses.
+# Restrict these member warnings to the unused adapters, not all JOGL or archive code.
+-dontwarn com.jogamp.newt.swt.NewtCanvasSWT
+-dontwarn com.jogamp.opengl.swt.GLCanvas
+
+# JOGL's JavaFX canvas is another unused window backend. Some packaging JDKs include
+# JavaFX modules and others do not; the browser always creates the Swing/AWT surface.
+-dontwarn com.sun.javafx.tk.TKStage
+-dontwarn javafx.application.Platform
+-dontwarn javafx.beans.property.BooleanProperty
+-dontwarn javafx.beans.property.DoubleProperty
+-dontwarn javafx.beans.property.ReadOnlyObjectProperty
+-dontwarn javafx.beans.value.ChangeListener
+-dontwarn javafx.beans.value.ObservableValue
+-dontwarn javafx.event.Event
+-dontwarn javafx.event.EventHandler
+-dontwarn javafx.geometry.Bounds
+-dontwarn javafx.scene.Scene
+-dontwarn javafx.scene.canvas.Canvas
+-dontwarn javafx.stage.Window
+-dontwarn javafx.stage.WindowEvent
+-dontwarn com.jogamp.newt.javafx.NewtCanvasJFX
+
+-dontwarn org.apache.commons.compress.harmony.pack200.NewAttribute,org.apache.commons.compress.harmony.pack200.NewAttribute$ErrorAttribute
+-dontwarn org.apache.commons.compress.harmony.pack200.Pack200ClassReader
+-dontwarn org.apache.commons.compress.harmony.pack200.Segment$SegmentAnnotationVisitor
