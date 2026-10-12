@@ -110,7 +110,7 @@ class StudioCompactionModelTest {
 
     private class FakeCompactions(private val isQueued: Boolean = true) : StudioCompactionPort {
         val requests = mutableListOf<Pair<String, String?>>()
-        override val isAvailable: Flow<Boolean> = flowOf(true)
+        override val availability: Flow<Boolean> = flowOf(true)
 
         override suspend fun request(chatId: String, instructions: String?): Boolean {
             requests += chatId to instructions

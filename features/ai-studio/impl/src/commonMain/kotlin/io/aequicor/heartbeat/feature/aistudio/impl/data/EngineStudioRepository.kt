@@ -6,6 +6,7 @@ import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.binding
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
+import io.aequicor.heartbeat.core.datastore.StoreKey
 import io.aequicor.heartbeat.core.datastore.jsonKey
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
@@ -99,7 +100,8 @@ import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 internal val ChatSpec = KeyValueSpec("ai_studio_chats")
-internal val ChatsKey = jsonKey("chats", ListSerializer(StudioChatRecord.serializer()))
+internal val ChatsKey: StoreKey<List<StudioChatRecord>> =
+    jsonKey("chats", ListSerializer(StudioChatRecord.serializer()))
 
 /**
  * Persistent identity and projection; no credential material or opaque history cursors are stored.
@@ -218,8 +220,13 @@ internal class EngineStudioRepository(
         ::items,
         ::write,
         ::update,
-        handle = { id -> handlesLock.withLock { handles[id] } },
-        forget = { id, handle -> handlesLock.withLock { if (handles[id] === handle) handles.remove(id) } },
+        object : StudioCarriedHandles {
+            override suspend fun handle(id: String): ActiveSession? = handlesLock.withLock { handles[id] }
+
+            override suspend fun forget(id: String, closed: ActiveSession) {
+                handlesLock.withLock { if (handles[id] === closed) handles.remove(id) }
+            }
+        },
     )
     private val mutableState = MutableStateFlow(StudioRuntimeState())
     override val state: StateFlow<StudioRuntimeState> = mutableState.asStateFlow()

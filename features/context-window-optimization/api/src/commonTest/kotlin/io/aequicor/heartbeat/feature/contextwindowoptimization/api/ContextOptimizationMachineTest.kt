@@ -142,8 +142,8 @@ class ContextOptimizationMachineTest {
             intent = Public.RolledOver(Session, Next),
             to = Ready(ledgers = mapOf(Next to ledger), ledgerRevision = 2),
             effects = listOf(
-                ContextOptimizationEffect.SaveLedger(Session, null, 2),
                 ContextOptimizationEffect.SaveLedger(Next, ledger, 2),
+                ContextOptimizationEffect.SaveLedger(Session, null, 2),
             ),
         )
         spec.assertTransition(

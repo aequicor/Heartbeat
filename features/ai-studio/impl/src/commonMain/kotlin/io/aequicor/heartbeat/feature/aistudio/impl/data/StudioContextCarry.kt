@@ -9,7 +9,7 @@ import kotlinx.coroutines.CancellationException
 /**
  * Carries a studio conversation across changes of its native context, under the chat's run reservation and
  * conversation lock. The repository supplies its storage: the record and the items of a conversation, their writes,
- * the open native `handle` of a conversation and `forget`, which drops a closed handle.
+ * and its open native [handles].
  */
 internal class StudioContextCarry(
     private val locks: StudioConversationLocks,
@@ -17,8 +17,7 @@ internal class StudioContextCarry(
     private val items: suspend (String) -> List<SessionItem>,
     private val write: suspend (String, (List<SessionItem>) -> List<SessionItem>) -> Unit,
     private val update: suspend (String, StudioChatRecord.() -> StudioChatRecord) -> Unit,
-    private val handle: suspend (String) -> ActiveSession?,
-    private val forget: suspend (String, ActiveSession) -> Unit,
+    private val handles: StudioCarriedHandles,
 ) {
     private val log = Log.tag("StudioContextCarry")
 
@@ -43,10 +42,10 @@ internal class StudioContextCarry(
      * keeps the handle, now closing, for the retried close the next open runs before a new session is created.
      */
     private suspend fun detach(id: String) {
-        val active = handle(id) ?: return
+        val active = handles.handle(id) ?: return
         try {
             active.close()
-            forget(id, active)
+            handles.forget(id, active)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -68,4 +67,13 @@ internal class StudioContextCarry(
             log.w(e) { "continuation brief after a native compaction could not be stored" }
         }
     }
+}
+
+/** The open native handles of studio conversations, as the context carry sees them. */
+internal interface StudioCarriedHandles {
+    /** The open native handle of conversation [id], if any. */
+    suspend fun handle(id: String): ActiveSession?
+
+    /** Drops [closed] from conversation [id] once it is closed; a newer handle is kept. */
+    suspend fun forget(id: String, closed: ActiveSession)
 }

@@ -38,7 +38,8 @@ public data class LedgerUpdate(
     val next: List<String>? = null,
     val facts: List<String> = emptyList(),
 ) {
-    override fun toString(): String = "LedgerUpdate(done=${done.size}, next=${next?.size}, facts=${facts.size})"
+    override fun toString(): String =
+        "LedgerUpdate(done=${done.size}, next=${next?.size?.toString() ?: "unchanged"}, facts=${facts.size})"
 }
 
 /**

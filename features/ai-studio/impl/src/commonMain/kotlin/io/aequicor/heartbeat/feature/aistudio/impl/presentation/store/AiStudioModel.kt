@@ -178,7 +178,7 @@ class AiStudioModel(
                     entries.showsAttachments.collect { updateState { copy(isAttachmentsEnabled = it) } }
                 }
                 launch { entries.showsRemember.collect { updateState { copy(isRememberEnabled = it) } } }
-                launch { compactions.isAvailable.collect { updateState { copy(isCompactEnabled = it) } } }
+                launch { compactions.availability.collect { updateState { copy(isCompactEnabled = it) } } }
                 launch { compactions.feed.collect { updateState { copy(feedCollapse = it) } } }
                 launch { entries.showsOrganism.collect { updateState { copy(isOrganismEnabled = it) } } }
                 launch { harnessSelection.observe(pipeline) }
@@ -479,7 +479,8 @@ class AiStudioModel(
             is AiStudioScreenIntent.CompactContext -> {
                 var chat: String? = null
                 withState { chat = panes.firstOrNull { it.id == intent.paneId }?.sessionId }
-                val isQueued = chat?.let { compactions.request(it, null) } == true
+                val id = chat
+                val isQueued = id != null && compactions.request(id, null)
                 if (!isQueued) updateState { copy(failedPanes = (failedPanes + intent.paneId).toImmutableSet()) }
             }
         }

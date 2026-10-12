@@ -48,11 +48,16 @@ internal class ContextOptimizationEffects(
     private var savedRevision = -1L
     private val savedLedgerRevisions = mutableMapOf<SessionRef, Long>()
 
+    // When the stored ledgers could not be read at all, this run never replaces them with its own.
+    private var isLedgerStoreUnreadable = false
+
     override suspend fun handle(effect: ContextOptimizationEffect, machine: EffectScope<ContextOptimizationIntent>) {
         when (effect) {
             ContextOptimizationEffect.Load -> {
                 val stored = loadOrNull("settings") { settings.load() }
-                val ledgers = loadOrNull("ledgers") { ledgers.load() }.orEmpty()
+                val loaded = loadOrNull("ledgers") { ledgers.load() }
+                isLedgerStoreUnreadable = loaded == null
+                val ledgers = loaded.orEmpty()
                 log.i { "context settings loaded: stored=${stored != null} ledgers=${ledgers.size}" }
                 machine.send(ContextOptimizationIntent.Internal.Loaded(stored, ledgers))
             }
@@ -72,7 +77,9 @@ internal class ContextOptimizationEffects(
 
             is ContextOptimizationEffect.SaveLedger -> saving.withLock {
                 val saved = savedLedgerRevisions[effect.session] ?: -1L
-                if (effect.revision <= saved) {
+                if (isLedgerStoreUnreadable) {
+                    log.w { "ledger save skipped: the stored ledgers could not be read" }
+                } else if (effect.revision <= saved) {
                     log.v { "stale ledger save skipped: ${effect.revision} <= $saved" }
                 } else {
                     val ledger = effect.ledger

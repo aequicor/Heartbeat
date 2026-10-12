@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.flowOf
 /** Context compaction of studio chats, offered while context optimization is enabled. */
 interface StudioCompactionPort {
     /** Whether the composer offers `/compact` and the context indicator its action. */
-    val isAvailable: Flow<Boolean>
+    val availability: Flow<Boolean>
 
     /** How the chat feed collapses agent work; only the display changes. */
     val feed: Flow<StudioFeedCollapse> get() = flowOf(StudioFeedCollapse())
@@ -19,7 +19,7 @@ interface StudioCompactionPort {
 
     /** Without context optimization nothing is offered. */
     object None : StudioCompactionPort {
-        override val isAvailable: Flow<Boolean> = flowOf(false)
+        override val availability: Flow<Boolean> = flowOf(false)
         override suspend fun request(chatId: String, instructions: String?): Boolean = false
     }
 }

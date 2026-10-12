@@ -111,7 +111,7 @@ internal data class PaneContent(
     val isCompactOffered: Boolean get() = isCompactEnabled && pane.sessionId != null
 
     /** The chat is offered compaction and is idle, so its context can be compacted now. */
-    val canCompact: Boolean get() = isCompactOffered && session?.isRunning != true
+    val isCompactReady: Boolean get() = isCompactOffered && session?.isRunning != true
 
     /** A descendant view has no execution controls; root ownership remains unchanged. */
     val isNativeChild: Boolean get() = nativeTree?.sessions?.any {

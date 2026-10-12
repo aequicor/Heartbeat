@@ -74,8 +74,9 @@ public val ContextOptimizationMachineSpec: ContextOptimizationSpec =
             }
             on<Public.RolledOver>(guard = { intent.old != intent.new }) {
                 stay { state.rolledOver(intent.old, intent.new) }
-                effect { state.movedLedger(intent.old, intent.new)?.ledgerSaved(intent.old) }
+                // The new record is written before the old one is deleted, so an interruption never loses the ledger.
                 effect { state.movedLedger(intent.old, intent.new)?.ledgerSaved(intent.new) }
+                effect { state.movedLedger(intent.old, intent.new)?.ledgerSaved(intent.old) }
             }
             on<Public.SessionClosed> {
                 stay { state.without(intent.session) }

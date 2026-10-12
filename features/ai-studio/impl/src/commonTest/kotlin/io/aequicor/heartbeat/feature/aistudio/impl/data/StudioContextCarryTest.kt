@@ -125,8 +125,13 @@ class StudioContextCarryTest {
         items = items,
         write = { _, change -> stored = change(stored) },
         update = { _, change -> record = record.change() },
-        handle = { handle },
-        forget = { _, closed -> if (handle === closed) handle = null },
+        handles = object : StudioCarriedHandles {
+            override suspend fun handle(id: String): ActiveSession? = handle
+
+            override suspend fun forget(id: String, closed: ActiveSession) {
+                if (handle === closed) handle = null
+            }
+        },
     )
 
     private fun rollover() = StudioTurnRequest(

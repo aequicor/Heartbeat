@@ -100,7 +100,7 @@ internal class StudioCompactions(
     /** Host-started continuations of each chat since its last other prompt turn; bounds a compaction loop. */
     private val continuations = MutableStateFlow(emptyMap<String, Int>())
 
-    override val isAvailable: Flow<Boolean> get() = toggles.observe(ContextOptimizationEnabled)
+    override val availability: Flow<Boolean> get() = toggles.observe(ContextOptimizationEnabled)
 
     override val feed: Flow<StudioFeedCollapse>
         get() = combine(toggles.observe(ContextOptimizationEnabled), view.state) { isEnabled, state ->
@@ -195,7 +195,10 @@ internal class StudioCompactions(
         val result = try {
             val compaction = (view.state.value as? ContextOptimizationState.Ready)?.running?.get(session)
             val chat = chats().firstOrNull { it.ref == session }?.takeIf { it.isCompactable }
-            log.i { "run compaction method=${compaction?.method} origin=${compaction?.origin} chat=${chat != null}" }
+            log.i {
+                "run compaction method=${compaction?.method ?: "none"} " +
+                    "origin=${compaction?.origin ?: "none"} chat=${chat != null}"
+            }
             if (compaction == null || chat == null) {
                 CompactionResult.Unsupported
             } else {

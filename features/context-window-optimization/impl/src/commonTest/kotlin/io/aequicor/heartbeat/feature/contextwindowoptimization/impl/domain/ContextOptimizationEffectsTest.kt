@@ -65,6 +65,19 @@ class ContextOptimizationEffectsTest {
     }
 
     @Test
+    fun `ledgers that could not be read are never replaced by this run`() = runTest {
+        ledgers.rows[One] = Ledger
+        ledgers.failure = IllegalStateException("broken database")
+        effects.handle(ContextOptimizationEffect.Load, scope)
+
+        val newer = Ledger.updated(LedgerUpdate(done = listOf("#2")), At)
+        effects.handle(ContextOptimizationEffect.SaveLedger(One, newer, revision = 1), scope)
+
+        assertEquals(mapOf(One to Ledger), ledgers.rows)
+        assertEquals(emptyList(), ledgers.writes)
+    }
+
+    @Test
     fun `a ledger save writes only its session and drops a stale one`() = runTest {
         ledgers.rows[Two] = Ledger
         val newer = Ledger.updated(LedgerUpdate(done = listOf("#2")), At)

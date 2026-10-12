@@ -61,7 +61,7 @@ public sealed interface ContextOptimizationIntent : MachineIntent {
             }
 
             override fun toString(): String =
-                "Compact(origin=$origin, method=$method, instructions=${instructions?.length ?: 0})"
+                "Compact(origin=$origin, method=${method ?: "default"}, instructions=${instructions?.length ?: 0})"
         }
 
         /**

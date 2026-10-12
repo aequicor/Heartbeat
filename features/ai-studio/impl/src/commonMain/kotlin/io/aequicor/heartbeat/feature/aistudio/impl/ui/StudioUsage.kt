@@ -95,7 +95,7 @@ private fun CompactButton(content: PaneContent, onClick: () -> Unit) {
         text = stringResource(Res.string.usage_compact),
         onClick = onClick,
         style = HbButtonStyle.Secondary,
-        enabled = content.canCompact,
+        enabled = content.isCompactReady,
         modifier = Modifier.testTag("compact-${content.pane.id}"),
     )
 }
