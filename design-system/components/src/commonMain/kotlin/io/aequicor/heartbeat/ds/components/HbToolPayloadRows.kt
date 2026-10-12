@@ -14,7 +14,7 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 
-/** One bounded payload row with no vertical scroll owner of its own. */
+/** One prepared payload row; oversized Markdown tables use their own bounded viewport. */
 @Composable
 internal fun HbToolPayloadRow(
     row: HbToolDisplayRow,
@@ -87,7 +87,7 @@ internal data class HbToolDisplayRow(
 
 internal enum class HbToolSection { Details, Console, Diff }
 
-/** Parses once during preparation; Markdown already chunks paragraphs, fences and table cells. */
+/** Parses once during preparation; Markdown chunks prose/code and keeps each table in one shared viewport. */
 internal fun prepareToolRows(blocks: ImmutableList<HbToolBlock>): ImmutableList<HbToolDisplayRow> =
     blocks.flatMap { block ->
         val content = when (block) {

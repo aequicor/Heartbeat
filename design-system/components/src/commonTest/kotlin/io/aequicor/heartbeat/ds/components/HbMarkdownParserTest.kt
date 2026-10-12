@@ -59,7 +59,7 @@ class HbMarkdownParserTest {
     }
 
     @Test
-    fun `lists quotes and table cells remain separate lazy rows`() {
+    fun `lists and quotes stay lazy while a table owns all its rows`() {
         val blocks = parseHbMarkdown(
             "1. First\n   - Nested\n\n> A *quote*\n\n| Name | Result |\n| --- | --- |\n| parser | **ready** |",
         )
@@ -67,11 +67,30 @@ class HbMarkdownParserTest {
         assertEquals("•", blocks[1].marker)
         assertEquals(1, blocks[1].level)
         assertEquals(HbMarkdownBlockKind.Quote, blocks[2].kind)
-        val table = blocks.filter { it.kind == HbMarkdownBlockKind.TableRow }
-        assertEquals(2, table.size)
-        assertTrue(table[0].isTableHeader)
-        assertEquals(listOf("Name", "Result"), table[0].cells.map { it.text })
-        assertEquals("ready", table[1].cells[1].spanText(HbMarkdownStyle.Bold))
+        val table = blocks.single { it.kind == HbMarkdownBlockKind.Table }
+        assertEquals(2, table.tableRows.size)
+        assertEquals(listOf("Name", "Result"), table.tableRows[0].cells.map { it.text })
+        assertEquals("ready", table.tableRows[1].cells[1].spanText(HbMarkdownStyle.Bold))
+    }
+
+    @Test
+    fun `table keeps its identity during streaming and preserves long formatted cells`() {
+        val text = "important ".repeat(600).trimEnd()
+        val source = "| Name | Result |\n| --- | --- |\n| **$text** | *pending* |"
+        val before = parseHbMarkdown(source).single()
+        val after = parseHbMarkdown("$source\n| next | `done` |").single()
+        assertEquals(before.id, after.id)
+        assertEquals(before.tableRows, after.tableRows.take(before.tableRows.size))
+        assertEquals(
+            text,
+            after.tableRows.filter { it.index == 1 }.joinToString("") {
+                it.cells[0].spanText(HbMarkdownStyle.Bold)
+            },
+        )
+        assertTrue(after.tableRows.all { row -> row.cells.all { it.text.length <= MARKDOWN_CHUNK_CHARACTERS } })
+        assertEquals("pending", after.tableRows[1].cells[1].spanText(HbMarkdownStyle.Italic))
+        assertEquals("done", after.tableRows.last().cells[1].spanText(HbMarkdownStyle.Code))
+        assertEquals(2, parseHbMarkdown("$source\n\n$source").map { it.id }.toSet().size)
     }
 
     @Test
