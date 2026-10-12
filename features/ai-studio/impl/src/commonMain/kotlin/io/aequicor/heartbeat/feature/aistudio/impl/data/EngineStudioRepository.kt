@@ -30,10 +30,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
@@ -134,7 +132,16 @@ internal data class StudioChatRecord(
     val organismId: String? = null,
     /** Durable helper marker, also present for helpers with no caller. */
     val helper: StudioHelperIdentity? = null,
-)
+    /** Native sessions this chat continued from after rollovers, oldest first; see `StudioRollover`. */
+    val previousRefs: List<SessionRef> = emptyList(),
+    /** Number of rollovers; names the frozen transcript segments. */
+    val contextSegment: Int = 0,
+    /** Essence of the previous session for the first accepted turn of the next one; user data, never logged. */
+    val pendingSeed: String? = null,
+) {
+    /** Whether [session] is this chat's current or an earlier native session. */
+    fun owns(session: SessionRef): Boolean = ref == session || session in previousRefs
+}
 
 /** The profile owns accepted turns, handles and transcript projection; screens only observe. */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -285,7 +292,7 @@ internal class EngineStudioRepository(
 
     override suspend fun sessionIdOf(ref: SessionRef): String? {
         log.d { "sessionIdOf engine=${ref.engine.value} source=${ref.source.value}" }
-        return lock.withLock { store.get(ChatsKey).orEmpty().firstOrNull { record -> record.ref == ref }?.id }
+        return lock.withLock { store.get(ChatsKey).orEmpty().firstOrNull { record -> record.owns(ref) }?.id }
     }
 
     override suspend fun defaults(): RunSettings {
@@ -425,6 +432,7 @@ internal class EngineStudioRepository(
     }
 
     override suspend fun executeRun(request: StudioTurnRequest): RunOutcome {
+        if (request.isRollover) return rollover(request.id)
         log.i { "Execute the reserved native request" }
         val admitted = helperAdmission.prepare(record(request.id), request)
         try {
@@ -697,18 +705,8 @@ internal class EngineStudioRepository(
         optionId: String,
         answer: StudioPermissionAnswer?,
     ) {
-        val active = handlesLock.withLock { handles[sessionId] }
-            ?: rejectPermission("no open native session", requestId, optionId)
-        val pending = active.state.value as? ActiveSessionState.AwaitingUserAction
-            ?: rejectPermission("the session no longer awaits a decision", requestId, optionId)
-        val request = pending.requests.firstOrNull { it.id.value == requestId }
-            ?: rejectPermission("the request is no longer pending", requestId, optionId)
-        val option = request.options.firstOrNull { it.id.value == optionId }
-            ?: rejectPermission("the option is not offered", requestId, optionId)
         log.i { "Responding to pending engine permission" }
-        active.features.requireFeature(
-            RequestsPermissions,
-        ).respond(PermissionDecision(request.turn, request.id, option.id, answer?.toFacade()))
+        handlesLock.withLock { handles[sessionId] }.respondStudioPermission(requestId, optionId, answer)
     }
 
     /** Fails the answer so the machine shows the request again instead of hiding it forever. */
@@ -741,6 +739,21 @@ internal class EngineStudioRepository(
             }
         }
     }
+
+    /**
+     * Freezes the transcript and detaches the native session, under the chat's run reservation and conversation lock;
+     * the next turn creates a new session and receives the essence of this one. The old native session is kept.
+     */
+    private suspend fun rollover(id: String): RunOutcome = conversationLocks.withLock(id) {
+        val record = record(id).takeIf { it.isRolloverAllowed } ?: return@withLock RunOutcome.Failed
+        val seed = rolloverSeed(items(id))
+        write(id) { it.frozen(record.contextSegment + 1) }
+        update(id) { rolledOver(seed) }
+        handlesLock.withLock { handles.remove(id) }?.close()
+        RunOutcome.Completed
+    }
+
+    override suspend fun consumeSeed(id: String) = update(id) { copy(pendingSeed = null) }.also { log.d { "seed" } }
 
     /** Closes under the conversation lock, so a concurrent open never receives a closing handle. */
     private suspend fun release(id: String) = conversationLocks.withLock(id) {
@@ -783,10 +796,7 @@ internal class EngineStudioRepository(
         transcripts.replace(id, change(stored), previousItems = stored)
     }
 
-    override fun newMessageId(): String {
-        log.d { "Allocate message identity" }
-        return Uuid.random().toString()
-    }
+    override fun newMessageId(): String = Uuid.random().toString().also { log.d { "Allocate message identity" } }
     override suspend fun append(sessionId: String, message: StudioMessage) {
         log.w { "Rejected local transcript append" }
         error("Native history owns transcript writes")
@@ -897,11 +907,6 @@ internal fun ActiveSession.configurationModel(fallback: ModelId?): ModelId? =
 /** Trust level of a turn on [target]: only engines applying trust levels receive one. */
 internal fun ApprovalMode.trustFor(offered: List<StudioModel>, target: EngineTarget): TrustLevel? =
     toTrust().takeIf { offered.isTrustSupported(target) }
-
-private fun rejectPermission(reason: String, requestId: String, optionId: String): Nothing {
-    Log.tag("EngineStudio").w { "Permission answer rejected: $reason requestId=$requestId optionId=$optionId" }
-    error("Permission answer rejected: $reason")
-}
 
 internal fun ApprovalMode.toTrust(): TrustLevel = when (this) {
     ApprovalMode.Ask -> TrustLevel.Ask

@@ -35,6 +35,7 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimi
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationMachineKey
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationState
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationView
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextRolloverEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.PendingCompaction
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CancellationException
@@ -95,9 +96,12 @@ internal class StudioCompactions(
         if (request.compaction != null || outcome == TurnOutcome.Cancelled) return
         if (!toggles.get(ContextOptimizationEnabled) || !toggles.get(AutoCompactionEnabled)) return
         val usage = (active.features.resolve(SessionContextUsage) as? FeatureAccess.Available)?.feature?.state?.value
+        val isRollover = toggles.get(
+            ContextRolloverEnabled,
+        ) && chats().any { it.id == request.id && it.isRolloverAllowed }
         val support = CompactionSupport(
             isNative = active.features.resolve(CompactsContext) is FeatureAccess.Available,
-            isRollover = false,
+            isRollover = isRollover,
         )
         log.v { "report a settled turn for automatic compaction: usage=${usage != null}" }
         val settled = ContextOptimizationIntent.Public.TurnSettled(active.ref, usage, support)
@@ -130,10 +134,17 @@ internal class StudioCompactions(
         }
         log.i { "compaction finished: $result" }
         machines.send(ContextOptimizationMachineKey, ContextOptimizationIntent.Public.Finished(session, result))
+        if (compaction.method == CompactionMethod.Rollover && result == CompactionResult.Compacted) {
+            // The old native session is no longer this chat's context; the next one starts with fresh marks.
+            machines.send(ContextOptimizationMachineKey, ContextOptimizationIntent.Public.SessionClosed(session))
+        }
     }
 
     private suspend fun compact(chat: StudioChatRecord, compaction: PendingCompaction): CompactionResult {
-        if (compaction.method == CompactionMethod.Rollover) return CompactionResult.Unsupported
+        val isRollover = compaction.method == CompactionMethod.Rollover
+        if (isRollover && (!chat.isRolloverAllowed || !toggles.get(ContextRolloverEnabled))) {
+            return CompactionResult.Unsupported
+        }
         val settings = hostRunSettings(chat, runtime.state.value.configurations[chat.id]?.applied, runtime.defaults())
         val request = StudioTurnRequest(
             chat.id,
@@ -141,7 +152,8 @@ internal class StudioCompactions(
             settings = settings,
             kind = WorktreeRunKind.Coding,
             request = RequestId("compact-${Uuid.random()}"),
-            compaction = ContextCompaction(compaction.instructions),
+            compaction = ContextCompaction(compaction.instructions).takeUnless { isRollover },
+            isRollover = isRollover,
         )
         val outcome = runs.run(host, request, waitForIdle = true)
         return if (outcome == RunOutcome.Completed) CompactionResult.Compacted else CompactionResult.Failed

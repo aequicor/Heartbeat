@@ -89,7 +89,7 @@ class StudioCompactionsTest {
     }
 
     @Test
-    fun `foreign sessions are left to their hosts and rollover is not run yet`() = runTest {
+    fun `foreign sessions are left to their hosts and a rollover runs as a reserved run`() = runTest {
         val fixture = Fixture(this)
         val job = launch { fixture.compactions.run() }
 
@@ -99,9 +99,14 @@ class StudioCompactionsTest {
         )
         runCurrent()
 
-        assertTrue(fixture.executed.isEmpty())
+        val rollover = fixture.executed.single()
+        assertTrue(rollover.isRollover && rollover.compaction == null)
         assertEquals<List<MachineIntent>>(
-            listOf(Public.Claim(Chat), Public.Finished(Chat, CompactionResult.Unsupported)),
+            listOf(
+                Public.Claim(Chat),
+                Public.Finished(Chat, CompactionResult.Compacted),
+                Public.SessionClosed(Chat),
+            ),
             fixture.registry.sent,
         )
         job.cancel()
@@ -112,6 +117,7 @@ class StudioCompactionsTest {
         val fixture = Fixture(this)
         val usage = ContextUsage(90, 100)
 
+        runCurrent()
         fixture.compactions.settled(runRequest("prompt"), Active(usage), TurnOutcome.Completed)
         fixture.compactions.settled(
             runRequest("compact").copy(compaction = ContextCompaction()),
@@ -120,7 +126,7 @@ class StudioCompactionsTest {
         )
 
         assertEquals<List<MachineIntent>>(
-            listOf(Public.TurnSettled(Chat, usage, CompactionSupport(isNative = true, isRollover = false))),
+            listOf(Public.TurnSettled(Chat, usage, CompactionSupport(isNative = true, isRollover = true))),
             fixture.registry.sent,
         )
     }

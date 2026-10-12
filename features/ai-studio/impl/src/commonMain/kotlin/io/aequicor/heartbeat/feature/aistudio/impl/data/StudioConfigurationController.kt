@@ -69,6 +69,9 @@ internal interface StudioConfigurationAccess {
     suspend fun validateConfigurationTarget(target: EngineTarget)
     fun configurationModels(): List<StudioModel>
     fun configurationState(id: String, state: StudioSessionConfiguration)
+
+    /** The first turn of a session started by a rollover accepted the essence of the previous one. */
+    suspend fun consumeSeed(id: String) = Unit
 }
 
 /** Applies profile-owned changes independently of the screen and publishes correlated feedback. */

@@ -53,14 +53,17 @@ internal class StudioConfiguredSubmission(
             efforts.state.value.effectiveEffort(target, models().reasoningEfforts(target))
         }
         log.i { "Submitting prompt length=${request.prompt.length} trust=${trust ?: "default"}" }
+        val seed = record.pendingSeed.takeIf { request.compaction == null }
+        val seeded = if (seed == null) request else request.copy(directives = listOf(seed) + request.directives)
         val constrained = if (record.helper == null) {
-            request
+            seeded
         } else {
-            request.copy(directives = request.directives + HELPER_DIRECTIVE)
+            seeded.copy(directives = seeded.directives + HELPER_DIRECTIVE)
         }
         val submitted = send(active, constrained, effort) {
             helperPolicy.trust(record, trust, configurations)
         }
+        if (seed != null) access.consumeSeed(id)
         confirmConfiguration(
             access,
             id,

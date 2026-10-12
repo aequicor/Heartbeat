@@ -97,6 +97,8 @@ internal data class StudioTurnRequest(
     val submissionId: String = "",
     /** A native context compaction instead of [prompt]; it runs no tools, so it needs no worktree isolation. */
     val compaction: ContextCompaction? = null,
+    /** Continues the chat in a new native session instead of running a turn; see `StudioRollover`. */
+    val isRollover: Boolean = false,
 ) {
     override fun toString(): String = "StudioTurnRequest(id=$id, kind=$kind, attachments=${attachments.size})"
 }
