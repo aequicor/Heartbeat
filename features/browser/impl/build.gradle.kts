@@ -70,6 +70,7 @@ kotlin {
             implementation(libs.jcef.gluegen)
         }
         jvmTest.dependencies {
+            implementation(libs.jna.platform)
             implementation(libs.kotlinx.coroutinesSwing)
             browserNativeBundle?.let { runtimeOnly(it) }
             implementation(libs.compose.uiTest)
