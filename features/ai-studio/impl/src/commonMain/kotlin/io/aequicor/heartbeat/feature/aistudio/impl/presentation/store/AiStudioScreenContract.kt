@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioFeedCollapse
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
@@ -125,6 +126,8 @@ data class AiStudioScreenState(
     val isRememberEnabled: Boolean = false,
     /** Whether the composer offers `/compact` and the context indicator its compaction action. */
     val isCompactEnabled: Boolean = false,
+    /** How the feed collapses agent work. */
+    val feedCollapse: StudioFeedCollapse = StudioFeedCollapse(),
     /** Whether a new chat may be started as an organic AI organism. */
     val isOrganismEnabled: Boolean = false,
     /** Harnesses offered in the "+" menu, chat connections and choices of new chats. */

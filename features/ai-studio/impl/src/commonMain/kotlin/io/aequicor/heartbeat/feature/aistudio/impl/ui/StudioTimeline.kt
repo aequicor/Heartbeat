@@ -52,6 +52,7 @@ internal data class TimelineLabels(
     val learning: LearningLabels? = null,
     val compacted: String = "Context compacted",
     val rolledOver: String = "Continued in a new session",
+    val collapsedTools: String = "%1${'$'}d tool calls",
 )
 
 /** Failed-run notices, one per [FailureUi]. */
@@ -376,6 +377,14 @@ private fun ReplyPartUi.toHb(labels: TimelineLabels, isStreaming: Boolean): HbMe
     is ReplyPartUi.Text -> HbMessagePart.Text(id, text)
 
     is ReplyPartUi.Tool -> HbMessagePart.Tool(tool.toHb(labels))
+
+    is ReplyPartUi.CollapsedTools -> HbMessagePart.Tool(
+        HbToolCall(
+            id = id,
+            title = fill(labels.collapsedTools, count),
+            status = if (isRunning) HbToolStatus.Running else HbToolStatus.Complete,
+        ),
+    )
 
     is ReplyPartUi.Reasoning -> HbMessagePart.Tool(
         HbToolCall(

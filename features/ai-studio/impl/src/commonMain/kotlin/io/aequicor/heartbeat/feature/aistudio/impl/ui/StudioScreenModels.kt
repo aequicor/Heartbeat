@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.attachmentSupport
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.collapsed
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.selectedNative
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
@@ -160,7 +161,7 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         session = session,
         project = project(pane.projectId ?: session?.projectId),
         projects = projects,
-        transcript = transcriptOf(pane.sessionId, session),
+        transcript = transcriptOf(pane.sessionId, session)?.collapsed(feedCollapse),
         isFocused = pane.id == focusedPaneId,
         isStopping = session != null && session.id in stopping,
         elapsed = if (session?.isRunning == true) startedAt?.let { (now - it).coerceAtLeast(Duration.ZERO) } else null,

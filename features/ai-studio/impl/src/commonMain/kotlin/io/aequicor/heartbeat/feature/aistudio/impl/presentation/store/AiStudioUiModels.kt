@@ -152,6 +152,9 @@ sealed interface ReplyPartUi {
     data class Tool(val tool: ToolUi) : ReplyPartUi {
         override val id: String get() = tool.id
     }
+
+    /** [count] tool calls of the reply shown as one line while the feed collapses agent work. */
+    data class CollapsedTools(override val id: String, val count: Int, val isRunning: Boolean) : ReplyPartUi
 }
 
 /** Screen-level class of a failed run, mirroring the domain failure kind. */

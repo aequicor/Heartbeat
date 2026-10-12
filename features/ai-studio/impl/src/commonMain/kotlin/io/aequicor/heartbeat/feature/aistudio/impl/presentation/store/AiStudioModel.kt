@@ -179,6 +179,7 @@ class AiStudioModel(
                 }
                 launch { entries.showsRemember.collect { updateState { copy(isRememberEnabled = it) } } }
                 launch { compactions.isAvailable.collect { updateState { copy(isCompactEnabled = it) } } }
+                launch { compactions.feed.collect { updateState { copy(feedCollapse = it) } } }
                 launch { entries.showsOrganism.collect { updateState { copy(isOrganismEnabled = it) } } }
                 launch { harnessSelection.observe(pipeline) }
                 launch { organisms.observe(pipeline) }

@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioCompactionPort
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioFeedCollapse
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.AutoCompactionEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.CompactionMethod
@@ -85,6 +86,16 @@ internal class StudioCompactions(
     private val store by lazy { stores.keyValue(ChatSpec) }
 
     override val isAvailable: Flow<Boolean> get() = toggles.observe(ContextOptimizationEnabled)
+
+    override val feed: Flow<StudioFeedCollapse>
+        get() = combine(toggles.observe(ContextOptimizationEnabled), view.state) { isEnabled, state ->
+            val settings = (state as? ContextOptimizationState.Ready)?.settings
+            if (!isEnabled || settings == null) {
+                StudioFeedCollapse()
+            } else {
+                StudioFeedCollapse(settings.isReasoningCollapsed, settings.isToolCallsCollapsed)
+            }
+        }.distinctUntilChanged()
 
     override suspend fun request(chatId: String, instructions: String?): Boolean {
         if (!toggles.get(ContextOptimizationEnabled)) return false
