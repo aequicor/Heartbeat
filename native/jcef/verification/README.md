@@ -33,7 +33,10 @@ Harness не использует другую JCEF-копию из JBR, не с
 CefRequestContext.createContext(CefRequestContextSettings settings, CefRequestContextHandler handler);
 CefRequestContext.createContext(CefRequestContext anchor, CefRequestContextHandler handler);
 anchor.dispose(CefCompletionCallback completion);
+CefURLRequest.create(CefRequest request, CefURLRequestClient client, CefRequestContext context);
 ```
+
+Также нужны lifecycle callbacks `CefLifeSpanHandler.onAfterClose` и `onCreationFailed`.
 
 ## Что проверяется
 
@@ -47,7 +50,10 @@ Python-процесс один раз запускает HTTP server на `127.0
 1. **write:** создать два профильных anchor; записать persistent cookie, session cookie
    (оба HttpOnly), localStorage, IndexedDB и CacheStorage. Вторая вкладка того же anchor
    видит данные; другой профиль не видит их. Закрытие первой вкладки не нарушает вторую
-   или новую вкладку. Закрытие одного профиля не нарушает другой.
+   или новую вкладку. Закрытие одного профиля не нарушает другой. Нативный `CefURLRequest`
+   с общим контекстом отправляет обе HttpOnly cookies, а профиль B — ни одной; отмена
+   ответа после первого chunk завершается `UR_CANCELED`. Запрос и его shared context
+   освобождаются до закрытия anchor.
 2. **restart:** свежая JVM читает все пять видов данных обоих профилей.
 3. **clear:** закрыть вкладку A и дождаться `anchor.dispose(callback)`. Пока CefApp и
    профиль B остаются живыми, parent удаляет только каталог браузера A. Повторное
@@ -58,7 +64,7 @@ Python-процесс один раз запускает HTTP server на `127.0
 6. **restart-after-delete:** свежая JVM подтверждает пустой A и сохранность B.
 
 После каждой JVM проверяется код выхода; Java завершается успешно только после callback
-`CefAppState.TERMINATED`. Вкладки ждут `onLoadEnd`/`onBeforeClose`, сохранение — callback
+`CefAppState.TERMINATED`. Вкладки ждут `onLoadEnd`/`onAfterClose`, сохранение — callback
 освобождения anchor, DOM-операции — CDP futures и browser events. `Thread.sleep`, задержек
 для «успевания записи», повторов удаления до успеха и автоматического пропуска ошибок нет.
 Таймаут этапа по умолчанию 240 секунд завершает всё дерево процесса и проваливает прогон.

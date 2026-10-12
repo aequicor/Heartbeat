@@ -35,6 +35,13 @@ class RuntimePackagingTest(unittest.TestCase):
         runtime.package(source, "windows-amd64", self.root / "first")
         runtime.verify_package(source, "windows-amd64", self.root / "first")
         name = f"jcef-natives-windows-amd64-{runtime.VERSION}.jar"
+        api_name = f"jcef-api-{runtime.VERSION}.jar"
+        published = dict(runtime.lock(),
+                         apiArtifact={"file": api_name, "sha256": "not the published API"},
+                         nativeArtifacts={"windows-amd64": {"file": name, "sha256": "native"}})
+        with patch.object(runtime, "lock", return_value=published):
+            with self.assertRaisesRegex(ValueError, "differs from published lock"):
+                runtime.verify_package(source, "windows-amd64", self.root / "first")
         with zipfile.ZipFile(self.root / "first" / name) as jar:
             archive = f"jcef-natives-windows-amd64-{runtime.RELEASE_TAG}.tar.gz"
             self.assertEqual([archive], jar.namelist())
@@ -90,12 +97,40 @@ class RuntimePackagingTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "patch differs"):
                 runtime.lock()
 
+    def test_cache_identity_ignores_outputs_but_tracks_source_inputs(self):
+        inputs = runtime.lock()
+        with patch.object(runtime, "lock", return_value=inputs):
+            initial = runtime.cache_key()
+        published = dict(inputs, apiArtifact={"file": "api.jar", "sha256": "published"},
+                         nativeArtifacts={"windows-amd64": {"sha256": "published"}})
+        with patch.object(runtime, "lock", return_value=published):
+            self.assertEqual(initial, runtime.cache_key())
+        for name in ["jcefCommit", "cefVersion", "patchSha256", "artifactVersion"]:
+            with patch.object(runtime, "lock", return_value=dict(inputs, **{name: "changed"})):
+                self.assertNotEqual(initial, runtime.cache_key())
+
     def test_api_order_is_identical_with_windows_and_posix_path_semantics(self):
         names = ["org/cef/browser/CefBrowser_N.class", "org/cef/browser/CefBrowserWr.class"]
         windows = [path.as_posix() for path in runtime.canonical_paths(map(PureWindowsPath, names))]
         posix = [path.as_posix() for path in runtime.canonical_paths(map(PurePosixPath, names))]
         self.assertEqual(sorted(names), windows)
         self.assertEqual(posix, windows)
+
+    def test_jar_bytes_are_independent_of_host_zip_defaults_and_zlib(self):
+        archives = []
+        for platform in ["win32", "darwin"]:
+            output = io.BytesIO()
+            with patch.object(zipfile.sys, "platform", platform):
+                with zipfile.ZipFile(output, "w") as jar:
+                    runtime.zip_entry(jar, "org/cef/CefApp.class", b"same compiled bytecode")
+            archives.append(output.getvalue())
+        self.assertEqual(archives[0], archives[1])
+        with zipfile.ZipFile(io.BytesIO(archives[0])) as jar:
+            entry = jar.infolist()[0]
+            self.assertEqual(zipfile.ZIP_STORED, entry.compress_type)
+            self.assertEqual((1980, 1, 1, 0, 0, 0), entry.date_time)
+            self.assertEqual(0o100644 << 16, entry.external_attr)
+            self.assertEqual(b"", entry.comment)
 
     def test_formatter_requires_upstream_hash_before_writing_executable(self):
         expected = hashlib.sha1(b"formatter").hexdigest()

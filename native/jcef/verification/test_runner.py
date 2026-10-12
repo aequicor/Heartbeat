@@ -82,10 +82,12 @@ class FixtureTests(unittest.TestCase):
 
     def test_held_response_streams_prefix_then_requires_explicit_release(self):
         with urllib.request.urlopen(self.origin + "/held-response", timeout=5) as response:
-            self.assertEqual(response.status, 200)
-            self.assertEqual(int(response.headers["Content-Length"]), 1024 * 1024)
-            self.assertEqual(response.read(len(b"native cancellation fixture")), b"native cancellation fixture")
-            self.post("/release-held")
+            try:
+                self.assertEqual(response.status, 200)
+                self.assertEqual(int(response.headers["Content-Length"]), 1024 * 1024)
+                self.assertEqual(response.read(len(b"native cancellation fixture")), b"native cancellation fixture")
+            finally:
+                self.post("/release-held")
             self.assertEqual(response.read(1), b"")
         self.assertEqual(self.events, [])
 

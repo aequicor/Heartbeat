@@ -49,6 +49,14 @@ def lock() -> dict:
     return data
 
 
+def cache_key() -> str:
+    data = lock()
+    inputs = {key: data[key] for key in ("jcefCommit", "cefVersion", "patchSha256", "artifactVersion")}
+    digest = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode())
+    digest.update(Path(__file__).read_bytes())
+    return digest.hexdigest()
+
+
 def prepare(source: Path) -> None:
     data = lock()
     if source.exists():
@@ -259,6 +267,10 @@ def verify_package(source: Path, target: str, artifacts: Path) -> None:
     for name, checksum in manifest["files"].items():
         if sha256(artifacts / name) != checksum:
             raise ValueError(f"Corrupt cached artifact: {name}")
+    if data.get("nativeArtifacts"):
+        for artifact in (data["apiArtifact"], data["nativeArtifacts"][target]):
+            if manifest["files"].get(artifact["file"]) != artifact["sha256"]:
+                raise ValueError(f"Cached artifact differs from published lock: {artifact['file']}")
     stage = source / "heartbeat-native-stage"
     actual_files = {p.relative_to(stage).as_posix() for p in stage.rglob("*")
                     if p.is_file() and not p.is_symlink()}
@@ -272,13 +284,19 @@ def verify_package(source: Path, target: str, artifacts: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["prepare", "build", "package", "collect", "verify"])
+    parser.add_argument("command", choices=["prepare", "build", "package", "collect", "verify", "cache-key"])
     parser.add_argument("--source", type=Path, default=Path("build/jcef-source"))
     parser.add_argument("--target", choices=TARGETS)
     parser.add_argument("--output", type=Path, default=Path("build/jcef-artifacts"))
     options = parser.parse_args()
     source, output = options.source.resolve(), options.output.resolve()
-    if options.command == "prepare":
+    if options.command == "cache-key":
+        key = cache_key()
+        print(key)
+        if os.environ.get("GITHUB_OUTPUT"):
+            with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output_file:
+                output_file.write(f"key={key}\n")
+    elif options.command == "prepare":
         prepare(source)
     elif options.command == "collect":
         collect(source, output)

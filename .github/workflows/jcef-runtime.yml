@@ -50,11 +50,14 @@ jobs:
         run: python -m pip install six==1.17.0
       - name: Verify packaging and release lock contracts
         run: python -m unittest discover -s native/jcef -p "test_*.py" -v
+      - name: Compute immutable source identity
+        id: native-inputs
+        run: python native/jcef/build_runtime.py cache-key
       - name: Restore matching native build
         id: native-cache
         uses: actions/cache/restore@v4
         with:
-          key: jcef-v1-${{ matrix.target }}-${{ hashFiles('native/jcef/source-lock.json', 'native/jcef/request-context-settings.patch', 'native/jcef/build_runtime.py') }}
+          key: jcef-v2-${{ matrix.target }}-${{ steps.native-inputs.outputs.key }}
           path: |
             build/jcef-artifacts
             build/jcef-source/heartbeat-native-stage

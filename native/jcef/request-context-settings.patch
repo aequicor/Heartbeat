@@ -527,7 +527,7 @@ index 2acc9ca..56b7dbe 100644
 +  if (!env) return;
 +  // Keep this alive while clearing the Java-owned AddRef. Do not clear a newer
 +  // native client if the Java callback object has subsequently been reused.
-+  auto current = GetCefFromJNIObject<URLRequestClient>(env, client_handle_, kCefClassName);
++  CefRefPtr<URLRequestClient> current = GetCefFromJNIObject<URLRequestClient>(env, client_handle_, kCefClassName);
 +  if (current.get() == this) {
 +    SetCefForJNIObject<URLRequestClient>(env, client_handle_, nullptr, kCefClassName);
 +  }
