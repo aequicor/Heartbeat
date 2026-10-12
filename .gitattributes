@@ -4,3 +4,5 @@ gradlew text eol=lf
 *.bat text eol=crlf
 *.jar binary
 *.png binary
+# Unified-diff context lines intentionally contain one space; preserve the locked patch hash.
+native/jcef/*.patch text eol=lf whitespace=-blank-at-eol
