@@ -29,9 +29,9 @@ internal data class HarnessActiveSnapshot(val isEnabled: Boolean, val library: H
         check(library !is HarnessState.Failed) { "Harness library is unavailable" }
         val ready = library as? HarnessState.Ready ?: return null
         val chosen = ids(ready).orEmpty()
-        return ready.harnesses.map { it.harness }
+        return ready.harnesses.asSequence().map { it.harness }
             .filter { it.id in chosen && it.isEnabled && ready.pending[it.id] !is HarnessMutation.Remove }
-            .sortedBy { it.name.value }
+            .sortedBy { it.name.value }.toList()
     }
 
     override fun toString(): String = "HarnessActiveSnapshot(***)"
