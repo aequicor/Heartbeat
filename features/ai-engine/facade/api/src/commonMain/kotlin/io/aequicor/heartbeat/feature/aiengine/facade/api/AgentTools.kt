@@ -80,6 +80,8 @@ public data class AgentToolScope(
      * into them ([CreateSessionRequest.areSessionHooksEnabled]); others get what frozen sessions get.
      */
     val isRefreshedPerTurn: Boolean = false,
+    /** [CreateSessionRequest.preselected] of a session being opened; meaningful only while [session] is null. */
+    val preselected: Map<String, Set<String>> = emptyMap(),
 )
 
 /** Bounded tool output returned to the engine; diagnostics must not expose host credentials. */

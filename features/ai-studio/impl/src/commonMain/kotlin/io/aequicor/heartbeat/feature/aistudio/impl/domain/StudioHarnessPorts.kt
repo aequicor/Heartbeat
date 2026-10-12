@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.domain
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -42,6 +43,12 @@ interface StudioHarnesses {
 
 /** Connects a new chat's chosen harnesses between opening its session and submitting the first prompt. */
 internal interface StudioHarnessAttach {
+    /**
+     * The claim of [submissionId] as [CreateSessionRequest.preselected] choices, without using it: an engine that
+     * declares tools when it opens the session (Codex) already sees the chosen harnesses.
+     */
+    fun preselected(submissionId: String): Map<String, Set<String>>
+
     /** Connects the harnesses claimed by [submissionId] to [session]; a claim is used once, other turns pass. */
     suspend fun beforeSubmit(submissionId: String, session: SessionRef)
 
@@ -51,6 +58,7 @@ internal interface StudioHarnessAttach {
 
 /** Default without the harness feature. */
 internal object NoStudioHarnessAttach : StudioHarnessAttach {
+    override fun preselected(submissionId: String): Map<String, Set<String>> = emptyMap()
     override suspend fun beforeSubmit(submissionId: String, session: SessionRef) = Unit
     override fun release(submissionId: String) = Unit
 }

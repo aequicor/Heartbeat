@@ -38,12 +38,14 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
         target: EngineTarget,
         route: ExecutionRoute,
         areDetachedToolsEnabled: Boolean,
+        preselected: Map<String, Set<String>> = emptyMap(),
     ): CodexThreadRequest = CodexThreadRequest(
         nativeId,
         target,
         route,
         areDetachedToolsEnabled,
         policy(ToolPolicyScope(identity.engine, route.workspace, nativeId?.let(::sessionRef), target)),
+        preselected.takeIf { nativeId == null }.orEmpty(),
     ).also { restoreForOpening(it) }
 
     /** A persisted stop fence forbids both creating another execution process and resuming the native thread. */
@@ -75,9 +77,9 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
         val route = request.route
         val areDetachedToolsEnabled = request.areDetachedToolsEnabled
         val hosted = if (route.workspace == null && areDetachedToolsEnabled) {
-            detachedOpening(nativeId, target)
+            detachedOpening(request)
         } else {
-            hostedOpening(nativeId, target, route.workspace, isEligible = route.workspace != null)
+            hostedOpening(request, route.workspace, isEligible = route.workspace != null)
         }
         val params = connection.rpc.threadParams(request, hosted.parameters)
         return CodexPreparedThread(request, params, hosted)
@@ -133,14 +135,22 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
         return session
     }
 
-    /** Hosted tools of a thread being opened; a thread [isEligible] for them fails to open when they fail. */
+    /**
+     * Hosted tools of a thread being opened; a thread [isEligible] for them fails to open when they fail. A new thread
+     * has no session ref yet, so its declarations follow the creator's [CodexThreadRequest.preselected] choices.
+     */
     private suspend fun hostedOpening(
-        nativeId: String?,
-        target: EngineTarget,
+        request: CodexThreadRequest,
         workspace: WorkspaceRef?,
         isEligible: Boolean,
     ): HostedOpening {
-        val scope = AgentToolScope(workspace, target, session = nativeId?.let(::sessionRef))
+        val nativeId = request.nativeId
+        val scope = AgentToolScope(
+            workspace,
+            request.target,
+            session = nativeId?.let(::sessionRef),
+            preselected = request.preselected,
+        )
         val specs = if (isEligible) host.tools.specifications(scope) else emptyList()
         val manifest = hostedManifest(workspace, specs)
         val hosted = validateHostedResume(nativeId, workspace, manifest)
@@ -152,8 +162,8 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
      * Detached hosted tools are optional: a failing contribution opens the chat thread as if its caller had not
      * opted in. Engine failures, such as a stored manifest incompatible with a resume, still fail the open.
      */
-    private suspend fun detachedOpening(nativeId: String?, target: EngineTarget): HostedOpening = try {
-        hostedOpening(nativeId, target, workspace = null, isEligible = true)
+    private suspend fun detachedOpening(request: CodexThreadRequest): HostedOpening = try {
+        hostedOpening(request, workspace = null, isEligible = true)
     } catch (e: CancellationException) {
         throw e
     } catch (e: EngineException) {
@@ -163,7 +173,7 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
         log.w(IllegalStateException("Detached hosted tools failed (${e::class.simpleName.orEmpty()})")) {
             "Detached hosted tools unavailable; the chat thread opens without them"
         }
-        hostedOpening(nativeId, target, workspace = null, isEligible = false)
+        hostedOpening(request, workspace = null, isEligible = false)
     }
 
     /**

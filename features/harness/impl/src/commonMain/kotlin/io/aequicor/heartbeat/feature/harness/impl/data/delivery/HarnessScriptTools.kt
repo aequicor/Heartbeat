@@ -15,8 +15,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
+import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
+import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
+import io.aequicor.heartbeat.feature.harness.api.HarnessTools
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptToolCall
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessActiveAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessOriginContext
@@ -51,7 +54,9 @@ internal class HarnessScriptTools(
 
     override suspend fun specifications(scope: AgentToolScope): List<AgentToolSpec> {
         if (!toggles.get(HarnessEnabled)) return emptyList()
-        val active = activeIds(scope.workspace, scope.session) ?: return emptyList()
+        val chosen = scope.preselected[HarnessTools.GROUP].takeIf { scope.session == null }.orEmpty()
+        val active = if (chosen.isNotEmpty()) openingIds(chosen) else activeIds(scope.workspace, scope.session)
+        if (active == null) return emptyList()
         return dispatch.value.bindings(active).map { it.specification }
     }
 
@@ -90,8 +95,19 @@ internal class HarnessScriptTools(
      * Facade contributions are not isolated from each other: an unavailable library must close only harness tools,
      * never fail the declarations of every hosted tool of the session.
      */
-    private suspend fun activeIds(workspace: WorkspaceRef?, session: SessionRef?): Set<HarnessId>? = try {
-        access.value.active(workspace, session).mapTo(linkedSetOf()) { it.id }
+    private suspend fun activeIds(workspace: WorkspaceRef?, session: SessionRef?): Set<HarnessId>? =
+        closedOnFailure { access.value.active(workspace, session) }
+
+    /**
+     * A session being opened (Codex declares tools at thread start, before the ref exists) declares the tools of the
+     * harnesses its creator chose; they are connected before its first prompt, and calls are bound by that connection.
+     */
+    private suspend fun openingIds(chosen: Set<String>): Set<HarnessId>? = closedOnFailure {
+        access.value.opening(chosen.mapTo(hashSetOf(), ::HarnessId)).take(HarnessLimits.ACTIVE_PER_SESSION)
+    }
+
+    private suspend fun closedOnFailure(read: suspend () -> List<Harness>): Set<HarnessId>? = try {
+        read().mapTo(linkedSetOf()) { it.id }
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {

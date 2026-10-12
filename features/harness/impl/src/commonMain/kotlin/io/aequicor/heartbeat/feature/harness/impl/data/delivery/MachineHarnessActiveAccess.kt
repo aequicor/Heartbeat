@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyUnavailable
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
+import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessMachineKey
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessActiveAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessActiveSnapshot
@@ -47,6 +48,9 @@ internal class MachineHarnessActiveAccess(private val machines: MachineRegistry,
 
     override suspend fun applicable(workspace: WorkspaceRef?, session: SessionRef?): List<Harness> =
         resolve { applicable(session) }
+
+    override suspend fun opening(harnesses: Set<HarnessId>): List<Harness> =
+        if (harnesses.isEmpty()) emptyList() else resolve { opening(harnesses) }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private suspend fun resolve(selection: HarnessActiveSnapshot.() -> List<Harness>?): List<Harness> {

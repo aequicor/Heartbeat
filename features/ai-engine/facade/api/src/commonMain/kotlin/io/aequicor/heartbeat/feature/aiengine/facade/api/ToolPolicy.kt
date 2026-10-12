@@ -31,6 +31,8 @@ public data class ToolPolicyScope(
     val workspace: WorkspaceRef? = null,
     val session: SessionRef? = null,
     val target: EngineTarget? = null,
+    /** [CreateSessionRequest.preselected] of a session being opened; meaningful only while [session] is null. */
+    val preselected: Map<String, Set<String>> = emptyMap(),
 )
 
 /** Profile multibinding; resolve lazily because a provider may itself use the engine facade. */

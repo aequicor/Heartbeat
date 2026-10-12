@@ -390,6 +390,7 @@ internal class DefaultAgentTools(
                 scope.workspace,
                 scope.session,
                 scope.target,
+                scope.preselected,
             ),
             catalogued + available.map { it.second.name },
             isExecuting,

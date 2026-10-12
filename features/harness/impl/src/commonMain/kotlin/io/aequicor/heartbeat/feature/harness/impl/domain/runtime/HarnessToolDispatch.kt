@@ -51,7 +51,7 @@ internal class HarnessToolDispatch(
         sessions.allows(it, session)
     }
 
-    /** Declarations may precede a native session id; the host supplies the chat's explicit connections. */
+    /** Declarations may precede a native session id: the host supplies the connections or the creator's choice. */
     @HighFrequency
     suspend fun bindings(harnesses: Set<HarnessId>): List<HarnessToolBinding> = bindingsWhere { it in harnesses }
 

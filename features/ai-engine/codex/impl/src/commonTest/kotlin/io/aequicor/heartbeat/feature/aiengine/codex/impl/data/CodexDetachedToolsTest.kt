@@ -48,6 +48,18 @@ class CodexDetachedToolsTest {
     }
 
     @Test
+    fun `a new thread declares its tools for the choices its creator made before it existed`() = runTest {
+        val tools = ScopedTools(listOf("remember"))
+        val fixture = Fixture(this, tools = tools)
+        val chosen = mapOf("harness" to setOf("compose"))
+        val request = CreateSessionRequest(fixture.target, areDetachedToolsEnabled = true, preselected = chosen)
+        fixture.runtime.create(request)
+        assertEquals(chosen, tools.scopes.last().preselected)
+        assertNull(tools.scopes.last().session)
+        fixture.runtime.close()
+    }
+
+    @Test
     fun `chat thread opens without detached tools when a contribution fails`() = runTest {
         val failingSpecifications = object : ProfileAgentTools by ScopedTools(listOf("remember")) {
             override suspend fun specifications(scope: AgentToolScope): List<AgentToolSpec> =

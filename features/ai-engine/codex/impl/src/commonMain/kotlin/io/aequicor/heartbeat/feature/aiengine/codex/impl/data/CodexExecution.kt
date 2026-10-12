@@ -19,6 +19,8 @@ internal data class CodexThreadRequest(
     val route: ExecutionRoute,
     val areDetachedToolsEnabled: Boolean,
     val policy: ResolvedToolPolicy,
+    /** Creator's [CreateSessionRequest.preselected] for a new thread; its hosted declarations follow them. */
+    val preselected: Map<String, Set<String>> = emptyMap(),
 ) {
     val off: CodexNativeOff get() = CodexNativeOff("shell" in policy.nativeOff, "web_search" in policy.nativeOff)
 }

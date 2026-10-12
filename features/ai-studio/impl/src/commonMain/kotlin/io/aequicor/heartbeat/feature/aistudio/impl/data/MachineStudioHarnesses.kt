@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessMutation
 import io.aequicor.heartbeat.feature.harness.api.HarnessOutput
 import io.aequicor.heartbeat.feature.harness.api.HarnessRejection
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
+import io.aequicor.heartbeat.feature.harness.api.HarnessTools
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -100,6 +101,9 @@ internal class MachineStudioHarnesses(private val machines: MachineRegistry, pri
         claims.update { current -> (current - submissionId + (submissionId to harnesses)).newest() }
         log.d { "New chat submission claims its harness choice count=${harnesses.size}" }
     }
+
+    override fun preselected(submissionId: String): Map<String, Set<String>> =
+        claims.value[submissionId]?.let { mapOf(HarnessTools.GROUP to it) }.orEmpty()
 
     override fun release(submissionId: String) {
         if (submissionId !in claims.value) return

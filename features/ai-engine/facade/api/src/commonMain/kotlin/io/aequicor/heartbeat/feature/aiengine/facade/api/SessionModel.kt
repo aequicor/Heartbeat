@@ -80,6 +80,13 @@ public data class CreateSessionRequest(
     val areDetachedToolsEnabled: Boolean = false,
     /** Opts this handle's own turns into profile session hooks; service sessions leave this false. */
     val areSessionHooksEnabled: Boolean = false,
+    /**
+     * Choices the creator made before the session exists, by [AgentToolContribution.group] (for example harnesses
+     * chosen in a new chat's composer). Adapters that declare tools before the native session has a ref pass them as
+     * [AgentToolScope.preselected] and [ToolPolicyScope.preselected]; the creator still records the choice durably
+     * once the session exists, and later reads use that record.
+     */
+    val preselected: Map<String, Set<String>> = emptyMap(),
 )
 
 /**

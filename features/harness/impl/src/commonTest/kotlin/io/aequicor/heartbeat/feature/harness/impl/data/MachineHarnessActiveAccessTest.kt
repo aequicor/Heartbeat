@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.harness.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.HarnessEntry
+import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.impl.data.delivery.HarnessActivationUnavailable
@@ -93,6 +94,17 @@ class MachineHarnessActiveAccessTest {
             ),
         )
         assertEquals(listOf(entry), access.active(WorkspaceRef("worktree"), dispatchSession))
+    }
+
+    @Test
+    fun `a session being opened gets only enabled harnesses its creator chose`() = runTest {
+        val disabled = harness.copy(id = HarnessId("disabled"), isEnabled = false)
+        registry.library.value = SchedulerAccessMachine(
+            HarnessState.Ready(listOf(HarnessEntry(harness), HarnessEntry(disabled))),
+        )
+        assertEquals(listOf(harness), access.opening(setOf(harness.id, disabled.id, HarnessId("missing"))))
+        assertEquals(emptyList(), access.opening(emptySet()))
+        assertEquals(emptyList(), access.active(null, null))
     }
 
     @Test

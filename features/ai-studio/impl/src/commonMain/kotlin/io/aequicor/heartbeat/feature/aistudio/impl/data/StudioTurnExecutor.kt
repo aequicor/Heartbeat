@@ -4,6 +4,7 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
@@ -31,10 +32,15 @@ import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
+/** Choices made before a session exists, by tool contribution group ([CreateSessionRequest.preselected]). */
+internal typealias ToolChoices = Map<String, Set<String>>
+
 /** The repository supplies persistence and native features; this executor owns a single accepted turn. */
 internal interface StudioTurnHost {
     suspend fun isWorktree(id: String): Boolean
-    suspend fun openTurn(id: String, settings: RunSettings): ActiveSession
+
+    /** [preselected] reaches only a session created now ([CreateSessionRequest.preselected]); a resume ignores it. */
+    suspend fun openTurn(id: String, settings: RunSettings, preselected: ToolChoices = emptyMap()): ActiveSession
     suspend fun submitTurn(active: ActiveSession, request: StudioTurnRequest): TurnId
     suspend fun shouldStop(id: String): Boolean
     suspend fun requestStop(id: String, active: ActiveSession, turn: TurnId)
@@ -104,9 +110,10 @@ internal class StudioTurnExecutor(
     suspend fun execute(host: StudioTurnHost, request: StudioTurnRequest): RunOutcome {
         val progress = Progress()
         try {
+            val preselected = request.submissionId.takeIf { it.isNotEmpty() }?.let(harnesses::preselected).orEmpty()
             progress.isIsolated = host.isWorktree(request.id)
-            if (progress.isIsolated) prepare(host, request, progress)
-            val active = host.openTurn(request.id, request.settings)
+            if (progress.isIsolated) prepare(host, request, progress, preselected)
+            val active = host.openTurn(request.id, request.settings, preselected)
             return runNative(host, request, active, progress)
         } catch (error: CancellationException) {
             throw error
@@ -136,8 +143,13 @@ internal class StudioTurnExecutor(
         }
     }
 
-    private suspend fun prepare(host: StudioTurnHost, request: StudioTurnRequest, progress: Progress) {
-        worktrees.reconcile(request.id) { host.openTurn(request.id, request.settings) }
+    private suspend fun prepare(
+        host: StudioTurnHost,
+        request: StudioTurnRequest,
+        progress: Progress,
+        preselected: ToolChoices,
+    ) {
+        worktrees.reconcile(request.id) { host.openTurn(request.id, request.settings, preselected) }
         worktrees.send(WorktreeIntent.Public.RunStarted(request.id, request.request, request.kind))
         progress.isPrepared = true
         val prepared = worktrees.await(request.id, failOnTaskError = false) {

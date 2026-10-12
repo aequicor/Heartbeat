@@ -1,8 +1,10 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.content
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.Harness
+import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.HarnessMutation
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
@@ -17,15 +19,19 @@ internal data class HarnessActiveSnapshot(val isEnabled: Boolean, val library: H
     fun select(session: SessionRef?): List<Harness>? = applicable(session)?.take(HarnessLimits.ACTIVE_PER_SESSION)
 
     /** Every connected harness in name order, uncapped: restrictions must not be displaced by earlier names. */
-    fun applicable(session: SessionRef?): List<Harness>? {
+    fun applicable(session: SessionRef?): List<Harness>? = chosen { ready -> session?.let { ready.attachments[it] } }
+
+    /** Enabled harnesses among [harnesses], uncapped in name order: the creator's choice for a session being opened. */
+    fun opening(harnesses: Set<HarnessId>): List<Harness>? = chosen { harnesses }
+
+    private fun chosen(ids: (HarnessState.Ready) -> Set<HarnessId>?): List<Harness>? {
         if (!isEnabled || library?.isSuspended == true) return emptyList()
         check(library !is HarnessState.Failed) { "Harness library is unavailable" }
         val ready = library as? HarnessState.Ready ?: return null
-        val enabled = ready.harnesses.map { it.harness }.filter {
-            it.isEnabled && ready.pending[it.id] !is HarnessMutation.Remove
-        }
-        val attached = session?.let { ready.attachments[it] }.orEmpty()
-        return enabled.filter { it.id in attached }.sortedBy { it.name.value }
+        val chosen = ids(ready).orEmpty()
+        return ready.harnesses.map { it.harness }
+            .filter { it.id in chosen && it.isEnabled && ready.pending[it.id] !is HarnessMutation.Remove }
+            .sortedBy { it.name.value }
     }
 
     override fun toString(): String = "HarnessActiveSnapshot(***)"
@@ -44,4 +50,10 @@ internal fun interface HarnessActiveAccess {
      * default; the production access resolves it separately from [active].
      */
     suspend fun applicable(workspace: WorkspaceRef?, session: SessionRef?): List<Harness> = active(workspace, session)
+
+    /**
+     * Enabled harnesses among [harnesses], uncapped: the trusted creator's choice ([AgentToolScope.preselected]) for a
+     * session that has no ref yet, whose declarations are fixed at opening. Fakes without such sessions keep none.
+     */
+    suspend fun opening(harnesses: Set<HarnessId>): List<Harness> = emptyList()
 }

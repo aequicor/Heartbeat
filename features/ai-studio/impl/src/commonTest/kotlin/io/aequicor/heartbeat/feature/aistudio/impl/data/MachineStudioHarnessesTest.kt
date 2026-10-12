@@ -57,6 +57,8 @@ class MachineStudioHarnessesTest {
         val library = SpecHarnessLibrary(backgroundScope)
         val harnesses = MachineStudioHarnesses(HarnessRegistry(library), HarnessToggleOn)
         harnesses.claim("submission", setOf("compose", "verify"))
+        assertEquals(mapOf("harness" to setOf("compose", "verify")), harnesses.preselected("submission"))
+        assertEquals(emptyMap(), harnesses.preselected("other"))
 
         harnesses.beforeSubmit("submission", session)
 
