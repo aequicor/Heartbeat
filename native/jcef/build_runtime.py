@@ -36,6 +36,12 @@ def sha256(path: Path) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def canonical_paths(paths):
+    # WindowsPath ordering case-folds names, whereas PosixPath does not. ZIP
+    # order and javac input order must be identical on all four build hosts.
+    return sorted(paths, key=lambda path: path.as_posix())
+
+
 def lock() -> dict:
     data = json.loads((HERE / "source-lock.json").read_text())
     if sha256(HERE / "request-context-settings.patch") != data["patchSha256"]:
@@ -74,10 +80,10 @@ def build(source: Path, target: str) -> None:
     classes.mkdir()
     # mac/CefBrowserWindowMac uses macOS-private AWT types. Ant compiles it on Mac;
     # those two classes are shipped in the macOS native jar, not the shared API.
-    sources = sorted(p for p in (source / "java/org/cef").rglob("*.java") if p.parent.name != "mac")
+    sources = canonical_paths(p for p in (source / "java/org/cef").rglob("*.java") if p.parent.name != "mac")
     arguments = source / "heartbeat-javac.args"
     arguments.write_text("\n".join('"' + str(p).replace("\\", "/") + '"' for p in sources))
-    classpath = os.pathsep.join(str(p) for p in sorted((source / "third_party/jogamp/jar").glob("*.jar")))
+    classpath = os.pathsep.join(str(p) for p in canonical_paths((source / "third_party/jogamp/jar").glob("*.jar")))
     run("javac", "--release", "8", "-encoding", "UTF-8", "-g:source,lines", "-cp", classpath,
         "-d", classes, "@" + str(arguments))
 
@@ -188,7 +194,7 @@ def package(source: Path, target: str, destination: Path) -> None:
         zip_entry(archive, "META-INF/MANIFEST.MF", b"Manifest-Version: 1.0\r\nAutomatic-Module-Name: jcef\r\n\r\n")
         zip_entry(archive, "build_meta.json", metadata("*"))
         zip_entry(archive, "META-INF/JCEF-LICENSE.txt", source / "LICENSE.txt")
-        for path in sorted(classes.rglob("*.class")):
+        for path in canonical_paths(classes.rglob("*.class")):
             zip_entry(archive, path.relative_to(classes).as_posix(), path)
     manifest = {"version": VERSION, "releaseTag": RELEASE_TAG, "platform": target,
                 "jcefCommit": data["jcefCommit"], "cefVersion": data["cefVersion"],

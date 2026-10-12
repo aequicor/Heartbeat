@@ -2,7 +2,7 @@
 import hashlib
 import io
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import tarfile
 import tempfile
 import unittest
@@ -88,6 +88,13 @@ class RuntimePackagingTest(unittest.TestCase):
         with patch.object(runtime, "sha256", return_value="bad"):
             with self.assertRaisesRegex(ValueError, "patch differs"):
                 runtime.lock()
+
+    def test_api_order_is_identical_with_windows_and_posix_path_semantics(self):
+        names = ["org/cef/browser/CefBrowser_N.class", "org/cef/browser/CefBrowserWr.class"]
+        windows = [path.as_posix() for path in runtime.canonical_paths(map(PureWindowsPath, names))]
+        posix = [path.as_posix() for path in runtime.canonical_paths(map(PurePosixPath, names))]
+        self.assertEqual(sorted(names), windows)
+        self.assertEqual(posix, windows)
 
     def test_formatter_requires_upstream_hash_before_writing_executable(self):
         expected = hashlib.sha1(b"formatter").hexdigest()
