@@ -2,6 +2,27 @@
   "jcefCommit": "17e805ad387d89839fdd2b864466b6510b2a783c",
   "cefVersion": "152.0.6+g708dc14+chromium-152.0.7977.83",
   "patchSha256": "d1e5bde6d70be3ee2e054e584934a32ab5ed19ade7c3f2cded23b07bf3c4edbc",
-  "nativeArtifacts": {},
-  "artifactVersion": "152.0.6-hb1"
+  "nativeArtifacts": {
+    "macosx-amd64": {
+      "file": "jcef-natives-macosx-amd64-152.0.6-hb1.jar",
+      "sha256": "bdf846f3dc2b575c2b5e0b41ef2fa07533e73d98e2289286f019e026e1c9bfcc"
+    },
+    "macosx-arm64": {
+      "file": "jcef-natives-macosx-arm64-152.0.6-hb1.jar",
+      "sha256": "75e14993c22a3c8e4a4ca3f9eb505e64de79879821f6ee0c8f81f15f396d1f6b"
+    },
+    "windows-amd64": {
+      "file": "jcef-natives-windows-amd64-152.0.6-hb1.jar",
+      "sha256": "8b4fa3d0c50eea53b43384149c433f3cc531760663cf9674df49b33c6052234f"
+    },
+    "windows-arm64": {
+      "file": "jcef-natives-windows-arm64-152.0.6-hb1.jar",
+      "sha256": "026172c89268337d2193de647f62b37c5ca5a2bc427593ed52aff3bc04100e1e"
+    }
+  },
+  "artifactVersion": "152.0.6-hb1",
+  "apiArtifact": {
+    "file": "jcef-api-152.0.6-hb1.jar",
+    "sha256": "de0f160ba26d4a264ed69a34b0b414f0748a3b8bd09b712a6c680bd72797157a"
+  }
 }

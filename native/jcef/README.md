@@ -83,8 +83,9 @@ resources, locales, helper executables/apps and licenses. macOS symlinks and
 executable modes are preserved. Jar entries and archive timestamps are normalized;
 CI checks that all four shared API builds are byte-identical.
 
-Publication is a separate reviewed action: upload the verified five jars and
-manifests as immutable assets of the GitHub release tag `152.0.6-hb1`, copy the
+The workflow creates a draft prerelease after all four native probes and collection
+checks pass. Publication follows inspection of the verified five jars and
+manifests as immutable assets of the GitHub release tag `152.0.6-hb1`. Copy the
 completed source lock into this directory, and pin actual jar hashes in Gradle
 verification metadata. Coordinates are `io.aequicor.heartbeat.jcef:<artifact>:152.0.6-hb1`;
 Gradle consumes release assets using an Ivy artifact pattern. JOGL/gluegen Java
