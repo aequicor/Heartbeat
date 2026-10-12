@@ -152,6 +152,7 @@ public final class SessionProbe {
             case "clear", "delete" -> removeProfile(required("mode"));
             case "visual" -> visual();
             case "visibility-close" -> visibilityClose();
+            case "anchor-close" -> anchorClose();
             default -> throw new IllegalArgumentException("Unknown mode");
         }
     }
@@ -315,6 +316,29 @@ public final class SessionProbe {
         anchor.close();
         require(remainingClients() == 0, "Visibility stress leaked clients");
         passed("queued-visibility-close-lifecycle", Map.of("freshTabs", iterations, "survivingTabs", 1));
+    }
+
+    private void anchorClose() throws Exception {
+        final int iterations = 20;
+        Anchor control = anchor("anchor-control");
+        Tab survivor = tab(control, "anchor-control");
+        survivor.evaluate("window.anchorSentinel = 'retained'");
+        for (int index = 0; index < iterations; index++) {
+            Anchor current = anchor("anchor-closing-" + index);
+            Tab closing = tab(current, "anchor-closing-" + index);
+            closing.write("teardown-" + index);
+            closing.close();
+            current.close();
+            require(remainingClients() == 1, "Anchor teardown retained a client in iteration " + index);
+            require("retained".equals(survivor.evaluate("window.anchorSentinel")),
+                "Anchor teardown disturbed the control browser");
+            passed("anchor-close-iteration", Map.of("iteration", index, "remainingClients", 1,
+                "flushCompleted", true));
+        }
+        survivor.close();
+        control.close();
+        require(remainingClients() == 0, "Anchor teardown leaked clients");
+        passed("persistent-anchor-close-lifecycle", Map.of("freshAnchors", iterations, "remainingClients", 0));
     }
 
     private void close() throws Exception {

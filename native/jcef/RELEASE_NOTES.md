@@ -5,6 +5,8 @@ destroyed NSView pointers: tasks now retain the browser and validate its view on
 CEF UI. Cancelled reparent operations release their retained browser callback.
 Content-view destruction detaches children before removing its final owner,
 avoiding access to an already-deallocated view.
+The Java DevTools client preserves responses that arrive before their method ID
+and completes pending operations when closed, preventing lost-response timeouts.
 
 The five matching Java/native jars cover Windows and macOS on x64 and ARM64.
 `source-lock.json` identifies the exact upstream JCEF commit, CEF version, patch

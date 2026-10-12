@@ -95,6 +95,175 @@ index c89e296..dc812ca 100644
      /**
       * Called async from the (native) main UI thread.
       */
+diff --git a/java/org/cef/browser/CefDevToolsClient.java b/java/org/cef/browser/CefDevToolsClient.java
+index 3fed09f..14548be 100644
+--- a/java/org/cef/browser/CefDevToolsClient.java
++++ b/java/org/cef/browser/CefDevToolsClient.java
+@@ -4,9 +4,12 @@
+ 
+ package org.cef.browser;
+ 
++import java.util.ArrayList;
+ import java.util.Collections;
+ import java.util.HashMap;
++import java.util.HashSet;
+ import java.util.LinkedHashSet;
++import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
+ import java.util.concurrent.CompletableFuture;
+@@ -16,7 +19,9 @@ public class CefDevToolsClient implements AutoCloseable {
+             Collections.synchronizedMap(new HashMap<>());
+     private final Set<EventListener> eventListeners_ =
+             Collections.synchronizedSet(new LinkedHashSet<>());
+-    private CefRegistration registration_;
++    private final Set<CompletableFuture<String>> pendingCalls_ = new HashSet<>();
++    private final Set<Integer> cancelledMessageIds_ = new HashSet<>();
++    private volatile CefRegistration registration_;
+     private final CefBrowser_N browser_;
+ 
+     /**
+@@ -29,19 +34,33 @@ public class CefDevToolsClient implements AutoCloseable {
+             @Override
+             public void onDevToolsMethodResult(
+                     CefBrowser browser, int messageId, boolean success, String result) {
+-                CompletableFuture<String> future = getQueuedCommand(messageId);
++                CompletableFuture<String> future;
++                synchronized (queuedCommands_) {
++                    if (isClosed()) return;
++                    if (cancelledMessageIds_.remove(messageId)) return;
++                    future = getQueuedCommand(messageId);
++                }
+                 if (success) {
+                     future.complete(result);
+                 } else {
+                     future.completeExceptionally(
+                             new DevToolsException("DevTools method failed", result));
+                 }
+-                removeQueuedCommand(messageId);
++                // The result can arrive before ExecuteDevToolsMethod returns its ID.
++                // Keep it until that caller has obtained this same future.
++                synchronized (queuedCommands_) {
++                    cancelledMessageIds_.remove(messageId);
++                }
+             }
+ 
+             @Override
+             public void onDevToolsEvent(CefBrowser browser, String method, String parameters) {
+-                for (EventListener eventListener : eventListeners_) {
++                EventListener[] listeners;
++                synchronized (eventListeners_) {
++                    listeners = eventListeners_.toArray(new EventListener[0]);
++                }
++                for (EventListener eventListener : listeners) {
++                    if (isClosed()) return;
+                     eventListener.onEvent(method, parameters);
+                 }
+             }
+@@ -50,9 +69,19 @@ public class CefDevToolsClient implements AutoCloseable {
+ 
+     @Override
+     public void close() {
+-        queuedCommands_.clear();
++        List<CompletableFuture<?>> pending = new ArrayList<>();
++        synchronized (queuedCommands_) {
++            registration_ = null;
++            pending.addAll(queuedCommands_.values());
++            pending.addAll(pendingCalls_);
++            queuedCommands_.clear();
++            pendingCalls_.clear();
++            cancelledMessageIds_.clear();
++        }
+         eventListeners_.clear();
+-        registration_ = null;
++        for (CompletableFuture<?> future : pending) {
++            future.completeExceptionally(new DevToolsException("Client is closed"));
++        }
+     }
+ 
+     public boolean isClosed() {
+@@ -63,8 +92,10 @@ public class CefDevToolsClient implements AutoCloseable {
+         return queuedCommands_.computeIfAbsent(messageId, key -> new CompletableFuture<>());
+     }
+ 
+-    private void removeQueuedCommand(Integer messageId) {
+-        queuedCommands_.remove(messageId);
++    // Called under queuedCommands_. A tombstone rejects a not-yet-delivered result.
++    private void discardCancelledCommand(Integer messageId) {
++        CompletableFuture<String> response = queuedCommands_.remove(messageId);
++        if (response == null || !response.isDone()) cancelledMessageIds_.add(messageId);
+     }
+ 
+     /**
+@@ -99,14 +130,62 @@ public class CefDevToolsClient implements AutoCloseable {
+      * @return return a future with the method result if the method was executed successfully
+      */
+     public CompletableFuture<String> executeDevToolsMethod(String method, String parametersAsJson) {
+-        if (isClosed()) {
+-            CompletableFuture<String> future = new CompletableFuture<>();
+-            future.completeExceptionally(new DevToolsException("Client is closed"));
+-            return future;
++        CompletableFuture<String> operation = new CompletableFuture<>();
++        Integer[] commandId = new Integer[1]; // guarded by queuedCommands_
++        synchronized (queuedCommands_) {
++            if (isClosed()) return closedFuture();
++            pendingCalls_.add(operation);
+         }
++        operation.whenComplete((value, error) -> {
++            synchronized (queuedCommands_) {
++                pendingCalls_.remove(operation);
++                if (operation.isCancelled() && commandId[0] != null && !isClosed()) {
++                    discardCancelledCommand(commandId[0]);
++                }
++            }
++        });
++        // JNI may synchronously deliver a result, or queue work on another thread.
++        // Never hold the rendezvous lock while entering native code.
++        try {
++            browser_.executeDevToolsMethod(method, parametersAsJson).whenComplete((id, error) -> {
++                if (error != null) {
++                    operation.completeExceptionally(error);
++                    return;
++                }
++                CompletableFuture<String> response;
++                synchronized (queuedCommands_) {
++                    if (isClosed()) return; // close already completed the operation.
++                    commandId[0] = id;
++                    if (operation.isCancelled()) {
++                        discardCancelledCommand(id);
++                        return;
++                    }
++                    response = getQueuedCommand(id);
++                }
++                response.whenComplete((value, failure) -> {
++                    synchronized (queuedCommands_) {
++                        queuedCommands_.remove(id, response);
++                    }
++                    if (failure != null)
++                        operation.completeExceptionally(failure);
++                    else
++                        operation.complete(value);
++                    synchronized (queuedCommands_) {
++                        // Cancellation may race between map removal and completion.
++                        cancelledMessageIds_.remove(id);
++                    }
++                });
++            });
++        } catch (RuntimeException | Error error) {
++            operation.completeExceptionally(error);
++        }
++        return operation;
++    }
+ 
+-        return browser_.executeDevToolsMethod(method, parametersAsJson)
+-                .thenCompose(this::getQueuedCommand);
++    private CompletableFuture<String> closedFuture() {
++        CompletableFuture<String> future = new CompletableFuture<>();
++        future.completeExceptionally(new DevToolsException("Client is closed"));
++        return future;
+     }
+ 
+     /**
 diff --git a/java/org/cef/browser/CefRequestContext.java b/java/org/cef/browser/CefRequestContext.java
 index 38ccef0..bde1b57 100644
 --- a/java/org/cef/browser/CefRequestContext.java
