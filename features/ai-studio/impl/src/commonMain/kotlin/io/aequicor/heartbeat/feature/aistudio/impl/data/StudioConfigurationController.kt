@@ -70,7 +70,7 @@ internal interface StudioConfigurationAccess {
     fun configurationModels(): List<StudioModel>
     fun configurationState(id: String, state: StudioSessionConfiguration)
 
-    /** The first turn of a session started by a rollover accepted the essence of the previous one. */
+    /** The next turn accepted the essence of the previous session or the continuation brief after compaction. */
     suspend fun consumeSeed(id: String) = Unit
 }
 

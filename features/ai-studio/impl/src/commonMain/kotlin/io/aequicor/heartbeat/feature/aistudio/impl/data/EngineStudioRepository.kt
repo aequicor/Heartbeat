@@ -138,6 +138,8 @@ internal data class StudioChatRecord(
     val contextSegment: Int = 0,
     /** Essence of the previous session for the first accepted turn of the next one; user data, never logged. */
     val pendingSeed: String? = null,
+    /** Continuation brief for the next accepted turn after a native compaction; user data, never logged. */
+    val pendingBrief: String? = null,
 ) {
     /** Whether [session] is this chat's current or an earlier native session. */
     fun owns(session: SessionRef): Boolean = ref == session || session in previousRefs
@@ -210,6 +212,9 @@ internal class EngineStudioRepository(
     private val stopRequests = mutableSetOf<String>()
 
     private val conversationLocks = StudioConversationLocks(handlesLock)
+    private val carry = StudioContextCarry(conversationLocks, ::record, ::items, ::write, ::update) { id ->
+        handlesLock.withLock { handles.remove(id) }?.close()
+    }
     private val mutableState = MutableStateFlow(StudioRuntimeState())
     override val state: StateFlow<StudioRuntimeState> = mutableState.asStateFlow()
 
@@ -432,7 +437,7 @@ internal class EngineStudioRepository(
     }
 
     override suspend fun executeRun(request: StudioTurnRequest): RunOutcome {
-        if (request.isRollover) return rollover(request.id, request.isBriefed)
+        if (request.isRollover) return carry.rollover(request.id, request.isBriefed)
         log.i { "Execute the reserved native request" }
         val admitted = helperAdmission.prepare(record(request.id), request)
         try {
@@ -441,6 +446,8 @@ internal class EngineStudioRepository(
             ) { copy(lastRunRequest = request.request, hasLastRunSucceeded = false, runRevision = runRevision + 1) }
             val result = turns.execute(this, admitted)
             update(request.id) { copy(hasLastRunSucceeded = result == RunOutcome.Completed) }
+            val isBriefed = request.compaction != null && request.isBriefed
+            if (result == RunOutcome.Completed && isBriefed) carry.brief(request.id)
             releaseArchived(request.id)
             return result
         } finally {
@@ -740,22 +747,7 @@ internal class EngineStudioRepository(
         }
     }
 
-    /**
-     * Freezes the transcript and detaches the native session, under the chat's run reservation and conversation lock;
-     * the next turn creates a new session and receives the essence of this one, or its continuation brief. The old
-     * native session is kept.
-     */
-    private suspend fun rollover(id: String, isBriefed: Boolean): RunOutcome = conversationLocks.withLock(id) {
-        val record = record(id).takeIf { it.isRolloverAllowed } ?: return@withLock RunOutcome.Failed
-        val items = items(id)
-        val seed = if (isBriefed) continuationSeed(items) else rolloverSeed(items)
-        write(id) { it.frozen(record.contextSegment + 1) }
-        update(id) { rolledOver(seed) }
-        handlesLock.withLock { handles.remove(id) }?.close()
-        RunOutcome.Completed
-    }
-
-    override suspend fun consumeSeed(id: String) = update(id) { copy(pendingSeed = null) }.also { log.d { "seeded" } }
+    override suspend fun consumeSeed(id: String) = update(id) { seeded() }.also { log.d { "seeded" } }
 
     /** Closes under the conversation lock, so a concurrent open never receives a closing handle. */
     private suspend fun release(id: String) = conversationLocks.withLock(id) {

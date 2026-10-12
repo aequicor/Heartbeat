@@ -1,16 +1,21 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextCompaction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoticeKind
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.withHostDirectives
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.HANDOFF_REQUEST_PREFIX
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.HANDOFF_SUMMARY_PROMPT
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -65,6 +70,32 @@ class StudioRolloverTest {
         assertTrue("## Work so far\nDecided to rewrite the lexer" in seed)
         assertTrue("Assistant: Fixing the lexer" in seed.substringAfter("## Last turn"))
         assertFalse("handoff-summary" in seed)
+    }
+
+    @Test
+    fun `the brief after a native compaction keeps every user message without a work summary`() {
+        val items = listOf(message("task", 0, "Fix the parser"), reply("work", 1, "Fixed the lexer")).frozen(1) +
+            message("next", 0, "Now the tests") + reply("now", 1, "Running tests")
+
+        val brief = compactionBrief(items)
+
+        assertTrue("[1] Fix the parser" in brief && "[2] Now the tests" in brief)
+        assertTrue("Assistant: Running tests" in brief)
+        assertFalse("## Work so far" in brief)
+    }
+
+    @Test
+    fun `the next turn carries the seed and brief, a compaction none and a handoff turn no brief`() {
+        val chat = StudioChatRecord("chat", "Chat", Instant.DISTANT_PAST, pendingSeed = "seed", pendingBrief = "brief")
+        val turn = StudioTurnRequest("chat", "prompt", DefaultRunSettings, WorktreeRunKind.Coding, RequestId("r"))
+
+        assertEquals(listOf("seed", "brief"), chat.carriedDirectives(turn))
+        assertEquals(emptyList(), chat.carriedDirectives(turn.copy(compaction = ContextCompaction())))
+        assertEquals(
+            listOf("seed"),
+            chat.carriedDirectives(turn.copy(request = RequestId("${HANDOFF_REQUEST_PREFIX}1"))),
+        )
+        assertEquals(null, chat.copy(ref = Ref).rolledOver("next").pendingBrief)
     }
 
     @Test

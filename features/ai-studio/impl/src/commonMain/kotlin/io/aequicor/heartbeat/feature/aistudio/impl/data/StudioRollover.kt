@@ -45,6 +45,7 @@ internal fun StudioChatRecord.rolledOver(seed: String?): StudioChatRecord {
         previousRefs = previousRefs + listOfNotNull(ref),
         contextSegment = contextSegment + 1,
         pendingSeed = seed,
+        pendingBrief = null,
     )
 }
 
@@ -85,6 +86,27 @@ internal fun continuationSeed(items: List<SessionItem>): String {
     val history = items.filter { it.isFrozenSegment } + handoff.items
     val brief = continuationBrief(history, handoff.items, handoff.summary, BriefMode.Rollover)
     log.i { "Rollover carries the continuation brief: $brief" }
+    return brief.text
+}
+
+/**
+ * Host directives the next turn carries: the essence or brief after a rollover and the brief after a native
+ * compaction. A compaction carries none; the handoff summary turn only writes the summary, so the brief waits for the
+ * work to go on.
+ */
+internal fun StudioChatRecord.carriedDirectives(request: StudioTurnRequest): List<String> = listOfNotNull(
+    pendingSeed.takeIf { request.compaction == null },
+    pendingBrief.takeIf { request.compaction == null && !request.isHandoff },
+)
+
+/** The record after its next turn accepted the carried seed and brief. */
+internal fun StudioChatRecord.seeded(): StudioChatRecord = copy(pendingSeed = null, pendingBrief = null)
+
+/** Continuation brief for the next turn after the engine compacted its context natively. */
+internal fun compactionBrief(items: List<SessionItem>): String {
+    val current = items.filterNot { it.isFrozenSegment }
+    val brief = continuationBrief(items, current, summary = null, BriefMode.AfterNativeCompaction)
+    log.i { "The next turn carries the continuation brief: $brief" }
     return brief.text
 }
 

@@ -152,26 +152,40 @@ internal class StudioCompactions(
                 if (inFlight.getAndUpdate { it + session }.contains(session)) return@forEach
                 log.d { "handle a pending compaction: in flight=${inFlight.value.size}" }
                 launch {
-                    try {
+                    val continued = try {
                         execute(session)
                     } finally {
                         inFlight.update { it - session }
                         log.d { "pending compaction handled: in flight=${inFlight.value.size}" }
                     }
+                    // Outside the in-flight mark: the continuation may ask for the next compaction itself.
+                    continued?.let { continueWork(it) }
                 }
             }
         }
     }
 
-    /** Claims the pending compaction of [session] and runs the request the machine moved to running. */
-    private suspend fun execute(session: SessionRef) {
+    /**
+     * Claims the pending compaction of [session] and runs the request the machine moved to running. Returns the chat
+     * whose agent asked for the compaction and continues its work after it, or null.
+     */
+    private suspend fun execute(session: SessionRef): String? {
         val claim = ContextOptimizationIntent.Public.Claim(session)
-        if (machines.send(ContextOptimizationMachineKey, claim) != SendResult.Accepted) return
+        if (machines.send(ContextOptimizationMachineKey, claim) != SendResult.Accepted) return null
+        var continued: String? = null
         val result = try {
             val compaction = (view.state.value as? ContextOptimizationState.Ready)?.running?.get(session)
             val chat = chats().firstOrNull { it.ref == session }?.takeIf { it.isCompactable }
             log.i { "run compaction method=${compaction?.method} origin=${compaction?.origin} chat=${chat != null}" }
-            if (compaction == null || chat == null) CompactionResult.Unsupported else compact(chat, compaction)
+            if (compaction == null || chat == null) {
+                CompactionResult.Unsupported
+            } else {
+                compact(chat, compaction).also { result ->
+                    val isContinued = result == CompactionResult.Compacted &&
+                        compaction.origin == CompactionOrigin.Agent && toggles.get(ContinuationBriefEnabled)
+                    if (isContinued) continued = chat.id
+                }
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -180,6 +194,7 @@ internal class StudioCompactions(
         }
         log.i { "compaction finished: $result" }
         machines.send(ContextOptimizationMachineKey, ContextOptimizationIntent.Public.Finished(session, result))
+        return continued
     }
 
     private suspend fun compact(chat: StudioChatRecord, compaction: PendingCompaction): CompactionResult {
@@ -188,8 +203,8 @@ internal class StudioCompactions(
             chat.isRolloverAllowed && toggles.get(ContextRolloverEnabled)
         val applied = runtime.value.state.value.configurations[chat.id]?.applied
         val settings = hostRunSettings(chat, applied, runtime.value.defaults())
-        val isBriefed = isRollover && toggles.get(ContinuationBriefEnabled)
-        if (isBriefed) summarize(chat, settings)
+        val isBriefed = toggles.get(ContinuationBriefEnabled)
+        if (isRollover && isBriefed) summarize(chat, settings)
         val request = StudioTurnRequest(
             chat.id,
             prompt = "",
@@ -221,8 +236,37 @@ internal class StudioCompactions(
         log.i { "handoff summary before rollover: $outcome" }
     }
 
+    /**
+     * The agent asked for the compaction to go on with long work: a host-started turn continues it right away, and the
+     * continuation brief reaches it with the turn.
+     */
+    private suspend fun continueWork(chatId: String) {
+        val chat = chats().firstOrNull { it.id == chatId } ?: return
+        val applied = runtime.value.state.value.configurations[chat.id]?.applied
+        val request = StudioTurnRequest(
+            chat.id,
+            prompt = "",
+            settings = hostRunSettings(chat, applied, runtime.value.defaults()),
+            kind = WorktreeRunKind.Coding,
+            request = RequestId("continue-${Uuid.random()}"),
+            directives = listOf(CONTINUE_DIRECTIVE),
+        )
+        val outcome = try {
+            runs.run(host.value, request, waitForIdle = true)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "continuation after an agent compaction failed" }
+            RunOutcome.Failed
+        }
+        log.i { "work continued after an agent compaction: $outcome" }
+    }
+
     private suspend fun chats(): List<StudioChatRecord> = store.get(ChatsKey).orEmpty()
 }
+
+private const val CONTINUE_DIRECTIVE =
+    "The context compaction you asked for is done. Continue the work from where you stopped."
 
 /** Starts [StudioCompactions] with the profile, so compactions run even while no studio screen is open. */
 @ContributesIntoSet(ProfileScope::class)

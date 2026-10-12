@@ -80,14 +80,34 @@ class StudioCompactionsTest {
         fixture.pending(Chat to PendingCompaction(CompactionMethod.Native, CompactionOrigin.Agent, "focus"))
         runCurrent()
 
-        val request = fixture.executed.single()
+        val (request, continuation) = fixture.executed
         assertEquals("chat", request.id)
         assertEquals("focus", request.compaction?.instructions)
+        assertTrue(request.isBriefed)
+        assertEquals("chat", continuation.id)
+        assertTrue(continuation.compaction == null && continuation.directives.single().startsWith("The context"))
         assertEquals<List<MachineIntent>>(
             listOf(Public.Claim(Chat), Public.Finished(Chat, CompactionResult.Compacted)),
             fixture.registry.sent,
         )
         job.cancel()
+    }
+
+    @Test
+    fun `only the agent's own compaction continues its work, and only with the brief`() = runTest {
+        val user = Fixture(this)
+        val userJob = launch { user.compactions.run() }
+        user.pending(Chat to PendingCompaction(CompactionMethod.Native, CompactionOrigin.User))
+        runCurrent()
+        val disabled = Fixture(this, disabled = setOf(ContinuationBriefEnabled))
+        val disabledJob = launch { disabled.compactions.run() }
+        disabled.pending(Chat to PendingCompaction(CompactionMethod.Native, CompactionOrigin.Agent))
+        runCurrent()
+
+        assertTrue(user.executed.single().compaction != null)
+        assertTrue(disabled.executed.single().let { it.compaction != null && !it.isBriefed })
+        userJob.cancel()
+        disabledJob.cancel()
     }
 
     @Test

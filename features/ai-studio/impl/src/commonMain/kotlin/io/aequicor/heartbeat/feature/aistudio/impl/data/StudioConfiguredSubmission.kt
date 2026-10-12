@@ -57,7 +57,8 @@ internal class StudioConfiguredSubmission(
         val seed = record.pendingSeed.takeIf { request.compaction == null }
         // The ledger and marks follow the chat before its first turn in the new session prepares its prompt.
         if (seed != null) record.previousRefs.lastOrNull()?.let { rollovers.rolledOver(it, active.ref) }
-        val seeded = if (seed == null) request else request.copy(directives = listOf(seed) + request.directives)
+        val carried = record.carriedDirectives(request)
+        val seeded = if (carried.isEmpty()) request else request.copy(directives = carried + request.directives)
         val constrained = if (record.helper == null) {
             seeded
         } else {
@@ -66,7 +67,7 @@ internal class StudioConfiguredSubmission(
         val submitted = send(active, constrained, effort) {
             helperPolicy.trust(record, trust, configurations)
         }
-        if (seed != null) access.consumeSeed(id)
+        if (carried.isNotEmpty()) access.consumeSeed(id)
         confirmConfiguration(
             access,
             id,
