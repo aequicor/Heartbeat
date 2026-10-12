@@ -44,7 +44,8 @@ test('a panel receives the link status and its watch events', async () => {
   hub.onEvent('chats.changed', { watch: 'w:9', chats: [] });
 
   assert.deepEqual(port.posted[0], { type: 'status', status: 'ready', features: { chat: true } });
-  assert.deepEqual(port.posted.slice(1), [
+  assert.deepEqual(port.posted[1], { type: 'agent', isAllowed: false, controlled: 0 });
+  assert.deepEqual(port.posted.slice(2), [
     { type: 'event', key: 'chats', event: 'chats.changed', params: { watch: 'w:1', chats: [] } },
   ]);
 });
@@ -131,4 +132,29 @@ test('panel calls are limited to chat methods and answered by id', async () => {
     { type: 'reply', id: 1, result: { chatId: 'c1' } },
     { type: 'reply', id: 3, error: { code: 'busy', message: 'Running' } },
   ]);
+});
+
+test('consent and revocation from a panel reach the agent and every panel hears changes', () => {
+  /** @type {any[]} */
+  const calls = [];
+  let state = { isAllowed: false, controlled: 0 };
+  const hub = createPanelHub({
+    link: fakeLink(),
+    extensionOrigin: ORIGIN,
+    agent: {
+      state: () => state,
+      setAllowed: (isAllowed) => calls.push(['consent', isAllowed]),
+      revokeAll: () => calls.push(['revoke']),
+    },
+  });
+  const port = panelPort();
+  hub.attach(port);
+
+  port.deliver({ type: 'consent', isAllowed: true });
+  port.deliver({ type: 'revokeTabs' });
+  state = { isAllowed: true, controlled: 2 };
+  hub.onAgentChanged();
+
+  assert.deepEqual(calls, [['consent', true], ['revoke']]);
+  assert.deepEqual(port.last(), { type: 'agent', isAllowed: true, controlled: 2 });
 });

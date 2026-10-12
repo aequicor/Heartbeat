@@ -108,4 +108,9 @@ details summary { cursor: pointer; display: flex; gap: 8px; justify-content: spa
 .chip { display: inline-flex; gap: 4px; align-items: center; max-width: 100%; padding: 2px 8px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); font-size: 12px; }
 .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
 
+.agent { margin: 8px 10px 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); }
+.consent { display: flex; gap: 6px; align-items: flex-start; }
+.agent-tabs { display: flex; gap: 8px; align-items: center; margin-top: 6px; color: var(--accent); }
+.agent-tabs span { flex: 1; }
+
 [hidden] { display: none !important; }

@@ -72,6 +72,9 @@ port.onMessage.addListener((/** @type {any} */ message) => {
       else pending.resolve(message.result);
       break;
     }
+    case 'agent':
+      dispatch({ type: 'agent', isAllowed: message.isAllowed, controlled: message.controlled });
+      break;
     case 'watchFailed':
       dispatch({ type: 'failed', code: message.error?.code ?? ErrorCode.INTERNAL });
       break;
@@ -176,6 +179,8 @@ function render(previous) {
   byId('error-text').textContent = state.error ? t(errorMessage(state.error)) : '';
   byId('error-dismiss').textContent = t('dismiss');
 
+  renderAgent();
+
   const content = byId('content');
   const wasAtBottom = content.scrollHeight - content.scrollTop - content.clientHeight < 24;
   if (isListing) {
@@ -221,6 +226,19 @@ function renderComposer(chat, isListing) {
   renderAttachments();
 }
 
+/** Consent to agent control and the tabs agents hold, when the app offers agent control. */
+function renderAgent() {
+  const isOffered = state.status === 'ready' && Boolean(state.features?.agentControl);
+  byId('agent').hidden = !isOffered && state.agent.controlled === 0;
+  const consent = /** @type {HTMLInputElement} */ (byId('consent'));
+  consent.checked = state.agent.isAllowed;
+  byId('consent-label').textContent = t('agentConsent');
+  byId('consent-hint').textContent = t('agentConsentHint');
+  byId('agent-tabs').hidden = state.agent.controlled === 0;
+  byId('agent-count').textContent = t('agentControlling', state.agent.controlled);
+  byId('revoke').textContent = t('revokeAll');
+}
+
 function renderAttachments() {
   byId('attachments').replaceChildren(
     ...state.attachments.map((attachment, index) =>
@@ -250,6 +268,10 @@ byId('send').addEventListener('click', send);
 byId('attach-page').addEventListener('click', attachPage);
 byId('stop').addEventListener('click', stop);
 byId('error-dismiss').addEventListener('click', () => dispatch({ type: 'dismiss' }));
+byId('consent').addEventListener('change', (event) => {
+  port.postMessage({ type: 'consent', isAllowed: /** @type {HTMLInputElement} */ (event.target).checked });
+});
+byId('revoke').addEventListener('click', () => port.postMessage({ type: 'revokeTabs' }));
 project.addEventListener('change', () => dispatch({ type: 'compose', projectId: project.value || null }));
 filterInput.addEventListener('input', () => {
   filter = filterInput.value;

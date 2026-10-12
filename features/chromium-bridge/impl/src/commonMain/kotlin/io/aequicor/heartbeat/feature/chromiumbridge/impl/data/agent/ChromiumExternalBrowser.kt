@@ -67,8 +67,7 @@ internal class ChromiumExternalBrowser(sessions: StateFlow<List<BridgeSession>>,
     override suspend fun activeTab(): ExternalTab? =
         call("tabs.active", JsonObject(emptyMap()))["tab"]?.let { it as? JsonObject }?.toTab()
 
-    override suspend fun openTab(url: String): ExternalTab =
-        tab(call("tabs.open", buildJsonObject { put("url", url) }, NAVIGATION_TIMEOUT_MILLIS))
+    override suspend fun openTab(): ExternalTab = tab(call("tabs.open", JsonObject(emptyMap())))
 
     override suspend fun control(tabId: String): ExternalTab = tab(call("tabs.control", tabParams(tabId)))
 

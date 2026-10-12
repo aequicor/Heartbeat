@@ -161,5 +161,22 @@
   },
   "errorCapture": {
     "message": "Эту страницу нельзя приложить."
+  },
+  "agentConsent": {
+    "message": "Разрешить агентам Heartbeat управлять этим браузером"
+  },
+  "agentConsentHint": {
+    "message": "Агенты открывают свои вкладки в группе «Heartbeat», а ваши вкладки используют только после вашего подтверждения в Heartbeat."
+  },
+  "agentControlling": {
+    "message": "Агенты управляют вкладками: $COUNT$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "revokeAll": {
+    "message": "Забрать все"
   }
 }

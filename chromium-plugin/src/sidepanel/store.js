@@ -22,6 +22,7 @@ import { applyTranscript } from './transcript.js';
  * @property {PageAttachment[]} attachments Pending attachments of the composer.
  * @property {boolean} isSending
  * @property {string | null} error Error code of the last failed action.
+ * @property {{ isAllowed: boolean, controlled: number }} agent Consent to agent control and controlled tabs.
  */
 
 /** @type {PanelState} */
@@ -39,6 +40,7 @@ export const initialState = Object.freeze({
   attachments: [],
   isSending: false,
   error: null,
+  agent: { isAllowed: false, controlled: 0 },
 });
 
 /**
@@ -93,6 +95,8 @@ export function reduce(state, action) {
       return { ...state, isSending: false, error: action.code };
     case 'dismiss':
       return { ...state, error: null };
+    case 'agent':
+      return { ...state, agent: { isAllowed: action.isAllowed === true, controlled: Number(action.controlled) || 0 } };
     default:
       return state;
   }

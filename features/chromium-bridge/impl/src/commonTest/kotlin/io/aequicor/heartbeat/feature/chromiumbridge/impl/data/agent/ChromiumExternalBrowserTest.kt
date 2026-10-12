@@ -65,7 +65,7 @@ class ChromiumExternalBrowserTest {
         }
         agent.answers["cdp.send"] = buildJsonObject { putJsonObject("result") { put("data", "png") } }
 
-        val tab = browser.openTab("https://example.com/")
+        val tab = browser.openTab()
         val result = browser.devTools("17", "Page.captureScreenshot", buildJsonObject { put("format", "png") })
 
         assertEquals(ExternalTab("17", "https://example.com/", "Example"), tab)

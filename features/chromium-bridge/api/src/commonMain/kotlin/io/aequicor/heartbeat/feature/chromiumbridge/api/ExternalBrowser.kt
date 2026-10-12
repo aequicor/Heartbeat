@@ -23,8 +23,11 @@ public interface ExternalBrowser {
     /** The tab the user is looking at in that browser, or `null` (no window, a browser page). */
     public suspend fun activeTab(): ExternalTab?
 
-    /** Opens [url] in a new tab of the «Heartbeat» group and starts controlling it. */
-    public suspend fun openTab(url: String): ExternalTab
+    /**
+     * Opens a blank tab in the «Heartbeat» group and starts controlling it; [navigate] then loads a page, so the
+     * first document already passes the navigation guard of a known tab.
+     */
+    public suspend fun openTab(): ExternalTab
 
     /** Starts controlling an existing tab the user handed over. */
     public suspend fun control(tabId: String): ExternalTab

@@ -15,15 +15,21 @@ const WATCH_METHODS = new Set(['chats.watch', 'chat.watch']);
  * @typedef {{ port: any, watches: Map<string, Watch> }} Panel
  * @typedef {{ status: string, hello: Record<string, any> | null,
  *   request: (method: string, params?: Record<string, any>) => Promise<any> }} Link
+ * @typedef {{ state: () => { isAllowed: boolean, controlled: number },
+ *   setAllowed: (isAllowed: boolean) => unknown, revokeAll: () => unknown }} Agent
  */
+
+/** @type {Agent} */
+const NO_AGENT = { state: () => ({ isAllowed: false, controlled: 0 }), setAllowed: () => {}, revokeAll: () => {} };
 
 /**
  * Connects side panels to the app. Each panel holds named watches (`chats`, `chat`); the hub opens them in the
  * app, routes their events to the owning panel and opens them again after every reconnect, so a panel only ever
  * sees a fresh `reset`. Watches of a closed panel are cancelled in the app.
- * @param {{ link: Link, extensionOrigin: string }} options
+ * The hub also carries the agent-control consent and the number of controlled tabs to every panel.
+ * @param {{ link: Link, extensionOrigin: string, agent?: Agent }} options
  */
-export function createPanelHub({ link, extensionOrigin }) {
+export function createPanelHub({ link, extensionOrigin, agent = NO_AGENT }) {
   /** @type {Set<Panel>} */
   const panels = new Set();
   /** @type {Map<string, { panel: Panel, key: string }>} */
@@ -45,6 +51,7 @@ export function createPanelHub({ link, extensionOrigin }) {
     port.onMessage.addListener((/** @type {any} */ message) => receive(panel, message));
     port.onDisconnect.addListener(() => detach(panel));
     post(panel, { type: 'status', status: link.status, features: link.hello?.features ?? null });
+    post(panel, { type: 'agent', ...agent.state() });
   }
 
   /**
@@ -62,6 +69,12 @@ export function createPanelHub({ link, extensionOrigin }) {
         break;
       case 'call':
         call(panel, message.id, String(message.method), message.params ?? {});
+        break;
+      case 'consent':
+        agent.setAllowed(message.isAllowed === true);
+        break;
+      case 'revokeTabs':
+        agent.revokeAll();
         break;
       default:
         break;
@@ -187,6 +200,12 @@ export function createPanelHub({ link, extensionOrigin }) {
     onEvent(event, params) {
       const target = byAppWatch.get(String(params.watch ?? ''));
       if (target) post(target.panel, { type: 'event', key: target.key, event, params });
+    },
+
+    /** Tells every panel the current consent and number of controlled tabs. */
+    onAgentChanged() {
+      const state = agent.state();
+      for (const panel of [...panels]) post(panel, { type: 'agent', ...state });
     },
 
     /** Number of open panels, for diagnostics and tests. */

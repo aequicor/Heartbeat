@@ -161,5 +161,22 @@
   },
   "errorCapture": {
     "message": "This page cannot be attached."
+  },
+  "agentConsent": {
+    "message": "Let Heartbeat agents control this browser"
+  },
+  "agentConsentHint": {
+    "message": "Agents open their tabs in the Heartbeat group and use your tabs only when you approve it in Heartbeat."
+  },
+  "agentControlling": {
+    "message": "Agents control tabs: $COUNT$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "revokeAll": {
+    "message": "Take all back"
   }
 }

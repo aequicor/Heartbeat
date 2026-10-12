@@ -30,10 +30,12 @@ test('permissions are exactly the reviewed set', () => {
     'activeTab',
     'alarms',
     'contextMenus',
+    'debugger',
     'nativeMessaging',
     'scripting',
     'sidePanel',
     'storage',
+    'tabGroups',
     'tabs',
   ]);
   assert.deepEqual(manifest.optional_host_permissions, ['http://*/*', 'https://*/*']);

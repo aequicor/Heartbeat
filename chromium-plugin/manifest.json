@@ -31,10 +31,12 @@
     "activeTab",
     "alarms",
     "contextMenus",
+    "debugger",
     "nativeMessaging",
     "scripting",
     "sidePanel",
     "storage",
+    "tabGroups",
     "tabs"
   ],
   "optional_host_permissions": [
