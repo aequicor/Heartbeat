@@ -29,8 +29,10 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserOutput
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserState
-import io.aequicor.heartbeat.feature.browser.api.normalizeBrowserUrl
-import io.aequicor.heartbeat.feature.searchengine.api.isPublicWebUrl
+import io.aequicor.heartbeat.feature.browser.impl.data.BrowserApprovalText.MAX_SHORT_CHARS
+import io.aequicor.heartbeat.feature.browser.impl.data.BrowserApprovalText.describeText
+import io.aequicor.heartbeat.feature.browser.impl.data.BrowserApprovalText.point
+import io.aequicor.heartbeat.feature.browser.impl.data.BrowserApprovalText.visible
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
@@ -40,11 +42,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.uuid.Uuid
@@ -78,15 +77,8 @@ internal class BrowserAgentTools(private val machines: MachineRegistry, private 
     AgentToolContribution {
     private val log = Log.tag("BrowserAgentTools")
 
-    /**
-     * The latest read of each session, so one session's reads never displace another's; an older snapshot only
-     * loses its approval text. Bounded in sessions, elements and text, and forgotten once its tab is gone (closing
-     * the tab, clearing browser data).
-     */
-    private val reads = object : LinkedHashMap<String, LatestRead>() {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, LatestRead>?): Boolean =
-            size > MAX_REMEMBERED_SESSIONS
-    }
+    /** The latest reads, forgotten once their tab is gone (closing the tab, clearing browser data). */
+    private val reads = BrowserReadMemory()
     override val group: String = "browser"
     override val title: String = "Встроенный браузер"
     override val catalog: List<ToolCatalogEntry> get() = specs().toolCatalog()
@@ -180,7 +172,7 @@ internal class BrowserAgentTools(private val machines: MachineRegistry, private 
         val owner = request.owner
         val tabId = request.tabId
         val isRead = request.operation == BrowserOperation.Read && completed.error == null
-        if (isRead && owner != null && tabId != null) remember(owner, tabId, completed.data)
+        if (isRead && owner != null && tabId != null) reads.remember(owner, tabId, completed.data)
         return AgentToolResult(
             completed.error ?: completed.data.toString(),
             completed.error != null,
@@ -255,37 +247,11 @@ internal class BrowserAgentTools(private val machines: MachineRegistry, private 
 
     /** An element reference is shown as the owner's read of that snapshot reported it; no IO happens here. */
     private fun describeClick(arguments: JsonObject, owner: String?): String {
-        val reference = arguments.text("element")
-            ?: return "Точка ${point(arguments, "x", "y")} (CSS-пиксели)"
-        val shown = "Элемент №${visible(reference, MAX_SHORT_CHARS)} из последнего чтения страницы"
-        val element = owner?.let { remembered(it, arguments.text("snapshotId"), reference.toIntOrNull()) }
-            ?: return "$shown (описание недоступно)"
-        val link = element.href?.let { ", ссылка: ${visible(it)}" }.orEmpty()
-        return "$shown: ${visible(element.tag, MAX_SHORT_CHARS)} «${visible(element.label)}»$link"
-    }
-
-    /** Texts are kept only as far as an approval shows them; a longer one still shows as shortened. */
-    private fun remember(owner: String, tabId: String, data: JsonObject) {
-        val snapshot = data.text("snapshotId")?.takeIf { it.length <= MAX_SHORT_CHARS } ?: return
-        val elements = (data["elements"] as? JsonArray).orEmpty().asSequence().mapNotNull { element ->
-            val fields = element as? JsonObject ?: return@mapNotNull null
-            val id = (fields["id"] as? JsonPrimitive)?.intOrNull ?: return@mapNotNull null
-            id to ReadElement(
-                fields.text("tag").orEmpty().take(MAX_SHORT_CHARS + 1),
-                fields.text("label").orEmpty().take(MAX_APPROVAL_CHARS + 1),
-                fields.text("href")?.take(MAX_APPROVAL_CHARS + 1),
-            )
-        }.take(MAX_REMEMBERED_ELEMENTS).toMap()
-        synchronized(reads) {
-            reads.remove(owner)
-            reads[owner] = LatestRead(tabId, snapshot, elements)
-        }
-    }
-
-    private fun remembered(owner: String, snapshot: String?, id: Int?): ReadElement? {
-        if (snapshot == null || id == null) return null
         forgetClosedTabs()
-        return synchronized(reads) { reads[owner]?.takeIf { it.snapshot == snapshot }?.elements?.get(id) }
+        val element = owner?.let {
+            reads.remembered(it, arguments.text("snapshotId"), arguments.text("element")?.toIntOrNull())
+        }
+        return BrowserApprovalText.describeClick(arguments, element)
     }
 
     /** Reads of closed tabs, including all of them once browser data is cleared, are dropped. */
@@ -293,47 +259,7 @@ internal class BrowserAgentTools(private val machines: MachineRegistry, private 
         val open = (machines.find(BrowserMachineKey)?.state?.value as? BrowserState.Running)?.tabs
             ?.mapTo(mutableSetOf()) { it.id }
             .orEmpty()
-        synchronized(reads) { reads.values.removeAll { it.tabId !in open } }
-    }
-
-    private fun describeText(text: String?): String {
-        val value = text.orEmpty()
-        return "Текст (${value.length} симв.): ${visible(value)}"
-    }
-
-    private fun point(arguments: JsonObject, x: String, y: String): String =
-        "${visible(arguments.text(x) ?: "?", MAX_SHORT_CHARS)}, ${visible(arguments.text(y) ?: "?", MAX_SHORT_CHARS)}"
-
-    private fun JsonObject.text(name: String): String? =
-        (this[name] as? JsonPrimitive)?.takeUnless { it is JsonNull }?.content
-
-    /**
-     * Control, format (bidi overrides and isolates, zero-width, tags), line/paragraph separator and lone surrogate
-     * characters are shown escaped, so the approval reads exactly what reaches the page and cannot be visually
-     * rearranged. A longer value keeps its first [limit] characters, never splitting a code point or an escape.
-     */
-    private fun visible(value: String?, limit: Int = MAX_APPROVAL_CHARS): String {
-        val text = value.orEmpty()
-        val shown = StringBuilder()
-        var index = 0
-        while (index < text.length) {
-            val codePoint = text.codePointAt(index)
-            val piece = when {
-                codePoint == '\n'.code -> "\\n"
-                codePoint == '\t'.code -> "\\t"
-                Character.isISOControl(codePoint) || Character.getType(codePoint) in HIDDEN_TYPES -> escape(codePoint)
-                else -> String(Character.toChars(codePoint))
-            }
-            if (shown.length + piece.length > limit) return shown.append(TRUNCATED).toString()
-            shown.append(piece)
-            index += Character.charCount(codePoint)
-        }
-        return shown.toString()
-    }
-
-    private fun escape(codePoint: Int): String {
-        val hex = codePoint.toString(HEX_RADIX).padStart(UNICODE_DIGITS, '0')
-        return if (Character.isBmpCodePoint(codePoint)) "\\u$hex" else "\\u{$hex}"
+        reads.forgetExcept(open)
     }
 
     private fun specs(): List<AgentToolSpec> = OPERATIONS.map { (name, operation) ->
@@ -341,33 +267,14 @@ internal class BrowserAgentTools(private val machines: MachineRegistry, private 
             name,
             "Embedded browser: ${operation.name}. tabId is returned by browser_new_tab. " +
                 "Coordinates are CSS viewport pixels; element is a reference from browser_read.",
-            Json.parseToJsonElement(SCHEMA).jsonObject,
+            Json.parseToJsonElement(BROWSER_TOOL_SCHEMA).jsonObject,
             if (operation in INPUT_OPERATIONS) AgentToolAction.Command else AgentToolAction.Read,
         )
     }
 
-    /** An element as the agent's read reported it. */
-    private data class ReadElement(val tag: String, val label: String, val href: String?)
-
-    /** A session's latest read: its tab, snapshot and elements. */
-    private data class LatestRead(val tabId: String, val snapshot: String, val elements: Map<Int, ReadElement>)
-
     private companion object {
         const val OPERATION_TIMEOUT = 45_000L
         const val CANCELLATION_TIMEOUT = 5_000L
-        const val MAX_APPROVAL_CHARS = 500
-        const val MAX_SHORT_CHARS = 40
-        const val MAX_REMEMBERED_SESSIONS = 32
-        const val MAX_REMEMBERED_ELEMENTS = 200
-        const val TRUNCATED = "… (показано начало)"
-        const val HEX_RADIX = 16
-        const val UNICODE_DIGITS = 4
-        val HIDDEN_TYPES = setOf(
-            Character.FORMAT.toInt(),
-            Character.LINE_SEPARATOR.toInt(),
-            Character.PARAGRAPH_SEPARATOR.toInt(),
-            Character.SURROGATE.toInt(),
-        )
         val INPUT_OPERATIONS = setOf(
             BrowserOperation.Click,
             BrowserOperation.Type,
@@ -394,24 +301,13 @@ internal class BrowserAgentTools(private val machines: MachineRegistry, private 
                 "browser_scroll" to BrowserOperation.Scroll,
                 "browser_drag" to BrowserOperation.Drag,
             )
-        const val SCHEMA =
-            """{"type":"object","properties":{
-            "tabId":{"type":"string"},"url":{"type":"string"},"query":{"type":"string"},
-            "snapshotId":{"type":"string"},"element":{"type":"integer","minimum":0,"maximum":199},
-            "x":{"type":"number"},"y":{"type":"number"},"toX":{"type":"number"},"toY":{"type":"number"},
-            "deltaY":{"type":"number"},"text":{"type":"string","maxLength":20000},"key":{"type":"string"}
-        },"additionalProperties":false}"""
 
         /**
          * The address a navigation would load when it is not a public web URL, else null. It is normalized like
          * the browser does (a bare host gets https://), so the check sees what the tab opens; an invalid address
          * is refused by the browser itself and needs no decision.
          */
-        fun privateAddress(operation: BrowserOperation?, arguments: JsonObject): String? {
-            if (operation !in NAVIGATIONS) return null
-            val address = (arguments["url"] as? JsonPrimitive)?.content ?: return null
-            val url = normalizeBrowserUrl(address) ?: return null
-            return url.takeUnless(::isPublicWebUrl)
-        }
+        fun privateAddress(operation: BrowserOperation?, arguments: JsonObject): String? =
+            if (operation in NAVIGATIONS) nonPublicAddress((arguments["url"] as? JsonPrimitive)?.content) else null
     }
 }
