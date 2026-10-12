@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimi
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationMachineSpec
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationView
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextRolloverEnabled
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContinuationBriefEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.KoogMaskingEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.impl.data.ContextLedgerHook
 import io.aequicor.heartbeat.feature.contextwindowoptimization.impl.domain.ContextOptimizationEffects
@@ -114,4 +115,9 @@ object ContextOptimizationToggleBindings {
     @Provides
     @IntoSet
     fun offload(): FeatureToggle<*> = ContextOffloadEnabled
+
+    /** Continuation brief after compaction and rollover. */
+    @Provides
+    @IntoSet
+    fun continuationBrief(): FeatureToggle<*> = ContinuationBriefEnabled
 }

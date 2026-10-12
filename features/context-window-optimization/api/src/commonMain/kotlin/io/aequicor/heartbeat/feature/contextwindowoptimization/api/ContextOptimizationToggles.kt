@@ -41,6 +41,15 @@ public val ContextOffloadEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "Выгрузка длинных выводов инструментов из контекста и инструмент context_recall",
 )
 
+/**
+ * A continuation brief after compaction and rollover — every user message, a summary of the work and the last turn —
+ * so the agent continues where it stopped; requires the main toggle.
+ */
+public val ContinuationBriefEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
+    "context_optimization.continuation_brief",
+    "Бриф продолжения после сжатия: сообщения пользователя, выжимка работы и последний ход",
+)
+
 /** Names of the agent's hosted context tools. */
 public object ContextOptimizationTools {
     /** Reports context occupancy, the ledger and pending compaction. */
