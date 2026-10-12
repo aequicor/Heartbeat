@@ -24,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -146,6 +147,7 @@ private fun FlatButton(
  * no cut/copy, a password keyboard without autocorrect, and nothing written to saved state.
  * A secret field is always single-line, whatever [singleLine] says.
  * [selectAllOnFocus] selects the current text on entry, useful for replacing an address.
+ * [shape] controls both the field fill and its focus outline, e.g. a pill-shaped address bar.
  */
 @Composable
 public fun HbTextField(
@@ -160,6 +162,7 @@ public fun HbTextField(
     leadingContent: (@Composable () -> Unit)? = null,
     trailingContent: (@Composable () -> Unit)? = null,
     selectAllOnFocus: Boolean = false,
+    shape: Shape = RoundedCornerShape(HbTheme.dimensions.fieldCornerRadius),
 ) {
     val loggedChange: (String) -> Unit = {
         log.d { "text input changed length=${it.length}" }
@@ -180,6 +183,7 @@ public fun HbTextField(
         leadingContent,
         trailingContent,
         selectAllOnFocus,
+        shape,
     )
 }
 
@@ -195,12 +199,12 @@ private fun FlatTextField(
     leadingContent: (@Composable () -> Unit)? = null,
     trailingContent: (@Composable () -> Unit)? = null,
     selectAllOnFocus: Boolean = false,
+    shape: Shape = RoundedCornerShape(HbTheme.dimensions.fieldCornerRadius),
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
     val colors = HbTheme.colors
     val isHovered by interactionSource.collectIsHoveredAsState()
-    val shape = RoundedCornerShape(HbTheme.dimensions.fieldCornerRadius)
     val fill = if (isHovered && enabled) {
         colors.interactionHoverOverlay.compositeOver(colors.inputFill)
     } else {

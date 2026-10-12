@@ -1,33 +1,22 @@
 package io.aequicor.heartbeat.feature.browser.impl.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.Role
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbDialog
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
-import io.aequicor.heartbeat.ds.components.HbNavigationItem
 import io.aequicor.heartbeat.ds.components.HbPaneHeader
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.layouts.HbFlowRow
-import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.LocalPaneExpansionAvailable
-import io.aequicor.heartbeat.ds.layouts.hbHorizontalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserScreenIntent
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserScreenState
@@ -38,16 +27,12 @@ import io.aequicor.heartbeat.feature.browser.impl.resources.browser_clear_data
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_clear_data_confirm
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_clear_data_message
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_clear_data_title
-import io.aequicor.heartbeat.feature.browser.impl.resources.browser_close_tab
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_expand
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_hide
-import io.aequicor.heartbeat.feature.browser.impl.resources.browser_new_tab
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_panel
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_reject_control
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_return_agent
-import io.aequicor.heartbeat.feature.browser.impl.resources.browser_session_group
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_title
-import io.aequicor.heartbeat.feature.browser.impl.resources.browser_user_group
 import org.jetbrains.compose.resources.stringResource
 
 /** Caption-safe fixed controls stay reachable even with many tabs. */
@@ -98,61 +83,8 @@ internal fun BrowserTabs(state: BrowserScreenState, onIntent: (BrowserScreenInte
         )
     }
     if (!state.hasTabs) return
-    BrowserTabGroups(state, onIntent)
+    BrowserTabStrip(state, onIntent)
     BrowserControl(state, onIntent)
-}
-
-@Composable
-private fun BrowserTabGroups(state: BrowserScreenState, onIntent: (BrowserScreenIntent) -> Unit) {
-    HbRow(
-        Modifier.fillMaxWidth().selectableGroup().hbHorizontalScroll(rememberScrollState()),
-        gap = HbTheme.spacing.xs,
-    ) {
-        state.tabs.groupBy { it.groupId }.entries.forEachIndexed { index, (groupId, tabs) ->
-            key(groupId) {
-                HbRow(
-                    Modifier.background(
-                        HbTheme.colors.inputFill,
-                        RoundedCornerShape(HbTheme.dimensions.fieldCornerRadius),
-                    )
-                        .padding(horizontal = HbTheme.spacing.xs).testTag("browser-group-${groupId ?: "personal"}"),
-                    gap = HbTheme.spacing.xxs,
-                ) {
-                    HbText(
-                        stringResource(
-                            if (groupId == null) Res.string.browser_user_group else Res.string.browser_session_group,
-                            index + 1,
-                        ),
-                        style = HbTheme.typography.caption,
-                        color = HbTheme.colors.textSecondary,
-                        maxLines = 1,
-                    )
-                    tabs.forEach { tab ->
-                        key(tab.id) {
-                            val title = tab.title.ifBlank { stringResource(Res.string.browser_new_tab) }
-                            HbNavigationItem(
-                                label = title,
-                                onClick = { onIntent(BrowserScreenIntent.SelectTab(tab.id)) },
-                                modifier = Modifier.width(HbTheme.dimensions.inspectorPanelWidth / 2),
-                                isSelected = state.selectedTabId == tab.id,
-                                role = Role.Tab,
-                            )
-                            HbIconButton(
-                                HbIcons.Close,
-                                stringResource(Res.string.browser_close_tab, title),
-                                { onIntent(BrowserScreenIntent.CloseTab(tab.id)) },
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        HbIconButton(
-            HbIcons.Plus,
-            stringResource(Res.string.browser_new_tab),
-            { onIntent(BrowserScreenIntent.NewTab) },
-        )
-    }
 }
 
 @Composable
