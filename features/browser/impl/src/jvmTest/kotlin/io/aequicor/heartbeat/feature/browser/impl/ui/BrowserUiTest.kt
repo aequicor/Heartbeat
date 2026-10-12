@@ -101,7 +101,7 @@ class BrowserUiTest {
         )
         setContent { HbTheme { BrowserScreenContent(state, {}) } }
         onNodeWithTag("browser-group-session-a").assertIsDisplayed()
-        onNodeWithTag("browser-group-session-b").assertExists()
+        onNodeWithTag("browser-group-session-b").assertDoesNotExist()
         onAllNodesWithText("Docs").assertCountEquals(1)
     }
 
@@ -311,6 +311,15 @@ class BrowserUiTest {
                             }
                         }
                     }
+                    val header = onNodeWithTag("browser-header").fetchSemanticsNode().boundsInRoot
+                    val create = onNodeWithTag("browser-new-tab").fetchSemanticsNode().boundsInRoot
+                    val hide = onNodeWithTag("browser-hide").fetchSemanticsNode().boundsInRoot
+                    val address = onNodeWithTag("browser-address").fetchSemanticsNode().boundsInRoot
+                    assertTrue(create.top >= header.top && create.bottom <= header.bottom)
+                    assertTrue(hide.top >= header.top && hide.bottom <= header.bottom)
+                    assertEquals(header.center.y, create.center.y, 1f)
+                    assertEquals(header.center.y, hide.center.y, 1f)
+                    assertTrue(address.top >= header.bottom)
                     onNodeWithTag("browser-address").assertIsDisplayed()
                     onNodeWithTag("browser-open").assertIsDisplayed()
                     onNodeWithTag("browser-back").assertIsNotEnabled()

@@ -11,28 +11,19 @@ import androidx.compose.ui.platform.testTag
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbDialog
-import io.aequicor.heartbeat.ds.components.HbIconButton
-import io.aequicor.heartbeat.ds.components.HbIcons
-import io.aequicor.heartbeat.ds.components.HbPaneHeader
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.layouts.HbFlowRow
-import io.aequicor.heartbeat.ds.layouts.LocalPaneExpansionAvailable
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserScreenIntent
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserScreenState
 import io.aequicor.heartbeat.feature.browser.impl.resources.Res
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_approve_control
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_cancel
-import io.aequicor.heartbeat.feature.browser.impl.resources.browser_clear_data
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_clear_data_confirm
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_clear_data_message
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_clear_data_title
-import io.aequicor.heartbeat.feature.browser.impl.resources.browser_expand
-import io.aequicor.heartbeat.feature.browser.impl.resources.browser_hide
-import io.aequicor.heartbeat.feature.browser.impl.resources.browser_panel
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_reject_control
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_return_agent
-import io.aequicor.heartbeat.feature.browser.impl.resources.browser_title
 import org.jetbrains.compose.resources.stringResource
 
 /** Caption-safe fixed controls stay reachable even with many tabs. */
@@ -40,39 +31,7 @@ import org.jetbrains.compose.resources.stringResource
 internal fun BrowserTabs(state: BrowserScreenState, onIntent: (BrowserScreenIntent) -> Unit) {
     // Clearing deletes the persistent profile's cookies and sign-ins, so it always asks first.
     var isClearDataConfirmationShown by rememberSaveable { mutableStateOf(false) }
-    // Compact windows already use the whole workspace, so a panel/expand toggle has no effect.
-    val isPresentationSwitchAvailable = LocalPaneExpansionAvailable.current
-    HbPaneHeader(
-        stringResource(Res.string.browser_title),
-        actions = {
-            if (state.hasTabs && isPresentationSwitchAvailable) {
-                HbButton(
-                    stringResource(
-                        if (state.isExpanded) {
-                            Res.string.browser_panel
-                        } else {
-                            Res.string.browser_expand
-                        },
-                    ),
-                    { onIntent(BrowserScreenIntent.ToggleExpanded) },
-                    style = HbButtonStyle.Ghost,
-                )
-            }
-            if (state.hasTabs) {
-                HbIconButton(
-                    HbIcons.Trash,
-                    stringResource(Res.string.browser_clear_data),
-                    { isClearDataConfirmationShown = true },
-                    Modifier.testTag("browser-clear-data"),
-                )
-            }
-            HbIconButton(
-                HbIcons.Close,
-                stringResource(Res.string.browser_hide),
-                { onIntent(BrowserScreenIntent.Hide) },
-            )
-        },
-    )
+    BrowserHeader(state, onIntent, onClearData = { isClearDataConfirmationShown = true })
     if (isClearDataConfirmationShown) {
         ClearDataConfirmation(
             onConfirm = {
@@ -83,7 +42,6 @@ internal fun BrowserTabs(state: BrowserScreenState, onIntent: (BrowserScreenInte
         )
     }
     if (!state.hasTabs) return
-    BrowserTabStrip(state, onIntent)
     BrowserControl(state, onIntent)
 }
 

@@ -33,4 +33,7 @@
     <string name="browser_user_group">Personal</string>
     <string name="browser_session_group">Session %1$d</string>
     <string name="browser_all_tabs">All tabs</string>
+    <string name="browser_actions">Browser actions</string>
+    <string name="browser_tab_groups">Tab groups</string>
+    <string name="browser_group_selector">Switch tab group: %1$s, %2$d tabs</string>
 </resources>
