@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
@@ -47,13 +48,15 @@ class StudioBrowserLayoutUiTest {
             var mode by mutableStateOf(BrowserPaneMode.Panel)
             var mounts = 0
             var disposals = 0
+            var chatMounts = 0
+            var chatDisposals = 0
             setContent {
                 HbTheme(dimensions = HbDimensions.Desktop) {
                     StudioBrowserLayout(
                         mode,
                         Modifier.testTag("workspace"),
                         browser = { BrowserContent({ mounts++ }, { disposals++ }) },
-                        chat = { Box(Modifier.fillMaxSize().testTag("conversation")) },
+                        chat = { ChatContent({ chatMounts++ }, { chatDisposals++ }) },
                     )
                 }
             }
@@ -71,7 +74,7 @@ class StudioBrowserLayoutUiTest {
             assertTrue(bounds("conversation").width < initialChat.width)
             assertEquals(workspace.right, resized.right, 1f)
             runOnIdle { mode = BrowserPaneMode.Expanded }
-            onNodeWithTag("conversation").assertDoesNotExist()
+            onNodeWithTag("conversation").assertIsNotDisplayed()
             onNodeWithTag("browser-resize").assertDoesNotExist()
             assertBounds(workspace, bounds("browser-content"))
             runOnIdle { mode = BrowserPaneMode.Panel }
@@ -81,6 +84,8 @@ class StudioBrowserLayoutUiTest {
             runOnIdle {
                 assertEquals(1, mounts, "Resizing and changing presentation must preserve the browser slot")
                 assertEquals(0, disposals)
+                assertEquals(1, chatMounts, "The covered chat must keep its composition and remembered state")
+                assertEquals(0, chatDisposals)
             }
         }
 
@@ -109,7 +114,7 @@ class StudioBrowserLayoutUiTest {
             val panelWidth = bounds("browser-panel").width
             runOnIdle { assertTrue(isExpansionAvailable) }
             runOnIdle { width = 420.dp }
-            onNodeWithTag("conversation").assertDoesNotExist()
+            onNodeWithTag("conversation").assertIsNotDisplayed()
             onNodeWithTag("browser-resize").assertDoesNotExist()
             assertBounds(bounds("workspace"), bounds("browser-content"))
             runOnIdle { assertFalse(isExpansionAvailable, "The browser must use its host width, not the wider window") }
@@ -160,6 +165,31 @@ class StudioBrowserLayoutUiTest {
             }
         }
 
+    @Test
+    fun `panel never narrows the chat below the pane minimum`() = runSkikoComposeUiTest(size = Size(800f, 720f)) {
+        var paneMinWidth = 0f
+        setContent {
+            HbTheme(dimensions = HbDimensions.Desktop) {
+                val minimum = HbTheme.dimensions.paneMinWidth.value
+                SideEffect { paneMinWidth = minimum }
+                StudioBrowserLayout(
+                    BrowserPaneMode.Panel,
+                    Modifier.testTag("workspace"),
+                    browser = { Box(Modifier.fillMaxSize().testTag("browser-content")) },
+                    chat = { Box(Modifier.fillMaxSize().testTag("conversation")) },
+                )
+            }
+        }
+        fun bounds(tag: String) = onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot
+        assertTrue(bounds("conversation").width >= paneMinWidth - 1f, "Default split: ${bounds("conversation")}")
+        onNodeWithTag("browser-resize").performTouchInput {
+            swipe(center, center + Offset(-600f, 0f), durationMillis = 300)
+        }
+        val chat = bounds("conversation")
+        assertTrue(chat.width >= paneMinWidth - 1f, "Dragging must stop at the chat minimum: $chat")
+        assertEquals(bounds("workspace").right, bounds("browser-panel").right, 1f)
+    }
+
     private fun assertBounds(expected: Rect, actual: Rect) {
         assertEquals(expected.left, actual.left, 1f)
         assertEquals(expected.top, actual.top, 1f)
@@ -172,6 +202,17 @@ class StudioBrowserLayoutUiTest {
         assertTrue(abs(expected.green - actual.green) < 0.01f)
         assertTrue(abs(expected.blue - actual.blue) < 0.01f)
     }
+}
+
+@Composable
+private fun ChatContent(onMount: () -> Unit, onDispose: () -> Unit) {
+    val currentMount by rememberUpdatedState(onMount)
+    val currentDispose by rememberUpdatedState(onDispose)
+    DisposableEffect(Unit) {
+        currentMount()
+        onDispose { currentDispose() }
+    }
+    Box(Modifier.fillMaxSize().testTag("conversation"))
 }
 
 @Composable
