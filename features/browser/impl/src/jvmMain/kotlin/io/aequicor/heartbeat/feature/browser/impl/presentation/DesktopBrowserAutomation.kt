@@ -31,9 +31,11 @@ import kotlin.uuid.Uuid
  * viewport CSS pixels.
  *
  * A snapshot (read or screenshot) stays valid while the document, its URL, the viewport size and the scroll
- * position are unchanged; ordinary DOM mutations (timers, carousels) do not invalidate it. Element references
- * are hit-tested again right before input. A read is one synchronous script, so the content and the geometry it
- * reports describe the same moment; a screenshot is retried a bounded number of times while the viewport moves.
+ * position are unchanged; ordinary DOM mutations (timers, carousels) do not invalidate it. Right before input an
+ * element reference is checked again: it must still mean what the read reported (tag, role, type, link target and
+ * label) and be hit at its centre, without a link or control inserted inside it. A read is one synchronous script,
+ * so the content and the geometry it reports describe the same moment; a screenshot is retried a bounded number of
+ * times while the viewport moves.
  */
 internal class DesktopBrowserAutomation(
     private val transport: suspend (String, JsonObject) -> String,
@@ -191,16 +193,21 @@ internal class DesktopBrowserAutomation(
                     (() => {
                         const e = window.__heartbeatElements?.[$ref];
                         if (!e || !e.isConnected) throw Error('Stale element');
+                        if ($FINGERPRINT_SCRIPT(e) !== window.__heartbeatFingerprints?.[$ref]) return {isChanged:true};
                         const r=e.getBoundingClientRect();
                         const x=r.x+r.width/2,y=r.y+r.height/2;
                         const hit=document.elementFromPoint(x,y);
-                        return {x,y,isVisible:e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true}),
-                            isTarget:hit===e||e.contains(hit)};
+                        return {x,y,isChanged:false,
+                            isVisible:e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true}),
+                            isTarget:!!hit&&e.contains(hit)&&hit.closest('$INTERACTIVE_SELECTOR')===e};
                     })()
                     """.trimIndent(),
                 )
                     .jsonObject
                     .also { target ->
+                        require(target["isChanged"]?.jsonPrimitive?.booleanOrNull == false) {
+                            "Element changed; read the page again"
+                        }
                         require(target["isVisible"]?.jsonPrimitive?.booleanOrNull == true) {
                             "Element is hidden; read the page again"
                         }
@@ -424,6 +431,26 @@ internal class DesktopBrowserAutomation(
             return {document:window.__heartbeatDocument,url:location.href,width:innerWidth,height:innerHeight,x:scrollX,y:scrollY};
         })()"""
 
+        /** The label an element reference is shown with. */
+        const val LABEL_SCRIPT =
+            "(e=>(e.innerText||e.getAttribute('aria-label')||e.getAttribute('placeholder')||'').slice(0,300))"
+
+        /**
+         * What a reference means to the agent and to the user approving a click: tag, role, type, link target and
+         * label. A page that rewrites the element between read and click changes it.
+         */
+        const val FINGERPRINT_SCRIPT =
+            "(e=>JSON.stringify([e.tagName,e.getAttribute('role'),e.getAttribute('type'),e.getAttribute('href')," +
+                "e.getAttribute('aria-label'),$LABEL_SCRIPT(e)]))"
+
+        /**
+         * Elements that act on a click by themselves. A click lands on its referenced element only when the nearest
+         * such ancestor of the hit-tested node is that element, not a link or control inserted inside it.
+         */
+        const val INTERACTIVE_SELECTOR =
+            "a[href],area[href],button,input,textarea,select,summary,[role=button],[role=link],[role=checkbox]," +
+                "[role=radio],[role=switch],[role=tab],[role=menuitem],[role=option],[onclick],[contenteditable]"
+
         /** Synchronous: the geometry ("view") and the content describe the same moment. */
         const val READ_SCRIPT =
             """(() => {
@@ -431,9 +458,10 @@ internal class DesktopBrowserAutomation(
             const elements=Array.from(document.querySelectorAll('a[href],button,input,textarea,select,[role=button]'))
                 .filter(e=>{const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true})}).slice(0,200);
             window.__heartbeatElements=elements;
+            window.__heartbeatFingerprints=elements.map($FINGERPRINT_SCRIPT);
             return {view,url:location.href,title:document.title,
                 requiresUserAction:!!document.querySelector('input[type=password],iframe[src*="captcha"]'),content:(document.body?.innerText||'').slice(0,100000),
-                elements:elements.map((e,id)=>({id,tag:e.tagName,label:(e.innerText||e.getAttribute('aria-label')||e.getAttribute('placeholder')||'').slice(0,300),href:e.href||null}))};
+                elements:elements.map((e,id)=>({id,tag:e.tagName,label:$LABEL_SCRIPT(e),href:e.href||null}))};
         })()"""
     }
 }

@@ -43,6 +43,36 @@ class DesktopBrowserAutomationTest {
     }
 
     @Test
+    fun `element rewritten after the read is refused before any input`() = runTest {
+        val transport = Transport()
+        val driver = DesktopBrowserAutomation(transport::call)
+        val read = driver.perform(request(BrowserOperation.Read))
+        transport.isElementChanged = true
+        val failure = assertFailsWith<IllegalArgumentException> {
+            driver.perform(
+                request(
+                    BrowserOperation.Click,
+                    buildJsonObject {
+                        put("snapshotId", read.data.getValue("snapshotId"))
+                        put("element", 0)
+                    },
+                ),
+            )
+        }
+        assertEquals("Element changed; read the page again", failure.message)
+        assertTrue(transport.calls.none { it.first.startsWith("Input.") })
+        val scripts = transport.calls
+            .filter { it.first == "Runtime.evaluate" }
+            .map { it.second.getValue("expression").jsonPrimitive.content }
+        // The read records what each reference means; the click compares it and the nearest interactive ancestor.
+        assertTrue(scripts.first { "querySelectorAll" in it }.contains("__heartbeatFingerprints="))
+        val check = scripts.first { "elementFromPoint" in it }
+        assertTrue(check.contains("__heartbeatFingerprints?.[0]"))
+        assertTrue(check.contains("getAttribute('href')"))
+        assertTrue(check.contains("hit.closest("))
+    }
+
+    @Test
     fun `visible hit tested element receives click before focused text insertion`() = runTest {
         val transport = Transport()
         val driver = DesktopBrowserAutomation(transport::call)
@@ -282,6 +312,7 @@ class DesktopBrowserAutomationTest {
         var navigationLoader = "loader"
         var isElementVisible = true
         var isElementTarget = true
+        var isElementChanged = false
 
         private val geometry: String
             get() = """{"document":"doc","url":"$url","width":800,"height":600,"x":0,"y":$scrollY}"""
@@ -326,8 +357,10 @@ class DesktopBrowserAutomationTest {
                 "querySelectorAll" in expression ->
                     """{"view":$geometry,"url":"$url","title":"Example","content":"Text $mutations"}"""
 
+                "elementFromPoint" in expression && isElementChanged -> """{"isChanged":true}"""
+
                 "elementFromPoint" in expression ->
-                    """{"x":40,"y":30,"isVisible":$isElementVisible,"isTarget":$isElementTarget}"""
+                    """{"x":40,"y":30,"isChanged":false,"isVisible":$isElementVisible,"isTarget":$isElementTarget}"""
 
                 "__heartbeatDocument" in expression -> geometry
 

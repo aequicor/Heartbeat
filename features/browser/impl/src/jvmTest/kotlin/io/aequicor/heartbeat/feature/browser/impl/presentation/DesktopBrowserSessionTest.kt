@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserAgentPolicy
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserRequestKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -222,12 +223,71 @@ class DesktopBrowserSessionTest {
         assertEquals("Page load timed out", result.error)
     }
 
+    @Test
+    fun `agent tabs stop unapproved private navigations started by the page and say why`() = runTest {
+        val fixture = Fixture(this)
+        val tab = fixture.create("session-a")
+        var redirect: String? = null
+        fixture.attachNavigation(0) { redirect }
+        runCurrent()
+        suspend fun open(url: String) = fixture.request(BrowserOperation.Navigate, tab, "session-a", url = url).error
+
+        redirect = "http://192.168.1.1/"
+        assertTrue(open("https://example.com/").orEmpty().contains("private-network"))
+        redirect = null
+        assertNull(open("https://example.com/"))
+        // The dispatcher asked the user before this navigation: the page may move within the approved host only.
+        redirect = "http://192.168.1.1/login"
+        assertNull(open("http://192.168.1.1/admin"))
+        redirect = "http://10.0.0.1/"
+        assertTrue(open("http://192.168.1.1/admin").orEmpty().contains("private-network"))
+        // Opening another address withdraws the approval.
+        redirect = null
+        assertNull(open("https://example.com/"))
+        assertFalse(fixture.guards.single().allows("http://192.168.1.1/"))
+        // Numeric shorthands of loopback are not addresses the browser accepts at all.
+        assertEquals("Invalid URL", open("2130706433"))
+        assertEquals("Invalid URL", open("127.1"))
+    }
+
+    @Test
+    fun `only agent controlled tabs are restricted and a handed over page stays approved`() = runTest {
+        val fixture = Fixture(this)
+        val user = fixture.create()
+        val userGuard = fixture.guards.single()
+        fixture.attachNavigation(0) { null }
+        runCurrent()
+        assertNull(fixture.request(BrowserOperation.Navigate, user, url = "http://192.168.1.1/").error)
+        assertFalse(userGuard.isRestricted)
+
+        val agent = fixture.create("session-a")
+        val agentGuard = fixture.guards.last()
+        assertTrue(agentGuard.isRestricted)
+        fixture.attachNavigation(1) { null }
+        runCurrent()
+        // Only the owner's own (dispatcher-approved) navigation approves an address for the agent's tab.
+        val foreign = fixture.request(BrowserOperation.Navigate, agent, url = "http://192.168.1.1/").error
+        assertTrue(foreign.orEmpty().contains("private-network"))
+        assertNull(fixture.request(BrowserOperation.TakeControl, agent).error)
+        assertFalse(agentGuard.isRestricted)
+        assertNull(fixture.request(BrowserOperation.ReturnControl, agent).error)
+        assertTrue(agentGuard.isRestricted)
+
+        val request = fixture.request(BrowserOperation.RequestControl, user, "session-b")
+        assertNull(fixture.request(BrowserOperation.ApproveControl, user, controlRequestId = request.requestId).error)
+        assertTrue(userGuard.isRestricted)
+        assertTrue(userGuard.allows("http://192.168.1.1/settings"))
+        assertFalse(userGuard.allows("http://10.0.0.1/"))
+    }
+
     private class Fixture(
         scope: TestScope,
         private val clearRelease: CompletableDeferred<Unit>? = null,
         private val nativeCommand: (suspend () -> String)? = null,
     ) {
         val closed = mutableListOf<BrowserSurface>()
+        val surfaces = mutableListOf<BrowserSurface>()
+        val guards = mutableListOf<DesktopBrowserAgentGuard>()
         private val panels = mutableListOf<DesktopBrowserPanel>()
         var clearCount = 0
         private var requestIndex = 0
@@ -247,6 +307,12 @@ class DesktopBrowserSessionTest {
 
             override fun close(surface: BrowserSurface) {
                 closed += surface
+            }
+
+            override fun create(surface: BrowserSurface, guard: DesktopBrowserAgentGuard): DesktopBrowserPanel {
+                surfaces += surface
+                guards += guard
+                return create(surface)
             }
 
             override fun create(surface: BrowserSurface) =
@@ -275,15 +341,42 @@ class DesktopBrowserSessionTest {
             tab: String? = null,
             owner: String? = null,
             controlRequestId: String? = null,
+            url: String? = null,
         ): BrowserResult = session.perform(
             BrowserRequest(
                 "request-${requestIndex++}",
                 operation,
                 tab,
                 owner,
-                buildJsonObject { controlRequestId?.let { put("controlRequestId", it) } },
+                buildJsonObject {
+                    controlRequestId?.let { put("controlRequestId", it) }
+                    url?.let { put("url", it) }
+                },
             ),
         )
+
+        /**
+         * Attaches a native view that follows each load through [redirect] and passes every main-document hop
+         * through the tab's real policy, as the engine does.
+         */
+        fun attachNavigation(index: Int, redirect: (String) -> String?) {
+            val surface = surfaces[index]
+            val policy = DesktopBrowserPolicy({ false }, { false }, {}, {}, {}, guards[index])
+            val controller = object : BrowserViewController {
+                override fun execute(command: BrowserViewCommand) {
+                    if (command !is BrowserViewCommand.Load) return
+                    val hops = listOfNotNull(command.url, redirect(command.url))
+                    val isAllowed = hops.all { policy.allows(it, BrowserRequestKind.MainDocument) }
+                    val state = if (isAllowed) {
+                        BrowserViewState(url = hops.last())
+                    } else {
+                        BrowserViewState(url = command.url, error = BrowserViewError.UnsupportedAddress)
+                    }
+                    surface.changed(this, state)
+                }
+            }
+            surface.attached(controller)
+        }
 
         suspend fun list(owner: String) =
             request(BrowserOperation.ListTabs, owner = owner).data.getValue("tabs").jsonArray

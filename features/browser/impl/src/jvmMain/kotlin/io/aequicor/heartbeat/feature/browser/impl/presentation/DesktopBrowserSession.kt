@@ -34,6 +34,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -41,7 +43,8 @@ import kotlin.uuid.Uuid
 
 /**
  * Profile-owned tabs. All registry mutations run on main; each tab serializes its native
- * operations.
+ * operations. Each tab's [DesktopBrowserAgentGuard] keeps an agent's main documents on the public web and the
+ * host its owner approved; a refused navigation is reported to the agent with its next operation on the tab.
  */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class, binding = binding<BrowserSession>(), priority = 1)
@@ -281,6 +284,7 @@ internal class DesktopBrowserSession(
             }
         }
         entry.tab = entry.tab.copy(isHumanControlled = true)
+        entry.syncGuard(approved = null)
         publish()
         operations
             .filter { it.key != request.id && it.value.first == entry.tab.id }
@@ -313,6 +317,8 @@ internal class DesktopBrowserSession(
                         isHumanControlled = request.operation == BrowserOperation.TakeControl,
                     )
             }
+        // The user hands the agent the tab on its current page, which counts as approving that page's host.
+        entry.syncGuard(approved = entry.tab.page.url)
         publish()
         return result(request, entry)
     }
@@ -337,7 +343,13 @@ internal class DesktopBrowserSession(
         BrowserOperation.Key,
         BrowserOperation.Scroll,
         BrowserOperation.Drag,
-        -> entry.driver.perform(request)
+        -> entry.driver.perform(request).let { result ->
+            if (request.owner != null && entry.guard.consumeRefusal()) {
+                result.copy(data = JsonObject(result.data + ("blockedNavigation" to JsonPrimitive(BLOCKED_NAVIGATION))))
+            } else {
+                result
+            }
+        }
 
         BrowserOperation.RequestControl,
         BrowserOperation.ApproveControl,
@@ -365,13 +377,19 @@ internal class DesktopBrowserSession(
             }
         if (url != null) {
             entry.driver.invalidate()
+            // The dispatcher asks the user before an agent opens a non-public address, so only the owner's own
+            // navigation approves its host; any other address it opens withdraws that approval.
+            if (request.owner != null) entry.syncGuard(approved = url)
+            entry.guard.consumeRefusal()
             entry.surface.execute(BrowserCommand.Load(url))
             if (request.operation != BrowserOperation.NewTab) {
                 val loaded =
                     withFailureTimeout(NAVIGATION_TIMEOUT, log, "Page load") {
                         entry.surface.pages.first { !it.isLoading && it.url.isNotEmpty() }
                     }
-                check(loaded.error == null) { "Page failed to load" }
+                check(loaded.error == null) {
+                    if (entry.guard.consumeRefusal()) BLOCKED_NAVIGATION else "Page failed to load"
+                }
             }
         }
         return result(request, entry)
@@ -382,13 +400,16 @@ internal class DesktopBrowserSession(
         val id = Uuid.random().toString()
         val surface = BrowserSurfaceAdapter(scope, dispatchers, nativeResources)
         surface.setEnabled(true)
-        val panel = factory.create(surface)
+        val guard = DesktopBrowserAgentGuard()
+        val panel = factory.create(surface, guard)
         val entry =
             Entry(
                 BrowserTab(id, owner = owner),
                 surface,
                 DesktopBrowserAutomation(panel::devTools, panel::captureResource),
+                guard,
             )
+        entry.syncGuard(approved = null)
         entries[id] = entry
         selected = id
         entry.observer =
@@ -437,15 +458,27 @@ internal class DesktopBrowserSession(
     private companion object {
         const val NAVIGATION_TIMEOUT = 30_000L
         const val MAX_TABS = 20
+        const val BLOCKED_NAVIGATION =
+            "The page tried to open a local or private-network address and was stopped. " +
+                "Open such an address with browser_open so the user can approve it."
     }
 
     private class Entry(
         var tab: BrowserTab,
         val surface: BrowserSurfaceAdapter,
         val driver: DesktopBrowserAutomation,
+        val guard: DesktopBrowserAgentGuard,
     ) {
         val lock = Mutex()
         var observer: Job? = null
+
+        /**
+         * Main documents of an agent tab are limited to the public web and the host of [approved]; the user's own
+         * tab, or one the user currently controls, is unrestricted.
+         */
+        fun syncGuard(approved: String?) {
+            if (tab.owner == null || tab.isHumanControlled) guard.unrestrict() else guard.restrict(approved)
+        }
 
         fun update(page: BrowserPage) {
             if (page.url != tab.page.url || page.isLoading) driver.invalidate()

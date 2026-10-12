@@ -45,6 +45,64 @@ class DesktopBrowserPolicyTest {
     }
 
     @Test
+    fun `agent tab main documents stay on the public web except the approved host`() {
+        val guard = DesktopBrowserAgentGuard()
+        var opened = 0
+        var unsupported = 0
+        val policy = DesktopBrowserPolicy(
+            isReleased = { false },
+            isBootstrap = { false },
+            unsupported = { unsupported++ },
+            open = { opened++ },
+            unavailable = {},
+            guard = guard,
+        )
+        val main = BrowserRequestKind.MainDocument
+        val private = listOf(
+            "http://192.168.1.1/",
+            "http://localhost:8080/",
+            "http://127.0.0.1/",
+            "http://[::1]/",
+            "https://printer.local/",
+        )
+        // A user tab keeps the plain scheme policy.
+        private.forEach { assertTrue(policy.allows(it, main), it) }
+        assertFalse(guard.consumeRefusal())
+
+        guard.restrict(approved = null)
+        assertTrue(policy.allows("https://example.com/", main))
+        // Redirect hops, script and link navigations all arrive as main documents.
+        private.forEach { assertFalse(policy.allows(it, main), it) }
+        assertTrue(guard.consumeRefusal())
+        assertFalse(guard.consumeRefusal())
+        // Subresources and child documents are not navigations of the agent's tab.
+        assertTrue(policy.allows("http://192.168.1.1/image.png", BrowserRequestKind.Subresource))
+        policy.popup("http://10.0.0.1/")
+        policy.popup("https://example.com/")
+        assertEquals(1, opened)
+        assertEquals(1, unsupported)
+
+        guard.restrict(approved = "http://192.168.1.1/admin")
+        assertTrue(policy.allows("http://192.168.1.1/login", main))
+        assertTrue(policy.allows("https://192.168.1.1:8443/", main))
+        assertFalse(policy.allows("http://192.168.1.2/", main))
+        assertFalse(policy.allows("http://localhost/", main))
+        guard.restrict(approved = "https://example.com/")
+        assertFalse(policy.allows("http://192.168.1.1/login", main))
+
+        guard.unrestrict()
+        assertTrue(policy.allows("http://192.168.1.1/login", main))
+    }
+
+    @Test
+    fun `agent guard leaves the engine's own blank bootstrap to the scheme policy`() {
+        val guard = DesktopBrowserAgentGuard().apply { restrict(approved = null) }
+        val policy = DesktopBrowserPolicy({ false }, { true }, {}, {}, {}, guard)
+        assertTrue(policy.allows("about:blank", BrowserRequestKind.MainDocument))
+        assertFalse(guard.consumeRefusal())
+    }
+
+    @Test
     fun `worker requests without frames remain resources`() {
         val kind = desktopBrowserRequestKind(false, null, ResourceType.RT_XHR)
         assertEquals(BrowserRequestKind.Subresource, kind)

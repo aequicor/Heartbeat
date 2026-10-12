@@ -150,6 +150,82 @@ class BrowserAgentToolsTest {
     }
 
     @Test
+    fun `alternative spellings of local addresses still require a decision`() = runTest {
+        val fixture = Fixture()
+        val specs = fixture.tools.specifications(null).associateBy { it.name }
+        val spellings = listOf("0.0.0.0", "http://[::ffff:127.0.0.1]/", "LOCALHOST", "127.0.0.1.", "0x7f000001")
+        for (name in listOf("browser_open", "browser_new_tab")) {
+            for (url in spellings) {
+                val arguments = buildJsonObject { put("url", url) }
+                assertTrue(fixture.tools.requiresDecision(context, specs.getValue(name), arguments), url)
+            }
+        }
+    }
+
+    @Test
+    fun `approvals escape invisible and direction changing characters and shorten long addresses`() = runTest {
+        val fixture = Fixture()
+        val specs = fixture.tools.specifications(null).associateBy { it.name }
+        val hidden = "a‮b​c⁦d e f﻿g" + String(Character.toChars(0xE0041)) + "\uD800h"
+        val typed = fixture.tools.approval(
+            context,
+            specs.getValue("browser_type"),
+            buildJsonObject { put("text", hidden) },
+        ).description.orEmpty()
+        listOf("\\u202e", "\\u200b", "\\u2066", "\\u2028", "\\u2029", "\\ufeff", "\\u{e0041}", "\\ud800").forEach {
+            assertTrue(typed.contains(it), it)
+        }
+        assertTrue(typed.none { Character.getType(it) == Character.FORMAT.toInt() || it.isSurrogate() })
+        assertTrue(typed.contains("h"))
+
+        val long = "http://localhost/" + "‮".repeat(1_000)
+        val opened = fixture.tools.approval(
+            context,
+            specs.getValue("browser_open"),
+            buildJsonObject { put("url", long) },
+        ).description.orEmpty()
+        assertTrue(opened.length < 1_000)
+        assertTrue(opened.contains("показано начало"))
+        assertFalse(opened.contains("‮"))
+    }
+
+    @Test
+    fun `click approval shows the element as the latest read of that snapshot reported it`() = runTest {
+        val fixture = Fixture()
+        fixture.machine.data = { request ->
+            if (request.operation == BrowserOperation.Read) {
+                Json.parseToJsonElement(
+                    """{"snapshotId":"snap","elements":[
+                        {"id":0,"tag":"A","label":"Pay ‮001","href":"https://bank.example/pay"},
+                        {"id":1,"tag":"BUTTON","label":"Cancel","href":null}]}""",
+                ).jsonObject
+            } else {
+                JsonObject(emptyMap())
+            }
+        }
+        assertFalse(fixture.tools.execute(context, "browser_read", buildJsonObject { put("tabId", "tab") }).isError)
+        val click = fixture.tools.specifications(null).single { it.name == "browser_click" }
+        suspend fun describe(element: Int, snapshot: String, session: AgentToolContext = context) =
+            fixture.tools.approval(
+                session,
+                click,
+                buildJsonObject {
+                    put("snapshotId", snapshot)
+                    put("element", element)
+                },
+            ).description.orEmpty()
+
+        val link = describe(0, "snap")
+        assertTrue(link.contains("A «Pay \\u202e001»"), link)
+        assertTrue(link.contains("https://bank.example/pay"))
+        assertTrue(describe(1, "snap").contains("BUTTON «Cancel»"))
+        assertFalse(describe(1, "snap").contains("ссылка"))
+        assertTrue(describe(1, "older").contains("описание недоступно"))
+        val other = context.copy(session = SessionRef(EngineId("pi"), SessionSourceId("local"), "other-session"))
+        assertTrue(describe(0, "snap", other).contains("описание недоступно"))
+    }
+
+    @Test
     fun `input approvals show the tab address and exactly what is typed pressed or clicked`() = runTest {
         val fixture = Fixture()
         fixture.machine.state.value = BrowserState.Running(
@@ -293,6 +369,7 @@ class BrowserAgentToolsTest {
         var completeImmediately = true
         var acknowledgeImmediately = true
         var performResult = SendResult.Accepted
+        var data: (BrowserRequest) -> JsonObject = { JsonObject(emptyMap()) }
 
         override suspend fun send(intent: BrowserIntent.Public): SendResult {
             sent += intent
@@ -300,7 +377,7 @@ class BrowserAgentToolsTest {
                 is BrowserIntent.Public.Perform -> if (performResult != SendResult.Accepted) {
                     return performResult
                 } else if (completeImmediately) {
-                    outputs.emit(BrowserOutput.Completed(BrowserResult(intent.request.id)))
+                    outputs.emit(BrowserOutput.Completed(BrowserResult(intent.request.id, data(intent.request))))
                 }
 
                 is BrowserIntent.Public.CancelOperation -> if (acknowledgeImmediately) {

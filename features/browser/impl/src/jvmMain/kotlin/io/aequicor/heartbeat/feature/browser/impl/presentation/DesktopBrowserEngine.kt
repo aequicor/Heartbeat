@@ -39,6 +39,7 @@ internal class DesktopBrowserEngine(
     private val isReleased: () -> Boolean,
     private val changed: (BrowserViewState) -> Unit,
     private val onClosed: () -> Unit = {},
+    guard: DesktopBrowserAgentGuard = DesktopBrowserAgentGuard(),
     createContext: (CefRequestContextHandler) -> CefRequestContext,
 ) : DesktopBrowserRuntime {
     private val log = Log.tag("DesktopBrowserEngine")
@@ -58,6 +59,7 @@ internal class DesktopBrowserEngine(
         unsupported = { onSwing { navigation?.unsupported() } },
         open = { execute(BrowserViewCommand.Load(it)) },
         unavailable = { onSwing { changed(BrowserViewState(error = BrowserViewError.EngineUnavailable)) } },
+        guard = guard,
     )
     private val context = try {
         createContext(policy.contextHandler)

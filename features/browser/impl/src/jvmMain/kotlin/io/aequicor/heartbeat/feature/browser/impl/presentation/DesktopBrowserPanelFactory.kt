@@ -19,6 +19,12 @@ import org.cef.browser.CefRequestContext
 /** Presentation entry point injected through the common native-resource port. */
 internal interface DesktopBrowserPanelFactory : BrowserNativeResources {
     fun create(surface: BrowserSurface): DesktopBrowserPanel
+
+    /**
+     * The panel of a session tab whose main documents [guard] restricts for an agent owner. The first creation of a
+     * surface fixes its guard; the production factory overrides this, test doubles may ignore the guard.
+     */
+    fun create(surface: BrowserSurface, guard: DesktopBrowserAgentGuard): DesktopBrowserPanel = create(surface)
     fun close(surface: BrowserSurface)
 
     /** Closes all surfaces and native context before deleting site data; failure prevents reuse. */
@@ -59,20 +65,23 @@ internal class DefaultDesktopBrowserPanelFactory(
         }
     }
 
-    override fun create(surface: BrowserSurface): DesktopBrowserPanel = synchronized(monitor) {
-        check(profile.isAvailable) { "Browser profile is unavailable" }
-        panels.getOrPut(surface) {
-            DesktopBrowserPanel(surface, scope.coroutineScope, dispatchers) { isReleased, changed ->
-                val app = resources.app()
-                profile.useContext { shared ->
-                    check(!isReleased()) { "Browser surface is closed" }
-                    DesktopBrowserEngine(app, dispatchers, urlResolver, isReleased, changed) { handler ->
-                        checkNotNull(CefRequestContext.createContext(shared, handler))
+    override fun create(surface: BrowserSurface): DesktopBrowserPanel = create(surface, DesktopBrowserAgentGuard())
+
+    override fun create(surface: BrowserSurface, guard: DesktopBrowserAgentGuard): DesktopBrowserPanel =
+        synchronized(monitor) {
+            check(profile.isAvailable) { "Browser profile is unavailable" }
+            panels.getOrPut(surface) {
+                DesktopBrowserPanel(surface, scope.coroutineScope, dispatchers) { isReleased, changed ->
+                    val app = resources.app()
+                    profile.useContext { shared ->
+                        check(!isReleased()) { "Browser surface is closed" }
+                        DesktopBrowserEngine(app, dispatchers, urlResolver, isReleased, changed, guard = guard) {
+                            checkNotNull(CefRequestContext.createContext(shared, it))
+                        }
                     }
                 }
             }
         }
-    }
 
     override suspend fun clearData() = profile.clearData()
 
