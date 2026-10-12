@@ -99,6 +99,22 @@ class StudioConfiguredSubmissionTest {
     }
 
     @Test
+    fun `a session retired while the change is saved keeps the chat's trust`() = runTest {
+        val fixture = SubmissionFixture(this)
+        fixture.access.otherSessions["chat"] = fixture.session
+        fixture.access.beforeSave = {
+            fixture.configuration.controller.retire("chat", fixture.session)
+            fixture.native.configuration.value = fixture.native.configuration.value.copy(trust = TrustLevel.Ask)
+        }
+
+        fixture.configuration.controller.configure(fixture.access, "chat", StudioSettingChange.Effort("high"))
+        runCurrent()
+
+        assertEquals(ApprovalMode.AutoEdits, fixture.access.states.getValue("chat").applied?.approval)
+        assertEquals(ApprovalMode.AutoEdits, fixture.access.saved.last().second.approval)
+    }
+
+    @Test
     fun `the carried seed reaches the turns until one marks it delivered, even when marking fails`() = runTest {
         val fixture = SubmissionFixture(this)
         fixture.access.records["chat"] = fixture.access.records.getValue("chat").copy(pendingSeed = "the essence")

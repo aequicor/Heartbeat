@@ -59,6 +59,7 @@ internal class ContextOptimizationEffects(
                 val stored = loadOrNull("settings") { settings.load() }
                 val loaded = loadOrNull("ledgers") { ledgers.load() }
                 isLedgerStoreUnreadable = loaded == null
+                isSkipReported = false
                 val ledgers = loaded.orEmpty()
                 log.i { "context settings loaded: stored=${stored != null} ledgers=${ledgers.size}" }
                 machine.send(ContextOptimizationIntent.Internal.Loaded(stored, ledgers))
