@@ -25,7 +25,7 @@ git status --porcelain
 - Android-специфичный код: `./gradlew :<module>:compileAndroidMain` (или `:<module>:testAndroidHostTest`).
 - Приложения: `./gradlew :platform-main:desktop:compileKotlin` / `:platform-main:android:assembleDebug`.
 - iOS-таргеты компилируются только на macOS: `./gradlew :<module>:compileKotlinIosSimulatorArm64`. На Windows — если
-  изменён iOS- или common-код, собери затронутые модули в CI (`module-build.yml`, раздел «CI» в `AGENTS.md`),
+  изменён iOS- или common-код, собери затронутые модули в CI (`module-build.yml` с `os=macos-15`, раздел «CI» в `AGENTS.md`),
   иначе явно сообщи, что iOS не проверен.
 
 ## 3. Lint

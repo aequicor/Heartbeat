@@ -60,18 +60,22 @@ CI подтверждает проверенный результат, а не �
   когда `verify` зелёный.
 - **Сборка в CI — по решению агента и только затронутых модулей.** Когда изменение нужно проверить на ОС, которой
   нет локально (iOS-таргеты с Windows, поведение фичи на Windows или macOS), запусти `module-build.yml` на
-  запушенной ветке: задачи затронутых модулей, один запуск на ОС.
+  запушенной ветке: задачи затронутых модулей, один запуск на ОС; iOS — только `os=macos-15`.
 
   ```bash
   gh workflow run module-build.yml --ref <branch> -f os=macos-15 \
-    -f tasks=":features:<name>:impl:compileKotlinIosSimulatorArm64 :features:<name>:impl:jvmTest"
-  gh run list --workflow module-build.yml --branch <branch> --limit 1   # id прогона
+    -f tasks=":features:<name>:api:compileKotlinIosSimulatorArm64 :features:<name>:impl:compileKotlinIosSimulatorArm64"
+  gh run list --workflow module-build.yml --branch <branch> --event workflow_dispatch \
+    --json databaseId,displayTitle,createdAt --limit 5   # id прогона: заголовок — «Module build on <os>: <tasks>»
   gh run watch <id> --exit-status --interval 60
   ```
 
-  Задачи, которые собираются локально, туда не добавляй. Сборка приложения целиком и упаковка (задачи
-  `platform-main`: `assembleDebug`, `createReleaseDistributable`, `verifyReleaseHarnessCompiler`) — только по
-  просьбе пользователя. ОС, задачи и ссылку на прогон укажи в «Проверке» описания PR.
+  Workflow запускается, только когда `module-build.yml` есть и в `master`, и в ветке (`--ref`), и исполняется
+  его копия из ветки: ветку, отрезанную раньше, сначала обнови от `master`. Новый запуск на той же ветке и ОС
+  отменяет предыдущий. Задачи, которые собираются локально, туда не добавляй; задачи `run*` и iOS не на macOS
+  workflow отклоняет. Сборка приложения целиком и упаковка (задачи `platform-main`: `assembleDebug`,
+  `createReleaseDistributable`, `verifyReleaseHarnessCompiler`) — только по просьбе пользователя. ОС, задачи и
+  ссылку на прогон укажи в «Проверке» описания PR.
 - **Не перезапускай CI** (`gh run rerun`, пустые коммиты, close/reopen PR) без просьбы пользователя.
   Упало — прочитай лог (`gh run view <id> --log-failed`), воспроизведи локально, запушь исправление; сборку
   модулей повторяй только после исправления; флак или инфраструктура — сообщи пользователю. Проверка, которая

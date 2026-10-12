@@ -2,8 +2,10 @@ name: Module build
 
 # Builds only the modules a change touches, on the OS chosen for the run; nothing builds automatically on PRs.
 # An agent starts it when it needs an OS it lacks locally (iOS targets from Windows, a feature's behavior on Windows
-# or macOS), the user at will. Only module tasks `:<module>:<task>` are accepted, never whole-project ones:
-#   gh workflow run module-build.yml --ref <branch> -f os=macos-15 -f tasks=':features:<name>:impl:jvmTest'
+# or macOS), the user at will. Only module tasks `:<module>:<task>` are accepted, never whole-project ones, run tasks
+# (an app would hang until the timeout) or iOS tasks off macOS (they would pass without compiling for Apple):
+#   gh workflow run module-build.yml --ref <branch> -f os=macos-15 -f tasks=':features:<name>:impl:compileKotlinIosSimulatorArm64'
+# A new run on the same branch and OS cancels the previous one.
 run-name: 'Module build on ${{ inputs.os }}: ${{ inputs.tasks }}'
 on:
   workflow_dispatch:
@@ -43,6 +45,10 @@ jobs:
         env:
           TASKS: ${{ inputs.tasks }}
         run: |
+          if [[ $TASKS == *[$'\n\r']* ]]; then
+            echo "::error::Module tasks must be on one line, separated by spaces"
+            exit 1
+          fi
           read -ra tasks <<< "$TASKS"
           if [ "${#tasks[@]}" -eq 0 ]; then
             echo "::error::No module tasks given"
@@ -52,6 +58,15 @@ jobs:
             # A project path and a task name: root tasks such as :build or allTests are refused.
             if [[ ! $task =~ ^(:[A-Za-z0-9_.-]+)+:[A-Za-z][A-Za-z0-9]*$ ]]; then
               printf '::error::Not a module task: %s\n' "$task"
+              exit 1
+            fi
+            name=${task##*:}
+            if [[ $name == run* ]]; then
+              printf '::error::Run tasks never finish on a runner: %s\n' "$task"
+              exit 1
+            fi
+            if [[ $RUNNER_OS != macOS && $name =~ ^ios|Ios|Apple|Xcode ]]; then
+              printf '::error::iOS tasks compile only on macos-15: %s\n' "$task"
               exit 1
             fi
           done
