@@ -121,7 +121,7 @@ internal class RecoveryBrowserFixture :
 }
 
 /** One valid PDF page with a font, content stream, byte offsets, cross-reference table and trailer. */
-private fun minimalRecoveryPdf(): ByteArray {
+internal fun minimalRecoveryPdf(): ByteArray {
     val stream = "BT /F1 12 Tf 20 50 Td (Recovered PDF evidence) Tj ET\n"
     val objects = listOf(
         "<< /Type /Catalog /Pages 2 0 R >>",

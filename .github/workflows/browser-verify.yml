@@ -96,6 +96,9 @@ jobs:
         run: >-
           bash gradlew :features:browser:impl:jvmTest
           -Pheartbeat.browser.composeNativeTest=true --tests '*DesktopBrowserComposeNativeTest'
+      - name: Native browser recovery into research and attachments
+        if: ${{ !cancelled() }}
+        run: bash gradlew :platform-main:di-bundle:browserRecoveryNativeTest
       - name: Publish native and Compose diagnostics immediately
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
@@ -104,6 +107,10 @@ jobs:
           path: |
             features/browser/impl/build/test-results/jvmTest/*.xml
             features/browser/impl/build/native-ui/*
+            platform-main/di-bundle/build/test-results/browserRecoveryNativeTest/*.xml
+            build/ci-diagnostics/hs_err*
+            features/browser/impl/hs_err_pid*.log
+            platform-main/di-bundle/hs_err_pid*.log
             build/ci-diagnostics/native/**
           if-no-files-found: error
       - name: Static analysis with type resolution
