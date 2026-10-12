@@ -11,6 +11,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.heading
@@ -47,7 +48,10 @@ internal fun BrowserHeader(
         Modifier.fillMaxWidth().height(HbTheme.dimensions.headerHeight)
             .background(HbTheme.surfaces.sidebar).testTag("browser-header"),
     ) {
-        BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = HbTheme.spacing.xs)) {
+        BoxWithConstraints(
+            Modifier.fillMaxWidth().padding(horizontal = HbTheme.spacing.xs),
+            contentAlignment = Alignment.Center,
+        ) {
             val isCompact = maxWidth < HbTheme.dimensions.composerToolbarBreakpoint
             HbRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.xs) {
                 if (!state.hasTabs || !isCompact) {

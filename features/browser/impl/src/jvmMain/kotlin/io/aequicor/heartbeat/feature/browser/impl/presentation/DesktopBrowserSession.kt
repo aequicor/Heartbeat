@@ -345,13 +345,15 @@ internal class DesktopBrowserSession(
             }
         }
         entry.tab = entry.tab.copy(isHumanControlled = true)
-        entry.syncGuard(approved = null)
-        publish()
-        operations
+        // Revoke new requests immediately; persistence must never delay cancellation of existing ones.
+        // Keep the native guard in place until every operation has finished its cancellation cleanup.
+        projectTabs()
+        val pending = operations
             .filter { it.key != request.id && it.value.first == entry.tab.id }
             .values
-            .toList()
-            .forEach { it.second.cancelAndJoin() }
+            .map { it.second }
+        pending.forEach { it.cancel() }
+        pending.joinAll()
         require(entries[entry.tab.id] === entry) { "Tab closed" }
         require(entry.tab.controlRequestId == controlRequestId && entry.tab.pendingOwner == pendingOwner) {
             "Control request changed; use the current request"
@@ -565,10 +567,15 @@ internal class DesktopBrowserSession(
     }
 
     @HighFrequency
-    private suspend fun publish() {
+    private fun projectTabs() {
         log.v { "Browser tab projection changed" }
         tabs.value = entries.values.groupBy { it.tab.owner }.values.flatten().map { it.tab } to selected
         pages.value = entries[selected]?.tab?.page ?: BrowserPage()
+    }
+
+    @HighFrequency
+    private suspend fun publish() {
+        projectTabs()
         if (isBrowserEnabled && !isRestoring && !isClearingData) {
             storage.save(
                 SavedBrowserWorkspace(

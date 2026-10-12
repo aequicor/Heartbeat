@@ -6,11 +6,15 @@ import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserWorkspaceStorage
 import io.aequicor.heartbeat.feature.browser.impl.domain.SavedBrowserTab
 import io.aequicor.heartbeat.feature.browser.impl.domain.SavedBrowserWorkspace
 import io.aequicor.heartbeat.feature.browser.impl.presentation.DesktopBrowserSessionTest.Fixture
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -20,6 +24,67 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DesktopBrowserRestorationTest {
+    @Test
+    fun `takeover cancels the agent before slow or failing persistence and keeps the guard until cancellation ends`() =
+        runTest {
+            for (isWriteFailing in listOf(false, true)) {
+                val saving = CompletableDeferred<Unit>()
+                val saveRelease = CompletableDeferred<Unit>()
+                val cancelling = CompletableDeferred<Unit>()
+                val cancelRelease = CompletableDeferred<Unit>()
+                var isSaveControlled = false
+                val memory = MemoryBrowserWorkspaceStorage()
+                val storage = object : BrowserWorkspaceStorage by memory {
+                    override suspend fun save(workspace: SavedBrowserWorkspace) {
+                        if (isSaveControlled) {
+                            saving.complete(Unit)
+                            saveRelease.await()
+                            check(!isWriteFailing) { "Journal write failed" }
+                        }
+                        memory.save(workspace)
+                    }
+                }
+                val started = CompletableDeferred<Unit>()
+                val fixture = Fixture(this, storage = storage, nativeCommand = {
+                    started.complete(Unit)
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        withContext(NonCancellable) {
+                            cancelling.complete(Unit)
+                            cancelRelease.await()
+                        }
+                    }
+                })
+                val tab = fixture.create("session-a")
+                fixture.attach()
+                runCurrent()
+                val read = async { fixture.request(BrowserOperation.Read, tab, "session-a") }
+                runCurrent()
+                assertTrue(started.isCompleted)
+                isSaveControlled = true
+                val takeover = async { fixture.request(BrowserOperation.TakeControl, tab) }
+                try {
+                    runCurrent()
+                    assertTrue(cancelling.isCompleted)
+                    assertFalse(saving.isCompleted)
+                    assertTrue(fixture.guards.single().isRestricted)
+                    assertTrue(fixture.session.tabs.value.first.single().isHumanControlled)
+                    cancelRelease.complete(Unit)
+                    runCurrent()
+                    assertTrue(read.isCompleted)
+                    assertFailsWith<CancellationException> { read.await() }
+                    assertTrue(saving.isCompleted)
+                    assertFalse(fixture.guards.single().isRestricted)
+                    saveRelease.complete(Unit)
+                    assertEquals(isWriteFailing, takeover.await().error != null)
+                } finally {
+                    cancelRelease.complete(Unit)
+                    saveRelease.complete(Unit)
+                }
+            }
+        }
+
     @Test
     fun `a new session restores tab identities groups addresses titles order and selection`() = runTest {
         val storage = MemoryBrowserWorkspaceStorage()
