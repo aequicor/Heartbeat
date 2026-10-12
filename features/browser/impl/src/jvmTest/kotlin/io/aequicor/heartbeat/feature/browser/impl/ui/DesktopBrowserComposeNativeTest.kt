@@ -292,11 +292,14 @@ class DesktopBrowserComposeNativeTest {
 
     /** Never capture or send input when an unrelated application owns the foreground. */
     private fun requireTestForeground(window: ComposeWindow, areOwnedDialogsAllowed: Boolean = true) = nativeEdt {
-        val active = KeyboardFocusManager.getCurrentKeyboardFocusManager().activeWindow
+        val focusManager = KeyboardFocusManager.getCurrentKeyboardFocusManager()
+        val active = focusManager.activeWindow
+        val focused = focusManager.focusedWindow
         check(isTestForeground(window, areOwnedDialogsAllowed)) {
             "Native UI test lost foreground ownership; capture and physical input aborted " +
                 "(testShowing=${window.isShowing}, testActive=${window.isActive}, " +
                 "testFocused=${window.isFocused}, activeIsTest=${active === window}, " +
+                "focusedIsTest=${focused === window}, " +
                 "nativeOwnership=${window.nativeForegroundOwnership()})"
         }
     }
@@ -304,13 +307,15 @@ class DesktopBrowserComposeNativeTest {
     private fun isTestForeground(window: ComposeWindow, areOwnedDialogsAllowed: Boolean): Boolean {
         if (!window.isShowing) return false
         window.nativeForegroundOwnership()?.let { return it.permitsInput(areOwnedDialogsAllowed) }
-        val active = KeyboardFocusManager.getCurrentKeyboardFocusManager().activeWindow
+        // AWT activeWindow is the owning Frame/Dialog when an owned JWindow has focus.
+        // Compose WINDOW layers use JWindow, so ownership must start at focusedWindow.
+        val focused = KeyboardFocusManager.getCurrentKeyboardFocusManager().focusedWindow
         val belongsToTest = if (areOwnedDialogsAllowed) {
-            generateSequence(active) { it.owner }.any { it === window }
+            generateSequence(focused) { it.owner }.any { it === window }
         } else {
-            active === window
+            focused === window
         }
-        return belongsToTest && active?.isFocused == true
+        return belongsToTest && focused?.isFocused == true
     }
 
     /** One explicit activation after native startup, then wait for the user without stealing focus again. */
