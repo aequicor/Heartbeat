@@ -41,6 +41,7 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_faile
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_failed_timed_out
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_failed_too_large
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_failed_unavailable
+import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_file_failed
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_invalid_link
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_open_link
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_open_link_title
@@ -149,12 +150,13 @@ private fun NoticeUi.text(): String = when (this) {
     is NoticeUi.Failed -> stringResource(reason.text())
     NoticeUi.Unsupported -> stringResource(Res.string.service_ui_unsupported)
     NoticeUi.InvalidLink -> stringResource(Res.string.service_ui_invalid_link)
+    NoticeUi.FileFailed -> stringResource(Res.string.service_ui_file_failed)
     NoticeUi.Broken -> stringResource(Res.string.service_ui_broken)
 }
 
 /** Failures of methods and of the surface are errors; refusals of this place or platform are warnings. */
 private fun NoticeUi.tone(): HbTone = when (this) {
-    is NoticeUi.Failed, NoticeUi.Broken -> HbTone.Danger
+    is NoticeUi.Failed, NoticeUi.FileFailed, NoticeUi.Broken -> HbTone.Danger
     is NoticeUi.Message, NoticeUi.Unsupported, NoticeUi.InvalidLink -> HbTone.Warning
 }
 

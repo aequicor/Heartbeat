@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodFailure
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodResult
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiMethodCalls
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiPlatform
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiPlatformResult
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiAction
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiLoad
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiPresentation
@@ -166,17 +167,14 @@ internal class SurfaceModel(
                     true
                 }
 
-                is UiAction.SaveFile -> platformResult(
-                    platform.hasFiles && platform.save(
-                        bindings.text(action.text, scope),
-                        action.name,
-                        action.extensions,
-                    ),
-                )
+                is UiAction.SaveFile ->
+                    finished(platform.save(bindings.text(action.text, scope), action.name, action.extensions))
 
-                is UiAction.Reveal -> platformResult(
-                    session.owner != null && platform.hasFiles && platform.reveal(bindings.text(action.path, scope)),
-                )
+                is UiAction.Reveal -> if (session.owner == null) {
+                    notice(NoticeUi.Unsupported)
+                } else {
+                    finished(platform.reveal(bindings.text(action.path, scope)))
+                }
 
                 is UiAction.Steps -> action.actions.all { run(it, scope) }
             }
@@ -246,16 +244,13 @@ internal class SurfaceModel(
         }
 
         private suspend fun pick(intent: SurfaceIntent.Pick) {
-            if (!platform.hasFiles) {
-                notice(NoticeUi.Unsupported)
-                return
+            val result = when (intent.widget) {
+                NativeWidgetUi.File -> platform.pick(isFolder = false, intent.extensions)
+                NativeWidgetUi.Folder -> platform.pick(isFolder = true, emptyList())
+                NativeWidgetUi.Date -> return
             }
-            val picked = when (intent.widget) {
-                NativeWidgetUi.File -> platform.pickFile(intent.extensions)
-                NativeWidgetUi.Folder -> platform.pickFolder()
-                NativeWidgetUi.Date -> null
-            } ?: return
-            update { it.withInput(intent.key, JsonPrimitive(picked)) }
+            val path = (result as? UiPlatformResult.Done)?.path
+            if (path == null) finished(result) else update { it.withInput(intent.key, JsonPrimitive(path)) }
         }
 
         private suspend fun closeModal() {
@@ -268,7 +263,13 @@ internal class SurfaceModel(
             is UiMethodResult.Failure -> notice(NoticeUi.Failed(result.reason.ui()))
         }
 
-        private suspend fun platformResult(isDone: Boolean): Boolean = isDone || notice(NoticeUi.Unsupported)
+        /** Whether [result] is done; a closed dialog stops quietly, other endings show why. */
+        private suspend fun finished(result: UiPlatformResult): Boolean = when (result) {
+            is UiPlatformResult.Done -> true
+            UiPlatformResult.Cancelled -> false
+            UiPlatformResult.Unsupported -> notice(NoticeUi.Unsupported)
+            UiPlatformResult.Failed -> notice(NoticeUi.FileFailed)
+        }
 
         /** Shows [notice]; false, so a sequence stops. */
         private suspend fun notice(notice: NoticeUi): Boolean {

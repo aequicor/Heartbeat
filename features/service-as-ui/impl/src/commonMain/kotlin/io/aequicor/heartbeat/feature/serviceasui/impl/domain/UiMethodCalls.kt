@@ -19,20 +19,31 @@ internal interface UiMethodCalls {
     suspend fun call(owner: UiOwner, method: String, arguments: JsonObject, context: UiCallContext): UiMethodResult
 }
 
-/** Operations of the platform a surface asks for; every one is refused where the platform lacks it. */
+/** How a platform operation ended. */
+internal sealed interface UiPlatformResult {
+    /** Done; a picker returns the chosen [path], which never reaches logs. */
+    data class Done(val path: String? = null) : UiPlatformResult {
+        override fun toString(): String = "Done"
+    }
+
+    /** The user closed the system dialog. */
+    data object Cancelled : UiPlatformResult
+
+    /** This platform has no such operation (files on mobile). */
+    data object Unsupported : UiPlatformResult
+
+    /** The operation failed; the platform logged why. */
+    data object Failed : UiPlatformResult
+}
+
+/** Platform operations of surfaces; each is [UiPlatformResult.Unsupported] where the platform lacks it. */
 internal interface UiPlatform {
-    /** Whether file and folder pickers, saving and revealing files exist here (desktop). */
-    val hasFiles: Boolean
+    /** Saves [text] to a file the user picks, suggesting [name] and [extensions]. */
+    suspend fun save(text: String, name: String, extensions: List<String>): UiPlatformResult
 
-    /** Saves [text] to a file the user picks, suggesting [name]; false when the user cancels or it fails. */
-    suspend fun save(text: String, name: String, extensions: List<String>): Boolean
+    /** Shows the existing absolute [path] in the system file manager without opening it. */
+    suspend fun reveal(path: String): UiPlatformResult
 
-    /** Shows the existing absolute [path] in the system file manager; false when it cannot. */
-    suspend fun reveal(path: String): Boolean
-
-    /** A file the user picks, or null when cancelled. */
-    suspend fun pickFile(extensions: List<String>): String?
-
-    /** A folder the user picks, or null when cancelled. */
-    suspend fun pickFolder(): String?
+    /** A folder ([isFolder]) or a file with one of [extensions] (any when empty) the user picks. */
+    suspend fun pick(isFolder: Boolean, extensions: List<String>): UiPlatformResult
 }

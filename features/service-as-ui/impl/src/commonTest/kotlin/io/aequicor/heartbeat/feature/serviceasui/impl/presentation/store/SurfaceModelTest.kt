@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiMethods
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwner
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiMethodCalls
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiPlatform
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiPlatformResult
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpecDecoding
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.decodeUiSpec
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiFacts
@@ -170,6 +171,37 @@ class SurfaceModelTest {
     }
 
     @Test
+    fun `files follow the platform and a closed dialog stops a sequence quietly`() = runTest {
+        val fixture = Fixture(this, available = true)
+        val screen = fixture.subscribe()
+        runCurrent()
+
+        fixture.platform.result = UiPlatformResult.Cancelled
+        screen.intent(SurfaceIntent.Press(button(screen, 6).press))
+        runCurrent()
+        assertNull(screen.states.value.notice)
+        assertEquals(emptyList(), fixture.host.prompts)
+        assertEquals(listOf("save open prs.md [md]"), fixture.platform.calls)
+
+        fixture.platform.result = UiPlatformResult.Done()
+        screen.intent(SurfaceIntent.Press(button(screen, 6).press))
+        runCurrent()
+        assertEquals(listOf("saved" to false), fixture.host.prompts)
+
+        fixture.platform.result = UiPlatformResult.Failed
+        screen.intent(SurfaceIntent.Press(button(screen, 7).press))
+        runCurrent()
+        assertEquals(NoticeUi.FileFailed, screen.states.value.notice)
+        assertEquals("reveal /work/prs.md", fixture.platform.calls.last())
+
+        fixture.platform.result = UiPlatformResult.Done("/work/prs")
+        screen.intent(SurfaceIntent.Pick("filter", NativeWidgetUi.Folder, emptyList()))
+        runCurrent()
+        assertEquals(JsonPrimitive("/work/prs"), screen.states.value.values.state["filter"])
+        assertEquals("pick true []", fixture.platform.calls.last())
+    }
+
+    @Test
     fun `cards without an owner only insert prompts and never call`() = runTest {
         val fixture = Fixture(this, available = true, hasOwner = false)
         val screen = fixture.subscribe()
@@ -182,6 +214,9 @@ class SurfaceModelTest {
         runCurrent()
         assertEquals(emptyList(), fixture.calls.made)
         assertEquals(NoticeUi.Unsupported, screen.states.value.notice)
+        screen.intent(SurfaceIntent.Press(button(screen, 7).press))
+        runCurrent()
+        assertEquals(emptyList(), fixture.platform.calls)
     }
 
     private fun column(screen: SurfaceProvider) = assertIs<UiNodeUi.Column>(screen.states.value.root)
@@ -191,6 +226,7 @@ class SurfaceModelTest {
     private class Fixture(private val scope: TestScope, available: Boolean = false, hasOwner: Boolean = true) {
         val calls = FakeCalls(available)
         val host = FakeHost()
+        val platform = FakePlatform()
         private val spec = (decodeUiSpec(SPEC) as UiSpecDecoding.Decoded).spec
         private val model = SurfaceModel(
             SurfaceSession(
@@ -202,7 +238,7 @@ class SurfaceModelTest {
                 host,
             ),
             calls,
-            NoFiles,
+            platform,
             HeartbeatStoreFactory(TestDispatchers(StandardTestDispatcher(scope.testScheduler))),
             scope.backgroundScope,
         )
@@ -263,12 +299,24 @@ class SurfaceModelTest {
         }
     }
 
-    private object NoFiles : UiPlatform {
-        override val hasFiles = false
-        override suspend fun save(text: String, name: String, extensions: List<String>) = false
-        override suspend fun reveal(path: String) = false
-        override suspend fun pickFile(extensions: List<String>): String? = null
-        override suspend fun pickFolder(): String? = null
+    private class FakePlatform : UiPlatform {
+        var result: UiPlatformResult = UiPlatformResult.Unsupported
+        val calls = mutableListOf<String>()
+
+        override suspend fun save(text: String, name: String, extensions: List<String>): UiPlatformResult {
+            calls += "save $text $name $extensions"
+            return result
+        }
+
+        override suspend fun reveal(path: String): UiPlatformResult {
+            calls += "reveal $path"
+            return result
+        }
+
+        override suspend fun pick(isFolder: Boolean, extensions: List<String>): UiPlatformResult {
+            calls += "pick $isFolder $extensions"
+            return result
+        }
     }
 
     private class TestDispatchers(dispatcher: CoroutineDispatcher) : DispatcherProvider {
@@ -296,7 +344,11 @@ class SurfaceModelTest {
                  {"type":"open","surface":"details"}]}},
                {"type":"button","label":"Broken","action":{"type":"sequence","actions":[
                  {"type":"openUrl","url":"file:///etc"},
-                 {"type":"prompt","text":"never"}]}}
+                 {"type":"prompt","text":"never"}]}},
+               {"type":"button","label":"Save","action":{"type":"sequence","actions":[
+                 {"type":"saveFile","text":"{{state.filter}}","name":"prs.md","extensions":["md"]},
+                 {"type":"prompt","text":"saved"}]}},
+               {"type":"button","label":"Show","action":{"type":"reveal","path":"/work/prs.md"}}
              ]}}
         """.trimIndent()
     }

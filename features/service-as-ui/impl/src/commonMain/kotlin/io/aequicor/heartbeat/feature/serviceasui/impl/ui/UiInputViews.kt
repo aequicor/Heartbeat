@@ -3,25 +3,18 @@ package io.aequicor.heartbeat.feature.serviceasui.impl.ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.error
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.semantics
-import io.aequicor.heartbeat.core.logging.HighFrequency
-import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.components.HbActivityIndicator
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonSize
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbChip
+import io.aequicor.heartbeat.ds.components.HbDateField
 import io.aequicor.heartbeat.ds.components.HbDialog
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbMenu
@@ -48,8 +41,6 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_selec
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.serialization.json.JsonPrimitive
 import org.jetbrains.compose.resources.stringResource
-
-private val log = Log.tag("ServiceUiInputs")
 
 @Composable
 internal fun InputView(node: UiNodeUi.Input, onIntent: (SurfaceIntent) -> Unit, modifier: Modifier = Modifier) {
@@ -152,10 +143,12 @@ private fun SelectView(node: UiNodeUi.Select, onIntent: (SurfaceIntent) -> Unit)
 @Composable
 private fun NativeView(node: UiNodeUi.Native, onIntent: (SurfaceIntent) -> Unit) {
     when (node.widget) {
-        NativeWidgetUi.Date -> DateField(
+        NativeWidgetUi.Date -> HbDateField(
             value = node.value,
+            onValueChange = { onIntent(SurfaceIntent.Input(node.stateKey, JsonPrimitive(it))) },
             label = node.label ?: stringResource(Res.string.service_ui_date_hint),
-            onDateChange = { onIntent(SurfaceIntent.Input(node.stateKey, JsonPrimitive(it))) },
+            placeholder = stringResource(Res.string.service_ui_date_hint),
+            invalidText = stringResource(Res.string.service_ui_date_invalid),
         )
 
         NativeWidgetUi.File, NativeWidgetUi.Folder -> HbRow(gap = HbTheme.spacing.s) {
@@ -179,78 +172,6 @@ private fun NativeView(node: UiNodeUi.Native, onIntent: (SurfaceIntent) -> Unit)
     }
 }
 
-/**
- * A date typed as YYYY-MM-DD. While focused the field shows what the user types, and the state receives the date once
- * it is valid and an empty value while it is not, so no action works with a date the field does not show. Out of
- * focus the field shows the state, so actions that set or clear the date are visible at once.
- */
-@Composable
-internal fun DateField(value: String, label: String, onDateChange: (String) -> Unit, modifier: Modifier = Modifier) {
-    val draft = remember { DateDraft() }
-    val text = draft.shown(value)
-    val isInvalid = text.isNotEmpty() && !isIsoDate(text)
-    val invalid = stringResource(Res.string.service_ui_date_invalid)
-    HbColumn(modifier, gap = HbTheme.spacing.xxs) {
-        HbTextField(
-            value = text,
-            onValueChange = { typed -> onDateChange(draft.type(typed)) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .onFocusChanged { draft.focus(it.hasFocus, value) }
-                .semantics { if (isInvalid) error(invalid) },
-            placeholder = stringResource(Res.string.service_ui_date_hint),
-            accessibleLabel = label,
-        )
-        if (isInvalid) {
-            HbText(
-                invalid,
-                Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-                style = HbTheme.typography.caption,
-                color = HbTheme.colors.textSecondary,
-            )
-        }
-    }
-}
-
-/** The text of a date field: what the user types while it is focused, otherwise the state's value. */
-@Stable
-private class DateDraft {
-    private var draft by mutableStateOf("")
-    private var isEditing by mutableStateOf(false)
-
-    fun shown(value: String): String = if (isEditing) draft else value
-
-    /** Keeps [typed] and returns what the state receives: the date, or empty while it is not one. */
-    @HighFrequency
-    fun type(typed: String): String {
-        log.v { "Date draft changed: ${typed.length} chars" }
-        draft = typed
-        return if (isIsoDate(typed)) typed else ""
-    }
-
-    /** Editing starts from the state's [value] and ends with focus. */
-    fun focus(hasFocus: Boolean, value: String) {
-        if (hasFocus && !isEditing) {
-            log.v { "Date editing started" }
-            draft = value
-        }
-        isEditing = hasFocus
-    }
-}
-
-/** Whether [text] is a calendar date written as YYYY-MM-DD. */
-internal fun isIsoDate(text: String): Boolean {
-    val match = IsoDate.matchEntire(text) ?: return false
-    val (year, month, day) = match.destructured.toList().map { it.toInt() }
-    val isLeap = year % LEAP_EVERY == 0 && (year % CENTURY != 0 || year % LEAP_CENTURY == 0)
-    val days = when (month) {
-        2 -> if (isLeap) LEAP_FEBRUARY else FEBRUARY
-        4, 6, 9, 11 -> SHORT_MONTH
-        else -> LONG_MONTH
-    }
-    return month in 1..MONTHS && day in 1..days
-}
-
 @Composable
 private fun Labeled(label: String?, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.xxs) {
@@ -258,13 +179,3 @@ private fun Labeled(label: String?, modifier: Modifier = Modifier, content: @Com
         content()
     }
 }
-
-private val IsoDate = Regex("""(\d{4})-(\d{2})-(\d{2})""")
-private const val MONTHS = 12
-private const val LEAP_EVERY = 4
-private const val CENTURY = 100
-private const val LEAP_CENTURY = 400
-private const val FEBRUARY = 28
-private const val LEAP_FEBRUARY = 29
-private const val SHORT_MONTH = 30
-private const val LONG_MONTH = 31

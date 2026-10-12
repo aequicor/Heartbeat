@@ -23,6 +23,7 @@ kotlin {
             implementation(libs.compose.components.resources)
             implementation(libs.compose.uiToolingPreview)
         }
+        jvmMain.dependencies { implementation(projects.core.desktopDialogs) }
         commonTest.dependencies { implementation(libs.flowmvi.test) }
         jvmTest.dependencies {
             implementation(libs.compose.uiTest)

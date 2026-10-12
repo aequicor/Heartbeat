@@ -44,7 +44,6 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -144,16 +143,6 @@ class SurfaceUiTest {
 
         onNodeWithText("Open PR 12", substring = true).performMouseInput { click(centerLeft + Offset(LINK_X, 0f)) }
         assertEquals(listOf<SurfaceIntent>(SurfaceIntent.OpenLink("https://example.com/12")), intents)
-    }
-
-    @Test
-    fun `dates are accepted only as calendar days`() {
-        assertTrue(isIsoDate("2024-02-29"))
-        assertTrue(isIsoDate("2026-12-31"))
-        assertFalse(isIsoDate("2023-02-29"))
-        assertFalse(isIsoDate("2026-13-01"))
-        assertFalse(isIsoDate("2026-1-1"))
-        assertFalse(isIsoDate("tomorrow"))
     }
 
     private fun spec() = (decodeUiSpec(SPEC) as UiSpecDecoding.Decoded).spec

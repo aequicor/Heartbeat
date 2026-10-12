@@ -36,6 +36,9 @@ internal sealed interface NoticeUi {
     /** A link that is not http(s). */
     data object InvalidLink : NoticeUi
 
+    /** A file could not be saved, shown or picked. */
+    data object FileFailed : NoticeUi
+
     /** The surface failed unexpectedly. */
     data object Broken : NoticeUi
 }
