@@ -21,7 +21,14 @@ internal class IosBrowserController(private val surface: BrowserSurface) : Brows
     private var isReleased = false
     private var hasReceivedCommand = false
 
+    /**
+     * Creates the native view once. A repeated call returns the same view, so a second engine (a `WKWebView` with
+     * its repeating timer) is never created over one that nobody would release; a released controller never
+     * creates a view again.
+     */
     fun createView(): UIView {
+        check(!isReleased) { "The iOS browser view was already released" }
+        engine?.let { return it.nativeView as UIView }
         val native = requireNotNull(surface as? IosBrowserSurface) { "Missing iOS browser surface binding" }
             .engines.create(::changed)
         engine = native
