@@ -129,7 +129,12 @@ data class HbDimensions(
     /** Width of the trailing fade that replaces an ellipsis on clipped single-line text. */
     val textOverflowFade: Dp = 24.dp,
     val toolPayloadMaxHeight: Dp = 320.dp,
+    /** Maximum natural column width before table text wraps; includes cell padding. */
     val markdownTableCellWidth: Dp = 200.dp,
+    /** Minimum readable width of short table columns, such as a number or status. */
+    val markdownTableMinCellWidth: Dp = 64.dp,
+    /** Bounded viewport for large Markdown tables; short tables retain their natural height. */
+    val markdownTableMaxHeight: Dp = 480.dp,
     /** Inline diagram preview in a conversation; the full-size viewer shows the rest. */
     val diagramPreviewMaxHeight: Dp = 480.dp,
     /** One arrow-key step of a keyboard-scrolled viewport, such as the full-size diagram viewer. */
