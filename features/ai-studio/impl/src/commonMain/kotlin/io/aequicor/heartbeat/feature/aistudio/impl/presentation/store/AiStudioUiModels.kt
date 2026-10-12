@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPane
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.ContextNoticeKind
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.LearningAction
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEnvironment
@@ -192,6 +193,10 @@ sealed interface MessageUi {
     /** The user stopped the run after [elapsed]. */
     data class Stopped(override val id: String, override val createdAt: Instant, val elapsed: Duration) : MessageUi
 
+    /** A context divider: compacted, or continued in a new session. */
+    data class ContextNotice(override val id: String, override val createdAt: Instant, val isRollover: Boolean) :
+        MessageUi
+
     /** The run failed. */
     data class Failed(
         override val id: String,
@@ -272,6 +277,8 @@ internal fun StudioMessage.toUi(): MessageUi = when (this) {
     is StudioMessage.Stopped -> MessageUi.Stopped(id, createdAt, elapsed)
 
     is StudioMessage.Failed -> MessageUi.Failed(id, createdAt, FailureUi.valueOf(kind.name))
+
+    is StudioMessage.ContextNotice -> MessageUi.ContextNotice(id, createdAt, kind == ContextNoticeKind.RolledOver)
 }
 
 private fun StudioToolRun.toUi(): ToolUi = ToolUi(

@@ -50,6 +50,8 @@ internal data class TimelineLabels(
     val isGroupedByDate: Boolean = false,
     val feedback: FeedbackLabels? = null,
     val learning: LearningLabels? = null,
+    val compacted: String = "Context compacted",
+    val rolledOver: String = "Continued in a new session",
 )
 
 /** Failed-run notices, one per [FailureUi]. */
@@ -321,6 +323,14 @@ internal fun MessageUi.toHb(labels: TimelineLabels): HbChatMessage = when (this)
         id = id,
         author = labels.studio,
         text = fill(labels.stoppedTemplate, labels.durations.format(elapsed)),
+        role = HbChatRole.System,
+        kind = HbMessageKind.Notice,
+    )
+
+    is MessageUi.ContextNotice -> HbChatMessage(
+        id = id,
+        author = labels.studio,
+        text = if (isRollover) labels.rolledOver else labels.compacted,
         role = HbChatRole.System,
         kind = HbMessageKind.Notice,
     )

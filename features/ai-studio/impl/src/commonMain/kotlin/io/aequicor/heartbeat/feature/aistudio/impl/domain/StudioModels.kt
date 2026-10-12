@@ -138,6 +138,14 @@ sealed interface StudioMessage {
     /** The user stopped the run after [elapsed]. */
     data class Stopped(override val id: String, override val createdAt: Instant, val elapsed: Duration) : StudioMessage
 
+    /** The native context was compacted or the chat continued in a new session ([kind]). */
+    data class ContextNotice(
+        override val id: String,
+        override val createdAt: Instant,
+        val kind: ContextNoticeKind,
+        override val isTimestampKnown: Boolean = false,
+    ) : StudioMessage
+
     /** The run ended with an error of [kind]; details are in the log. */
     data class Failed(
         override val id: String,
@@ -145,6 +153,9 @@ sealed interface StudioMessage {
         val kind: RunFailureKind = RunFailureKind.Unknown,
     ) : StudioMessage
 }
+
+/** Host-recognized context events shown as dividers. */
+enum class ContextNoticeKind { Compacted, RolledOver }
 
 /** User-facing class of a failed run; native error text is never shown. */
 enum class RunFailureKind { Limit, Context, Authentication, Network, Unknown }

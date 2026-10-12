@@ -9,6 +9,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.author_agent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.author_studio
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.author_you
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.context_compacted
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.context_rolled_over
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.date_today
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.date_yesterday
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.duration_minutes
@@ -45,6 +47,8 @@ internal fun timelineLabels(section: String, calendar: StudioCalendar = StudioCa
         agent = stringResource(Res.string.author_agent),
         studio = stringResource(Res.string.author_studio),
         stoppedTemplate = stringResource(Res.string.stopped_after),
+        compacted = stringResource(Res.string.context_compacted),
+        rolledOver = stringResource(Res.string.context_rolled_over),
         failed = FailureLabels(
             unknown = stringResource(Res.string.run_failed),
             limit = stringResource(Res.string.run_failed_limit),

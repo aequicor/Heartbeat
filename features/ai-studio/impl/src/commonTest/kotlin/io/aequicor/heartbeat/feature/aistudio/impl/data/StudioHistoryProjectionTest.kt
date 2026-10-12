@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NoticeKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
@@ -13,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.withHostDirectives
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.ContextNoticeKind
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.LearningAction
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioLearningCall
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
@@ -59,6 +61,21 @@ class StudioHistoryProjectionTest {
         val projected = assertIs<StudioMessage.Prompt>(listOf(attachmentOnly).toStudioMessages(now, false).single())
         assertEquals("", projected.text)
         assertEquals(listOf(image), projected.attachments)
+    }
+
+    @Test
+    fun `context notices become localized dividers`() {
+        val items = listOf(
+            SessionItem.Notice(info("compacted", 0), "Context compacted", NoticeKind.ContextCompacted),
+            SessionItem.Notice(info("rollover", 1), "Rolled over", NoticeKind.ContextRollover),
+        )
+
+        val messages = items.toStudioMessages(now, false)
+
+        assertEquals(
+            listOf(ContextNoticeKind.Compacted, ContextNoticeKind.RolledOver),
+            messages.map { assertIs<StudioMessage.ContextNotice>(it).kind },
+        )
     }
 
     @Test

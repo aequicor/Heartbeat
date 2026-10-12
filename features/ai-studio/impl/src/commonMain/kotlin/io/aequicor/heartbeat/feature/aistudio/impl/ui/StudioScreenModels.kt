@@ -93,6 +93,7 @@ internal data class PaneContent(
     val attachments: ImmutableList<AttachmentUi> = persistentListOf(),
     val isAttachmentsEnabled: Boolean = false,
     val isRememberEnabled: Boolean = false,
+    val isCompactEnabled: Boolean = false,
     val isOrganismEnabled: Boolean = false,
     val harnesses: ImmutableList<HarnessChoiceUi> = persistentListOf(),
     val isHarnessFailed: Boolean = false,
@@ -105,6 +106,9 @@ internal data class PaneContent(
     val suggestions: io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ComposerSuggestionsUi? = null,
     val caretRequest: ComposerCaretRequestUi? = null,
 ) {
+    /** The chat exists and is idle, so its context can be compacted now. */
+    val canCompact: Boolean get() = isCompactEnabled && pane.sessionId != null && session?.isRunning != true
+
     /** A descendant view has no execution controls; root ownership remains unchanged. */
     val isNativeChild: Boolean get() = nativeTree?.sessions?.any {
         it.key == subSession &&
@@ -164,6 +168,7 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         attachments = attachments(pane.id),
         isAttachmentsEnabled = isAttachmentsEnabled,
         isRememberEnabled = isRememberEnabled,
+        isCompactEnabled = isCompactEnabled,
         isOrganismEnabled = isOrganismEnabled,
         harnesses = harnessChoices(pane, session?.projectId ?: pane.projectId),
         isHarnessFailed = harnessChoices.isFailed(pane.sessionId),

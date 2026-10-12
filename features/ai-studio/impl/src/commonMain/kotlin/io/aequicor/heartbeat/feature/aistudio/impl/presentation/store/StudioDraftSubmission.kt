@@ -8,7 +8,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioCompactionPort
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.compactCommand
 import pro.respawn.flowmvi.api.PipelineContext
 import kotlin.uuid.Uuid
 
@@ -56,3 +58,26 @@ internal suspend fun submitStudioDraft(
 internal fun AiStudioScreenState.selectedNative(sessionId: String?): String = subSessions[sessionId]?.takeIf { key ->
     nativeTrees[sessionId]?.sessions?.any { it.key == key && it.kind == SubSessionKindUi.Agent } == true
 } ?: PrimarySubSession
+
+/**
+ * Handles a draft typed as `/compact`: the chat's context is compacted instead of sending a prompt, and the draft is
+ * cleared once the request is queued. False when the draft is not that command or the chat cannot be compacted, so it
+ * is sent as a prompt.
+ */
+internal suspend fun compactStudioDraft(
+    pipeline: PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>,
+    compactions: StudioCompactionPort,
+    paneId: Int,
+): Boolean = with(pipeline) {
+    var isHandled = false
+    withState {
+        val chat = panes.firstOrNull { it.id == paneId }?.sessionId
+        val command = compactCommand(draft(paneId)).takeIf { isCompactEnabled && attachments(paneId).isEmpty() }
+        if (chat != null && command != null && compactions.request(chat, command.instructions)) {
+            log.i { "Compaction of the pane chat requested from the composer" }
+            updateState { withDraft(paneId, "") }
+            isHandled = true
+        }
+    }
+    isHandled
+}
