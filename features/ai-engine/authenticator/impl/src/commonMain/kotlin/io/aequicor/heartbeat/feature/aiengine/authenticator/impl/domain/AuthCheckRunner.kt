@@ -12,7 +12,10 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthVerdict
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthenticatorId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.spi.Authenticator
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
@@ -38,6 +41,9 @@ class AuthCheckRunner(
     }
 
     override fun last(source: AuthSourceId, context: AuthContextKey): AuthCheck? = observations.value[source to context]
+
+    override fun observe(source: AuthSourceId, context: AuthContextKey): Flow<AuthCheck?> =
+        observations.map { it[source to context] }.distinctUntilChanged()
 
     override suspend fun check(
         source: AuthSourceId,

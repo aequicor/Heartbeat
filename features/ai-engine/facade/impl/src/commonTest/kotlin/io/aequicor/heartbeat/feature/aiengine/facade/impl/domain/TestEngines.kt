@@ -39,6 +39,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -191,8 +192,12 @@ internal class FakeAuthSources : AuthSources {
 
 internal class FakeAuthChecks(private val clock: Clock) : AuthChecks {
     val calls = mutableListOf<Triple<AuthSourceId, AuthContextKey, Set<AuthenticatorId>>>()
+    private val observations = MutableStateFlow(emptyMap<Pair<AuthSourceId, AuthContextKey>, AuthCheck>())
 
-    override fun last(source: AuthSourceId, context: AuthContextKey): AuthCheck? = null
+    override fun last(source: AuthSourceId, context: AuthContextKey): AuthCheck? = observations.value[source to context]
+
+    override fun observe(source: AuthSourceId, context: AuthContextKey): Flow<AuthCheck?> =
+        observations.map { it[source to context] }.distinctUntilChanged()
 
     override suspend fun check(
         source: AuthSourceId,
@@ -207,7 +212,7 @@ internal class FakeAuthChecks(private val clock: Clock) : AuthChecks {
             AuthCheckBasis.Service,
             clock.now(),
             AuthRevision.Known("r1"),
-        )
+        ).also { observations.value = observations.value + ((source to context) to it) }
     }
 }
 
