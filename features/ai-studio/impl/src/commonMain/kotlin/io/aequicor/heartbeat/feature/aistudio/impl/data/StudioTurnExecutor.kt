@@ -63,6 +63,13 @@ internal interface StudioTurnObserver {
 
 internal object NoStudioTurnObserver : StudioTurnObserver
 
+/** Learns that a turn settled with its handle still open, after its history is current; failures are isolated. */
+internal fun interface StudioTurnSettlement {
+    suspend fun settled(request: StudioTurnRequest, active: ActiveSession, outcome: TurnOutcome)
+}
+
+internal val NoStudioTurnSettlement = StudioTurnSettlement { _, _, _ -> }
+
 /** Host-created identity; native tools never supply an action's kind or operation. */
 internal data class StudioTurnRequest(
     val id: String,
@@ -101,6 +108,7 @@ internal class StudioTurnExecutor(
     private val tools: ProfileAgentTools,
     private val observer: StudioTurnObserver = NoStudioTurnObserver,
     private val harnesses: StudioHarnessAttach = NoStudioHarnessAttach,
+    private val settlement: StudioTurnSettlement = NoStudioTurnSettlement,
 ) {
     private val log = Log.tag("StudioTurnExecutor")
 
@@ -201,6 +209,7 @@ internal class StudioTurnExecutor(
             val outcome = checkNotNull(completed.outcome) { "Terminal outcome is unavailable" }
             progress.isTerminalObserved = true
             observe("terminal") { observer.terminalTurn(request, active, turn, outcome, isHistoryCurrent = true) }
+            observe("settlement") { settlement.settled(request, active, outcome) }
             request.onOutcome(outcome)
             worktrees.settled(request.id.takeIf { progress.isIsolated }, request.request, active.ref, turn, outcome)
             host.outcome(request.id, outcome)

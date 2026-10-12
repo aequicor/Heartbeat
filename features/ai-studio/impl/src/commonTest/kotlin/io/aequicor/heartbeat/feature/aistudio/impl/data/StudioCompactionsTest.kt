@@ -10,9 +10,24 @@ import io.aequicor.heartbeat.core.statemachine.MachineRef
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CompactsContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextCompaction
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextUsage
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
@@ -21,6 +36,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.CompactionMethod
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.CompactionOrigin
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.CompactionResult
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.CompactionSupport
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationIntent.Public
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationState
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationView
@@ -89,6 +105,55 @@ class StudioCompactionsTest {
             fixture.registry.sent,
         )
         job.cancel()
+    }
+
+    @Test
+    fun `a settled prompt turn reports its occupancy and support while auto compaction is on`() = runTest {
+        val fixture = Fixture(this)
+        val usage = ContextUsage(90, 100)
+
+        fixture.compactions.settled(runRequest("prompt"), Active(usage), TurnOutcome.Completed)
+        fixture.compactions.settled(
+            runRequest("compact").copy(compaction = ContextCompaction()),
+            Active(usage),
+            TurnOutcome.Completed,
+        )
+
+        assertEquals<List<MachineIntent>>(
+            listOf(Public.TurnSettled(Chat, usage, CompactionSupport(isNative = true, isRollover = false))),
+            fixture.registry.sent,
+        )
+    }
+
+    private class Active(usage: ContextUsage) : ActiveSession {
+        override val ref = Chat
+        override val route = ExecutionRoute(
+            EngineId("pi"),
+            EngineBindingId("b"),
+            AuthSourceId("source"),
+            AuthRevision.Known("r"),
+        )
+        override val state = MutableStateFlow<ActiveSessionState>(ActiveSessionState.Ready())
+        override val features = object : EngineFeatures {
+            @Suppress("UNCHECKED_CAST") // The fake answers only the two keys the host resolves.
+            override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> = when (key) {
+                SessionContextUsage -> FeatureAccess.Available(
+                    object : SessionContextUsage {
+                        override val state = MutableStateFlow<ContextUsage?>(usage)
+                    } as F,
+                )
+
+                CompactsContext -> FeatureAccess.Available(
+                    object : CompactsContext {
+                        override val isInstructionsSupported = true
+                    } as F,
+                )
+
+                else -> FeatureAccess.Unsupported
+            }
+        }
+
+        override suspend fun close() = Unit
     }
 
     private class Fixture(scope: TestScope) {

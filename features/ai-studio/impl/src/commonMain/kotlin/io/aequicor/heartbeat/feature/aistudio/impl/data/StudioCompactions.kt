@@ -14,15 +14,22 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartup
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CompactsContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextCompaction
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioCompactionPort
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.AutoCompactionEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.CompactionMethod
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.CompactionOrigin
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.CompactionResult
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.CompactionSupport
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationIntent
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationMachineKey
@@ -62,7 +69,8 @@ internal class StudioCompactions(
     private val machines: MachineRegistry,
     private val toggles: FeatureToggles,
 ) : StudioCompactionPort,
-    StudioCompactionHost {
+    StudioCompactionHost,
+    StudioTurnSettlement {
     private val log = Log.tag("StudioCompactions")
     private val store by lazy { stores.keyValue(ChatSpec) }
 
@@ -77,6 +85,23 @@ internal class StudioCompactions(
         val result = machines.send(ContextOptimizationMachineKey, intent)
         log.i { "compaction requested by the user: $result" }
         return result == SendResult.Accepted
+    }
+
+    /**
+     * Reports the occupancy after a prompt turn while automatic compaction is on; the machine decides whether a
+     * compaction becomes pending. Compaction turns themselves are not reported, so they never trigger another one.
+     */
+    override suspend fun settled(request: StudioTurnRequest, active: ActiveSession, outcome: TurnOutcome) {
+        if (request.compaction != null || outcome == TurnOutcome.Cancelled) return
+        if (!toggles.get(ContextOptimizationEnabled) || !toggles.get(AutoCompactionEnabled)) return
+        val usage = (active.features.resolve(SessionContextUsage) as? FeatureAccess.Available)?.feature?.state?.value
+        val support = CompactionSupport(
+            isNative = active.features.resolve(CompactsContext) is FeatureAccess.Available,
+            isRollover = false,
+        )
+        log.v { "report a settled turn for automatic compaction: usage=${usage != null}" }
+        val settled = ContextOptimizationIntent.Public.TurnSettled(active.ref, usage, support)
+        machines.send(ContextOptimizationMachineKey, settled)
     }
 
     override suspend fun run(): Unit = coroutineScope {
