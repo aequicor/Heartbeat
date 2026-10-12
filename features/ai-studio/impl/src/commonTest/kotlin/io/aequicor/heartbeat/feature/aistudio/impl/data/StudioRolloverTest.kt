@@ -41,6 +41,18 @@ class StudioRolloverTest {
     }
 
     @Test
+    fun `the continuation seed keeps user messages of every segment and the last turn of the current one`() {
+        val earlier = listOf(message("task", 0, "Fix every open issue"), reply("old", 1, "Old work")).frozen(1)
+        val items = earlier + message("next", 0, "Skip #7") + reply("now", 1, "Fixing #8")
+
+        val seed = continuationSeed(items)
+
+        assertTrue("[1] Fix every open issue" in seed && "[2] Skip #7" in seed)
+        assertTrue("Assistant: Fixing #8" in seed)
+        assertFalse("Old work" in seed)
+    }
+
+    @Test
     fun `helpers, organisms and chats without a session never roll over`() {
         val chat = StudioChatRecord("chat", "Chat", Instant.DISTANT_PAST, ref = Ref)
 
@@ -53,6 +65,12 @@ class StudioRolloverTest {
     private fun message(id: String, position: Long, text: String = id) = SessionItem.Message(
         ItemInfo(ItemId(id), position, 0),
         MessageRole.User,
+        listOf(ContentPart.Text(text)),
+    )
+
+    private fun reply(id: String, position: Long, text: String) = SessionItem.Message(
+        ItemInfo(ItemId(id), position, 0),
+        MessageRole.Assistant,
         listOf(ContentPart.Text(text)),
     )
 

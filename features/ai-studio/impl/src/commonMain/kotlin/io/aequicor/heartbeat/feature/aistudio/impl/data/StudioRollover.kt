@@ -6,14 +6,17 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoticeKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.sessionEssence
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.BriefMode
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.continuationBrief
 
 /**
  * Rollover continues a chat in a new native session of the same engine, workspace and model. The transcript of
  * the previous sessions is frozen: its items keep their order under ids prefixed with [FROZEN_PREFIX] and a
  * [NoticeKind.ContextRollover] notice closes the segment, so the history mirror of the new session never replaces
- * them. The essence of the old session ([rolloverSeed]) reaches the first accepted turn of the new session as a
- * host directive. Scheduled wakes addressed to an earlier session still find the chat by
- * [StudioChatRecord.previousRefs]; harness connections of the earlier session are not carried over.
+ * them. The essence of the old session ([rolloverSeed]), or with the continuation brief enabled [continuationSeed],
+ * reaches the first accepted turn of the new session as a host directive. Scheduled wakes addressed to an earlier
+ * session still find the chat by [StudioChatRecord.previousRefs]; harness connections of the earlier session are not
+ * carried over.
  */
 internal const val FROZEN_PREFIX = "hb.seg."
 
@@ -65,6 +68,16 @@ internal fun rolloverSeed(items: List<SessionItem>): String {
     if (essence.text.isBlank()) return SEED_HEADER
     val omitted = if (essence.omittedItems > 0) "\nEarlier parts were omitted to keep it short." else ""
     return "$SEED_HEADER$omitted\n\n--- Earlier conversation ---\n\n${essence.text}\n\n$SEED_END"
+}
+
+/**
+ * Host directive for the first turn of the new session built from the continuation brief: every user message of all
+ * segments, the agent's earlier work in the session that ends and its last turn.
+ */
+internal fun continuationSeed(items: List<SessionItem>): String {
+    val brief = continuationBrief(items, items.filterNot { it.isFrozenSegment }, summary = null, BriefMode.Rollover)
+    log.i { "Rollover carries the continuation brief: $brief" }
+    return brief.text
 }
 
 private fun SessionItem.withId(id: String): SessionItem {

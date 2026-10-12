@@ -100,7 +100,7 @@ class StudioCompactionsTest {
         runCurrent()
 
         val rollover = fixture.executed.single()
-        assertTrue(rollover.isRollover && rollover.compaction == null)
+        assertTrue(rollover.isRollover && rollover.isBriefed && rollover.compaction == null)
         assertEquals<Set<MachineIntent>>(
             setOf(
                 Public.Claim(Foreign),

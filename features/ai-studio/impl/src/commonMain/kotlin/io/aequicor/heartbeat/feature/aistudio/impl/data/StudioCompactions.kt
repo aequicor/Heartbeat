@@ -37,6 +37,7 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimi
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationState
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationView
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextRolloverEnabled
+import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContinuationBriefEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.PendingCompaction
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CancellationException
@@ -191,6 +192,7 @@ internal class StudioCompactions(
             request = RequestId("compact-${Uuid.random()}"),
             compaction = ContextCompaction(compaction.instructions).takeUnless { isRollover },
             isRollover = isRollover,
+            isBriefed = isRollover && toggles.get(ContinuationBriefEnabled),
         )
         val outcome = runs.run(host.value, request, waitForIdle = true)
         return if (outcome == RunOutcome.Completed) CompactionResult.Compacted else CompactionResult.Failed

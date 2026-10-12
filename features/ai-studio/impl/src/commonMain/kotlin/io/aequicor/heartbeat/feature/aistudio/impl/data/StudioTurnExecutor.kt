@@ -99,6 +99,8 @@ internal data class StudioTurnRequest(
     val compaction: ContextCompaction? = null,
     /** Continues the chat in a new native session instead of running a turn; see `StudioRollover`. */
     val isRollover: Boolean = false,
+    /** With [isRollover]: the new session receives the continuation brief instead of the essence. */
+    val isBriefed: Boolean = false,
 ) {
     override fun toString(): String = "StudioTurnRequest(id=$id, kind=$kind, attachments=${attachments.size})"
 }
