@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserNativeResources
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserUrlResolver
 import io.aequicor.heartbeat.feature.browser.impl.domain.DesktopBrowserProfile
@@ -25,7 +26,7 @@ internal interface DesktopBrowserPanelFactory : BrowserNativeResources {
     fun create(
         surface: BrowserSurface,
         guard: DesktopBrowserAgentGuard,
-        openTab: ((String) -> Unit)? = null,
+        openTab: ((BrowserCommand.Load) -> Unit)? = null,
     ): DesktopBrowserPanel
     fun close(surface: BrowserSurface)
 
@@ -70,7 +71,7 @@ internal class DefaultDesktopBrowserPanelFactory(
     override fun create(
         surface: BrowserSurface,
         guard: DesktopBrowserAgentGuard,
-        openTab: ((String) -> Unit)?,
+        openTab: ((BrowserCommand.Load) -> Unit)?,
     ): DesktopBrowserPanel = synchronized(monitor) {
         check(profile.isAvailable) { "Browser profile is unavailable" }
         panels.getOrPut(surface) {

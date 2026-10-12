@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.impl.data.DefaultBrowserUrlResolver
 import io.aequicor.heartbeat.feature.browser.impl.data.DesktopBrowserProfiles
 import io.aequicor.heartbeat.feature.browser.impl.data.DesktopDefaultBrowserResources
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -113,6 +114,11 @@ class DesktopBrowserNativeTest {
     }
 
     private fun verifyStandaloneEngines(app: org.cef.CefApp, server: HttpServer) {
+        DesktopBrowserReferrerProbe(
+            createEngine = { states, openTab -> testEngine(app, states, openTab = openTab) },
+            createFrame = ::nativeFrame,
+            awaitTitle = ::awaitTitle,
+        ).verify(server)
         verifyLinkedTabs(app, "http://127.0.0.1:${server.address.port}")
         verifyEarlyClose(app)
         verifyDirectDocument(app, "http://127.0.0.1:${server.address.port}")
@@ -147,7 +153,7 @@ class DesktopBrowserNativeTest {
         app: org.cef.CefApp,
         states: LinkedBlockingQueue<BrowserViewState>,
         guard: DesktopBrowserAgentGuard = DesktopBrowserAgentGuard(),
-        openTab: ((String) -> Unit)? = null,
+        openTab: ((BrowserCommand.Load) -> Unit)? = null,
     ) = DesktopBrowserEngine(
         app,
         nativeDispatchers(),
@@ -160,7 +166,7 @@ class DesktopBrowserNativeTest {
     )
 
     private fun verifyLinkedTabs(app: org.cef.CefApp, base: String) {
-        val opened = LinkedBlockingQueue<String>()
+        val opened = LinkedBlockingQueue<BrowserCommand.Load>()
         val states = LinkedBlockingQueue<BrowserViewState>()
         var engine: DesktopBrowserEngine? = null
         var frame: JFrame? = null
@@ -190,7 +196,7 @@ class DesktopBrowserNativeTest {
                             },
                         ),
                     )
-                    assertEquals("$base/check", opened.poll(10, java.util.concurrent.TimeUnit.SECONDS))
+                    assertEquals("$base/check", opened.poll(10, java.util.concurrent.TimeUnit.SECONDS)?.url)
                     val after = driver.perform(BrowserRequest("after", BrowserOperation.Read, "tab"))
                     assertEquals("$base/links", after.data.getValue("url").jsonPrimitive.content)
                 }

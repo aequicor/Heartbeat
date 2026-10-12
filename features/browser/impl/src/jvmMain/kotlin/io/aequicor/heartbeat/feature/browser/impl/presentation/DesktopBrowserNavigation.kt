@@ -8,11 +8,13 @@ import org.cef.browser.CefBrowser
 internal class DesktopBrowserNavigation(
     private val browser: CefBrowser,
     private val changed: (BrowserViewState) -> Unit,
+    private val prepareNavigation: (BrowserViewCommand) -> Unit = {},
 ) {
     private var state = BrowserViewState()
     private var isStopped = false
 
     fun execute(command: BrowserViewCommand) {
+        prepareNavigation(command)
         when (command) {
             is BrowserViewCommand.Load -> {
                 if (!isBrowserUrlAllowed(command.url)) {

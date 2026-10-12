@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.core.datastore.StorageRoot
 import io.aequicor.heartbeat.feature.browser.impl.data.DefaultBrowserUrlResolver
 import io.aequicor.heartbeat.feature.browser.impl.data.DesktopBrowserProfiles
 import io.aequicor.heartbeat.feature.browser.impl.data.DesktopDefaultBrowserResources
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserNativeTestStores
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserSurface
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserTestScope
@@ -105,8 +106,11 @@ internal class NativeComposeBrowserFixture :
         }
     }
     override val nativeResources = object : DesktopBrowserPanelFactory {
-        override fun create(surface: BrowserSurface, guard: DesktopBrowserAgentGuard, openTab: ((String) -> Unit)?) =
-            panel
+        override fun create(
+            surface: BrowserSurface,
+            guard: DesktopBrowserAgentGuard,
+            openTab: ((BrowserCommand.Load) -> Unit)?,
+        ) = panel
         override fun close(surface: BrowserSurface) = panel.release()
         override suspend fun clearData() = error("Not part of the Compose embedding test")
     }

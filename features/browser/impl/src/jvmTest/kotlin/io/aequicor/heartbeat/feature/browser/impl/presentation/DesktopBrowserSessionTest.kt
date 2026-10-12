@@ -4,6 +4,9 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserAgentPolicy
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserReferrer
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserReferrerPolicy
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserRequestKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -34,6 +37,26 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DesktopBrowserSessionTest {
+    @Test
+    fun `linked navigation retains referrer alongside the inherited session and origin`() = runTest {
+        val fixture = Fixture(this)
+        fixture.create("session-a")
+        fixture.guards.first().restrict("http://192.168.1.1/")
+        val referrer = BrowserReferrer("http://192.168.1.1/private", BrowserReferrerPolicy.Origin)
+        fixture.links.first()(BrowserCommand.Load("http://192.168.1.1/next", referrer))
+        runCurrent()
+        val controller = RecordingBrowserController()
+        fixture.surfaces.last().attached(controller)
+        runCurrent()
+        assertEquals(
+            listOf<BrowserViewCommand>(BrowserViewCommand.Load("http://192.168.1.1/next", referrer)),
+            controller.commands,
+        )
+        assertEquals("session-a", fixture.session.tabs.value.first.last().owner)
+        assertTrue(fixture.guards.last().allows("http://192.168.1.1/another", BrowserRequestKind.MainDocument))
+        assertFalse(fixture.guards.last().allows("http://10.0.0.1/", BrowserRequestKind.MainDocument))
+    }
+
     @Test
     fun `a replaced control request survives an older transfer waiting for native cancellation`() = runTest {
         for (operation in listOf(BrowserOperation.ApproveControl, BrowserOperation.RejectControl)) {
@@ -324,7 +347,7 @@ class DesktopBrowserSessionTest {
         val other = fixture.create("session-b")
         val second = fixture.create("session-a")
         assertEquals(listOf(first, second, other), fixture.session.tabs.value.first.map { it.id })
-        fixture.links.first()("https://example.com/linked")
+        fixture.links.first()(BrowserCommand.Load("https://example.com/linked"))
         runCurrent()
         val linked = fixture.session.tabs.value.first[1]
         assertEquals("session-a", linked.owner)
@@ -352,17 +375,17 @@ class DesktopBrowserSessionTest {
         val fixture = Fixture(this)
         val parent = fixture.create("session-a")
         fixture.guards.first().restrict("http://192.168.1.1/")
-        fixture.links.first()("http://192.168.1.1/login")
+        fixture.links.first()(BrowserCommand.Load("http://192.168.1.1/login"))
         runCurrent()
         val guard = fixture.guards.last()
         assertTrue(guard.isRestricted)
         assertTrue(guard.allows("http://192.168.1.1/next", BrowserRequestKind.MainDocument))
         assertFalse(guard.allows("http://10.0.0.1/", BrowserRequestKind.MainDocument))
-        fixture.links.first()("http://10.0.0.1/")
+        fixture.links.first()(BrowserCommand.Load("http://10.0.0.1/"))
         runCurrent()
         assertEquals(2, fixture.session.tabs.value.first.size)
         fixture.request(BrowserOperation.CloseTab, parent, "session-a")
-        fixture.links.first()("https://example.com/stale")
+        fixture.links.first()(BrowserCommand.Load("https://example.com/stale"))
         runCurrent()
         assertEquals(1, fixture.session.tabs.value.first.size)
     }
@@ -371,12 +394,12 @@ class DesktopBrowserSessionTest {
     fun `personal links and human controlled siblings keep their group and control state`() = runTest {
         val fixture = Fixture(this)
         fixture.create()
-        fixture.links.first()("https://example.com/")
+        fixture.links.first()(BrowserCommand.Load("https://example.com/"))
         runCurrent()
         assertTrue(fixture.session.tabs.value.first.all { it.owner == null })
         val agent = fixture.create("session-a")
         fixture.request(BrowserOperation.TakeControl, agent)
-        fixture.links.last()("http://localhost:8080/")
+        fixture.links.last()(BrowserCommand.Load("http://localhost:8080/"))
         runCurrent()
         val child = fixture.session.tabs.value.first.last()
         assertEquals("session-a", child.owner)
@@ -392,7 +415,7 @@ class DesktopBrowserSessionTest {
         val closed = mutableListOf<BrowserSurface>()
         val surfaces = mutableListOf<BrowserSurface>()
         val guards = mutableListOf<DesktopBrowserAgentGuard>()
-        val links = mutableListOf<(String) -> Unit>()
+        val links = mutableListOf<(BrowserCommand.Load) -> Unit>()
         private val panels = mutableListOf<DesktopBrowserPanel>()
         var clearCount = 0
         private var requestIndex = 0
@@ -417,7 +440,7 @@ class DesktopBrowserSessionTest {
             override fun create(
                 surface: BrowserSurface,
                 guard: DesktopBrowserAgentGuard,
-                openTab: ((String) -> Unit)?,
+                openTab: ((BrowserCommand.Load) -> Unit)?,
             ): DesktopBrowserPanel {
                 links += requireNotNull(openTab)
                 surfaces += surface

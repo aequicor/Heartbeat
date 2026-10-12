@@ -465,14 +465,15 @@ internal class DesktopBrowserSession(
     }
 
     /** Native callbacks may arrive on CEF threads; recheck the live parent on main before inheriting it. */
-    private fun openLinkedTab(parentId: String, url: String) {
+    private fun openLinkedTab(parentId: String, command: BrowserCommand.Load) {
+        val url = command.url
         scope.coroutineScope.launch(dispatchers.main) {
             val parent = entries[parentId] ?: return@launch
             if (!isBrowserEnabled || isClearingData || !isBrowserUrlAllowed(url)) return@launch
             if (!parent.guard.allows(url, BrowserRequestKind.MainDocument)) return@launch
             try {
                 val child = create(parent.tab.owner, parent)
-                child.surface.execute(BrowserCommand.Load(url))
+                child.surface.execute(command)
                 log.i { "Browser link opened in a sibling tab" }
             } catch (error: CancellationException) {
                 throw error
