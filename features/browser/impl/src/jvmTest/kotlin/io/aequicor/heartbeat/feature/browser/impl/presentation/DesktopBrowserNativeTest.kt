@@ -186,7 +186,12 @@ class DesktopBrowserNativeTest {
         states: LinkedBlockingQueue<BrowserViewState>,
         base: String,
     ) {
-        SwingUtilities.invokeAndWait { engine.execute(BrowserViewCommand.Load("$base/embedded")) }
+        SwingUtilities.invokeAndWait {
+            // The preceding rejected navigation can still have queued loading/title projections.
+            // Start observation on the EDT together with the new command, which clears that error.
+            states.clear()
+            engine.execute(BrowserViewCommand.Load("$base/embedded"))
+        }
         val loaded = awaitState(states) {
             assertEquals(null, it.error, "A child resource must not fail the main document")
             it.title == "embedded-ready" && !it.isLoading
