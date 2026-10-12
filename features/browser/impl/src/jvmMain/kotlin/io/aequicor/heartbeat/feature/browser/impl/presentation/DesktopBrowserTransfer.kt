@@ -8,6 +8,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import org.cef.browser.CefRequestContext
 import org.cef.callback.CefAuthCallback
@@ -17,6 +18,7 @@ import org.cef.handler.CefRequestContextHandler
 import org.cef.network.CefRequest
 import org.cef.network.CefURLRequest
 import java.util.concurrent.atomic.AtomicLong
+import javax.swing.SwingUtilities
 import kotlin.coroutines.resume
 
 /** Explicit redirect hops share one profile wrapper and bounded lifetime, without automatic redirect IO. */
@@ -35,8 +37,8 @@ internal class DesktopBrowserTransfer(
             while (true) captureHop(context)?.let { return it }
         } finally {
             withContext(NonCancellable) {
-                suspendCancellableCoroutine { continuation ->
-                    context.dispose { continuation.resume(Unit) }
+                awaitNativeCallback(NATIVE_CALLBACK_TIMEOUT, log, "Source request context disposal") { done ->
+                    context.dispose { done() }
                 }
             }
         }
@@ -63,13 +65,34 @@ internal class DesktopBrowserTransfer(
             check(!client.rejected.isCompleted) { "Source request was rejected" }
             return response(request, client.body)
         } finally {
-            withContext(NonCancellable) {
-                request?.let {
-                    if (!client.completed.isCompleted) it.cancel()
-                    client.completed.await()
-                    it.dispose()
+            withContext(NonCancellable) { release(request, input, client) }
+        }
+    }
+
+    /**
+     * The native request is disposed only after its completion callback. A missing callback no longer holds the
+     * caller (and the tab lock it owns): the coroutine continues and disposal waits for a late callback.
+     */
+    private suspend fun release(request: CefURLRequest?, input: CefRequest, client: Client) {
+        if (request == null) {
+            input.dispose()
+            return
+        }
+        if (!client.completed.isCompleted) request.cancel()
+        val isCompleted = withTimeoutOrNull(NATIVE_CALLBACK_TIMEOUT) { client.completed.await() } != null
+        if (isCompleted) {
+            request.dispose()
+            input.dispose()
+        } else {
+            log.w(IllegalStateException("Source request completion timed out")) {
+                "Native source request did not complete after cancellation; disposal deferred"
+            }
+            // Queued after the native callback returns: callbacks never reenter native request methods.
+            client.completed.invokeOnCompletion {
+                SwingUtilities.invokeLater {
+                    request.dispose()
+                    input.dispose()
                 }
-                input.dispose()
             }
         }
     }
@@ -142,5 +165,25 @@ internal class DesktopBrowserTransfer(
 
     private companion object {
         const val MAX_BYTES = 10_000_000
+        const val NATIVE_CALLBACK_TIMEOUT = 10_000L
     }
+}
+
+/**
+ * Waits up to [timeout] for a native completion callback that [register] hands to native code. Returns false
+ * after a warning when it does not arrive: the caller is released and a late callback is ignored.
+ */
+internal suspend fun awaitNativeCallback(
+    timeout: Long,
+    log: Log,
+    operation: String,
+    register: (done: () -> Unit) -> Unit,
+): Boolean {
+    val isDone = withTimeoutOrNull(timeout) {
+        suspendCancellableCoroutine { continuation ->
+            register { if (continuation.isActive) continuation.resume(Unit) }
+        }
+    } != null
+    if (!isDone) log.w(IllegalStateException("$operation timed out")) { "$operation callback did not arrive in time" }
+    return isDone
 }

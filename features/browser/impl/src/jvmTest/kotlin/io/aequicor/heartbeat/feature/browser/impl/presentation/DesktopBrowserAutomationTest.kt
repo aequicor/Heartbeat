@@ -3,7 +3,9 @@ package io.aequicor.heartbeat.feature.browser.impl.presentation
 import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -12,6 +14,7 @@ import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class DesktopBrowserAutomationTest {
@@ -100,24 +103,115 @@ class DesktopBrowserAutomationTest {
     }
 
     @Test
-    fun `mutation rejects old coordinates before any mouse input`() = runTest {
+    fun `scrolled or navigated page rejects old coordinates before any mouse input`() = runTest {
+        for (change in listOf<(Transport) -> Unit>({ it.scrollY += 100 }, { it.url = "https://example.com/next" })) {
+            val transport = Transport()
+            val driver = DesktopBrowserAutomation(transport::call)
+            val read = driver.perform(request(BrowserOperation.Read))
+            change(transport)
+            assertFailsWith<IllegalArgumentException> {
+                driver.perform(request(BrowserOperation.Click, coordinates(read.data.getValue("snapshotId"))))
+            }
+            assertTrue(transport.calls.none { it.first == "Input.dispatchMouseEvent" })
+        }
+    }
+
+    @Test
+    fun `DOM mutations on a dynamic page keep read and click usable`() = runTest {
+        val transport = Transport()
+        val driver = DesktopBrowserAutomation(transport::call)
+        transport.isMutatingOnEvaluate = true
+        val read = driver.perform(request(BrowserOperation.Read))
+        driver.perform(request(BrowserOperation.Click, coordinates(read.data.getValue("snapshotId"))))
+        val element = driver.perform(request(BrowserOperation.Read))
+        driver.perform(
+            request(
+                BrowserOperation.Click,
+                buildJsonObject {
+                    put("snapshotId", element.data.getValue("snapshotId"))
+                    put("element", 0)
+                },
+            ),
+        )
+        assertEquals(4, transport.calls.count { it.first == "Input.dispatchMouseEvent" })
+        assertFalse(read.data.containsKey("view"))
+    }
+
+    @Test
+    fun `screenshot retries while the viewport moves and gives up after a bound`() = runTest {
+        val settling = Transport().apply { scrollDuringCaptures = 1 }
+        val shot = DesktopBrowserAutomation(settling::call).perform(request(BrowserOperation.Screenshot))
+        assertEquals(2, settling.calls.count { it.first == "Page.captureScreenshot" })
+        assertTrue(shot.data.containsKey("snapshotId"))
+
+        val scrolling = Transport().apply { scrollDuringCaptures = Int.MAX_VALUE }
+        val driver = DesktopBrowserAutomation(scrolling::call)
+        assertFailsWith<IllegalStateException> { driver.perform(request(BrowserOperation.Screenshot)) }
+        assertEquals(3, scrolling.calls.count { it.first == "Page.captureScreenshot" })
+        assertFailsWith<IllegalArgumentException> {
+            driver.perform(request(BrowserOperation.Click, coordinates(JsonPrimitive("any"))))
+        }
+    }
+
+    @Test
+    fun `point outside the viewport sends neither press nor release`() = runTest {
         val transport = Transport()
         val driver = DesktopBrowserAutomation(transport::call)
         val read = driver.perform(request(BrowserOperation.Read))
-        transport.revision++
         assertFailsWith<IllegalArgumentException> {
             driver.perform(
                 request(
                     BrowserOperation.Click,
                     buildJsonObject {
                         put("snapshotId", read.data.getValue("snapshotId"))
-                        put("x", 10)
+                        put("x", 5_000)
                         put("y", 10)
                     },
                 ),
             )
         }
-        assertTrue(transport.calls.none { it.first == "Input.dispatchMouseEvent" })
+        assertTrue(transport.calls.none { it.first.startsWith("Input.") })
+    }
+
+    @Test
+    fun `release timeout fails the click instead of cancelling it`() = runTest {
+        val transport = Transport().apply { isReleaseHanging = true }
+        val driver = DesktopBrowserAutomation(transport::call)
+        val read = driver.perform(request(BrowserOperation.Read))
+        val failure = assertFailsWith<IllegalStateException> {
+            driver.perform(request(BrowserOperation.Click, coordinates(read.data.getValue("snapshotId"))))
+        }
+        assertTrue(failure !is CancellationException)
+    }
+
+    @Test
+    fun `failed evaluation recreates the isolated world`() = runTest {
+        val transport = Transport()
+        val driver = DesktopBrowserAutomation(transport::call)
+        driver.perform(request(BrowserOperation.Read))
+        transport.isEvaluateFailing = true
+        assertFailsWith<IllegalStateException> { driver.perform(request(BrowserOperation.Read)) }
+        transport.isEvaluateFailing = false
+        driver.perform(request(BrowserOperation.Read))
+        assertEquals(2, transport.calls.count { it.first == "Page.createIsolatedWorld" })
+    }
+
+    @Test
+    fun `source navigation timeout is a failure rather than a cancellation`() = runTest {
+        val transport = Transport()
+        val driver = DesktopBrowserAutomation(transport::call) { url ->
+            buildJsonObject {
+                put("kind", "html")
+                put("url", url)
+            }
+        }
+        transport.navigationLoader = "never-committed"
+        val failure = assertFailsWith<IllegalStateException> {
+            driver.captureResource(
+                request(BrowserOperation.CaptureResource, buildJsonObject { put("url", "https://example.com/paper") }),
+            )
+        }
+        assertEquals("Source navigation timed out", failure.message)
     }
 
     @Test
@@ -169,12 +263,28 @@ class DesktopBrowserAutomationTest {
     private fun request(operation: BrowserOperation, args: JsonObject = JsonObject(emptyMap())) =
         BrowserRequest("request", operation, "tab", arguments = args)
 
+    private fun coordinates(snapshotId: JsonElement) = buildJsonObject {
+        put("snapshotId", snapshotId)
+        put("x", 10)
+        put("y", 10)
+    }
+
     private class Transport {
         val calls = mutableListOf<Pair<String, JsonObject>>()
-        var revision = 0
+        var url = "https://example.com"
+        var scrollY = 0
+        var mutations = 0
+        var isMutatingOnEvaluate = false
+        var scrollDuringCaptures = 0
         var cancelPress = false
+        var isReleaseHanging = false
+        var isEvaluateFailing = false
+        var navigationLoader = "loader"
         var isElementVisible = true
         var isElementTarget = true
+
+        private val geometry: String
+            get() = """{"document":"doc","url":"$url","width":800,"height":600,"x":0,"y":$scrollY}"""
 
         suspend fun call(method: String, args: JsonObject): String {
             calls += method to args
@@ -182,36 +292,46 @@ class DesktopBrowserAutomationTest {
                 "Page.getFrameTree" ->
                     """{"frameTree":{"frame":{"id":"frame","loaderId":"loader"}}}"""
 
+                "Page.navigate" -> """{"loaderId":"$navigationLoader"}"""
+
                 "Page.createIsolatedWorld" -> """{"executionContextId":7}"""
 
-                "Page.captureScreenshot" -> """{"data":"iVBORw0KGgoAAAANSUhEUgAAAyAAAAJY"}"""
-
-                "Input.dispatchMouseEvent" -> {
-                    if (cancelPress && args["type"]?.jsonPrimitive?.content == "mousePressed") {
-                        throw CancellationException("cancelled")
+                "Page.captureScreenshot" -> {
+                    if (scrollDuringCaptures > 0) {
+                        scrollDuringCaptures--
+                        scrollY++
                     }
-                    "{}"
+                    """{"data":"iVBORw0KGgoAAAANSUhEUgAAAyAAAAJY"}"""
                 }
 
-                "Runtime.evaluate" -> {
-                    val value =
-                        if (
-                            args
-                                .getValue("expression")
-                                .jsonPrimitive
-                                .content
-                                .contains("MutationObserver")
-                        ) {
-                            """{"width":800,"height":600,"revision":$revision}"""
-                        } else if (args.getValue("expression").jsonPrimitive.content.contains("elementFromPoint")) {
-                            """{"x":40,"y":30,"isVisible":$isElementVisible,"isTarget":$isElementTarget}"""
-                        } else {
-                            """{"url":"https://example.com","title":"Example","content":"Text"}"""
-                        }
-                    """{"result":{"value":$value}}"""
-                }
+                "Input.dispatchMouseEvent" -> mouse(args["type"]?.jsonPrimitive?.content)
+
+                "Runtime.evaluate" -> """{"result":{"value":${evaluate(args)}}}"""
 
                 else -> "{}"
+            }
+        }
+
+        private suspend fun mouse(type: String?): String {
+            if (cancelPress && type == "mousePressed") throw CancellationException("cancelled")
+            if (isReleaseHanging && type == "mouseReleased") awaitCancellation()
+            return "{}"
+        }
+
+        private fun evaluate(args: JsonObject): String {
+            check(!isEvaluateFailing) { "Cannot find context with specified id" }
+            if (isMutatingOnEvaluate) mutations++
+            val expression = args.getValue("expression").jsonPrimitive.content
+            return when {
+                "querySelectorAll" in expression ->
+                    """{"view":$geometry,"url":"$url","title":"Example","content":"Text $mutations"}"""
+
+                "elementFromPoint" in expression ->
+                    """{"x":40,"y":30,"isVisible":$isElementVisible,"isTarget":$isElementTarget}"""
+
+                "__heartbeatDocument" in expression -> geometry
+
+                else -> "true"
             }
         }
     }

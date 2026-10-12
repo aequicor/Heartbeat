@@ -1,16 +1,19 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserNativeResources
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonObject
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -140,6 +143,26 @@ class DesktopBrowserPanelTest {
         assertFalse(teardown.isCompleted)
         nativeClosed.complete(Unit)
         teardown.await()
+    }
+
+    @Test
+    fun `automation and resource timeouts fail the call instead of cancelling it`() = runTest {
+        val panel = DesktopBrowserPanel(
+            RecordingSurface(),
+            backgroundScope,
+            BrowserTestDispatchers(StandardTestDispatcher(testScheduler)),
+        ) { _, _ -> error("never ready") }
+        val automation = assertFailsWith<IllegalStateException> {
+            panel.devTools(
+                "Page.getFrameTree",
+                JsonObject(emptyMap()),
+            )
+        }
+        assertTrue(automation !is CancellationException)
+        assertEquals("Browser automation call timed out", automation.message)
+        val resource = assertFailsWith<IllegalStateException> { panel.captureResource("https://example.com/paper") }
+        assertTrue(resource !is CancellationException)
+        assertEquals("Browser resource capture timed out", resource.message)
     }
 
     private class FakeRuntime(private val nativeClosed: CompletableDeferred<Unit>? = null) : DesktopBrowserRuntime {

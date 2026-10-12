@@ -1,16 +1,17 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
 import io.aequicor.heartbeat.core.common.DispatcherProvider
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.impl.data.DefaultBrowserUrlResolver
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -100,7 +101,9 @@ class DesktopBrowserDownloadTest {
                 withContext(NonCancellable) { finished.await() }
             }
         }
-        val capture = launch { downloader.capture("https://source.test/paper.pdf") }
+        val capture = async {
+            assertFailsWith<IllegalStateException> { downloader.capture("https://source.test/paper.pdf") }
+        }
         entered.await()
         downloader.cancel()
         val closing = async { downloader.awaitClosed() }
@@ -110,7 +113,7 @@ class DesktopBrowserDownloadTest {
         assertFailsWith<IllegalStateException> { downloader.capture("https://source.test/another.pdf") }
         finished.complete(Unit)
         closing.await()
-        capture.join()
+        assertEquals("Browser is closed", capture.await().message)
     }
 
     @Test
@@ -190,18 +193,74 @@ class DesktopBrowserDownloadTest {
     }
 
     @Test
-    fun `HTML recovery reads the document while the host resizes the page viewport`() = runTest {
-        val fixture = HtmlRecoveryFixture(geometries = listOf(geometry(height = 574), geometry(height = 490)))
+    fun `HTML recovery reads the document in one script without returning its geometry`() = runTest {
+        val fixture = HtmlRecoveryFixture()
         val result = fixture.capture()
         assertEquals("Publisher article", result.data.getValue("content").jsonPrimitive.content)
         assertEquals("tab", result.data.getValue("tabId").jsonPrimitive.content)
+        assertFalse(result.data.containsKey("view"))
+        assertEquals(1, fixture.reads)
     }
 
     @Test
-    fun `HTML recovery rejects a document mutated while it was read`() = runTest {
-        val fixture = HtmlRecoveryFixture(geometries = listOf(geometry(revision = 0), geometry(revision = 1)))
-        val failure = assertFailsWith<IllegalStateException> { fixture.capture() }
-        assertEquals("Page changed while reading; read it again", failure.message)
+    fun `closing the browser fails a live caller instead of cancelling it`() = runTest {
+        val entered = CompletableDeferred<Unit>()
+        val downloader = DesktopBrowserDownload(dispatchers(StandardTestDispatcher(testScheduler))) {
+            entered.complete(Unit)
+            awaitCancellation()
+        }
+        val capture = async {
+            assertFailsWith<IllegalStateException> { downloader.capture("https://source.test/paper.pdf") }
+        }
+        entered.await()
+        downloader.cancel()
+        val failure = capture.await()
+        assertTrue(failure !is CancellationException)
+        assertEquals("Browser is closed", failure.message)
+    }
+
+    @Test
+    fun `transfer timeout is a failure and cancels the native transfer`() = runTest {
+        var isCancelled = false
+        val downloader = DesktopBrowserDownload(dispatchers(StandardTestDispatcher(testScheduler))) {
+            try {
+                awaitCancellation()
+            } finally {
+                isCancelled = true
+            }
+        }
+        val failure = assertFailsWith<IllegalStateException> { downloader.capture("https://source.test/paper.pdf") }
+        assertTrue(failure !is CancellationException)
+        assertEquals("Source transfer timed out", failure.message)
+        assertTrue(isCancelled)
+    }
+
+    @Test
+    fun `caller cancellation still cancels the transfer and propagates`() = runTest {
+        val entered = CompletableDeferred<Unit>()
+        var isCancelled = false
+        val downloader = DesktopBrowserDownload(dispatchers(StandardTestDispatcher(testScheduler))) {
+            entered.complete(Unit)
+            try {
+                awaitCancellation()
+            } finally {
+                isCancelled = true
+            }
+        }
+        val capture = async { downloader.capture("https://source.test/paper.pdf") }
+        entered.await()
+        capture.cancel()
+        assertFailsWith<CancellationException> { capture.await() }
+        assertTrue(isCancelled)
+    }
+
+    @Test
+    fun `missing native callback releases the waiter after a bound and ignores a late callback`() = runTest {
+        var done: (() -> Unit)? = null
+        val isDone = awaitNativeCallback(1_000L, Log.tag("Test"), "Native disposal") { done = it }
+        assertFalse(isDone)
+        requireNotNull(done).invoke()
+        assertTrue(awaitNativeCallback(1_000L, Log.tag("Test"), "Native disposal") { it() })
     }
 
     @Test
@@ -257,15 +316,8 @@ class DesktopBrowserDownloadTest {
         override val io = dispatcher
     }
 
-    private fun geometry(height: Int = 600, revision: Int = 0) =
-        """{"document":"doc","url":"https://publisher.test/paper","width":800,"height":$height,"revision":$revision}"""
-
-    private class HtmlRecoveryFixture(
-        private val isReplaced: Boolean = false,
-        geometries: List<String> = listOf("""{"width":800,"height":600,"revision":0}"""),
-    ) {
-        private val geometry = geometries.iterator()
-        private var lastGeometry = geometries.first()
+    private class HtmlRecoveryFixture(private val isReplaced: Boolean = false) {
+        var reads = 0
         var requested: String? = null
         var navigated: String? = null
         private var location = "https://unrelated.test/current"
@@ -300,14 +352,15 @@ class DesktopBrowserDownloadTest {
             "Runtime.evaluate" -> {
                 val expression = arguments.getValue("expression").jsonPrimitive.content
                 val value = when {
-                    "MutationObserver" in expression -> {
-                        if (geometry.hasNext()) lastGeometry = geometry.next()
-                        lastGeometry
+                    "querySelectorAll" in expression -> {
+                        reads++
+                        val view = """{"document":"doc","url":"$location","width":800,"height":600,"x":0,"y":0}"""
+                        """{"view":$view,"url":"$location","title":"Paper","content":"Publisher article"}"""
                     }
 
                     "document.readyState" in expression -> "true"
 
-                    else -> """{"url":"$location","title":"Paper","content":"Publisher article"}"""
+                    else -> error("Unexpected script")
                 }
                 """{"result":{"value":$value}}"""
             }

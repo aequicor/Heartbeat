@@ -12,7 +12,6 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
 import java.awt.BorderLayout
 import java.awt.Component
@@ -38,11 +37,17 @@ internal class DesktopBrowserPanel(
     private val runtimes = mutableListOf<DesktopBrowserRuntime>()
     private val ready = MutableStateFlow<DesktopBrowserRuntime?>(null)
 
+    /** A timeout fails the call with IllegalStateException; only the caller's own cancellation cancels it. */
     suspend fun devTools(method: String, arguments: JsonObject): String =
-        withTimeout(DEVTOOLS_TIMEOUT) { ready.filterNotNull().first().devTools(method, arguments) }
+        withFailureTimeout(DEVTOOLS_TIMEOUT, log, "Browser automation call") {
+            ready.filterNotNull().first().devTools(method, arguments)
+        }
 
+    /** A timeout fails the capture with IllegalStateException; only the caller's own cancellation cancels it. */
     suspend fun captureResource(url: String): JsonObject =
-        withTimeout(RESOURCE_TIMEOUT) { ready.filterNotNull().first().captureResource(url) }
+        withFailureTimeout(RESOURCE_TIMEOUT, log, "Browser resource capture") {
+            ready.filterNotNull().first().captureResource(url)
+        }
 
     private companion object {
         const val DEVTOOLS_TIMEOUT = 30_000L

@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserUrlResolver
 import io.aequicor.heartbeat.feature.browser.impl.domain.desktopBrowserFailure
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -20,10 +21,11 @@ import org.cef.handler.CefLoadHandlerAdapter
 import org.cef.handler.CefRequestContextHandler
 import org.cef.network.CefRequest
 import java.awt.Component
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import javax.swing.SwingUtilities
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 /**
  * Windowed Swing embedding works on macOS and Windows (including ARM64 without JOGL). Each instance
@@ -46,6 +48,7 @@ internal class DesktopBrowserEngine(
     private val isNativeCreated = AtomicBoolean(false)
     private val isCloseIssued = AtomicBoolean(false)
     private val isBootstrap = AtomicBoolean(true)
+    private val devToolsCalls = DesktopBrowserDevToolsCalls(log)
     private val client = app.createClient()
     private var navigation: DesktopBrowserNavigation? = null
     private val pending = mutableListOf<BrowserViewCommand>()
@@ -74,26 +77,12 @@ internal class DesktopBrowserEngine(
 
     override suspend fun captureResource(url: String): JsonObject = downloads.capture(url)
 
-    override suspend fun devTools(method: String, arguments: JsonObject): String =
-        suspendCancellableCoroutine { continuation ->
-            onSwing {
-                if (!continuation.isActive) return@onSwing
-                val devTools = browser.devToolsClient
-                if (devTools == null) {
-                    continuation.resumeWithException(IllegalStateException("Browser is not ready"))
-                } else {
-                    val result = devTools.executeDevToolsMethod(method, arguments.toString())
-                    continuation.invokeOnCancellation { result.cancel(false) }
-                    result.whenComplete { value, error ->
-                        if (error != null) {
-                            continuation.resumeWithException(error)
-                        } else {
-                            continuation.resume(value)
-                        }
-                    }
-                }
-            }
-        }
+    override suspend fun devTools(method: String, arguments: JsonObject): String = devToolsCalls.call(
+        post = { if (SwingUtilities.isEventDispatchThread()) it() else SwingUtilities.invokeLater(it) },
+        isClosed = { isClosed.get() || isReleased() },
+    ) { browser.devToolsClient?.executeDevToolsMethod(method, arguments.toString()) }
+
+    private fun failDevToolsCalls() = devToolsCalls.failAll()
 
     init {
         var isCreated = false
@@ -115,6 +104,7 @@ internal class DesktopBrowserEngine(
                     override fun onBeforeClose(browser: CefBrowser) {
                         isClosed.set(true)
                         downloads.cancel()
+                        failDevToolsCalls()
                     }
 
                     override fun onAfterClose(browser: CefBrowser) {
@@ -271,6 +261,7 @@ internal class DesktopBrowserEngine(
     override fun release() {
         check(SwingUtilities.isEventDispatchThread())
         downloads.cancel()
+        failDevToolsCalls()
         if (!isClosed.compareAndSet(false, true)) return
         pending.clear()
         if (!isCreationRequested.get()) {
@@ -295,6 +286,7 @@ internal class DesktopBrowserEngine(
         // JCEF has already disposed the unregistered browser wrapper on this terminal path.
         isClosed.set(true)
         downloads.cancel()
+        failDevToolsCalls()
         client.dispose()
         completeClose()
         log.e(IllegalStateException("JCEF browser creation failed")) { "Desktop browser initialization failed" }
@@ -334,5 +326,69 @@ internal class DesktopBrowserEngine(
 
     private companion object {
         const val CONTENT_SETTING_BLOCK = 2
+    }
+}
+
+/**
+ * Pending CDP calls of one engine. Every call ends: a closed engine fails it at once, a failing dispatch fails
+ * only that call (the browser stays usable), and [failAll] fails the calls still waiting for a reply when the
+ * engine closes. Cancelling the caller cancels its native reply.
+ */
+internal class DesktopBrowserDevToolsCalls(private val log: Log) {
+    private val calls: MutableSet<Call> = ConcurrentHashMap.newKeySet()
+
+    /** [post] runs the dispatch on the native UI thread; [execute] returns null while DevTools is unavailable. */
+    suspend fun call(
+        post: (() -> Unit) -> Unit,
+        isClosed: () -> Boolean,
+        execute: () -> CompletableFuture<String>?,
+    ): String = suspendCancellableCoroutine { continuation ->
+        val call = Call(continuation)
+        calls += call
+        continuation.invokeOnCancellation {
+            calls -= call
+            call.reply.get()?.cancel(false)
+        }
+        post { dispatch(call, isClosed, execute) }
+    }
+
+    fun failAll() {
+        calls.toList().forEach { it.finish(Result.failure(IllegalStateException("Browser is closed"))) }
+    }
+
+    private fun dispatch(call: Call, isClosed: () -> Boolean, execute: () -> CompletableFuture<String>?) {
+        if (!call.continuation.isActive) return
+        if (isClosed()) {
+            call.finish(Result.failure(IllegalStateException("Browser is closed")))
+            return
+        }
+        try {
+            val reply = execute()
+            if (reply == null) {
+                call.finish(Result.failure(IllegalStateException("Browser is not ready")))
+                return
+            }
+            call.reply.set(reply)
+            if (!call.continuation.isActive) reply.cancel(false)
+            reply.whenComplete { value, error ->
+                call.finish(if (error != null) Result.failure(error) else Result.success(value))
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            // Only this call fails: a rejected CDP dispatch says nothing about the page or the native browser.
+            log.w(error.desktopBrowserFailure()) { "Browser automation call could not be dispatched" }
+            call.finish(Result.failure(IllegalStateException("Browser automation call failed")))
+        }
+    }
+
+    private inner class Call(val continuation: CancellableContinuation<String>) {
+        private val isFinished = AtomicBoolean(false)
+        val reply = AtomicReference<CompletableFuture<String>?>()
+
+        fun finish(result: Result<String>) {
+            calls -= this
+            if (isFinished.compareAndSet(false, true)) continuation.resumeWith(result)
+        }
     }
 }

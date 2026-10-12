@@ -205,6 +205,23 @@ class DesktopBrowserSessionTest {
         assertEquals(1, fixture.session.tabs.value.first.size)
     }
 
+    @Test
+    fun `page load timeout is reported as an operation error rather than a cancellation`() = runTest {
+        val fixture = Fixture(this, nativeCommand = { awaitCancellation() })
+        val tab = fixture.create("session-a")
+        fixture.attach()
+        val result = fixture.session.perform(
+            BrowserRequest(
+                "navigate",
+                BrowserOperation.Navigate,
+                tab,
+                "session-a",
+                buildJsonObject { put("url", "https://example.com/slow") },
+            ),
+        )
+        assertEquals("Page load timed out", result.error)
+    }
+
     private class Fixture(
         scope: TestScope,
         private val clearRelease: CompletableDeferred<Unit>? = null,

@@ -32,7 +32,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -368,7 +367,7 @@ internal class DesktopBrowserSession(
             entry.surface.execute(BrowserCommand.Load(url))
             if (request.operation != BrowserOperation.NewTab) {
                 val loaded =
-                    withTimeout(NAVIGATION_TIMEOUT) {
+                    withFailureTimeout(NAVIGATION_TIMEOUT, log, "Page load") {
                         entry.surface.pages.first { !it.isLoading && it.url.isNotEmpty() }
                     }
                 check(loaded.error == null) { "Page failed to load" }

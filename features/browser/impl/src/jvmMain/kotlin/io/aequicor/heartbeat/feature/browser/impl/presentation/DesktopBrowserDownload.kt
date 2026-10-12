@@ -1,20 +1,26 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
 import io.aequicor.heartbeat.core.common.DispatcherProvider
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.browser.api.normalizeBrowserUrl
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserUrlResolver
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import org.cef.browser.CefRequestContext
 import org.cef.handler.CefRequestContextHandler
 
-/** Managed requests use the tab's profile even when a PDF navigation never commits a document. */
+/**
+ * Managed requests use the tab's profile even when a PDF navigation never commits a document.
+ * Closing the browser cancels only the transfer: a caller that was not cancelled itself gets
+ * IllegalStateException("Browser is closed"). A timeout is reported as a failure as well, never as a cancellation.
+ */
 internal class DesktopBrowserDownload(
     private val dispatchers: DispatcherProvider,
     private val transfer: suspend (String) -> JsonObject,
@@ -25,23 +31,32 @@ internal class DesktopBrowserDownload(
         urlResolver: BrowserUrlResolver,
     ) : this(dispatchers, { DesktopBrowserTransfer(createContext, it, urlResolver).capture() })
 
+    private val log = Log.tag("BrowserDownload")
     private val monitor = Any()
     private val operations = mutableSetOf<Job>()
     private var isClosed = false
 
-    suspend fun capture(address: String): JsonObject = coroutineScope {
+    suspend fun capture(address: String): JsonObject {
         val url = requireNotNull(normalizeBrowserUrl(address)) { "Invalid source URL" }
-        val operation = currentCoroutineContext().job
-        synchronized(monitor) {
-            check(!isClosed) { "Browser is closed" }
-            operations.add(operation)
-        }
-        try {
-            withTimeout(REQUEST_TIMEOUT) {
-                withContext(dispatchers.io) { transfer(url) }
+        // A supervisor scope keeps the transfer's own cancellation (browser closed) away from the caller's job.
+        return supervisorScope {
+            val operation = async(dispatchers.io, CoroutineStart.LAZY) { transfer(url) }
+            val isOpen = synchronized(monitor) { !isClosed && operations.add(operation) }
+            if (!isOpen) operation.cancel()
+            check(isOpen) { "Browser is closed" }
+            try {
+                // join() throws only for the caller's own cancellation, which then also cancels the transfer.
+                if (withTimeoutOrNull(REQUEST_TIMEOUT) { operation.join() } == null) {
+                    operation.cancelAndJoin()
+                    val failure = IllegalStateException("Source transfer timed out")
+                    log.w(failure) { "Source transfer timed out after ${REQUEST_TIMEOUT}ms" }
+                    throw failure
+                }
+                check(!operation.isCancelled || !synchronized(monitor) { isClosed }) { "Browser is closed" }
+                operation.await()
+            } finally {
+                synchronized(monitor) { operations.remove(operation) }
             }
-        } finally {
-            synchronized(monitor) { operations.remove(operation) }
         }
     }
 

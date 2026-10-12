@@ -1,12 +1,15 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -26,11 +29,17 @@ import kotlin.uuid.Uuid
 /**
  * Private CDP transport: no debugging port and no arbitrary JavaScript tool. Coordinates use
  * viewport CSS pixels.
+ *
+ * A snapshot (read or screenshot) stays valid while the document, its URL, the viewport size and the scroll
+ * position are unchanged; ordinary DOM mutations (timers, carousels) do not invalidate it. Element references
+ * are hit-tested again right before input. A read is one synchronous script, so the content and the geometry it
+ * reports describe the same moment; a screenshot is retried a bounded number of times while the viewport moves.
  */
 internal class DesktopBrowserAutomation(
     private val transport: suspend (String, JsonObject) -> String,
     private val loadResource: suspend (String) -> JsonObject = { error("Browser resource loading is unavailable") },
 ) {
+    private val log = Log.tag("BrowserAutomation")
     private var executionContext: JsonElement? = null
     private val worldName = "heartbeat-" + Uuid.random()
     private var snapshot: String? = null
@@ -56,7 +65,7 @@ internal class DesktopBrowserAutomation(
         val loader =
             requireNotNull(navigation["loaderId"]) { "Source navigation was not committed" }
         invalidate()
-        withTimeout(NAVIGATION_TIMEOUT) {
+        withFailureTimeout(NAVIGATION_TIMEOUT, log, "Source navigation") {
             while (frame()["loaderId"] != loader) delay(FRAME_POLL_INTERVAL)
         }
         evaluate(
@@ -64,7 +73,7 @@ internal class DesktopBrowserAutomation(
                 "window.addEventListener('load', () => resolve(true), {once:true}))",
         )
         // The host may resize the viewport meanwhile (the recovery UI changes its layout); only the document matters.
-        val content = read(isViewportStable = false)
+        val content = read()
         check(frame()["loaderId"] == loader) { "Source navigation replaced" }
         check(content["url"]?.jsonPrimitive?.content == url) {
             "Source redirected; reopen it first"
@@ -117,36 +126,43 @@ internal class DesktopBrowserAutomation(
     }
 
     /**
-     * Element references require an unchanged document and viewport. Content capture tolerates a viewport
-     * resize but still rejects another document, URL or any DOM mutation during the read.
+     * One synchronous script returns the content together with the geometry it was read at: no page task runs in
+     * between, so a mutating page cannot make the read inconsistent. Element references are hit-tested on use.
      */
-    private suspend fun read(isViewportStable: Boolean = true): JsonObject {
-        val before = evaluate(GEOMETRY_SCRIPT)
+    private suspend fun read(): JsonObject {
         val content = evaluate(READ_SCRIPT).jsonObject
-        val after = evaluate(GEOMETRY_SCRIPT)
-        val isUnchanged = if (isViewportStable) after == before else after.documentState() == before.documentState()
-        check(isUnchanged) { "Page changed while reading; read it again" }
         hasElements = true
         snapshot = Uuid.random().toString()
-        geometry = before
-        return JsonObject(content + ("snapshotId" to JsonPrimitive(snapshot)))
+        geometry = content.getValue("view")
+        return JsonObject(content - "view" + ("snapshotId" to JsonPrimitive(snapshot)))
     }
 
     private suspend fun screenshot(request: BrowserRequest): BrowserResult {
         hasElements = false
-        geometry = evaluate(GEOMETRY_SCRIPT)
+        snapshot = null
+        geometry = null
+        repeat(MAX_CAPTURE_ATTEMPTS) {
+            val before = evaluate(GEOMETRY_SCRIPT)
+            val response =
+                call(
+                    "Page.captureScreenshot",
+                    buildJsonObject {
+                        put("format", "png")
+                        put("captureBeyondViewport", false)
+                    },
+                )
+            val image = response["data"]?.jsonPrimitive?.content ?: error("Screenshot unavailable")
+            require(image.length <= MAX_IMAGE_BASE64) { "Screenshot exceeds output limit" }
+            // Only another document, URL, size or scroll position moves what the image coordinates point at.
+            if (evaluate(GEOMETRY_SCRIPT) == before) return screenshotResult(request, image, before)
+            log.d { "Browser viewport moved while capturing; retrying" }
+        }
+        error("Page kept scrolling or navigating while capturing; capture it again")
+    }
+
+    private fun screenshotResult(request: BrowserRequest, image: String, view: JsonElement): BrowserResult {
+        geometry = view
         snapshot = Uuid.random().toString()
-        val response =
-            call(
-                "Page.captureScreenshot",
-                buildJsonObject {
-                    put("format", "png")
-                    put("captureBeyondViewport", false)
-                },
-            )
-        val image = response["data"]?.jsonPrimitive?.content ?: error("Screenshot unavailable")
-        require(image.length <= MAX_IMAGE_BASE64) { "Screenshot exceeds output limit" }
-        check(evaluate(GEOMETRY_SCRIPT) == geometry) { "Page changed while capturing; capture it again" }
         val header = Base64.getDecoder().decode(image.take(PNG_HEADER_BASE64_SIZE))
         val imageWidth = header.pngDimension(PNG_WIDTH_OFFSET)
         val imageHeight = header.pngDimension(PNG_HEIGHT_OFFSET)
@@ -195,13 +211,7 @@ internal class DesktopBrowserAutomation(
             } else {
                 args
             }
-        try {
-            mouse("mousePressed", point)
-        } finally {
-            withContext(NonCancellable) {
-                withTimeout(INPUT_RELEASE_TIMEOUT) { mouse("mouseReleased", point) }
-            }
-        }
+        press(point, point)
         invalidate()
         return buildJsonObject { put("clicked", true) }
     }
@@ -217,6 +227,7 @@ internal class DesktopBrowserAutomation(
     private suspend fun key(args: JsonObject): JsonObject {
         val key = args["key"]?.jsonPrimitive?.content ?: error("Key required")
         val code = KEYS[key] ?: error("Unsupported key")
+        var isReleased = false
         try {
             call(
                 "Input.dispatchKeyEvent",
@@ -227,8 +238,9 @@ internal class DesktopBrowserAutomation(
                 },
             )
         } finally {
-            withContext(NonCancellable) {
-                withTimeout(INPUT_RELEASE_TIMEOUT) {
+            // The keyDown request may have reached the page even when it failed or was cancelled.
+            isReleased = withContext(NonCancellable) {
+                release("key") {
                     call(
                         "Input.dispatchKeyEvent",
                         buildJsonObject {
@@ -240,6 +252,7 @@ internal class DesktopBrowserAutomation(
                 }
             }
         }
+        check(isReleased) { "Key release failed; read the page again" }
         invalidate()
         return buildJsonObject { put("pressed", true) }
     }
@@ -260,14 +273,7 @@ internal class DesktopBrowserAutomation(
             put("y", args["toY"] ?: JsonNull)
         }
         validatePoint(destination)
-        try {
-            mouse("mousePressed", args)
-            mouse("mouseMoved", destination)
-        } finally {
-            withContext(NonCancellable) {
-                withTimeout(INPUT_RELEASE_TIMEOUT) { mouse("mouseReleased", destination) }
-            }
-        }
+        press(args, destination) { mouse("mouseMoved", destination) }
         invalidate()
         return buildJsonObject { put("dragged", true) }
     }
@@ -279,10 +285,46 @@ internal class DesktopBrowserAutomation(
         require(evaluate(GEOMETRY_SCRIPT) == geometry) { "Page changed; read or capture it again" }
     }
 
+    /**
+     * Presses at [point], runs [between] and releases at [releasePoint]. The release follows only an issued press
+     * request (a cancelled request may still have reached the page), never a press refused by validation.
+     */
+    private suspend fun press(point: JsonObject, releasePoint: JsonObject, between: suspend () -> Unit = {}) {
+        validatePoint(point)
+        var isReleased = false
+        try {
+            mouse("mousePressed", point)
+            between()
+        } finally {
+            isReleased = withContext(NonCancellable) {
+                release("mouse button") { mouse("mouseReleased", releasePoint) }
+            }
+        }
+        check(isReleased) { "Mouse button release failed; read the page again" }
+    }
+
+    /**
+     * Bounded input cleanup; callers run it under NonCancellable so it also follows a cancelled operation. A timeout
+     * or failure is logged and returned as false instead of replacing the operation's own outcome from a finally.
+     */
+    private suspend fun release(input: String, action: suspend () -> Unit): Boolean = try {
+        val isReleased = withTimeoutOrNull(INPUT_RELEASE_TIMEOUT) { action() } != null
+        if (!isReleased) {
+            log.w(IllegalStateException("Browser $input release timed out")) { "Browser input release timed out" }
+        }
+        isReleased
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        log.w(error) { "Browser $input release failed" }
+        false
+    }
+
     private suspend fun mouse(type: String, args: JsonObject, deltaY: Double? = null) {
         val x = args["x"]?.jsonPrimitive?.doubleOrNull ?: error("x required")
         val y = args["y"]?.jsonPrimitive?.doubleOrNull ?: error("y required")
-        if (type != "mouseReleased") validatePoint(args)
+        // Presses are validated by press() before they are issued; a release must always follow its press.
+        if (type == "mouseWheel" || type == "mouseMoved") validatePoint(args)
         call(
             "Input.dispatchMouseEvent",
             buildJsonObject {
@@ -313,29 +355,34 @@ internal class DesktopBrowserAutomation(
     }
 
     private suspend fun evaluate(script: String): JsonElement {
-        if (executionContext == null) {
-            executionContext =
-                call(
-                    "Page.createIsolatedWorld",
-                    buildJsonObject {
-                        put("frameId", frame().getValue("id"))
-                        put("worldName", worldName)
-                    },
-                )
-                    .getValue("executionContextId")
-        }
-        val response =
-            call(
-                "Runtime.evaluate",
+        var isEvaluated = false
+        try {
+            val context = executionContext ?: call(
+                "Page.createIsolatedWorld",
                 buildJsonObject {
-                    put("contextId", requireNotNull(executionContext))
-                    put("expression", script)
-                    put("returnByValue", true)
-                    put("awaitPromise", true)
+                    put("frameId", frame().getValue("id"))
+                    put("worldName", worldName)
                 },
             )
-        check(response["exceptionDetails"] == null) { "Page changed or cannot be read" }
-        return response["result"]?.jsonObject?.get("value") ?: error("Page returned no content")
+                .getValue("executionContextId")
+                .also { executionContext = it }
+            val response =
+                call(
+                    "Runtime.evaluate",
+                    buildJsonObject {
+                        put("contextId", context)
+                        put("expression", script)
+                        put("returnByValue", true)
+                        put("awaitPromise", true)
+                    },
+                )
+            isEvaluated = true
+            check(response["exceptionDetails"] == null) { "Page changed or cannot be read" }
+            return response["result"]?.jsonObject?.get("value") ?: error("Page returned no content")
+        } finally {
+            // A failed CDP call usually means the isolated world went away with its document: create a new one.
+            if (!isEvaluated) executionContext = null
+        }
     }
 
     private suspend fun call(method: String, args: JsonObject): JsonObject =
@@ -352,6 +399,7 @@ internal class DesktopBrowserAutomation(
         const val MAX_SCROLL = 10_000.0
         const val NAVIGATION_TIMEOUT = 30_000L
         const val FRAME_POLL_INTERVAL = 50L
+        const val MAX_CAPTURE_ATTEMPTS = 3
         val KEYS =
             mapOf(
                 "Enter" to 13,
@@ -366,29 +414,44 @@ internal class DesktopBrowserAutomation(
                 "Home" to 36,
                 "End" to 35,
             )
+
+        /** Document identity, URL, viewport size and scroll position; DOM mutations are deliberately excluded. */
         const val GEOMETRY_SCRIPT =
             """(() => {
-            if (!window.__heartbeatObserver) {
-                window.__heartbeatRevision=0; window.__heartbeatDocument=crypto.randomUUID?.() || `${'$'}{Date.now()}-${'$'}{Math.random()}`;
-                window.__heartbeatObserver=new MutationObserver(()=>window.__heartbeatRevision++);
-                window.__heartbeatObserver.observe(document,{subtree:true,childList:true,attributes:true,characterData:true});
+            if (!window.__heartbeatDocument) {
+                window.__heartbeatDocument=crypto.randomUUID?.() || `${'$'}{Date.now()}-${'$'}{Math.random()}`;
             }
-            return {document:window.__heartbeatDocument,url:location.href,width:innerWidth,height:innerHeight,x:scrollX,y:scrollY,revision:window.__heartbeatRevision};
+            return {document:window.__heartbeatDocument,url:location.href,width:innerWidth,height:innerHeight,x:scrollX,y:scrollY};
         })()"""
+
+        /** Synchronous: the geometry ("view") and the content describe the same moment. */
         const val READ_SCRIPT =
             """(() => {
+            const view=$GEOMETRY_SCRIPT;
             const elements=Array.from(document.querySelectorAll('a[href],button,input,textarea,select,[role=button]'))
                 .filter(e=>{const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true})}).slice(0,200);
             window.__heartbeatElements=elements;
-            return {url:location.href,title:document.title,
+            return {view,url:location.href,title:document.title,
                 requiresUserAction:!!document.querySelector('input[type=password],iframe[src*="captcha"]'),content:(document.body?.innerText||'').slice(0,100000),
                 elements:elements.map((e,id)=>({id,tag:e.tagName,label:(e.innerText||e.getAttribute('aria-label')||e.getAttribute('placeholder')||'').slice(0,300),href:e.href||null}))};
         })()"""
     }
 }
 
-private fun JsonElement.documentState(): List<JsonElement?> = jsonObject.let { geometry ->
-    listOf(geometry["document"], geometry["url"], geometry["revision"])
+/**
+ * A timeout is an operation failure, not a cancellation: [kotlinx.coroutines.withTimeout] would surface it as a
+ * CancellationException that callers treat as their own cancellation, without a warning. Logs and throws
+ * IllegalStateException("<operation> timed out").
+ */
+internal suspend fun <T : Any> withFailureTimeout(
+    timeout: Long,
+    log: Log,
+    operation: String,
+    block: suspend CoroutineScope.() -> T,
+): T = withTimeoutOrNull(timeout, block) ?: run {
+    val failure = IllegalStateException("$operation timed out")
+    log.w(failure) { "$operation timed out after ${timeout}ms" }
+    throw failure
 }
 
 private fun ByteArray.pngDimension(offset: Int): Int = (offset until offset + Int.SIZE_BYTES).fold(0) { value, index ->
