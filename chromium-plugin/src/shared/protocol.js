@@ -28,6 +28,7 @@ export const ErrorCode = Object.freeze({
   STALE_REQUEST: 'stale_request',
   TOO_LARGE: 'too_large',
   FORBIDDEN: 'forbidden',
+  NO_SUCH_TAB: 'no_such_tab',
   TIMEOUT: 'timeout',
   INTERNAL: 'internal',
 });

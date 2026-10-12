@@ -52,6 +52,7 @@ internal object BridgeErrorCode {
     const val STALE_REQUEST: String = "stale_request"
     const val TOO_LARGE: String = "too_large"
     const val FORBIDDEN: String = "forbidden"
+    const val NO_SUCH_TAB: String = "no_such_tab"
     const val TIMEOUT: String = "timeout"
     const val INTERNAL: String = "internal"
 }

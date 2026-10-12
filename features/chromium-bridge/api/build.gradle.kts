@@ -10,6 +10,8 @@ kotlin {
             api(projects.core.stateMachine.api)
             api(projects.core.navigation.api)
             implementation(libs.kotlinx.serialization.core)
+            api(libs.kotlinx.serialization.json)
+            api(libs.kotlinx.coroutines.core)
         }
     }
 }

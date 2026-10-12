@@ -12,11 +12,15 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import java.nio.file.Path
 
@@ -54,6 +58,20 @@ internal class DesktopBridgeServer(
             }
         }
     }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    override fun controlledTabs(): Flow<Int> = connections.sessions.flatMapLatest { sessions ->
+        if (sessions.isEmpty()) {
+            flowOf(0)
+        } else {
+            combine(sessions.map { it.reportedTabs() }) { counts -> counts.sum() }
+        }
+    }
+
+    private fun BridgeSession.reportedTabs(): Flow<Int> = events
+        .filter { it.event == TABS_SUMMARY }
+        .map { (it.params["controlled"] as? JsonPrimitive)?.intOrNull?.coerceAtLeast(0) ?: 0 }
+        .onStart { emit(0) }
 
     override suspend fun revokeTabs(): Int {
         var answered = 0
@@ -97,5 +115,6 @@ internal class DesktopBridgeServer(
         const val AGENT_CONTROL = "agentControl"
         const val REVOKE_ALL = "tabs.revokeAll"
         const val APP_FEATURES = "app.features"
+        const val TABS_SUMMARY = "tabs.summary"
     }
 }

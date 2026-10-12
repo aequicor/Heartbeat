@@ -11,8 +11,11 @@ import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalBrowser
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.DesktopBridgeEnvironment
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.ToggleBridgeFeatures
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.agent.ChromiumExternalBrowser
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.hosts.DesktopNativeHostRegistry
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.hosts.JnaWindowsRegistry
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeConnections
@@ -62,6 +65,14 @@ public object JvmChromiumBridgeBindings {
         features: ToggleBridgeFeatures,
         dispatchers: DispatcherProvider,
     ): BridgeServer = DesktopBridgeServer(environment::socket, connections, features, dispatchers.io)
+
+    /** The external browser agent tools drive, over the newest agent-capable connection. */
+    @Provides
+    @SingleIn(ProfileScope::class)
+    internal fun externalBrowser(
+        connections: BridgeConnections,
+        @ForScope(ProfileScope::class) profile: ScopeHandle,
+    ): ExternalBrowser = ChromiumExternalBrowser(connections.sessions, profile.coroutineScope)
 
     /** Browser registrations. */
     @Provides

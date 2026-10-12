@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.chromiumbridge.api.HostRegistration
 import io.aequicor.heartbeat.feature.chromiumbridge.api.HostRegistrationFailure
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.yield
 import kotlin.test.Test
@@ -34,6 +35,7 @@ class ChromiumBridgeEffectsTest {
             listOf(
                 ChromiumBridgeIntent.Internal.ServerChanged(BridgeServerStatus.Starting),
                 ChromiumBridgeIntent.Internal.ConnectionsChanged(listOf(browser)),
+                ChromiumBridgeIntent.Internal.TabsChanged(2),
                 ChromiumBridgeIntent.Internal.ServerChanged(BridgeServerStatus.Occupied),
             ),
             machine.sent,
@@ -93,6 +95,8 @@ class ChromiumBridgeEffectsTest {
         }
 
         override fun clients(): Flow<List<ConnectedBrowser>> = clients
+
+        override fun controlledTabs(): Flow<Int> = flowOf(2)
 
         override suspend fun revokeTabs(): Int = 1.also { revocations++ }
     }

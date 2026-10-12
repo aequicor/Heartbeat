@@ -37,6 +37,9 @@ internal interface BridgeServer {
     /** Extensions past the handshake. */
     fun clients(): Flow<List<ConnectedBrowser>>
 
+    /** Tabs agents drive across all connected browsers, as the extensions report them. */
+    fun controlledTabs(): Flow<Int>
+
     /** Asks every extension allowing agent control to release the tabs agents drive; returns how many answered. */
     suspend fun revokeTabs(): Int
 }

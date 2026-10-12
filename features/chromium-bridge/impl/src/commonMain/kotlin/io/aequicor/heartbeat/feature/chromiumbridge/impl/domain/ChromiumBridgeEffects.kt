@@ -44,8 +44,14 @@ internal class ChromiumBridgeEffects(
                 machine.send(ChromiumBridgeIntent.Internal.ConnectionsChanged(it))
             }
         }
+        val tabs = launch {
+            server.value.controlledTabs().distinctUntilChanged().collect {
+                machine.send(ChromiumBridgeIntent.Internal.TabsChanged(it))
+            }
+        }
         server.value.serve { machine.send(ChromiumBridgeIntent.Internal.ServerChanged(it)) }
         clients.cancel()
+        tabs.cancel()
     }
 
     private suspend fun scan(machine: EffectScope<ChromiumBridgeIntent>) {

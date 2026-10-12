@@ -27,6 +27,8 @@ public object UnsupportedChromiumBridgeBindings {
 
         override fun clients(): Flow<List<ConnectedBrowser>> = flowOf(emptyList())
 
+        override fun controlledTabs(): Flow<Int> = flowOf(0)
+
         override suspend fun revokeTabs(): Int = 0
     }
 
