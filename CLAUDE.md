@@ -219,7 +219,8 @@ iOS собирается только на macOS (Xcode, `platform-main/ios/`). 
 | Логирование, аудит логов | `logging` |
 | Gradle, build-logic, новый модуль, миграция шаблона | `module-setup` |
 | Проверка перед «готово» | `verify` |
-| Вести задачу в draft PR с начала сессии (`/open-pr <задача>`, продолжение — `/open-pr #N`) | `open-pr` |
+| Вести задачу в draft PR с начала сессии (`/open-pr <задача>`) | `open-pr` |
+| Продолжить draft PR на другой машине без контекста от пользователя (`/continue <ссылка на PR>`) | `continue` |
 | Ревью PR и подпись `/reviewed` | `pr-review` |
 | Исправление PR по ревью/комментариям/CI | `pr-fix` |
 | Ревью + исправления до подписи (цикл) | `pr-review-and-fix` |
