@@ -190,6 +190,21 @@ class DesktopBrowserDownloadTest {
     }
 
     @Test
+    fun `HTML recovery reads the document while the host resizes the page viewport`() = runTest {
+        val fixture = HtmlRecoveryFixture(geometries = listOf(geometry(height = 574), geometry(height = 490)))
+        val result = fixture.capture()
+        assertEquals("Publisher article", result.data.getValue("content").jsonPrimitive.content)
+        assertEquals("tab", result.data.getValue("tabId").jsonPrimitive.content)
+    }
+
+    @Test
+    fun `HTML recovery rejects a document mutated while it was read`() = runTest {
+        val fixture = HtmlRecoveryFixture(geometries = listOf(geometry(revision = 0), geometry(revision = 1)))
+        val failure = assertFailsWith<IllegalStateException> { fixture.capture() }
+        assertEquals("Page changed while reading; read it again", failure.message)
+    }
+
+    @Test
     fun `chunked response without content length cannot exceed the byte limit`() {
         val rejected = mutableListOf<String>()
         val body = DesktopBrowserDocumentBody { rejected.add(it) }
@@ -242,7 +257,15 @@ class DesktopBrowserDownloadTest {
         override val io = dispatcher
     }
 
-    private class HtmlRecoveryFixture(private val isReplaced: Boolean = false) {
+    private fun geometry(height: Int = 600, revision: Int = 0) =
+        """{"document":"doc","url":"https://publisher.test/paper","width":800,"height":$height,"revision":$revision}"""
+
+    private class HtmlRecoveryFixture(
+        private val isReplaced: Boolean = false,
+        geometries: List<String> = listOf("""{"width":800,"height":600,"revision":0}"""),
+    ) {
+        private val geometry = geometries.iterator()
+        private var lastGeometry = geometries.first()
         var requested: String? = null
         var navigated: String? = null
         private var location = "https://unrelated.test/current"
@@ -277,8 +300,13 @@ class DesktopBrowserDownloadTest {
             "Runtime.evaluate" -> {
                 val expression = arguments.getValue("expression").jsonPrimitive.content
                 val value = when {
-                    "MutationObserver" in expression -> """{"width":800,"height":600,"revision":0}"""
+                    "MutationObserver" in expression -> {
+                        if (geometry.hasNext()) lastGeometry = geometry.next()
+                        lastGeometry
+                    }
+
                     "document.readyState" in expression -> "true"
+
                     else -> """{"url":"$location","title":"Paper","content":"Publisher article"}"""
                 }
                 """{"result":{"value":$value}}"""

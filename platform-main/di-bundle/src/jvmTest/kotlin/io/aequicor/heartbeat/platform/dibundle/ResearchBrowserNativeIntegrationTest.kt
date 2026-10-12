@@ -195,9 +195,15 @@ private class NativeResearchRun {
 
     private suspend fun resume(machine: NativeResearchMachine, source: ResearchResource): ResearchResource {
         machine.send(ResearchChatIntent.Public.RecoverResource(source.id, ResearchRecoveryAction.Continue))
+        // A settled failure asks for another human action; report it instead of waiting for the test timeout.
         return ready(machine) { state ->
-            state.session?.resources?.any { it.id == source.id && it.loadState == ResearchLoadState.Ready } == true
-        }.session!!.resources.single { it.id == source.id }
+            state.session?.resources?.any {
+                val isFailed = it.loadState == ResearchLoadState.NeedsUserAction && it.loadError != null
+                it.id == source.id && (it.loadState == ResearchLoadState.Ready || isFailed)
+            } == true
+        }.session!!.resources.single { it.id == source.id }.also {
+            assertEquals(ResearchLoadState.Ready, it.loadState, "Continue failed: ${it.loadError}")
+        }
     }
 
     private suspend fun awaitTitle(tab: String, title: String) {

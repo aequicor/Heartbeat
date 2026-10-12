@@ -63,12 +63,13 @@ internal class DesktopBrowserAutomation(
             "new Promise(resolve => document.readyState === 'complete' ? resolve(true) : " +
                 "window.addEventListener('load', () => resolve(true), {once:true}))",
         )
-        val content = perform(request.copy(operation = BrowserOperation.Read))
+        // The host may resize the viewport meanwhile (the recovery UI changes its layout); only the document matters.
+        val content = read(isViewportStable = false)
         check(frame()["loaderId"] == loader) { "Source navigation replaced" }
-        check(content.data["url"]?.jsonPrimitive?.content == url) {
+        check(content["url"]?.jsonPrimitive?.content == url) {
             "Source redirected; reopen it first"
         }
-        return content
+        return BrowserResult(request.id, JsonObject(content + ("tabId" to JsonPrimitive(request.tabId))))
     }
 
     private suspend fun frame(): JsonObject = call("Page.getFrameTree", JsonObject(emptyMap()))
@@ -115,10 +116,16 @@ internal class DesktopBrowserAutomation(
         )
     }
 
-    private suspend fun read(): JsonObject {
+    /**
+     * Element references require an unchanged document and viewport. Content capture tolerates a viewport
+     * resize but still rejects another document, URL or any DOM mutation during the read.
+     */
+    private suspend fun read(isViewportStable: Boolean = true): JsonObject {
         val before = evaluate(GEOMETRY_SCRIPT)
         val content = evaluate(READ_SCRIPT).jsonObject
-        check(evaluate(GEOMETRY_SCRIPT) == before) { "Page changed while reading; read it again" }
+        val after = evaluate(GEOMETRY_SCRIPT)
+        val isUnchanged = if (isViewportStable) after == before else after.documentState() == before.documentState()
+        check(isUnchanged) { "Page changed while reading; read it again" }
         hasElements = true
         snapshot = Uuid.random().toString()
         geometry = before
@@ -378,6 +385,10 @@ internal class DesktopBrowserAutomation(
                 elements:elements.map((e,id)=>({id,tag:e.tagName,label:(e.innerText||e.getAttribute('aria-label')||e.getAttribute('placeholder')||'').slice(0,300),href:e.href||null}))};
         })()"""
     }
+}
+
+private fun JsonElement.documentState(): List<JsonElement?> = jsonObject.let { geometry ->
+    listOf(geometry["document"], geometry["url"], geometry["revision"])
 }
 
 private fun ByteArray.pngDimension(offset: Int): Int = (offset until offset + Int.SIZE_BYTES).fold(0) { value, index ->
