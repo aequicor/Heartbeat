@@ -14,6 +14,8 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.spi.AuthCredentials
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -75,5 +77,25 @@ class AuthenticatorIntegrationTest {
         reopened.authSources.forget(source.info.id)
         assertEquals(AuthVerdict.SourceUnavailable, reopened.authChecks.check(source.info.id, context).verdict)
         assertFailsWith<Exception> { reopened.authCredentials.managedKey(source) }
+    }
+
+    @Test
+    fun checkObservationFollowsProfileVerificationAndForget() = runTest {
+        val profile = accessors()
+        val source = Secret("sk-private-value".toCharArray()).use {
+            profile.authSources.addManagedKey("work", scope, it)
+        }
+        val observed = mutableListOf<AuthVerdict?>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            profile.authChecks.observe(source.info.id, context).collect { observed += it?.verdict }
+        }
+
+        assertEquals(listOf<AuthVerdict?>(null), observed)
+        profile.authChecks.check(source.info.id, context)
+        assertEquals(listOf(null, AuthVerdict.Authenticated), observed)
+
+        profile.authSources.forget(source.info.id)
+        profile.authChecks.check(source.info.id, context)
+        assertEquals(listOf(null, AuthVerdict.Authenticated, AuthVerdict.SourceUnavailable), observed)
     }
 }
