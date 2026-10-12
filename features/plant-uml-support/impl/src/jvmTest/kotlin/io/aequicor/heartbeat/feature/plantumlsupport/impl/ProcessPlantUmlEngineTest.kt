@@ -83,6 +83,12 @@ class ProcessPlantUmlEngineTest {
     }
 
     @Test
+    fun `worker launches beyond the Windows command line limit`() {
+        val options = heap("128m") + "-Dheartbeat.worker.padding=${"x".repeat(40_000)}"
+        assertIs<PlantUmlResult.Image>(engine(launcher = JavaPlantUmlWorkerLauncher(options)).draw(DIAGRAM))
+    }
+
+    @Test
     fun `the worker draws even when the host classpath exceeds the Windows command limit`() {
         val original = System.getProperty("java.class.path")
         try {
