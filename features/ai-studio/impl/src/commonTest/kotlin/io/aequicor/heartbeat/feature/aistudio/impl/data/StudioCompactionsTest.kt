@@ -102,18 +102,14 @@ class StudioCompactionsTest {
         val rollover = fixture.executed.single()
         assertTrue(rollover.isRollover && rollover.compaction == null)
         assertEquals<List<MachineIntent>>(
-            listOf(
-                Public.Claim(Chat),
-                Public.Finished(Chat, CompactionResult.Compacted),
-                Public.SessionClosed(Chat),
-            ),
+            listOf(Public.Claim(Chat), Public.Finished(Chat, CompactionResult.Compacted)),
             fixture.registry.sent,
         )
         job.cancel()
     }
 
     @Test
-    fun `a settled prompt turn reports its occupancy and support while auto compaction is on`() = runTest {
+    fun `a settled prompt turn reports its occupancy and support`() = runTest {
         val fixture = Fixture(this)
         val usage = ContextUsage(90, 100)
 
@@ -126,7 +122,7 @@ class StudioCompactionsTest {
         )
 
         assertEquals<List<MachineIntent>>(
-            listOf(Public.TurnSettled(Chat, usage, CompactionSupport(isNative = true, isRollover = true))),
+            listOf(Public.TurnSettled(Chat, usage, CompactionSupport(isNative = true, isRollover = true), true)),
             fixture.registry.sent,
         )
     }
@@ -175,9 +171,9 @@ class StudioCompactionsTest {
         }
         val compactions = StudioCompactions(
             stores,
-            Runtime(),
+            lazyOf(Runtime()),
             StudioRunCoordinator(RunProfile(scope), RunClock),
-            host,
+            lazyOf(host),
             object : ContextOptimizationView {
                 override val state = this@Fixture.state
             },

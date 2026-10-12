@@ -24,6 +24,7 @@ internal class StudioConfiguredSubmission(
     private val helperPolicy: StudioHelperPolicy,
     private val efforts: EffortChoicesView,
     private val origins: StudioRequestOrigins,
+    private val rollovers: StudioRolloverObserver = StudioRolloverObserver { _, _ -> },
 ) {
     private val log = Log.tag("StudioConfiguredSubmission")
 
@@ -63,7 +64,10 @@ internal class StudioConfiguredSubmission(
         val submitted = send(active, constrained, effort) {
             helperPolicy.trust(record, trust, configurations)
         }
-        if (seed != null) access.consumeSeed(id)
+        if (seed != null) {
+            access.consumeSeed(id)
+            record.previousRefs.lastOrNull()?.let { rollovers.rolledOver(it, active.ref) }
+        }
         confirmConfiguration(
             access,
             id,

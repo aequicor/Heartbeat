@@ -14,19 +14,20 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimi
  * | From | Intent | Guard | To | Effect / output |
  * |---|---|---|---|---|
  * | Idle | Start | | Loading | Load |
- * | Loading | Loaded | | Ready(stored or default settings) | |
+ * | Loading | Loaded | | Ready(stored or default settings, stored ledgers) | |
  * | Loading | LoadFailed | | Ready() | |
  * | Ready | UpdateSettings | settings differ | Ready(settings, revision + 1) | Save(settings, revision + 1) |
  * | Ready | Compact | session not running | Ready(pending of the session replaced) | |
- * | Ready | TurnSettled | session neither pending nor running | Ready(decideCompaction: mark, maybe pending) | |
+ * | Ready | TurnSettled | | Ready(usage; if automatic and the session is idle: decideCompaction) | |
+ * | Ready | UpdateLedger | | Ready(ledger updated, ledgerRevision + 1) | SaveLedgers |
  * | Ready | Claim | session pending, not running | Ready(pending → running) | |
  * | Ready | Finished | session running | Ready(running removed) | |
- * | Ready | RolledOver | old ≠ new | Ready(pending and mark of old moved to new, old dropped) | |
- * | Ready | SessionClosed | | Ready(session dropped) | |
+ * | Ready | RolledOver | old ≠ new | Ready(pending, mark and ledger of old moved to new, old dropped) | SaveLedgers if a ledger moved |
+ * | Ready | SessionClosed | | Ready(session dropped) | SaveLedgers if a ledger was dropped |
  * | Ready | SaveFailed | | Ready | SaveFailed |
  * | Idle / Loading | any other Public | — | ignored | settings are not known before loading |
  *
- * Effect failures: Load → LoadFailed, Save → SaveFailed.
+ * Effect failures: Load → LoadFailed, Save and SaveLedgers → SaveFailed.
  */
 public val ContextOptimizationMachineSpec: ContextOptimizationSpec =
     machineSpec(ContextOptimizationMachineKey, ContextOptimizationState.Idle) {
@@ -38,7 +39,7 @@ public val ContextOptimizationMachineSpec: ContextOptimizationSpec =
         }
         state<ContextOptimizationState.Loading> {
             on<Internal.Loaded> {
-                goto<Ready> { Ready(intent.settings ?: ContextOptimizationSettings()) }
+                goto<Ready> { Ready(intent.settings ?: ContextOptimizationSettings(), ledgers = intent.ledgers) }
             }
             on<Internal.LoadFailed> { goto<Ready> { Ready() } }
         }
@@ -54,8 +55,10 @@ public val ContextOptimizationMachineSpec: ContextOptimizationSpec =
                     state.copy(pending = state.pending + (intent.session to request))
                 }
             }
-            on<Public.TurnSettled>(guard = { intent.session !in state.pending && intent.session !in state.running }) {
-                stay { state.settled(intent) }
+            on<Public.TurnSettled> { stay { state.settled(intent) } }
+            on<Public.UpdateLedger> {
+                stay { state.ledgerUpdated(intent) }
+                effect { state.ledgerUpdated(intent).ledgersSaved() }
             }
             on<Public.Claim>(guard = { intent.session in state.pending && intent.session !in state.running }) {
                 stay {
@@ -71,8 +74,12 @@ public val ContextOptimizationMachineSpec: ContextOptimizationSpec =
             }
             on<Public.RolledOver>(guard = { intent.old != intent.new }) {
                 stay { state.rolledOver(intent.old, intent.new) }
+                effect { state.rolledOver(intent.old, intent.new).ledgersSaved().takeIf { intent.old in state.ledgers } }
             }
-            on<Public.SessionClosed> { stay { state.without(intent.session) } }
+            on<Public.SessionClosed> {
+                stay { state.without(intent.session) }
+                effect { state.without(intent.session).ledgersSaved().takeIf { intent.session in state.ledgers } }
+            }
             on<Internal.SaveFailed> {
                 stay { state }
                 output { ContextOptimizationOutput.SaveFailed }
@@ -81,7 +88,7 @@ public val ContextOptimizationMachineSpec: ContextOptimizationSpec =
         onEffectFailure { effect, _ ->
             when (effect) {
                 ContextOptimizationEffect.Load -> Internal.LoadFailed
-                is ContextOptimizationEffect.Save -> Internal.SaveFailed
+                is ContextOptimizationEffect.Save, is ContextOptimizationEffect.SaveLedgers -> Internal.SaveFailed
             }
         }
     }
@@ -95,6 +102,12 @@ public typealias ContextOptimizationSpec = MachineSpec<
 >
 
 private fun Ready.settled(intent: Public.TurnSettled): Ready {
+    val observed = copy(usage = intent.usage?.let { usage + (intent.session to it) } ?: (usage - intent.session))
+    val isIdle = intent.session !in pending && intent.session !in running
+    return if (intent.isAutomatic && isIdle) observed.decided(intent) else observed
+}
+
+private fun Ready.decided(intent: Public.TurnSettled): Ready {
     val decision = settings.decideCompaction(marks[intent.session] ?: CompactionMark(), intent.usage, intent.support)
     val isReset = decision.mark == CompactionMark()
     return copy(
@@ -108,8 +121,24 @@ private fun Ready.rolledOver(old: SessionRef, new: SessionRef): Ready {
     return moved.copy(
         pending = pending[old]?.let { moved.pending + (new to it) } ?: moved.pending,
         marks = marks[old]?.let { moved.marks + (new to it) } ?: moved.marks,
+        ledgers = ledgers[old]?.let { moved.ledgers + (new to it) } ?: moved.ledgers,
     )
 }
 
-private fun Ready.without(session: SessionRef): Ready =
-    copy(pending = pending - session, running = running - session, marks = marks - session)
+private fun Ready.without(session: SessionRef): Ready = copy(
+    pending = pending - session,
+    running = running - session,
+    marks = marks - session,
+    usage = usage - session,
+    ledgers = ledgers - session,
+    ledgerRevision = if (session in ledgers) ledgerRevision + 1 else ledgerRevision,
+)
+
+private fun Ready.ledgerUpdated(intent: Public.UpdateLedger): Ready = copy(
+    ledgers = ledgers + (intent.session to ledgers[intent.session].updated(intent.update, intent.at)),
+    ledgerRevision = ledgerRevision + 1,
+)
+
+/** The save of this state's ledgers; called on the state after the transition, so its revision is current. */
+private fun Ready.ledgersSaved(): ContextOptimizationEffect.SaveLedgers =
+    ContextOptimizationEffect.SaveLedgers(ledgers, ledgerRevision)

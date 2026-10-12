@@ -22,3 +22,21 @@ public val ContextRolloverEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "context_optimization.rollover",
     "Перенос чата в новую сессию с выжимкой старой (rollover)",
 )
+
+/** The progress ledger and the agent's `context_*` tools; requires the main toggle. */
+public val ContextLedgerEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
+    "context_optimization.ledger_tools",
+    "Журнал прогресса сессии и инструменты агента context_*",
+)
+
+/** Names of the agent's hosted context tools. */
+public object ContextOptimizationTools {
+    /** Reports context occupancy, the ledger and pending compaction. */
+    public const val STATUS: String = "context_status"
+
+    /** Records progress in the ledger. */
+    public const val CHECKPOINT: String = "context_checkpoint"
+
+    /** Asks to compact the context after the current turn. */
+    public const val COMPACT: String = "context_compact"
+}

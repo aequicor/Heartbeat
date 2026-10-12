@@ -46,6 +46,11 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlin.uuid.Uuid
 
+/** Learns that a chat continued from [old] in the native session [new] after a rollover. */
+internal fun interface StudioRolloverObserver {
+    suspend fun rolledOver(old: SessionRef, new: SessionRef)
+}
+
 /** Runs the compactions of studio chats while the profile is open. */
 internal fun interface StudioCompactionHost {
     /** Claims and runs pending compactions of studio chats until cancelled. */
@@ -60,18 +65,22 @@ internal fun interface StudioCompactionHost {
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class, binding = binding<StudioCompactionPort>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioCompactionHost>())
+@ContributesBinding(ProfileScope::class, binding = binding<StudioTurnSettlement>())
+@ContributesBinding(ProfileScope::class, binding = binding<StudioRolloverObserver>())
 @Inject
 internal class StudioCompactions(
     @ForScope(ProfileScope::class) stores: DataStores,
-    private val runtime: StudioRuntime,
+    // The repository runs the turns that report back here: deferred to break the cycle.
+    private val runtime: Lazy<StudioRuntime>,
     private val runs: StudioRunCoordinator,
-    private val host: StudioRunHost,
+    private val host: Lazy<StudioRunHost>,
     private val view: ContextOptimizationView,
     private val machines: MachineRegistry,
     private val toggles: FeatureToggles,
 ) : StudioCompactionPort,
     StudioCompactionHost,
-    StudioTurnSettlement {
+    StudioTurnSettlement,
+    StudioRolloverObserver {
     private val log = Log.tag("StudioCompactions")
     private val store by lazy { stores.keyValue(ChatSpec) }
 
@@ -89,23 +98,28 @@ internal class StudioCompactions(
     }
 
     /**
-     * Reports the occupancy after a prompt turn while automatic compaction is on; the machine decides whether a
+     * Reports the occupancy after a prompt turn; while automatic compaction is on the machine also decides whether a
      * compaction becomes pending. Compaction turns themselves are not reported, so they never trigger another one.
      */
     override suspend fun settled(request: StudioTurnRequest, active: ActiveSession, outcome: TurnOutcome) {
         if (request.compaction != null || outcome == TurnOutcome.Cancelled) return
-        if (!toggles.get(ContextOptimizationEnabled) || !toggles.get(AutoCompactionEnabled)) return
+        if (!toggles.get(ContextOptimizationEnabled)) return
         val usage = (active.features.resolve(SessionContextUsage) as? FeatureAccess.Available)?.feature?.state?.value
-        val isRollover = toggles.get(
-            ContextRolloverEnabled,
-        ) && chats().any { it.id == request.id && it.isRolloverAllowed }
+        val chat = chats().firstOrNull { it.id == request.id }
+        val isRollover = chat?.isRolloverAllowed == true && toggles.get(ContextRolloverEnabled)
         val support = CompactionSupport(
             isNative = active.features.resolve(CompactsContext) is FeatureAccess.Available,
             isRollover = isRollover,
         )
         log.v { "report a settled turn for automatic compaction: usage=${usage != null}" }
-        val settled = ContextOptimizationIntent.Public.TurnSettled(active.ref, usage, support)
+        val isAutomatic = toggles.get(AutoCompactionEnabled)
+        val settled = ContextOptimizationIntent.Public.TurnSettled(active.ref, usage, support, isAutomatic)
         machines.send(ContextOptimizationMachineKey, settled)
+    }
+
+    override suspend fun rolledOver(old: SessionRef, new: SessionRef) {
+        log.i { "the conversation continues in its new native session" }
+        machines.send(ContextOptimizationMachineKey, ContextOptimizationIntent.Public.RolledOver(old, new))
     }
 
     override suspend fun run(): Unit = coroutineScope {
@@ -134,10 +148,6 @@ internal class StudioCompactions(
         }
         log.i { "compaction finished: $result" }
         machines.send(ContextOptimizationMachineKey, ContextOptimizationIntent.Public.Finished(session, result))
-        if (compaction.method == CompactionMethod.Rollover && result == CompactionResult.Compacted) {
-            // The old native session is no longer this chat's context; the next one starts with fresh marks.
-            machines.send(ContextOptimizationMachineKey, ContextOptimizationIntent.Public.SessionClosed(session))
-        }
     }
 
     private suspend fun compact(chat: StudioChatRecord, compaction: PendingCompaction): CompactionResult {
@@ -145,7 +155,8 @@ internal class StudioCompactions(
         if (isRollover && (!chat.isRolloverAllowed || !toggles.get(ContextRolloverEnabled))) {
             return CompactionResult.Unsupported
         }
-        val settings = hostRunSettings(chat, runtime.state.value.configurations[chat.id]?.applied, runtime.defaults())
+        val applied = runtime.value.state.value.configurations[chat.id]?.applied
+        val settings = hostRunSettings(chat, applied, runtime.value.defaults())
         val request = StudioTurnRequest(
             chat.id,
             prompt = "",
@@ -155,7 +166,7 @@ internal class StudioCompactions(
             compaction = ContextCompaction(compaction.instructions).takeUnless { isRollover },
             isRollover = isRollover,
         )
-        val outcome = runs.run(host, request, waitForIdle = true)
+        val outcome = runs.run(host.value, request, waitForIdle = true)
         return if (outcome == RunOutcome.Completed) CompactionResult.Compacted else CompactionResult.Failed
     }
 

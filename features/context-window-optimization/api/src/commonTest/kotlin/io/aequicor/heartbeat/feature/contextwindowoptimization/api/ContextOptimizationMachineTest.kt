@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimi
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationIntent.Public
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationState.Ready
 import kotlin.test.Test
+import kotlin.time.Instant
 
 class ContextOptimizationMachineTest {
     private val spec = ContextOptimizationMachineSpec
@@ -81,9 +82,19 @@ class ContextOptimizationMachineTest {
             to = Ready(
                 pending = mapOf(Session to PendingCompaction(CompactionMethod.Native, CompactionOrigin.Auto)),
                 marks = mapOf(Session to CompactionMark(attempts = 1)),
+                usage = mapOf(Session to usage(85)),
             ),
         )
-        spec.assertIgnored(Ready(pending = mapOf(Session to Pending)), Public.TurnSettled(Session, usage(90), Both))
+        spec.assertTransition(
+            from = Ready(pending = mapOf(Session to Pending)),
+            intent = Public.TurnSettled(Session, usage(90), Both),
+            to = Ready(pending = mapOf(Session to Pending), usage = mapOf(Session to usage(90))),
+        )
+        spec.assertTransition(
+            from = Ready(),
+            intent = Public.TurnSettled(Session, usage(90), Both, isAutomatic = false),
+            to = Ready(usage = mapOf(Session to usage(90))),
+        )
     }
 
     @Test
@@ -113,6 +124,30 @@ class ContextOptimizationMachineTest {
             from = Ready(pending = mapOf(Session to Pending), marks = mapOf(Session to mark)),
             intent = Public.SessionClosed(Session),
             to = Ready(),
+        )
+    }
+
+    @Test
+    fun `a checkpoint updates and saves the ledger, which follows a rollover`() {
+        val at = Instant.fromEpochSeconds(10)
+        val ledger = null.updated(LedgerUpdate(goal = "Fix issues", done = listOf("#1")), at)
+        spec.assertTransition(
+            from = Ready(),
+            intent = Public.UpdateLedger(Session, LedgerUpdate(goal = "Fix issues", done = listOf("#1")), at),
+            to = Ready(ledgers = mapOf(Session to ledger), ledgerRevision = 1),
+            effects = listOf(ContextOptimizationEffect.SaveLedgers(mapOf(Session to ledger), 1)),
+        )
+        spec.assertTransition(
+            from = Ready(ledgers = mapOf(Session to ledger), ledgerRevision = 1),
+            intent = Public.RolledOver(Session, Next),
+            to = Ready(ledgers = mapOf(Next to ledger), ledgerRevision = 2),
+            effects = listOf(ContextOptimizationEffect.SaveLedgers(mapOf(Next to ledger), 2)),
+        )
+        spec.assertTransition(
+            from = Ready(ledgers = mapOf(Session to ledger), ledgerRevision = 1),
+            intent = Public.SessionClosed(Session),
+            to = Ready(ledgerRevision = 2),
+            effects = listOf(ContextOptimizationEffect.SaveLedgers(emptyMap(), 2)),
         )
     }
 
