@@ -3,6 +3,8 @@ import java.awt.Component;
 import java.awt.GraphicsEnvironment;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -19,6 +21,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import javax.imageio.ImageIO;
@@ -45,6 +48,7 @@ public final class SessionProbe {
     private final List<Tab> tabs = new ArrayList<>();
     private final List<Anchor> anchors = new ArrayList<>();
     private final CompletableFuture<Void> terminated = new CompletableFuture<>();
+    private final List<Throwable> uncaught = new CopyOnWriteArrayList<>();
     private CefApp app;
 
     private SessionProbe(Map<String, String> arguments) { this.arguments = arguments; }
@@ -57,6 +61,11 @@ public final class SessionProbe {
             arguments.put(arg.substring(2, separator), arg.substring(separator + 1));
         }
         SessionProbe probe = new SessionProbe(arguments);
+        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> {
+            System.err.println("UNCAUGHT on " + thread.getName() + ": " + failure);
+            failure.printStackTrace(System.err);
+            probe.uncaught.add(failure);
+        });
         Map<String, Object> report = new LinkedHashMap<>();
         report.put("phase", probe.required("mode"));
         report.put("pid", ProcessHandle.current().pid());
@@ -68,6 +77,7 @@ public final class SessionProbe {
         try {
             probe.start();
             probe.run();
+            require(probe.uncaught.isEmpty(), "Uncaught native callback failures: " + probe.uncaught);
         } catch (Throwable failure) {
             failure.printStackTrace(System.err);
             report.put("error", failure.toString());
@@ -286,10 +296,25 @@ public final class SessionProbe {
         for (Tab tab : tabs) tab.close();
         for (Anchor anchor : anchors) anchor.close();
         if (app != null) {
+            System.out.println("BEFORE APP DISPOSE state=" + CefApp.getState()
+                + " remainingClients=" + remainingClients());
             onEdt(() -> { app.dispose(); return null; });
             await(terminated, "CEF TERMINATED");
             passed("graceful-cef-termination", Map.of());
         }
+    }
+
+    private int remainingClients() throws Exception {
+        // Read-only diagnostics for the exact pinned API; never mutate JCEF's ownership registry.
+        Field clients = CefApp.class.getDeclaredField("clients_");
+        clients.setAccessible(true);
+        synchronized (app) { return ((java.util.Set<?>) clients.get(app)).size(); }
+    }
+
+    private static int registeredBrowsers(CefClient client) throws Exception {
+        Method browsers = CefClient.class.getDeclaredMethod("getAllBrowser");
+        browsers.setAccessible(true);
+        return ((Object[]) browsers.invoke(client)).length;
     }
 
     private final class Anchor {
@@ -318,8 +343,11 @@ public final class SessionProbe {
             client = app.createClient();
             client.addLifeSpanHandler(new CefLifeSpanHandlerAdapter() {
                 @Override public void onBeforeClose(CefBrowser browser) {
-                    client.dispose();
-                    SwingUtilities.invokeLater(() -> closed.complete(null));
+                    int identifier = browser.getIdentifier();
+                    // AppKit and EDT are different threads. Wait for CefClient's own cleanup,
+                    // not merely one queued EDT turn, before marking/disposal of the client.
+                    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(TIMEOUT_SECONDS);
+                    SwingUtilities.invokeLater(() -> disposeAfterBrowserCleanup(identifier, deadline));
                 }
             });
             client.addLoadHandler(new CefLoadHandlerAdapter() {
@@ -346,6 +374,27 @@ public final class SessionProbe {
                 browser.createImmediately();
                 return window;
             });
+        }
+
+        private void disposeAfterBrowserCleanup(int identifier, long deadline) {
+            try {
+                int remaining = registeredBrowsers(client);
+                if (remaining == 0) {
+                    client.dispose();
+                    System.out.println("CLIENT DISPOSED browser=" + identifier
+                        + " remainingClients=" + remainingClients());
+                    closed.complete(null);
+                } else if (System.nanoTime() >= deadline) {
+                    closed.completeExceptionally(new AssertionError("CefClient cleanup timed out: browser="
+                        + identifier + " registeredBrowsers=" + remaining + " appState=" + CefApp.getState()));
+                } else {
+                    // Cooperative EDT scheduling leaves native AppKit callbacks free to finish.
+                    SwingUtilities.invokeLater(() -> disposeAfterBrowserCleanup(identifier, deadline));
+                }
+            } catch (Throwable failure) {
+                failure.printStackTrace(System.err);
+                closed.completeExceptionally(failure);
+            }
         }
 
         void write(String marker) throws Exception {

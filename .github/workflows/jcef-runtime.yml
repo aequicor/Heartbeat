@@ -147,3 +147,29 @@ jobs:
           path: build/jcef-release/*
           if-no-files-found: error
           compression-level: 0
+
+  publish-draft:
+    name: Stage verified runtime in a draft release
+    needs: collect
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v4
+        with:
+          name: jcef-release-152.0.6-hb1
+          path: build/jcef-release
+      - name: Verify and create immutable draft assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python native/jcef/publish_draft.py
+          --artifacts build/jcef-release
+          --repository ${{ github.repository }}
+          --commit ${{ github.sha }}
