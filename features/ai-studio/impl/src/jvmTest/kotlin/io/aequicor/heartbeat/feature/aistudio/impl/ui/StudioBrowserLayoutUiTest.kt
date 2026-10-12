@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
@@ -12,6 +13,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -22,7 +26,6 @@ import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
@@ -42,6 +45,37 @@ import kotlin.test.assertTrue
 /** Exercises the production studio host; the browser slot is a module-independent content fixture. */
 @OptIn(ExperimentalTestApi::class)
 class StudioBrowserLayoutUiTest {
+    @Test
+    fun `covered chat never keeps focus requested by its own code`() = runSkikoComposeUiTest(size = Size(1280f, 720f)) {
+        val requester = FocusRequester()
+        var mode by mutableStateOf(BrowserPaneMode.Panel)
+        var isChatFocused = false
+        setContent {
+            HbTheme(dimensions = HbDimensions.Desktop) {
+                StudioBrowserLayout(
+                    mode,
+                    Modifier.fillMaxSize(),
+                    browser = { Box(Modifier.fillMaxSize()) },
+                    chat = {
+                        Box(
+                            Modifier.fillMaxSize().testTag("conversation").focusRequester(requester)
+                                .onFocusChanged { isChatFocused = it.isFocused }.focusable(),
+                        )
+                    },
+                )
+            }
+        }
+        runOnIdle { requester.requestFocus() }
+        runOnIdle { assertTrue(isChatFocused) }
+        runOnIdle { mode = BrowserPaneMode.Expanded }
+        runOnIdle { assertFalse(isChatFocused) }
+        runOnIdle { requester.requestFocus() }
+        runOnIdle { assertFalse(isChatFocused, "A covered chat must release focus its own code requested") }
+        onNodeWithTag("conversation").assertDoesNotExist()
+        runOnIdle { mode = BrowserPaneMode.Panel }
+        onNodeWithTag("conversation").assertIsDisplayed()
+    }
+
     @Test
     fun `right pane resizes by dragging and retains its content across expansion and return`() =
         runSkikoComposeUiTest(size = Size(1280f, 720f)) {
@@ -74,7 +108,7 @@ class StudioBrowserLayoutUiTest {
             assertTrue(bounds("conversation").width < initialChat.width)
             assertEquals(workspace.right, resized.right, 1f)
             runOnIdle { mode = BrowserPaneMode.Expanded }
-            onNodeWithTag("conversation").assertIsNotDisplayed()
+            onNodeWithTag("conversation").assertDoesNotExist()
             onNodeWithTag("browser-resize").assertDoesNotExist()
             assertBounds(workspace, bounds("browser-content"))
             runOnIdle { mode = BrowserPaneMode.Panel }
@@ -114,7 +148,7 @@ class StudioBrowserLayoutUiTest {
             val panelWidth = bounds("browser-panel").width
             runOnIdle { assertTrue(isExpansionAvailable) }
             runOnIdle { width = 420.dp }
-            onNodeWithTag("conversation").assertIsNotDisplayed()
+            onNodeWithTag("conversation").assertDoesNotExist()
             onNodeWithTag("browser-resize").assertDoesNotExist()
             assertBounds(bounds("workspace"), bounds("browser-content"))
             runOnIdle { assertFalse(isExpansionAvailable, "The browser must use its host width, not the wider window") }

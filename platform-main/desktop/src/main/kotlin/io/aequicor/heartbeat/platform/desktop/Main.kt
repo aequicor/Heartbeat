@@ -74,14 +74,17 @@ private fun launchLoggedHeartbeat(isDevelopment: Boolean, classes: Result<Path?>
     }
     val dimensions = HbDimensions()
     application {
+        val systemQuit = remember { DesktopSystemQuit() }
         val closeRequest = rememberDesktopCloseHandler(
             (graph as AppShutdownAccessors).shutdownParticipants,
             lifecycle::destroy,
-            ::exitApplication,
-        )
+        ) {
+            exitApplication()
+            systemQuit.complete()
+        }
         // Every handler instance shares the same remembered closing state, so the first one is installed once.
         DisposableEffect(Unit) {
-            installDesktopQuitHandler(closeRequest)
+            installDesktopQuitHandler(systemQuit, closeRequest)
             onDispose { }
         }
         val icon = remember(applicationIcons) { applicationIcons.last().toPainter() }

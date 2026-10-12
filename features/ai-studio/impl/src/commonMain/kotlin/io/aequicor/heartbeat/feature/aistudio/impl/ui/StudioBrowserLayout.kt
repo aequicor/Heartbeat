@@ -26,6 +26,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import io.aequicor.heartbeat.ds.layouts.LocalPaneExpansionAvailable
@@ -108,15 +109,24 @@ private fun browserLayoutPolicy(mode: BrowserPaneMode, fraction: () -> Float, sp
         }
     }
 
-/** The chat slot; once [isCovered], focus inside it is released so keys typed for the browser never reach it. */
+/**
+ * The chat slot; while [isCovered] it is hidden from accessibility services, and focus inside it is released whenever
+ * it lands there — also when chat code requests it programmatically — so keys typed for the browser never reach it.
+ */
 @Composable
 private fun CoverableChat(isCovered: Boolean, chat: @Composable () -> Unit) {
     var isFocused by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
-    SideEffect(isCovered) {
-        if (isCovered && isFocused) focusManager.clearFocus()
+    val isReleaseNeeded = isCovered && isFocused
+    SideEffect {
+        if (isReleaseNeeded) focusManager.clearFocus()
     }
-    Box(Modifier.fillMaxSize().onFocusChanged { isFocused = it.hasFocus }) { chat() }
+    Box(
+        Modifier
+            .fillMaxSize()
+            .then(if (isCovered) Modifier.clearAndSetSemantics { } else Modifier)
+            .onFocusChanged { isFocused = it.hasFocus },
+    ) { chat() }
 }
 
 private fun BrowserPaneMode.browserWidth(total: Int, fraction: Float, chatMin: Int): Int = when (this) {

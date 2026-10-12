@@ -7,6 +7,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import java.awt.desktop.QuitResponse
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -80,5 +81,37 @@ class DesktopShutdownTest {
         assertIs<IllegalStateException>(failure)
         assertTrue(failure.message.orEmpty().contains("1000 ms"))
         assertEquals(listOf("destroyed", "exited"), events)
+    }
+
+    @Test
+    fun `failing lifecycle destruction still exits the process`() = runTest {
+        val events = mutableListOf<String>()
+        val failure = shutdownDesktop(
+            emptySet(),
+            { error("destroy failed") },
+            { events += "exited" },
+        )
+        assertIs<IllegalStateException>(failure)
+        assertEquals(listOf("exited"), events)
+    }
+
+    @Test
+    fun `system quit is answered once after exit and never cancelled`() {
+        val answers = mutableListOf<String>()
+        val response = object : QuitResponse {
+            override fun performQuit() {
+                answers += "perform"
+            }
+
+            override fun cancelQuit() {
+                answers += "cancel"
+            }
+        }
+        val quit = DesktopSystemQuit()
+        quit.complete()
+        quit.defer(response)
+        quit.complete()
+        quit.complete()
+        assertEquals(listOf("perform"), answers)
     }
 }
