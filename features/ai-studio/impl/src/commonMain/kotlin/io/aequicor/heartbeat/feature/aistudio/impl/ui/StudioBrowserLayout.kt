@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -19,6 +20,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import io.aequicor.heartbeat.ds.layouts.HbRow
+import io.aequicor.heartbeat.ds.layouts.LocalPaneExpansionAvailable
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.BrowserPaneMode
 
@@ -35,7 +37,8 @@ internal fun StudioBrowserLayout(
     var fraction by remember { mutableFloatStateOf(0.45f) }
     val density = LocalDensity.current
     BoxWithConstraints(modifier.fillMaxSize()) {
-        val effectiveMode = mode.forWidth(maxWidth, HbTheme.dimensions.settingsMaxWidth * 2)
+        val isExpansionAvailable = maxWidth >= HbTheme.dimensions.browserSplitMinWidth
+        val effectiveMode = mode.forWidth(maxWidth, HbTheme.dimensions.browserSplitMinWidth)
         val widthPixels = with(density) { maxWidth.toPx() }
         val browserWidth = effectiveMode.width(maxWidth, fraction)
         HbRow(Modifier.fillMaxSize(), gap = HbTheme.spacing.none) {
@@ -48,7 +51,13 @@ internal fun StudioBrowserLayout(
                 }
             }
             Box(Modifier.width(browserWidth).fillMaxHeight().testTag("browser-panel")) {
-                if (mode != BrowserPaneMode.Hidden) browser()
+                if (mode != BrowserPaneMode.Hidden) {
+                    CompositionLocalProvider(
+                        LocalPaneExpansionAvailable provides isExpansionAvailable,
+                    ) {
+                        browser()
+                    }
+                }
             }
         }
     }

@@ -65,6 +65,8 @@ data class HbDimensions(
     val drawerMaxWidth: Dp = 320.dp,
     /** Side inspector next to a chat column, e.g. research questions and sources. */
     val inspectorPanelWidth: Dp = 320.dp,
+    /** Minimum combined workspace width for a conversation and an adjacent browser pane. */
+    val browserSplitMinWidth: Dp = 720.dp,
     /** Narrowest readable content pane; side-by-side panes need at least two. */
     val paneMinWidth: Dp = 360.dp,
     /** Small status dot, e.g. unread content in a navigation row. */

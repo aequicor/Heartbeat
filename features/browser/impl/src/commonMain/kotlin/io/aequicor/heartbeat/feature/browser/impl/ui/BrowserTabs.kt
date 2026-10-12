@@ -7,8 +7,6 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.Role
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
@@ -18,6 +16,7 @@ import io.aequicor.heartbeat.ds.components.HbNavigationItem
 import io.aequicor.heartbeat.ds.components.HbPaneHeader
 import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.layouts.HbRow
+import io.aequicor.heartbeat.ds.layouts.LocalPaneExpansionAvailable
 import io.aequicor.heartbeat.ds.layouts.hbHorizontalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserScreenIntent
@@ -39,10 +38,8 @@ import org.jetbrains.compose.resources.stringResource
 /** Caption-safe fixed controls stay reachable even with many tabs. */
 @Composable
 internal fun BrowserTabs(state: BrowserScreenState, onIntent: (BrowserScreenIntent) -> Unit) {
-    val windowWidth =
-        with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
     // Compact windows already use the whole workspace, so a panel/expand toggle has no effect.
-    val isPresentationSwitchAvailable = windowWidth >= HbTheme.dimensions.settingsMaxWidth * 2
+    val isPresentationSwitchAvailable = LocalPaneExpansionAvailable.current
     HbPaneHeader(
         stringResource(Res.string.browser_title),
         actions = {
@@ -59,7 +56,7 @@ internal fun BrowserTabs(state: BrowserScreenState, onIntent: (BrowserScreenInte
                     style = HbButtonStyle.Ghost,
                 )
             }
-            if (state.hasTabs && state.tabs.isNotEmpty()) {
+            if (state.hasTabs) {
                 HbIconButton(
                     HbIcons.Trash,
                     stringResource(Res.string.browser_clear_data),
