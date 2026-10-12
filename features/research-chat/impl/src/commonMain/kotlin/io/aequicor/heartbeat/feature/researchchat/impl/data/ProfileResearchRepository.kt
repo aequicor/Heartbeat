@@ -46,7 +46,6 @@ import io.aequicor.heartbeat.feature.researchchat.api.ResearchQuestion
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchRecoveryAction
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResource
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceKind
-import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceScope
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchSession
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchWorkspace
 import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchAttachments
@@ -583,7 +582,7 @@ internal class ProfileResearchRepository(
             )
             sources.fold(
                 changed,
-            ) { session, source -> session.attach(previous.id, source, ResearchResourceScope.Question) }
+            ) { session, source -> session.attachDiscovered(previous.id, source) }
         }
     }
 

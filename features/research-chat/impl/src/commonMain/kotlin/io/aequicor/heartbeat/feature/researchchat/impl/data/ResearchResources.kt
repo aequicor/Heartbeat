@@ -33,10 +33,7 @@ internal fun ResearchSession.attach(
     scope: ResearchResourceScope,
 ): ResearchSession {
     val question = questions.first { it.id == questionId }
-    val existing = resources.firstOrNull {
-        (it.kind == source.kind && it.value == source.value) ||
-            (it.sourceUrl != null && it.sourceUrl == (source.sourceUrl ?: source.value))
-    }
+    val existing = resources.firstOrNull { it.matchesSource(source) }
     val resource = source.merge(existing)
     val isShared = scope == ResearchResourceScope.Session || questions.first().id == questionId ||
         resource.id in sharedResourceIds
@@ -59,6 +56,16 @@ internal fun ResearchSession.attach(
         },
     )
 }
+
+/** History snapshots replay old tool results; they cannot replace an ongoing browser recovery. */
+internal fun ResearchSession.attachDiscovered(questionId: String, source: ResearchResource): ResearchSession {
+    val recovering = resources.firstOrNull { it.matchesSource(source) && it.recoveryAttempt != null }
+    return attach(questionId, recovering ?: source, ResearchResourceScope.Question)
+}
+
+private fun ResearchResource.matchesSource(source: ResearchResource): Boolean =
+    (kind == source.kind && value == source.value) ||
+        (sourceUrl != null && sourceUrl == (source.sourceUrl ?: source.value))
 
 private fun ResearchResource.merge(existing: ResearchResource?): ResearchResource = when {
     existing == null -> this
