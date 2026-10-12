@@ -13,10 +13,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessMachineKey
-import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessProjectSnapshots
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessActiveAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessActiveSnapshot
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,8 +30,7 @@ import kotlin.time.Duration.Companion.milliseconds
  * Registry reads do not start engines or the library and therefore cannot recurse into tool contributions.
  * A cold start waits a bounded time for committed evidence. Once that evidence proved unavailable, later reads
  * of the same kind only probe the current snapshot instead of waiting again, until a read of that kind succeeds.
- * Reads for a workspace also need the project evidence that profile reads do not, so each kind keeps its own
- * latch: alternating calls with and without a workspace never flap. Unavailability is reported once per
+ * Workspace and project metadata do not activate a harness; both read kinds use committed chat connections. Unavailability is reported once per
  * transition of a kind: a WARN when it starts, VERBOSE for repeats, and consumers receive
  * [HarnessActivationUnavailable], which they must not report again.
  */
@@ -43,7 +40,6 @@ import kotlin.time.Duration.Companion.milliseconds
 internal class MachineHarnessActiveAccess(
     private val machines: MachineRegistry,
     private val toggles: FeatureToggles,
-    private val projects: HarnessProjectSnapshots,
 ) : HarnessActiveAccess {
     private val log = Log.tag("HarnessActive")
     private val unavailability = MutableStateFlow(emptySet<HarnessReadKind>())
@@ -66,10 +62,8 @@ internal class MachineHarnessActiveAccess(
                 combine(
                     toggles.observe(HarnessEnabled),
                     machines.observe(HarnessMachineKey).flatMapLatest { it?.state ?: flowOf(null) },
-                    machines.observe(WorktreeMachineKey).flatMapLatest { it?.state ?: flowOf(null) },
-                    projects.projects,
-                ) { enabled, library, worktrees, catalog ->
-                    HarnessActiveSnapshot(enabled, library, worktrees, catalog).selection()
+                ) { enabled, library ->
+                    HarnessActiveSnapshot(enabled, library).selection()
                 }.filterNotNull().first()
             }
         } catch (error: CancellationException) {
@@ -107,7 +101,7 @@ internal class MachineHarnessActiveAccess(
     }
 }
 
-/** Reads differ in the evidence they need: a workspace read also waits for worktrees and the project catalog. */
+/** Keeps separate availability logs for session reads with and without a workspace. */
 private enum class HarnessReadKind {
     Profile,
     Workspace,

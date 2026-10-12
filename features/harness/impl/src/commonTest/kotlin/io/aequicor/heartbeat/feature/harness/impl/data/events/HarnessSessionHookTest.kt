@@ -21,7 +21,6 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessOriginCo
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRequestOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessSessionProofs
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.MemoryHarnessRequestAncestry
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -72,7 +71,7 @@ class HarnessSessionHookTest {
     }
 
     @Test
-    fun `unknown project still preserves a certain profile deny after bounded preparation`() = runTest {
+    fun `an attached harness still denies tools when project metadata is unknown`() = runTest {
         val fixture = HookFixture(backgroundScope, StandardTestDispatcher(testScheduler))
         fixture.runtime.onEvaluate = { script -> script.hooks.beforeTool { ToolHookVerdict.Deny("denied") } }
         fixture.runtime.activate()
@@ -82,19 +81,19 @@ class HarnessSessionHookTest {
             context = fixture.runtime.context.copy(workspace = WorkspaceRef("unknown")),
         )
         assertEquals(ToolHookVerdict.Deny("denied"), fixture.hook.beforeTool(call))
-        assertEquals(200L, testScheduler.currentTime)
-        assertFalse(fixture.proofs.isResolved(call.context.session))
+        assertEquals(0L, testScheduler.currentTime)
+        assertEquals(true, fixture.proofs.isResolved(call.context.session))
     }
 
     @Test
-    fun `unknown project requires Ask while text hooks fail open`() = runTest {
+    fun `unknown project without a script hook does not force Ask`() = runTest {
         val fixture = HookFixture(backgroundScope, StandardTestDispatcher(testScheduler))
         fixture.runtime.activate()
         fixture.addUnknownProject()
         val call = fixture.runtime.call.copy(
             context = fixture.runtime.context.copy(workspace = WorkspaceRef("unknown")),
         )
-        assertIs<ToolHookVerdict.Ask>(fixture.hook.beforeTool(call))
+        assertEquals(ToolHookVerdict.Continue, fixture.hook.beforeTool(call))
         assertNull(fixture.hook.beforePrompt(call.context, "private"))
     }
 
@@ -170,7 +169,11 @@ private class HookFixture(scope: CoroutineScope, dispatcher: CoroutineDispatcher
     val gate = HarnessEventGate().apply { open() }
     val ancestry = MemoryHarnessRequestAncestry()
     val origins = HarnessRequestOrigins(ancestry)
-    var library = HarnessState.Ready(listOf(HarnessEntry(runtime.request.harness)), isRuntimeAvailable = true)
+    var library = HarnessState.Ready(
+        listOf(HarnessEntry(runtime.request.harness)),
+        attachments = mapOf(runtime.context.session to setOf(runtime.request.harness.id)),
+        isRuntimeAvailable = true,
+    )
     var isLibraryLoaded = true
     val proofs = HarnessSessionProofs(
         {
@@ -180,8 +183,6 @@ private class HookFixture(scope: CoroutineScope, dispatcher: CoroutineDispatcher
                 else -> HarnessState.Idle()
             }
         },
-        { WorktreeState.Ready() },
-        { null },
         { runtime.runtime.publishedInstances.value.isNotEmpty() },
     )
     var prepare: suspend (SessionHookContext) -> Unit = {}

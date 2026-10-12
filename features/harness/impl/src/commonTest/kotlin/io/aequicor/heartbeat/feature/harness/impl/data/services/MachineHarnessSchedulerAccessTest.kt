@@ -19,7 +19,6 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessMachineKey
 import io.aequicor.heartbeat.feature.harness.api.HarnessName
 import io.aequicor.heartbeat.feature.harness.api.HarnessOutput
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
-import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessProjectSnapshots
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessEventGate
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.dispatchSession
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.runtimeRequest
@@ -46,7 +45,7 @@ class MachineHarnessSchedulerAccessTest {
     private val registry = SchedulerAccessRegistry()
     private val toggles = SchedulerAccessToggles()
     private val gate = HarnessEventGate()
-    private val access = MachineHarnessSchedulerAccess(registry, toggles, HarnessProjectSnapshots(), gate)
+    private val access = MachineHarnessSchedulerAccess(registry, toggles, gate)
     private val harness = runtimeRequest(1).harness
     private val ready = HarnessState.Ready(listOf(HarnessEntry(harness)), isRuntimeAvailable = true)
 

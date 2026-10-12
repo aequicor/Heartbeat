@@ -71,7 +71,7 @@ class HarnessModelTest {
     }
 
     @Test
-    fun `activation unions scopes attachments and helper affiliation with deterministic overflow`() {
+    fun `activation uses only attachments and helper affiliation with deterministic overflow`() {
         val scoped = harness("project").copy(scope = HarnessScope.Projects(setOf(Project)))
         val attached = harness("attached").copy(scope = HarnessScope.Attached)
         val helper = harness("helper").copy(scope = HarnessScope.Attached)
@@ -79,19 +79,20 @@ class HarnessModelTest {
         val attachments = mapOf(Session to setOf(attached.id, disabled.id))
         val library = listOf(scoped, attached, helper, disabled)
         assertEquals(
-            listOf(attached, helper, scoped),
+            listOf(attached, helper),
             activeHarnesses(library, attachments, Session, Project, helper.id),
         )
         assertEquals(emptyList(), activeHarnesses(library, emptyMap(), Session, null))
         assertEquals(emptyList(), activeHarnesses(library, attachments, Session, Project, isSuspended = true))
         val crowded = (0..9).map { harness("item_$it") }.reversed()
+        val crowdedConnections = mapOf(Session to crowded.mapTo(mutableSetOf()) { it.id })
         assertEquals(
             (0..7).map { "item_$it" },
-            activeHarnesses(crowded, emptyMap(), Session, null).map { it.name.value },
+            activeHarnesses(crowded, crowdedConnections, Session, null).map { it.name.value },
         )
         assertEquals(
             (0..9).map { "item_$it" },
-            applicableHarnesses(crowded, emptyMap(), Session, null).map { it.name.value },
+            applicableHarnesses(crowded, crowdedConnections, Session, null).map { it.name.value },
         )
         assertEquals(emptyList(), applicableHarnesses(crowded, emptyMap(), Session, null, isSuspended = true))
         assertFalse(HarnessEnabled.default)

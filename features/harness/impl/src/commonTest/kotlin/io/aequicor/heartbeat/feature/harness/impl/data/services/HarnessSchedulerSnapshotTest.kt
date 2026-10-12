@@ -12,8 +12,6 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.dispatchSession
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.runtimeRequest
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessTarget
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -25,81 +23,54 @@ class HarnessSchedulerSnapshotTest {
     private val wake = HarnessTarget(dispatchSession, checkout)
 
     @Test
-    fun `durable helper attachment still obeys the eight active harness limit`() {
-        val attached = harness.copy(name = HarnessName("zz_owner"), scope = HarnessScope.Attached)
+    fun `durable connections obey the eight active harness limit`() {
+        val guard = harness.copy(id = HarnessId("guard"), name = HarnessName("zz_guard"))
         val earlier = (1..8).map { index ->
-            HarnessEntry(
-                harness.copy(
-                    id = HarnessId("earlier-$index"),
-                    name = HarnessName("early_$index"),
-                    scope = HarnessScope.Profile,
-                ),
-            )
+            harness.copy(id = HarnessId("earlier-$index"), name = HarnessName("early_$index"))
         }
+        val all = earlier + guard
         val library = ready.copy(
-            harnesses = earlier + HarnessEntry(attached),
-            attachments = mapOf(wake.session to setOf(attached.id)),
+            harnesses = all.map(::HarnessEntry),
+            attachments = mapOf(wake.session to all.mapTo(mutableSetOf()) { it.id }),
         )
-        val snapshot = HarnessSchedulerSnapshot(library, WorktreeState.Ready(), setOf(checkout), 1)
-        assertEquals(false, snapshot.allows(attached.id, wake))
-        assertEquals(
-            true,
-            snapshot.copy(library = library.copy(harnesses = library.harnesses.drop(1)))
-                .allows(attached.id, wake),
-        )
+        val snapshot = HarnessSchedulerSnapshot(library, 1)
+        assertEquals(false, snapshot.allows(guard.id, wake))
+        assertEquals(true, snapshot.copy(library = library.copy(harnesses = all.drop(1).map(::HarnessEntry)))
+            .allows(guard.id, wake))
     }
 
     @Test
-    fun `cold restart resolves original project without callback proof or promoted checkout fallback`() {
-        val promoted = harness.copy(
-            id = HarnessId("promoted"),
-            name = HarnessName("promoted"),
-            scope = HarnessScope.Projects(setOf(checkout)),
-        )
-        val library = ready.copy(harnesses = ready.harnesses + HarnessEntry(promoted))
-        val snapshot = HarnessSchedulerSnapshot(library, WorktreeState.Loading, setOf(checkout), 1)
-        assertEquals(null, snapshot.allows(harness.id, wake))
-        assertEquals(null, snapshot.allows(promoted.id, wake))
-        val restored = snapshot.copy(
-            worktrees = WorktreeState.Ready(
-                mapOf("chat" to WorktreeTask("chat", project, executionWorkspace = checkout)),
-            ),
-        )
-        assertEquals(true, restored.allows(harness.id, wake))
-        assertEquals(false, restored.allows(promoted.id, wake))
-        assertEquals(false, restored.copy(epoch = null).allows(harness.id, wake))
-    }
-
-    @Test
-    fun `durable attachment admits helper while owner context alone grants no affiliation`() {
-        val attached = harness.copy(scope = HarnessScope.Attached)
-        val library = ready.copy(harnesses = listOf(HarnessEntry(attached)))
-        val snapshot = HarnessSchedulerSnapshot(library, WorktreeState.Ready(), setOf(checkout), 1)
+    fun `legacy project scope never admits a wake without a connection`() {
+        val snapshot = HarnessSchedulerSnapshot(ready, 1)
         assertEquals(false, snapshot.allows(harness.id, wake))
-        val restored = snapshot.copy(library = library.copy(attachments = mapOf(wake.session to setOf(harness.id))))
-        assertEquals(true, restored.allows(harness.id, wake))
-        val deleting = library.copy(
-            pending = mapOf(
-                harness.id to HarnessMutation.Remove(
-                    HarnessReceipt(RequestId("remove"), harness.id, harness.revision),
-                    harness,
-                ),
-            ),
-        )
-        assertEquals(false, restored.copy(library = deleting).allows(harness.id, wake))
-        assertEquals(false, restored.copy(library = library.copy(isSuspended = true)).allows(harness.id, null))
+        val connected = snapshot.copy(library = ready.copy(attachments = mapOf(wake.session to setOf(harness.id))))
+        assertEquals(true, connected.allows(harness.id, wake))
+        assertEquals(false, connected.copy(epoch = null).allows(harness.id, wake))
     }
 
     @Test
-    fun `orphaned workspace is decided as no project once worktrees and catalog are known`() {
-        val profile =
-            harness.copy(id = HarnessId("profile"), name = HarnessName("profile"), scope = HarnessScope.Profile)
-        val library = ready.copy(harnesses = ready.harnesses + HarnessEntry(profile))
+    fun `durable connection admits helper and pending removal revokes it`() {
+        val snapshot = HarnessSchedulerSnapshot(ready, 1)
+        assertEquals(false, snapshot.allows(harness.id, wake))
+        val connected = ready.copy(attachments = mapOf(wake.session to setOf(harness.id)))
+        assertEquals(true, snapshot.copy(library = connected).allows(harness.id, wake))
+        val deleting = connected.copy(pending = mapOf(
+            harness.id to HarnessMutation.Remove(HarnessReceipt(RequestId("remove"), harness.id, harness.revision), harness),
+        ))
+        assertEquals(false, snapshot.copy(library = deleting).allows(harness.id, wake))
+        assertEquals(false, snapshot.copy(library = connected.copy(isSuspended = true)).allows(harness.id, wake))
+    }
+
+    @Test
+    fun `connection works even when project evidence is unavailable`() {
         val orphan = HarnessTarget(dispatchSession, WorkspaceRef("removed"))
-        val known = HarnessSchedulerSnapshot(library, WorktreeState.Ready(), setOf(project), 1)
-        assertEquals(false, known.allows(harness.id, orphan))
-        assertEquals(true, known.allows(profile.id, orphan))
-        assertEquals(null, known.copy(projects = null).allows(harness.id, orphan))
-        assertEquals(null, known.copy(worktrees = WorktreeState.Loading).allows(harness.id, orphan))
+        val profile = harness.copy(id = HarnessId("profile"), name = HarnessName("profile"), scope = HarnessScope.Profile)
+        val library = ready.copy(harnesses = listOf(HarnessEntry(harness), HarnessEntry(profile)))
+        val snapshot = HarnessSchedulerSnapshot(library, 1)
+        assertEquals(false, snapshot.allows(harness.id, orphan))
+        assertEquals(false, snapshot.allows(profile.id, orphan))
+        val connected = library.copy(attachments = mapOf(orphan.session to setOf(profile.id)))
+        assertEquals(true, snapshot.copy(library = connected).allows(profile.id, orphan))
+        assertEquals(false, snapshot.copy(library = connected).allows(harness.id, orphan))
     }
 }

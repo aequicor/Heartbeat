@@ -11,8 +11,8 @@ public val HarnessEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
 )
 
 /**
- * Pure activation using the host-resolved source project and verified helper affiliation.
- * Attachments and a helper's originating harness extend permanent scope; they never bypass isEnabled.
+ * Pure activation from explicit session attachments and verified helper affiliation.
+ * Stored legacy scopes do not activate a harness; attachments never bypass isEnabled.
  * Overlapping scopes select a harness once. Overflow is deterministic: immutable name order, at most eight.
  * The cap bounds contributions only (content, instructions, script tools, events, native On switches);
  * restrictions use the uncapped [applicableHarnesses].
@@ -29,7 +29,7 @@ public fun activeHarnesses(
     .take(HarnessLimits.ACTIVE_PER_SESSION)
 
 /**
- * Every enabled harness whose scope covers the session, in name order and without the cap of [activeHarnesses].
+ * Every enabled harness connected to the session, in name order and without the cap of [activeHarnesses].
  * Restrictions (Off and hosted_off switches, Deny/Ask tool hooks) come from this whole list, so that harnesses
  * sorting earlier by name can never push a restricting harness out of a session.
  */
@@ -44,12 +44,6 @@ public fun applicableHarnesses(
     if (isSuspended) return emptyList()
     val attached = attachments[session].orEmpty()
     return harnesses.asSequence().filter { harness ->
-        harness.isEnabled && (
-            harness.id in attached || harness.id == helperOf || when (val scope = harness.scope) {
-                HarnessScope.Attached -> false
-                HarnessScope.Profile -> true
-                is HarnessScope.Projects -> sourceProject in scope.projects
-            }
-        )
+        harness.isEnabled && (harness.id in attached || harness.id == helperOf)
     }.distinctBy { it.id }.sortedBy { it.name.value }.toList()
 }
