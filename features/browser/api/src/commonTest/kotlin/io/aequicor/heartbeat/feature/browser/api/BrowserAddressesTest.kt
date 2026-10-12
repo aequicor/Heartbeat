@@ -22,4 +22,26 @@ class BrowserAddressesTest {
         assertNull(browserAddress("file:///secret"))
         assertNull(browserAddress("a\nb"))
     }
+
+    @Test
+    fun `queries with dots colons or spaces become searches`() {
+        assertEquals(browserSearchUrl("kotlin 2.0 release"), browserAddress("kotlin 2.0 release"))
+        assertEquals(browserSearchUrl("Node.js tutorial"), browserAddress("Node.js tutorial"))
+        assertEquals(browserSearchUrl("what is 12:30"), browserAddress("what is 12:30"))
+        assertEquals(browserSearchUrl("Node.js: tutorial"), browserAddress("Node.js: tutorial"))
+        assertEquals(browserSearchUrl("12:30"), browserAddress("12:30"))
+        assertEquals(browserSearchUrl("1.2"), browserAddress("1.2"))
+    }
+
+    @Test
+    fun `hosts ports and explicit schemes stay addresses`() {
+        assertEquals("https://example.com", browserAddress(" example.com "))
+        assertEquals("https://example.com:8443/a?q=1", browserAddress("example.com:8443/a?q=1"))
+        assertEquals("https://localhost", browserAddress("localhost"))
+        assertEquals("https://x", browserAddress("https://x"))
+        assertEquals("http://127.0.0.1:8080", browserAddress("http://127.0.0.1:8080"))
+        assertNull(browserAddress("about:blank"))
+        assertNull(browserAddress("data:text/html,hi"))
+        assertNull(browserAddress("https://exa mple.com"))
+    }
 }

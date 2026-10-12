@@ -3,11 +3,15 @@ package io.aequicor.heartbeat.feature.browser.impl.presentation.store
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.browser.api.BrowserDisplay
 import io.aequicor.heartbeat.feature.browser.api.BrowserError
 import io.aequicor.heartbeat.feature.browser.api.BrowserIntent
+import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserOutput
 import io.aequicor.heartbeat.feature.browser.api.BrowserPage
+import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserState
+import io.aequicor.heartbeat.feature.browser.api.BrowserTab
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserSurfaceAdapter
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserTestDispatchers
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserTestScope
@@ -20,6 +24,8 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import pro.respawn.flowmvi.api.Provider
 import pro.respawn.flowmvi.dsl.collect
 import kotlin.test.Test
@@ -97,6 +103,81 @@ class BrowserModelTest {
         assertFalse(screen.states.value.isLoading)
     }
 
+    @Test
+    fun `tab actions become correlated machine operations`() = runTest {
+        val fixture = Fixture(this)
+        fixture.subscribe()
+        fixture.model.store.intent(BrowserScreenIntent.NewTab)
+        fixture.model.store.intent(BrowserScreenIntent.CloseTab("tab"))
+        fixture.model.store.intent(BrowserScreenIntent.ClearData)
+        fixture.model.store.intent(BrowserScreenIntent.ApproveControl("tab", "control"))
+        fixture.model.store.intent(BrowserScreenIntent.RejectControl("tab", "control"))
+        runCurrent()
+        val requests = fixture.machine.performed()
+        val control = JsonObject(mapOf("controlRequestId" to JsonPrimitive("control")))
+        assertEquals(
+            listOf(
+                BrowserRequest("", BrowserOperation.NewTab),
+                BrowserRequest("", BrowserOperation.CloseTab, "tab"),
+                BrowserRequest("", BrowserOperation.ClearData),
+                BrowserRequest("", BrowserOperation.ApproveControl, "tab", arguments = control),
+                BrowserRequest("", BrowserOperation.RejectControl, "tab", arguments = control),
+            ),
+            requests.map { it.copy(id = "") },
+        )
+        assertEquals(requests.size, requests.map { it.id }.toSet().size)
+        assertTrue(requests.all { it.id.isNotBlank() })
+    }
+
+    @Test
+    fun `control toggle follows the selected tab ownership`() = runTest {
+        val fixture = Fixture(this)
+        fixture.subscribe()
+        fixture.model.store.intent(BrowserScreenIntent.ToggleControl)
+        runCurrent()
+        assertTrue(fixture.machine.performed().isEmpty())
+        fixture.machine.state.value = ready(BrowserPage()).copy(
+            tabs = listOf(BrowserTab("agent"), BrowserTab("human", isHumanControlled = true)),
+            selectedTabId = "agent",
+        )
+        runCurrent()
+        fixture.model.store.intent(BrowserScreenIntent.ToggleControl)
+        runCurrent()
+        val running = fixture.machine.state.value as BrowserState.Running
+        fixture.machine.state.value = running.copy(selectedTabId = "human")
+        runCurrent()
+        fixture.model.store.intent(BrowserScreenIntent.ToggleControl)
+        runCurrent()
+        assertEquals(
+            listOf(
+                BrowserRequest("", BrowserOperation.TakeControl, "agent"),
+                BrowserRequest("", BrowserOperation.ReturnControl, "human"),
+            ),
+            fixture.machine.performed().map { it.copy(id = "") },
+        )
+    }
+
+    @Test
+    fun `expansion toggles between panel and expanded display`() = runTest {
+        val fixture = Fixture(this)
+        fixture.subscribe()
+        fixture.model.store.intent(BrowserScreenIntent.ToggleExpanded)
+        runCurrent()
+        fixture.machine.state.value = ready(BrowserPage()).copy(display = BrowserDisplay.Expanded)
+        runCurrent()
+        fixture.model.store.intent(BrowserScreenIntent.ToggleExpanded)
+        fixture.model.store.intent(BrowserScreenIntent.Hide)
+        runCurrent()
+        assertEquals(
+            listOf(
+                BrowserIntent.Public.Display(BrowserDisplay.Expanded),
+                BrowserIntent.Public.Display(BrowserDisplay.Panel),
+                BrowserIntent.Public.Display(BrowserDisplay.Hidden),
+            ),
+            fixture.machine.sent.filterIsInstance<BrowserIntent.Public.Display>(),
+        )
+    }
+
     private class Fixture(private val scope: TestScope) {
         val machine = TestBrowserMachine()
         private val owner = BrowserTestScope(scope.backgroundScope)
@@ -136,4 +217,6 @@ private class TestBrowserMachine : Machine<BrowserState, BrowserIntent, BrowserO
         sent += intent
         return SendResult.Accepted
     }
+
+    fun performed(): List<BrowserRequest> = sent.filterIsInstance<BrowserIntent.Public.Perform>().map { it.request }
 }

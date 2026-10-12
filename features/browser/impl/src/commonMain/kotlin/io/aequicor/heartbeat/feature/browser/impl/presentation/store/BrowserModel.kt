@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserOutput
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserState
+import io.aequicor.heartbeat.feature.browser.api.browserAddress
 import io.aequicor.heartbeat.feature.browser.impl.di.scope.BrowserScope
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserSurface
 import kotlinx.collections.immutable.toImmutableList
@@ -126,11 +127,7 @@ internal class BrowserModel(
                     withState {
                         sendTo(
                             machine,
-                            BrowserIntent.Public.Open(
-                                io.aequicor.heartbeat.feature.browser.api.browserAddress(
-                                    address,
-                                ) ?: address,
-                            ),
+                            BrowserIntent.Public.Open(browserAddress(address) ?: address),
                         )
                     }
                 }

@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.browser.api
 
 import io.aequicor.heartbeat.core.statemachine.MachineSpec
 import io.aequicor.heartbeat.core.statemachine.machineSpec
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Transition table: Idle + Start -> Running [Observe]. Running + AvailabilityChanged -> stay,
@@ -10,22 +11,31 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * (history guard) -> stay loading [Back/Forward]. Enabled + Reload (nonempty URL) -> stay loading
  * [Reload]; Stop (loading guard) -> stay stopped [Stop]. Enabled + PageChanged (HTTP/S or empty) ->
  * stay with the current native page. Enabled + Display/SelectTab -> retain the profile runtime,
- * change presentation/selection only. Enabled + Perform -> reveal panel [Perform]; results are
- * emitted with their request identity. Running + CancelOperation -> [CancelOperation];
- * OperationCancelled emits a correlated acknowledgement. Running + TabsChanged -> project tabs and
+ * change presentation/selection only; a disabled browser accepts only Display(Hidden).
+ * Enabled + Perform -> reveal panel [Perform]; results are emitted with their request identity.
+ * Running + CancelOperation -> [CancelOperation]; OperationCancelled emits a correlated
+ * acknowledgement, also when cancellation itself failed. Running + TabsChanged -> project tabs and
  * active tab, independent of surface attachment. Running + Completed -> emit Completed; no page
- * contents are retained in machine state. Running + Failed -> stay with EngineUnavailable. Disabled
- * navigation and duplicate Start are ignored.
+ * contents are retained in machine state. Running + ObserverFailed -> stay disabled and hidden
+ * [Reobserve]; the effect already revoked the session. Running + Failed -> stay with
+ * EngineUnavailable. Disabled navigation and duplicate Start are ignored.
  *
  * ```mermaid
  * stateDiagram-v2
  *     [*] --> Idle
  *     Idle --> Running: Start / Observe
- *     Running --> Running: AvailabilityChanged, Open, Back, Forward, Reload, Stop, PageChanged, Failed
+ *     Running --> Running: AvailabilityChanged, PageChanged, TabsChanged, Failed
+ *     Running --> Running: Open / Load, Back, Forward, Reload, Stop
+ *     Running --> Running: Display, SelectTab / SelectTab
+ *     Running --> Running: Perform / Perform, Completed / output Completed
+ *     Running --> Running: CancelOperation / CancelOperation, OperationCancelled / output Cancelled
+ *     Running --> Running: ObserverFailed / Reobserve
  * ```
  *
  * All running updates use stay so the live toggle observer survives navigation, errors and
- * disabling.
+ * disabling. Effect failures never leave a request unanswered: Perform maps to an error result
+ * ("cancelled" for a cancellation raised inside the operation), CancelOperation to its
+ * acknowledgement, observation to a delayed restart; a failed SelectTab is only logged.
  */
 public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserEffect, BrowserOutput> =
     machineSpec(BrowserMachineKey, BrowserState.Idle) {
@@ -76,22 +86,12 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
             }
             on<BrowserIntent.Internal.AvailabilityChanged> {
                 stay {
-                    state.copy(
-                        isConfigured = true,
-                        isEnabled = intent.isEnabled,
-                        display = if (intent.isEnabled) state.display else BrowserDisplay.Hidden,
-                        page = if (intent.isEnabled) {
-                            state.page
-                        } else {
-                            state.page.copy(
-                                isLoading = false,
-                                isBackAvailable = false,
-                                isForwardAvailable = false,
-                                error = null,
-                            )
-                        },
-                    )
+                    if (intent.isEnabled) state.copy(isConfigured = true, isEnabled = true) else state.disabled()
                 }
+            }
+            on<BrowserIntent.Internal.ObserverFailed> {
+                stay { state.disabled() }
+                effect { BrowserEffect.Reobserve(intent.attempt) }
             }
             on<BrowserIntent.Public.Open>(
                 guard = {
@@ -157,13 +157,50 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
                 }
             }
         }
-        onEffectFailure { effect, _ ->
-            if (effect is BrowserEffect.Perform) {
-                BrowserIntent.Internal.Completed(
-                    BrowserResult(effect.request.id, error = "Browser operation failed"),
-                )
-            } else {
-                BrowserIntent.Internal.Failed
+        // Handlers answer results and recovered failures themselves; only escaped failures and
+        // cancellations raised inside an active effect arrive here, so each request is answered once.
+        onEffectFailure { effect, error ->
+            when (effect) {
+                is BrowserEffect.Perform ->
+                    BrowserIntent.Internal.Completed(
+                        BrowserResult(
+                            effect.request.id,
+                            error = if (error is CancellationException) {
+                                "Browser operation cancelled"
+                            } else {
+                                "Browser operation failed"
+                            },
+                        ),
+                    )
+
+                is BrowserEffect.CancelOperation -> BrowserIntent.Internal.OperationCancelled(effect.id)
+
+                // Selection is presentation-only; a stale tab must not mark the whole engine unavailable.
+                is BrowserEffect.SelectTab -> null
+
+                BrowserEffect.Observe -> BrowserIntent.Internal.ObserverFailed(attempt = 1)
+
+                is BrowserEffect.Reobserve -> BrowserIntent.Internal.ObserverFailed(effect.attempt + 1)
+
+                is BrowserEffect.Load,
+                BrowserEffect.Back,
+                BrowserEffect.Forward,
+                BrowserEffect.Reload,
+                BrowserEffect.Stop,
+                -> BrowserIntent.Internal.Failed
             }
         }
     }
+
+/** Revoked availability hides the surface and drops transient native state, keeping the address. */
+private fun BrowserState.Running.disabled(): BrowserState.Running = copy(
+    isConfigured = true,
+    isEnabled = false,
+    display = BrowserDisplay.Hidden,
+    page = page.copy(
+        isLoading = false,
+        isBackAvailable = false,
+        isForwardAvailable = false,
+        error = null,
+    ),
+)

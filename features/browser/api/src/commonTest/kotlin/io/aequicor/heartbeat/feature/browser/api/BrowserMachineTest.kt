@@ -2,8 +2,11 @@ package io.aequicor.heartbeat.feature.browser.api
 
 import io.aequicor.heartbeat.core.statemachine.assertIgnored
 import io.aequicor.heartbeat.core.statemachine.assertTransition
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 
 class BrowserMachineTest {
     private val ready = BrowserState.Running(isConfigured = true, isEnabled = true)
@@ -216,6 +219,119 @@ class BrowserMachineTest {
             from.copy(
                 page = from.page.copy(isLoading = false, error = BrowserError.EngineUnavailable),
             ),
+        )
+    }
+
+    @Test
+    fun `tab inventory updates tabs and selection without effects`() {
+        val tabs = listOf(BrowserTab("a"), BrowserTab("b"))
+        BrowserMachineSpec.assertTransition(
+            ready,
+            BrowserIntent.Internal.TabsChanged(tabs, "b"),
+            ready.copy(tabs = tabs, selectedTabId = "b"),
+        )
+        val disabled = ready.copy(isEnabled = false, tabs = tabs, selectedTabId = "b")
+        BrowserMachineSpec.assertTransition(
+            disabled,
+            BrowserIntent.Internal.TabsChanged(emptyList(), null),
+            disabled.copy(tabs = emptyList(), selectedTabId = null),
+        )
+    }
+
+    @Test
+    fun `operation results and cancellation acknowledgements become outputs`() {
+        val result = BrowserResult("operation", error = "boom")
+        BrowserMachineSpec.assertTransition(
+            ready,
+            BrowserIntent.Internal.Completed(result),
+            ready,
+            outputs = listOf(BrowserOutput.Completed(result)),
+        )
+        BrowserMachineSpec.assertTransition(
+            ready,
+            BrowserIntent.Internal.OperationCancelled("operation"),
+            ready,
+            outputs = listOf(BrowserOutput.Cancelled("operation")),
+        )
+    }
+
+    @Test
+    fun `disabling hides a visible browser`() {
+        val expanded = ready.copy(display = BrowserDisplay.Expanded)
+        BrowserMachineSpec.assertTransition(
+            expanded,
+            BrowserIntent.Internal.AvailabilityChanged(false),
+            expanded.copy(isEnabled = false, display = BrowserDisplay.Hidden),
+        )
+    }
+
+    @Test
+    fun `disabled browser can only be hidden and does not select tabs`() {
+        val disabled = ready.copy(isEnabled = false, tabs = listOf(BrowserTab("tab")))
+        BrowserMachineSpec.assertIgnored(disabled, BrowserIntent.Public.Display(BrowserDisplay.Panel))
+        BrowserMachineSpec.assertIgnored(disabled, BrowserIntent.Public.Display(BrowserDisplay.Expanded))
+        BrowserMachineSpec.assertIgnored(disabled, BrowserIntent.Public.SelectTab("tab"))
+        BrowserMachineSpec.assertTransition(
+            disabled,
+            BrowserIntent.Public.Display(BrowserDisplay.Hidden),
+            disabled,
+        )
+    }
+
+    @Test
+    fun `failed request effects still answer their requests`() {
+        val request = BrowserRequest("operation", BrowserOperation.NewTab)
+        val error = IllegalStateException("boom")
+        assertEquals(
+            BrowserIntent.Internal.Completed(BrowserResult(request.id, error = "Browser operation failed")),
+            BrowserMachineSpec.onEffectFailure(BrowserEffect.Perform(request), error),
+        )
+        assertEquals(
+            BrowserIntent.Internal.Completed(BrowserResult(request.id, error = "Browser operation cancelled")),
+            BrowserMachineSpec.onEffectFailure(BrowserEffect.Perform(request), CancellationException("timeout")),
+        )
+        assertEquals(
+            BrowserIntent.Internal.OperationCancelled(request.id),
+            BrowserMachineSpec.onEffectFailure(BrowserEffect.CancelOperation(request.id), error),
+        )
+        assertNull(BrowserMachineSpec.onEffectFailure(BrowserEffect.SelectTab("tab"), error))
+        assertEquals(
+            BrowserIntent.Internal.Failed,
+            BrowserMachineSpec.onEffectFailure(BrowserEffect.Load("https://example.com"), error),
+        )
+    }
+
+    @Test
+    fun `observer failure disables and hides the browser and restarts observation with growing attempts`() {
+        val error = IllegalStateException("boom")
+        assertEquals(
+            BrowserIntent.Internal.ObserverFailed(1),
+            BrowserMachineSpec.onEffectFailure(BrowserEffect.Observe, error),
+        )
+        assertEquals(
+            BrowserIntent.Internal.ObserverFailed(3),
+            BrowserMachineSpec.onEffectFailure(BrowserEffect.Reobserve(2), error),
+        )
+        val from = ready.copy(
+            display = BrowserDisplay.Panel,
+            page = BrowserPage("https://example.com", isLoading = true, isForwardAvailable = true),
+        )
+        val disabled = from.copy(
+            isEnabled = false,
+            display = BrowserDisplay.Hidden,
+            page = from.page.copy(isLoading = false, isForwardAvailable = false),
+        )
+        BrowserMachineSpec.assertTransition(
+            from,
+            BrowserIntent.Internal.ObserverFailed(2),
+            disabled,
+            listOf(BrowserEffect.Reobserve(2)),
+        )
+        BrowserMachineSpec.assertIgnored(disabled, BrowserIntent.Public.Open("example.com"))
+        BrowserMachineSpec.assertTransition(
+            disabled,
+            BrowserIntent.Internal.AvailabilityChanged(true),
+            disabled.copy(isEnabled = true),
         )
     }
 }

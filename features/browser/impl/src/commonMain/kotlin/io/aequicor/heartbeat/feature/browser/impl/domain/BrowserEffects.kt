@@ -9,40 +9,41 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
-/** Keeps live policy and native feedback in the machine while its running state remains active. */
+/**
+ * Keeps live policy and native feedback in the machine while its running state remains active.
+ *
+ * Request-scoped effects answer exactly once. Results and recovered failures are sent here; a cancellation
+ * raised inside a still-active effect (a timeout, a native call revoked by [BrowserEffect.CancelOperation])
+ * propagates, and the runtime answers it once through the spec's `onEffectFailure`. Cancellation of the
+ * effect itself needs no answer: it only happens when the machine stops and would drop any feedback.
+ */
 internal class BrowserEffects(private val availability: BrowserAvailability, private val session: BrowserSession) :
     EffectHandler<BrowserEffect, BrowserIntent> {
+    private val log = Log.tag("BrowserEffects")
+
     override suspend fun handle(effect: BrowserEffect, machine: EffectScope<BrowserIntent>) {
         when (effect) {
             is BrowserEffect.Perform -> perform(effect, machine)
 
-            is BrowserEffect.SelectTab -> session.selectTab(effect.id)
+            is BrowserEffect.SelectTab -> selectTab(effect.id)
 
-            is BrowserEffect.CancelOperation -> {
-                session.cancelOperation(effect.id)
-                machine.send(BrowserIntent.Internal.OperationCancelled(effect.id))
+            is BrowserEffect.CancelOperation -> cancelOperation(effect.id, machine)
+
+            BrowserEffect.Observe -> observe(machine)
+
+            is BrowserEffect.Reobserve -> {
+                delay(browserObserverRetryDelay(effect.attempt))
+                log.i { "Restarting browser observation, attempt ${effect.attempt}" }
+                observe(machine)
             }
-
-            BrowserEffect.Observe ->
-                coroutineScope {
-                    launch {
-                        session.tabs.collect { (tabs, selected) ->
-                            machine.send(BrowserIntent.Internal.TabsChanged(tabs, selected))
-                        }
-                    }
-                    launch {
-                        session.pages.collect {
-                            machine.send(BrowserIntent.Internal.PageChanged(it))
-                        }
-                    }
-                    availability.observe().collect { enabled ->
-                        session.setEnabled(enabled)
-                        machine.send(BrowserIntent.Internal.AvailabilityChanged(enabled))
-                    }
-                }
 
             is BrowserEffect.Load -> session.execute(BrowserCommand.Load(effect.url))
 
@@ -56,29 +57,84 @@ internal class BrowserEffects(private val availability: BrowserAvailability, pri
         }
     }
 
-    private suspend fun perform(effect: BrowserEffect.Perform, machine: EffectScope<BrowserIntent>) {
-        var result: BrowserResult? = null
+    /**
+     * Observation ending abnormally while the effect is still active revokes the session first: a dead
+     * toggle observer must not leave it enabled. The spec then restarts observation after a backoff.
+     */
+    private suspend fun observe(machine: EffectScope<BrowserIntent>) {
+        val effect = currentCoroutineContext().job
+        var isFailed = true
         try {
-            result = session.perform(effect.request)
+            coroutineScope {
+                launch {
+                    session.tabs.collect { (tabs, selected) ->
+                        machine.send(BrowserIntent.Internal.TabsChanged(tabs, selected))
+                    }
+                }
+                launch {
+                    session.pages.collect {
+                        machine.send(BrowserIntent.Internal.PageChanged(it))
+                    }
+                }
+                availability.observe().collect { enabled ->
+                    session.setEnabled(enabled)
+                    machine.send(BrowserIntent.Internal.AvailabilityChanged(enabled))
+                }
+            }
+            isFailed = false
+        } finally {
+            if (isFailed && effect.isActive) withContext(NonCancellable) { revokeAfterObserverFailure() }
+        }
+    }
+
+    private suspend fun revokeAfterObserverFailure() {
+        try {
+            session.setEnabled(false)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            Log.tag("BrowserEffects").w(IllegalStateException(error::class.simpleName)) {
-                "Browser operation failed"
-            }
-            result = BrowserResult(effect.request.id, error = "Browser operation failed")
-        } finally {
-            withContext(NonCancellable) {
-                machine.send(
-                    BrowserIntent.Internal.Completed(
-                        result
-                            ?: BrowserResult(
-                                effect.request.id,
-                                error = "Browser operation cancelled",
-                            ),
-                    ),
-                )
-            }
+            log.e(error.redactedBrowserFailure()) { "Browser session could not be revoked after observer failure" }
         }
     }
+
+    private suspend fun selectTab(id: String) {
+        try {
+            session.selectTab(id)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(error.redactedBrowserFailure()) { "Browser tab selection failed" }
+        }
+    }
+
+    /** The owner waits for the acknowledgement, so it is sent even when cancellation itself failed. */
+    private suspend fun cancelOperation(id: String, machine: EffectScope<BrowserIntent>) {
+        try {
+            session.cancelOperation(id)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(error.redactedBrowserFailure()) { "Browser operation cancellation failed" }
+        }
+        machine.send(BrowserIntent.Internal.OperationCancelled(id))
+    }
+
+    private suspend fun perform(effect: BrowserEffect.Perform, machine: EffectScope<BrowserIntent>) {
+        val result = try {
+            session.perform(effect.request)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(error.redactedBrowserFailure()) { "Browser operation failed" }
+            BrowserResult(effect.request.id, error = "Browser operation failed")
+        }
+        machine.send(BrowserIntent.Internal.Completed(result))
+    }
 }
+
+/** Exponential backoff for restarting observation: 1 s, 2 s, 4 s … capped at one minute. */
+internal fun browserObserverRetryDelay(attempt: Int): Duration =
+    (1 shl (attempt.coerceIn(1, MAX_BACKOFF_SHIFT) - 1)).seconds.coerceAtMost(MAX_OBSERVER_RETRY_DELAY)
+
+private const val MAX_BACKOFF_SHIFT = 7
+private val MAX_OBSERVER_RETRY_DELAY = 60.seconds

@@ -112,6 +112,12 @@ public sealed interface BrowserIntent : MachineIntent {
 
         /** An effect could not be completed; runtime logs the exception. */
         public data object Failed : Internal
+
+        /**
+         * Live observation stopped after its [attempt]-th failure in this running state; the session has been
+         * revoked and observation restarts after a bounded backoff.
+         */
+        public data class ObserverFailed(val attempt: Int) : Internal
     }
 }
 
@@ -128,6 +134,9 @@ public sealed interface BrowserEffect : MachineEffect {
 
     /** Observes availability and native state for the entire running state lifetime. */
     public data object Observe : BrowserEffect
+
+    /** Restarts failed observation after a backoff that grows with [attempt]. */
+    public data class Reobserve(val attempt: Int) : BrowserEffect
 
     /** Loads an already normalized HTTP(S) address. */
     public data class Load(val url: String) : BrowserEffect
@@ -154,7 +163,7 @@ public sealed interface BrowserOutput : MachineOutput {
     public data class Completed(val result: BrowserResult) : BrowserOutput
 }
 
-/** Public address of the feature-scoped browser machine. */
+/** Public address of the browser machine, launched once per profile in `ProfileScope`. */
 public object BrowserMachineKey :
     MachineKey<BrowserState, BrowserIntent, BrowserIntent.Public, BrowserEffect, BrowserOutput> {
     override val name: String = "browser"
