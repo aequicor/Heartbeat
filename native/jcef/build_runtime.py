@@ -124,6 +124,7 @@ def metadata(target: str) -> bytes:
 
 def zip_entry(archive: zipfile.ZipFile, name: str, content: bytes | Path) -> None:
     info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+    info.create_system = 3  # Unix attributes on every host; ZipInfo defaults differ on Windows.
     info.compress_type = zipfile.ZIP_STORED
     info.external_attr = 0o100644 << 16
     with archive.open(info, "w", force_zip64=True) as target:

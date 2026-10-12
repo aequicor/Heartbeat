@@ -38,6 +38,7 @@ class RuntimePackagingTest(unittest.TestCase):
         with zipfile.ZipFile(self.root / "first" / name) as jar:
             archive = f"jcef-natives-windows-amd64-{runtime.RELEASE_TAG}.tar.gz"
             self.assertEqual([archive], jar.namelist())
+            self.assertEqual(3, jar.getinfo(archive).create_system)
             with tarfile.open(fileobj=io.BytesIO(jar.read(archive)), mode="r:gz") as tar:
                 self.assertIn("jcef_helper.exe", tar.getnames())
                 self.assertTrue(all(member.mtime == 0 for member in tar.getmembers()))
