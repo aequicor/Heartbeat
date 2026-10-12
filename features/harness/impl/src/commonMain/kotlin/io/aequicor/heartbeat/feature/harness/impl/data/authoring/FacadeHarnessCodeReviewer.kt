@@ -3,6 +3,8 @@ package io.aequicor.heartbeat.feature.harness.impl.data.authoring
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.SingleIn
+import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
@@ -24,6 +26,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.answerOf
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.CodeReview
@@ -32,8 +35,14 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeRe
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.parseCodeReview
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.referenceText
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration.Companion.minutes
@@ -41,19 +50,25 @@ import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 /** A fresh service session on the caller's model; no workspace or hosted tools, no inherited harnesses. */
+@SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
 @Inject
 internal class FacadeHarnessCodeReviewer(
     private val facade: Lazy<EngineFacade>,
     private val policy: HarnessReviewIsolation,
+    @ForScope(ProfileScope::class) private val scope: CoroutineScope,
 ) : HarnessCodeReviewer {
     private val log = Log.tag("HarnessReviewer")
+    private val slot = Mutex()
 
     override suspend fun review(target: EngineTarget, change: String): CodeReview {
         val descriptor = facade.value.engines.state.value.firstOrNull { it.descriptor.id == target.engine }?.descriptor
             ?: return uncertain("Каталог инструментов модели недоступен для изоляции ревью.")
         val creates = facade.value.engines.features(target.engine).resolve(CreatesSessions) as? FeatureAccess.Available
             ?: return uncertain("Модель не поддерживает отдельную сессию ревью.")
+        if (!scope.isActive || !slot.tryLock()) {
+            return uncertain("Предыдущее ревью ещё завершает работу. Требуется ваше решение.")
+        }
         var session: ActiveSession? = null
         try {
             return withTimeoutOrNull(2.minutes) {
@@ -63,7 +78,8 @@ internal class FacadeHarnessCodeReviewer(
                 assess(opened, change)
             } ?: uncertain("Истекло время автоматического ревью. Требуется ваше решение.")
         } finally {
-            session?.let { withContext(NonCancellable) { dismiss(it) } }
+            val opened = session
+            if (opened == null) slot.unlock() else withContext(NonCancellable) { dismiss(opened) }
         }
     }
 
@@ -98,35 +114,66 @@ internal class FacadeHarnessCodeReviewer(
         return parseCodeReview(answer.orEmpty())
     }
 
+    /** Cancel only requests interruption. Keep the slot and observation until that exact turn terminates. */
     private suspend fun dismiss(session: ActiveSession) {
-        try {
-            withTimeoutOrNull(10.seconds) {
-                val turn = when (val state = session.state.value) {
-                    is ActiveSessionState.Submitting -> state.turn
-                    is ActiveSessionState.Running -> state.turn
-                    is ActiveSessionState.AwaitingUserAction -> state.turn
-                    is ActiveSessionState.Interrupting -> state.turn
-                    is ActiveSessionState.Unavailable -> state.activeTurn
-                    else -> null
-                }
-                if (turn != null) {
-                    (session.features.resolve(CancelsTurns) as? FeatureAccess.Available)?.feature?.cancel(turn.id)
-                }
-                (facade.value.sessions.get(session.ref).features.resolve(ArchivesSessions) as? FeatureAccess.Available)
-                    ?.feature?.setArchived(true)
-            } ?: log.w { "Script reviewer cleanup timed out" }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.w(IllegalStateException(e::class.simpleName.orEmpty())) { "Script reviewer cleanup failed" }
-        } finally {
-            val isTerminal = session.state.value is ActiveSessionState.Ready
+        val turn = when (val state = session.state.value) {
+            is ActiveSessionState.Submitting -> state.turn
+            is ActiveSessionState.Running -> state.turn
+            is ActiveSessionState.AwaitingUserAction -> state.turn
+            is ActiveSessionState.Interrupting -> state.turn
+            is ActiveSessionState.Unavailable -> state.activeTurn
+            else -> null
+        }?.id
+        val isSettled = cleanup("stop") {
+            if (turn != null) {
+                (session.features.resolve(CancelsTurns) as? FeatureAccess.Available)?.feature?.cancel(turn)
+            }
+            awaitTerminal(session, turn)
+        }
+        if (isSettled && finish(session)) {
+            slot.unlock()
+            return
+        }
+        // Start even if profile cancellation raced with the handoff, so finally always releases the handle.
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            var isReleased = false
             try {
-                withContext(NonCancellable) { session.close() }
+                awaitTerminal(session, turn)
+                isReleased = finish(session)
+                if (isReleased) slot.unlock() else awaitCancellation()
             } finally {
-                if (isTerminal) policy.release(session.ref)
+                if (!isReleased) withContext(NonCancellable) { cleanup("close") { session.close() } }
             }
         }
+    }
+
+    private suspend fun awaitTerminal(session: ActiveSession, turn: TurnId?) {
+        session.state.first { it is ActiveSessionState.Ready && (turn == null || it.lastTurn?.id == turn) }
+    }
+
+    private suspend fun finish(session: ActiveSession): Boolean {
+        cleanup("archive") {
+            (facade.value.sessions.get(session.ref).features.resolve(ArchivesSessions) as? FeatureAccess.Available)
+                ?.feature?.setArchived(true)
+        }
+        val isClosed = cleanup("close") { session.close() }
+        if (isClosed) policy.release(session.ref)
+        return isClosed
+    }
+
+    /** Provider errors may contain source; every phase, including handle detachment, has a finite deadline. */
+    private suspend fun cleanup(phase: String, block: suspend () -> Unit): Boolean = try {
+        val isCompleted = withTimeoutOrNull(10.seconds) {
+            block()
+            true
+        } ?: false
+        if (!isCompleted) log.w { "Script reviewer $phase timed out" }
+        isCompleted
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(IllegalStateException(e::class.simpleName.orEmpty())) { "Script reviewer $phase failed" }
+        false
     }
 }
 

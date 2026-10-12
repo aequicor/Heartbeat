@@ -59,7 +59,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -75,7 +79,7 @@ import kotlin.test.assertTrue
 class FacadeHarnessCodeReviewerTest {
     @Test
     fun `review uses a fresh isolated session and releases it after a complete verdict`() = runTest {
-        val f = ReviewFixture()
+        val f = ReviewFixture(backgroundScope)
         assertTrue(f.reviewer.review(f.target, "{\"source\":\"safe code\"}").isSafe)
         val request = f.creations.single()
         assertNull(request.workspace)
@@ -90,26 +94,76 @@ class FacadeHarnessCodeReviewerTest {
 
     @Test
     fun `review timeout cancels closes and returns uncertainty`() = runTest {
-        val f = ReviewFixture().apply { outcome = null }
+        val f = ReviewFixture(backgroundScope).apply { outcome = null }
         assertFalse(f.reviewer.review(f.target, "{}").isSafe)
         assertEquals(1, f.cancels)
         assertTrue(f.closed)
     }
 
     @Test
-    fun `unknown cancellation keeps native restrictions even after closing the handle`() = runTest {
-        val f = ReviewFixture().apply {
+    fun `unknown cancellation holds the only reviewer slot and restrictions`() = runTest {
+        val f = ReviewFixture(backgroundScope).apply {
             outcome = null
             ignoresCancel = true
         }
         assertFalse(f.reviewer.review(f.target, "{}").isSafe)
-        assertTrue(f.closed)
+        assertFalse(f.closed)
+        assertFalse(f.reviewer.review(f.target, "second").isSafe)
+        assertEquals(1, f.creations.size)
         assertEquals(ToolSwitch.Off, f.policy.policy(ToolPolicyScope(session = f.ref))?.native?.get("shell"))
     }
 
     @Test
+    fun `late terminal acknowledgement closes the retained session and allows the next review`() = runTest {
+        val f = ReviewFixture(backgroundScope).apply {
+            outcome = null
+            ignoresCancel = true
+        }
+        assertFalse(f.reviewer.review(f.target, "{}").isSafe)
+        f.finish(TurnId("unrelated"))
+        runCurrent()
+        assertFalse(f.closed)
+        assertFalse(f.reviewer.review(f.target, "second").isSafe)
+        assertEquals(1, f.creations.size)
+        f.finish()
+        runCurrent()
+        assertTrue(f.closed)
+        assertTrue(f.archived)
+        assertNull(f.policy.policy(ToolPolicyScope(session = f.ref)))
+        f.outcome = TurnOutcome.Completed
+        assertTrue(f.reviewer.review(f.target, "third").isSafe)
+        assertEquals(2, f.creations.size)
+    }
+
+    @Test
+    fun `profile shutdown closes the retained reviewer handle`() = runTest {
+        val owner = CoroutineScope(backgroundScope.coroutineContext + Job())
+        val f = ReviewFixture(owner).apply {
+            outcome = null
+            ignoresCancel = true
+        }
+        assertFalse(f.reviewer.review(f.target, "{}").isSafe)
+        assertFalse(f.closed)
+        owner.cancel()
+        runCurrent()
+        assertTrue(f.closed)
+        assertFalse(f.reviewer.review(f.target, "second").isSafe)
+        assertEquals(1, f.creations.size)
+    }
+
+    @Test
+    fun `unresponsive close is bounded and holds the reviewer slot`() = runTest {
+        val f = ReviewFixture(backgroundScope).apply { hangsOnClose = true }
+        assertTrue(f.reviewer.review(f.target, "{}").isSafe)
+        assertFalse(f.closed)
+        assertFalse(f.reviewer.review(f.target, "second").isSafe)
+        assertEquals(1, f.creations.size)
+        f.hangsOnClose = false
+    }
+
+    @Test
     fun `a permission request is never answered or interpreted as a safe verdict`() = runTest {
-        val f = ReviewFixture().apply { asks = true }
+        val f = ReviewFixture(backgroundScope).apply { asks = true }
         assertFalse(f.reviewer.review(f.target, "{}").isSafe)
         assertEquals(1, f.cancels)
         assertTrue(f.closed)
@@ -117,7 +171,7 @@ class FacadeHarnessCodeReviewerTest {
 
     @Test
     fun `cancelling the parent cleans up and propagates`() = runTest {
-        val f = ReviewFixture().apply { outcome = null }
+        val f = ReviewFixture(backgroundScope).apply { outcome = null }
         val task = async { f.reviewer.review(f.target, "{}") }
         runCurrent()
         task.cancelAndJoin()
@@ -127,7 +181,7 @@ class FacadeHarnessCodeReviewerTest {
     }
 }
 
-private class ReviewFixture {
+private class ReviewFixture(scope: CoroutineScope) {
     val target = EngineTarget(EngineId("test"), EngineBindingId("binding"), ModelId("model"))
     val ref = SessionRef(target.engine, SessionSourceId("source"), "review")
     val policy = HarnessReviewToolPolicy()
@@ -137,6 +191,7 @@ private class ReviewFixture {
     var cancels = 0
     var outcome: TurnOutcome? = TurnOutcome.Completed
     var ignoresCancel = false
+    var hangsOnClose = false
     var asks = false
     val creations = mutableListOf<CreateSessionRequest>()
     private val state = MutableStateFlow<ActiveSessionState>(ActiveSessionState.Ready())
@@ -200,6 +255,7 @@ private class ReviewFixture {
             ),
         )
         override suspend fun close() {
+            if (hangsOnClose) awaitCancellation()
             closed = true
             state.value = ActiveSessionState.Closed
         }
@@ -207,6 +263,8 @@ private class ReviewFixture {
     private val creates = object : CreatesSessions {
         override suspend fun create(request: CreateSessionRequest): ActiveSession {
             creations += request
+            state.value = ActiveSessionState.Ready()
+            closed = false
             return session
         }
     }
@@ -251,7 +309,11 @@ private class ReviewFixture {
         override val models: ModelCatalog get() = error("unused")
         override val providerUsage: ProviderUsageCatalog get() = error("unused")
     }
-    val reviewer = FacadeHarnessCodeReviewer(lazyOf(facade), policy)
+    val reviewer = FacadeHarnessCodeReviewer(lazyOf(facade), policy, scope)
+
+    fun finish(turnId: TurnId = turn) {
+        state.value = ActiveSessionState.Ready(Turn(turnId, null, target, TurnOutcome.Cancelled))
+    }
 }
 
 private fun reviewFeatures(entries: Map<EngineFeatureKey<*>, EngineFeature>) = object : EngineFeatures {

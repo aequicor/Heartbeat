@@ -5,7 +5,15 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.descriptors.buildClassSerialDescriptor
+import kotlinx.serialization.descriptors.element
+import kotlinx.serialization.encoding.CompositeDecoder
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.encoding.decodeStructure
 import kotlinx.serialization.json.Json
 
 /** Independent assessment of the complete proposed change. No source or assessment text is logged. */
@@ -58,7 +66,7 @@ internal class HarnessCodeReviews(private val reviewer: HarnessCodeReviewer) {
 internal fun parseCodeReview(answer: String): CodeReview {
     if (answer.length > MAX_REVIEW_ANSWER) return invalidReview()
     val review = try {
-        Json.decodeFromString<CodeReview>(answer)
+        Json.decodeFromString(UniqueCodeReview, answer)
     } catch (e: IllegalArgumentException) {
         reviewLog.w(
             IllegalArgumentException(e::class.simpleName.orEmpty()),
@@ -75,3 +83,28 @@ private val reviewLog = Log.tag("HarnessCodeReview")
 private const val REVIEW_MEMO = 16
 private const val MAX_REVIEW_ANSWER = 4096
 private const val MAX_REASON = 2000
+
+/** Reads fields directly: a JSON tree would already have discarded duplicate keys. */
+private object UniqueCodeReview : KSerializer<CodeReview> {
+    override val descriptor = buildClassSerialDescriptor("UniqueCodeReview") {
+        element<String>("verdict")
+        element<String>("reason")
+    }
+
+    override fun deserialize(decoder: Decoder): CodeReview = decoder.decodeStructure(descriptor) {
+        val fields = mutableMapOf<Int, String>()
+        while (true) {
+            val index = decodeElementIndex(descriptor)
+            if (index == CompositeDecoder.DECODE_DONE) break
+            if (index !in 0..1 || index in fields) throw SerializationException("Ambiguous review fields")
+            fields[index] = decodeStringElement(descriptor, index)
+        }
+        CodeReview(
+            fields[0] ?: throw SerializationException("Missing verdict"),
+            fields[1] ?: throw SerializationException("Missing reason"),
+        )
+    }
+
+    override fun serialize(encoder: Encoder, value: CodeReview) =
+        throw SerializationException("Review decoder is read-only")
+}

@@ -24,7 +24,7 @@ internal interface HarnessReviewIsolation {
 /**
  * Native Off applies before the first review prompt, including ungated Codex tools (its adapter cold-resumes
  * with the policy before submitting). There is no project, detached hosted tools or inherited harness selection.
- * A session whose terminal state is unknown retains its restrictions for the rest of the profile lifetime.
+ * A session whose terminal state is unknown retains its restrictions until observed completion or profile closure.
  */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class, binding = binding<HarnessReviewIsolation>())

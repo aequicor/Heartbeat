@@ -34,6 +34,19 @@ class HarnessCodeReviewTest {
     }
 
     @Test
+    fun `duplicate or escaped duplicate fields never approve`() {
+        for (answer in listOf(
+            """{"verdict":"risk","verdict":"safe","reason":"Formatting"}""",
+            """{"verdict":"safe","reason":"Risk","reason":"Formatting"}""",
+            """{"verdict":"safe","verdict":"safe","reason":"Formatting"}""",
+            """{"verdict":"risk","ver\u0064ict":"safe","reason":"Formatting"}""",
+        )) {
+            assertEquals("uncertain", parseCodeReview(answer).verdict, answer)
+        }
+        assertTrue(parseCodeReview("""{"reason":"Formatting","verdict":"safe"}""").isSafe)
+    }
+
+    @Test
     fun `review is reused only for the exact key and execution cannot start it`() = runTest {
         var calls = 0
         val reviews = HarnessCodeReviews { _, _ ->
