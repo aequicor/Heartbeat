@@ -129,6 +129,22 @@ class ResearchRecoveryResourcesTest {
     }
 
     @Test
+    fun `recovery start cannot replace newer ready evidence with the same null attempt`() {
+        val failed = source.copy(text = "", loadState = ResearchLoadState.Failed)
+        val pending = failed.copy(loadState = ResearchLoadState.Loading, recoveryAttempt = "new")
+        assertEquals(pending, failed.applyRecoveryUpdate(failed, pending))
+        assertEquals(source, source.applyRecoveryUpdate(failed, pending))
+    }
+
+    @Test
+    fun `late recovery failure preserves concurrent source hydration even with the same attempt`() {
+        val pending = source.copy(text = "", loadState = ResearchLoadState.Loading, recoveryAttempt = "same")
+        val hydrated = pending.copy(text = "Verified evidence", loadState = ResearchLoadState.Ready)
+        val failed = pending.copy(loadState = ResearchLoadState.NeedsUserAction, loadError = "browser_retry_required")
+        assertEquals(hydrated, hydrated.applyRecoveryUpdate(pending, failed))
+    }
+
+    @Test
     fun `challenge and empty captures do not become evidence`() {
         val normal = buildJsonObject {
             put("title", "Article")

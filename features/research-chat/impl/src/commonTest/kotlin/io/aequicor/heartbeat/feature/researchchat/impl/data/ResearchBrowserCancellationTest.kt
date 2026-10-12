@@ -16,10 +16,17 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentDescriptor
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentInput
+import io.aequicor.heartbeat.feature.browser.api.BrowserAgentControl
+import io.aequicor.heartbeat.feature.browser.api.BrowserEnabled
 import io.aequicor.heartbeat.feature.browser.api.BrowserIntent
 import io.aequicor.heartbeat.feature.browser.api.BrowserMachineKey
 import io.aequicor.heartbeat.feature.browser.api.BrowserOutput
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
+import io.aequicor.heartbeat.feature.browser.api.BrowserResearchAccess
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserState
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchLoadState
@@ -29,17 +36,19 @@ import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceKind
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchSession
 import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchAttachments
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -51,6 +60,79 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class ResearchBrowserCancellationTest {
+    @Test
+    fun `profile closure cancels import and rejects the late attachment result`() = runTest {
+        val profileJob = Job(backgroundScope.coroutineContext[Job])
+        val attachments = PendingAttachments()
+        val fixture = Fixture(CoroutineScope(backgroundScope.coroutineContext + profileJob), attachments)
+        fixture.prepare()
+        val operation = async { fixture.recover("source", ResearchRecoveryAction.Continue) }
+        runCurrent()
+        complete(fixture, fixture.machine.requests.single(), documentResult())
+        assertTrue(attachments.started.isCompleted)
+        profileJob.cancel()
+        runCurrent()
+        attachments.finish()
+        assertFailsWith<CancellationException> { operation.await() }
+        assertEquals(ResearchLoadState.NeedsUserAction, fixture.source().loadState)
+        assertEquals(null, fixture.source().attachmentId)
+    }
+
+    @Test
+    fun `source deletion cancels import and late attachment cannot recreate it`() = runTest {
+        val attachments = PendingAttachments()
+        val fixture = Fixture(backgroundScope, attachments)
+        fixture.prepare()
+        val operation = async { fixture.recover("source", ResearchRecoveryAction.Continue) }
+        runCurrent()
+        complete(fixture, fixture.machine.requests.single(), documentResult())
+        fixture.storage.update("session") { session ->
+            session.copy(resources = session.resources.filterNot { it.id == "source" })
+        }
+        runCurrent()
+        attachments.finish()
+        assertFailsWith<CancellationException> { operation.await() }
+        assertEquals(listOf("other"), fixture.storage.read().single().resources.map { it.id })
+    }
+
+    @Test
+    fun `either recovery flag revokes import and reenable cannot accept its late result`() = runTest {
+        listOf(BrowserEnabled, BrowserResearchAccess).forEach { flag ->
+            val attachments = PendingAttachments()
+            val fixture = Fixture(backgroundScope, attachments)
+            fixture.prepare()
+            val operation = async { fixture.recover("source", ResearchRecoveryAction.Continue) }
+            runCurrent()
+            complete(fixture, fixture.machine.requests.single(), documentResult())
+            assertTrue(attachments.started.isCompleted)
+            fixture.toggles.set(flag, false)
+            runCurrent()
+            fixture.toggles.set(flag, true)
+            attachments.finish()
+            runCurrent()
+            assertFailsWith<CancellationException> { operation.await() }
+            assertEquals(ResearchLoadState.NeedsUserAction, fixture.source().loadState)
+            assertEquals(null, fixture.source().attachmentId)
+            assertEquals(null, fixture.source().recoveryAttempt)
+        }
+    }
+
+    @Test
+    fun `agent control flag does not revoke human document recovery`() = runTest {
+        val attachments = PendingAttachments()
+        val fixture = Fixture(backgroundScope, attachments)
+        fixture.prepare()
+        val operation = async { fixture.recover("source", ResearchRecoveryAction.Continue) }
+        runCurrent()
+        complete(fixture, fixture.machine.requests.single(), documentResult())
+        fixture.toggles.set(BrowserAgentControl, false)
+        runCurrent()
+        attachments.finish()
+        operation.await()
+        assertEquals(ResearchLoadState.Ready, fixture.source().loadState)
+        assertEquals(AttachmentId("download"), fixture.source().attachmentId)
+    }
+
     @Test
     fun `retry waits for cancelled source cleanup while another source proceeds`() = runTest {
         val fixture = Fixture(backgroundScope)
@@ -87,7 +169,7 @@ class ResearchBrowserCancellationTest {
     }
 
     @Test
-    fun `late cancellation preserves completed evidence and does not dispatch native work`() = runTest {
+    fun `late continue open and cancellation preserve completed evidence without native work`() = runTest {
         val fixture = Fixture(backgroundScope)
         fixture.prepare()
         fixture.storage.update("session") { session ->
@@ -98,37 +180,76 @@ class ResearchBrowserCancellationTest {
             )
         }
         val completed = fixture.source()
-        fixture.recover("source", ResearchRecoveryAction.Cancel)
-        assertEquals(completed, fixture.source())
-        assertTrue(fixture.machine.requests.isEmpty())
+        ResearchRecoveryAction.entries.forEach { action ->
+            fixture.recover("source", action)
+            assertEquals(completed, fixture.source())
+            assertTrue(fixture.machine.requests.isEmpty())
+        }
         val newer = completed.copy(loadState = ResearchLoadState.Loading, recoveryAttempt = "new")
         assertEquals(newer, newer.cancelRecoveryAttempt("old"))
     }
 
-    private suspend fun TestScope.complete(fixture: Fixture, request: BrowserRequest) {
+    private suspend fun TestScope.complete(
+        fixture: Fixture,
+        request: BrowserRequest,
+        data: JsonObject = buildJsonObject { put("tabId", "tab-${request.id}") },
+    ) {
         fixture.machine.outputs.emit(
-            BrowserOutput.Completed(BrowserResult(request.id, buildJsonObject { put("tabId", "tab-${request.id}") })),
+            BrowserOutput.Completed(BrowserResult(request.id, data)),
         )
         runCurrent()
         fixture.machine.outputs.emit(BrowserOutput.Cancelled(request.id))
         runCurrent()
     }
 
-    private class Fixture(scope: CoroutineScope) {
+    private fun documentResult(): JsonObject = buildJsonObject {
+        put("kind", "document")
+        put("mediaType", "application/pdf")
+        put("contentBase64", "JVBERi0=")
+        put("extension", "pdf")
+    }
+
+    private class PendingAttachments : ResearchAttachments by ResearchAttachments.Legacy {
+        val started = CompletableDeferred<Unit>()
+        private val result = CompletableDeferred<List<AttachmentDescriptor>>()
+
+        override suspend fun import(
+            inputs: List<AttachmentInput>,
+            support: PromptInputSupport,
+        ): List<AttachmentDescriptor> {
+            started.complete(Unit)
+            return result.await()
+        }
+
+        fun finish() {
+            result.complete(listOf(AttachmentDescriptor(AttachmentId("download"), "source.pdf", "application/pdf", 5)))
+        }
+    }
+
+    private class Fixture(scope: CoroutineScope, attachments: ResearchAttachments = ResearchAttachments.Legacy) {
         val storage = ExecutionStorage()
         val machine = BrowserMachine()
+        val toggles = MutableToggles()
         private val recovery = ResearchBrowserRecovery(
             storage,
             BrowserRegistry(machine),
-            EnabledToggles(),
-            ResearchAttachments.Legacy,
+            toggles,
+            attachments,
             Profile(scope),
         )
 
         suspend fun prepare() {
             val target = EngineTarget(EngineId("koog"), EngineBindingId("binding"), ModelId("model"))
             val sources = listOf("source", "other").map { id ->
-                ResearchResource(id, id, ResearchResourceKind.Website, "https://example.com/$id", "text/html")
+                ResearchResource(
+                    id,
+                    id,
+                    ResearchResourceKind.Website,
+                    "https://example.com/$id",
+                    "text/html",
+                    loadState = ResearchLoadState.Failed,
+                    browserTabId = "existing-tab",
+                )
             }
             storage.add(ResearchSession("session", "", target, emptyList(), sources))
         }
@@ -174,11 +295,20 @@ class ResearchBrowserCancellationTest {
         ): SendResult = requireNotNull(find(key)).send(intent)
     }
 
-    private class EnabledToggles : FeatureToggles {
-        @Suppress("UNCHECKED_CAST") // Recovery only reads boolean flags.
-        override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = true as T
+    private class MutableToggles : FeatureToggles {
+        private val values = mutableMapOf<FeatureToggle<*>, MutableStateFlow<Boolean>>()
 
-        override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = flow { emit(get(toggle)) }
+        fun set(toggle: FeatureToggle<Boolean>, enabled: Boolean) {
+            values.getOrPut(toggle) { MutableStateFlow(true) }.value = enabled
+        }
+
+        @Suppress("UNCHECKED_CAST") // Recovery only reads boolean flags.
+        override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T =
+            values.getOrPut(toggle) { MutableStateFlow(true) }.value as T
+
+        @Suppress("UNCHECKED_CAST") // Recovery only observes boolean flags.
+        override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> =
+            values.getOrPut(toggle) { MutableStateFlow(true) } as Flow<T>
     }
 
     private class Profile(override val coroutineScope: CoroutineScope) : ScopeHandle {
