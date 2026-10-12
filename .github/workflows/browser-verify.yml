@@ -1,0 +1,149 @@
+name: Embedded browser verification
+
+on:
+  push:
+    branches: [feat/embedded-webview-browser]
+    paths:
+      - features/browser/**
+      - features/research-chat/**
+      - features/ai-studio/**
+      - features/plant-uml-support/**
+      - core/di/**
+      - design-system/**
+      - config/detekt/**
+      - platform-main/**
+      - build-logic/**
+      - gradle/**
+      - gradle.properties
+      - native/jcef/source-lock.json
+      - settings.gradle.kts
+      - .github/workflows/browser-verify.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: macOS application, native UI, and iOS compatibility
+    runs-on: macos-15
+    timeout-minutes: 120
+    env:
+      GRADLE_OPTS: -Dorg.gradle.workers.max=3
+      JAVA_TOOL_OPTIONS: -Djava.awt.headless=false -XX:ErrorFile=${{ github.workspace }}/build/ci-diagnostics/hs_err_pid%p.log
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: microsoft
+          java-version: '21.0.10'
+      - name: Restore Gradle dependencies, toolchains, and Kotlin Native
+        id: build-cache
+        uses: actions/cache/restore@v4
+        with:
+          key: browser-macos-v1-${{ runner.arch }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties', 'gradle/libs.versions.toml', 'settings.gradle.kts', 'build-logic/**/*.kts', '**/build.gradle.kts') }}
+          restore-keys: browser-macos-v1-${{ runner.arch }}-
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.gradle/jdks
+            ~/.konan
+      - name: Record graphical session and Apple SDKs
+        shell: bash
+        run: |
+          mkdir -p build/ci-diagnostics
+          {
+            sw_vers
+            xcodebuild -version
+            xcrun --sdk iphonesimulator --show-sdk-version
+            stat -f 'Console session owner: %Su' /dev/console
+            system_profiler SPDisplaysDataType
+          } | tee build/ci-diagnostics/environment.log
+      - name: JVM behavior and complete dependency graph
+        run: >-
+          bash gradlew :features:browser:api:jvmTest :features:browser:impl:jvmTest
+          :features:research-chat:api:jvmTest :features:research-chat:impl:jvmTest
+          :features:ai-studio:impl:jvmTest :platform-main:di-bundle:jvmTest
+          :features:plant-uml-support:impl:jvmTest
+          :platform-main:desktop:test --continue
+      - name: Preserve complete JVM reports before focused native runs
+        if: ${{ !cancelled() }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          for root in (Path('features'), Path('platform-main')):
+              for report in root.glob('**/build/test-results/**/*.xml'):
+                  target = Path('build/ci-diagnostics/jvm') / report
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(report, target)
+          PY
+      - name: Native Chromium recovery and surface lifecycle
+        if: ${{ !cancelled() }}
+        run: >-
+          bash gradlew :features:browser:impl:jvmTest
+          -Pheartbeat.browser.nativeTest=true --tests '*DesktopBrowserNativeTest'
+      - name: Preserve native recovery reports
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p build/ci-diagnostics/native
+          cp features/browser/impl/build/test-results/jvmTest/TEST-*.xml build/ci-diagnostics/native/
+      - name: Compose and real Chromium surface
+        if: ${{ !cancelled() }}
+        run: >-
+          bash gradlew :features:browser:impl:jvmTest
+          -Pheartbeat.browser.composeNativeTest=true --tests '*DesktopBrowserComposeNativeTest'
+      - name: Static analysis with type resolution
+        if: ${{ !cancelled() }}
+        run: >-
+          bash gradlew :features:browser:api:detekt :features:browser:impl:detekt
+          :features:browser:api:detektMainJvm :features:browser:impl:detektMainJvm
+          :features:research-chat:api:detekt :features:research-chat:impl:detekt
+          :features:research-chat:impl:detektMainJvm :platform-main:desktop:detekt
+          :platform-main:desktop:detektMain :platform-main:di-bundle:detekt
+          :core:di:api:detekt :features:plant-uml-support:impl:detekt
+          :features:plant-uml-support:impl:detektMainJvm
+          :features:ai-studio:impl:detekt :features:ai-studio:impl:detektMainJvm
+          :design-system:layouts:detekt :design-system:layouts:detektMainJvm
+          :design-system:tokens:detekt :design-system:tokens:detektMainJvm --continue
+      - name: Compile iOS application graph on macOS
+        if: ${{ !cancelled() }}
+        run: bash gradlew :platform-main:shared:compileKotlinIosSimulatorArm64
+      - name: Package desktop with the checked native runtime
+        if: ${{ !cancelled() }}
+        run: bash gradlew :platform-main:desktop:verifyReleaseHarnessCompiler
+      - name: Save dependency and toolchain cache
+        if: ${{ !cancelled() && steps.build-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          key: ${{ steps.build-cache.outputs.cache-primary-key }}
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.gradle/jdks
+            ~/.konan
+      - name: Native and permission diagnostics
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p build/ci-diagnostics
+          # Java Robot must really deliver input; denied Accessibility is a test failure, not a skip.
+          # Preserve TCC/WindowServer evidence instead of modifying the runner's privacy database.
+          /usr/bin/log show --last 15m --style compact --predicate 'process == "tccd" OR process == "WindowServer"' \
+            > build/ci-diagnostics/window-permissions.log 2>&1 || true
+          find "$HOME/Library/Logs/DiagnosticReports" -type f \( -name '*java*' -o -name '*jcef*' -o -name '*Chromium*' \) \
+            -mmin -120 -exec cp {} build/ci-diagnostics/ \; 2>/dev/null || true
+      - name: Verification reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-macos-verification
+          path: |
+            **/build/test-results/**/*.xml
+            **/build/reports/detekt/*
+            features/browser/impl/build/native-ui/*
+            build/ci-diagnostics/**
+            **/build/compose/logs/**
+          if-no-files-found: warn
