@@ -1,0 +1,86 @@
+package io.aequicor.heartbeat.platform.dibundle
+
+import dev.zacsweers.metro.ContributesTo
+import dev.zacsweers.metro.createGraphFactory
+import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.profilefacade.ProfileId
+import io.aequicor.heartbeat.core.statemachine.MachineRegistry
+import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiEnabled
+import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiIntent
+import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiMachineKey
+import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiState
+import io.aequicor.heartbeat.feature.serviceasui.api.UiCallContext
+import io.aequicor.heartbeat.feature.serviceasui.api.UiDockId
+import io.aequicor.heartbeat.feature.serviceasui.api.UiHostContext
+import io.aequicor.heartbeat.feature.serviceasui.api.UiHostId
+import io.aequicor.heartbeat.feature.serviceasui.api.UiLibrary
+import io.aequicor.heartbeat.feature.serviceasui.api.spi.ServiceUiProvider
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import java.io.File
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
+
+class ServiceUiIntegrationTest {
+    private val persisted = PersistedProfile()
+    private val app = createGraphFactory<TestAppGraph.Factory>().create(persisted)
+    private val toggles = app as TestToggleAccessors
+
+    @BeforeTest
+    fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
+
+    @AfterTest
+    fun tearDown() = runTest {
+        app.closeAndAwaitStorages()
+        Dispatchers.resetMain()
+        File(persisted.storageRoot).deleteRecursively()
+    }
+
+    @Test
+    fun `the profile machine starts with the profile, keeps bindings and follows its toggle`() = runTest {
+        assertTrue(ServiceUiEnabled in toggles.toggleControl.registered)
+        assertFalse(ServiceUiEnabled.default)
+        val profile = app.profileSessions.open(ProfileId("service-ui"))
+        val access = profile.graph as TestServiceUiAccessors
+        val host = UiHostId("test.pane.1")
+        withContext(app.dispatchers.default) {
+            withTimeout(10.seconds) {
+                val machine = access.machines.observe(ServiceUiMachineKey).filterNotNull().first()
+                machine.state.filterIsInstance<ServiceUiState.Disabled>().first()
+                val context = UiHostContext(UiCallContext(), UiDockId("test"))
+                assertEquals(SendResult.Accepted, machine.send(ServiceUiIntent.Public.BindHost(host, context)))
+
+                toggles.toggleControl.setOverride(ServiceUiEnabled, true)
+                val ready = machine.state.filterIsInstance<ServiceUiState.Ready>().first()
+                assertEquals(UiLibrary(), ready.library)
+                assertEquals(setOf(host), ready.hosts.keys)
+
+                toggles.toggleControl.setOverride(ServiceUiEnabled, false)
+                val disabled = machine.state.filterIsInstance<ServiceUiState.Disabled>().first()
+                assertEquals(setOf(host), disabled.hosts.keys)
+            }
+        }
+        assertEquals(access.serviceUiProviders.map { it.kind }.toSet().size, access.serviceUiProviders.size)
+        app.profileSessions.close()
+    }
+}
+
+@ContributesTo(ProfileScope::class)
+interface TestServiceUiAccessors {
+    val machines: MachineRegistry
+    val serviceUiProviders: Set<ServiceUiProvider>
+}
