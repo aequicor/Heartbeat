@@ -12,7 +12,7 @@ public enum class UiWriteOrigin { Agent, User, System }
 
 /** A library write with a caller-chosen unique [id]; its outcome comes back as an output with the same id. */
 public data class UiWrite(val id: String, val origin: UiWriteOrigin, val op: UiWriteOp) {
-    override fun toString(): String = "UiWrite(id=$id, origin=$origin, op=${op::class.simpleName})"
+    override fun toString(): String = "UiWrite(id=$id, origin=$origin, op=${op::class.simpleName ?: "UiWriteOp"})"
 }
 
 /** A write being saved: committed to the library only after storage confirms [result]. */
