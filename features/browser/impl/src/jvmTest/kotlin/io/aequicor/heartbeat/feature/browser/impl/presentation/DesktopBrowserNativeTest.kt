@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.browser.impl.presentation
 import com.sun.net.httpserver.HttpServer
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.datastore.StorageRoot
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.impl.data.DefaultBrowserUrlResolver
@@ -66,8 +67,7 @@ class DesktopBrowserNativeTest {
         val base = "http://127.0.0.1:${server.address.port}"
         try {
             val app = runBlocking { resources.app() }
-            verifyEarlyClose(app)
-            verifyDirectDocument(app, base)
+            verifyStandaloneEngines(app, server)
             SwingUtilities.invokeAndWait {
                 frame = nativeFrame()
                 first = testEngine(app, firstStates)
@@ -111,6 +111,12 @@ class DesktopBrowserNativeTest {
         }
     }
 
+    private fun verifyStandaloneEngines(app: org.cef.CefApp, server: HttpServer) {
+        verifyEarlyClose(app)
+        verifyDirectDocument(app, "http://127.0.0.1:${server.address.port}")
+        verifyAgentGuard(app, server)
+    }
+
     private fun closeNativeTest(
         resources: DesktopDefaultBrowserResources,
         handle: BrowserTestScope,
@@ -135,13 +141,17 @@ class DesktopBrowserNativeTest {
         }
     }
 
-    private fun testEngine(app: org.cef.CefApp, states: LinkedBlockingQueue<BrowserViewState>) = DesktopBrowserEngine(
+    private fun testEngine(
+        app: org.cef.CefApp,
+        states: LinkedBlockingQueue<BrowserViewState>,
+        guard: DesktopBrowserAgentGuard = DesktopBrowserAgentGuard(),
+    ) = DesktopBrowserEngine(
         app,
         nativeDispatchers(),
         DefaultBrowserUrlResolver(),
         { false },
         states::offer,
-        guard = DesktopBrowserAgentGuard(),
+        guard = guard,
         createContext = temporaryContextFactory(),
     )
 
@@ -470,5 +480,115 @@ class DesktopBrowserNativeTest {
             assertTrue(state.error != BrowserViewError.EngineUnavailable, "Browser runtime failed")
             if (predicate(state)) return state
         }
+    }
+
+    /**
+     * An agent tab approved for the page's own loopback origin must not load an iframe from another local origin.
+     * Raw listeners count request lines; the unrestricted run proves the page makes the request. The page also opens a
+     * WebSocket to show the guard's documented limit: CEF never passes the handshake to request handlers, so it reaches
+     * the listener in both runs.
+     */
+    private fun verifyAgentGuard(app: org.cef.CefApp, server: HttpServer) {
+        val base = "http://127.0.0.1:${server.address.port}"
+        val (openSockets, openFrames) = guardProbe(app, server, DesktopBrowserAgentGuard())
+        assertTrue(openSockets > 0, "Control: an unrestricted page must open the WebSocket")
+        assertTrue(openFrames > 0, "Control: an unrestricted page must load the iframe")
+        val guard = DesktopBrowserAgentGuard().apply { restrict(base) }
+        val (guardedSockets, guardedFrames) = guardProbe(app, server, guard)
+        assertEquals(0, guardedFrames, "An agent tab must not load an iframe from another local origin")
+        assertTrue(guard.consumeContentRefusal(), "The refused iframe must be reported as blocked content")
+        assertTrue(guardedSockets > 0, "CEF now routes WebSocket handshakes: extend the agent guard to sockets")
+    }
+
+    private fun guardProbe(app: org.cef.CefApp, server: HttpServer, guard: DesktopBrowserAgentGuard): Pair<Int, Int> {
+        val base = "http://127.0.0.1:${server.address.port}"
+        ConnectionCounter().use { sockets ->
+            ConnectionCounter().use { frames ->
+                val path = "/guard-probe-${sockets.port}-${frames.port}"
+                server.createContext(path) { exchange ->
+                    val bytes = guardProbePage(sockets.port, frames.port).toByteArray()
+                    exchange.responseHeaders.add("Content-Type", "text/html; charset=utf-8")
+                    exchange.sendResponseHeaders(200, bytes.size.toLong())
+                    exchange.responseBody.use { it.write(bytes) }
+                }
+                val states = LinkedBlockingQueue<BrowserViewState>()
+                var engine: DesktopBrowserEngine? = null
+                var frame: JFrame? = null
+                try {
+                    SwingUtilities.invokeAndWait {
+                        frame = nativeFrame()
+                        engine = testEngine(app, states, guard)
+                        frame?.add(engine?.component, BorderLayout.CENTER)
+                        frame?.validate()
+                        engine?.start("$base$path")
+                    }
+                    awaitTitle(states, "guard-probe-done")
+                    // Late handshakes still count: give the network service time to dial before reading.
+                    Thread.sleep(GUARD_SETTLE_MILLIS)
+                    return sockets.requests.get() to frames.requests.get()
+                } finally {
+                    SwingUtilities.invokeAndWait {
+                        engine?.release()
+                        frame?.dispose()
+                    }
+                    runBlocking { engine?.awaitClosed() }
+                    server.removeContext(path)
+                }
+            }
+        }
+    }
+
+    private fun guardProbePage(socketPort: Int, framePort: Int): String = listOf(
+        "<title>guard-probe</title>",
+        "<iframe src=\"http://127.0.0.1:$framePort/frame\"></iframe>",
+        "<script>",
+        "try { new WebSocket('ws://127.0.0.1:$socketPort/socket'); } catch (e) {}",
+        "setTimeout(function () { document.title = 'guard-probe-done'; }, 1500);",
+        "</script>",
+    ).joinToString("\n")
+
+    /** Counts HTTP requests (a request line, not a bare preconnect) to a loopback port without answering them. */
+    private class ConnectionCounter : AutoCloseable {
+        private val socket = java.net.ServerSocket(0, 50, java.net.InetAddress.getLoopbackAddress())
+        val port: Int = socket.localPort
+        val requests = AtomicInteger()
+        private val log = Log.tag("NativeProbeListener")
+        private val acceptor = Thread {
+            while (true) {
+                val client = try {
+                    socket.accept()
+                } catch (closed: java.net.SocketException) {
+                    log.w(closed) { "Probe listener closed" }
+                    break
+                }
+                Thread { readRequestLine(client) }.apply {
+                    isDaemon = true
+                    start()
+                }
+            }
+        }.apply {
+            isDaemon = true
+            start()
+        }
+
+        private fun readRequestLine(client: java.net.Socket) = client.use {
+            it.soTimeout = 5_000
+            val line = try {
+                it.getInputStream().bufferedReader().readLine()
+            } catch (unanswered: java.io.IOException) {
+                log.w(unanswered) { "Probe connection sent no request line" }
+                null
+            }
+            if (line?.startsWith("GET ") == true) requests.incrementAndGet()
+        }
+
+        override fun close() {
+            socket.close()
+            acceptor.join(1_000)
+        }
+    }
+
+    private companion object {
+        const val GUARD_SETTLE_MILLIS = 1_000L
     }
 }

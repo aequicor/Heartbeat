@@ -57,10 +57,11 @@ import kotlin.uuid.Uuid
  * `browser_open`/`browser_new_tab` with any other address (localhost, private networks, `.local` names) asks
  * through [requiresDecision] exactly as a command would: a decision unless the session has full trust.
  * `browser_search` always opens the public search engine. As `web_fetch` checks every redirect hop, the agent's tab
- * checks every document the page itself starts (redirects, scripts, meta refresh, links, popups, iframes) and every
- * WebSocket connection, and stops one outside the public web unless it stays on the origin the user approved; the
- * agent learns about it from the operation's result. Host names are not resolved, as for `web_fetch`: DNS pointing
- * at a private address is not detected.
+ * checks every document the page itself starts (redirects, scripts, meta refresh, links, popups, iframes) and stops
+ * one outside the public web unless it stays on the origin the user approved; the agent learns about it from the
+ * operation's result. Host names are not resolved, as for `web_fetch`: DNS pointing at a private address is not
+ * detected. A page's own requests that are not documents (fetch, XHR, images, WebSocket) are left to Chromium's
+ * rules (CORS, local network access); see [DesktopBrowserAgentGuard].
  *
  * Approvals name the tab's current address and what exactly is typed, pressed or clicked; a click on an element
  * reference shows the element as the agent's latest read of that snapshot reported it, and the click is refused if

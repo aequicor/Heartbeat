@@ -43,7 +43,7 @@ import kotlin.uuid.Uuid
 
 /**
  * Profile-owned tabs. All registry mutations run on main; each tab serializes its native
- * operations. Each tab's [DesktopBrowserAgentGuard] keeps an agent's documents and sockets on the public web and the
+ * operations. Each tab's [DesktopBrowserAgentGuard] keeps an agent's documents on the public web and the
  * origin its owner approved; what it refuses is reported to the agent with its next operation on the tab.
  */
 @SingleIn(ProfileScope::class)
@@ -395,7 +395,7 @@ internal class DesktopBrowserSession(
 
     /**
      * Tells the agent what its tab's guard stopped since the previous operation: a navigation the page started, or
-     * embedded content (an iframe, a socket) of a local or private-network address. The page keeps loading otherwise.
+     * an embedded document (an iframe) of a local or private-network address. The page keeps loading otherwise.
      */
     private fun withGuardNotes(request: BrowserRequest, entry: Entry, result: BrowserResult): BrowserResult {
         if (request.owner == null) return result
@@ -475,7 +475,7 @@ internal class DesktopBrowserSession(
             "The page tried to open a local or private-network address and was stopped. " +
                 "Open such an address with browser_open so the user can approve it."
         const val BLOCKED_CONTENT =
-            "The page embedded or connected to a local or private-network address; that content was blocked. " +
+            "The page embedded a local or private-network address; that content was blocked. " +
                 "Open such an address with browser_open so the user can approve it."
     }
 
@@ -489,7 +489,7 @@ internal class DesktopBrowserSession(
         var observer: Job? = null
 
         /**
-         * Documents and sockets of an agent tab are limited to the public web and the origin of [approved]; the
+         * Documents of an agent tab are limited to the public web and the origin of [approved]; the
          * user's own tab, or one the user currently controls, is unrestricted.
          */
         fun syncGuard(approved: String?) {

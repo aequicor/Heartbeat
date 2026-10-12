@@ -106,9 +106,6 @@ class DesktopBrowserPolicyTest {
         assertFalse(policy.allows("http://localhost/", main))
         assertFalse(policy.allows("http://localhost:3001/", main))
         assertFalse(policy.allows("https://localhost:3000/", main))
-        // The approved origin's own socket, as a development server's live reload uses.
-        assertTrue(policy.allows("ws://localhost:3000/hmr", BrowserRequestKind.Subresource))
-        assertFalse(policy.allows("wss://localhost:3000/hmr", BrowserRequestKind.Subresource))
 
         guard.restrict(approved = "https://192.168.1.1/")
         assertTrue(policy.allows("https://192.168.1.1:443/", main))
@@ -122,19 +119,18 @@ class DesktopBrowserPolicyTest {
     }
 
     @Test
-    fun `agent tab iframes and sockets to private addresses are blocked without failing the page`() {
+    fun `agent tab iframes to private addresses are blocked without failing the page`() {
         val guard = DesktopBrowserAgentGuard().apply { restrict(approved = null) }
         var unsupported = 0
         val policy = DesktopBrowserPolicy({ false }, { false }, { unsupported++ }, {}, {}, guard)
         val child = BrowserRequestKind.ChildDocument
-        val socket = BrowserRequestKind.Subresource
         assertTrue(policy.allows("https://example.com/embed", child))
-        assertTrue(policy.allows("wss://example.com/socket", socket))
         assertTrue(policy.allows("about:srcdoc", child))
         assertFalse(policy.allows("http://192.168.1.1/", child))
         assertFalse(policy.allows("http://localhost:8080/frame", child))
-        assertFalse(policy.allows("ws://192.168.1.1/socket", socket))
-        assertFalse(policy.allows("wss://[fd00::1]/socket", socket))
+        assertFalse(policy.allows("https://[fd00::1]/frame", child))
+        // Sockets never reach CEF request handlers (DesktopBrowserNativeTest); the guard does not claim to judge them.
+        assertTrue(guard.allows("ws://192.168.1.1/socket", BrowserRequestKind.Subresource))
         // Embedded content is not a navigation of the tab: the agent hears about it separately.
         assertFalse(guard.consumeRefusal())
         assertTrue(guard.consumeContentRefusal())
@@ -143,12 +139,10 @@ class DesktopBrowserPolicyTest {
 
         guard.restrict(approved = "http://192.168.1.1/")
         assertTrue(policy.allows("http://192.168.1.1/frame", child))
-        assertTrue(policy.allows("ws://192.168.1.1/socket", socket))
         assertFalse(policy.allows("http://192.168.1.2/frame", child))
 
         guard.unrestrict()
         assertTrue(policy.allows("http://10.0.0.1/", child))
-        assertTrue(policy.allows("ws://10.0.0.1/", socket))
     }
 
     @Test

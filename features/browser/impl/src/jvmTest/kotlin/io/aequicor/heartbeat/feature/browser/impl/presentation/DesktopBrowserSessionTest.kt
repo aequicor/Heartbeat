@@ -281,10 +281,10 @@ class DesktopBrowserSessionTest {
     }
 
     @Test
-    fun `agent tabs block private iframes and sockets of a loaded page and say so separately`() = runTest {
+    fun `agent tabs block private iframes of a loaded page and say so separately`() = runTest {
         val fixture = Fixture(this)
         val tab = fixture.create("session-a")
-        fixture.attachNavigation(0, embedded = listOf("http://192.168.1.1/", "ws://10.0.0.1/socket")) { null }
+        fixture.attachNavigation(0, embedded = listOf("http://192.168.1.1/", "https://10.0.0.1/frame")) { null }
         runCurrent()
         val result = fixture.request(BrowserOperation.Navigate, tab, "session-a", url = "https://example.com/")
         assertNull(result.error)
@@ -404,8 +404,8 @@ class DesktopBrowserSessionTest {
                     if (command !is BrowserViewCommand.Load) return
                     val hops = listOfNotNull(command.url, redirect(command.url))
                     val isAllowed = hops.all { policy.allows(it, BrowserRequestKind.MainDocument) }
-                    // The loaded page's iframes and sockets pass the same policy; a refused one leaves the page loaded.
-                    if (isAllowed) embedded.forEach { policy.allows(it, kindOf(it)) }
+                    // The loaded page's iframes pass the same policy; a refused one leaves the page loaded.
+                    if (isAllowed) embedded.forEach { policy.allows(it, BrowserRequestKind.ChildDocument) }
                     val state = if (isAllowed) {
                         BrowserViewState(url = hops.last())
                     } else {
@@ -421,6 +421,3 @@ class DesktopBrowserSessionTest {
             request(BrowserOperation.ListTabs, owner = owner).data.getValue("tabs").jsonArray
     }
 }
-
-private fun kindOf(url: String) =
-    if (url.startsWith("ws")) BrowserRequestKind.Subresource else BrowserRequestKind.ChildDocument

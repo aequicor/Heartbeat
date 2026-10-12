@@ -23,8 +23,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Each resource handler retains its destination kind: a main frame's image is not a main document.
  * Empty bootstrap is local to the newly created browser; user commands never accept about/file schemes.
  * Neither JVM cookies nor external protocol dispatch participate in this backend.
- * Documents (main and embedded, including every redirect hop and popup) and WebSocket connections also pass the
- * tab's [guard] for its agent owner.
+ * Documents (main and embedded, including every redirect hop and popup) also pass the tab's [guard] for its agent
+ * owner.
  */
 internal class DesktopBrowserPolicy(
     private val isReleased: () -> Boolean,
@@ -166,10 +166,12 @@ internal class DesktopBrowserPolicy(
  * restricted tab loads public web addresses ([isPublicWebUrl], the check `web_fetch` applies to every redirect hop)
  * and, beyond them, only the origin (scheme, host and effective port) of the address its owner approved: the agent's
  * own navigation, which the tool dispatcher asks the user about, or the page the user handed over. This holds for the
- * main document, for embedded documents (an iframe the agent would see and click) and for WebSocket connections
- * (`ws`/`wss` compare as `http`/`https`), so neither a redirect, script, meta refresh, link, popup or user command nor
- * a public page embedding or connecting to a local or private-network address reaches one in the agent's tab; the
- * user takes control of the tab to open one. Other resources and non-network schemes are left to the scheme policy.
+ * main document and for embedded documents (an iframe the agent would see and click), so neither a redirect, script,
+ * meta refresh, link, popup or user command nor a public page embedding a local or private-network address shows one
+ * in the agent's tab; the user takes control of the tab to open one. Other resources and non-network schemes are left
+ * to the scheme policy and to Chromium's own rules (CORS, local network access): the page's fetch, XHR and images
+ * are not judged, and WebSocket handshakes never reach CEF request handlers (CEF 152, shown by
+ * `DesktopBrowserNativeTest`), so the guard cannot see or stop a page's socket.
  * Host names are not resolved, so DNS pointing at a private address is not detected, as for `web_fetch`. Origins are
  * compared as the browser spells them: an unusual spelling of an approved address (hexadecimal IPv4, mapped IPv6),
  * or one with credentials, fails closed.
@@ -196,7 +198,7 @@ internal class DesktopBrowserAgentGuard {
 
     /**
      * Whether the tab may load [url] as [kind]. A refused main document counts as a refused navigation, a refused
-     * embedded document or socket as refused content: only the former fails the agent's own page load.
+     * embedded document as refused content: only the former fails the agent's own page load.
      */
     fun allows(url: String, kind: BrowserRequestKind): Boolean {
         val current = restriction ?: return true
@@ -212,16 +214,14 @@ internal class DesktopBrowserAgentGuard {
     /** Whether a main document was refused since the previous call. */
     fun consumeRefusal(): Boolean = refusedNavigation.getAndSet(false)
 
-    /** Whether an embedded document or socket was refused since the previous call. */
+    /** Whether an embedded document was refused since the previous call. */
     fun consumeContentRefusal(): Boolean = refusedContent.getAndSet(false)
 }
 
-/** HTTP(S) documents and WebSocket connections as their HTTP(S) equivalent; null for what the guard does not judge. */
+/** HTTP(S) documents, main or embedded; null for what the guard does not judge. */
 private fun guardedWebUrl(url: String, kind: BrowserRequestKind): String? =
     when (url.substringBefore(':', missingDelimiterValue = "").lowercase()) {
         "http", "https" -> url.takeIf { kind != BrowserRequestKind.Subresource }
-        "ws" -> "http" + url.substring("ws".length)
-        "wss" -> "https" + url.substring("wss".length)
         else -> null
     }
 
