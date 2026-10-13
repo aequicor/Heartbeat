@@ -288,7 +288,7 @@ class AiStudioComponent(
             slotHosts.value = children.activeItems.mapValues { (_, child) -> child.first }
         }
         val slotJob = scope.coroutineScope.launch {
-            combine(surfacePanes.paneIds, surfaces.availability) { panes, isOn ->
+            combine(surfacePanes.openPanes, surfaces.availability) { panes, isOn ->
                 if (!isOn) {
                     emptyList()
                 } else {

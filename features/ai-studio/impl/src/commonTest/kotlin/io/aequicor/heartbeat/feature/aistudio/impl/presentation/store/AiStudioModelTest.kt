@@ -790,7 +790,7 @@ class AiStudioModelTest {
             },
             harnesses = harnesses,
             compactions = compactions,
-            surfaceBinding = StudioSurfaceBinding(surfaces, backend),
+            surfaceBinding = StudioSurfaceBinding(surfaces, backend, TestScopeHandle(scope.backgroundScope)),
         )
 
         suspend fun subscribe(): Provider<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction> {

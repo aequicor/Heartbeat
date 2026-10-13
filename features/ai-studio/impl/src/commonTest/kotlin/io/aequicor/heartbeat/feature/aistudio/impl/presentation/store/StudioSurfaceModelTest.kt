@@ -57,7 +57,7 @@ class StudioSurfaceModelTest {
     @Test
     fun `a surface prompt fills the composer of its pane and is sent when asked`() = runTest {
         val surfaces = FakeStudioSurfaces()
-        val fixture = Fixture(this, ready(StudioPane(0)), surfaces = surfaces)
+        val fixture = Fixture(this, ready(StudioPane(0), StudioPane(1)), surfaces = surfaces)
         val screen = fixture.subscribe()
 
         surfaces.prompts.emit(StudioSurfacePrompt(0, "Rank the PRs", isSubmitted = false))
@@ -66,10 +66,26 @@ class StudioSurfaceModelTest {
         assertEquals("Rank the PRs", screen.states.value.drafts[screen.states.value.draftKey(0)])
         assertTrue(fixture.machine.sent.none { it is AiStudioIntent.Public.Submit })
 
-        surfaces.prompts.emit(StudioSurfacePrompt(0, "Map the PRs", isSubmitted = true))
+        surfaces.prompts.emit(StudioSurfacePrompt(1, "Map the PRs", isSubmitted = true))
         runCurrent()
         val submit = fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.Submit>().single()
-        assertEquals("Map the PRs", submit.prompt)
+        assertEquals(1 to "Map the PRs", submit.paneId to submit.prompt)
+    }
+
+    @Test
+    fun `a prompt joins a started draft and never sends the user's text or a host command`() = runTest {
+        val surfaces = FakeStudioSurfaces()
+        val fixture = Fixture(this, ready(StudioPane(0), StudioPane(1)), surfaces = surfaces)
+        val screen = fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "My notes"))
+        runCurrent()
+
+        surfaces.prompts.emit(StudioSurfacePrompt(0, "Rank the PRs", isSubmitted = true))
+        surfaces.prompts.emit(StudioSurfacePrompt(1, "/compact", isSubmitted = true))
+        runCurrent()
+        assertEquals("My notes\n\nRank the PRs", screen.states.value.drafts[screen.states.value.draftKey(0)])
+        assertEquals("/compact", screen.states.value.drafts[screen.states.value.draftKey(1)])
+        assertTrue(fixture.machine.sent.none { it is AiStudioIntent.Public.Submit })
     }
 
     private fun ready(vararg panes: StudioPane) = AiStudioState.Ready(

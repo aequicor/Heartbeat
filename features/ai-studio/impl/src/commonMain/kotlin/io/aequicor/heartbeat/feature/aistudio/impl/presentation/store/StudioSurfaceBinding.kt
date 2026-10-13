@@ -2,6 +2,9 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
+import io.aequicor.heartbeat.core.di.ForScope
+import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
@@ -9,7 +12,6 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfacePlace
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaces
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,19 +34,35 @@ internal data class PaneSurfaceUi(val chatId: String?, val projectId: String?, v
 class StudioSurfaceBinding internal constructor(
     private val surfaces: StudioSurfaces,
     private val backend: StudioBackend,
+    @ForScope(AiStudioScope::class) scope: ScopeHandle,
 ) {
-    private val log = Log.tag("AiStudioModel")
+    private val log = Log.tag("StudioSurfaceBinding")
     private val panes = MutableStateFlow<Map<Int, PaneSurfaceUi>>(emptyMap())
     private val cards = MutableStateFlow<Set<String>>(emptySet())
 
+    private var seen: SeenInputs? = null
+
     /** The open panes, for the slot hosts of the component. */
-    internal val paneIds: StateFlow<Map<Int, PaneSurfaceUi>> = panes.asStateFlow()
+    internal val openPanes: StateFlow<Map<Int, PaneSurfaceUi>> = panes.asStateFlow()
 
     /** Cards shown in the replies of the open transcripts, for the card hosts of the component. */
     internal val cardIds: StateFlow<Set<String>> = cards.asStateFlow()
 
-    /** Follows the screen [state]; called for every state of the store. */
+    init {
+        // Places live as long as the studio window, not its subscription: a panel stays open across settings.
+        scope.coroutineScope.launch {
+            val places = combine(panes, backend.repository().observeWorkspace()) { panes, workspace ->
+                panes.mapValues { (_, pane) -> pane.place(workspace) }
+            }.distinctUntilChanged()
+            surfaces.keep(places)
+        }
+    }
+
+    /** Follows the screen [state]; called for every state of the store, so unchanged inputs return at once. */
+    @HighFrequency
     internal fun onState(state: AiStudioScreenState) {
+        if (seen?.isSameAs(state) == true) return
+        seen = SeenInputs(state.panes, state.harnessChoices, state.transcripts)
         val next = state.panes.associate { pane ->
             pane.id to PaneSurfaceUi(
                 chatId = pane.sessionId,
@@ -65,23 +83,26 @@ class StudioSurfaceBinding internal constructor(
         }
     }
 
-    /** Binds the panes and handles prompts until cancelled; [submit] sends the draft of a pane. */
-    internal suspend fun observe(pipeline: SurfacePipeline, submit: suspend (paneId: Int) -> Unit) = coroutineScope {
-        launch {
-            val places = combine(panes, backend.repository().observeWorkspace()) { panes, workspace ->
-                panes.mapValues { (_, pane) -> pane.place(workspace) }
-            }.distinctUntilChanged()
-            surfaces.keep(places)
-        }
-        launch {
-            surfaces.prompts.collect { prompt ->
-                if (prompt.paneId !in panes.value) return@collect
-                log.i { "Interface prompt for pane ${prompt.paneId} submitted=${prompt.isSubmitted}" }
-                pipeline.updateState {
-                    withDraft(prompt.paneId, prompt.text).withDraftCaret(prompt.paneId, prompt.text.length)
-                }
-                if (prompt.isSubmitted) submit(prompt.paneId)
+    /**
+     * Handles prompts of surfaces while the studio is shown; [submit] sends the draft of a pane. A prompt joins a
+     * draft the user started instead of replacing it, and is sent only into an empty composer and never as a host
+     * command, so a surface cannot send the user's text, attachments or a `/compact` or `/remember` directive.
+     */
+    internal suspend fun observe(pipeline: SurfacePipeline, submit: suspend (paneId: Int) -> Unit) {
+        surfaces.prompts.collect { prompt ->
+            val paneId = prompt.paneId
+            if (paneId !in panes.value) return@collect
+            var isSent = false
+            pipeline.updateState {
+                val key = draftKey(paneId)
+                val draft = drafts[key].orEmpty()
+                val isEmpty = draft.isBlank() && draftAttachments[key].isNullOrEmpty()
+                val text = if (draft.isBlank()) prompt.text else draft.trimEnd() + "\n\n" + prompt.text
+                isSent = prompt.isSubmitted && isEmpty && !prompt.text.trimStart().startsWith("/")
+                withDraft(paneId, text).withDraftCaret(paneId, text.length)
             }
+            log.i { "Interface prompt for pane $paneId submitted=$isSent" }
+            if (isSent) submit(paneId)
         }
     }
 }
@@ -94,4 +115,10 @@ private fun PaneSurfaceUi.place(workspace: StudioWorkspace): StudioSurfacePlace 
         workspace = session?.treeAccess?.workspace ?: project,
         harnesses = harnesses,
     )
+}
+
+/** Inputs of [StudioSurfaceBinding.onState] by identity: an unchanged state reuses its collections. */
+private class SeenInputs(val panes: Any, val choices: Any, val transcripts: Any) {
+    fun isSameAs(state: AiStudioScreenState): Boolean =
+        panes === state.panes && choices === state.harnessChoices && transcripts === state.transcripts
 }

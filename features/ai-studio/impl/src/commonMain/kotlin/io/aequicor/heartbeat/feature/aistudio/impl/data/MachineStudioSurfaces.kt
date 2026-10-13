@@ -74,48 +74,64 @@ internal class MachineStudioSurfaces(private val machines: MachineRegistry, togg
 
     override suspend fun closePanel() {
         log.i { "Close the interface panel of the studio" }
-        val result = machines.send(ServiceUiMachineKey, ServiceUiIntent.Public.ClosePanel(side))
-        if (result != SendResult.Accepted) log.w { "Interface panel not closed: $result" }
+        // A panel already closed meanwhile ignores this; the runtime logs it.
+        machines.send(ServiceUiMachineKey, ServiceUiIntent.Public.ClosePanel(side))
     }
 
     override suspend fun keep(places: Flow<Map<Int, StudioSurfacePlace>>) {
-        var bound = emptyMap<Int, UiHostContext>()
+        val held = mutableMapOf<Int, UiHostContext>()
+        // Panes whose bind was sent: a bind cut short by cancellation may still have been taken.
+        val touched = mutableSetOf<Int>()
         var machine: SurfaceMachine? = null
         try {
             combine(places, availability, machines.observe(ServiceUiMachineKey)) { panes, isOn, ref ->
                 Triple(panes, isOn, ref)
             }.collect { (panes, isOn, ref) ->
                 // A restarted machine knows no places of this window.
-                if (ref !== machine) bound = emptyMap()
+                if (ref !== machine) {
+                    held.clear()
+                    touched.clear()
+                }
                 machine = ref
                 val wanted = if (isOn && ref != null) panes.mapValues { (_, place) -> place.context() } else emptyMap()
-                bound = ref?.let { reconcile(it, bound, wanted) }.orEmpty()
+                ref?.let { reconcile(it, held, touched, wanted) }
             }
         } finally {
             val last = machine
-            if (last != null && bound.isNotEmpty()) withContext(NonCancellable) { reconcile(last, bound, emptyMap()) }
+            val left = held.keys + touched
+            if (last != null && left.isNotEmpty()) {
+                withContext(NonCancellable) {
+                    left.forEach { last.send(ServiceUiIntent.Public.UnbindHost(placeOf(it))) }
+                }
+            }
         }
     }
 
-    /** Binds changed places and unbinds gone ones; returns what the machine now holds. */
+    /** Unbinds gone places and binds changed ones, recording in [held] what the machine holds. */
     private suspend fun reconcile(
         machine: SurfaceMachine,
-        bound: Map<Int, UiHostContext>,
+        held: MutableMap<Int, UiHostContext>,
+        touched: MutableSet<Int>,
         wanted: Map<Int, UiHostContext>,
-    ): Map<Int, UiHostContext> {
-        val held = bound.toMutableMap()
-        (bound.keys - wanted.keys).forEach { pane ->
-            if (machine.send(ServiceUiIntent.Public.UnbindHost(UiHostId(host(pane)))) == SendResult.Accepted) {
+    ) {
+        val before = held.size
+        (held.keys + touched - wanted.keys).forEach { pane ->
+            // Ignored means the place is not bound anymore, which is what unbinding wants.
+            if (machine.send(ServiceUiIntent.Public.UnbindHost(placeOf(pane))) != SendResult.NotRunning) {
                 held -= pane
+                touched -= pane
             }
         }
-        wanted.filter { (pane, context) -> bound[pane] != context }.forEach { (pane, context) ->
-            val result = machine.send(ServiceUiIntent.Public.BindHost(UiHostId(host(pane)), context))
-            if (result == SendResult.Accepted) held[pane] = context else log.w { "Pane $pane place not bound: $result" }
+        wanted.filter { (pane, context) -> held[pane] != context }.forEach { (pane, context) ->
+            touched += pane
+            if (machine.send(ServiceUiIntent.Public.BindHost(placeOf(pane), context)) == SendResult.Accepted) {
+                held[pane] = context
+            }
         }
-        if (held != bound) log.d { "Studio places bound=${held.size}" }
-        return held
+        if (held.size != before) log.d { "Studio places bound=${held.size}" }
     }
+
+    private fun placeOf(pane: Int) = UiHostId(host(pane))
 
     private fun StudioSurfacePlace.context(): UiHostContext {
         // A new chat offers the harnesses selected for it; a chat has its own connections.

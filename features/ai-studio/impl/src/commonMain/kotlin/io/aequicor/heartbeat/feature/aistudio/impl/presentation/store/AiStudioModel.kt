@@ -102,7 +102,7 @@ class AiStudioModel(
     previews: StudioAttachmentPreviews,
     private val harnesses: StudioHarnesses = StudioHarnesses.None,
     private val compactions: StudioCompactionPort = StudioCompactionPort.None,
-    surfaceBinding: StudioSurfaceBinding = StudioSurfaceBinding(StudioSurfaces.None, backend),
+    surfaceBinding: StudioSurfaceBinding = StudioSurfaceBinding(StudioSurfaces.None, backend, scope),
 ) {
     private val log = Log.tag("AiStudioModel")
     private val harnessSelection = StudioHarnessSelection(harnesses, backend)

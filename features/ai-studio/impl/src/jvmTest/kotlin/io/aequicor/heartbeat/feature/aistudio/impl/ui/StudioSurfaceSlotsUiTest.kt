@@ -2,6 +2,9 @@ package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.testTag
@@ -23,6 +26,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioPhas
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 
@@ -108,6 +112,42 @@ class StudioSurfaceSlotsUiTest {
         }
 
         onNodeWithTag("slot-card").assertIsDisplayed()
+    }
+
+    @Test
+    fun `an empty slot leaves the footer as without interfaces`() = runSkikoComposeUiTest(size = Size(360f, 720f)) {
+        val state = AiStudioScreenState(
+            phase = StudioPhase.Ready,
+            panes = persistentListOf(PaneUi(0, sessionId = "chat")),
+            sessions = persistentListOf(SessionUi("chat", "Chat", null, Instant.fromEpochSeconds(1))),
+        )
+        var shown by mutableStateOf(persistentMapOf<String, ComposableComponent>())
+        setContent {
+            HbTheme(darkTheme = false) {
+                StudioPaneView(
+                    state.paneContent(state.panes.single()),
+                    {},
+                    PaneLayout(isSplitAllowed = false, isCloseAllowed = false, isCompact = true),
+                    Modifier.fillMaxSize(),
+                    slots = shown,
+                )
+            }
+        }
+        val without = onNodeWithTag("pane-footer-0").fetchSemanticsNode().boundsInRoot.height
+        shown = persistentMapOf(studioComposerSlotKey(0) to Empty)
+        waitForIdle()
+        assertEquals(without, onNodeWithTag("pane-footer-0").fetchSemanticsNode().boundsInRoot.height)
+
+        shown = slots
+        waitForIdle()
+        val slot = onNodeWithTag("slot-composer").fetchSemanticsNode().boundsInRoot
+        val input = onNodeWithTag("composer-0").fetchSemanticsNode().boundsInRoot
+        assertEquals(input.left to input.right, slot.left to slot.right)
+    }
+
+    private object Empty : ComposableComponent {
+        @Composable
+        override fun Content(modifier: Modifier) = Unit
     }
 
     private class Slot(private val name: String) : ComposableComponent {

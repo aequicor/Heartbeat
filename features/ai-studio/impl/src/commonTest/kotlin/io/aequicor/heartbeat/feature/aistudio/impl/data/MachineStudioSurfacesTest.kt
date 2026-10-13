@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiDockId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiPanel
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSurfaceId
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -69,6 +70,43 @@ class MachineStudioSurfacesTest {
             setOf(surfaces.host(0), surfaces.host(2)),
             machine.sent.map { assertIs<ServiceUiIntent.Public.UnbindHost>(it).host.value }.toSet(),
         )
+    }
+
+    @Test
+    fun `a restarted machine gets every place again and interfaces turned back on rebind them`() = runTest {
+        val first = FakeSurfaceMachine()
+        val registry = Registry(first)
+        val toggles = Toggles(true)
+        val surfaces = MachineStudioSurfaces(registry, toggles)
+        val job = launch { surfaces.keep(MutableStateFlow(mapOf(0 to StudioSurfacePlace()))) }
+        runCurrent()
+
+        val second = FakeSurfaceMachine()
+        registry.current.value = second
+        runCurrent()
+        assertEquals(listOf(surfaces.host(0)), second.sent.map { (it as ServiceUiIntent.Public.BindHost).host.value })
+
+        toggles.isOn.value = false
+        runCurrent()
+        assertIs<ServiceUiIntent.Public.UnbindHost>(second.sent.last())
+        toggles.isOn.value = true
+        runCurrent()
+        assertIs<ServiceUiIntent.Public.BindHost>(second.sent.last())
+        job.cancel()
+    }
+
+    @Test
+    fun `a bind cut short by the studio closing is still unbound`() = runTest {
+        val machine = FakeSurfaceMachine()
+        machine.bindGate = CompletableDeferred()
+        val surfaces = MachineStudioSurfaces(Registry(machine), Toggles(true))
+        val job = launch { surfaces.keep(MutableStateFlow(mapOf(0 to StudioSurfacePlace()))) }
+        runCurrent()
+        assertIs<ServiceUiIntent.Public.BindHost>(machine.sent.single())
+
+        job.cancel()
+        runCurrent()
+        assertEquals(ServiceUiIntent.Public.UnbindHost(UiHostId(surfaces.host(0))), machine.sent.last())
     }
 
     @Test
@@ -124,21 +162,29 @@ class MachineStudioSurfacesTest {
         override val outputs = MutableSharedFlow<ServiceUiOutput>(extraBufferCapacity = 8)
         val sent = mutableListOf<ServiceUiIntent.Public>()
 
+        /** Holds the next bind until completed, as a machine busy with other work does. */
+        var bindGate: CompletableDeferred<Unit>? = null
+
         override suspend fun send(intent: ServiceUiIntent.Public): SendResult {
             sent += intent
+            if (intent is ServiceUiIntent.Public.BindHost) bindGate?.await()
             return SendResult.Accepted
         }
     }
 
-    private class Registry(private val machine: FakeSurfaceMachine) : MachineRegistry {
+    private class Registry(val current: MutableStateFlow<FakeSurfaceMachine?>) : MachineRegistry {
+        constructor(machine: FakeSurfaceMachine) : this(MutableStateFlow(machine))
+
         @Suppress("UNCHECKED_CAST") // The test registry holds the interface machine only.
         override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> find(
             key: MachineKey<S, I, P, E, O>,
-        ): MachineRef<S, P, O>? = if (key == ServiceUiMachineKey) machine as MachineRef<S, P, O> else null
+        ): MachineRef<S, P, O>? = if (key == ServiceUiMachineKey) current.value as MachineRef<S, P, O>? else null
 
+        @Suppress("UNCHECKED_CAST") // The test registry holds the interface machine only.
         override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> observe(
             key: MachineKey<S, I, P, E, O>,
-        ): StateFlow<MachineRef<S, P, O>?> = MutableStateFlow(find(key))
+        ): StateFlow<MachineRef<S, P, O>?> =
+            if (key == ServiceUiMachineKey) current as StateFlow<MachineRef<S, P, O>?> else MutableStateFlow(null)
 
         override suspend fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> send(
             key: MachineKey<S, I, P, E, O>,
@@ -146,13 +192,15 @@ class MachineStudioSurfacesTest {
         ): SendResult = find(key)?.send(intent) ?: SendResult.NotRunning
     }
 
-    private class Toggles(private val isOn: Boolean) : FeatureToggles {
+    private class Toggles(val isOn: MutableStateFlow<Boolean>) : FeatureToggles {
+        constructor(isOn: Boolean) : this(MutableStateFlow(isOn))
+
         @Suppress("UNCHECKED_CAST") // Only the interface flag is read.
         override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> =
-            MutableStateFlow((if (toggle == ServiceUiEnabled) isOn else toggle.default) as T)
+            if (toggle == ServiceUiEnabled) isOn as Flow<T> else MutableStateFlow(toggle.default)
 
         @Suppress("UNCHECKED_CAST") // Only the interface flag is read.
         override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T =
-            (if (toggle == ServiceUiEnabled) isOn else toggle.default) as T
+            (if (toggle == ServiceUiEnabled) isOn.value else toggle.default) as T
     }
 }

@@ -694,8 +694,12 @@ private fun PaneFooter(
                 previews = content.attachmentPreviews,
             )
         }
-        // Interfaces of the harnesses active in the chat sit right above its input.
-        composerSlot?.Content(column)
+        // Interfaces of the harnesses active in the chat sit right above its input; a tall one scrolls, so the
+        // input stays on screen.
+        val slotScroll = rememberScrollState()
+        composerSlot?.Content(
+            column.heightIn(max = HbTheme.dimensions.toolPayloadMaxHeight).hbVerticalScroll(slotScroll),
+        )
         StudioComposer(content, onIntent, isCompact, column, onOpenResearch)
     }
 }
