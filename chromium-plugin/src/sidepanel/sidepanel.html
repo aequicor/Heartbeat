@@ -25,8 +25,18 @@
       <button id="revoke" class="secondary" type="button"></button>
     </div>
   </section>
-  <input id="filter" class="filter" type="search">
+  <div id="search" class="search">
+    <button id="search-row" class="nav-row" type="button"></button>
+    <div id="search-box" class="search-box" hidden>
+      <input id="search-field" type="search">
+      <button id="search-clear" class="icon" type="button"></button>
+    </div>
+  </div>
   <main id="content"></main>
+  <nav id="rail" class="rail">
+    <button id="rail-sessions" class="rail-item" type="button"></button>
+    <button id="rail-archive" class="rail-item" type="button"></button>
+  </nav>
   <div id="permissions"></div>
   <footer id="composer" class="composer">
     <select id="project"></select>

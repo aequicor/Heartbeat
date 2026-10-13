@@ -181,5 +181,85 @@
   },
   "revokeAll": {
     "message": "Забрать все"
+  },
+  "searchSessions": {
+    "message": "Поиск по сессиям"
+  },
+  "clearSearch": {
+    "message": "Очистить поиск"
+  },
+  "sectionPinned": {
+    "message": "Закреплённые"
+  },
+  "sectionProjects": {
+    "message": "Проекты"
+  },
+  "sectionRecent": {
+    "message": "Недавние"
+  },
+  "sectionResults": {
+    "message": "Результаты"
+  },
+  "nothingFound": {
+    "message": "Ничего не найдено"
+  },
+  "archiveEmpty": {
+    "message": "В архиве пусто"
+  },
+  "noSessions": {
+    "message": "Сессий пока нет"
+  },
+  "railSessions": {
+    "message": "Сессии"
+  },
+  "railArchive": {
+    "message": "Архив"
+  },
+  "rename": {
+    "message": "Переименовать"
+  },
+  "pin": {
+    "message": "Закрепить"
+  },
+  "unpin": {
+    "message": "Открепить"
+  },
+  "markRead": {
+    "message": "Отметить как прочитанное"
+  },
+  "markUnread": {
+    "message": "Отметить как непрочитанное"
+  },
+  "archive": {
+    "message": "Архивировать"
+  },
+  "restore": {
+    "message": "Восстановить"
+  },
+  "sessionActions": {
+    "message": "Действия с сессией"
+  },
+  "awaitingPermission": {
+    "message": "Ожидает разрешения"
+  },
+  "agentWorking": {
+    "message": "Агент работает"
+  },
+  "sessionTitle": {
+    "message": "Название сессии"
+  },
+  "chatArchived": {
+    "message": "Чат в архиве. Восстановите его, чтобы продолжить."
+  },
+  "errorNotApplied": {
+    "message": "Heartbeat не применил изменение."
+  },
+  "newSessionIn": {
+    "message": "Новая сессия в $NAME$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   }
 }

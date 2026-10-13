@@ -65,6 +65,7 @@ export function fakeDocument() {
     querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null; }
   }
   const ids = new Map();
+  document.addEventListener = () => {};
   document.createElement = (/** @type {string} */ tag) => new Element(tag);
   document.createElementNS = (/** @type {string} */ _namespace, /** @type {string} */ tag) => new Element(tag);
   document.createDocumentFragment = () => new Element('fragment');

@@ -2,8 +2,10 @@
 import { applyTranscript } from './transcript.js';
 
 /**
+ * @typedef {{ modelId: string, effort?: string | null, approval?: string }} ChatSettings
  * @typedef {{ id: string, title: string, projectId?: string | null, updatedAt: number, running: boolean,
- *   pinned: boolean, unread: boolean, continuable: boolean }} Chat
+ *   pinned: boolean, unread: boolean, continuable: boolean, archived?: boolean, modelId?: string | null,
+ *   settings?: ChatSettings | null, configuring?: boolean }} Chat
  * @typedef {{ id: string, name: string }} Project
  * @typedef {{ chatId: string, requestId: string, title: string, description?: string,
  *   options: { id: string, title: string, skip?: boolean }[], input?: Record<string, any> }} Permission
@@ -23,6 +25,18 @@ import { applyTranscript } from './transcript.js';
  * @property {boolean} isSending
  * @property {string | null} error Error code of the last failed action.
  * @property {{ isAllowed: boolean, controlled: number }} agent Consent to agent control and controlled tabs.
+ * @property {Sidebar} sidebar How the chat list is shown.
+ */
+
+/**
+ * The chat list like the studio's sidebar.
+ * @typedef {object} Sidebar
+ * @property {'sessions' | 'archive'} mode The rail's choice.
+ * @property {boolean} isSearching The search field replaces the search row.
+ * @property {string} query
+ * @property {string[]} collapsed Collapsed sections (`pinned`, `projects`, `recent`) and projects (`project:<id>`).
+ * @property {string | null} menu Chat whose action menu is open.
+ * @property {string | null} renaming Chat whose title is being edited.
  */
 
 /** @type {PanelState} */
@@ -41,6 +55,7 @@ export const initialState = Object.freeze({
   isSending: false,
   error: null,
   agent: { isAllowed: false, controlled: 0 },
+  sidebar: { mode: 'sessions', isSearching: false, query: '', collapsed: [], menu: null, renaming: null },
 });
 
 /**
@@ -101,6 +116,8 @@ export function reduce(state, action) {
       return { ...state, error: null };
     case 'agent':
       return { ...state, agent: { isAllowed: action.isAllowed === true, controlled: Number(action.controlled) || 0 } };
+    case 'sidebar':
+      return { ...state, sidebar: { ...state.sidebar, ...sidebarChange(state.sidebar, action) } };
     default:
       return state;
   }
@@ -123,20 +140,83 @@ export function selectedPermissions(state) {
 }
 
 /**
- * Chats grouped for the list: those without a project first, then each project in the app's order;
- * a filter matches titles case-insensitively.
- * @param {PanelState} state
- * @param {string} [filter]
- * @returns {{ project: Project | null, chats: Chat[] }[]}
+ * @param {Sidebar} sidebar
+ * @param {{ [key: string]: any }} action
+ * @returns {Partial<Sidebar>}
  */
-export function groupedChats(state, filter = '') {
-  const needle = filter.trim().toLocaleLowerCase();
-  const visible = needle ? state.chats.filter((chat) => chat.title.toLocaleLowerCase().includes(needle)) : state.chats;
-  const groups = [{ project: null, chats: visible.filter((chat) => !chat.projectId) }];
-  for (const project of state.projects) {
-    groups.push({ project, chats: visible.filter((chat) => chat.projectId === project.id) });
+function sidebarChange(sidebar, action) {
+  switch (action.change) {
+    case 'mode':
+      return { mode: action.mode, menu: null, renaming: null };
+    case 'search':
+      return { isSearching: action.isSearching === true, query: action.isSearching ? sidebar.query : '' };
+    case 'query':
+      return { query: String(action.query ?? '') };
+    case 'toggle':
+      return {
+        collapsed: sidebar.collapsed.includes(action.key)
+          ? sidebar.collapsed.filter((it) => it !== action.key)
+          : [...sidebar.collapsed, action.key],
+      };
+    case 'menu':
+      return { menu: action.chatId ?? null, renaming: null };
+    case 'rename':
+      return { renaming: action.chatId ?? null, menu: null };
+    default:
+      return {};
   }
-  return groups.filter((group) => group.chats.length > 0);
+}
+
+/**
+ * @typedef {{ key: string, title: string, collapsible: boolean, collapsed: boolean, rows: Chat[],
+ *   projects?: { project: Project, collapsed: boolean, rows: Chat[] }[], empty?: string }} SidebarSection
+ */
+
+/**
+ * Sections of the chat list as the studio's sidebar arranges them, newest first in each: search results; the
+ * archive; or «Закреплённые», «Проекты» (chats of expanded projects) and «Недавние» (chats without a project
+ * and those of collapsed projects). Every chat appears once; titles are message keys.
+ * @param {PanelState} state
+ * @returns {SidebarSection[]}
+ */
+export function sidebarSections(state) {
+  const { sidebar } = state;
+  const byRecency = (/** @type {Chat[]} */ chats) => [...chats].sort((a, b) => b.updatedAt - a.updatedAt);
+  const isArchive = sidebar.mode === 'archive';
+  const shown = state.chats.filter((chat) => Boolean(chat.archived) === isArchive);
+  const needle = sidebar.isSearching ? sidebar.query.trim().toLocaleLowerCase() : '';
+  if (needle) {
+    const rows = byRecency(shown.filter((chat) => chat.title.toLocaleLowerCase().includes(needle)));
+    return [{ key: 'results', title: 'sectionResults', collapsible: false, collapsed: false, rows, empty: 'nothingFound' }];
+  }
+  if (isArchive) {
+    return [{ key: 'archive', title: 'railArchive', collapsible: false, collapsed: false, rows: byRecency(shown), empty: 'archiveEmpty' }];
+  }
+  const isCollapsed = (/** @type {string} */ key) => sidebar.collapsed.includes(key);
+  const pinned = shown.filter((chat) => chat.pinned);
+  const unpinned = shown.filter((chat) => !chat.pinned);
+  const projectsCollapsed = isCollapsed('projects');
+  const projects = state.projects.map((project) => ({
+    project,
+    collapsed: isCollapsed(`project:${project.id}`),
+    rows: byRecency(unpinned.filter((chat) => chat.projectId === project.id)),
+  }));
+  const expanded = new Set(projectsCollapsed ? [] : projects.filter((it) => !it.collapsed).map((it) => it.project.id));
+  const sections = [];
+  if (pinned.length) {
+    sections.push({ key: 'pinned', title: 'sectionPinned', collapsible: true, collapsed: isCollapsed('pinned'), rows: byRecency(pinned) });
+  }
+  if (projects.length) {
+    sections.push({ key: 'projects', title: 'sectionProjects', collapsible: true, collapsed: projectsCollapsed, rows: [], projects });
+  }
+  sections.push({
+    key: 'recent',
+    title: 'sectionRecent',
+    collapsible: true,
+    collapsed: isCollapsed('recent'),
+    rows: byRecency(unpinned.filter((chat) => !chat.projectId || !expanded.has(chat.projectId))),
+  });
+  return sections;
 }
 
 /**
@@ -148,5 +228,5 @@ export function canSend(state, text) {
   if (state.status !== 'ready' || !state.features?.chat || state.isSending || !text.trim()) return false;
   if (state.isComposingNew) return true;
   const chat = selectedChat(state);
-  return Boolean(chat && chat.continuable && !chat.running);
+  return Boolean(chat && chat.continuable && !chat.running && !chat.archived);
 }

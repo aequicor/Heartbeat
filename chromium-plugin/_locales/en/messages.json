@@ -181,5 +181,85 @@
   },
   "revokeAll": {
     "message": "Take all back"
+  },
+  "searchSessions": {
+    "message": "Search sessions"
+  },
+  "clearSearch": {
+    "message": "Clear search"
+  },
+  "sectionPinned": {
+    "message": "Pinned"
+  },
+  "sectionProjects": {
+    "message": "Projects"
+  },
+  "sectionRecent": {
+    "message": "Recent"
+  },
+  "sectionResults": {
+    "message": "Results"
+  },
+  "nothingFound": {
+    "message": "Nothing found"
+  },
+  "archiveEmpty": {
+    "message": "The archive is empty"
+  },
+  "noSessions": {
+    "message": "No sessions yet"
+  },
+  "railSessions": {
+    "message": "Sessions"
+  },
+  "railArchive": {
+    "message": "Archive"
+  },
+  "rename": {
+    "message": "Rename"
+  },
+  "pin": {
+    "message": "Pin"
+  },
+  "unpin": {
+    "message": "Unpin"
+  },
+  "markRead": {
+    "message": "Mark as read"
+  },
+  "markUnread": {
+    "message": "Mark as unread"
+  },
+  "archive": {
+    "message": "Archive"
+  },
+  "restore": {
+    "message": "Restore"
+  },
+  "sessionActions": {
+    "message": "Session actions"
+  },
+  "awaitingPermission": {
+    "message": "Awaiting permission"
+  },
+  "agentWorking": {
+    "message": "Agent is working"
+  },
+  "sessionTitle": {
+    "message": "Session title"
+  },
+  "chatArchived": {
+    "message": "The chat is archived. Restore it to continue."
+  },
+  "errorNotApplied": {
+    "message": "Heartbeat did not apply the change."
+  },
+  "newSessionIn": {
+    "message": "New session in $NAME$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   }
 }

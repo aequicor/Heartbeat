@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { canSend, groupedChats, initialState, reduce, selectedPermissions } from '../src/sidepanel/store.js';
+import { canSend, initialState, reduce, selectedPermissions, sidebarSections } from '../src/sidepanel/store.js';
 
 const ready = reduce(initialState, { type: 'status', status: 'ready', features: { chat: true } });
 const listed = reduce(ready, {
@@ -15,12 +15,56 @@ const listed = reduce(ready, {
   permissions: [{ chatId: 'b', requestId: 'r1', title: 'Run?', options: [] }],
 });
 
-test('chats are grouped by project and filtered by title', () => {
-  assert.deepEqual(groupedChats(listed).map((group) => [group.project?.name ?? null, group.chats.map((it) => it.id)]), [
-    [null, ['a']],
-    ['Heartbeat', ['b']],
+test('the list is arranged like the studio sidebar: pinned, expanded projects, then recent', () => {
+  const state = reduce(ready, {
+    type: 'chats',
+    projects: [{ id: 'p1', name: 'Heartbeat' }, { id: 'p2', name: 'Docs' }],
+    chats: [
+      { id: 'pin', title: 'Pinned', projectId: 'p1', updatedAt: 9, pinned: true },
+      { id: 'old', title: 'Old', projectId: null, updatedAt: 1 },
+      { id: 'new', title: 'New', projectId: null, updatedAt: 5 },
+      { id: 'p1a', title: 'Login', projectId: 'p1', updatedAt: 4 },
+      { id: 'p2a', title: 'Guide', projectId: 'p2', updatedAt: 3 },
+      { id: 'gone', title: 'Archived login', projectId: null, updatedAt: 8, archived: true },
+    ].map((chat) => ({ running: false, pinned: false, unread: false, continuable: true, ...chat })),
+    permissions: [],
+  });
+  const shape = (/** @type {import('../src/sidepanel/store.js').PanelState} */ it) => sidebarSections(it).map((section) => [
+    section.key,
+    section.collapsed,
+    (section.projects ?? []).map((group) => [group.project.id, group.collapsed, group.rows.map((chat) => chat.id)]),
+    section.rows.map((chat) => chat.id),
   ]);
-  assert.deepEqual(groupedChats(listed, 'LOGIN').map((group) => group.chats.map((it) => it.id)), [['b']]);
+  const sidebar = (/** @type {any} */ from, /** @type {Record<string, any>} */ change) =>
+    reduce(from, { type: 'sidebar', ...change });
+
+  assert.deepEqual(shape(state), [
+    ['pinned', false, [], ['pin']],
+    ['projects', false, [['p1', false, ['p1a']], ['p2', false, ['p2a']]], []],
+    ['recent', false, [], ['new', 'old']],
+  ]);
+  const collapsedProject = sidebar(state, { change: 'toggle', key: 'project:p2' });
+  assert.deepEqual(shape(collapsedProject)[2], ['recent', false, [], ['new', 'p2a', 'old']]);
+  const collapsedProjects = sidebar(state, { change: 'toggle', key: 'projects' });
+  assert.deepEqual(shape(collapsedProjects).slice(1), [
+    ['projects', true, [['p1', false, ['p1a']], ['p2', false, ['p2a']]], []],
+    ['recent', false, [], ['new', 'p1a', 'p2a', 'old']],
+  ]);
+  const archive = sidebar(state, { change: 'mode', mode: 'archive' });
+  assert.deepEqual(shape(archive), [['archive', false, [], ['gone']]]);
+  const searching = sidebar(sidebar(state, { change: 'search', isSearching: true }), { change: 'query', query: 'LOGIN' });
+  assert.deepEqual(shape(searching), [['results', false, [], ['p1a']]]);
+  assert.equal(sidebar(searching, { change: 'search', isSearching: false }).sidebar.query, '');
+});
+
+test('a row menu and a title editor exclude each other', () => {
+  const menu = reduce(listed, { type: 'sidebar', change: 'menu', chatId: 'a' });
+  const renaming = reduce(menu, { type: 'sidebar', change: 'rename', chatId: 'a' });
+
+  assert.equal(menu.sidebar.menu, 'a');
+  assert.equal(renaming.sidebar.menu, null);
+  assert.equal(renaming.sidebar.renaming, 'a');
+  assert.equal(reduce(renaming, { type: 'sidebar', change: 'mode', mode: 'archive' }).sidebar.renaming, null);
 });
 
 test('transcript changes apply only to the open chat', () => {
@@ -38,6 +82,8 @@ test('transcript changes apply only to the open chat', () => {
 test('sending is possible only into an idle, continuable chat or a new one', () => {
   assert.equal(canSend(reduce(listed, { type: 'open', chatId: 'a' }), 'Hi'), true);
   assert.equal(canSend(reduce(listed, { type: 'open', chatId: 'b' }), 'Hi'), false);
+  const archived = reduce(listed, { type: 'chats', projects: [], chats: [{ ...listed.chats[0], archived: true }], permissions: [] });
+  assert.equal(canSend(reduce(archived, { type: 'open', chatId: 'a' }), 'Hi'), false);
   assert.equal(canSend(reduce(listed, { type: 'compose', projectId: 'p1' }), 'Hi'), true);
   assert.equal(canSend(reduce(listed, { type: 'compose' }), '  '), false);
   const noChats = reduce(listed, { type: 'status', status: 'ready', features: { chat: false } });

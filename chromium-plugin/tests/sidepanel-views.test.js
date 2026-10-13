@@ -60,3 +60,58 @@ test('streaming preserves open details and summary focus while updating output a
   render({ ...initialState, selected: 'b', transcript: [reply] });
   assert.equal(container.querySelector('details').open, false, 'a different chat must not inherit disclosure state');
 });
+
+test('session rows show the studio status, actions and menu, and edit titles inline', async () => {
+  const { renderChatList } = await import('../src/sidepanel/views/chat-list.js');
+  const { reduce } = await import('../src/sidepanel/store.js');
+  const document = fakeDocument();
+  const calls = /** @type {any[][]} */ ([]);
+  const chat = { running: false, pinned: false, unread: false, continuable: true, projectId: null };
+  let state = reduce(initialState, {
+    type: 'chats',
+    projects: [{ id: 'p1', name: 'Heartbeat' }],
+    chats: [
+      { ...chat, id: 'wait', title: 'Waiting', updatedAt: 4, running: true },
+      { ...chat, id: 'run', title: 'Running', updatedAt: 3, running: true },
+      { ...chat, id: 'new', title: 'Unread', updatedAt: 2, unread: true },
+      { ...chat, id: 'pin', title: 'Pinned', updatedAt: 1, pinned: true },
+    ],
+    permissions: [{ chatId: 'wait', requestId: 'r', title: 'Run?', options: [] }],
+  });
+  /** @type {import('../src/sidepanel/views/chat-list.js').ListContext} */
+  const context = {
+    t,
+    onOpen: (id) => calls.push(['open', id]),
+    onNewChat: (id) => calls.push(['new', id]),
+    onToggle: (key) => calls.push(['toggle', key]),
+    onMenu: (id) => calls.push(['menu', id]),
+    onRename: (id) => calls.push(['rename', id]),
+    onEdit: (...args) => calls.push(['edit', ...args]),
+  };
+  const rows = (/** @type {any} */ list) => list.querySelectorAll('div').filter((it) => it.attrs['data-chat']);
+  const slot = (/** @type {any} */ row) => row.querySelectorAll('span').find((it) => it.className.startsWith('status'));
+
+  const list = renderChatList(document, state, context);
+  const byId = Object.fromEntries(rows(list).map((row) => [row.attrs['data-chat'], row]));
+
+  assert.equal(slot(byId.wait).title, 'awaitingPermission');
+  assert.equal(slot(byId.run).className, 'status sticky');
+  assert.equal(slot(byId.new).children[0].className, 'dot');
+  assert.equal(slot(byId.pin).children[0].tagName, 'svg');
+  list.querySelectorAll('button').find((it) => it.title === 'newSessionIn')?.fire('click');
+  byId.new.querySelectorAll('button').find((it) => it.title === 'archive')?.fire('click');
+  assert.deepEqual(calls, [['new', 'p1'], ['edit', 'new', 'archive', true]]);
+
+  state = reduce(state, { type: 'sidebar', change: 'menu', chatId: 'new' });
+  const menu = rows(renderChatList(document, state, context)).find((row) => row.attrs['data-chat'] === 'new')
+    .querySelectorAll('button').filter((it) => it.className === 'menu-item').map((it) => it.textContent);
+  assert.deepEqual(menu, ['rename', 'pin', 'markRead', 'archive']);
+
+  state = reduce(state, { type: 'sidebar', change: 'rename', chatId: 'new' });
+  const field = renderChatList(document, state, context).querySelector('input');
+  field.value = '  Renamed  ';
+  calls.length = 0;
+  field.fire('keydown', { key: 'Enter', preventDefault: () => {} });
+  field.fire('blur');
+  assert.deepEqual(calls, [['rename', null], ['edit', 'new', 'rename', 'Renamed']]);
+});

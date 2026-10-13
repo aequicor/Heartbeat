@@ -15,13 +15,11 @@ import { statusNotice } from './views/status.js';
 const MAX_PAGES = 4;
 
 const t = createTranslator(chrome.i18n);
-const locale = chrome.i18n.getUILanguage();
 const port = chrome.runtime.connect({ name: 'heartbeat-panel' });
 const panelWindow = chrome.windows.getCurrent();
 
 /** @type {import('./store.js').PanelState} */
 let state = initialState;
-let filter = '';
 let nextCall = 0;
 /** @type {Map<number, { resolve: (value: any) => void, reject: (error: { code: string }) => void }>} */
 const calls = new Map();
@@ -30,7 +28,7 @@ const calls = new Map();
 const byId = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
 const prompt = /** @type {HTMLTextAreaElement} */ (byId('prompt'));
 const project = /** @type {HTMLSelectElement} */ (byId('project'));
-const filterInput = /** @type {HTMLInputElement} */ (byId('filter'));
+const searchField = /** @type {HTMLInputElement} */ (byId('search-field'));
 const transcriptView = h(document, 'div');
 const updateTranscript = createTranscriptRenderer(document, transcriptView, t);
 const updatePermissions = createPermissionRenderer(document, byId('permissions'), t, respond);
@@ -91,10 +89,48 @@ port.onMessage.addListener((/** @type {any} */ message) => {
 
 /** @param {string} chatId */
 function open(chatId) {
+  const chat = state.chats.find((it) => it.id === chatId);
   dispatch({ type: 'open', chatId });
   port.postMessage({ type: 'watch', key: 'chat', method: 'chat.watch', params: { chatId } });
   prompt.focus();
+  // Opening a chat reads it, as in the studio.
+  if (chat?.unread) edit(chatId, 'unread', false);
 }
+
+/** @param {string | null} projectId */
+function compose(projectId) {
+  port.postMessage({ type: 'unwatch', key: 'chat' });
+  dispatch({ type: 'compose', projectId });
+  prompt.focus();
+}
+
+/**
+ * @param {string} chatId
+ * @param {'rename' | 'pin' | 'unread' | 'archive'} kind
+ * @param {string | boolean} value
+ */
+async function edit(chatId, kind, value) {
+  try {
+    await call('chat.edit', kind === 'rename' ? { chatId, kind, title: value } : { chatId, kind, value });
+  } catch (error) {
+    dispatch({ type: 'failed', code: /** @type {any} */ (error).code ?? ErrorCode.INTERNAL });
+  }
+}
+
+/** @param {Record<string, any>} change */
+const sidebar = (change) => dispatch({ type: 'sidebar', ...change });
+
+/** @type {import('./views/chat-list.js').ListContext} */
+const listContext = {
+  t,
+  onOpen: open,
+  onNewChat: compose,
+  onToggle: (key) => sidebar({ change: 'toggle', key }),
+  onMenu: (chatId) => sidebar({ change: 'menu', chatId }),
+  onRename: (chatId) => sidebar({ change: 'rename', chatId }),
+  onEdit: edit,
+};
+let renderedRenaming = /** @type {string | null} */ (null);
 
 function back() {
   port.postMessage({ type: 'unwatch', key: 'chat' });
@@ -168,14 +204,16 @@ async function takePendingAttachment() {
 function render(previous) {
   const chat = selectedChat(state);
   const isListing = !state.selected && !state.isComposingNew;
-  byId('title').textContent = chat?.title ?? (state.isComposingNew ? t('newChat') : t('chats'));
+  byId('title').textContent = chat?.title ?? (state.isComposingNew ? t('newChat') : t('extName'));
+  byId('title').className = isListing ? 'brand' : '';
+  document.body?.classList?.toggle('listing', isListing);
   byId('back').hidden = isListing;
   byId('back').setAttribute('aria-label', t('back'));
   byId('new-chat').setAttribute('aria-label', t('newChat'));
   byId('new-chat').title = t('newChat');
   byId('new-chat').hidden = state.isComposingNew;
-  filterInput.hidden = !isListing;
-  filterInput.placeholder = t('search');
+  renderSearch(isListing);
+  renderRail(isListing);
 
   const notice = statusNotice(state);
   const noticeBox = byId('notice');
@@ -191,7 +229,13 @@ function render(previous) {
   const content = byId('content');
   const wasAtBottom = content.scrollHeight - content.scrollTop - content.clientHeight < 24;
   if (isListing) {
-    content.replaceChildren(renderChatList(document, state, { t, filter, now: Date.now(), locale, onOpen: open }));
+    // An open title editor keeps its node (and focus) until it closes; list updates wait for it.
+    const isEditing = state.sidebar.renaming !== null && state.sidebar.renaming === renderedRenaming;
+    if (!isEditing || previous.sidebar !== state.sidebar) {
+      content.replaceChildren(renderChatList(document, state, listContext));
+      renderedRenaming = state.sidebar.renaming;
+      if (renderedRenaming) /** @type {HTMLElement | null} */ (content.querySelector('input'))?.focus();
+    }
   } else if (state.transcript !== previous.transcript || state.selected !== previous.selected) {
     updateTranscript(state);
     if (content.firstElementChild !== transcriptView) content.replaceChildren(transcriptView);
@@ -220,7 +264,7 @@ function renderComposer(chat, isListing) {
   project.setAttribute('aria-label', t('project'));
   prompt.placeholder = t(state.isComposingNew ? 'placeholderNew' : 'placeholderChat');
   const isClosed = Boolean(chat && !chat.continuable);
-  byId('composer-hint').textContent = isClosed ? t('chatClosed') : '';
+  byId('composer-hint').textContent = chat?.archived ? t('chatArchived') : isClosed ? t('chatClosed') : '';
   const send = byId('send');
   send.textContent = t('send');
   send.title = t('sendHint');
@@ -232,6 +276,32 @@ function renderComposer(chat, isListing) {
   stop.textContent = t('stop');
   stop.hidden = !chat?.running;
   renderAttachments();
+}
+
+/** @param {boolean} isListing */
+function renderSearch(isListing) {
+  const { isSearching } = state.sidebar;
+  byId('search').hidden = !isListing;
+  byId('search-row').hidden = isSearching;
+  byId('search-box').hidden = !isSearching;
+  byId('search-row').replaceChildren(icon(document, 'Search'), h(document, 'span', { text: t('searchSessions') }));
+  searchField.placeholder = t('searchSessions');
+  byId('search-clear').setAttribute('aria-label', t('clearSearch'));
+  byId('search-clear').title = t('clearSearch');
+}
+
+/** @param {boolean} isListing */
+function renderRail(isListing) {
+  byId('rail').hidden = !isListing;
+  for (const [id, mode, iconName, label] of /** @type {const} */ ([
+    ['rail-sessions', 'sessions', 'Chats', 'railSessions'],
+    ['rail-archive', 'archive', 'Archive', 'railArchive'],
+  ])) {
+    const item = byId(id);
+    item.className = state.sidebar.mode === mode ? 'rail-item selected' : 'rail-item';
+    item.setAttribute('aria-pressed', String(state.sidebar.mode === mode));
+    item.replaceChildren(icon(document, iconName), h(document, 'span', { text: t(label) }));
+  }
 }
 
 /** Consent to agent control and the tabs agents hold, when the app offers agent control. */
@@ -273,10 +343,31 @@ function renderAttachments() {
 byId('back').replaceChildren(icon(document, 'ArrowLeft'));
 byId('new-chat').replaceChildren(icon(document, 'Plus'));
 byId('back').addEventListener('click', back);
-byId('new-chat').addEventListener('click', () => {
-  port.postMessage({ type: 'unwatch', key: 'chat' });
-  dispatch({ type: 'compose', projectId: null });
-  prompt.focus();
+byId('new-chat').addEventListener('click', () => compose(null));
+byId('search-clear').replaceChildren(icon(document, 'Close', 14));
+byId('search-row').addEventListener('click', () => {
+  sidebar({ change: 'search', isSearching: true });
+  searchField.focus();
+});
+byId('search-clear').addEventListener('click', () => {
+  searchField.value = '';
+  sidebar({ change: 'search', isSearching: false });
+});
+searchField.addEventListener('input', () => sidebar({ change: 'query', query: searchField.value }));
+searchField.addEventListener('keydown', (/** @type {KeyboardEvent} */ event) => {
+  if (event.key !== 'Escape') return;
+  searchField.value = '';
+  sidebar({ change: 'search', isSearching: false });
+});
+byId('rail-sessions').addEventListener('click', () => sidebar({ change: 'mode', mode: 'sessions' }));
+byId('rail-archive').addEventListener('click', () => sidebar({ change: 'mode', mode: 'archive' }));
+// An open row menu closes on a click elsewhere or Escape.
+document.addEventListener('click', (/** @type {MouseEvent} */ event) => {
+  const target = /** @type {Element | null} */ (event.target);
+  if (state.sidebar.menu && !target?.closest?.('.menu, .row.menu-open .row-actions')) sidebar({ change: 'menu', chatId: null });
+});
+document.addEventListener('keydown', (/** @type {KeyboardEvent} */ event) => {
+  if (event.key === 'Escape' && state.sidebar.menu) sidebar({ change: 'menu', chatId: null });
 });
 byId('send').addEventListener('click', send);
 byId('attach-page').addEventListener('click', attachPage);
@@ -287,10 +378,6 @@ byId('consent').addEventListener('change', (event) => {
 });
 byId('revoke').addEventListener('click', () => port.postMessage({ type: 'revokeTabs' }));
 project.addEventListener('change', () => dispatch({ type: 'compose', projectId: project.value || null }));
-filterInput.addEventListener('input', () => {
-  filter = filterInput.value;
-  render(state);
-});
 prompt.addEventListener('input', () => {
   /** @type {HTMLButtonElement} */ (byId('send')).disabled = !canSend(state, prompt.value);
 });

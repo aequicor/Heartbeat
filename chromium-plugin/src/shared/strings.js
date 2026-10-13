@@ -18,6 +18,7 @@ export const ERROR_MESSAGES = Object.freeze({
   no_model: 'errorNoModel',
   unavailable: 'errorUnavailable',
   stale_request: 'errorStale',
+  not_applied: 'errorNotApplied',
   timeout: 'errorTimeout',
   bad_request: 'errorBadRequest',
   too_large: 'errorTooLarge',
