@@ -71,7 +71,7 @@ private fun launchLoggedHeartbeat(isDevelopment: Boolean, classes: Result<Path?>
     val lifecycle = LifecycleRegistry()
     val graph = runOnUiThread { createHeartbeatGraph(isDevelopment) }
     val root = runOnUiThread {
-        createAppRoot(DefaultComponentContext(lifecycle), graph)
+        createAppRoot(DefaultComponentContext(lifecycle), graph).also { startAppWork(graph) }
     }
     val dimensions = HbDimensions()
     application {
@@ -88,6 +88,7 @@ private fun launchLoggedHeartbeat(isDevelopment: Boolean, classes: Result<Path?>
             installDesktopQuitHandler(systemQuit, closeRequest)
             onDispose { }
         }
+        QuitForAppUpdate(graph.machines, closeRequest)
         val icon = remember(applicationIcons) { applicationIcons.last().toPainter() }
         val windowState = rememberWindowState(width = dimensions.windowWidth, height = dimensions.windowHeight)
         val computerUse by root.computerUse.collectAsState()
