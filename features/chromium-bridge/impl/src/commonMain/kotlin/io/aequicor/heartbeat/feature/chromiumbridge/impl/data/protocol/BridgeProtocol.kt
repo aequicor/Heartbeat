@@ -50,6 +50,7 @@ internal object BridgeErrorCode {
     const val NOT_CONTINUABLE: String = "not_continuable"
     const val NO_MODEL: String = "no_model"
     const val STALE_REQUEST: String = "stale_request"
+    const val NOT_APPLIED: String = "not_applied"
     const val TOO_LARGE: String = "too_large"
     const val FORBIDDEN: String = "forbidden"
     const val NO_SUCH_TAB: String = "no_such_tab"

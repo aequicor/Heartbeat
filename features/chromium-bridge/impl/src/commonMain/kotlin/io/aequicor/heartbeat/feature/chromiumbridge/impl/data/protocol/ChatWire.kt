@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol
 
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatComposer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEntry
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatList
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatNotice
@@ -20,13 +21,17 @@ internal data class ChatRef(val chatId: String)
 @Serializable
 internal data class WatchRef(val watch: String)
 
-/** `chat.send` parameters: an existing [chatId], or a new chat in [projectId]; [attachments] are captured pages. */
+/**
+ * `chat.send` parameters: an existing [chatId], or a new chat in [projectId] running on [settings] (model and
+ * approvals; else the start page's); [attachments] are captured pages.
+ */
 @Serializable
 internal data class ChatSendParams(
     val chatId: String? = null,
     val projectId: String? = null,
     val text: String,
     val attachments: List<WirePage> = emptyList(),
+    val settings: WireSettings? = null,
 )
 
 /** A page the extension captured: its address, title, the user's selection and its readable text. */
@@ -81,8 +86,9 @@ internal data class ChatsChanged(
     val projects: List<WireProject>,
     val chats: List<WireChat>,
     val permissions: List<WirePermission>,
-    /** Chats beyond the cap, oldest first, left out. */
+    /** Chats beyond the cap, archived and oldest first, left out. */
     val omitted: Int = 0,
+    val composer: WireComposer? = null,
 )
 
 /** A project. */
@@ -100,6 +106,13 @@ internal data class WireChat(
     @SerialName("pinned") val isPinned: Boolean,
     @SerialName("unread") val isUnread: Boolean,
     @SerialName("continuable") val isContinuable: Boolean,
+    @SerialName("archived") val isArchived: Boolean = false,
+    /** The chat's model route; absent before its first turn. */
+    val modelId: String? = null,
+    /** Settings the chat's engine confirmed. */
+    val settings: WireSettings? = null,
+    /** A settings change is in flight. */
+    @SerialName("configuring") val isConfiguring: Boolean = false,
 )
 
 /** A permission waiting for an answer. */
@@ -190,11 +203,14 @@ internal object ChatWireLimits {
     const val MAX_PAGES = 4
 }
 
-/** The list as sent: projects, the most recent chats up to the cap and live permissions. */
-internal fun StudioChatList.toWire(watch: String): ChatsChanged = ChatsChanged(
+/**
+ * The list as sent: projects, the chats up to the cap (archived ones yield first) with the composer and live
+ * permissions.
+ */
+internal fun StudioChatList.toWire(watch: String, composer: StudioChatComposer? = null): ChatsChanged = ChatsChanged(
     watch = watch,
     projects = projects.map { WireProject(it.id, it.name.take(ChatWireLimits.MAX_TITLE_CHARS)) },
-    chats = chats.take(ChatWireLimits.MAX_CHATS).map {
+    chats = chats.asSequence().sortedBy { it.isArchived }.take(ChatWireLimits.MAX_CHATS).map {
         WireChat(
             id = it.id,
             title = it.title.take(ChatWireLimits.MAX_TITLE_CHARS),
@@ -204,10 +220,15 @@ internal fun StudioChatList.toWire(watch: String): ChatsChanged = ChatsChanged(
             isPinned = it.isPinned,
             isUnread = it.isUnread,
             isContinuable = it.isContinuable,
+            isArchived = it.isArchived,
+            modelId = it.modelId,
+            settings = it.settings?.toWire(),
+            isConfiguring = it.isConfiguring,
         )
-    },
+    }.toList(),
     permissions = permissions.map { it.toWire() },
     omitted = (chats.size - ChatWireLimits.MAX_CHATS).coerceAtLeast(0),
+    composer = composer?.toWire(),
 )
 
 private fun StudioPermission.toWire() = WirePermission(
