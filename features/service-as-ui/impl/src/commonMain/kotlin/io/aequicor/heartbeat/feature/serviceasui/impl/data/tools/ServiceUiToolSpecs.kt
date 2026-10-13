@@ -36,7 +36,11 @@ internal val ServiceUiToolSpecs: List<AgentToolSpec> = listOf(
         schema(listOf("owner", "name", "placement", "title", "spec")) {
             text("owner", "Owner from ui_list: its ref (harness:<id>) or its name.")
             text("name", "Short lowercase slug, unique for the owner; other interfaces open it by this name.")
-            choice("placement", "Where it appears.", listOf("composer", "start", "panel", "modal"))
+            choice(
+                "placement",
+                "Use card for a mini-app inside the conversation; composer for compact status.",
+                listOf("card", "composer", "start", "panel", "modal"),
+            )
             text("title", "Title for people, at most 80 characters.")
             text("description", "What it is for, at most 500 characters.")
             putJsonObject("launchers") {

@@ -28,6 +28,7 @@ script publishes the methods the surface calls (`ui.method` in the harness scrip
 without you: nothing runs except the owner's methods, with the owner's permissions.
 
 ## Places (`placement`)
+- `card`: a live mini-app inside an ordinary chat reply, shown with `ui_show(surface: id)`. No launcher.
 - `composer`: inline in a compact row above the chat input while the owner is connected to the chat.
 - `start`: inline in the start window of a new chat for which the owner is selected.
 - `panel`: in the side panel, opened by a launcher or by an `open` action with `presentation: "panel"`.
@@ -39,8 +40,11 @@ without you: nothing runs except the owner's methods, with the owner's permissio
  "modals"?: {name: {"title", "body": node, "wide"?: bool}}, "body": node}
 - `state`: initial local values. Inputs write them by `bind`, as do `set` and `call.into`; every written key must be
   declared here.
-- `data`: owner methods whose results fill `data.<name>`. `auto` sources load when the surface opens in a slot or a
-  panel; cards never load by themselves. `status.<name>` tells `loading`, `failed`, `ready` and `error`.
+- `data`: owner methods whose results fill `data.<name>`. `auto` sources load whenever a live library surface opens,
+  including reply cards, and refresh after durable owner data changes. Use read-only methods for these sources;
+  writing inside a source would trigger another refresh. Manual sources run only through `reload` actions.
+  `status.<name>` tells `loading`, `failed`, `ready` and `error`. Local `state` is ephemeral; durable records belong
+  in harness `data`, never only in a script variable, local state, HTML or browser localStorage.
 Unknown fields and types are errors: the format is strict.
 
 ## Bindings
@@ -73,10 +77,12 @@ private fun nodesAndActions(): String = """
   multiline?}; `toggle` {bind, label}; `select` {bind, options: [{value, label}], label?}; `native` {widget: date |
   file | folder, bind, label?, extensions?}: a date is written as YYYY-MM-DD, a file or folder as an absolute path
   (desktop only).
-- `web` {html, bridge?, data?}: an isolated page in panel and modal surfaces and in modals (cards: modals only,
-  without bridge), one per surface, desktop only and only while the user has web documents on; saving or showing it
-  always asks the user. The page has its own origin and no network: inline scripts and styles, `data:` images and
-  fonts; no fetch, sockets, WebRTC, frames, workers, forms or links away. It reads `data` (a binding) as
+- `web` {html, bridge?, data?, height?: compact | regular | tall}: an isolated page in library surfaces (including
+  `card` and `composer`) and in modals, one per surface, desktop only while web documents are enabled. Anonymous
+  cards may show it only inside modals and never get a bridge; editor previews never execute owner methods.
+  Saving a web surface or showing an anonymous web spec asks the user. `height` is a bounded viewport: compact for
+  a status strip above the composer, regular (default) or tall for the mini-app body; use responsive CSS inside it.
+  The page has its own origin and no network: inline scripts and styles, `data:` images and fonts; no fetch, sockets, WebRTC, frames, workers, forms or links away. It reads `data` (a binding) as
   `heartbeat.data` and later values from the `heartbeat:data` event on `window` (`event.detail`). With `bridge: true`
   (library surfaces), `await heartbeat.call(method, args)` calls the owner's method with object `args` and returns
   its value, or rejects with an `Error` of the owner's message.
@@ -84,6 +90,8 @@ Icons draw an icon button whose label is its tooltip and accessible name: ${UiIc
 
 ## Actions (`type`)
 `call` {method, args?, into? (state key for the result)}, `reload` {source}, `set` {key, value},
+`focusCard` {surface: owner-local name} (scroll to the latest shown card of this surface in the current chat;
+use a native button next to the compact web status; unavailable to anonymous cards and editor previews),
 `open` {modal? | surface? (another surface of the same owner, by name), presentation?: modal | panel, args?},
 `close` (closes the modal it runs in), `prompt` {text, submit?} (surfaces of the library may send the prompt; cards
 only put it into the chat input), `openUrl` {url: http or https}, `copy` {text}, `saveFile` {text, name?,
@@ -108,7 +116,19 @@ characters fall back to positions.
 ## Cards (`ui_show`)
 A card shows a surface in your reply. An inline card has no owner: no `call`, `reload`, data sources, `reveal`,
 sent prompts or web bridge; the user confirms its links. A card of a library surface may call the owner's methods
-when the user presses its buttons.
+when the user presses its buttons or its web page calls the bridge. Its automatic sources also load when it appears.
+Turning the owner off or detaching it removes its live card until the owner is available again. Hidden transcript
+cards release their web documents; returning to them loads durable state again.
+
+## Mini-apps inside the conversation
+Build a full app as one owner-backed `card` surface with internal tabs, forms and history, plus an optional compact
+`composer` status surface backed by the same read-only method. Keep the existing chat, sidebar and input intact.
+Use `web` with inline HTML/CSS/JS for a custom visual theme. Keep styles inside the document; do not create another
+sidebar or open a panel for this workflow. Declare `data` auto sources, bind `web.data` to `{{data.snapshot}}`, render
+`heartbeat.data` on startup and listen for `heartbeat:data` updates. Handle missing data and rejected bridge calls.
+Buttons call approved harness `ui.method` methods; persist changed values using harness `data` before returning.
+The host updates other drawn surfaces after a durable write, without a model turn or a page reload. Do not poll or
+read the same data after every successful call. Use inline SVG or CSS for artwork; isolated pages have no network.
 
 ## Workflow
 1. Publish the methods in a harness script item: `ui.method(ItemName("prs"), "Open pull requests") { call ->
@@ -116,6 +136,8 @@ when the user presses its buttons.
    For an early return from that lambda use `return@method`, never `return@ui.method`; or return an if/else expression.
 2. `ui_list` shows owners and their methods; `ui_call` checks what a method returns.
 3. `ui_put` creates or replaces the surface and returns diagnostics with JSON paths to fix.
+4. For an embedded mini-app use `placement: "card"`, then `ui_show` with the returned surface id. A saved surface
+   alone is not a visible app. Optionally add `placement: "composer"` with a compact status and `focusCard` button.
     
     """.trimIndent()
 
