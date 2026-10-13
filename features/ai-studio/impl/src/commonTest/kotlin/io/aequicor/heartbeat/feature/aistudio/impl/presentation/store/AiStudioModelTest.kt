@@ -791,6 +791,8 @@ class AiStudioModelTest {
         repository: StudioRepository = InMemoryStudioRepository(TestClock(scope)),
         harnesses: StudioHarnesses = StudioHarnesses.None,
         compactions: StudioCompactionPort = StudioCompactionPort.None,
+        embeds: io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote.StudioEmbeds =
+            io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote.StudioEmbeds.None,
         host: io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost =
             io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost.Window,
         assists: io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists =
@@ -830,6 +832,7 @@ class AiStudioModelTest {
             },
             harnesses = harnesses,
             compactions = compactions,
+            embeddedScreens = embeds,
             host = host,
         )
 

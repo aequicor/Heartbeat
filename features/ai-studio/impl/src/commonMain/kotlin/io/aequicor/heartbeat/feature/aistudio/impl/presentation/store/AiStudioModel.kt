@@ -28,6 +28,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote.StudioEmbeds
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentInput
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
@@ -104,6 +105,7 @@ class AiStudioModel(
     private val harnesses: StudioHarnesses = StudioHarnesses.None,
     private val compactions: StudioCompactionPort = StudioCompactionPort.None,
     host: StudioScreenHost = StudioScreenHost.Window,
+    private val embeddedScreens: StudioEmbeds = StudioEmbeds.None,
 ) {
     private val log = Log.tag("AiStudioModel")
     private val harnessSelection = StudioHarnessSelection(harnesses, backend)
@@ -149,6 +151,7 @@ class AiStudioModel(
             val pipeline = this
             coroutineScope {
                 launch { observeWorkspace(pipeline) }
+                launch { embeddedScreens.observe(pipeline) }
                 launch {
                     entries.showsAttachments.collect { updateState { copy(isAttachmentsEnabled = it) } }
                 }
@@ -427,6 +430,7 @@ class AiStudioModel(
             is AiStudioScreenIntent.Organism -> organisms.handle(pipeline, intent)
             is AiStudioScreenIntent.SelectHarness -> harnessSelection.select(pipeline, intent)
             is AiStudioScreenIntent.RemoteApplied -> updateState { copy(remoteSeq = intent.seq) }
+            is AiStudioScreenIntent.Embed -> embeddedScreens.handle(pipeline, intent)
         }
     }
 

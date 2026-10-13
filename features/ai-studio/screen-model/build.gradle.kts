@@ -9,6 +9,8 @@ plugins {
 kotlin {
     sourceSets {
         commonMain.dependencies {
+            api(projects.features.questionnaire.screenModel)
+            api(projects.features.checklist.screenModel)
             api(libs.flowmvi.core)
             api(libs.kotlinx.collectionsImmutable)
             api(libs.kotlinx.serialization.json)

@@ -6,6 +6,9 @@ import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableListSerializer
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableMapSerializer
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableSetSerializer
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioEmbedViews
+import io.aequicor.heartbeat.feature.checklist.screenmodel.ChecklistScreenIntent
+import io.aequicor.heartbeat.feature.questionnaire.screenmodel.QuestionnaireScreenIntent
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
@@ -174,6 +177,8 @@ data class AiStudioScreenState(
     val now: Instant = Instant.DISTANT_PAST,
     /** Sequence number of the last intent a remote view applied ([AiStudioScreenIntent.RemoteApplied]). */
     val remoteSeq: Long = 0,
+    /** Child screens hosted by the remote studio; native navigation owns its own embeds. */
+    val remoteEmbeds: StudioEmbedViews = StudioEmbedViews(),
 ) : MVIState {
     /** The session of [id] with its running flag. */
     fun session(id: String?): SessionUi? =
@@ -216,6 +221,18 @@ data class ComposerCaretRequestUi(val id: Long, val text: String, val caret: Int
 @Serializable
 @SerialName("AiStudioScreenIntent")
 sealed interface AiStudioScreenIntent : MVIIntent {
+    /** An input addressed to one particular child handle of the remote view. */
+    @Serializable
+    sealed interface Embed : AiStudioScreenIntent
+
+    /** Input to the question source's current handle. */
+    @Serializable
+    data class QuestionInput(val source: String, val instance: String, val input: QuestionnaireScreenIntent) : Embed
+
+    /** Input to a persisted checklist's current handle. */
+    @Serializable
+    data class ChecklistInput(val id: String, val instance: String, val input: ChecklistScreenIntent) : Embed
+
     /** Changes what the panes show; forwarded to the machine. */
     @Serializable
     @SerialName("AiStudioScreenIntent.Navigation")

@@ -16,6 +16,8 @@ internal fun isAllowedRemotely(intent: AiStudioScreenIntent): Boolean = when (in
 
     is AiStudioScreenIntent.Attachment -> isAllowedAttachment(intent)
 
+    is AiStudioScreenIntent.QuestionInput,
+    is AiStudioScreenIntent.ChecklistInput,
     is AiStudioScreenIntent.RespondPermission,
     is AiStudioScreenIntent.SelectHarness,
     is AiStudioScreenIntent.SelectOrganism,

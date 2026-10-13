@@ -11,6 +11,8 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -100,6 +102,23 @@ class StudioViewCodecTest {
         assertTrue(Regex("[0-9a-f]{16}").matches(StudioViewSchema.fingerprint))
         assertNotEquals(fingerprintOf(Old.serializer().descriptor), fingerprintOf(New.serializer().descriptor))
     }
+
+    @Test
+    fun `the second generic map contributes its value shape`() {
+        val first = MapSerializer(String.serializer(), String.serializer()).descriptor
+        val old = MapSerializer(String.serializer(), Old.serializer()).descriptor
+        val new = MapSerializer(String.serializer(), New.serializer()).descriptor
+        assertNotEquals(fingerprintOf(first, old), fingerprintOf(first, new))
+    }
+
+    @Test
+    fun `recursive schemas terminate deterministically`() {
+        val descriptor = Recursive.serializer().descriptor
+        assertEquals(fingerprintOf(descriptor), fingerprintOf(descriptor))
+    }
+
+    @Serializable
+    private data class Recursive(val next: Recursive?)
 
     @Serializable
     @SerialName("Shape")

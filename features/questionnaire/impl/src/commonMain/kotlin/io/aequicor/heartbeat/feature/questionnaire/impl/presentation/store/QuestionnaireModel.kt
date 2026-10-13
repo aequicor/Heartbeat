@@ -24,8 +24,8 @@ import io.aequicor.heartbeat.feature.questionnaire.screenmodel.QuestionUi
 import io.aequicor.heartbeat.feature.questionnaire.screenmodel.QuestionnaireScreenAction
 import io.aequicor.heartbeat.feature.questionnaire.screenmodel.QuestionnaireScreenIntent
 import io.aequicor.heartbeat.feature.questionnaire.screenmodel.QuestionnaireScreenState
+import io.aequicor.heartbeat.feature.questionnaire.screenmodel.predictDraft
 import kotlinx.collections.immutable.toImmutableList
-import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.job
@@ -72,12 +72,12 @@ internal class QuestionnaireModel(
                     }
                     val answer: Answer? = when (intent) {
                         is QuestionnaireScreenIntent.ToggleChoice -> {
-                            updateState { edited(intent.questionId) { toggled(intent.choiceId) } }
+                            updateState { predictDraft(intent) }
                             null
                         }
 
                         is QuestionnaireScreenIntent.TextChanged -> {
-                            updateState { edited(intent.questionId) { copy(text = intent.text) } }
+                            updateState { predictDraft(intent) }
                             null
                         }
 
@@ -171,20 +171,6 @@ private fun Questionnaire.toUi(isSubmitting: Boolean) = QuestionUi(
 
 private fun List<io.aequicor.heartbeat.feature.questionnaire.api.Choice>.toUi() =
     map { ChoiceUi(it.id, it.title) }.toImmutableList()
-
-private fun QuestionnaireScreenState.edited(id: String, change: QuestionUi.() -> QuestionUi) =
-    copy(questions = questions.map { if (it.id == id) it.change() else it }.toImmutableList())
-
-private fun QuestionUi.toggled(choiceId: String): QuestionUi {
-    val choice = kind as? QuestionKindUi.Choice ?: return this
-    val next = when {
-        !choice.isMultiple -> setOf(choiceId)
-        choiceId in selected -> selected - choiceId
-        selected.size < choice.max -> selected + choiceId
-        else -> selected
-    }
-    return copy(selected = next.toImmutableSet())
-}
 
 internal fun QuestionUi.draftAnswer(): Answer? = when (val kind = kind) {
     is QuestionKindUi.Confirm -> null

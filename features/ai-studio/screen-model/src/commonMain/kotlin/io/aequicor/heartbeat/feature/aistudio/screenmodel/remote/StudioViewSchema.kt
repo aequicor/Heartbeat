@@ -26,15 +26,17 @@ object StudioViewSchema {
 /** Hashes the shape of [descriptors]: serial names, kinds, nullability and element names, recursively. */
 @OptIn(ExperimentalSerializationApi::class)
 fun fingerprintOf(vararg descriptors: SerialDescriptor): String {
-    val visited = mutableSetOf<String>()
+    val active = mutableListOf<SerialDescriptor>()
     val shape = StringBuilder()
     fun walk(descriptor: SerialDescriptor) {
         shape.append(descriptor.serialName).append('|').append(descriptor.kind).append('|')
             .append(descriptor.isNullable).append('|')
-        if (!visited.add(descriptor.serialName)) return
+        if (active.any { it === descriptor }) return
+        active.add(descriptor)
         for (index in 0 until descriptor.elementsCount) shape.append(descriptor.getElementName(index)).append(',')
         shape.append(';')
         descriptor.elementDescriptors.forEach(::walk)
+        active.removeAt(active.lastIndex)
     }
     descriptors.forEach(::walk)
     var hash = FNV_OFFSET
