@@ -44,7 +44,7 @@ public data class ToolPolicySpec(
     }
 }
 
-/** Applies to non-code edits. Code is independently reviewed; unsafe or uncertain changes ask the user. */
+/** Legacy persisted setting retained for compatibility; agent edits always use automatic safety review. */
 @Serializable
 public enum class HarnessApproval {
     @SerialName("ask")

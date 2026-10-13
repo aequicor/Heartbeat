@@ -1,8 +1,6 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.authoring
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
-import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
-import io.aequicor.heartbeat.feature.harness.api.HarnessApproval
 import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.ItemId
@@ -161,21 +159,6 @@ class HarnessAuthoringDraftsTest {
             putJsonObject("native") { putJsonObject("claude") { put("Bash", "maybe") } }
         }
         assertIs<Parsed.Invalid>(parseToolsSet(wrong))
-    }
-
-    @Test
-    fun `approval level decides only for texts while code and native enabling always ask`() {
-        HarnessApproval.entries.forEach { level ->
-            assertFalse(level.requiresDecision(TrustLevel.Full, isAlwaysAsked = false))
-        }
-        listOf(TrustLevel.Ask, TrustLevel.AutoEdits).forEach { trust ->
-            assertTrue(HarnessApproval.Ask.requiresDecision(trust, isAlwaysAsked = false))
-            assertTrue(HarnessApproval.ByTrust.requiresDecision(trust, isAlwaysAsked = false))
-            assertFalse(HarnessApproval.AcceptAll.requiresDecision(trust, isAlwaysAsked = false))
-        }
-        TrustLevel.entries.forEach { trust ->
-            HarnessApproval.entries.forEach { level -> assertTrue(level.requiresDecision(trust, isAlwaysAsked = true)) }
-        }
     }
 
     @Test

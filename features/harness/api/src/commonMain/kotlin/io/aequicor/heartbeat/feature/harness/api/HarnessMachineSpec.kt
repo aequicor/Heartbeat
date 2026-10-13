@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
 /**
  * Pure profile library. Each Ready transition stays in its state, so reload/suspension cannot cancel durable writes.
  * One harness write, one attachment write and one approval write may be pending in their respective domains.
+ * Automatically reviewed edits additionally fence the exact connection set; in-flight scope writes refuse them.
  * Proposed records reserve names and storage quotas. Delete serializes with attachment writes to avoid lost updates.
  * The repository owns persistence; a new machine loads committed values and never replays an uncertain pending write.
  *
@@ -25,7 +26,7 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Ready | Removed, exact pending receipt | stay, remove model and attachments | Deleted |
  * | Ready | SaveFailed, exact receipt | stay, preserve committed model | StorageFailed |
  * | Ready | RemoveFailed, exact receipt | stay, restore statuses at a new generation | Activate, StorageFailed |
- * | Ready | Public Attach/Detach, known id, domain free, within bounds | stay, pending attachment | SaveAttachments |
+ * | Ready | Public Attach/Detach, known id, CAS scope, free, bounded | stay, pending attachment | SaveAttachments |
  * | Ready | AttachmentsSaved/Failed, exact | stay, commit/preserve map | Attached/Detached/StorageFailed |
  * | Ready | Internal.SetApproval, current approval revision and domain free | stay, pending approval | SaveApproval |
  * | Ready | ApprovalSaved/Failed, exact write | stay, commit/preserve approval | ApprovalChanged/StorageFailed |

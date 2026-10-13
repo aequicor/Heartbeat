@@ -17,7 +17,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.contract
 
-/** Kinds of agent-authored items; code kinds always require a user decision. */
+/** Kinds of agent-authored items; code kinds compile before automatic safety review. */
 internal enum class ItemKind(val key: String, val isCode: Boolean) {
     Skill("skill", false),
     Instruction("instruction", false),
