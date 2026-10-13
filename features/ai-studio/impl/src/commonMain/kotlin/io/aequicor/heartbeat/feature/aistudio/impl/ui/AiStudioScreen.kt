@@ -224,6 +224,7 @@ private fun WideWorkspace(
                             questions = exits.questions,
                             checklists = exits.checklists,
                             slots = exits.slots,
+                            cards = exits.cards,
                             onIntent = onIntent,
                             layout = PaneLayout(
                                 isSplitAllowed = isSplitAllowed && state.panes.size == 1,
@@ -277,6 +278,7 @@ private fun CompactWorkspace(
                 questions = exits.questions,
                 checklists = exits.checklists,
                 slots = exits.slots,
+                cards = exits.cards,
                 onIntent = onIntent,
                 layout = PaneLayout(isSplitAllowed = false, isCloseAllowed = false, isCompact = true),
                 isAtWindowLeadingEdge = true,

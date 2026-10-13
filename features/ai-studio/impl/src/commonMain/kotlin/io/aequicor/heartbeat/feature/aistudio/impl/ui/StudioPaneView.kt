@@ -123,6 +123,7 @@ internal fun StudioPaneView(
     questions: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
     checklists: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
     slots: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
+    cards: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
     timelineState: StudioTimelineState = remember { StudioTimelineState() },
 ) {
     val pane = content.pane
@@ -169,6 +170,7 @@ internal fun StudioPaneView(
                     timelineState = timelineState,
                     messages = transcript,
                     checklists = checklists,
+                    cards = cards,
                     worktree = worktree,
                     section = sectionTitle(content.project, content.session),
                     calendar = content.calendar,
@@ -593,6 +595,7 @@ private fun SessionTranscript(
     messages: ImmutableList<MessageUi>,
     worktree: WorktreeTimeline,
     checklists: ImmutableMap<String, ComposableComponent>,
+    cards: ImmutableMap<String, ComposableComponent>,
     section: String,
     contentPadding: PaddingValues,
     overlapInsets: PaddingValues,
@@ -626,6 +629,7 @@ private fun SessionTranscript(
             val reply = messages.firstOrNull { it.id == rendered.id } as? MessageUi.Reply
             HbColumn(gap = HbTheme.spacing.m) {
                 reply?.checklistIds?.forEach { id -> key(id) { checklists[id]?.Content(Modifier) } }
+                reply?.cardIds?.forEach { id -> key("card:$id") { cards[id]?.Content(Modifier) } }
             }
         },
         messageFooterContent = { rendered ->

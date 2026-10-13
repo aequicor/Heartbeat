@@ -56,6 +56,8 @@ internal data class StudioExits(
     val checklists: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
     /** Interface slots of panes by `studioSlotKey`. */
     val slots: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
+    /** Cards of interfaces shown in replies, by card id. */
+    val cards: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
     val onOpenSettings: (() -> Unit)? = null,
 )
 

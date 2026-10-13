@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.studioComposerSlotKey
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.studioStartSlotKey
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioPhase
@@ -76,6 +77,37 @@ class StudioSurfaceSlotsUiTest {
 
         onNodeWithTag("slot-composer").assertIsDisplayed()
         onNodeWithTag("slot-start").assertDoesNotExist()
+    }
+
+    @Test
+    fun `a card the agent showed sits under its reply`() = runSkikoComposeUiTest(size = Size(800f, 900f)) {
+        val reply = MessageUi.Reply(
+            id = "r1",
+            createdAt = Instant.fromEpochSeconds(2),
+            text = "Here is the map",
+            tools = persistentListOf(),
+            isStreaming = false,
+            cardIds = persistentListOf("c_map"),
+        )
+        val state = AiStudioScreenState(
+            phase = StudioPhase.Ready,
+            panes = persistentListOf(PaneUi(0, sessionId = "chat")),
+            sessions = persistentListOf(SessionUi("chat", "Chat", null, Instant.fromEpochSeconds(1))),
+            transcripts = persistentMapOf("chat" to persistentListOf(reply)),
+        )
+        setContent {
+            HbTheme(darkTheme = false, dimensions = HbDimensions.Desktop) {
+                StudioPaneView(
+                    state.paneContent(state.panes.single()),
+                    {},
+                    PaneLayout(isSplitAllowed = false, isCloseAllowed = false, isCompact = false),
+                    Modifier.fillMaxSize(),
+                    cards = persistentMapOf("c_map" to Slot("card")),
+                )
+            }
+        }
+
+        onNodeWithTag("slot-card").assertIsDisplayed()
     }
 
     private class Slot(private val name: String) : ComposableComponent {

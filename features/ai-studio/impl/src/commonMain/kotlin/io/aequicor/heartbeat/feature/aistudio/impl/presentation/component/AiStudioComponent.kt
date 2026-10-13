@@ -50,6 +50,7 @@ import io.aequicor.heartbeat.feature.checklist.api.ChecklistRoute
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRoute
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatRoute
 import io.aequicor.heartbeat.feature.searchengine.api.ProfileSettingsRoute
+import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiCardRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiSlotRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSlot
 import io.aequicor.heartbeat.feature.settings.api.SettingsRoute
@@ -203,6 +204,27 @@ class AiStudioComponent(
     }
     private val slotHosts = MutableStateFlow<Map<String, StackHost>>(emptyMap())
 
+    private val cardNavigation = ItemsNavigation<String>()
+    private val cardItems = childItems(
+        source = cardNavigation,
+        serializer = null,
+        initialItems = { Items() },
+        key = "interface-cards",
+    ) { id, context ->
+        hosts.stack(
+            context = context,
+            parent = navigator,
+            name = "interface-card-$id",
+            initial = listOf(ServiceUiCardRoute(id)),
+            local = emptyList(),
+            global = GlobalRoutes.Only(setOf(ServiceUiCardRoute::class)),
+        )
+    }
+    private val cardHosts = MutableStateFlow<Map<String, StackHost>>(emptyMap())
+
+    /** Hosts of the cards shown in the replies of open transcripts, by card id, while interfaces are on. */
+    val cards: StateFlow<Map<String, StackHost>> = cardHosts.asStateFlow()
+
     /**
      * Hosts of interface slots by [studioSlotKey] while interfaces are on: the composer row of every pane and the
      * start window of a new chat.
@@ -268,6 +290,25 @@ class AiStudioComponent(
         lifecycle.doOnDestroy {
             slotWatch.cancel()
             slotJob.cancel()
+        }
+
+        val cardWatch = cardItems.subscribe { children ->
+            log.v { "Update interface card hosts: ${children.activeItems.size}" }
+            cardHosts.value = children.activeItems.mapValues { (_, child) -> child.first }
+        }
+        val cardJob = scope.coroutineScope.launch {
+            combine(
+                surfacePanes.cardIds,
+                surfaces.availability,
+            ) { ids, isOn -> if (isOn) ids.sorted() else emptyList() }
+                .distinctUntilChanged()
+                .collect { shown ->
+                    cardNavigation.navigate { Items(shown, shown.associateWith { ActiveLifecycleState.RESUMED }) }
+                }
+        }
+        lifecycle.doOnDestroy {
+            cardWatch.cancel()
+            cardJob.cancel()
         }
 
         val attachments = scope.coroutineScope.launch {

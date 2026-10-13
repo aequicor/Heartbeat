@@ -191,6 +191,8 @@ sealed interface MessageUi {
         val parts: ImmutableList<ReplyPartUi> = persistentListOf(),
         override val isTimestampKnown: Boolean = true,
         val checklistIds: ImmutableList<String> = persistentListOf(),
+        /** Cards of interfaces the agent showed in this reply, in order. */
+        val cardIds: ImmutableList<String> = persistentListOf(),
     ) : MessageUi {
         /** How this instance looks in a collapsed feed, computed once per settings; not part of equality. */
         internal val collapseMemo: CollapseMemo = CollapseMemo()
@@ -278,6 +280,7 @@ internal fun StudioMessage.toUi(): MessageUi = when (this) {
         }.toImmutableList(),
         isTimestampKnown,
         checklistIds.toImmutableList(),
+        tools.mapNotNull { it.shownCardId }.distinct().toImmutableList(),
     )
 
     is StudioMessage.Stopped -> MessageUi.Stopped(id, createdAt, elapsed)

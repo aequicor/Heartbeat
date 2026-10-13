@@ -35,9 +35,13 @@ class StudioSurfaceBinding internal constructor(
 ) {
     private val log = Log.tag("AiStudioModel")
     private val panes = MutableStateFlow<Map<Int, PaneSurfaceUi>>(emptyMap())
+    private val cards = MutableStateFlow<Set<String>>(emptySet())
 
     /** The open panes, for the slot hosts of the component. */
     internal val paneIds: StateFlow<Map<Int, PaneSurfaceUi>> = panes.asStateFlow()
+
+    /** Cards shown in the replies of the open transcripts, for the card hosts of the component. */
+    internal val cardIds: StateFlow<Set<String>> = cards.asStateFlow()
 
     /** Follows the screen [state]; called for every state of the store. */
     internal fun onState(state: AiStudioScreenState) {
@@ -51,6 +55,13 @@ class StudioSurfaceBinding internal constructor(
         if (panes.value != next) {
             log.v { "Interface panes: ${panes.value.size} -> ${next.size}" }
             panes.value = next
+        }
+        val shown = state.transcripts.values.flatMapTo(mutableSetOf()) { messages ->
+            messages.flatMap { (it as? MessageUi.Reply)?.cardIds.orEmpty() }
+        }
+        if (cards.value != shown) {
+            log.v { "Interface cards: ${cards.value.size} -> ${shown.size}" }
+            cards.value = shown
         }
     }
 
