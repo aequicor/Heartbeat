@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion
 import io.aequicor.heartbeat.feature.autocomplete.api.applyComposerSuggestion
 import io.aequicor.heartbeat.feature.autocomplete.api.composerTrigger
 import kotlinx.collections.immutable.toImmutableMap
@@ -25,6 +26,7 @@ private typealias SuggestionsPipeline = PipelineContext<AiStudioScreenState, AiS
  */
 internal class StudioSuggestions(
     private val assists: ComposerAssists,
+    private val isFileInputAllowed: Boolean,
     private val onAttachFile: suspend (paneId: Int, location: String) -> Unit,
 ) {
     private val log = Log.tag("StudioSuggestions")
@@ -121,7 +123,11 @@ internal class StudioSuggestions(
         with(pipeline) {
             updateState {
                 if (requests.value[query.draftKey] == request) {
-                    withSuggestionItems(query, items, request.id)
+                    withSuggestionItems(
+                        query,
+                        items.filter { isFileInputAllowed || it !is ComposerSuggestion.File },
+                        request.id,
+                    )
                 } else {
                     this
                 }
@@ -137,7 +143,8 @@ internal class StudioSuggestions(
                 if (query(paneId) != request.query) return@withState
                 val list = composerSuggestions[key]?.takeIf { it.requestId == request.id } ?: return@withState
                 val suggestion = list.items.getOrNull(index ?: list.selectedIndex)
-                    ?.takeIf { it.kind != SuggestionKindUi.File || it.isSupported } ?: return@withState
+                    ?.takeIf { it.kind != SuggestionKindUi.File || (isFileInputAllowed && it.isSupported) }
+                    ?: return@withState
                 val applied = applyComposerSuggestion(draft(paneId), request.query.trigger, suggestion.toCompletion())
                 val caretRequest = ComposerCaretRequestUi(++nextCaretRequest, applied.text, applied.caret)
                 log.i { "composer suggestion accepted kind=${suggestion.kind}" }

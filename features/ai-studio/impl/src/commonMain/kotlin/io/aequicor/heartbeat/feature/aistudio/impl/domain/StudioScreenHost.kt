@@ -1,4 +1,4 @@
-package io.aequicor.heartbeat.feature.aistudio.impl.di
+package io.aequicor.heartbeat.feature.aistudio.impl.domain
 
 /** Who shows a studio screen graph: the app window or a remote view (the browser side panel). */
 enum class StudioScreenHost {

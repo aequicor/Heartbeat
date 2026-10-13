@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioCompactionPort
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
@@ -102,6 +103,7 @@ class AiStudioModel(
     previews: StudioAttachmentPreviews,
     private val harnesses: StudioHarnesses = StudioHarnesses.None,
     private val compactions: StudioCompactionPort = StudioCompactionPort.None,
+    host: StudioScreenHost = StudioScreenHost.Window,
 ) {
     private val log = Log.tag("AiStudioModel")
     private val harnessSelection = StudioHarnessSelection(harnesses, backend)
@@ -115,7 +117,10 @@ class AiStudioModel(
     /** Late-bound file attach of an accepted suggestion: the store itself is created below. */
     private var attachSuggestedFile: suspend (paneId: Int, location: String) -> Unit = { _, _ -> }
 
-    private val suggestions = StudioSuggestions(assists) { paneId, location ->
+    private val suggestions = StudioSuggestions(
+        assists,
+        isFileInputAllowed = host == StudioScreenHost.Window,
+    ) { paneId, location ->
         attachSuggestedFile(paneId, location)
     }
     val store = factory.create<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>(

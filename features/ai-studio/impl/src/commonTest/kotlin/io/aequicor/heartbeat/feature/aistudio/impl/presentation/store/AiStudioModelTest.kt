@@ -791,6 +791,8 @@ class AiStudioModelTest {
         repository: StudioRepository = InMemoryStudioRepository(TestClock(scope)),
         harnesses: StudioHarnesses = StudioHarnesses.None,
         compactions: StudioCompactionPort = StudioCompactionPort.None,
+        host: io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost =
+            io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost.Window,
         assists: io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists =
             object : io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists {
                 override suspend fun suggest(
@@ -828,6 +830,7 @@ class AiStudioModelTest {
             },
             harnesses = harnesses,
             compactions = compactions,
+            host = host,
         )
 
         suspend fun subscribe(): Provider<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction> {

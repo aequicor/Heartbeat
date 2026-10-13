@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteOpen
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteRefusal
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteReply
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteScreens
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote.RemoteStudioView
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewSchema
 import kotlinx.coroutines.Job
