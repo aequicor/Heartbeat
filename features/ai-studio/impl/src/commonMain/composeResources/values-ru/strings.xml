@@ -266,6 +266,7 @@
     <string name="harness_connect_failed">Не удалось изменить харнессы этого чата. Повторите попытку.</string>
     <string name="browser_mode">Браузер</string>
     <string name="composer_suggestions_close">Закрыть подсказки</string>
+    <string name="interface_panel">Панель интерфейса</string>
     <string name="diagram_draft_busy">Чат занят. Текст кнопки добавлен в черновик.</string>
     <string name="diagram_draft_rejected">Сообщение не принято. Текст кнопки добавлен в черновик.</string>
     <string name="harness_picker_search">Найти харнесс</string>

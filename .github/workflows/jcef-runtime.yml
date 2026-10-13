@@ -1,0 +1,155 @@
+name: JCEF runtime
+
+# Builds the patched JCEF runtime (native/jcef) on the four native hosts and collects the release directory; it never
+# runs on its own and never publishes. It builds the prepared next release from native/jcef/next when that directory
+# exists, otherwise the current lock (a rebuild to compare with the published jars). Start it by adding the label
+# `jcef-runtime` to a pull request (the label is removed by hand) or, once this file is in master:
+#   gh workflow run jcef-runtime.yml --ref <branch>
+# The maintainer inspects the `jcef-release` artifact and the probe reports, then publishes with publish_draft.py.
+run-name: 'JCEF runtime build: ${{ github.event.pull_request.title || github.ref_name }}'
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+# Other labels start runs whose jobs are skipped; their own group keeps them from cancelling a build.
+concurrency:
+  group: jcef-runtime-${{ github.event.pull_request.number || github.ref }}-${{ github.event.label.name || 'dispatch' }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: JCEF ${{ matrix.target }}
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'jcef-runtime'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: windows-amd64, runner: windows-2025, msvc: amd64 }
+          - { target: windows-arm64, runner: windows-11-arm, msvc: arm64 }
+          - { target: macosx-amd64, runner: macos-15-intel }
+          - { target: macosx-arm64, runner: macos-15 }
+    steps:
+      - name: Allow long Windows paths
+        if: runner.os == 'Windows'
+        run: git config --system core.longpaths true
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      # Every host compiles the shared API jar with the same JDK, so the four API builds are byte-identical.
+      - uses: actions/setup-java@v6
+        with:
+          distribution: microsoft
+          java-version: '21.0.10'
+      - name: Native Visual Studio toolchain
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.msvc }}
+      - name: Build tools
+        shell: bash
+        run: |
+          python -m pip install six==1.17.0 cmake ninja
+          if [ "$RUNNER_OS" = macOS ]; then brew install ant; fi
+      - name: Select the release inputs
+        shell: bash
+        run: |
+          if [ -f native/jcef/next/source-lock.json ]; then
+            echo "JCEF_LOCK=native/jcef/next/source-lock.json" >> "$GITHUB_ENV"
+            echo "JCEF_PATCH=native/jcef/next/request-context-settings.patch" >> "$GITHUB_ENV"
+          else
+            echo "JCEF_LOCK=native/jcef/source-lock.json" >> "$GITHUB_ENV"
+            echo "JCEF_PATCH=native/jcef/request-context-settings.patch" >> "$GITHUB_ENV"
+          fi
+      - name: Test the build scripts
+        run: python -m unittest discover -s native/jcef -p "test_*.py" -v
+      - name: Build and package
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          # A short fresh directory outside the workspace keeps CEF paths within Windows limits.
+          SOURCE: ${{ runner.temp }}/jcef
+        run: |
+          options=(--source-lock "$JCEF_LOCK" --patch "$JCEF_PATCH" --source "$SOURCE" --target "$TARGET"
+            --output build/jcef-artifacts)
+          for step in prepare build package verify; do
+            python native/jcef/build_runtime.py "${options[@]}" "$step"
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: jcef-${{ matrix.target }}
+          path: build/jcef-artifacts
+          if-no-files-found: error
+          retention-days: 14
+      # The lifecycle probe opens real windows; its result is evidence for the maintainer, not a gate of this job.
+      - name: Native lifecycle probe
+        id: probe
+        continue-on-error: true
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          SOURCE: ${{ runner.temp }}/jcef
+        run: |
+          version=$(python -c "import json, sys; print(json.load(open(sys.argv[1]))['artifactVersion'])" "$JCEF_LOCK")
+          python native/jcef/verification/run_probe.py \
+            --jcef-api "build/jcef-artifacts/jcef-api-$version.jar" \
+            --native-dir "$SOURCE/heartbeat-native-stage" \
+            --extra-classpath "build/jcef-artifacts/jcef-natives-$TARGET-$version.jar" \
+            --extra-classpath "$SOURCE/third_party/jogamp/jar/jogl-all.jar" \
+            --extra-classpath "$SOURCE/third_party/jogamp/jar/gluegen-rt.jar" \
+            --output build/jcef-probe
+      - name: Report the probe
+        if: always()
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.probe.outcome }}
+          TARGET: ${{ matrix.target }}
+        run: echo "Native lifecycle probe on ${TARGET} - ${OUTCOME}" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always() && steps.probe.outcome != 'skipped'
+        with:
+          name: jcef-probe-${{ matrix.target }}
+          path: build/jcef-probe
+          if-no-files-found: ignore
+          retention-days: 14
+
+  collect:
+    name: Collect the release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: jcef-*-*
+          path: build/jcef-inputs
+      - name: Collect
+        run: |
+          rm -rf build/jcef-inputs/jcef-probe-*
+          if [ -f native/jcef/next/source-lock.json ]; then
+            inputs=(--source-lock native/jcef/next/source-lock.json --patch native/jcef/next/request-context-settings.patch)
+          else
+            inputs=()
+          fi
+          python native/jcef/build_runtime.py "${inputs[@]}" --source build/jcef-inputs --output build/jcef-release collect
+          cat build/jcef-release/SHA256SUMS >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: jcef-release
+          path: build/jcef-release
+          if-no-files-found: error
+          retention-days: 14

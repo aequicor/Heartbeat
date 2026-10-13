@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
+import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiEnabled
 import io.aequicor.heartbeat.feature.settings.api.SettingsSection
 import io.aequicor.heartbeat.feature.settings.impl.di.scope.SettingsScope
 import io.aequicor.heartbeat.feature.settings.impl.domain.SettingsSections
@@ -40,21 +41,31 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             toggles.observe(AgentLearningEnabled),
             toggles.observe(HarnessEnabled),
             toggles.observe(ContextOptimizationEnabled),
-        ) { learning, harness, context -> Triple(learning, harness, context) },
+            toggles.observe(ServiceUiEnabled),
+        ) { learning, harness, context, interfaces -> ProfileSections(learning, harness, context, interfaces) },
         sessions.active,
-    ) { connections, search, (computerUse, chromium), (learning, harness, context), session ->
+    ) { connections, search, (computerUse, chromium), profile, session ->
         availableSections(
             isModelsEnabled = connections,
             isSearchEnabled = search,
             hasProfile = session != null,
             isComputerUseEnabled = computerUse,
             isChromiumBridgeEnabled = chromium,
-            isLearningEnabled = learning,
-            isHarnessEnabled = harness,
-            isContextEnabled = context,
+            isLearningEnabled = profile.isLearning,
+            isHarnessEnabled = profile.isHarness,
+            isContextEnabled = profile.isContext,
+            isInterfacesEnabled = profile.isInterfaces,
         )
     }
         // Sections without a toggle appear at once; gated ones join when their toggles are read from storage.
         .onStart { emit(availableSections(isModelsEnabled = false, isSearchEnabled = false, hasProfile = false)) }
         .distinctUntilChanged()
 }
+
+/** Toggles of the profile sections beyond the five-flow overload of `combine`. */
+private data class ProfileSections(
+    val isLearning: Boolean,
+    val isHarness: Boolean,
+    val isContext: Boolean,
+    val isInterfaces: Boolean,
+)

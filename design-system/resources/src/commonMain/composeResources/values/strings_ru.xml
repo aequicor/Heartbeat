@@ -216,6 +216,9 @@
     <string name="ru_diagram_source_copied">Исходник скопирован</string>
     <string name="ru_diagram_copy_failed">Не удалось скопировать</string>
     <string name="ru_code_error_sample">Строка 2 не компилируется</string>
+    <string name="ru_date_due">Срок</string>
+    <string name="ru_date_format">ГГГГ-ММ-ДД</string>
+    <string name="ru_date_invalid">Введите дату в формате ГГГГ-ММ-ДД</string>
     <string name="ru_diagram_zoom_in">Увеличить</string>
     <string name="ru_diagram_zoom_out">Уменьшить</string>
     <string name="ru_diagram_fit">Вписать</string>
@@ -223,4 +226,5 @@
     <string name="ru_diagram_insert_text">Вставить в чат</string>
     <string name="ru_diagram_send_text">Отправить в чат</string>
     <string name="ru_diagram_unavailable_action">Действие чата здесь недоступно</string>
+    <string name="ru_date_confirm">Выбрать дату</string>
 </resources>

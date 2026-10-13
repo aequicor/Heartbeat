@@ -49,6 +49,10 @@ private fun ComponentPreviewContent() {
                 HbBadge("Ready", tone = HbTone.Success)
             }
             HbTextField("", onValueChange = {}, placeholder = "Prompt")
+            HbPressableRow({}) {
+                HbText("#12 Add the PR map", Modifier.weight(1f), maxLines = 1)
+                HbBadge("Ready", tone = HbTone.Success)
+            }
         }
         HbChatMessageBubble(
             message = HbChatMessage(

@@ -31,9 +31,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaces
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioAttachmentNavigation
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioSurfaceBinding
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.toUi
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentPreviewRoute
@@ -48,6 +50,9 @@ import io.aequicor.heartbeat.feature.checklist.api.ChecklistRoute
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRoute
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatRoute
 import io.aequicor.heartbeat.feature.searchengine.api.ProfileSettingsRoute
+import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiCardRoute
+import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiSlotRoute
+import io.aequicor.heartbeat.feature.serviceasui.api.UiSlot
 import io.aequicor.heartbeat.feature.settings.api.SettingsRoute
 import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelRoute
 import kotlinx.collections.immutable.toImmutableList
@@ -56,6 +61,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -72,6 +79,8 @@ class AiStudioComponent(
     private val hosts: NavHostFactory,
     @ForScope(AiStudioScope::class) private val scope: ScopeHandle,
     private val machines: MachineRegistry,
+    private val surfaces: StudioSurfaces,
+    private val surfacePanes: StudioSurfaceBinding,
 ) : ComponentContext by context {
     private val log = Log.tag("AiStudioComponent")
 
@@ -104,9 +113,18 @@ class AiStudioComponent(
     val browserMode: StateFlow<BrowserPaneMode> = browserPresentation
     private val browserBack = StudioBrowserBack(::hideBrowser)
 
+    private val side = StudioSidePanel(this, navigator, hosts, browserPresentation, surfaces, scope.coroutineScope)
+
+    /** The interface panel of this window's dock while interfaces are on; it shares the side with the browser. */
+    val interfacePanel: StateFlow<StackHost?> = side.panel
+
+    /** What the side of the window shows: the browser or the interface panel opened last. */
+    val sidePanel: StateFlow<SidePanelUi> = side.shown
+
     init {
         // Registered before the dialog host: an open attachment dialog above the browser handles "back" first.
         backHandler.register(browserBack.callback)
+        backHandler.register(side.back)
         val presentation = scope.coroutineScope.launch {
             machines.observe(BrowserMachineKey).collectLatest { machine ->
                 log.v { "Browser presentation observed" }
@@ -125,6 +143,7 @@ class AiStudioComponent(
         lifecycle.doOnDestroy {
             presentation.cancel()
             backHandler.unregister(browserBack.callback)
+            backHandler.unregister(side.back)
         }
     }
 
@@ -176,6 +195,56 @@ class AiStudioComponent(
     /** Inline card hosts, resolved without depending on the checklist implementation. */
     val checklists: StateFlow<Map<String, StackHost>> = checklistHosts.asStateFlow()
 
+    private val slotNavigation = ItemsNavigation<String>()
+    private val slotItems = childItems(
+        source = slotNavigation,
+        serializer = null,
+        initialItems = { Items() },
+        key = "interface-slots",
+    ) { key, context ->
+        val (paneId, slot) = studioSlotOf(key)
+        hosts.stack(
+            context = context,
+            parent = navigator,
+            name = "interface-slot-$key",
+            initial = listOf(ServiceUiSlotRoute(surfaces.host(paneId), slot)),
+            local = emptyList(),
+            global = GlobalRoutes.Only(setOf(ServiceUiSlotRoute::class)),
+        )
+    }
+    private val slotHosts = MutableStateFlow<Map<String, StackHost>>(emptyMap())
+
+    private val cardNavigation = ItemsNavigation<String>()
+    private val cardItems = childItems(
+        source = cardNavigation,
+        serializer = null,
+        initialItems = { Items() },
+        key = "interface-cards",
+    ) { key, context ->
+        val (paneId, cardId) = key.split(':', limit = 2)
+        hosts.stack(
+            context = context,
+            parent = navigator,
+            name = "interface-card-$key",
+            initial = listOf(ServiceUiCardRoute(cardId, surfaces.host(paneId.toInt()))),
+            local = emptyList(),
+            global = GlobalRoutes.Only(setOf(ServiceUiCardRoute::class)),
+        )
+    }
+    private val cardHosts = MutableStateFlow<Map<String, StackHost>>(emptyMap())
+
+    /**
+     * Hosts of the cards shown in the reply feeds of panes by [studioCardKey], while interfaces are on: a card draws in
+     * the place of its pane, so its prompts go to that pane.
+     */
+    val cards: StateFlow<Map<String, StackHost>> = cardHosts.asStateFlow()
+
+    /**
+     * Hosts of interface slots by [studioSlotKey] while interfaces are on: the composer row of every pane and the
+     * start window of a new chat.
+     */
+    val slots: StateFlow<Map<String, StackHost>> = slotHosts.asStateFlow()
+
     private val questionNavigation = ItemsNavigation<String>()
 
     // One child per session with open questions; a session without questions destroys its child and
@@ -210,6 +279,50 @@ class AiStudioComponent(
         lifecycle.doOnDestroy {
             checklistWatch.cancel()
             checklistJob.cancel()
+        }
+
+        val slotWatch = slotItems.subscribe { children ->
+            log.v { "Update interface slot hosts: ${children.activeItems.size}" }
+            slotHosts.value = children.activeItems.mapValues { (_, child) -> child.first }
+        }
+        val slotJob = scope.coroutineScope.launch {
+            combine(surfacePanes.openPanes, surfaces.availability) { panes, isOn ->
+                if (!isOn) {
+                    emptyList()
+                } else {
+                    panes.flatMap { (paneId, pane) ->
+                        listOfNotNull(
+                            studioSlotKey(paneId, UiSlot.Composer),
+                            studioSlotKey(paneId, UiSlot.Start).takeIf { pane.chatId == null },
+                        )
+                    }
+                }
+            }.distinctUntilChanged().collect { shown ->
+                slotNavigation.navigate { Items(shown, shown.associateWith { ActiveLifecycleState.RESUMED }) }
+            }
+        }
+        lifecycle.doOnDestroy {
+            slotWatch.cancel()
+            slotJob.cancel()
+        }
+
+        val cardWatch = cardItems.subscribe { children ->
+            log.v { "Update interface card hosts: ${children.activeItems.size}" }
+            cardHosts.value = children.activeItems.mapValues { (_, child) -> child.first }
+        }
+        val cardJob = scope.coroutineScope.launch {
+            combine(
+                surfacePanes.cardIds,
+                surfaces.availability,
+            ) { panes, isOn -> if (isOn) cardKeys(panes) else emptyList() }
+                .distinctUntilChanged()
+                .collect { shown ->
+                    cardNavigation.navigate { Items(shown, shown.associateWith { ActiveLifecycleState.RESUMED }) }
+                }
+        }
+        lifecycle.doOnDestroy {
+            cardWatch.cancel()
+            cardJob.cancel()
         }
 
         val attachments = scope.coroutineScope.launch {
@@ -277,6 +390,8 @@ class AiStudioComponent(
 
     /** Opens the browser inside the studio while preserving its sidebar. */
     fun openBrowser() {
+        // An open browser behind the interface panel comes to the front; a hidden one opens and wins anyway.
+        if (browserPresentation.value != BrowserPaneMode.Hidden) side.raiseBrowser()
         scope.coroutineScope.launch {
             machines.send(BrowserMachineKey, BrowserIntent.Public.Display(BrowserDisplay.Panel))
         }
@@ -377,4 +492,29 @@ enum class BrowserPaneMode {
     Hidden,
     Panel,
     Expanded,
+}
+
+/** Key of the interface slot [slot] of pane [paneId] in [AiStudioComponent.slots]. */
+internal fun studioSlotKey(paneId: Int, slot: UiSlot): String = "$paneId.${slot.name.lowercase()}"
+
+/** Key of the interface row above the input of pane [paneId]. */
+internal fun studioComposerSlotKey(paneId: Int): String = studioSlotKey(paneId, UiSlot.Composer)
+
+/** Key of the interfaces in the start window of the new chat of pane [paneId]. */
+internal fun studioStartSlotKey(paneId: Int): String = studioSlotKey(paneId, UiSlot.Start)
+
+private fun studioSlotOf(key: String): Pair<Int, UiSlot> {
+    val (pane, slot) = key.split('.', limit = 2)
+    return pane.toInt() to UiSlot.entries.first { it.name.lowercase() == slot }
+}
+
+private fun cardKeys(panes: Map<Int, Set<String>>): List<String> =
+    panes.flatMap { (paneId, ids) -> ids.map { studioCardKey(paneId, it) } }.sorted()
+
+/** Key of the card [cardId] in the reply feed of pane [paneId] in [AiStudioComponent.cards]. */
+internal fun studioCardKey(paneId: Int, cardId: String): String = "$paneId:$cardId"
+
+/** The cards of pane [paneId] among [cards], by card id. */
+internal fun <T> paneCards(cards: Map<String, T>, paneId: Int): Map<String, T> = "$paneId:".let { prefix ->
+    cards.filterKeys { it.startsWith(prefix) }.mapKeys { it.key.removePrefix(prefix) }
 }

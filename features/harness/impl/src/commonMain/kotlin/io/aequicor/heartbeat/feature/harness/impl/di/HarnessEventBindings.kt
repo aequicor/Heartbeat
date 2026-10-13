@@ -25,6 +25,8 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRequestO
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRuntime
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessSessionProofs
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessToolDispatch
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessUiDispatch
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.connectedAdmission
 import kotlin.time.Clock
 
 /** Builds only ports until enable/first callback; no constructor dereferences the facade or library lazies. */
@@ -70,6 +72,11 @@ public object HarnessEventBindings {
 
     @Provides
     @SingleIn(ProfileScope::class)
+    internal fun ui(runtime: HarnessRuntime, machine: Lazy<HarnessMachine>, gate: HarnessEventGate): HarnessUiDispatch =
+        HarnessUiDispatch(runtime, connectedAdmission { libraryState(gate, machine) })
+
+    @Provides
+    @SingleIn(ProfileScope::class)
     internal fun sourcePorts(
         runtime: HarnessRuntime,
         events: HarnessEventDispatch,
@@ -106,3 +113,7 @@ public object HarnessEventBindings {
         clock: Clock,
     ): SessionHook = HarnessSessionHook(gate, proofs, dispatchers, origins, clock)
 }
+
+/** The library while the feature is on; a suspended idle state otherwise. */
+private fun libraryState(gate: HarnessEventGate, machine: Lazy<HarnessMachine>): HarnessState =
+    if (gate.isEnabled) machine.value.state.value else HarnessState.Idle(isSuspended = true)
