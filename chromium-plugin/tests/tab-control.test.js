@@ -466,3 +466,68 @@ test('concurrent group creation records each tabs actual group rather than the l
   assert.deepEqual((await control.handle('tabs.owned', { owner: 'a' })).tabs.map(t => t.id), ['10']);
   assert.deepEqual((await control.handle('tabs.owned', { owner: 'b' })).tabs.map(t => t.id), ['11']);
 });
+
+
+test('an active-page read rejects revocation while the final active-tab query waits', async () => {
+  for (const revoke of ['consent', 'revokeAll', 'debugger']) {
+    const { control, chrome, setAllowed } = setup();
+    const entered = deferred();
+    const pending = deferred();
+    const send = chrome.debugger.sendCommand;
+    chrome.debugger.sendCommand = async (target, method, params) => {
+      if (method === 'Runtime.evaluate') return { result: { value: {
+        url: 'https://user.example/', title: 'Mail', text: 'Private page', selection: '',
+      } } };
+      return send(target, method, params);
+    };
+    const query = chrome.tabs.query;
+    let queries = 0;
+    chrome.tabs.query = async (params) => {
+      if (++queries === 2) {
+        entered.resolve();
+        await pending.promise;
+      }
+      return query(params);
+    };
+    const read = control.handle('tabs.readActive', {});
+    await entered.promise;
+    if (revoke === 'debugger') {
+      chrome.debugger.attached.delete(1);
+      chrome.debugger.onDetach.emit({ tabId: 1 }, 'canceled_by_user');
+    } else {
+      if (revoke === 'consent') setAllowed(false);
+      await control.revokeAll();
+    }
+    pending.resolve();
+    await assert.rejects(read, (error) => error.code === 'forbidden', revoke);
+    assert.equal(control.size, 0);
+    assert.equal(chrome.debugger.attached.size, 0);
+  }
+});
+
+test('an active-page read rejects consent revoked while temporary debugger cleanup waits', async () => {
+  const { control, chrome, setAllowed } = setup();
+  const entered = deferred();
+  const pending = deferred();
+  const send = chrome.debugger.sendCommand;
+  chrome.debugger.sendCommand = async (target, method, params) => {
+    if (method === 'Runtime.evaluate') return { result: { value: {
+      url: 'https://user.example/', title: 'Mail', text: 'Private page', selection: '',
+    } } };
+    return send(target, method, params);
+  };
+  const detach = chrome.debugger.detach;
+  chrome.debugger.detach = async (target) => {
+    entered.resolve();
+    await pending.promise;
+    return detach(target);
+  };
+  const read = control.handle('tabs.readActive', {});
+  await entered.promise;
+  setAllowed(false);
+  await control.revokeAll();
+  pending.resolve();
+  await assert.rejects(read, (error) => error.code === 'forbidden');
+  assert.equal(control.size, 0);
+  assert.equal(chrome.debugger.attached.size, 0);
+});

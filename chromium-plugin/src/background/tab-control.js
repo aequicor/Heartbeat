@@ -296,6 +296,7 @@ export function createTabControl({ chrome, notify, isAllowed, timers = globalThi
           try {
             requireApprovedPage(await chrome.tabs.get(tabId), expectedUrl);
             await attach(tabId, expected, false);
+            const readingTab = controlled.get(tabId);
             const tree = await send(tabId, 'Page.getFrameTree');
             const world = await send(tabId, 'Page.createIsolatedWorld', {
               frameId: tree.frameTree.frame.id, worldName: 'heartbeat-active-read',
@@ -309,6 +310,10 @@ export function createTabControl({ chrome, notify, isAllowed, timers = globalThi
             checkGeneration(expected);
             requireApprovedPage(await chrome.tabs.get(tabId), expectedUrl);
             const [current] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+            checkGeneration(expected);
+            if (!readingTab || controlled.get(tabId) !== readingTab) {
+              throw new BridgeError(ErrorCode.FORBIDDEN, 'Tab acquisition was revoked');
+            }
             if (current?.id !== tabId) throw new BridgeError(ErrorCode.FORBIDDEN, 'The active tab changed');
             const page = normalizePage(result?.result?.value);
             if (!page || page.url !== expectedUrl) throw new BridgeError(ErrorCode.FORBIDDEN, 'Page could not be read');
@@ -316,6 +321,7 @@ export function createTabControl({ chrome, notify, isAllowed, timers = globalThi
           } finally {
             if (!wasControlled) await detach(tabId);
             summarize();
+            checkGeneration(expected);
           }
         });
       }

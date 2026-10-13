@@ -7,11 +7,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CompactsContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextCompaction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
-import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
@@ -53,15 +51,14 @@ internal suspend fun ActiveSession.submitStudioPrompt(
             trust = trust,
         )
     }
+    val sender = features.requireFeature(SendsPrompts)
     return try {
-        val sender = features.requireFeature(SendsPrompts)
         delivery?.isPending = true
         sender.send(request)
     } catch (e: EngineException) {
         log.e(e) { "Submission failed; local pending identity does not prove native acceptance" }
-        if (e.failure.isRejection()) delivery?.isPending = false
-        val failure = e.failure as? EngineFailure.Request
-        if (failure?.reason != RequestFailureReason.OutcomeUnknown) {
+        if (e.failure.isRejection()) {
+            delivery?.isPending = false
             synchronizeSubmission()
             throw e
         }
