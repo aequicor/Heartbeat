@@ -41,6 +41,9 @@ internal object UiSpecLimits {
 
     /** Elements of a list or rows of a table drawn; the rest are counted. */
     const val LIST_ITEMS: Int = 200
+
+    /** Method calls of one surface running at the same time. */
+    const val CALLS: Int = 2
 }
 
 /** What is wrong with a spec; [message] is shown to the agent and in the editor. */

@@ -10,6 +10,7 @@ kotlin {
         commonMain.dependencies {
             implementation(projects.features.serviceAsUi.api)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.okio)
             implementation(projects.core.common)
             implementation(projects.core.datastore.api)
             implementation(projects.core.di.ext)

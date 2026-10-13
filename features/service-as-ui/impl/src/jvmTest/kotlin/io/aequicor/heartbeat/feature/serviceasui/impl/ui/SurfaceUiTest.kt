@@ -26,6 +26,7 @@ import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.unit.Density
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiIconNames
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpecDecoding
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.decodeUiSpec
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiEvaluator
@@ -143,6 +144,11 @@ class SurfaceUiTest {
 
         onNodeWithText("Open PR 12", substring = true).performMouseInput { click(centerLeft + Offset(LINK_X, 0f)) }
         assertEquals(listOf<SurfaceIntent>(SurfaceIntent.OpenLink("https://example.com/12")), intents)
+    }
+
+    @Test
+    fun `every icon the reference names draws an icon`() {
+        assertEquals(emptyList(), UiIconNames.filter { iconOf(it) == null })
     }
 
     private fun spec() = (decodeUiSpec(SPEC) as UiSpecDecoding.Decoded).spec

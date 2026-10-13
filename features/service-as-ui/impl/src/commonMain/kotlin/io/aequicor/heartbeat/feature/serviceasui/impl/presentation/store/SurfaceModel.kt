@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiPlatformResult
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiAction
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiLoad
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiPresentation
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpecLimits
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiBindings
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiEvaluator
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiScope
@@ -39,7 +40,7 @@ private typealias SurfacePipeline = PipelineContext<SurfaceState, SurfaceIntent,
 
 /**
  * One drawn surface: loads its automatic data sources once the owner's methods are available, keeps local state
- * typed by inputs and runs actions. Calls run beside intent processing, at most [CALLS_PER_SURFACE] at a time, and
+ * typed by inputs and runs actions. Calls run beside intent processing, at most [UiSpecLimits.CALLS] at a time, and
  * are cancelled with the store. Every change re-evaluates the spec, so the screen only draws resolved models.
  */
 @AssistedInject
@@ -58,7 +59,7 @@ internal class SurfaceModel(
 
     private val log = Log.tag("ServiceUiSurface")
     private val evaluator = UiEvaluator(session.spec)
-    private val calling = Semaphore(CALLS_PER_SURFACE)
+    private val calling = Semaphore(UiSpecLimits.CALLS)
 
     val store: Store<SurfaceState, SurfaceIntent, SurfaceAction> =
         factory.create<SurfaceState, SurfaceIntent, SurfaceAction>(
@@ -295,9 +296,6 @@ internal class SurfaceModel(
         }
     }
 }
-
-/** Method calls of one surface running at the same time; more wait for a free slot. */
-internal const val CALLS_PER_SURFACE: Int = 2
 
 private fun UiValues.withInput(key: String, value: JsonElement): UiValues = copy(state = state + (key to value))
 
