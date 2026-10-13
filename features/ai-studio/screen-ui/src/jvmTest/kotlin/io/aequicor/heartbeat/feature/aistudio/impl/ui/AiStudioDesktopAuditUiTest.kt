@@ -321,6 +321,7 @@ private fun AiStudioScreenState.auditIntent(intent: AiStudioScreenIntent): AiStu
     is AiStudioScreenIntent.Organism,
     is AiStudioScreenIntent.SelectHarness,
     is AiStudioScreenIntent.RemoteApplied,
+    is AiStudioScreenIntent.Embed,
     -> this
 }
 
