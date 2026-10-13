@@ -11,6 +11,7 @@ import kotlinx.serialization.json.JsonElement
 import org.cef.CefApp
 import org.cef.CefRequestContextSettings
 import org.cef.CefSettings
+import org.cef.OS
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
 import org.cef.browser.CefRequestContext
@@ -21,6 +22,7 @@ import org.cef.handler.CefLoadHandlerAdapter
 import org.cef.network.CefRequest
 import java.awt.Component
 import java.util.concurrent.atomic.AtomicBoolean
+import javax.swing.JComponent
 import javax.swing.SwingUtilities
 
 /**
@@ -76,6 +78,7 @@ internal class DesktopDocumentEngine(
         throw error
     }
     private val browser: CefBrowser
+    private var nativeClipping: MacDocumentNativeClipping? = null
 
     /** Added to the client as soon as it exists, so disposing the client always disposes the native router. */
     private var router: DesktopDocumentRouter? = null
@@ -143,6 +146,7 @@ internal class DesktopDocumentEngine(
     /** Closes the native browser on EDT; native callbacks finish the closure for [awaitClosed]. */
     fun release() {
         check(SwingUtilities.isEventDispatchThread())
+        closeNativeClipping()
         if (!isClosed.compareAndSet(false, true)) return
         if (!isCreationRequested.get()) {
             // Creation was never queued, so no native callback can race.
@@ -167,6 +171,26 @@ internal class DesktopDocumentEngine(
     private fun fail() {
         if (isReleased()) return
         unavailable()
+    }
+
+    /** Starts only after CEF creation; extraction or a hidden initial layout cannot exhaust attachment retries. */
+    private fun requestNativeClipping(isDocumentLoaded: Boolean) {
+        if (!OS.isMacintosh()) return
+        try {
+            val clipping = nativeClipping ?: MacDocumentNativeClipping(browser.uiComponent as JComponent, ::fail).also {
+                nativeClipping = it
+            }
+            if (isDocumentLoaded) clipping.documentLoaded() else clipping.request()
+        } catch (error: LinkageError) {
+            // Native linkage can fail while constructing the access object, before its guarded attempts exist.
+            log.e(error.redactedFailure()) { "Native document clipping is unavailable" }
+            fail()
+        }
+    }
+
+    private fun closeNativeClipping() {
+        nativeClipping?.close()
+        nativeClipping = null
     }
 
     private fun dispose() {
@@ -215,6 +239,7 @@ internal class DesktopDocumentEngine(
             if (rejected.isEmpty()) {
                 isBootstrap.set(false)
                 browser.loadURL(url)
+                onSwing { requestNativeClipping(isDocumentLoaded = false) }
             } else {
                 log.e(IllegalStateException("JCEF document preferences rejected: ${rejected.map { it.first }}")) {
                     "Desktop document initialization failed"
@@ -225,6 +250,7 @@ internal class DesktopDocumentEngine(
 
         override fun onBeforeClose(browser: CefBrowser) {
             isClosed.set(true)
+            SwingUtilities.invokeLater(::closeNativeClipping)
         }
 
         override fun onAfterClose(browser: CefBrowser) {
@@ -254,6 +280,7 @@ internal class DesktopDocumentEngine(
                     // The new page holds what it was served with; data that changed since then is sent now.
                     delivered = served
                     isLoaded = true
+                    requestNativeClipping(isDocumentLoaded = true)
                     deliver(document.data.value)
                 }
             }

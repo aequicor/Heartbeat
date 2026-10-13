@@ -95,7 +95,7 @@ internal class DesktopDocumentPanel(
     fun createComponent(): JComponent {
         check(SwingUtilities.isEventDispatchThread())
         container?.let { return it }
-        val panel = JPanel(BorderLayout()).apply { isOpaque = false }
+        val panel = DesktopBrowserContainer()
         container = panel
         if (!isReleased) start()
         return panel

@@ -29,7 +29,9 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
+import org.cef.browser.CefBrowser
 import org.cef.browser.CefRequestContext
+import java.awt.Rectangle
 import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.nio.file.Path
@@ -41,7 +43,7 @@ import javax.swing.SwingUtilities
 import kotlin.test.assertNull
 
 /** Real production panel/engine; only the profile retention owner is a test fixture. */
-internal class NativeComposeBrowserFixture :
+internal class NativeComposeBrowserFixture(isViewportProbe: Boolean = false) :
     BrowserSurface,
     AutoCloseable {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Swing)
@@ -54,7 +56,7 @@ internal class NativeComposeBrowserFixture :
 
     /**
      * Storage root under `build/`, fresh per run: Gradle Delete tasks clear it before and after
-     * `browserComposeNativeTest`. JCEF natives unpacked here stay mapped until the JVM exits (Windows locks
+     * each opt-in Compose native test. JCEF natives unpacked here stay mapped until the JVM exits (Windows locks
      * them), so the fixture never deletes it itself.
      */
     private val cache = Files.createDirectories(
@@ -63,6 +65,8 @@ internal class NativeComposeBrowserFixture :
     val pageLoads = AtomicInteger()
     val runtimeStarts = AtomicInteger()
     val loaded = CompletableFuture<Unit>()
+    val nativeClippingVerified = CompletableFuture<Unit>()
+    private val browser = CompletableFuture<CefBrowser>()
     private val resources: DesktopDefaultBrowserResources
     private val server: HttpServer
     override val initialUrl: String
@@ -84,15 +88,21 @@ internal class NativeComposeBrowserFixture :
             panel = DesktopBrowserPanel(this, scope, dispatchers) { released, changed ->
                 val app = resources.app()
                 runtimeStarts.incrementAndGet()
-                DesktopBrowserEngine(
-                    app,
-                    dispatchers,
-                    DefaultBrowserUrlResolver(),
-                    released,
-                    changed,
-                    guard = DesktopBrowserAgentGuard(),
-                ) { handler ->
-                    checkNotNull(CefRequestContext.createContext(handler))
+                if (isViewportProbe) {
+                    NativeViewportBrowserRuntime(app, changed, nativeClippingVerified).also {
+                        browser.complete(it.browser)
+                    }
+                } else {
+                    DesktopBrowserEngine(
+                        app,
+                        dispatchers,
+                        DefaultBrowserUrlResolver(),
+                        released,
+                        changed,
+                        guard = DesktopBrowserAgentGuard(),
+                    ) { handler ->
+                        checkNotNull(CefRequestContext.createContext(handler))
+                    }
                 }
             }
         } catch (failure: Throwable) {
@@ -125,6 +135,12 @@ internal class NativeComposeBrowserFixture :
     fun evaluate(expression: String) = runBlocking {
         withTimeoutOrNull(30_000) { evaluateDocument(expression) }
             ?: throw AssertionError("Native DOM evaluation timed out: $expression")
+    }
+
+    /** Latest public JCEF UpdateUI content rectangle, copied on EDT; no native pointers or reflection. */
+    fun nativeContentBounds(): Rectangle {
+        val created = browser.awaitNative()
+        return nativeEdt { Rectangle(created.windowHandler.getRect(created)) }
     }
 
     private suspend fun evaluateDocument(expression: String): JsonElement {
