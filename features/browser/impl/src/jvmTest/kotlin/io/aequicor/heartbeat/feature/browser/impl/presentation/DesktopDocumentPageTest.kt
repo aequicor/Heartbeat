@@ -103,7 +103,8 @@ class DesktopDocumentPageTest {
         assertFalse(allowsDesktopDocumentNavigation(url, "https://example.com/", true, false, isBootstrap = true))
         assertTrue(isDesktopDocumentFrame(url, url))
         assertTrue(isDesktopDocumentFrame(url, "$url#section"))
-        assertFalse(isDesktopDocumentFrame(url, "${url}page"))
+        assertTrue(isDesktopDocumentFrame(url, "${url}page?view=1"))
+        assertFalse(isDesktopDocumentFrame(url, desktopDocumentUrl("b")))
         assertFalse(isDesktopDocumentFrame(url, null))
     }
 }

@@ -1,11 +1,13 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
+import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.browser.api.BrowserBridgeResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentBridge
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentLimits
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -36,31 +38,37 @@ internal data class DesktopDocumentCall(val method: String, val arguments: JsonE
 }
 
 /**
- * Calls of one page into its document's [bridge], run in [scope] (the document view's lifetime). Each call is
- * bounded before parsing ([BrowserDocumentLimits.CALL_BYTES], [BrowserDocumentLimits.JSON_DEPTH]) and while running
- * ([BrowserDocumentLimits.CALLS] at a time); results over [BrowserDocumentLimits.RESULT_BYTES] are refused. Every call
- * started here gets exactly one reply: its outcome, or a failure when [scope] ends first; a call the page cancels
- * ([cancel], [cancelAll] on reload or close) gets none, as the message router requires. Arguments, results, method
- * names and messages are never logged.
+ * Calls of one page into its document's [bridge], run in [scope] (the document view's lifetime) on [dispatcher], off
+ * CEF's and Swing's UI threads. Each call is bounded before parsing ([BrowserDocumentLimits.CALL_BYTES],
+ * [BrowserDocumentLimits.JSON_DEPTH]) and while running ([BrowserDocumentLimits.CALLS] at a time); results over
+ * [BrowserDocumentLimits.RESULT_BYTES] are refused. Every call started here gets exactly one reply: its outcome, or a
+ * failure when [scope] ends first; a call the page cancels ([cancel], [cancelAll] on reload or close) gets none, as the
+ * message router requires. The page decides how often it calls, so refusals are logged only at trace level; arguments,
+ * results, method names and messages are never logged.
  */
-internal class DesktopDocumentCalls(private val bridge: BrowserDocumentBridge, private val scope: CoroutineScope) {
+internal class DesktopDocumentCalls(
+    private val bridge: BrowserDocumentBridge,
+    private val scope: CoroutineScope,
+    private val dispatcher: CoroutineDispatcher,
+) {
     private val pending = ConcurrentHashMap<Long, Job>()
 
-    /** Starts call [id] with the page's [request] text, or rejects it at once. */
+    /** Starts call [id] with the page's [request] text, or rejects it at once; parsing runs on [dispatcher]. */
+    @HighFrequency
     fun start(id: Long, request: String, reply: DesktopDocumentReply) {
-        val call = parseDesktopDocumentCall(request)
-        if (call == null) {
-            log.d { "Document call rejected: malformed or over the limits" }
+        // UTF-8 never has fewer bytes than characters: an over-long text is refused before any copy of it.
+        if (request.length > BrowserDocumentLimits.CALL_BYTES) {
+            log.v { "Document call rejected: over the limit" }
             reply.failure(MALFORMED)
             return
         }
         if (pending.size >= BrowserDocumentLimits.CALLS) {
-            log.d { "Document call rejected: ${BrowserDocumentLimits.CALLS} calls are pending" }
+            log.v { "Document call rejected: ${BrowserDocumentLimits.CALLS} calls are pending" }
             reply.failure(BUSY)
             return
         }
-        val job = scope.launch(start = CoroutineStart.LAZY) {
-            val outcome = run(call)
+        val job = scope.launch(dispatcher, CoroutineStart.LAZY) {
+            val outcome = parseDesktopDocumentCall(request)?.let { run(it) } ?: BrowserBridgeResult.Failure(MALFORMED)
             if (pending.remove(id, coroutineContext.job)) outcome.deliver(reply)
         }
         pending[id] = job
@@ -91,7 +99,7 @@ internal class DesktopDocumentCalls(private val bridge: BrowserDocumentBridge, p
         is BrowserBridgeResult.Value -> {
             val json = value.toString()
             if (json.encodeToByteArray().size > BrowserDocumentLimits.RESULT_BYTES) {
-                log.d { "Document call result refused: over the limit" }
+                log.v { "Document call result refused: over the limit" }
                 reply.failure(TOO_LARGE)
             } else {
                 reply.success(json)
@@ -118,16 +126,18 @@ internal class DesktopDocumentCalls(private val bridge: BrowserDocumentBridge, p
 internal fun parseDesktopDocumentCall(request: String): DesktopDocumentCall? {
     if (request.encodeToByteArray().size > BrowserDocumentLimits.CALL_BYTES) return null
     if (jsonNesting(request) > BrowserDocumentLimits.JSON_DEPTH) return null
-    val root = try {
-        Json.parseToJsonElement(request)
-    } catch (e: SerializationException) {
-        // The page API always sends JSON; only a page calling the router itself gets here. The message quotes input.
-        log.w(e.redactedFailure()) { "Document call is not JSON" }
-        return null
-    } as? JsonObject ?: return null
+    // Text that is not JSON is the page's mistake, answered with a failure: the page decides how often it happens.
+    val root = parsedJson(request).getOrNull() as? JsonObject ?: return null
     val method = (root["method"] as? JsonPrimitive)?.takeIf { it.isString }?.content
     if (method.isNullOrBlank() || method.length > BrowserDocumentLimits.METHOD_CHARS) return null
     return DesktopDocumentCall(method, root["args"] ?: JsonNull)
+}
+
+/** kotlinx reports malformed input by throwing; the caller decides what a failure means for its input. */
+private fun parsedJson(text: String): Result<JsonElement> = try {
+    Result.success(Json.parseToJsonElement(text))
+} catch (e: SerializationException) {
+    Result.failure(e)
 }
 
 /**

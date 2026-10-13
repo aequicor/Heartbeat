@@ -93,5 +93,5 @@ private fun pageApi(data: JsonElement?, queryFunction: String?): String = """
  */
 private fun JsonElement?.scriptLiteral(): String = (this ?: JsonNull).toString()
     .replace("<", "\\u003c")
-    .replace(" ", "\\u2028")
-    .replace(" ", "\\u2029")
+    .replace("\u2028", "\\u2028")
+    .replace("\u2029", "\\u2029")

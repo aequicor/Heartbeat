@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.browser.impl.domain.OpenBrowserDocument
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.serialization.json.JsonElement
 import org.cef.CefApp
@@ -24,7 +25,8 @@ import javax.swing.SwingUtilities
 
 /**
  * One native browser showing [document] at its own origin: its own client and an in-memory request context gated by
- * [DesktopDocumentPolicy], the message router only when the document has a bridge (calls run in [callsScope]). The
+ * [DesktopDocumentPolicy], the message router only when the document has a bridge (calls run in [callsScope] on
+ * [callsDispatcher]). The
  * browser starts on its own blank page; once CEF reports it created, permissions and network prediction are switched
  * off in its context and the document loads. Data changes reach a loaded page through [deliver]. [unavailable] reports
  * a failed creation, configuration, load or renderer. Mirrors the close protocol of [DesktopBrowserEngine].
@@ -33,6 +35,7 @@ internal class DesktopDocumentEngine(
     app: CefApp,
     private val document: OpenBrowserDocument,
     callsScope: CoroutineScope,
+    callsDispatcher: CoroutineDispatcher,
     private val isReleased: () -> Boolean,
     private val unavailable: () -> Unit,
 ) {
@@ -89,7 +92,7 @@ internal class DesktopDocumentEngine(
         try {
             check(!context.isGlobal) { "Document request context must be isolated" }
             router = document.document.bridge?.let { bridge ->
-                DesktopDocumentRouter(url, DesktopDocumentCalls(bridge, callsScope)).also {
+                DesktopDocumentRouter(url, DesktopDocumentCalls(bridge, callsScope, callsDispatcher)).also {
                     client.addMessageRouter(it.router)
                 }
             }

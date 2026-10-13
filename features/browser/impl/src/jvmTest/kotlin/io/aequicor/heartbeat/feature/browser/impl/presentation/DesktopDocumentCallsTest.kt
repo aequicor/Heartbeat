@@ -56,6 +56,7 @@ class DesktopDocumentCallsTest {
                 }
             },
             backgroundScope,
+            UnconfinedTestDispatcher(testScheduler),
         )
         assertEquals(listOf("ok:{\"a\":1}"), calls.reply(1, """{"method":"echo","args":{"a":1}}"""))
         assertEquals(listOf("failed:The result is too large"), calls.reply(2, """{"method":"large"}"""))
@@ -65,6 +66,8 @@ class DesktopDocumentCallsTest {
         )
         assertEquals(listOf("failed:The call failed"), calls.reply(4, """{"method":"throw","args":"secret"}"""))
         assertEquals(listOf("failed:The call is malformed or too large"), calls.reply(5, "not json"))
+        val overLong = "x".repeat(BrowserDocumentLimits.CALL_BYTES + 1)
+        assertEquals(listOf("failed:The call is malformed or too large"), calls.reply(6, overLong))
     }
 
     @Test
@@ -81,6 +84,7 @@ class DesktopDocumentCallsTest {
                     BrowserBridgeResult.Value(JsonPrimitive(method))
                 },
                 document,
+                UnconfinedTestDispatcher(testScheduler),
             )
             val replies = List(BrowserDocumentLimits.CALLS) { mutableListOf<String>() }
             replies.forEachIndexed { index, reply ->

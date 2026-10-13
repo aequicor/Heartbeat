@@ -113,7 +113,7 @@ internal class DesktopDocumentPanel(
             try {
                 val app = resources.app()
                 if (isReleased) return@launch
-                val runtime = DesktopDocumentEngine(app, document, scope, { isReleased }, ::fail)
+                val runtime = DesktopDocumentEngine(app, document, scope, dispatchers.default, { isReleased }, ::fail)
                 engine = runtime
                 engines += runtime
                 container?.apply {

@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
+import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
@@ -10,25 +11,32 @@ import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
 /**
- * Names of the message router's page functions, random for each run of the app: JCEF registers router functions for
- * the renderer processes, so they may also appear in other browsers' pages, the user's tabs included, and a fixed name
- * would let websites recognise Heartbeat. Queries from other browsers reach only their own client's routers.
+ * Names of the message router's page functions: random letters for each run of the app. JCEF registers router
+ * functions for the renderer processes, so they may also appear in other browsers' pages, the user's tabs included:
+ * a website can see an unexplained global function, but nothing in its name points to Heartbeat. Queries from other
+ * browsers reach only their own client's routers.
  */
+private val queryNames = CefMessageRouter.CefMessageRouterConfig(randomName(), randomName())
+
+/** 32 random lowercase letters, a valid global name. */
 @OptIn(ExperimentalUuidApi::class)
-private val queryNames: CefMessageRouter.CefMessageRouterConfig = Uuid.random().toHexString()
-    .let { CefMessageRouter.CefMessageRouterConfig("__hbQuery$it", "__hbCancel$it") }
+private fun randomName(): String = Uuid.random().toHexString().map { 'a' + it.digitToInt(HEX) }
+    .joinToString("")
+
+private const val HEX = 16
 
 /** Page function the page API of a bridged document calls. */
 internal val desktopDocumentQueryFunction: String get() = queryNames.jsQueryFunction
 
 /**
- * Bridge of one document browser: one-shot queries of its main frame, while that frame shows the document's own
- * address [url], go to [calls]; anything else is refused. Added to the document browser's client before the browser
- * is created; the client disposes the native router, [close] detaches this bridge first.
+ * Bridge of one document browser: one-shot queries of its main frame, while that frame shows the document's origin
+ * (of its address [url]), go to [calls]; anything else is refused. Added to the document browser's client before the
+ * browser is created; the client disposes the native router, [close] detaches this bridge first.
  */
 internal class DesktopDocumentRouter(url: String, private val calls: DesktopDocumentCalls) {
     private val log = Log.tag("DesktopDocumentRouter")
     private val handler = object : CefMessageRouterHandlerAdapter() {
+        @HighFrequency
         override fun onQuery(
             browser: CefBrowser,
             frame: CefFrame,
@@ -38,7 +46,7 @@ internal class DesktopDocumentRouter(url: String, private val calls: DesktopDocu
             callback: CefQueryCallback,
         ): Boolean {
             if (persistent || !frame.isMain || !isDesktopDocumentFrame(url, frame.url)) {
-                log.w { "Document query refused: not a one-shot query of the document" }
+                log.v { "Document query refused: not a one-shot query of the document" }
                 callback.failure(0, REFUSED)
                 return true
             }
@@ -71,6 +79,9 @@ internal class DesktopDocumentRouter(url: String, private val calls: DesktopDocu
     }
 }
 
-/** A frame shows the document while its address is the document's own, with or without a fragment. */
+/**
+ * A frame shows the document while its address is on the document's origin: [documentUrl] is the origin's root, so
+ * paths set by `history.pushState`, queries and fragments keep the bridge, other hosts never match.
+ */
 internal fun isDesktopDocumentFrame(documentUrl: String, frameUrl: String?): Boolean =
-    frameUrl == documentUrl || frameUrl?.startsWith("$documentUrl#") == true
+    frameUrl?.startsWith(documentUrl) == true
