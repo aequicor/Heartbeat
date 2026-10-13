@@ -1,6 +1,6 @@
 package io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server
 
-import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeErrorCode
+import io.aequicor.heartbeat.feature.chromiumbridge.protocol.BridgeErrorCode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow

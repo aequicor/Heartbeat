@@ -3,8 +3,6 @@ package io.aequicor.heartbeat.feature.chromiumbridge.impl.data
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeFeatureSet
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeFrame
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeProtocol
-import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.ChatChanged
-import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.ChatsChanged
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.HelloApp
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.HelloLimits
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.HelloParams
@@ -12,6 +10,8 @@ import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.HelloResu
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.decodeFrame
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.HelloHandler
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.ExtensionIdentity
+import io.aequicor.heartbeat.feature.chromiumbridge.protocol.ChatChanged
+import io.aequicor.heartbeat.feature.chromiumbridge.protocol.ChatsChanged
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive

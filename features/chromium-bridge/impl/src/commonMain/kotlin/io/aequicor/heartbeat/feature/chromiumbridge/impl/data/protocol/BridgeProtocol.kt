@@ -37,22 +37,3 @@ internal object BridgeProtocol {
         encodeDefaults = true
     }
 }
-
-/** Error codes of [BridgeFrame.Response.error]; the extension maps them to user-facing texts. */
-internal object BridgeErrorCode {
-    const val BAD_REQUEST: String = "bad_request"
-    const val UNKNOWN_METHOD: String = "unknown_method"
-    const val UNSUPPORTED_PROTOCOL: String = "unsupported_protocol"
-    const val NOT_READY: String = "not_ready"
-    const val UNAVAILABLE: String = "unavailable"
-    const val BUSY: String = "busy"
-    const val UNKNOWN_CHAT: String = "unknown_chat"
-    const val NOT_CONTINUABLE: String = "not_continuable"
-    const val NO_MODEL: String = "no_model"
-    const val STALE_REQUEST: String = "stale_request"
-    const val TOO_LARGE: String = "too_large"
-    const val FORBIDDEN: String = "forbidden"
-    const val NO_SUCH_TAB: String = "no_such_tab"
-    const val TIMEOUT: String = "timeout"
-    const val INTERNAL: String = "internal"
-}

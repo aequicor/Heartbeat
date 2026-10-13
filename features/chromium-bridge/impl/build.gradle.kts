@@ -10,6 +10,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(projects.features.chromiumBridge.api)
+            implementation(projects.features.chromiumBridge.protocol)
             implementation(projects.features.aiStudio.api)
             implementation(projects.features.attachments.api)
             implementation(projects.core.common)

@@ -8,10 +8,10 @@ import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalBrowserFailure
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalBrowserState
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalTab
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalTabEvent
-import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeErrorCode
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeException
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeIncomingEvent
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeSession
+import io.aequicor.heartbeat.feature.chromiumbridge.protocol.BridgeErrorCode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job

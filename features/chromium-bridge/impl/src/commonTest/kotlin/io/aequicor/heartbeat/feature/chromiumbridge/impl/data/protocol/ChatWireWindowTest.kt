@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol
 
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEntry
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatPart
+import io.aequicor.heartbeat.feature.chromiumbridge.protocol.ChatWireLimits
+import io.aequicor.heartbeat.feature.chromiumbridge.protocol.WireEntry
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -37,8 +39,9 @@ class ChatWireWindowTest {
 
         assertEquals(true, wire.isTruncated)
         assertEquals(true, wire.isStreaming)
-        assertTrue(wire.parts!!.isNotEmpty() && wire.parts.size < parts.size)
-        assertTrue(wire.parts.last().text!!.startsWith("part-100 "))
+        val wireParts = wire.parts!!
+        assertTrue(wireParts.isNotEmpty() && wireParts.size < parts.size)
+        assertTrue(wireParts.last().text!!.startsWith("part-100 "))
         val bytes = BridgeProtocol.json.encodeToString(WireEntry.serializer(), wire).encodeToByteArray().size
         assertTrue(bytes < ChatWireLimits.MAX_REPLY_PARTS_BYTES + 1024)
     }

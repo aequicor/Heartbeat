@@ -1,12 +1,12 @@
 package io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server
 
-import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeErrorCode
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeFeatureSet
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeFrame
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeProtocol
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.ChunkAssembler
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.decodeFrame
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.encodeFrame
+import io.aequicor.heartbeat.feature.chromiumbridge.protocol.BridgeErrorCode
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch

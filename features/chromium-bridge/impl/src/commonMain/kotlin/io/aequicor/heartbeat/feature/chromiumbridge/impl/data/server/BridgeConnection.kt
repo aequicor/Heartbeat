@@ -3,12 +3,12 @@ package io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeError
-import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeErrorCode
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeFrame
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeProtocol
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.chunkFrame
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.decodeFrame
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.encodeFrame
+import io.aequicor.heartbeat.feature.chromiumbridge.protocol.BridgeErrorCode
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable

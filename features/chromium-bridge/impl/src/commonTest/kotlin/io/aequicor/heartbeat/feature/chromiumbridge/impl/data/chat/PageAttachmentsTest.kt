@@ -16,7 +16,7 @@ import io.aequicor.heartbeat.feature.attachments.api.AttachmentsIntent
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsMachineKey
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsOutput
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsState
-import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.WirePage
+import io.aequicor.heartbeat.feature.chromiumbridge.protocol.WirePage
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
