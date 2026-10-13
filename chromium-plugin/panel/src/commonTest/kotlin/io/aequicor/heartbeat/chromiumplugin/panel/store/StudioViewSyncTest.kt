@@ -1,15 +1,15 @@
 package io.aequicor.heartbeat.chromiumplugin.panel.store
 
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewEncoder
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 class StudioViewSyncTest {
-    private fun typed(text: String) = AiStudioScreenIntent.Suggestions.DraftChanged(paneId = 0, text = text)
+    private fun typed(text: String) = StudioIntent.Suggestions.DraftChanged(paneId = 0, text = text)
 
     @Test
     fun `typed text stays on screen until a frame acknowledges it`() {
@@ -62,7 +62,7 @@ class StudioViewSyncTest {
         val old = StudioViewEncoder(generation = "old")
         sync.receive(checkNotNull(old.frame(AiStudioScreenState(), 0)))
         sync.add(typed("unsent text"))
-        sync.add(AiStudioScreenIntent.Submit(0))
+        sync.add(StudioIntent.Submit(0))
         sync.sent(2)
         sync.restart()
         assertEquals(emptyList(), sync.unsent(64))

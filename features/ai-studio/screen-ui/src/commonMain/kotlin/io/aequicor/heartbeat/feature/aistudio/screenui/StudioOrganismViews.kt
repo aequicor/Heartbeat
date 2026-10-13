@@ -36,7 +36,6 @@ import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_abort
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_complaint
@@ -82,6 +81,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.activeDescendants
 import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 /** An organism chat's feed follows the shown sub-session, so switching resets its timeline. */
 internal fun PaneContent.feedId(): String? = pane.sessionId?.let {
@@ -93,13 +93,13 @@ internal fun PaneContent.isOrganismOffered(): Boolean = isOrganismEnabled && pan
 
 /** The chosen mode is shown only before the first message; existing chats use their header switcher. */
 @Composable
-internal fun OrganismModeToggle(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit) {
+internal fun OrganismModeToggle(content: PaneContent, onIntent: (StudioIntent) -> Unit) {
     val pane = content.pane
     if (pane.sessionId == null && pane.isOrganism) {
         HbComposerToggle(
             label = stringResource(Res.string.organism_mode),
             isChecked = true,
-            onCheckedChange = { onIntent(AiStudioScreenIntent.SelectOrganism(pane.id, it)) },
+            onCheckedChange = { onIntent(StudioIntent.SelectOrganism(pane.id, it)) },
             icon = HbIcons.Users,
             modifier = Modifier.testTag("organism-mode-${pane.id}"),
         )
@@ -111,7 +111,7 @@ internal fun OrganismModeToggle(content: PaneContent, onIntent: (AiStudioScreenI
  * each with its state. Choosing one shows its transcript; the menu also stops the organism or resumes its zygote.
  */
 @Composable
-internal fun OrganismSwitcher(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit) {
+internal fun OrganismSwitcher(content: PaneContent, onIntent: (StudioIntent) -> Unit) {
     val organism = content.organism
     val tree = content.nativeTree
     val sessions = tree?.sessions ?: organism?.subSessions ?: return
@@ -156,9 +156,9 @@ internal fun OrganismSwitcher(content: PaneContent, onIntent: (AiStudioScreenInt
                 { id ->
                     isExpanded = false
                     val intent = when (id) {
-                        ABORT_ACTION -> AiStudioScreenIntent.ControlOrganism(sessionId, OrganismActionUi.Abort)
-                        RESUME_ACTION -> AiStudioScreenIntent.ControlOrganism(sessionId, OrganismActionUi.Resume)
-                        else -> AiStudioScreenIntent.SelectSubSession(sessionId, id.removePrefix(SUB_SESSION_PREFIX))
+                        ABORT_ACTION -> StudioIntent.ControlOrganism(sessionId, OrganismActionUi.Abort)
+                        RESUME_ACTION -> StudioIntent.ControlOrganism(sessionId, OrganismActionUi.Resume)
+                        else -> StudioIntent.SelectSubSession(sessionId, id.removePrefix(SUB_SESSION_PREFIX))
                     }
                     onIntent(intent)
                 },
@@ -212,11 +212,7 @@ private fun organismActions(organism: OrganismUi): List<HbMenuItem> = listOfNotN
  * is out of view (organic AI is off or asleep, or the organism is no longer kept) says so instead of showing nothing.
  */
 @Composable
-internal fun OrganismNotices(
-    content: PaneContent,
-    descriptionMaxHeight: Dp,
-    onIntent: (AiStudioScreenIntent) -> Unit,
-) {
+internal fun OrganismNotices(content: PaneContent, descriptionMaxHeight: Dp, onIntent: (StudioIntent) -> Unit) {
     val sessionId = content.session?.id ?: return
     val organism = content.organism
     // While its organism is being conceived the chat runs; only one out of view afterwards is explained.
@@ -256,7 +252,7 @@ private fun OrganismPermissionCard(
     sessionId: String,
     request: OrganismPermissionUi,
     descriptionMaxHeight: Dp,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
 ) {
     val id = "${request.cell}-${request.requestId}"
     HbQuestionnaireCard(
@@ -272,7 +268,7 @@ private fun OrganismPermissionCard(
                     text = option.title,
                     onClick = {
                         onIntent(
-                            AiStudioScreenIntent.DecideOrganism(
+                            StudioIntent.DecideOrganism(
                                 sessionId,
                                 request.cell,
                                 request.turn,

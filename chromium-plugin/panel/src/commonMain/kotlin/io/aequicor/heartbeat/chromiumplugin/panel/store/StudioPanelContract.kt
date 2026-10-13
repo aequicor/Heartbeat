@@ -1,10 +1,10 @@
 package io.aequicor.heartbeat.chromiumplugin.panel.store
 
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.chromiumbridge.protocol.WirePage
 import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
 import pro.respawn.flowmvi.api.MVIState
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 /** Browser-only presentation state around the shared studio screen. */
 internal data class StudioPanelState(
@@ -24,7 +24,7 @@ internal enum class CaptureProblem { Unreadable, Unsupported, DestinationChanged
 
 /** Inputs of the panel host; screen input is forwarded unchanged to the shared remote store. */
 internal sealed interface StudioPanelIntent : MVIIntent {
-    data class Screen(val input: AiStudioScreenIntent) : StudioPanelIntent
+    data class Screen(val input: StudioIntent) : StudioPanelIntent
     data class CapturePage(val paneId: Int) : StudioPanelIntent
     data object AttachCaptured : StudioPanelIntent
     data object DismissCapture : StudioPanelIntent

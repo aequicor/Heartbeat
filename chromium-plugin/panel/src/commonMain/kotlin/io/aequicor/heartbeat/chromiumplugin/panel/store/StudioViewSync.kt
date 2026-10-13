@@ -1,14 +1,14 @@
 package io.aequicor.heartbeat.chromiumplugin.panel.store
 
 import io.aequicor.heartbeat.core.logging.HighFrequency
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewFrame
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewMirror
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.predict
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 /** A panel intent numbered for the app, which applies each [seq] once and in order. */
-internal data class PendingIntent(val seq: Long, val intent: AiStudioScreenIntent)
+internal data class PendingIntent(val seq: Long, val intent: StudioIntent)
 
 /**
  * The studio screen of a remote view: the app's frames plus the panel's intents the app has not shown yet. An
@@ -74,7 +74,7 @@ internal class StudioViewSync {
 
     /** Numbers [intent] and predicts it. */
     @HighFrequency
-    fun add(intent: AiStudioScreenIntent) {
+    fun add(intent: StudioIntent) {
         addedInputs++
         pending += PendingIntent(++nextSeq, intent)
     }

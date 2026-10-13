@@ -4,7 +4,6 @@ import io.aequicor.heartbeat.chromiumplugin.panel.FakePanelHost
 import io.aequicor.heartbeat.chromiumplugin.panel.link.PanelLink
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.InputSupportUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ModelUi
@@ -31,6 +30,7 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioPanelModelTest {
@@ -75,7 +75,7 @@ class StudioPanelModelTest {
             host.deliver("""{"type":"status","status":"disconnected"}""")
             runCurrent()
             assertFalse(states.value.isInteractive)
-            StudioPanelIntent.Screen(AiStudioScreenIntent.Submit(0)) resultsIn { runCurrent() }
+            StudioPanelIntent.Screen(StudioIntent.Submit(0)) resultsIn { runCurrent() }
             assertEquals(1, posted("call").size)
         }
     }
@@ -130,7 +130,7 @@ class StudioPanelModelTest {
             show(ready().withDraft(0, "Previous draft"))
             runCurrent()
             val previous = posted("watch").single().getValue("params").jsonObject.getValue("view")
-            StudioPanelIntent.Screen(AiStudioScreenIntent.Submit(0)) resultsIn { runCurrent() }
+            StudioPanelIntent.Screen(StudioIntent.Submit(0)) resultsIn { runCurrent() }
             show(ready().withDraft(0, "x".repeat(20_000)))
             runCurrent()
             assertEquals(StudioViewStatus.TooLarge, states.value.remote.status)
@@ -164,7 +164,7 @@ class StudioPanelModelTest {
             host.deliver("""{"type":"status","status":"disconnected"}""")
             host.deliver("""{"type":"status","status":"ready"}""")
             // No drain: the reducer must reject input before queued connection notifications are collected.
-            StudioPanelIntent.Screen(AiStudioScreenIntent.Submit(0)) resultsIn { runCurrent() }
+            StudioPanelIntent.Screen(StudioIntent.Submit(0)) resultsIn { runCurrent() }
             assertFalse(states.value.isInteractive)
             StudioPanelIntent.CapturePage(0) resultsIn { runCurrent() }
             assertEquals(0, captures)
@@ -192,7 +192,7 @@ class StudioPanelModelTest {
             show(ready())
             runCurrent()
             StudioPanelIntent.CapturePage(0) resultsIn { runCurrent() }
-            StudioPanelIntent.Screen(AiStudioScreenIntent.OpenSession("another")) resultsIn { runCurrent() }
+            StudioPanelIntent.Screen(StudioIntent.OpenSession("another")) resultsIn { runCurrent() }
             page.complete(PAGE)
             runCurrent()
             assertEquals(CaptureProblem.DestinationChanged, states.value.captureProblem)

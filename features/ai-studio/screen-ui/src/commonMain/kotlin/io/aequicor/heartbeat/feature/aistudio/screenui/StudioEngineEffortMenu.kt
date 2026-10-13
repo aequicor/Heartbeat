@@ -11,13 +11,13 @@ import io.aequicor.heartbeat.ds.components.HbComposerAction
 import io.aequicor.heartbeat.ds.components.HbComposerMenuButton
 import io.aequicor.heartbeat.ds.components.HbComposerMenuStyle
 import io.aequicor.heartbeat.ds.components.HbIcons
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_effort_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_default
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ModelUi
 import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.stringResource
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 /**
  * Only engine-advertised options are selectable. Levels are shown and round-tripped exactly as the provider names
@@ -27,7 +27,7 @@ import org.jetbrains.compose.resources.stringResource
 internal fun EngineEffortMenu(
     model: ModelUi,
     selected: String?,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
     paneId: Int? = null,
     enabled: Boolean = true,
 ) {
@@ -44,7 +44,7 @@ internal fun EngineEffortMenu(
         onExpandedChange = { isOpen = it },
         onAction = {
             val effort = if (it == DEFAULT_EFFORT) null else it.removePrefix(EFFORT_PREFIX)
-            onIntent(AiStudioScreenIntent.SelectEngineEffort(model.id, effort, paneId))
+            onIntent(StudioIntent.SelectEngineEffort(model.id, effort, paneId))
         },
         modifier = Modifier.testTag("effort-chip"),
         accessibleLabel = stringResource(Res.string.composer_effort_menu),

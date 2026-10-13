@@ -31,12 +31,12 @@ import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbTone
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenui.AiStudioContent
 import io.aequicor.heartbeat.feature.aistudio.screenui.StudioHostCapabilities
 import org.jetbrains.compose.resources.stringResource
 import pro.respawn.flowmvi.api.Store
 import pro.respawn.flowmvi.dsl.collect
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 /** The shared studio, its connection state, capture gestures and manual recovery after a replaced view. */
 @Composable
@@ -73,7 +73,7 @@ private fun StudioViewContent(
     modifier: Modifier = Modifier,
 ) {
     val screen = state.remote.screen ?: return
-    val dispatch: (AiStudioScreenIntent) -> Unit = {
+    val dispatch: (StudioIntent) -> Unit = {
         if (state.isInteractive) onIntent(StudioPanelIntent.Screen(it))
     }
     val semantics = if (state.isInteractive) Modifier else Modifier.clearAndSetSemantics { disabled() }

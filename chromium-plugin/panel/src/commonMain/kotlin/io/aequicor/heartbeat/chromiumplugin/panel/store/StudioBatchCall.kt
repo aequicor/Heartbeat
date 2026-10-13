@@ -1,12 +1,12 @@
 package io.aequicor.heartbeat.chromiumplugin.panel.store
 
 import io.aequicor.heartbeat.chromiumplugin.panel.link.panelJson
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioViewJson
 import io.aequicor.heartbeat.feature.chromiumbridge.protocol.WirePage
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 /** A call carrying the next contiguous part of the shared studio sequence. */
 internal data class StudioBatchCall(val method: String, val params: JsonElement)
@@ -22,13 +22,13 @@ internal fun studioBatchCall(view: String, generation: String, batch: List<Pendi
     val first = batch.first()
     val page = first.page()
     return if (page != null) {
-        val paneId = (first.intent as AiStudioScreenIntent.ImportAttachments).paneId
+        val paneId = (first.intent as StudioIntent.ImportAttachments).paneId
         val wire = WirePage(url = page.url, title = page.title, text = page.text, selection = page.selection)
         val params = ViewPage(view, generation, first.seq, paneId, wire)
         StudioBatchCall("studio.attachPage", panelJson.encodeToJsonElement(ViewPage.serializer(), params))
     } else {
         val intents = batch.map {
-            ViewIntent(it.seq, StudioViewJson.encodeToJsonElement(AiStudioScreenIntent.serializer(), it.intent))
+            ViewIntent(it.seq, StudioViewJson.encodeToJsonElement(StudioIntent.serializer(), it.intent))
         }
         val params = ViewIntents(view, generation, intents)
         StudioBatchCall("studio.intent", panelJson.encodeToJsonElement(ViewIntents.serializer(), params))
@@ -36,7 +36,7 @@ internal fun studioBatchCall(view: String, generation: String, batch: List<Pendi
 }
 
 private fun PendingIntent.page(): NativeAttachmentUi.Page? =
-    (intent as? AiStudioScreenIntent.ImportAttachments)?.inputs?.singleOrNull() as? NativeAttachmentUi.Page
+    (intent as? StudioIntent.ImportAttachments)?.inputs?.singleOrNull() as? NativeAttachmentUi.Page
 
 /** A numbered page capture. */
 @Serializable

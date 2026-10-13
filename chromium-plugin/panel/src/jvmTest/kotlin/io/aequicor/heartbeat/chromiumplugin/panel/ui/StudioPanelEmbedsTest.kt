@@ -8,7 +8,6 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioChecklistView
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioEmbedViews
@@ -24,13 +23,14 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 @OptIn(ExperimentalTestApi::class)
 class StudioPanelEmbedsTest {
     @Test
     fun `shared child UI sends answers to the exact remote source and instance`() =
         runSkikoComposeUiTest(size = Size(420f, 800f)) {
-            val sent = mutableListOf<AiStudioScreenIntent>()
+            val sent = mutableListOf<StudioIntent>()
             val question = QuestionUi("question", "Continue?", null, QuestionKindUi.Confirm("Yes", "No"), false, false)
             val embeds = StudioEmbedViews(
                 questions = persistentMapOf(
@@ -64,13 +64,13 @@ class StudioPanelEmbedsTest {
             onNodeWithTag("question-yes-question").performClick()
             onNodeWithTag("checklist-complete").performClick()
             assertEquals(
-                listOf<AiStudioScreenIntent>(
-                    AiStudioScreenIntent.QuestionInput(
+                listOf<StudioIntent>(
+                    StudioIntent.QuestionInput(
                         "chat",
                         "question-instance",
                         QuestionnaireScreenIntent.Confirm("question", true),
                     ),
-                    AiStudioScreenIntent.ChecklistInput("card", "checklist-instance", ChecklistScreenIntent.Complete),
+                    StudioIntent.ChecklistInput("card", "checklist-instance", ChecklistScreenIntent.Complete),
                 ),
                 sent,
             )

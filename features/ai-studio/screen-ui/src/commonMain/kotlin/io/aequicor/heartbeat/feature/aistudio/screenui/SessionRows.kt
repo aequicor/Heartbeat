@@ -36,7 +36,6 @@ import io.aequicor.heartbeat.ds.components.HbNavigationItem
 import io.aequicor.heartbeat.ds.components.HbTextField
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.action_archive
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.action_mark_read
@@ -57,6 +56,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.stringResource
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 /**
  * Parameters shared by every session row of the sidebar. A session may be listed in several sections, so
@@ -68,7 +68,7 @@ internal class SessionRows(
     private val openMenu: String?,
     private val onMenu: (String?) -> Unit,
     private val isOpenBesideAllowed: Boolean,
-    private val onIntent: (AiStudioScreenIntent) -> Unit,
+    private val onIntent: (StudioIntent) -> Unit,
 ) {
     /** A session row of [section], or its title field while it is being renamed from this row. */
     @Composable
@@ -88,7 +88,7 @@ internal class SessionRows(
         val isSelected = session.id == selectedId
         HbNavigationItem(
             label = session.title,
-            onClick = { onIntent(AiStudioScreenIntent.OpenSession(session.id)) },
+            onClick = { onIntent(StudioIntent.OpenSession(session.id)) },
             modifier = modifier.testTag("session-${session.id}").semantics {
                 if (status.isNotEmpty()) stateDescription = status
             },
@@ -120,7 +120,7 @@ internal class SessionRows(
             HbIconButton(
                 icon = if (session.isArchived) HbIcons.Undo else HbIcons.Archive,
                 contentDescription = archiveLabel,
-                onClick = { onIntent(AiStudioScreenIntent.SetArchived(session.id, !session.isArchived)) },
+                onClick = { onIntent(StudioIntent.SetArchived(session.id, !session.isArchived)) },
                 modifier = Modifier.testTag("session-archive-$rowKey"),
                 size = HbTheme.dimensions.navigationRowHeight,
             )
@@ -206,38 +206,38 @@ internal fun sessionMenu(session: SessionUi, isOpenBesideAllowed: Boolean): Immu
 ).toImmutableList()
 
 /** The screen intent of a [sessionMenu] item; `null` for an unknown id. */
-internal fun sessionAction(session: SessionUi, id: String, origin: String): AiStudioScreenIntent? = when (id) {
-    MENU_RENAME -> AiStudioScreenIntent.StartRename(session.id, origin)
-    MENU_PIN -> AiStudioScreenIntent.SetPinned(session.id, !session.isPinned)
-    MENU_UNREAD -> AiStudioScreenIntent.SetUnread(session.id, !session.isUnread)
-    MENU_BESIDE -> AiStudioScreenIntent.OpenBeside(session.id)
-    MENU_ARCHIVE -> AiStudioScreenIntent.SetArchived(session.id, !session.isArchived)
+internal fun sessionAction(session: SessionUi, id: String, origin: String): StudioIntent? = when (id) {
+    MENU_RENAME -> StudioIntent.StartRename(session.id, origin)
+    MENU_PIN -> StudioIntent.SetPinned(session.id, !session.isPinned)
+    MENU_UNREAD -> StudioIntent.SetUnread(session.id, !session.isUnread)
+    MENU_BESIDE -> StudioIntent.OpenBeside(session.id)
+    MENU_ARCHIVE -> StudioIntent.SetArchived(session.id, !session.isArchived)
     else -> null.also { log.w { "unknown session action ignored" } }
 }
 
 private val log = Log.tag("StudioSessionRows")
 
 @Composable
-internal fun RenameField(title: String, onIntent: (AiStudioScreenIntent) -> Unit, modifier: Modifier = Modifier) {
+internal fun RenameField(title: String, onIntent: (StudioIntent) -> Unit, modifier: Modifier = Modifier) {
     val focus = remember { FocusRequester() }
     var hasHadFocus by remember { mutableStateOf(false) }
     SideEffect(focus) { focus.requestFocus() }
     HbTextField(
         value = title,
-        onValueChange = { onIntent(AiStudioScreenIntent.RenameChanged(it)) },
+        onValueChange = { onIntent(StudioIntent.RenameChanged(it)) },
         modifier = modifier.fillMaxWidth().focusRequester(focus)
             .onFocusChanged { state ->
                 if (state.isFocused) {
                     hasHadFocus = true
                 } else if (hasHadFocus) {
-                    onIntent(AiStudioScreenIntent.CommitRename)
+                    onIntent(StudioIntent.CommitRename)
                 }
             }
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
-                    Key.Enter, Key.NumPadEnter -> onIntent(AiStudioScreenIntent.CommitRename)
-                    Key.Escape -> onIntent(AiStudioScreenIntent.CancelRename)
+                    Key.Enter, Key.NumPadEnter -> onIntent(StudioIntent.CommitRename)
+                    Key.Escape -> onIntent(StudioIntent.CancelRename)
                     else -> return@onPreviewKeyEvent false
                 }
                 true

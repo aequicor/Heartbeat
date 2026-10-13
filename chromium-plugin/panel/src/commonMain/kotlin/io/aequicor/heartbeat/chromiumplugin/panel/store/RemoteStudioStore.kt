@@ -7,7 +7,6 @@ import io.aequicor.heartbeat.chromiumplugin.panel.link.panelJson
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewFrame
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewGapException
@@ -32,6 +31,7 @@ import pro.respawn.flowmvi.plugins.init
 import pro.respawn.flowmvi.plugins.reduce
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 private val log = Log.tag("Panel/Studio")
 
@@ -45,7 +45,7 @@ internal fun remoteStudioStore(
     link: PanelLink,
     viewId: String,
     retryDelay: Duration = RETRY_DELAY,
-): Store<RemoteStudioState, AiStudioScreenIntent, RemoteStudioAction> =
+): Store<RemoteStudioState, StudioIntent, RemoteStudioAction> =
     factory.create("ChromiumStudio", RemoteStudioState(), onError = { this }) {
         val view = StudioViewLink(link, viewId, retryDelay)
         init {
@@ -86,7 +86,7 @@ private class StudioViewLink(
 
     /** Queues [intent] for the app and returns the screen with it predicted. */
     @HighFrequency
-    fun add(intent: AiStudioScreenIntent): AiStudioScreenState? {
+    fun add(intent: StudioIntent): AiStudioScreenState? {
         sync.add(intent)
         outbox.trySend(Unit)
         return sync.screen

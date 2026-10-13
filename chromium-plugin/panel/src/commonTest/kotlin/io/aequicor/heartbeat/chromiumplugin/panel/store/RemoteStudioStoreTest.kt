@@ -4,7 +4,6 @@ import io.aequicor.heartbeat.chromiumplugin.panel.FakePanelHost
 import io.aequicor.heartbeat.chromiumplugin.panel.link.PanelLink
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioViewJson
@@ -30,12 +29,13 @@ import pro.respawn.flowmvi.test.subscribeAndTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.time.Duration.Companion.seconds
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 class RemoteStudioStoreTest {
     private val host = FakePanelHost()
     private val app = StudioViewEncoder()
 
-    private fun TestScope.store(): Store<RemoteStudioState, AiStudioScreenIntent, RemoteStudioAction> {
+    private fun TestScope.store(): Store<RemoteStudioState, StudioIntent, RemoteStudioAction> {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val factory = HeartbeatStoreFactory(object : DispatcherProvider {
             override val main = dispatcher
@@ -84,7 +84,7 @@ class RemoteStudioStoreTest {
             writer.write(AiStudioScreenState().withDraft(0, "x".repeat(20_000)), 0).forEach(::showPacket)
             runCurrent()
             assertEquals(StudioViewStatus.TooLarge, states.value.status)
-            AiStudioScreenIntent.ToggleSearch resultsIn { runCurrent() }
+            StudioIntent.ToggleSearch resultsIn { runCurrent() }
             advanceTimeBy(60.seconds)
             assertEquals(1, posted("watch").size)
             assertEquals(0, posted("call").size)
@@ -126,7 +126,7 @@ class RemoteStudioStoreTest {
             show(AiStudioScreenState())
             runCurrent()
 
-            AiStudioScreenIntent.Suggestions.DraftChanged(paneId = 0, text = "hi") resultsIn { runCurrent() }
+            StudioIntent.Suggestions.DraftChanged(paneId = 0, text = "hi") resultsIn { runCurrent() }
             assertEquals("hi", states.value.screen?.draft(0))
             val call = posted("call").single()
             assertEquals("studio.intent", call.getValue("method").jsonPrimitive.content)
@@ -149,7 +149,7 @@ class RemoteStudioStoreTest {
             show(AiStudioScreenState())
             runCurrent()
 
-            AiStudioScreenIntent.Suggestions.DraftChanged(paneId = 0, text = "x") resultsIn { runCurrent() }
+            StudioIntent.Suggestions.DraftChanged(paneId = 0, text = "x") resultsIn { runCurrent() }
             reply(posted("call").single(), """"error":{"code":"${BridgeErrorCode.UNKNOWN_VIEW}"}""")
             runCurrent()
             assertEquals(
@@ -194,7 +194,7 @@ class RemoteStudioStoreTest {
             runCurrent()
             show(AiStudioScreenState())
             runCurrent()
-            AiStudioScreenIntent.ToggleSearch resultsIn { runCurrent() }
+            StudioIntent.ToggleSearch resultsIn { runCurrent() }
             reply(posted("call").single(), "\"error\":{\"code\":\"timeout\"}")
             advanceTimeBy(6.seconds)
             runCurrent()
@@ -212,12 +212,12 @@ class RemoteStudioStoreTest {
             runCurrent()
             show(AiStudioScreenState())
             runCurrent()
-            AiStudioScreenIntent.ToggleSearch resultsIn { runCurrent() }
-            AiStudioScreenIntent.ImportAttachments(
+            StudioIntent.ToggleSearch resultsIn { runCurrent() }
+            StudioIntent.ImportAttachments(
                 7,
                 listOf(NativeAttachmentUi.Page("https://example.com", "Page", "Body", "Selected")),
             ) resultsIn { runCurrent() }
-            AiStudioScreenIntent.Suggestions.DraftChanged(7, "Read this") resultsIn { runCurrent() }
+            StudioIntent.Suggestions.DraftChanged(7, "Read this") resultsIn { runCurrent() }
             reply(posted("call").single(), "\"result\":{\"ack\":1}")
             runCurrent()
             val page = posted("call").last()

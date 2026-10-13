@@ -5,7 +5,6 @@ import io.aequicor.heartbeat.chromiumplugin.panel.link.PanelLink
 import io.aequicor.heartbeat.chromiumplugin.panel.link.panelJson
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.attachmentSupport
@@ -26,9 +25,10 @@ import pro.respawn.flowmvi.dsl.collect
 import pro.respawn.flowmvi.plugins.init
 import pro.respawn.flowmvi.plugins.reduce
 import kotlin.uuid.Uuid
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 private typealias PanelPipeline = PipelineContext<StudioPanelState, StudioPanelIntent, StudioPanelAction>
-private typealias StudioStore = Store<RemoteStudioState, AiStudioScreenIntent, RemoteStudioAction>
+private typealias StudioStore = Store<RemoteStudioState, StudioIntent, RemoteStudioAction>
 
 /**
  * Owns one remote view at a time and the explicit browser capture gestures. Reset cancels the old store before
@@ -169,7 +169,7 @@ internal class StudioPanelModel(
     private fun StudioPanelState.canInteract(): Boolean =
         isInteractive && remote.connectionEpoch == link.connectionEpoch
 
-    private fun send(input: AiStudioScreenIntent) {
+    private fun send(input: StudioIntent) {
         val view = current ?: return
         queuedInputs++
         view.intent(input)
@@ -192,7 +192,7 @@ internal class StudioPanelModel(
                 return@withState
             }
             val input = NativeAttachmentUi.Page(page.url, page.title, page.text, page.selection)
-            send(AiStudioScreenIntent.ImportAttachments(target, listOf(input)))
+            send(StudioIntent.ImportAttachments(target, listOf(input)))
             log.i { "Captured page queued for attachment" }
             updateState { copy(capturedPage = null, captureProblem = null) }
         }
@@ -240,7 +240,7 @@ internal class StudioPanelModel(
             val target = screen.focusedPaneId
             val existing = screen.draft(target)
             val recovered = listOf(existing, draft).filter(String::isNotBlank).joinToString("\n\n")
-            send(AiStudioScreenIntent.Suggestions.DraftChanged(target, recovered))
+            send(StudioIntent.Suggestions.DraftChanged(target, recovered))
             updateState { copy(recoveryDraft = null) }
             log.i { "Previous draft restored by the user" }
         }

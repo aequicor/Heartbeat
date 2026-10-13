@@ -29,7 +29,6 @@ import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTooltip
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_ask
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_auto
@@ -93,6 +92,7 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 /**
  * Composer of one pane: prompt templates, approval mode and model preferences around the shared editor. Native drop
@@ -101,7 +101,7 @@ import org.jetbrains.compose.resources.stringResource
 @Composable
 internal fun StudioComposer(
     content: PaneContent,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
     isCompact: Boolean,
     modifier: Modifier = Modifier,
     onOpenResearch: ((String) -> Unit)? = null,
@@ -136,9 +136,9 @@ internal fun StudioComposer(
     }
     HbChatComposer(
         value = draft,
-        onValueChange = { onIntent(AiStudioScreenIntent.Suggestions.DraftChanged(pane.id, it)) },
-        onSend = { onIntent(AiStudioScreenIntent.Submit(pane.id)) },
-        onStop = { session?.let { onIntent(AiStudioScreenIntent.Stop(it.id)) } },
+        onValueChange = { onIntent(StudioIntent.Suggestions.DraftChanged(pane.id, it)) },
+        onSend = { onIntent(StudioIntent.Submit(pane.id)) },
+        onStop = { session?.let { onIntent(StudioIntent.Stop(it.id)) } },
         sendLabel = stringResource(Res.string.composer_send),
         stopLabel = stringResource(Res.string.composer_stop),
         modifier = modifier.testTag("composer-${pane.id}"),
@@ -161,12 +161,12 @@ internal fun StudioComposer(
         suggestions = composerSuggestions(content),
         suggestionsLabel = stringResource(Res.string.composer_suggestions),
         suggestionsCloseLabel = stringResource(Res.string.composer_suggestions_close),
-        onSuggestionMove = { delta -> onIntent(AiStudioScreenIntent.Suggestions.MoveSuggestion(pane.id, delta)) },
-        onSuggestionAccept = { index -> onIntent(AiStudioScreenIntent.Suggestions.AcceptSuggestion(pane.id, index)) },
-        onSuggestionsDismiss = { onIntent(AiStudioScreenIntent.Suggestions.DismissSuggestions(pane.id)) },
-        onCaretChange = { caret -> onIntent(AiStudioScreenIntent.Suggestions.CaretMoved(pane.id, caret)) },
+        onSuggestionMove = { delta -> onIntent(StudioIntent.Suggestions.MoveSuggestion(pane.id, delta)) },
+        onSuggestionAccept = { index -> onIntent(StudioIntent.Suggestions.AcceptSuggestion(pane.id, index)) },
+        onSuggestionsDismiss = { onIntent(StudioIntent.Suggestions.DismissSuggestions(pane.id)) },
+        onCaretChange = { caret -> onIntent(StudioIntent.Suggestions.CaretMoved(pane.id, caret)) },
         caretRequest = content.caretRequest?.let { HbComposerCaretRequest(it.id, it.text, it.caret) },
-        onCaretRequestApply = { id -> onIntent(AiStudioScreenIntent.Suggestions.CaretRequestApplied(pane.id, id)) },
+        onCaretRequestApply = { id -> onIntent(StudioIntent.Suggestions.CaretRequestApplied(pane.id, id)) },
         contextContent = if (content.hasComposerContext()) {
             { StudioComposerContext(content, onIntent) }
         } else {
@@ -241,7 +241,7 @@ private fun sectionLabel(suggestion: SuggestionUi): String = when (suggestion.ki
 private fun StudioComposerLeading(
     content: PaneContent,
     hasRunPreferences: Boolean,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
     onOpenResearch: ((String) -> Unit)?,
     onFocusInput: () -> Unit,
 ) {
@@ -254,11 +254,11 @@ private fun StudioComposerLeading(
         } else {
             content.settings.approval.takeIf { hasRunPreferences || content.isTrustSupported() }
         },
-        onDraft = { onIntent(AiStudioScreenIntent.Suggestions.DraftChanged(content.pane.id, it)) },
-        onApproval = { onIntent(AiStudioScreenIntent.SelectApproval(it, content.pane.id)) },
+        onDraft = { onIntent(StudioIntent.Suggestions.DraftChanged(content.pane.id, it)) },
+        onApproval = { onIntent(StudioIntent.SelectApproval(it, content.pane.id)) },
         approvalEnabled = !content.isSettingPending && content.organism == null,
         organism = content.pane.isOrganism.takeIf { content.isOrganismOffered() },
-        onOrganism = { onIntent(AiStudioScreenIntent.SelectOrganism(content.pane.id, it)) },
+        onOrganism = { onIntent(StudioIntent.SelectOrganism(content.pane.id, it)) },
     )
     if (content.isResearchAvailable && onOpenResearch != null) {
         HbComposerToggle(
@@ -272,7 +272,7 @@ private fun StudioComposerLeading(
 }
 
 @Composable
-private fun StudioComposerContext(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit) {
+private fun StudioComposerContext(content: PaneContent, onIntent: (StudioIntent) -> Unit) {
     val pane = content.pane
     if (pane.sessionId == null) {
         ContextTray(
@@ -309,7 +309,7 @@ private fun StudioComposerContext(content: PaneContent, onIntent: (AiStudioScree
         HbComposerToggle(
             label = stringResource(Res.string.worktree_mode),
             isChecked = pane.isWorktree,
-            onCheckedChange = { onIntent(AiStudioScreenIntent.SelectWorktree(pane.id, it)) },
+            onCheckedChange = { onIntent(StudioIntent.SelectWorktree(pane.id, it)) },
             modifier = Modifier.testTag("worktree-mode-${pane.id}"),
             icon = HbIcons.Branch,
         )
@@ -320,7 +320,7 @@ private fun StudioComposerContext(content: PaneContent, onIntent: (AiStudioScree
 private fun AttachmentActions(
     isAddingEnabled: Boolean,
     content: PaneContent,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val pane = content.pane
@@ -340,7 +340,7 @@ private fun AttachmentActions(
                 HbIconButton(
                     HbIcons.FilePlus,
                     stringResource(Res.string.attachments_add),
-                    onClick = { onIntent(AiStudioScreenIntent.PickAttachments(pane.id)) },
+                    onClick = { onIntent(StudioIntent.PickAttachments(pane.id)) },
                     modifier = Modifier.testTag("attachment-add-${pane.id}"),
                 )
                 if (!support?.imageMediaTypes.isNullOrEmpty()) {
@@ -348,7 +348,7 @@ private fun AttachmentActions(
                         stringResource(Res.string.attachments_paste),
                         onImage = {
                             onIntent(
-                                AiStudioScreenIntent.ImportAttachments(
+                                StudioIntent.ImportAttachments(
                                     pane.id,
                                     listOf(NativeAttachmentUi.Image(it)),
                                 ),
@@ -362,11 +362,7 @@ private fun AttachmentActions(
 }
 
 @Composable
-private fun ComposerEffort(
-    content: PaneContent,
-    hasDemoPreferences: Boolean,
-    onIntent: (AiStudioScreenIntent) -> Unit,
-) {
+private fun ComposerEffort(content: PaneContent, hasDemoPreferences: Boolean, onIntent: (StudioIntent) -> Unit) {
     // Organism turns keep their own session configuration; new-chat effort choices would not apply.
     if (content.organism != null) return
     val model = content.models.firstOrNull { it.id == content.settings.modelId }
@@ -413,7 +409,7 @@ internal fun ContextTray(
     pane: PaneUi,
     project: ProjectUi?,
     projects: ImmutableList<ProjectUi>,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
     modifier: Modifier = Modifier,
     isProjectAddingAvailable: Boolean = false,
 ) {
@@ -435,9 +431,9 @@ internal fun ContextTray(
         onExpandedChange = { isOpen = it },
         onAction = { id ->
             if (id == ADD_PROJECT) {
-                onIntent(AiStudioScreenIntent.AddProject(pane.id))
+                onIntent(StudioIntent.AddProject(pane.id))
             } else {
-                onIntent(AiStudioScreenIntent.SelectProject(pane.id, id.takeIf { it != NO_PROJECT }))
+                onIntent(StudioIntent.SelectProject(pane.id, id.takeIf { it != NO_PROJECT }))
             }
         },
         modifier = modifier.testTag("project-chip-${pane.id}"),
@@ -524,7 +520,7 @@ private fun TemplatesMenu(
 private fun ModelMenu(
     modelId: String,
     models: ImmutableList<ModelUi>,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
     canSelect: Boolean,
     paneId: Int,
 ) {
@@ -539,7 +535,7 @@ private fun ModelMenu(
         actions = items.toImmutableList(),
         isExpanded = isOpen,
         onExpandedChange = { isOpen = it },
-        onAction = { onIntent(AiStudioScreenIntent.SelectModel(it, paneId)) },
+        onAction = { onIntent(StudioIntent.SelectModel(it, paneId)) },
         modifier = Modifier.testTag("model-chip"),
         accessibleLabel = model?.name ?: stringResource(Res.string.connect_model_hint),
         headerLabel = stringResource(Res.string.model_menu),
@@ -550,7 +546,7 @@ private fun ModelMenu(
 }
 
 @Composable
-private fun EffortMenu(effort: EffortUi, onIntent: (AiStudioScreenIntent) -> Unit, paneId: Int, enabled: Boolean) {
+private fun EffortMenu(effort: EffortUi, onIntent: (StudioIntent) -> Unit, paneId: Int, enabled: Boolean) {
     var isOpen by remember { mutableStateOf(false) }
     val actions = EffortUi.entries.map {
         HbComposerAction(it.name, effortLabel(it), isSelected = it == effort)
@@ -560,7 +556,7 @@ private fun EffortMenu(effort: EffortUi, onIntent: (AiStudioScreenIntent) -> Uni
         actions = actions,
         isExpanded = isOpen,
         onExpandedChange = { isOpen = it },
-        onAction = { onIntent(AiStudioScreenIntent.SelectEffort(EffortUi.valueOf(it), paneId)) },
+        onAction = { onIntent(StudioIntent.SelectEffort(EffortUi.valueOf(it), paneId)) },
         modifier = Modifier.testTag("effort-chip"),
         accessibleLabel = stringResource(Res.string.composer_effort_menu),
         headerLabel = stringResource(Res.string.composer_effort_menu),

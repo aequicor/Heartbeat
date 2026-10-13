@@ -22,7 +22,6 @@ import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbLazyColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_file
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_incompatible
@@ -37,12 +36,13 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentMapOf
 import org.jetbrains.compose.resources.stringResource
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 /** Durable metadata; the same open action remains usable while new imports are disabled. */
 @Composable
 internal fun StudioAttachments(
     files: ImmutableList<AttachmentUi>,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
     modifier: Modifier = Modifier,
     paneId: Int? = null,
     support: InputSupportUi? = null,
@@ -78,7 +78,7 @@ internal fun StudioAttachments(
 @Composable
 private fun AttachmentRow(
     file: AttachmentUi,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
     paneId: Int?,
     support: InputSupportUi?,
     preview: AttachmentPreviewUi?,
@@ -86,8 +86,8 @@ private fun AttachmentRow(
 ) {
     val callback by rememberUpdatedState(onIntent)
     DisposableEffect(file.id, file.mediaType) {
-        callback(AiStudioScreenIntent.AttachmentPreviewVisible(file.id, file.mediaType, true))
-        onDispose { callback(AiStudioScreenIntent.AttachmentPreviewVisible(file.id, file.mediaType, false)) }
+        callback(StudioIntent.AttachmentPreviewVisible(file.id, file.mediaType, true))
+        onDispose { callback(StudioIntent.AttachmentPreviewVisible(file.id, file.mediaType, false)) }
     }
     val name = file.name.ifBlank { stringResource(Res.string.attachments_file) }
     HbRow(gap = HbTheme.spacing.s) {
@@ -95,7 +95,7 @@ private fun AttachmentRow(
             title = name,
             description = listOfNotNull(attachmentSize(file.sizeBytes), preview?.documentSnippet).joinToString(" · "),
             onClick = if (isOpeningAvailable) {
-                { onIntent(AiStudioScreenIntent.OpenAttachment(file.id)) }
+                { onIntent(StudioIntent.OpenAttachment(file.id)) }
             } else {
                 null
             },
@@ -120,14 +120,14 @@ private fun AttachmentRow(
             HbIconButton(
                 HbIcons.Download,
                 stringResource(Res.string.attachments_save),
-                onClick = { onIntent(AiStudioScreenIntent.ExportAttachment(file.id)) },
+                onClick = { onIntent(StudioIntent.ExportAttachment(file.id)) },
                 modifier = Modifier.testTag("attachment-export-${file.id}"),
             )
         } else if (paneId != null) {
             HbIconButton(
                 HbIcons.Close,
                 stringResource(Res.string.attachments_remove),
-                onClick = { onIntent(AiStudioScreenIntent.RemoveAttachment(paneId, file.id)) },
+                onClick = { onIntent(StudioIntent.RemoveAttachment(paneId, file.id)) },
                 modifier = Modifier.testTag("attachment-remove-${file.id}"),
             )
         }

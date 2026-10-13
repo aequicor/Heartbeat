@@ -11,7 +11,6 @@ import io.aequicor.heartbeat.ds.components.HbComposerAction
 import io.aequicor.heartbeat.ds.components.HbComposerMultiSelect
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbMultiSelectLabels
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_menu_section
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_picker_clear
@@ -24,10 +23,11 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_picker_sear
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_picker_selected
 import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.stringResource
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 /** Project-aware choices replace the computer label; an empty library occupies no space in the context toolbar. */
 @Composable
-internal fun StudioHarnessPicker(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit) {
+internal fun StudioHarnessPicker(content: PaneContent, onIntent: (StudioIntent) -> Unit) {
     if (content.harnesses.isEmpty()) return
     var isExpanded by remember(content.pane.id, content.pane.sessionId, content.project?.id) { mutableStateOf(false) }
     val selected = content.harnesses.filter { it.isSelected }
@@ -55,10 +55,10 @@ internal fun StudioHarnessPicker(content: PaneContent, onIntent: (AiStudioScreen
         onExpandedChange = { isExpanded = it },
         onAction = { id ->
             val choice = content.harnesses.first { it.id == id }
-            onIntent(AiStudioScreenIntent.SelectHarness(content.pane.id, id, !choice.isSelected))
+            onIntent(StudioIntent.SelectHarness(content.pane.id, id, !choice.isSelected))
         },
         onClear = {
-            selected.forEach { onIntent(AiStudioScreenIntent.SelectHarness(content.pane.id, it.id, false)) }
+            selected.forEach { onIntent(StudioIntent.SelectHarness(content.pane.id, it.id, false)) }
         },
         modifier = Modifier.testTag("harness-picker-${content.pane.id}"),
         enabled = !content.pane.isCreating,

@@ -40,7 +40,6 @@ import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.research_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_back
@@ -54,12 +53,13 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioPhase
 import org.jetbrains.compose.resources.stringResource
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 /** The studio screen drawn from [state]; user actions go to [onIntent], window-level actions to [exits]. */
 @Composable
 fun AiStudioContent(
     state: AiStudioScreenState,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
     exits: StudioExits,
     modifier: Modifier = Modifier,
     chatArea: StudioEmbed? = null,
@@ -74,7 +74,7 @@ fun AiStudioContent(
                     StudioPhase.Error -> StudioMessage(
                         title = stringResource(Res.string.studio_error),
                         action = stringResource(Res.string.studio_retry),
-                        onAction = { onIntent(AiStudioScreenIntent.Retry) },
+                        onAction = { onIntent(StudioIntent.Retry) },
                         modifier = Modifier.align(Alignment.Center),
                     )
 
@@ -93,17 +93,17 @@ fun AiStudioContent(
 @Composable
 private fun StudioWorkspace(
     state: AiStudioScreenState,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
     exits: StudioExits,
     chatArea: StudioEmbed?,
     host: StudioHostCapabilities,
 ) {
     val focus = remember { StudioFocusState() }
     val timelineState = remember { StudioTimelineState() }
-    val dispatch: (AiStudioScreenIntent) -> Unit = { intent ->
+    val dispatch: (StudioIntent) -> Unit = { intent ->
         val isChatNavigation =
-            intent is AiStudioScreenIntent.OpenSession || intent is AiStudioScreenIntent.NewSession ||
-                intent is AiStudioScreenIntent.OpenBeside
+            intent is StudioIntent.OpenSession || intent is StudioIntent.NewSession ||
+                intent is StudioIntent.OpenBeside
         if (chatArea != null && isChatNavigation) exits.onCloseChatArea?.invoke()
         focus.beforeIntent(intent, state)
         onIntent(intent)
@@ -165,7 +165,7 @@ private fun StudioWorkspace(
 @Composable
 private fun WideWorkspace(
     state: AiStudioScreenState,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
     exits: StudioExits,
     focus: StudioFocusState,
     sidebarWidth: Dp,
@@ -199,7 +199,7 @@ private fun WideWorkspace(
             StudioChatArea(
                 chatArea,
                 exits = exits,
-                onToggleSidebar = { onIntent(AiStudioScreenIntent.ToggleSidebar) },
+                onToggleSidebar = { onIntent(StudioIntent.ToggleSidebar) },
                 isAtWindowLeadingEdge = !state.sidebar.isVisible,
                 modifier = Modifier.weight(1f).fillMaxHeight(),
             )
@@ -248,7 +248,7 @@ private fun PaneFrame(hasDivider: Boolean, modifier: Modifier = Modifier, conten
 @Composable
 private fun CompactWorkspace(
     state: AiStudioScreenState,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
     exits: StudioExits,
     focus: StudioFocusState,
     drawerWidth: Dp,
@@ -261,7 +261,7 @@ private fun CompactWorkspace(
             StudioChatArea(
                 chatArea,
                 exits = exits,
-                onToggleSidebar = { onIntent(AiStudioScreenIntent.SetDrawerOpen(true)) },
+                onToggleSidebar = { onIntent(StudioIntent.SetDrawerOpen(true)) },
                 isAtWindowLeadingEdge = true,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -284,7 +284,7 @@ private fun CompactWorkspace(
                 Modifier.fillMaxSize()
                     .background(HbTheme.colors.scrim)
                     .clickable(remember { MutableInteractionSource() }, indication = null, role = Role.Button) {
-                        onIntent(AiStudioScreenIntent.SetDrawerOpen(false))
+                        onIntent(StudioIntent.SetDrawerOpen(false))
                     }
                     .testTag("studio-scrim"),
             )
@@ -365,17 +365,17 @@ private fun workspaceAttachmentCapture(
     state: AiStudioScreenState,
     host: StudioHostCapabilities,
     isChatAreaAttached: Boolean,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
 ): Modifier {
     val paneId = state.focusedPaneId
     return hbAttachmentInput(
         enabled = host.isNativeAttachmentInputAvailable &&
             !isChatAreaAttached && state.canCaptureAttachments(paneId),
         onFiles = { paths ->
-            onIntent(AiStudioScreenIntent.ImportAttachments(paneId, paths.map(NativeAttachmentUi::File)))
+            onIntent(StudioIntent.ImportAttachments(paneId, paths.map(NativeAttachmentUi::File)))
         },
         onImage = { bytes ->
-            onIntent(AiStudioScreenIntent.ImportAttachments(paneId, listOf(NativeAttachmentUi.Image(bytes))))
+            onIntent(StudioIntent.ImportAttachments(paneId, listOf(NativeAttachmentUi.Image(bytes))))
         },
     )
 }
