@@ -15,7 +15,7 @@ class LaunchPropertiesTest {
     private val release = mapOf(
         "heartbeat.app.version" to "1.3.0",
         "heartbeat.app.update.repository" to "aequicor/Heartbeat",
-        "jpackage.app-path" to "/Applications/io.aequicor.app/Contents/MacOS/io.aequicor",
+        "jpackage.app-path" to "/Applications/Heartbeat.app/Contents/MacOS/Heartbeat",
         "os.arch" to "aarch64",
     )
 

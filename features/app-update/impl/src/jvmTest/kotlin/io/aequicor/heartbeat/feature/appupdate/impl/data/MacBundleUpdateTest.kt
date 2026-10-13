@@ -30,9 +30,9 @@ class MacBundleUpdateTest {
 
     @Test
     fun `the bundle is three levels above its launcher`() {
-        val bundle = Path.of("/Applications/io.aequicor.app")
-        assertEquals(bundle, update.bundleOf(bundle.resolve("Contents/MacOS/io.aequicor")))
-        assertNull(update.bundleOf(Path.of("/opt/heartbeat/bin/io.aequicor")))
+        val bundle = Path.of("/Applications/Heartbeat.app")
+        assertEquals(bundle, update.bundleOf(bundle.resolve("Contents/MacOS/Heartbeat")))
+        assertNull(update.bundleOf(Path.of("/opt/heartbeat/bin/Heartbeat")))
     }
 
     @Test
@@ -56,7 +56,7 @@ class MacBundleUpdateTest {
         val staged = update.prepare(image, "1.4.0", directory)
 
         assertEquals("1.4.0", bundleVersion(staged))
-        assertTrue(Files.isRegularFile(staged.resolve("Contents/MacOS/io.aequicor")))
+        assertTrue(Files.isRegularFile(staged.resolve("Contents/MacOS/Heartbeat")))
     }
 
     @Test
@@ -80,7 +80,7 @@ class MacBundleUpdateTest {
         assertEquals(0, exit)
         assertEquals("1.4.0", bundleVersion(installed))
         assertFalse(staged.exists())
-        assertFalse(installed.resolveSibling("io.aequicor.app.previous").exists())
+        assertFalse(installed.resolveSibling("Heartbeat.app.previous").exists())
         assertEquals("$installed", opened.readText().trim())
     }
 

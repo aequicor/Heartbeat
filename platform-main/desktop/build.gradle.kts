@@ -154,7 +154,9 @@ compose.desktop {
                 "jdk.compiler",
                 "jdk.unsupported",
             )
-            packageName = "io.aequicor"
+            // The installed app's name: Heartbeat.app on macOS, Heartbeat.exe on Windows (heartbeat.iss cleans up the
+            // launcher of installations made before the rename).
+            packageName = "Heartbeat"
             packageVersion = heartbeatApplicationVersion
             description = "Heartbeat AI Studio"
             vendor = "Aequicor"
@@ -166,6 +168,8 @@ compose.desktop {
                 iconFile.set(layout.projectDirectory.file("icons/heartbeat.ico"))
             }
             linux {
+                // Debian package names are lowercase.
+                packageName = "heartbeat"
                 iconFile.set(layout.projectDirectory.file("icons/heartbeat.png"))
             }
             appResourcesRootDir.set(layout.dir(collectAppResources.map { it.destinationDir }))

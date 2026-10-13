@@ -10,7 +10,7 @@ import kotlin.test.assertEquals
 internal val isMacHost: Boolean = System.getProperty("os.name").orEmpty().startsWith("Mac")
 
 /** A minimal app bundle `<directory>/<name>` of [version], shaped like the jpackage bundle. */
-internal fun fakeBundle(directory: Path, version: String, name: String = "io.aequicor.app"): Path {
+internal fun fakeBundle(directory: Path, version: String, name: String = "Heartbeat.app"): Path {
     val app = directory.resolve(name)
     Files.createDirectories(app.resolve("Contents/MacOS"))
     app.resolve("Contents/Info.plist").writeText(
@@ -22,7 +22,7 @@ internal fun fakeBundle(directory: Path, version: String, name: String = "io.aeq
         </dict></plist>
         """.trimIndent(),
     )
-    app.resolve("Contents/MacOS/io.aequicor").writeText("#!/bin/sh\n")
+    app.resolve("Contents/MacOS/Heartbeat").writeText("#!/bin/sh\n")
     return app
 }
 

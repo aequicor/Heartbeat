@@ -45,7 +45,7 @@ class DesktopUpdateInstallerTest {
         val release = release("1.4.0", image, ReleasePlatform.MacOsArm64)
         val phases = mutableListOf<String>()
 
-        installer(image, launcher = installed.resolve("Contents/MacOS/io.aequicor"))
+        installer(image, launcher = installed.resolve("Contents/MacOS/Heartbeat"))
             .install(installation(ReleasePlatform.MacOsArm64), release, recording(phases))
 
         assertEquals("preparing", phases.last())
@@ -74,7 +74,7 @@ class DesktopUpdateInstallerTest {
         val image = root.resolve("image.dmg").also { Files.write(it, byteArrayOf(1)) }
 
         assertUpdateFailure(AppUpdateFailure.ManualInstallRequired) {
-            installer(image, launcher = installed.resolve("Contents/MacOS/io.aequicor"))
+            installer(image, launcher = installed.resolve("Contents/MacOS/Heartbeat"))
                 .install(
                     installation(ReleasePlatform.MacOsArm64),
                     release("1.4.0", image, ReleasePlatform.MacOsArm64),
@@ -88,7 +88,7 @@ class DesktopUpdateInstallerTest {
     @Test
     fun `on Windows the helper runs the downloaded installer silently and restarts the app`() = runTest {
         val setup = root.resolve("setup.exe").also { Files.write(it, ByteArray(1_024) { 7 }) }
-        val launcher = root.resolve("Heartbeat/io.aequicor.exe")
+        val launcher = root.resolve("Heartbeat/Heartbeat.exe")
         val release = release("1.4.0", setup, ReleasePlatform.WindowsX64)
 
         installer(
