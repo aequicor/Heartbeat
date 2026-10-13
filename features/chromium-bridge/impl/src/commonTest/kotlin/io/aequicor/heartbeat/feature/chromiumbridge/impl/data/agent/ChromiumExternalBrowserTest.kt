@@ -22,8 +22,10 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -74,6 +76,80 @@ class ChromiumExternalBrowserTest {
         assertEquals("""{"data":"png"}""", result)
         assertEquals(listOf("tabs.open", "cdp.send"), agent.calls.map { it.first })
         assertEquals("17", (agent.calls[1].second["tabId"] as kotlinx.serialization.json.JsonPrimitive).content)
+    }
+
+    @Test
+    fun `recovery lists owned tabs with connection handles and sends the owner on reattachment`() = runTest {
+        val browser = ChromiumExternalBrowser(sessions, backgroundScope)
+        val agent = FakeSession(this, 9, setOf("agentControl"))
+        sessions.value = listOf(agent)
+        runCurrent()
+        agent.answers["tabs.owned"] = buildJsonObject {
+            putJsonArray("tabs") {
+                addJsonObject {
+                    put("id", "17")
+                    put("url", "https://example.com/")
+                    put("title", "Example")
+                }
+            }
+        }
+        agent.answers["tabs.recover"] = buildJsonObject {
+            putJsonObject("tab") {
+                put("id", "17")
+                put("url", "https://example.com/")
+                put("title", "Example")
+            }
+        }
+        val tab = browser.ownedTabs("owner").single()
+        assertEquals("9:17", tab.id)
+        assertEquals(tab, browser.recoverTab("owner", tab.id, tab.url))
+        assertEquals(
+            buildJsonObject {
+                put("tabId", "17")
+                put("owner", "owner")
+                put("expectedUrl", tab.url)
+            },
+            agent.calls.last().second,
+        )
+        sessions.value = emptyList()
+        assertFailsWith<ExternalBrowserException> { browser.ownedTabs("owner") }
+    }
+
+    @Test
+    fun `cold acquisition installs revocation listeners before the first RPC`() = runTest {
+        val agent = FakeSession(this, 9, setOf("agentControl"))
+        sessions.value = listOf(agent)
+        val browser = ChromiumExternalBrowser(sessions, backgroundScope)
+        agent.answers["tabs.open"] = buildJsonObject {
+            putJsonObject("tab") { put("id", "17") }
+        }
+        agent.beforeReply = {
+            agent.incoming.emit(BridgeIncomingEvent("tab.revoked", buildJsonObject { put("tabId", "17") }))
+        }
+        assertFailsWith<ExternalBrowserException> { browser.openTab("owner") }
+    }
+
+    @Test
+    fun `panel turns stay on their browser and cannot fall back after disconnection`() = runTest {
+        val first = FakeSession(this, 1, setOf("agentControl"))
+        val second = FakeSession(this, 2, setOf("agentControl"))
+        sessions.value = listOf(first, second)
+        val browser = ChromiumExternalBrowser(sessions, backgroundScope)
+        val lease = browser.bindSession("owner", "1")
+        browser.activeTab("owner")
+        assertEquals("tabs.active", first.calls.single().first)
+        assertEquals(emptyList(), second.calls)
+        assertEquals(false, browser.isTabInSession("owner", "2:17"))
+        sessions.value = listOf(second)
+        assertFailsWith<ExternalBrowserException> { browser.activeTab("owner") }
+        assertEquals(true, browser.isExternalSession("owner"))
+        val replacement = browser.bindSession("owner", "2")
+        lease.close()
+        assertEquals(true, browser.isExternalSession("owner"))
+        browser.activeTab("owner")
+        assertEquals("tabs.active", second.calls.single().first)
+        replacement.close()
+        assertEquals(false, browser.isExternalSession("owner"))
     }
 
     @Test

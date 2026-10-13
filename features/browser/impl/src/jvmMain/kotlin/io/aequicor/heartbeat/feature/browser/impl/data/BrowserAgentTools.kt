@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolImage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
@@ -33,6 +34,7 @@ import io.aequicor.heartbeat.feature.browser.impl.data.BrowserApprovalText.MAX_S
 import io.aequicor.heartbeat.feature.browser.impl.data.BrowserApprovalText.describeText
 import io.aequicor.heartbeat.feature.browser.impl.data.BrowserApprovalText.point
 import io.aequicor.heartbeat.feature.browser.impl.data.BrowserApprovalText.visible
+import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalBrowser
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
@@ -73,8 +75,11 @@ import kotlin.uuid.Uuid
 @SingleIn(ProfileScope::class)
 @ContributesIntoSet(ProfileScope::class)
 @Inject
-internal class BrowserAgentTools(private val machines: MachineRegistry, private val toggles: FeatureToggles) :
-    AgentToolContribution {
+internal class BrowserAgentTools(
+    private val machines: MachineRegistry,
+    private val toggles: FeatureToggles,
+    private val external: Lazy<ExternalBrowser>,
+) : AgentToolContribution {
     private val log = Log.tag("BrowserAgentTools")
 
     /** The latest reads, forgotten once their tab is gone (closing the tab, clearing browser data). */
@@ -89,6 +94,15 @@ internal class BrowserAgentTools(private val machines: MachineRegistry, private 
             specs()
         } else {
             emptyList()
+        }
+
+    override suspend fun specifications(scope: AgentToolScope): List<AgentToolSpec> =
+        if ("external_browser" in scope.preselected ||
+            scope.session?.let { external.value.isExternalSession(Json.encodeToString(it)) } == true
+        ) {
+            emptyList()
+        } else {
+            specifications(scope.workspace)
         }
 
     override suspend fun instructions(workspace: WorkspaceRef?): String =
@@ -120,51 +134,61 @@ internal class BrowserAgentTools(private val machines: MachineRegistry, private 
     ): AgentToolApproval =
         approval(spec, arguments, tab = describeTab(arguments), owner = Json.encodeToString(context.session))
 
-    override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult =
-        coroutineScope {
-            if (!toggles.get(BrowserEnabled) || !toggles.get(BrowserAgentControl)) {
-                return@coroutineScope AgentToolResult("Browser tools disabled", true)
-            }
-            val operation =
-                OPERATIONS[name] ?: return@coroutineScope AgentToolResult("Unknown browser tool", true)
-            val machine =
-                machines.find(BrowserMachineKey)
-                    ?: return@coroutineScope AgentToolResult("Browser unavailable", true)
-            val id = Uuid.random().toString()
-            val owner = Json.encodeToString(context.session)
-            val request =
-                BrowserRequest(
-                    id,
-                    operation,
-                    arguments["tabId"]?.jsonPrimitive?.content,
-                    owner,
-                    arguments,
-                )
-            val result =
-                async(start = CoroutineStart.UNDISPATCHED) {
-                    machine.outputs.first { it is BrowserOutput.Completed && it.result.requestId == id }
-                        as BrowserOutput.Completed
-                }
-            // Pessimistic until the machine refuses the request or its result arrives: an interrupted send may
-            // already have been accepted.
-            var isPending = true
-            try {
-                if (machine.send(BrowserIntent.Public.Perform(request)) != SendResult.Accepted) {
-                    isPending = false
-                    return@coroutineScope AgentToolResult("Browser unavailable", true)
-                }
-                val completed = withTimeoutOrNull(OPERATION_TIMEOUT) { result.await().result }
-                if (completed == null) {
-                    log.w(IllegalStateException("Browser tool timed out")) { "Browser tool timed out name=$name" }
-                    return@coroutineScope AgentToolResult("Browser operation timed out", true)
-                }
-                isPending = false
-                toolResult(request, completed)
-            } finally {
-                result.cancel()
-                if (isPending) withContext(NonCancellable) { cancelPending(machine, id) }
-            }
+    override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
+        if (external.value.isExternalSession(Json.encodeToString(context.session))) {
+            return AgentToolResult("Use ex_control_* in the chat's external browser", true)
         }
+        return executeEmbedded(context, name, arguments)
+    }
+
+    private suspend fun executeEmbedded(
+        context: AgentToolContext,
+        name: String,
+        arguments: JsonObject,
+    ): AgentToolResult = coroutineScope {
+        if (!toggles.get(BrowserEnabled) || !toggles.get(BrowserAgentControl)) {
+            return@coroutineScope AgentToolResult("Browser tools disabled", true)
+        }
+        val operation =
+            OPERATIONS[name] ?: return@coroutineScope AgentToolResult("Unknown browser tool", true)
+        val machine =
+            machines.find(BrowserMachineKey)
+                ?: return@coroutineScope AgentToolResult("Browser unavailable", true)
+        val id = Uuid.random().toString()
+        val owner = Json.encodeToString(context.session)
+        val request =
+            BrowserRequest(
+                id,
+                operation,
+                arguments["tabId"]?.jsonPrimitive?.content,
+                owner,
+                arguments,
+            )
+        val result =
+            async(start = CoroutineStart.UNDISPATCHED) {
+                machine.outputs.first { it is BrowserOutput.Completed && it.result.requestId == id }
+                    as BrowserOutput.Completed
+            }
+        // Pessimistic until the machine refuses the request or its result arrives: an interrupted send may
+        // already have been accepted.
+        var isPending = true
+        try {
+            if (machine.send(BrowserIntent.Public.Perform(request)) != SendResult.Accepted) {
+                isPending = false
+                return@coroutineScope AgentToolResult("Browser unavailable", true)
+            }
+            val completed = withTimeoutOrNull(OPERATION_TIMEOUT) { result.await().result }
+            if (completed == null) {
+                log.w(IllegalStateException("Browser tool timed out")) { "Browser tool timed out name=$name" }
+                return@coroutineScope AgentToolResult("Browser operation timed out", true)
+            }
+            isPending = false
+            toolResult(request, completed)
+        } finally {
+            result.cancel()
+            if (isPending) withContext(NonCancellable) { cancelPending(machine, id) }
+        }
+    }
 
     /** A successful read is remembered so a later click approval can name its element without IO. */
     private fun toolResult(request: BrowserRequest, completed: BrowserResult): AgentToolResult {
