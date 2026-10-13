@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.CompactCommand
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioCompactionPort
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
@@ -40,6 +41,7 @@ internal suspend fun submitStudioDraft(
     machine: Machine<AiStudioState, AiStudioIntent, AiStudioOutput>,
     harnesses: StudioHarnesses,
     paneId: Int,
+    environment: StudioChatEnvironment? = null,
 ) = with(pipeline) {
     withState {
         val chat = panes.firstOrNull { it.id == paneId }?.sessionId
@@ -60,6 +62,7 @@ internal suspend fun submitStudioDraft(
                 pending.text,
                 pending.attachments.map { ResourceRef("attachment:${it.id}", it.mediaType) },
                 submissionId,
+                environment,
             ),
         )
         if (result != SendResult.Accepted) {

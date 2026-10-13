@@ -88,6 +88,7 @@ private fun StudioViewContent(
                 isAttachmentOpeningAvailable = false,
                 isProjectAddingAvailable = false,
                 isSplitAvailable = false,
+                isOrganismLaunchingAvailable = false,
                 onAttachPage = { if (state.isInteractive) onIntent(StudioPanelIntent.CapturePage(it)) },
             ),
         )

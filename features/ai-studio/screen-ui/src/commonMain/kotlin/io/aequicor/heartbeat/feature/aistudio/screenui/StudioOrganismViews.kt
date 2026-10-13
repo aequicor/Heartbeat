@@ -89,7 +89,8 @@ internal fun PaneContent.feedId(): String? = pane.sessionId?.let {
 }
 
 /** The organism mode is offered in the "+" menu of a new chat only, before its first message. */
-internal fun PaneContent.isOrganismOffered(): Boolean = isOrganismEnabled && pane.sessionId == null && !pane.isCreating
+internal fun PaneContent.isOrganismOffered(): Boolean =
+    host.isOrganismLaunchingAvailable && isOrganismEnabled && pane.sessionId == null && !pane.isCreating
 
 /** The chosen mode is shown only before the first message; existing chats use their header switcher. */
 @Composable
@@ -126,7 +127,7 @@ internal fun OrganismSwitcher(content: PaneContent, onIntent: (StudioIntent) -> 
             isEnabled = sub.isViewable,
             isChecked = sub.key == content.subSession,
         )
-    } + organism?.let { organismActions(it) }.orEmpty()
+    } + content.availableOrganismActions()
     HbRow(gap = HbTheme.spacing.xs, verticalAlignment = Alignment.CenterVertically) {
         if (organism?.status == OrganismStatusUi.Completed) {
             val completed = stringResource(Res.string.organism_status_completed)
@@ -334,3 +335,10 @@ private const val RESUME_ACTION = "organism:resume"
 private fun SubSessionUi.rootName(): String = if (kind == SubSessionKindUi.Root && name.isNotBlank()) " · $name" else ""
 
 private fun SubSessionUi.indentation(): String = "  ".repeat(depth) + if (depth > 0) "↳ " else ""
+
+@Composable
+private fun PaneContent.availableOrganismActions(): List<HbMenuItem> = organism?.let {
+    organismActions(
+        it,
+    ).filter { action -> host.isOrganismLaunchingAvailable || action.id != RESUME_ACTION }
+}.orEmpty()

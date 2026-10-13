@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
@@ -27,11 +28,13 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionOption
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioQuestionContext
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.toQuestionnaire
 import io.aequicor.heartbeat.feature.questionnaire.api.Answer
 import io.aequicor.heartbeat.feature.questionnaire.api.LIVE_QUESTION_ID_PREFIX
 import io.aequicor.heartbeat.feature.questionnaire.api.Questionnaire
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireAnswerContext
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireId
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireIntent
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireMachineKey
@@ -63,6 +66,23 @@ class StudioQuestionBridgeTest {
         turnId = "turn",
     )
     private val question = assertNotNull(permission.toQuestionnaire())
+
+    @Test
+    fun `restored answers retain browser provenance while native answers have none`() = runTest {
+        val f = Fixture(this)
+        val environment = object : StudioChatEnvironment {
+            override fun bind(session: SessionRef): AutoCloseable = AutoCloseable { }
+        }
+        f.queue.send(QuestionnaireIntent.Public.Ask(question))
+        runCurrent()
+        f.answer(question, context = StudioQuestionContext(environment))
+        runCurrent()
+        f.queue.send(QuestionnaireIntent.Public.Ask(question))
+        runCurrent()
+        f.answer(question)
+        runCurrent()
+        assertEquals(listOf<StudioChatEnvironment?>(environment, null), f.runtime.environments)
+    }
 
     @Test
     fun `native answer waits for acknowledgement without an open studio window and rejects duplicates`() = runTest {
@@ -313,11 +333,17 @@ class StudioQuestionBridgeTest {
             ),
         )
         val runner = scope.backgroundScope.launch { bridge.run() }
-        suspend fun answer(question: Questionnaire, answer: Answer = Answer.Confirmed(true)) {
+        suspend fun answer(
+            question: Questionnaire,
+            answer: Answer = Answer.Confirmed(
+                true,
+            ),
+            context: QuestionnaireAnswerContext? = null,
+        ) {
             val current = queue.state.value as? QuestionnaireState.Asking
             if (current != null) queue.state.value = current.copy(submitting = current.submitting + question.id)
             val owned = queue.pending().firstOrNull { it.id == question.id } ?: question
-            queue.outputs.emit(QuestionnaireOutput.Answered(owned, answer))
+            queue.outputs.emit(QuestionnaireOutput.Answered(owned, answer, context))
         }
     }
 }
@@ -334,6 +360,7 @@ private class FakeQuestionRuntime : StudioRuntime {
     override val state = MutableStateFlow(StudioRuntimeState())
     val responses = mutableListOf<String>()
     val prompts = mutableListOf<String>()
+    val environments = mutableListOf<StudioChatEnvironment?>()
     var response = CompletableDeferred(Unit)
     var outcome = CompletableDeferred(RunOutcome.Completed)
     fun loseNativeConnection() {
@@ -356,6 +383,7 @@ private class FakeQuestionRuntime : StudioRuntime {
         environment: StudioChatEnvironment?,
         onAccepted: suspend () -> Unit,
     ): RunOutcome {
+        environments += environment
         prompts += "$sessionId: $prompt"
         onAccepted()
         return outcome.await()

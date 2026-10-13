@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote
 
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismActionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.isValid
 
 /**
@@ -13,7 +14,10 @@ internal fun isAllowedRemotely(intent: AiStudioScreenIntent): Boolean = when (in
     is AiStudioScreenIntent.AddProject,
     is AiStudioScreenIntent.OpenBeside,
     is AiStudioScreenIntent.RemoteApplied,
+    is AiStudioScreenIntent.SelectOrganism,
     -> false
+
+    is AiStudioScreenIntent.ControlOrganism -> intent.action == OrganismActionUi.Abort
 
     is AiStudioScreenIntent.Attachment -> isAllowedAttachment(intent)
 
@@ -21,9 +25,7 @@ internal fun isAllowedRemotely(intent: AiStudioScreenIntent): Boolean = when (in
     is AiStudioScreenIntent.ChecklistInput,
     is AiStudioScreenIntent.RespondPermission,
     is AiStudioScreenIntent.SelectHarness,
-    is AiStudioScreenIntent.SelectOrganism,
     is AiStudioScreenIntent.SelectSubSession,
-    is AiStudioScreenIntent.ControlOrganism,
     is AiStudioScreenIntent.DecideOrganism,
     is AiStudioScreenIntent.Retry,
     is AiStudioScreenIntent.NewSession,

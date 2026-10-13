@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote.StudioEmbeds
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenAction
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
@@ -10,8 +11,12 @@ import pro.respawn.flowmvi.api.PipelineContext
 private typealias EmbedPipeline = PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>
 
 /** Applies a child projection before the root can acknowledge the enclosing intent. */
-internal suspend fun StudioEmbeds.handle(pipeline: EmbedPipeline, intent: AiStudioScreenIntent.Embed) {
-    val embeds = dispatch(intent)
+internal suspend fun StudioEmbeds.handle(
+    pipeline: EmbedPipeline,
+    intent: AiStudioScreenIntent.Embed,
+    environment: StudioChatEnvironment?,
+) {
+    val embeds = dispatch(intent, environment)
     pipeline.updateState { withEmbeds(embeds) }
 }
 

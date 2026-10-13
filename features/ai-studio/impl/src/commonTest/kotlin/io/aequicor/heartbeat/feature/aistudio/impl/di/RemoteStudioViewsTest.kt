@@ -139,6 +139,36 @@ class RemoteStudioViewsTest {
         assertEquals(StudioRemoteReply.UnknownView, harness.send())
     }
 
+    @Test
+    fun `only an activated connection owns input and older delayed watches cannot reclaim it`() = runTest {
+        val harness = Harness(this)
+        suspend fun opened(owner: String) = assertIs<StudioRemoteOpen.Opened>(
+            harness.views.open("view", StudioViewSchema.fingerprint, owner = owner),
+        )
+        fun collect(opened: StudioRemoteOpen.Opened) = backgroundScope.launch {
+            opened.frames.collect { frame ->
+                frame["generation"]?.jsonPrimitive?.content?.let { harness.generations["view"] = it }
+            }
+        }
+        val first = opened("a")
+        collect(first)
+        runCurrent()
+        val generation = harness.generations.getValue("view")
+        suspend fun send(owner: String) = harness.views.send("view", generation, emptyList(), owner)
+        assertIs<StudioRemoteReply.Applied>(send("a"))
+        val delayed = opened("delayed")
+        assertIs<StudioRemoteReply.Applied>(send("a"))
+        assertEquals(StudioRemoteReply.UnknownView, send("delayed"))
+        collect(opened("b"))
+        runCurrent()
+        assertEquals(StudioRemoteReply.UnknownView, send("a"))
+        assertIs<StudioRemoteReply.Applied>(send("b"))
+        collect(delayed)
+        runCurrent()
+        assertIs<StudioRemoteReply.Applied>(send("b"))
+        assertEquals(StudioRemoteReply.UnknownView, send("delayed"))
+    }
+
     private class FakeScope(override val coroutineScope: CoroutineScope, override val name: String) : OwnedScope {
         override var isClosed = false
         override val savedState = object : ScopeSavedState {

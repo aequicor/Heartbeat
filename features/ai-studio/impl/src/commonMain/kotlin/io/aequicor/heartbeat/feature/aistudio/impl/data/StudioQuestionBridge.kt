@@ -12,7 +12,9 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileStartup
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermission
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioQuestionContext
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.decision
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.followUpText
@@ -70,7 +72,12 @@ internal class StudioQuestionBridge(
     private val deliveries = mutableMapOf<QuestionnaireId, Delivery>()
     private val followUps = mutableMapOf<String, Delivery>()
 
-    private class Delivery(val question: Questionnaire, val permission: StudioPermission?, val isNative: Boolean) {
+    private class Delivery(
+        val question: Questionnaire,
+        val permission: StudioPermission?,
+        val isNative: Boolean,
+        val environment: StudioChatEnvironment?,
+    ) {
         var isAccepted = false
             private set
         fun accept() {
@@ -160,7 +167,12 @@ internal class StudioQuestionBridge(
                         if (question.id in deliveries || pending(question.id) != question) {
                             null
                         } else {
-                            Delivery(question, live[question.id], question.id in nativeIds).also {
+                            Delivery(
+                                question,
+                                live[question.id],
+                                question.id in nativeIds,
+                                (output.context as? StudioQuestionContext)?.environment,
+                            ).also {
                                 deliveries[question.id] = it
                             }
                         }
@@ -234,6 +246,7 @@ internal class StudioQuestionBridge(
             question.followUpText(answer),
             settings.value.settings(question.source),
             attachments = emptyList(),
+            environment = delivery.environment,
         ) {
             withdrawCurrent(question)
             delivery.accept()

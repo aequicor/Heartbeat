@@ -31,6 +31,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
@@ -45,6 +46,7 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContinuationB
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.HANDOFF_SUMMARY_PROMPT
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.PendingCompaction
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -61,6 +63,75 @@ import kotlin.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioCompactionsTest {
+    @Test
+    fun `claimed compaction waits for originating settlement and preserves its receipt`() = runTest {
+        val fixture = Fixture(this)
+        val environment = object : StudioChatEnvironment {
+            override fun bind(session: SessionRef): AutoCloseable = AutoCloseable { }
+        }
+        val source = runRequest("busy-browser").copy(environment = environment)
+        val finish = CompletableDeferred<Unit>()
+        fixture.onExecute = { request ->
+            if (request.request == source.request) {
+                finish.await()
+                fixture.compactions.settled(request, Active(ContextUsage(1, 100)), TurnOutcome.Completed)
+            }
+        }
+        val original = launch { fixture.runs.run(fixture.host, source) }
+        runCurrent()
+        val job = launch { fixture.compactions.run() }
+        fixture.pending(
+            Chat to PendingCompaction(
+                CompactionMethod.Native,
+                CompactionOrigin.Agent,
+                sourceRequest = source.request,
+            ),
+        )
+        runCurrent()
+        assertTrue(Public.Claim(Chat) in fixture.registry.sent)
+        assertEquals(listOf(source), fixture.executed)
+        finish.complete(Unit)
+        original.join()
+        runCurrent()
+        assertEquals(environment, fixture.executed.single { it.request.value.startsWith("continue-") }.environment)
+        job.cancel()
+    }
+
+    @Test
+    fun `agent continuations require the exact source receipt and retain its browser context`() = runTest {
+        val fixture = Fixture(this)
+        val environment = object : StudioChatEnvironment {
+            override fun bind(session: SessionRef): AutoCloseable = AutoCloseable { }
+        }
+        val source = runRequest("browser-source").copy(environment = environment)
+        val job = launch { fixture.compactions.run() }
+        fixture.pending(
+            Chat to PendingCompaction(
+                CompactionMethod.Native,
+                CompactionOrigin.Agent,
+                sourceRequest = source.request,
+            ),
+        )
+        fixture.compactions.settled(source, Active(ContextUsage(1, 100)), TurnOutcome.Completed)
+        runCurrent()
+        assertEquals(environment, fixture.executed.last().environment)
+        assertTrue(fixture.executed.last().request.value.startsWith("continue-"))
+        fixture.pending(
+            Chat to PendingCompaction(
+                CompactionMethod.Native,
+                CompactionOrigin.Agent,
+                sourceRequest = runRequest("other").request,
+            ),
+        )
+        fixture.compactions.settled(source, Active(ContextUsage(1, 100)), TurnOutcome.Completed)
+        runCurrent()
+        assertEquals(1, fixture.executed.count { it.request.value.startsWith("continue-") })
+        fixture.pending(Chat to PendingCompaction(CompactionMethod.Native, CompactionOrigin.Agent))
+        runCurrent()
+        assertEquals(1, fixture.executed.count { it.request.value.startsWith("continue-") })
+        job.cancel()
+    }
+
     @Test
     fun `a user request of a chat with a native session becomes a pending compaction`() = runTest {
         val fixture = Fixture(this)
@@ -112,7 +183,12 @@ class StudioCompactionsTest {
         val fixture = Fixture(this)
         val job = launch { fixture.compactions.run() }
 
-        fixture.pending(Chat to PendingCompaction(CompactionMethod.Native, CompactionOrigin.Agent, "focus"))
+        val source = runRequest("source")
+        fixture.pending(
+            Chat to PendingCompaction(CompactionMethod.Native, CompactionOrigin.Agent, "focus", source.request),
+        )
+        fixture.compactions.settled(source, Active(ContextUsage(1, 100)), TurnOutcome.Completed)
+        fixture.registry.sent.clear()
         runCurrent()
 
         val (request, continuation) = fixture.executed
@@ -134,7 +210,15 @@ class StudioCompactionsTest {
         val job = launch { fixture.compactions.run() }
 
         repeat(4) {
-            fixture.pending(Chat to PendingCompaction(CompactionMethod.Native, CompactionOrigin.Agent))
+            val source = runRequest("continue-source-$it")
+            fixture.pending(
+                Chat to PendingCompaction(
+                    CompactionMethod.Native,
+                    CompactionOrigin.Agent,
+                    sourceRequest = source.request,
+                ),
+            )
+            fixture.compactions.settled(source, Active(ContextUsage(1, 100)), TurnOutcome.Completed)
             runCurrent()
         }
 
@@ -270,17 +354,20 @@ class StudioCompactionsTest {
             if (intent is Public.Finished) afterFinished()
         }
         val executed = mutableListOf<StudioTurnRequest>()
+        val runs = StudioRunCoordinator(RunProfile(scope), RunClock)
+        var onExecute: suspend (StudioTurnRequest) -> Unit = {}
         private val stores = ChecklistTestStores()
-        private val host = RunHost(mutableListOf()).apply {
+        val host = RunHost(mutableListOf()).apply {
             execute = { request ->
                 executed += request
+                onExecute(request)
                 RunOutcome.Completed
             }
         }
         val compactions = StudioCompactions(
             stores,
             lazyOf(Runtime()),
-            StudioRunCoordinator(RunProfile(scope), RunClock),
+            runs,
             lazyOf(host),
             object : ContextOptimizationView {
                 override val state = this@Fixture.state

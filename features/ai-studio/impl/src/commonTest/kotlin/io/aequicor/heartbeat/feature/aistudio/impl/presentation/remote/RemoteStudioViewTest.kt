@@ -1,6 +1,9 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPane
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteIntent
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteReply
@@ -22,6 +25,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -53,6 +57,36 @@ class RemoteStudioViewTest {
         backgroundScope.launch { harness.view.frames(onDetached = {}).collect { frames.send(it) } }
         runCurrent()
         return frames
+    }
+
+    @Test
+    fun `queued submission keeps its admitted browser after a new owner activates`() = runTest {
+        val harness = Harness(this, ready)
+        collect(harness)
+        val first = object : StudioChatEnvironment {
+            override fun bind(session: SessionRef): AutoCloseable = AutoCloseable { }
+        }
+        harness.view.activate(harness.view.reserveAttachment(), "a", first)
+        harness.view.apply(
+            harness.view.generation,
+            listOf(
+                intent(1, AiStudioScreenIntent.Suggestions.DraftChanged(0, "From A")),
+                intent(2, AiStudioScreenIntent.Submit(0)),
+            ),
+            "a",
+        )
+        harness.view.activate(harness.view.reserveAttachment(), "b", null)
+        assertEquals(
+            StudioRemoteReply.UnknownView,
+            harness.view.apply(
+                harness.view.generation,
+                listOf(intent(3, AiStudioScreenIntent.Submit(0))),
+                "a",
+            ),
+        )
+        runCurrent()
+        val submitted = harness.fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.Submit>().single()
+        assertSame(first, submitted.environment)
     }
 
     @Test

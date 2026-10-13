@@ -12,5 +12,6 @@ data class StudioHostCapabilities(
     val isAttachmentOpeningAvailable: Boolean = true,
     val isProjectAddingAvailable: Boolean = true,
     val isSplitAvailable: Boolean = true,
+    val isOrganismLaunchingAvailable: Boolean = true,
     val onAttachPage: ((Int) -> Unit)? = null,
 )

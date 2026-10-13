@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAttachmentPreviews
@@ -29,6 +30,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote.StudioEmbeds
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote.StudioInputContexts
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenAction
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
@@ -116,6 +118,13 @@ class AiStudioModel(
     private val embeddedScreens: StudioEmbeds = StudioEmbeds.None,
 ) {
     private val log = Log.tag("AiStudioModel")
+    private val inputContexts = StudioInputContexts()
+
+    /** Enqueues native host provenance with the exact remote input instance. */
+    internal fun remoteIntent(intent: AiStudioScreenIntent, environment: StudioChatEnvironment?) {
+        if (environment != null) inputContexts.add(intent, environment)
+        store.intent(intent)
+    }
     private val harnessSelection = StudioHarnessSelection(harnesses, backend)
 
     /** Navigation is executed by the lifecycle component, never by a retained IO scope. */
@@ -176,7 +185,15 @@ class AiStudioModel(
                         }
                     }
                 }
-                launch { entries.showsOrganism.collect { updateState { copy(isOrganismEnabled = it) } } }
+                launch {
+                    entries.showsOrganism.collect {
+                        updateState {
+                            copy(
+                                isOrganismEnabled = it && host == StudioScreenHost.Window,
+                            )
+                        }
+                    }
+                }
                 launch { harnessSelection.observe(pipeline) }
                 launch { organisms.observe(pipeline) }
                 launch { observeResearch(pipeline) }
@@ -200,7 +217,7 @@ class AiStudioModel(
                 launch { observeClock(pipeline) }
             }
         }
-        reduce { intent -> handle(this, intent) }
+        reduce { intent -> handle(this, intent, inputContexts.take(intent)) }
     }
 
     init {
@@ -397,17 +414,23 @@ class AiStudioModel(
             }
     }
 
-    private suspend fun handle(pipeline: StudioPipeline, intent: AiStudioScreenIntent) = with(pipeline) {
+    private suspend fun handle(
+        pipeline: StudioPipeline,
+        intent: AiStudioScreenIntent,
+        environment: StudioChatEnvironment?,
+    ) = with(
+        pipeline,
+    ) {
         when (intent) {
             is AiStudioScreenIntent.Navigation -> navigate(pipeline, intent)
-            is AiStudioScreenIntent.Composer -> compose(pipeline, intent)
-            is AiStudioScreenIntent.DiagramAction -> handleStudioDiagramAction(pipeline, machine, intent)
+            is AiStudioScreenIntent.Composer -> compose(pipeline, intent, environment)
+            is AiStudioScreenIntent.DiagramAction -> handleStudioDiagramAction(pipeline, machine, intent, environment)
             is AiStudioScreenIntent.SessionAction -> act(pipeline, intent)
             is AiStudioScreenIntent.Sidebar -> updateState { copy(sidebar = sidebar.reduce(intent)) }
             is AiStudioScreenIntent.Organism -> organisms.handle(pipeline, intent)
             is AiStudioScreenIntent.SelectHarness -> harnessSelection.select(pipeline, intent)
             is AiStudioScreenIntent.RemoteApplied -> updateState { copy(remoteSeq = intent.seq) }
-            is AiStudioScreenIntent.Embed -> embeddedScreens.handle(pipeline, intent)
+            is AiStudioScreenIntent.Embed -> embeddedScreens.handle(pipeline, intent, environment)
         }
     }
 
@@ -453,17 +476,30 @@ class AiStudioModel(
     }
 
     /** A draft typed as `/compact` compacts the chat; anything else is sent as a prompt. */
-    private suspend fun submit(pipeline: StudioPipeline, paneId: Int) {
+    private suspend fun submit(pipeline: StudioPipeline, paneId: Int, environment: StudioChatEnvironment?) {
         var isPending = false
         pipeline.withState { isPending = isAttachmentPending(paneId) }
         if (isPending) {
             log.i { "Submission waits for attachment import" }
             return
         }
-        if (!compactStudioDraft(pipeline, compactions, paneId)) submitStudioDraft(pipeline, machine, harnesses, paneId)
+        if (!compactStudioDraft(
+                pipeline,
+                compactions,
+                paneId,
+            )
+        ) {
+            submitStudioDraft(pipeline, machine, harnesses, paneId, environment)
+        }
     }
 
-    private suspend fun compose(pipeline: StudioPipeline, intent: AiStudioScreenIntent.Composer) = with(pipeline) {
+    private suspend fun compose(
+        pipeline: StudioPipeline,
+        intent: AiStudioScreenIntent.Composer,
+        environment: StudioChatEnvironment?,
+    ) = with(
+        pipeline,
+    ) {
         when (intent) {
             is AiStudioScreenIntent.Worktree -> composeWorktree(pipeline, intent)
 
@@ -476,7 +512,7 @@ class AiStudioModel(
 
             is AiStudioScreenIntent.Suggestions -> suggestions.handle(pipeline, intent)
 
-            is AiStudioScreenIntent.Submit -> submit(pipeline, intent.paneId)
+            is AiStudioScreenIntent.Submit -> submit(pipeline, intent.paneId, environment)
 
             is AiStudioScreenIntent.Attachment -> attachmentInputs.handle(pipeline, intent)
 

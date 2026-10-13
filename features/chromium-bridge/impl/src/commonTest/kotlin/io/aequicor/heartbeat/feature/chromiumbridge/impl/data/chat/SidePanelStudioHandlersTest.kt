@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.chromiumbridge.impl.data.chat
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteIntent
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteOpen
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemotePage
@@ -35,11 +37,17 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertSame
 
 class SidePanelStudioHandlersTest {
     private val studio = FakeStudio()
     private val watches = BridgeWatches()
-    private val handlers = SidePanelStudioHandlers(studio, watches)
+    private val environments = mutableListOf<Pair<BridgeSession, StudioChatEnvironment>>()
+    private val handlers = SidePanelStudioHandlers(studio, watches) { session ->
+        object : StudioChatEnvironment {
+            override fun bind(session: SessionRef): AutoCloseable = AutoCloseable { }
+        }.also { environments += session to it }
+    }
 
     private suspend fun call(session: BridgeSession, method: String, params: JsonObject) =
         handlers.handle(BridgeCall(method, params, session))
@@ -47,6 +55,18 @@ class SidePanelStudioHandlersTest {
     private fun open(view: String = "v1", schema: String = "abc") = buildJsonObject {
         put("view", view)
         put("schema", schema)
+    }
+
+    @Test
+    fun `watch obtains trusted environment from its connection on each reconnect`() = runTest {
+        val first = FakeSession(this)
+        val second = FakeSession(this)
+        call(first, "studio.watch", open())
+        assertSame(first, environments[0].first)
+        assertSame(environments[0].second, studio.environment)
+        call(second, "studio.watch", open())
+        assertSame(second, environments[1].first)
+        assertSame(environments[1].second, studio.environment)
     }
 
     @Test
@@ -166,14 +186,22 @@ class SidePanelStudioHandlersTest {
 
     private class FakeStudio : StudioRemoteScreens {
         var refusal: StudioRemoteRefusal? = null
+        var environment: StudioChatEnvironment? = null
         var frames: Flow<JsonObject> = flowOf()
         var isKnown = true
         val sent = mutableListOf<List<StudioRemoteIntent>>()
 
         override val availability: Flow<Boolean> = flowOf(true)
 
-        override suspend fun open(viewId: String, schema: String): StudioRemoteOpen =
-            refusal?.let(StudioRemoteOpen::Refused) ?: StudioRemoteOpen.Opened(frames)
+        override suspend fun open(
+            viewId: String,
+            schema: String,
+            environment: StudioChatEnvironment?,
+            owner: String,
+        ): StudioRemoteOpen {
+            this.environment = environment
+            return refusal?.let(StudioRemoteOpen::Refused) ?: StudioRemoteOpen.Opened(frames)
+        }
 
         var attached: StudioRemotePage? = null
 
@@ -183,8 +211,10 @@ class SidePanelStudioHandlersTest {
             seq: Long,
             paneId: Int,
             page: StudioRemotePage,
+            owner: String,
         ): StudioRemoteReply {
             assertEquals("v1", viewId)
+            assertEquals("1", owner)
             assertEquals("g1", generation)
             assertEquals(7, paneId)
             if (!isKnown) return StudioRemoteReply.UnknownView
@@ -196,7 +226,9 @@ class SidePanelStudioHandlersTest {
             viewId: String,
             generation: String,
             intents: List<StudioRemoteIntent>,
+            owner: String,
         ): StudioRemoteReply {
+            assertEquals("1", owner)
             assertEquals("g1", generation)
             if (!isKnown) return StudioRemoteReply.UnknownView
             sent += intents

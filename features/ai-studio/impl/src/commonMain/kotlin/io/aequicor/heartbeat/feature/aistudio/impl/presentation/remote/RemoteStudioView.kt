@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteIntent
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteReply
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModel
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.job
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonObject
 import pro.respawn.flowmvi.dsl.collect
@@ -34,10 +36,27 @@ internal class RemoteStudioView(
     private val model: AiStudioModel,
     private val encoding: CoroutineDispatcher,
     private val frameInterval: Duration,
+    private val admission: CoroutineDispatcher = encoding,
 ) {
     private val log = Log.tag("StudioRemoteView")
     private val attached = MutableStateFlow<Job?>(null)
     private var lastSeq = 0L
+    private var nextAttachment = 0L
+    private var activeAttachment = 0L
+    private var owner: String = ""
+    private var environment: StudioChatEnvironment? = null
+
+    /** Only a successfully delivered watch activates its authenticated connection. Main thread. */
+    fun reserveAttachment(): Long = ++nextAttachment
+
+    fun activate(attachment: Long, owner: String, environment: StudioChatEnvironment?): Boolean {
+        if (attachment <= activeAttachment) return false
+        activeAttachment = attachment
+        log.i { "remote host activated" }
+        this.owner = owner
+        this.environment = environment
+        return true
+    }
 
     /** Stable across attachments, different for every recreated view. */
     val generation: String = Uuid.random().toString()
@@ -46,11 +65,17 @@ internal class RemoteStudioView(
     val isAttached: Boolean get() = attached.value?.isActive == true
 
     /** Frames for one attachment: a snapshot first, then deltas at most every [frameInterval]. */
-    fun frames(onDetached: () -> Unit): Flow<JsonObject> = channelFlow {
-        attached.getAndUpdate { currentCoroutineContext().job }?.cancel()
-        log.i { "view ${id.take(SHORT_ID)} attached" }
-        val writer = StudioViewWriter(generation = generation)
+    fun frames(onDetached: () -> Unit, activate: () -> Boolean = { true }): Flow<JsonObject> = channelFlow {
         try {
+            val collector = currentCoroutineContext().job
+            val isAccepted = withContext(admission) {
+                if (!activate()) return@withContext false
+                attached.getAndUpdate { collector }?.cancel()
+                true
+            }
+            if (!isAccepted) return@channelFlow
+            log.i { "view ${id.take(SHORT_ID)} attached" }
+            val writer = StudioViewWriter(generation = generation)
             // Collecting subscribes to the store, which also starts its subscription-bound observations.
             model.store.collect {
                 states.collect { state ->
@@ -65,8 +90,8 @@ internal class RemoteStudioView(
     }.flowOn(encoding)
 
     /** Applies the host's intents after the last applied one; refused ones are acknowledged too. */
-    fun apply(generation: String, intents: List<StudioRemoteIntent>): StudioRemoteReply {
-        if (generation != this.generation) return StudioRemoteReply.UnknownView
+    fun apply(generation: String, intents: List<StudioRemoteIntent>, owner: String = ""): StudioRemoteReply {
+        if (generation != this.generation || owner != this.owner) return StudioRemoteReply.UnknownView
         val refused = mutableListOf<Long>()
         for (remote in intents.sortedBy { it.seq }) {
             if (remote.seq <= lastSeq) continue
@@ -76,7 +101,7 @@ internal class RemoteStudioView(
                 log.i { "intent ${intent?.let { it::class.simpleName } ?: "undecodable"} refused" }
                 refused += remote.seq
             } else {
-                model.store.intent(intent)
+                model.remoteIntent(intent, environment)
             }
         }
         model.store.intent(AiStudioScreenIntent.RemoteApplied(lastSeq))

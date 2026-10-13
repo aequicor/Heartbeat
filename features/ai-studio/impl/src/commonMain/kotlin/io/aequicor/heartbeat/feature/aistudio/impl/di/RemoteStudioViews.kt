@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.core.di.ScopeFactory
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteIntent
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteOpen
@@ -67,7 +68,14 @@ internal class RemoteStudioViews(
         }
     }
 
-    override suspend fun open(viewId: String, schema: String): StudioRemoteOpen = withContext(dispatchers.main) {
+    override suspend fun open(
+        viewId: String,
+        schema: String,
+        environment: StudioChatEnvironment?,
+        owner: String,
+    ): StudioRemoteOpen = withContext(
+        dispatchers.main,
+    ) {
         val refusal = when {
             !toggles.get(StudioEngineRuntime) -> StudioRemoteRefusal.Unavailable
             schema != StudioViewSchema.fingerprint -> StudioRemoteRefusal.Incompatible
@@ -82,15 +90,21 @@ internal class RemoteStudioViews(
         val view = views.getOrPut(viewId) { create(viewId) }
         // A host that never collects the frames must not keep the view: it waits like a detached one.
         detached(view)
-        StudioRemoteOpen.Opened(view.frames(onDetached = { detached(view) }))
+        val attachment = view.reserveAttachment()
+        StudioRemoteOpen.Opened(
+            view.frames(onDetached = { detached(view) }) {
+                views[viewId] === view && view.activate(attachment, owner, environment)
+            },
+        )
     }
 
     override suspend fun send(
         viewId: String,
         generation: String,
         intents: List<StudioRemoteIntent>,
+        owner: String,
     ): StudioRemoteReply = withContext(dispatchers.main) {
-        views[viewId]?.apply(generation, intents) ?: StudioRemoteReply.UnknownView
+        views[viewId]?.apply(generation, intents, owner) ?: StudioRemoteReply.UnknownView
     }
 
     override suspend fun attachPage(
@@ -99,18 +113,26 @@ internal class RemoteStudioViews(
         seq: Long,
         paneId: Int,
         page: StudioRemotePage,
+        owner: String,
     ): StudioRemoteReply {
         val input = NativeAttachmentUi.Page(page.url, page.title, page.text, page.selection)
         val intent = AiStudioScreenIntent.ImportAttachments(paneId, listOf(input))
         val encoded = StudioViewJson.encodeToJsonElement(AiStudioScreenIntent.serializer(), intent)
-        return send(viewId, generation, listOf(StudioRemoteIntent(seq, encoded)))
+        return send(viewId, generation, listOf(StudioRemoteIntent(seq, encoded)), owner)
     }
 
     private fun create(viewId: String): RemoteStudioView {
         val scope = scopes.child(profile, "aistudio-remote-${views.size + graces.size}")
         val graph = graphs.createAiStudio(scope, StudioScreenHost.Remote)
         log.i { "view opened (views: ${views.size + 1})" }
-        return RemoteStudioView(viewId, scope::close, graph.model, dispatchers.default, frameInterval)
+        return RemoteStudioView(
+            viewId,
+            scope::close,
+            graph.model,
+            dispatchers.default,
+            frameInterval,
+            admission = dispatchers.main,
+        )
     }
 
     /** A host stopped collecting: the view waits the grace period for it, then closes. */

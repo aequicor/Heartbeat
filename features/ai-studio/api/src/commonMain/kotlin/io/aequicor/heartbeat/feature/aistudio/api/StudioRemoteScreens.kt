@@ -19,16 +19,28 @@ public interface StudioRemoteScreens {
 
     /**
      * Opens view [viewId], or joins it again within its grace period. [schema] is the fingerprint of the host's
-     * screen model; a view is refused when it differs from the app's.
+     * screen model; a view is refused when it differs from the app's. [environment] is trusted host context,
+     * activated with frame collection for subsequent turns; accepted inputs keep their original binding.
+     * [owner] identifies the authenticated native connection and must also accompany its commands.
      */
-    public suspend fun open(viewId: String, schema: String): StudioRemoteOpen
+    public suspend fun open(
+        viewId: String,
+        schema: String,
+        environment: StudioChatEnvironment? = null,
+        owner: String = "",
+    ): StudioRemoteOpen
 
     /**
      * Applies host [intents] to view [viewId] in [StudioRemoteIntent.seq] order; intents at or below the last
      * applied sequence number are ignored, so a host may resend after reconnecting. [generation] must match the
      * instance identified by its snapshot; stale requests never reach a recreated screen.
      */
-    public suspend fun send(viewId: String, generation: String, intents: List<StudioRemoteIntent>): StudioRemoteReply
+    public suspend fun send(
+        viewId: String,
+        generation: String,
+        intents: List<StudioRemoteIntent>,
+        owner: String = "",
+    ): StudioRemoteReply
 
     /**
      * Imports the user's captured [page] into the draft of [paneId]. Shares the sequence space and generation
@@ -41,6 +53,7 @@ public interface StudioRemoteScreens {
         seq: Long,
         paneId: Int,
         page: StudioRemotePage,
+        owner: String = "",
     ): StudioRemoteReply
 }
 
