@@ -1,0 +1,93 @@
+package io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote
+
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismActionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.isValid
+
+/**
+ * Whether a remote view may send [intent]. Refused: native desktop surfaces the browser cannot show (folder and file
+ * pickers, opening or exporting an attachment, file paths of this computer, panes side by side) and the view's own
+ * acknowledgement marker, which only the view session sends.
+ */
+internal fun isAllowedRemotely(intent: AiStudioScreenIntent): Boolean = when (intent) {
+    AiStudioScreenIntent.InstallAppUpdate,
+    is AiStudioScreenIntent.AddProject,
+    is AiStudioScreenIntent.OpenBeside,
+    is AiStudioScreenIntent.RemoteApplied,
+    is AiStudioScreenIntent.CardFocusApplied,
+    is AiStudioScreenIntent.SelectOrganism,
+    -> false
+
+    is AiStudioScreenIntent.ControlOrganism -> intent.action == OrganismActionUi.Abort
+
+    is AiStudioScreenIntent.Attachment -> isAllowedAttachment(intent)
+
+    is AiStudioScreenIntent.QuestionInput,
+    is AiStudioScreenIntent.ChecklistInput,
+    is AiStudioScreenIntent.RespondPermission,
+    is AiStudioScreenIntent.SelectHarness,
+    is AiStudioScreenIntent.SelectSubSession,
+    is AiStudioScreenIntent.DecideOrganism,
+    is AiStudioScreenIntent.Retry,
+    is AiStudioScreenIntent.NewSession,
+    is AiStudioScreenIntent.SelectProject,
+    is AiStudioScreenIntent.OpenSession,
+    is AiStudioScreenIntent.ClosePane,
+    is AiStudioScreenIntent.FocusPane,
+    is AiStudioScreenIntent.Suggestions.DraftChanged,
+    is AiStudioScreenIntent.Suggestions.CaretMoved,
+    is AiStudioScreenIntent.Suggestions.CaretRequestApplied,
+    is AiStudioScreenIntent.Suggestions.MoveSuggestion,
+    is AiStudioScreenIntent.Suggestions.AcceptSuggestion,
+    is AiStudioScreenIntent.Suggestions.DismissSuggestions,
+    is AiStudioScreenIntent.SelectWorktree,
+    is AiStudioScreenIntent.DecideWorktree,
+    is AiStudioScreenIntent.RecheckWorktree,
+    is AiStudioScreenIntent.RetryWorktreeJournal,
+    is AiStudioScreenIntent.CancelWorktreeBuild,
+    is AiStudioScreenIntent.DiagramAction,
+    is AiStudioScreenIntent.Submit,
+    is AiStudioScreenIntent.Stop,
+    is AiStudioScreenIntent.RefreshUsage,
+    is AiStudioScreenIntent.CompactContext,
+    is AiStudioScreenIntent.SelectModel,
+    is AiStudioScreenIntent.SelectEffort,
+    is AiStudioScreenIntent.SelectEngineEffort,
+    is AiStudioScreenIntent.SelectApproval,
+    is AiStudioScreenIntent.SetPinned,
+    is AiStudioScreenIntent.SetUnread,
+    is AiStudioScreenIntent.SetArchived,
+    is AiStudioScreenIntent.StartRename,
+    is AiStudioScreenIntent.RenameChanged,
+    is AiStudioScreenIntent.CommitRename,
+    is AiStudioScreenIntent.CancelRename,
+    is AiStudioScreenIntent.ShowSidebarMode,
+    is AiStudioScreenIntent.ToggleSearch,
+    is AiStudioScreenIntent.SearchChanged,
+    is AiStudioScreenIntent.ToggleProject,
+    is AiStudioScreenIntent.ToggleProjectsSection,
+    is AiStudioScreenIntent.ToggleRecentSection,
+    is AiStudioScreenIntent.ToggleSidebar,
+    is AiStudioScreenIntent.SetDrawerOpen,
+    -> true
+}
+
+/** Keep new attachment surfaces explicit instead of inheriting permission from the composer group. */
+private fun isAllowedAttachment(intent: AiStudioScreenIntent.Attachment): Boolean = when (intent) {
+    is AiStudioScreenIntent.PickAttachments,
+    is AiStudioScreenIntent.AttachmentsSelected,
+    is AiStudioScreenIntent.OpenAttachment,
+    is AiStudioScreenIntent.ExportAttachment,
+    -> false
+
+    is AiStudioScreenIntent.ImportAttachments -> intent.inputs.all {
+        when (it) {
+            is NativeAttachmentUi.File -> false
+            is NativeAttachmentUi.Page -> it.isValid()
+            is NativeAttachmentUi.Image -> true
+        }
+    }
+
+    is AiStudioScreenIntent.RemoveAttachment, is AiStudioScreenIntent.AttachmentPreviewVisible -> true
+}

@@ -112,3 +112,5 @@ __pycache__/
 
 # Chromium extension signing keys are never committed (the manifest keeps only the public key).
 chromium-plugin/*.pem
+# Side panel build (Kotlin/Wasm), copied by ./gradlew :chromium-plugin:panel:syncChromiumPanel
+chromium-plugin/app/

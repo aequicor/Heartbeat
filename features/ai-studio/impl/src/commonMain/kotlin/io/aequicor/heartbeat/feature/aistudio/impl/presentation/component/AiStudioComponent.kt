@@ -33,10 +33,13 @@ import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaces
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModel
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioAttachmentNavigation
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioSurfaceBinding
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.toUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioCardKey
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioComposerSlotKey
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioStartSlotKey
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentPreviewRoute
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsPickRoute
@@ -495,13 +498,10 @@ enum class BrowserPaneMode {
 }
 
 /** Key of the interface slot [slot] of pane [paneId] in [AiStudioComponent.slots]. */
-internal fun studioSlotKey(paneId: Int, slot: UiSlot): String = "$paneId.${slot.name.lowercase()}"
-
-/** Key of the interface row above the input of pane [paneId]. */
-internal fun studioComposerSlotKey(paneId: Int): String = studioSlotKey(paneId, UiSlot.Composer)
-
-/** Key of the interfaces in the start window of the new chat of pane [paneId]. */
-internal fun studioStartSlotKey(paneId: Int): String = studioSlotKey(paneId, UiSlot.Start)
+internal fun studioSlotKey(paneId: Int, slot: UiSlot): String = when (slot) {
+    UiSlot.Composer -> studioComposerSlotKey(paneId)
+    UiSlot.Start -> studioStartSlotKey(paneId)
+}
 
 private fun studioSlotOf(key: String): Pair<Int, UiSlot> {
     val (pane, slot) = key.split('.', limit = 2)
@@ -510,11 +510,3 @@ private fun studioSlotOf(key: String): Pair<Int, UiSlot> {
 
 private fun cardKeys(panes: Map<Int, Set<String>>): List<String> =
     panes.flatMap { (paneId, ids) -> ids.map { studioCardKey(paneId, it) } }.sorted()
-
-/** Key of the card [cardId] in the reply feed of pane [paneId] in [AiStudioComponent.cards]. */
-internal fun studioCardKey(paneId: Int, cardId: String): String = "$paneId:$cardId"
-
-/** The cards of pane [paneId] among [cards], by card id. */
-internal fun <T> paneCards(cards: Map<String, T>, paneId: Int): Map<String, T> = "$paneId:".let { prefix ->
-    cards.filterKeys { it.startsWith(prefix) }.mapKeys { it.key.removePrefix(prefix) }
-}

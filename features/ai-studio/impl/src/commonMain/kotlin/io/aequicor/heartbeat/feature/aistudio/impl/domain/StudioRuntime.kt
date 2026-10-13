@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
+import io.aequicor.heartbeat.feature.aistudio.api.StudioPermission
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
@@ -16,8 +17,11 @@ import kotlinx.coroutines.flow.flow
 interface StudioRuntime {
     val state: StateFlow<StudioRuntimeState>
 
-    /** Observes provider quotas for the composer model routes; empty set detaches the screen. */
-    suspend fun observeUsageTargets(modelIds: Set<String>) = Unit
+    /**
+     * Observes provider quotas for the composer model routes of one studio screen, identified by [owner];
+     * screens observe independently and an empty set detaches only [owner].
+     */
+    suspend fun observeUsageTargets(owner: Any, modelIds: Set<String>) = Unit
 
     /** Explicit panel-open refresh; telemetry failure never fails a turn. */
     suspend fun refreshUsage(modelId: String) = Unit
@@ -58,8 +62,16 @@ interface StudioRuntime {
     /** Requests native interruption; only native terminal state completes the run. */
     suspend fun cancel(sessionId: String)
 
-    /** Sends an exact currently pending permission option with the structured [answer] of its input. */
+    /**
+     * Sends an exact currently pending permission option and awaits engine acknowledgement of that request.
+     * Fails on late delivery failure, terminal turn or lost handle; command admission alone is not success.
+     */
     suspend fun respond(sessionId: String, requestId: String, optionId: String, answer: StudioPermissionAnswer? = null)
+
+    /** Delivers an observed permission only to its captured native turn, refusing a reused request id. */
+    suspend fun respond(permission: StudioPermission, optionId: String, answer: StudioPermissionAnswer? = null) {
+        error("Captured permission delivery is unavailable")
+    }
 
     /**
      * Applies a parameter in profile-owned work; a screen waiter may detach without cancelling the change. Returns

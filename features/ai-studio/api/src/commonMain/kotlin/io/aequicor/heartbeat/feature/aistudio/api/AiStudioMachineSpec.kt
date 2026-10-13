@@ -270,6 +270,7 @@ private fun ReadyTransitions.conversations() {
                 submissionId = intent.submissionId,
                 isWorktree = state.pane(intent.paneId)?.isWorktree == true,
                 isOrganism = state.pane(intent.paneId)?.isOrganism == true,
+                environment = intent.environment,
             )
         }
     }
@@ -289,9 +290,15 @@ private fun ReadyTransitions.conversations() {
                 intent.attachments,
                 intent.paneId.takeIf { intent.submissionId.isNotEmpty() },
                 intent.submissionId,
+                environment = intent.environment,
             )
         }
     }
+    followUps()
+    creationResults()
+}
+
+private fun ReadyTransitions.followUps() {
     on<AiStudioIntent.Public.FollowUp>(guard = { intent.prompt.isNotBlank() && state.isIdle(intent.sessionId) }) {
         stay { state.copy(running = state.running + intent.sessionId) }
         effect {
@@ -300,10 +307,10 @@ private fun ReadyTransitions.conversations() {
                 intent.prompt.trim(),
                 state.settings,
                 submissionId = intent.submissionId,
+                environment = intent.environment,
             )
         }
     }
-    creationResults()
 }
 
 private fun ReadyTransitions.creationResults() {
@@ -335,6 +342,7 @@ private fun ReadyTransitions.creationResults() {
                 intent.attachments,
                 intent.paneId.takeIf { intent.submissionId.isNotEmpty() },
                 intent.submissionId,
+                environment = intent.environment,
             )
         }
     }

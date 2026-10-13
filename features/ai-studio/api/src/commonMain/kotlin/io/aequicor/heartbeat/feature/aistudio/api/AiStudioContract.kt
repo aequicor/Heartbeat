@@ -148,6 +148,8 @@ public sealed interface AiStudioIntent : MachineIntent {
             val prompt: String,
             val attachments: List<ResourceRef> = emptyList(),
             val submissionId: String = "",
+            /** Trusted host context captured with this input; never decoded from screen JSON. */
+            val environment: StudioChatEnvironment? = null,
         ) : Public
 
         /** Asks the running agent of [sessionId] to stop. */
@@ -169,7 +171,12 @@ public sealed interface AiStudioIntent : MachineIntent {
          * whose native request no longer exists); accepted only while the session is idle. A non-empty
          * [submissionId] correlates native acceptance/rejection through the existing submission outputs.
          */
-        public data class FollowUp(val sessionId: String, val prompt: String, val submissionId: String = "") : Public
+        public data class FollowUp(
+            val sessionId: String,
+            val prompt: String,
+            val submissionId: String = "",
+            val environment: StudioChatEnvironment? = null,
+        ) : Public
 
         /** Changes the metadata of [sessionId]. */
         public data class Edit(val sessionId: String, val edit: SessionEdit) : Public
@@ -201,6 +208,8 @@ public sealed interface AiStudioIntent : MachineIntent {
             val requestId: Long,
             val attachments: List<ResourceRef> = emptyList(),
             val submissionId: String = "",
+            /** Trusted host context captured with this input; never decoded from screen JSON. */
+            val environment: StudioChatEnvironment? = null,
         ) : Internal
 
         /** [requestId] failed; only its still-owning pane may restore [prompt]. */
@@ -303,6 +312,8 @@ public sealed interface AiStudioEffect : MachineEffect {
         val isWorktree: Boolean = false,
         /** The conversation is an organic AI organism conceived from [prompt]; it has no native session of its own. */
         val isOrganism: Boolean = false,
+        /** Trusted host context captured with this input; never decoded from screen JSON. */
+        val environment: StudioChatEnvironment? = null,
     ) : AiStudioEffect
 
     /** Records [prompt] and streams the agent reply into [sessionId] until it completes or is stopped. */
@@ -313,6 +324,8 @@ public sealed interface AiStudioEffect : MachineEffect {
         val attachments: List<ResourceRef> = emptyList(),
         val paneId: Int? = null,
         val submissionId: String = "",
+        /** Trusted host context captured with this input; never decoded from screen JSON. */
+        val environment: StudioChatEnvironment? = null,
     ) : AiStudioEffect
 
     /** Signals the run of [sessionId] to stop; the run itself reports its end. */

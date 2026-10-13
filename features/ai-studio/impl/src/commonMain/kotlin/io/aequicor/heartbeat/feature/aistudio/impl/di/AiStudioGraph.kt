@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.core.di.ScopeFactory
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.di.ext.retainedGraph
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.navigation.NavComponent
 import io.aequicor.heartbeat.core.navigation.Navigator
 import io.aequicor.heartbeat.core.navigation.ProfileRouteBinding
@@ -24,6 +25,7 @@ import io.aequicor.heartbeat.core.navigation.RouteEntry
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
+import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioMachineSpec
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
@@ -31,16 +33,23 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.aistudio.api.StudioLocalProjects
+import io.aequicor.heartbeat.feature.aistudio.impl.data.MachineStudioSurfaces
 import io.aequicor.heartbeat.feature.aistudio.impl.data.StudioWorkspaceToggle
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaces
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.AiStudioComponent
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.ui.AiStudioUiComponent
 
 /** Feature graph retained by its Decompose entry. */
 @GraphExtension(AiStudioScope::class)
 interface AiStudioGraph {
     val factory: AiStudioComponent.Factory
+
+    /** The screen store; a remote view drives it without a window component. */
+    val model: AiStudioModel
 
     /** Metro factory for a lifecycle-owned feature instance. */
     @ContributesTo(ProfileScope::class)
@@ -49,6 +58,7 @@ interface AiStudioGraph {
         /** Creates an instance owned by the supplied component or scope. */
         fun createAiStudio(
             @Provides @ForScope(AiStudioScope::class) scope: ScopeHandle,
+            @Provides host: StudioScreenHost,
         ): AiStudioGraph
     }
 }
@@ -57,6 +67,12 @@ interface AiStudioGraph {
 @ContributesTo(AiStudioScope::class)
 @BindingContainer
 object AiStudioBindings {
+    /** Only a native window renders and registers interface surfaces. */
+    @Provides
+    @SingleIn(AiStudioScope::class)
+    fun surfaces(host: StudioScreenHost, machines: MachineRegistry, toggles: FeatureToggles): StudioSurfaces =
+        if (host == StudioScreenHost.Window) MachineStudioSurfaces(machines, toggles) else StudioSurfaces.None
+
     /** Launches the machine for the lifetime of this feature scope. */
     @Provides
     @SingleIn(AiStudioScope::class)
@@ -64,10 +80,13 @@ object AiStudioBindings {
         launcher: MachineLauncher,
         @ForScope(AiStudioScope::class) scope: ScopeHandle,
         backend: StudioBackend,
+        host: StudioScreenHost,
     ): Machine<AiStudioState, AiStudioIntent, AiStudioOutput> = launcher.launch(
         AiStudioMachineSpec,
         scope,
         EffectHandler { effect, machine -> backend.effects().handle(effect, machine) },
+        // Other features address the window's studio; a remote view keeps its machine to itself.
+        isAddressable = host == StudioScreenHost.Window,
     )
 }
 
@@ -99,6 +118,6 @@ internal class AiStudioRouteEntry(
     private val graphs: AiStudioGraph.Factory,
 ) : RouteEntry<AiStudioRoute>(AiStudioRoute::class, AiStudioRoute.serializer()) {
     override fun create(route: AiStudioRoute, context: ComponentContext, navigator: Navigator): NavComponent =
-        context.retainedGraph(scopes, profile, name = "aistudio") { graphs.createAiStudio(it) }
+        context.retainedGraph(scopes, profile, name = "aistudio") { graphs.createAiStudio(it, StudioScreenHost.Window) }
             .factory.create(context, navigator).let { AiStudioUiComponent(it) }
 }

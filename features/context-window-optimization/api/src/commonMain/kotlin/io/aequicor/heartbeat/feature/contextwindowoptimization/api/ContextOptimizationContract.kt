@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineKey
 import io.aequicor.heartbeat.core.statemachine.MachineOutput
 import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextUsage
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.time.Instant
@@ -55,6 +56,8 @@ public sealed interface ContextOptimizationIntent : MachineIntent {
             val origin: CompactionOrigin,
             val instructions: String? = null,
             val method: CompactionMethod? = null,
+            /** Native source turn identity for trusted automatic continuation. */
+            val sourceRequest: RequestId? = null,
         ) : Public {
             init {
                 require(instructions == null || instructions.isNotBlank())

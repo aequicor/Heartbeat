@@ -11,6 +11,9 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaceCardFocus
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfacePlace
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.CardFocusRequestUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlin.test.Test

@@ -27,6 +27,10 @@ gradlePlugin {
             id = libs.plugins.heartbeat.kmp.compose.get().pluginId
             implementationClass = "io.aequicor.heartbeat.buildlogic.KmpComposeConventionPlugin"
         }
+        register("heartbeatKmpWasm") {
+            id = libs.plugins.heartbeat.kmp.wasm.get().pluginId
+            implementationClass = "io.aequicor.heartbeat.buildlogic.KmpWasmConventionPlugin"
+        }
         register("heartbeatMetro") {
             id = libs.plugins.heartbeat.metro.get().pluginId
             implementationClass = "io.aequicor.heartbeat.buildlogic.MetroConventionPlugin"

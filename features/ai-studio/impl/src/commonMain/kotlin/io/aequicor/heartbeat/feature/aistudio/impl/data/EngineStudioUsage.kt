@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.flow.update
@@ -45,7 +46,10 @@ internal class EngineStudioUsage(
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
 ) {
     private val log = Log.tag("StudioUsage")
-    private val targets = MutableStateFlow(emptySet<String>())
+
+    /** Model routes per observing screen; the union is observed, so screens never replace each other's routes. */
+    private val targets = MutableStateFlow(emptyMap<Any, Set<String>>())
+
     private val mutableState = MutableStateFlow(StudioUsageState())
     val state = mutableState.asStateFlow()
     private val handles = mutableMapOf<String, ActiveSession>()
@@ -79,7 +83,7 @@ internal class EngineStudioUsage(
     }
 
     private fun providerTargets() = combine(
-        targets,
+        targets.map { owners -> owners.values.flatten().toSet() },
         enabled,
         facade.bindings.state,
         sources.state,
@@ -100,9 +104,10 @@ internal class EngineStudioUsage(
         }
     }
 
-    fun observe(modelIds: Set<String>) {
+    /** Replaces the routes [owner] observes; an empty set detaches it. */
+    fun observe(owner: Any, modelIds: Set<String>) {
         log.d { "Observe usage for ${modelIds.size} model routes" }
-        targets.value = modelIds
+        targets.update { owners -> if (modelIds.isEmpty()) owners - owner else owners + (owner to modelIds) }
     }
 
     suspend fun refresh(modelId: String) {

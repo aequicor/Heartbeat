@@ -57,7 +57,10 @@ internal class ToggleStudioBackend(
     private suspend fun create(): Selected = if (toggles.get(StudioEngineRuntime)) {
         log.i { "Studio uses the engine runtime" }
         val repository = engineRepository.value
-        Selected(repository, EngineStudioEffects(repository, engineRuntime.value, availability, projects?.value))
+        Selected(
+            repository,
+            EngineStudioEffects(repository, engineRuntime.value, availability, projects?.value),
+        )
     } else {
         log.i { "Studio uses the demo workspace" }
         val repository = demoRepository.value

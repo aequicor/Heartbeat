@@ -12,6 +12,13 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenAction
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismActionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionObservationUi
 import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiIntent
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiMachineKey
@@ -125,7 +132,7 @@ internal class StudioOrganismView(
         combine(organisms(), open, selection) { organisms, ids, selected ->
             ids.mapNotNull { id ->
                 organisms[id]?.let { organism ->
-                    val key = selected[id] ?: PrimarySubSession
+                    val key = selected[id] ?: PRIMARY_SUB_SESSION
                     id to (key to organism.sessionOf(key))
                 }
             }.toMap()

@@ -15,7 +15,7 @@ let hub = null;
 /** The user's consent to agent control; read from storage right below. */
 let isAgentAllowed = false;
 
-const capabilities = () => (isAgentAllowed ? ['chat', 'agentControl'] : ['chat']);
+const capabilities = () => (isAgentAllowed ? ['studio', 'agentControl'] : ['studio']);
 
 const tabs = createTabControl({
   chrome,

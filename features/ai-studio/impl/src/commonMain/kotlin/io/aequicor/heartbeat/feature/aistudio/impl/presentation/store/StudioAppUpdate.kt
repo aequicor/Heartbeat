@@ -2,6 +2,12 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenAction
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AppUpdateFailureUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AppUpdateStageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AppUpdateUi
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateFailure
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateIntent
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateMachineKey
@@ -35,18 +41,6 @@ internal class StudioAppUpdate(private val machines: MachineRegistry) {
     suspend fun install() {
         val result = machines.send(AppUpdateMachineKey, AppUpdateIntent.Public.Install)
         log.i { "app update install requested result=$result" }
-    }
-}
-
-/** Restarting interrupts ordinary turns and every active organism session, including chats outside the panes. */
-internal fun AiStudioScreenState.hasRunningAgentsForUpdate(): Boolean = running.isNotEmpty() || organisms.values.any {
-    it.status != OrganismStatusUi.Completed && it.status != OrganismStatusUi.Aborted && it.subSessions.any { session ->
-        session.state in setOf(
-            SubSessionStateUi.Germinating,
-            SubSessionStateUi.Working,
-            SubSessionStateUi.AwaitingUser,
-            SubSessionStateUi.Judging,
-        )
     }
 }
 

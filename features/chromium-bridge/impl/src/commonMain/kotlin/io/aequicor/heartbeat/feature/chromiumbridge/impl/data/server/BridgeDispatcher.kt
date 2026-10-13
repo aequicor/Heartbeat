@@ -2,7 +2,7 @@ package io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
-import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeErrorCode
+import io.aequicor.heartbeat.feature.chromiumbridge.protocol.BridgeErrorCode
 import kotlinx.coroutines.CancellationException
 
 /** Routes extension requests to the handler owning the method. */

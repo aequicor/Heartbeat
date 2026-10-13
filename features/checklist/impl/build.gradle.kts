@@ -8,6 +8,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(projects.features.checklist.api)
+            implementation(projects.features.checklist.screenUi)
             implementation(libs.kotlinx.serialization.json)
             implementation(projects.core.common)
             implementation(projects.core.datastore.api)
@@ -18,18 +19,7 @@ kotlin {
             implementation(projects.core.featureToggles.api)
             implementation(projects.core.profileFacade.api)
             implementation(projects.core.logging)
-            implementation(projects.designSystem.components)
-            implementation(projects.designSystem.theme)
-            implementation(projects.designSystem.layouts)
-            implementation(libs.compose.components.resources)
-            implementation(libs.compose.uiToolingPreview)
         }
         commonTest.dependencies { implementation(libs.flowmvi.test) }
-        jvmTest.dependencies {
-            implementation(libs.compose.uiTest)
-            implementation(compose.desktop.currentOs)
-        }
     }
 }
-
-compose.resources { packageOfResClass = "io.aequicor.heartbeat.feature.checklist.impl.resources" }

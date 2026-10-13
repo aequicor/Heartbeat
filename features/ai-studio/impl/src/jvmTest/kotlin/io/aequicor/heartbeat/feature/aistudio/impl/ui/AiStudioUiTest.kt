@@ -30,22 +30,10 @@ import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
-import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.data.studioSeed
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PermissionOptionUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PermissionUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionWaitUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarMode
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioModelOptions
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioPhase
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ToolStatusUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ToolUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.toUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.withWorkspace
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
@@ -55,6 +43,20 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_running
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_sleeping
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_waiting_event
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.stopping
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PermissionOptionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PermissionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionWaitUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarMode
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioPhase
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ToolStatusUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ToolUi
+import io.aequicor.heartbeat.feature.aistudio.screenui.AiStudioContent
+import io.aequicor.heartbeat.feature.aistudio.screenui.StudioEmbed
+import io.aequicor.heartbeat.feature.aistudio.screenui.StudioExits
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.persistentSetOf
@@ -216,7 +218,7 @@ class AiStudioUiTest {
                     PermissionUi("s-facade", "request", "Pick", persistentListOf(PermissionOptionUi("once", "Once"))),
                 ),
             )
-            val questions = object : ComposableComponent {
+            val questions = object : StudioEmbed {
                 @Composable
                 override fun Content(modifier: Modifier) = Box(modifier)
             }

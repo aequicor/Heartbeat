@@ -16,12 +16,6 @@ import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.work.DisableCachingByDefault
 import java.io.File
-import java.io.IOException
-import java.net.URI
-import java.nio.file.AtomicMoveNotSupportedException
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
 import javax.inject.Inject
 
 /**
@@ -97,66 +91,10 @@ abstract class PreparePiRuntime : DefaultTask() {
         }
     }
 
-    private fun cachedArchive(): File {
-        val directory = cacheDirectory.dir(version.get()).get().asFile
-        val archive = directory.resolve(asset.get())
-        if (archive.isFile) {
-            val actual = archive.sha256()
-            if (actual == sha256.get()) return archive
-            logger.warn("Cached Pi archive $archive has SHA-256 $actual, expected ${sha256.get()}; re-downloading")
-        }
-        check(!offline.get()) {
-            "Pi archive ${asset.get()} ${version.get()} is not cached in $directory and Gradle runs --offline; " +
-                "run once online to populate the cache"
-        }
-        directory.mkdirs()
-        val url = "${baseUrl.get().trimEnd('/')}/v${version.get()}/${asset.get()}"
-        logger.lifecycle("Downloading Pi ${version.get()} runtime from $url")
-        val partial = File.createTempFile(asset.get(), ".part", directory)
-        try {
-            val connection = URI(url).toURL().openConnection().apply {
-                connectTimeout = 30_000
-                readTimeout = 120_000
-            }
-            connection.getInputStream().use { input -> partial.outputStream().use(input::copyTo) }
-            val actual = partial.sha256()
-            check(actual == sha256.get()) {
-                "Pi archive ${asset.get()} checksum mismatch: expected ${sha256.get()}, actual $actual; " +
-                    "refusing to package executable"
-            }
-            moveIntoPlace(partial, archive)
-        } finally {
-            if (partial.exists() && !partial.delete()) logger.warn("Cannot delete temporary Pi download $partial")
-        }
-        return archive
-    }
-
-    private fun moveIntoPlace(source: File, target: File) {
-        try {
-            Files.move(
-                source.toPath(),
-                target.toPath(),
-                StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING,
-            )
-        } catch (e: AtomicMoveNotSupportedException) {
-            logger.info("Atomic move is not supported for $target; falling back to replace", e)
-            Files.move(source.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
-        } catch (e: IOException) {
-            throw IOException("Cannot move Pi archive into cache $target", e)
-        }
-    }
-
-    private fun File.sha256(): String {
-        val hash = MessageDigest.getInstance("SHA-256")
-        inputStream().use { input ->
-            val buffer = ByteArray(65_536)
-            while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                hash.update(buffer, 0, count)
-            }
-        }
-        return hash.digest().joinToString("") { "%02x".format(it) }
-    }
+    private fun cachedArchive(): File = VerifiedDownload(logger, offline.get()).fetch(
+        url = "${baseUrl.get().trimEnd('/')}/v${version.get()}/${asset.get()}",
+        sha256 = sha256.get(),
+        target = cacheDirectory.dir(version.get()).get().asFile.resolve(asset.get()),
+        label = "Pi ${version.get()} archive ${asset.get()}",
+    )
 }

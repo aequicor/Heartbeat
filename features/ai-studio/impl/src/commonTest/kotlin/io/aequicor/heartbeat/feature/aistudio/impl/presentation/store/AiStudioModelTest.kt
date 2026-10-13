@@ -49,6 +49,19 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaces
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.TestClock
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenAction
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ApprovalUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.DiagramDraftReasonUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.EffortUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionConfigurationUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionWaitUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioPhase
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateIntent
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateMachineKey
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateOutput
@@ -56,6 +69,10 @@ import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateState
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentDescriptor
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsIntent
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsMachineKey
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsOutput
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsState
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssistOrigin
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
@@ -347,7 +364,7 @@ class AiStudioModelTest {
         assertEquals("Follow up", screen.states.value.draft(0))
         assertTrue(screen.states.value.submissions.isEmpty())
 
-        fixture.model.store.intent(AiStudioScreenIntent.SelectSubSession("s-facade", PrimarySubSession))
+        fixture.model.store.intent(AiStudioScreenIntent.SelectSubSession("s-facade", PRIMARY_SUB_SESSION))
         fixture.model.store.intent(AiStudioScreenIntent.Submit(0))
         runCurrent()
         assertEquals(1, fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.Submit>().size)
@@ -796,6 +813,11 @@ class AiStudioModelTest {
         repository: StudioRepository = InMemoryStudioRepository(TestClock(scope)),
         harnesses: StudioHarnesses = StudioHarnesses.None,
         compactions: StudioCompactionPort = StudioCompactionPort.None,
+        embeds: io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote.StudioEmbeds =
+            io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote.StudioEmbeds.None,
+        host: io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost =
+            io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost.Window,
+        attachments: Machine<AttachmentsState, AttachmentsIntent, AttachmentsOutput>? = null,
         surfaces: StudioSurfaces = StudioSurfaces.None,
         assists: io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists =
             object : io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists {
@@ -807,7 +829,7 @@ class AiStudioModelTest {
             },
     ) {
         val machine = FakeMachine(initial)
-        val efforts = FakeEfforts()
+        val efforts = FakeEfforts(attachments)
         val researchEnabled = MutableStateFlow(false)
         val catalog = FakeCatalog()
         private val backend = object : StudioBackend {
@@ -822,6 +844,7 @@ class AiStudioModelTest {
             scope = TestScopeHandle(scope.backgroundScope),
             factory = HeartbeatStoreFactory(TestDispatchers(StandardTestDispatcher(scope.testScheduler))),
             entries = object : StudioEntries {
+                override val showsAttachments = flowOf(attachments != null)
                 override val showsResearch = researchEnabled
                 override val showsConnections = flowOf(false)
                 override val showsProfileSettings = flowOf(false)
@@ -835,6 +858,8 @@ class AiStudioModelTest {
             },
             harnesses = harnesses,
             compactions = compactions,
+            embeddedScreens = embeds,
+            host = host,
             surfaceBinding = StudioSurfaceBinding(surfaces, backend, TestScopeHandle(scope.backgroundScope)),
         )
 
@@ -877,8 +902,9 @@ internal class FakeMachine(initial: AiStudioState) : Machine<AiStudioState, AiSt
     }
 }
 
-internal class FakeEfforts :
-    EffortChoicesView,
+internal class FakeEfforts(
+    private val attachments: Machine<AttachmentsState, AttachmentsIntent, AttachmentsOutput>? = null,
+) : EffortChoicesView,
     MachineRegistry {
     override val state = MutableStateFlow<EffortConfigurationState>(EffortConfigurationState.Ready())
     val sent = mutableListOf<Any>()
@@ -894,6 +920,8 @@ internal class FakeEfforts :
     override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> observe(
         key: MachineKey<S, I, P, E, O>,
     ): StateFlow<MachineRef<S, P, O>?> = when (key) {
+        AttachmentsMachineKey -> MutableStateFlow(attachments) as StateFlow<MachineRef<S, P, O>?>
+
         ComputerUseMachineKey ->
             MutableStateFlow<MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>?>(computerUse) as
                 StateFlow<MachineRef<S, P, O>?>
@@ -911,6 +939,7 @@ internal class FakeEfforts :
         key: MachineKey<S, I, P, E, O>,
         intent: P,
     ): SendResult {
+        if (key == AttachmentsMachineKey) return checkNotNull(attachments).send(intent as AttachmentsIntent)
         if (key == AppUpdateMachineKey) return appUpdate.send(intent as AppUpdateIntent)
         assertEquals(EffortConfigurationMachineKey.name, key.name)
         sent += intent
@@ -964,7 +993,7 @@ private class TestDispatchers(dispatcher: kotlinx.coroutines.CoroutineDispatcher
     override val io = dispatcher
 }
 
-private class TestScopeHandle(override val coroutineScope: CoroutineScope) : ScopeHandle {
+internal class TestScopeHandle(override val coroutineScope: CoroutineScope) : ScopeHandle {
     override val name = "test/aistudio"
     override val isClosed = false
     override val savedState = object : ScopeSavedState {

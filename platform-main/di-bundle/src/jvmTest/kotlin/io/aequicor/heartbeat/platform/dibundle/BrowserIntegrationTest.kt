@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.feature.aistudio.impl.di.AiStudioGraph
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocument
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentRoute
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocuments
@@ -25,7 +26,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import java.io.File
@@ -66,8 +66,8 @@ class BrowserIntegrationTest {
             app.machines.send(BrowserMachineKey, BrowserIntent.Public.Open("example.org"))
             machine.state.first { it is BrowserState.Running && it.page.url == "https://example.org" }
             app.machines.send(BrowserMachineKey, BrowserIntent.Public.Stop)
-            runCurrent()
-            assertFalse((machine.state.value as BrowserState.Running).page.isLoading)
+            val settled = machine.state.first { it is BrowserState.Running && !it.page.isLoading }
+            assertFalse((settled as BrowserState.Running).page.isLoading)
             flags.setOverride(BrowserEnabled, false)
             val stopped = machine.state.first {
                 it is BrowserState.Running && !it.isEnabled
@@ -91,7 +91,7 @@ class BrowserIntegrationTest {
             val flags = (app as TestToggleAccessors).toggleControl
             val profile = app.profileSessions.open(ProfileId("browser-entry"))
             val scope = app.scopes.child(profile.graph.scope, "browser-entry")
-            val graph = (profile.graph as AiStudioGraph.Factory).createAiStudio(scope)
+            val graph = (profile.graph as AiStudioGraph.Factory).createAiStudio(scope, StudioScreenHost.Window)
             val entries = (graph as StudioEntryTestAccessors).entries
             assertFalse(entries.showsBrowser.first())
             flags.setOverride(BrowserEnabled, true)

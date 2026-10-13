@@ -4,8 +4,8 @@ import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.FrameLink
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.NativeFraming
-import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeErrorCode
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeProtocol
+import io.aequicor.heartbeat.feature.chromiumbridge.protocol.BridgeErrorCode
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive

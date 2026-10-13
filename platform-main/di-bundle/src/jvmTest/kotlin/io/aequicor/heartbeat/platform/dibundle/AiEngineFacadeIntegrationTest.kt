@@ -315,7 +315,9 @@ class TestNative(
             override suspend fun respond(decision: PermissionDecision) {
                 this@TestNative.decision = decision
                 val pending = native.value as ActiveSessionState.AwaitingUserAction
-                native.value = ActiveSessionState.Running(pending.turn)
+                native.value = ActiveSessionState.Running(
+                    pending.turn.copy(resolvedPermissions = pending.turn.resolvedPermissions + decision.request),
+                )
             }
         },
         SessionHistory to object : SessionHistory {

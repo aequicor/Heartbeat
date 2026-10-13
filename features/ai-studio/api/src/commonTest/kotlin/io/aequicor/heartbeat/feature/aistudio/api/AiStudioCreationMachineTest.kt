@@ -2,15 +2,43 @@ package io.aequicor.heartbeat.feature.aistudio.api
 
 import io.aequicor.heartbeat.core.statemachine.assertIgnored
 import io.aequicor.heartbeat.core.statemachine.assertTransition
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertSame
 
 class AiStudioCreationMachineTest {
     private val settings = RunSettings("model", ReasoningEffort.High, ApprovalMode.Ask)
     private val home = AiStudioState.Ready(listOf(StudioPane(0)), 0, settings)
+
+    @Test
+    fun `delayed creation and diagram followup retain the originating environment`() {
+        val environment = object : StudioChatEnvironment {
+            override fun bind(session: SessionRef): AutoCloseable = AutoCloseable { }
+        }
+        val submitted = assertNotNull(
+            AiStudioMachineSpec.resolve(
+                home,
+                AiStudioIntent.Public.Submit(0, "From browser", environment = environment),
+            ),
+        )
+        val create = assertIs<AiStudioEffect.CreateSession>(submitted.effects.single())
+        assertSame(environment, create.environment)
+        val created = create.created("chat").copy(environment = create.environment)
+        val run = assertIs<AiStudioEffect.Run>(
+            assertNotNull(AiStudioMachineSpec.resolve(submitted.to, created)).effects.single(),
+        )
+        assertSame(environment, run.environment)
+        val existing = home.copy(panes = listOf(StudioPane(0, sessionId = "chat")))
+        val followup = AiStudioIntent.Public.FollowUp("chat", "Diagram", environment = environment)
+        val next = assertIs<AiStudioEffect.Run>(
+            assertNotNull(AiStudioMachineSpec.resolve(existing, followup)).effects.single(),
+        )
+        assertSame(environment, next.environment)
+    }
 
     @Test
     fun `new session abandons creation and a second submit cannot receive its results`() {

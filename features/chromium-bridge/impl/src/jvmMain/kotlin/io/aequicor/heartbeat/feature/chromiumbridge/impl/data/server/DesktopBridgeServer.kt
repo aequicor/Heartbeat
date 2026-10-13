@@ -99,7 +99,7 @@ internal class DesktopBridgeServer(
                     log.w(e) { "Feature update not delivered id=${session.id}" }
                 }
             }
-            log.i { "Bridge features announced chat=${set.isChat} agentControl=${set.isAgentControl}" }
+            log.i { "Bridge features announced studio=${set.isStudio} agentControl=${set.isAgentControl}" }
         }
     }
 

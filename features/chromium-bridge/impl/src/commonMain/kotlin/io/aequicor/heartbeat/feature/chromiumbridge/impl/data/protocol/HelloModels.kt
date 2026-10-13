@@ -36,8 +36,9 @@ internal data class HelloApp(val version: String)
 /** Which bridge features the app currently offers; sent again as `app.features` when toggles change. */
 @Serializable
 internal data class BridgeFeatureSet(
-    @SerialName("chat") val isChat: Boolean,
     @SerialName("agentControl") val isAgentControl: Boolean,
+    /** The studio screen itself can be shown remotely (`studio.watch`). */
+    @SerialName("studio") val isStudio: Boolean = false,
 )
 
 /** Limits the extension must respect. */

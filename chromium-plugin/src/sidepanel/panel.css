@@ -1,0 +1,13 @@
+/* The Compose canvas fills the side panel; the page only provides its system background before the first frame. */
+:root {
+  color-scheme: light dark;
+}
+
+html,
+body,
+#panel {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: Canvas;
+}

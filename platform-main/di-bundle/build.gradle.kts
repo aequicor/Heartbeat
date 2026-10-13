@@ -94,6 +94,7 @@ kotlin {
             implementation(projects.core.featureToggles.impl)
         }
         jvmTest.dependencies {
+            implementation(projects.features.aiStudio.screenModel)
             implementation(projects.core.navigation.compose)
             implementation(projects.designSystem.theme)
             implementation(libs.kotlinx.coroutinesSwing)

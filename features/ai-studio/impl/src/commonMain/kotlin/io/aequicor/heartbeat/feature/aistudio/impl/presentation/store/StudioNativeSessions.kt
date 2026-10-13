@@ -1,6 +1,5 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
-import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.MachineRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionActivity
@@ -12,6 +11,18 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenAction
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeTranscriptUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionTreeUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionKindUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionStateUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.activeDescendants
 import io.aequicor.heartbeat.feature.organicai.api.Organism
 import io.aequicor.heartbeat.feature.organicai.api.sessionOf
 import kotlinx.collections.immutable.ImmutableList
@@ -35,14 +46,6 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import pro.respawn.flowmvi.api.PipelineContext
 
-/** Root-scoped family and the certainty of its activity count. */
-@Immutable
-data class SessionTreeUi(val sessions: ImmutableList<SubSessionUi>, val activeCount: Int, val isActivityKnown: Boolean)
-
-/** Selection identity prevents a previous child transcript flashing during a switch. */
-@Immutable
-data class NativeTranscriptUi(val key: String, val messages: ImmutableList<MessageUi>)
-
 /** Stable roots come from the repository; changing only selection never restarts the tree subscription. */
 @OptIn(ExperimentalCoroutinesApi::class)
 internal class StudioNativeSessions(
@@ -59,7 +62,7 @@ internal class StudioNativeSessions(
         val chat: String,
         val ref: SessionRef,
         val access: SessionTreeAccess,
-        val owner: String = PrimarySubSession,
+        val owner: String = PRIMARY_SUB_SESSION,
         val name: String? = null,
     )
 
@@ -91,7 +94,7 @@ internal class StudioNativeSessions(
             combine(trees, selection) { families, selected ->
                 families.values.mapNotNull { pair ->
                     val (root, tree) = pair
-                    val key = selected[root.chat] ?: PrimarySubSession
+                    val key = selected[root.chat] ?: PRIMARY_SUB_SESSION
                     tree.descendants().firstOrNull { nativeKey(it.node.ref) == key }
                         ?.let { Triple(root, it.node.ref, key) }
                 }
@@ -192,15 +195,12 @@ internal class StudioNativeSessions(
     }
 }
 
-private const val TREE_RETRY_MILLIS = 2_000L
-
 internal fun nativeKey(ref: SessionRef): String = "native:" + Json.encodeToString(SessionRef.serializer(), ref)
-
 internal fun SessionTreeSnapshot.toUi(rootName: String? = null): SessionTreeUi = SessionTreeUi(
     sessions = (
         listOf(
             SubSessionUi(
-                PrimarySubSession,
+                PRIMARY_SUB_SESSION,
                 SubSessionKindUi.Root,
                 rootName ?: nodes.firstOrNull { it.ref == root }?.name.orEmpty(),
                 nodes.firstOrNull { it.ref == root }?.activity?.toUi() ?: SubSessionStateUi.Unknown,
@@ -257,3 +257,5 @@ internal fun mergeSessionTrees(organism: OrganismUi, families: Map<String, Sessi
         families.values.all { it.isActivityKnown },
     )
 }
+
+private const val TREE_RETRY_MILLIS = 2_000L

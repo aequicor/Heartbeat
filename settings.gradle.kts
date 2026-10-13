@@ -48,8 +48,13 @@ plugins {
 include(":core:logging")
 include(":core:mvi")
 include(":features:welcome:api", ":features:welcome:impl")
-include(":features:questionnaire:api", ":features:questionnaire:impl")
-include(":features:ai-studio:api", ":features:ai-studio:impl")
+include(
+    ":features:questionnaire:api",
+    ":features:questionnaire:impl",
+    ":features:questionnaire:screen-model",
+    ":features:questionnaire:screen-ui",
+)
+include(":features:ai-studio:api", ":features:ai-studio:impl", ":features:ai-studio:screen-model", ":features:ai-studio:screen-ui")
 include(":features:search-engine:api", ":features:search-engine:impl")
 include(":features:toggles-panel:api", ":features:toggles-panel:impl")
 include(":features:settings:api", ":features:settings:impl")
@@ -90,6 +95,7 @@ include(":platform-main:uikit-sandbox:shared")
 
 // Кастомный набор правил detekt (политика логирования и обработки ошибок)
 include(":lint:detekt-rules")
+include(":chromium-plugin:panel")
 
 include(":core:secrets:api", ":core:secrets:impl")
 
@@ -122,9 +128,14 @@ include(":features:organic-ai:api", ":features:organic-ai:impl")
 include(":features:plant-uml-support:api", ":features:plant-uml-support:impl")
 include(":features:scheduler:api", ":features:scheduler:impl")
 
-include(":features:checklist:api", ":features:checklist:impl")
+include(
+    ":features:checklist:api",
+    ":features:checklist:impl",
+    ":features:checklist:screen-model",
+    ":features:checklist:screen-ui",
+)
 include(":features:harness:api", ":features:harness:impl")
 include(":features:browser:api", ":features:browser:impl")
+include(":features:chromium-bridge:api", ":features:chromium-bridge:impl", ":features:chromium-bridge:protocol")
 include(":features:app-update:api", ":features:app-update:impl")
 include(":features:service-as-ui:api", ":features:service-as-ui:impl")
-include(":features:chromium-bridge:api", ":features:chromium-bridge:impl")

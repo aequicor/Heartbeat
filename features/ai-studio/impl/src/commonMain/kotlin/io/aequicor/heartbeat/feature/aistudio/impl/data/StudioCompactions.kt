@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioCompactionPort
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioFeedCollapse
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
@@ -99,6 +100,28 @@ internal class StudioCompactions(
 
     /** Host-started continuations of each chat since its last other prompt turn; bounds a compaction loop. */
     private val continuations = MutableStateFlow(emptyMap<String, Int>())
+    private data class Source(val session: SessionRef, val request: RequestId)
+    private data class Receipt(val environment: StudioChatEnvironment?, val isContinuationAllowed: Boolean)
+    private val receipts = MutableStateFlow(emptyMap<Source, Receipt>())
+    private val claimedSources = MutableStateFlow(emptySet<Source>())
+
+    /** Records only the exact agent request which queued a currently pending or claimed compaction. */
+    private fun recordSource(request: StudioTurnRequest, active: ActiveSession, outcome: TurnOutcome) {
+        val state = view.state.value as? ContextOptimizationState.Ready ?: return
+        val pending = state.running[active.ref] ?: state.pending[active.ref] ?: return
+        if (pending.origin != CompactionOrigin.Agent || pending.sourceRequest != request.request) return
+        val source = Source(active.ref, request.request)
+        log.d { "Record compaction source context" }
+        receipts.update { it + (source to Receipt(request.environment, outcome != TurnOutcome.Cancelled)) }
+    }
+
+    private fun forgetSource(source: Source?) {
+        log.d { "Release compaction source context" }
+        if (source != null) {
+            receipts.update { it - source }
+            claimedSources.update { it - source }
+        }
+    }
 
     override val availability: Flow<Boolean> get() = toggles.observe(ContextOptimizationEnabled)
 
@@ -134,8 +157,14 @@ internal class StudioCompactions(
      * compaction.
      */
     override suspend fun settled(request: StudioTurnRequest, active: ActiveSession, outcome: TurnOutcome) {
+        recordSource(request, active, outcome)
         if (request.compaction != null || request.isHandoff || outcome == TurnOutcome.Cancelled) return
+        log.d { "Update continuation counter after settled turn" }
         if (!request.isContinuation) continuations.update { it - request.id }
+        reportSettled(request, active)
+    }
+
+    private suspend fun reportSettled(request: StudioTurnRequest, active: ActiveSession) {
         if (!toggles.get(ContextOptimizationEnabled)) return
         val chat = chats().firstOrNull { it.id == request.id }?.takeIf { it.isCompactable } ?: return
         val usage = (active.features.resolve(SessionContextUsage) as? FeatureAccess.Available)?.feature?.state?.value
@@ -159,6 +188,14 @@ internal class StudioCompactions(
         combine(toggles.observe(ContextOptimizationEnabled), view.state) { isEnabled, state ->
             if (isEnabled) (state as? ContextOptimizationState.Ready)?.pending.orEmpty() else emptyMap()
         }.distinctUntilChanged().collect { pending ->
+            log.d { "Prune obsolete compaction source contexts" }
+            receipts.update { receipts ->
+                val state = view.state.value as? ContextOptimizationState.Ready
+                val known = (state?.pending.orEmpty() + state?.running.orEmpty()).mapNotNull { (session, request) ->
+                    request.sourceRequest?.let { Source(session, it) }
+                }.toSet() + claimedSources.value
+                receipts.filterKeys { key -> key in known }
+            }
             pending.keys.forEach { session -> handle(session) }
         }
     }
@@ -192,8 +229,11 @@ internal class StudioCompactions(
         val claim = ContextOptimizationIntent.Public.Claim(session)
         if (machines.send(ContextOptimizationMachineKey, claim) != SendResult.Accepted) return null
         var continued: Continuation? = null
+        val compaction = (view.state.value as? ContextOptimizationState.Ready)?.running?.get(session)
+        val source = compaction?.sourceRequest?.let { Source(session, it) }
+        log.d { "Retain claimed compaction source" }
+        if (source != null) claimedSources.update { it + source }
         val result = try {
-            val compaction = (view.state.value as? ContextOptimizationState.Ready)?.running?.get(session)
             val chat = chats().firstOrNull { it.ref == session }?.takeIf { it.isCompactable }
             log.i {
                 "run compaction method=${compaction?.method ?: "none"} " +
@@ -203,9 +243,7 @@ internal class StudioCompactions(
                 CompactionResult.Unsupported
             } else {
                 val result = compact(chat, compaction)
-                val isContinued = result == CompactionResult.Compacted &&
-                    compaction.origin == CompactionOrigin.Agent && toggles.get(ContinuationBriefEnabled)
-                if (isContinued) continued = continuation(chat.id)
+                continued = continuationAfter(chat.id, result, compaction, source)
                 result
             }
         } catch (e: CancellationException) {
@@ -213,10 +251,25 @@ internal class StudioCompactions(
         } catch (e: Exception) {
             log.w(e) { "compaction of a studio chat failed" }
             CompactionResult.Failed
+        } finally {
+            forgetSource(source)
         }
         log.i { "compaction finished: $result" }
         machines.send(ContextOptimizationMachineKey, ContextOptimizationIntent.Public.Finished(session, result))
         return continued
+    }
+
+    private suspend fun continuationAfter(
+        chatId: String,
+        result: CompactionResult,
+        compaction: PendingCompaction,
+        source: Source?,
+    ): Continuation? {
+        val receipt = source?.let { receipts.value[it] }
+        val isContinuationAllowed =
+            result == CompactionResult.Compacted && compaction.origin == CompactionOrigin.Agent &&
+                receipt?.isContinuationAllowed == true && toggles.get(ContinuationBriefEnabled)
+        return if (isContinuationAllowed) continuation(chatId, receipt.environment) else null
     }
 
     private suspend fun compact(chat: StudioChatRecord, compaction: PendingCompaction): CompactionResult {
@@ -290,8 +343,13 @@ internal class StudioCompactions(
                 kind = WorktreeRunKind.Coding,
                 request = RequestId("$CONTINUE_PREFIX${Uuid.random()}"),
                 directives = listOf(CONTINUE_DIRECTIVE),
+                environment = continuation.environment,
             )
-            runs.run(host.value, request, waitForIdle = true)
+            runs.run(host.value, request, waitForIdle = true, beforeExecute = {
+                check(chats().firstOrNull { it.id == continuation.chatId }?.runRevision == continuation.runRevision) {
+                    "The conversation changed before its compaction continuation"
+                }
+            })
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -302,14 +360,14 @@ internal class StudioCompactions(
     }
 
     /** The chat at the run revision the compaction left it. */
-    private suspend fun continuation(chatId: String): Continuation? =
-        chats().firstOrNull { it.id == chatId }?.let { Continuation(it.id, it.runRevision) }
+    private suspend fun continuation(chatId: String, environment: StudioChatEnvironment?): Continuation? =
+        chats().firstOrNull { it.id == chatId }?.let { Continuation(it.id, it.runRevision, environment) }
 
     private suspend fun chats(): List<StudioChatRecord> = store.get(ChatsKey).orEmpty()
 }
 
 /** A chat whose agent asked for a compaction, at the run revision the compaction left it. */
-private data class Continuation(val chatId: String, val runRevision: Long)
+private data class Continuation(val chatId: String, val runRevision: Long, val environment: StudioChatEnvironment?)
 
 /** Request ids of host-started continuations. */
 private const val CONTINUE_PREFIX = "continue-"

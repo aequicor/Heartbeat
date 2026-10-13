@@ -14,6 +14,16 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfacePlace
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfacePrompt
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaces
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenAction
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.CardFocusRequestUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.isAttachmentPending
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.selectedNative
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraftCaret
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -95,9 +105,13 @@ class StudioSurfaceBinding internal constructor(
     /**
      * Handles prompts of surfaces while the studio is shown; [submit] sends the draft of a pane. A prompt joins a
      * draft the user started instead of replacing it, and is sent only into an empty composer and never as a host
-     * command, so a surface cannot send the user's text, attachments or a `/compact` or `/remember` directive.
+     * command. The submit callback checks the supplied guard under its submission state lock, so a surface cannot
+     * send the user's text, attachments or a `/compact` or `/remember` directive.
      */
-    internal suspend fun observe(pipeline: SurfacePipeline, submit: suspend (paneId: Int) -> Unit) {
+    internal suspend fun observe(
+        pipeline: SurfacePipeline,
+        submit: suspend (paneId: Int, isCurrent: (AiStudioScreenState) -> Boolean) -> Unit,
+    ) {
         coroutineScope {
             launch { surfaces.prompts.collect { prompt -> applyPrompt(pipeline, prompt, submit) } }
             surfaces.cardFocus.collect { request ->
@@ -111,18 +125,21 @@ class StudioSurfaceBinding internal constructor(
     private suspend fun applyPrompt(
         pipeline: SurfacePipeline,
         prompt: StudioSurfacePrompt,
-        submit: suspend (paneId: Int) -> Unit,
+        submit: suspend (paneId: Int, isCurrent: (AiStudioScreenState) -> Boolean) -> Unit,
     ) {
         val paneId = prompt.paneId
         if (paneId !in panes.value) return
         var isSent = false
         var isApplied = false
+        var expectedKey: String? = null
         pipeline.updateState {
             isSent = false
             isApplied = false
+            expectedKey = null
             if (!accepts(prompt)) return@updateState this
             isApplied = true
             val key = draftKey(paneId)
+            expectedKey = key
             val draft = drafts[key].orEmpty()
             val isEmpty = draft.isBlank() && draftAttachments[key].isNullOrEmpty()
             val text = if (draft.isBlank()) prompt.text else draft.trimEnd() + "\n\n" + prompt.text
@@ -131,7 +148,13 @@ class StudioSurfaceBinding internal constructor(
         }
         if (!isApplied) return
         log.i { "Interface prompt for pane $paneId submitted=$isSent" }
-        if (isSent) submit(paneId)
+        if (isSent) {
+            submit(paneId) { state ->
+                state.accepts(prompt) && state.draftKey(paneId) == expectedKey &&
+                    state.draft(paneId) == prompt.text && state.attachments(paneId).isEmpty() &&
+                    !state.isAttachmentPending(paneId)
+            }
+        }
     }
 
     /** Revalidates a delayed output against the screen state whose draft will actually change. */
@@ -151,8 +174,8 @@ internal fun AiStudioScreenState.withCardFocus(
 ): AiStudioScreenState {
     val pane = panes.firstOrNull { it.id == request.paneId } ?: return this
     val chatId = pane.sessionId ?: return this
-    if (selectedNative(chatId) != PrimarySubSession ||
-        (subSessions[chatId] ?: PrimarySubSession) != PrimarySubSession
+    if (selectedNative(chatId) != PRIMARY_SUB_SESSION ||
+        (subSessions[chatId] ?: PRIMARY_SUB_SESSION) != PRIMARY_SUB_SESSION
     ) {
         return this
     }

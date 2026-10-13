@@ -6,7 +6,7 @@
   "description": "__MSG_extDescription__",
   "default_locale": "en",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnR+YaSK3LYMrrjbSIzOGWpADp+J+i84RSfh5iKG5Qezhq6t9JVejmH313JO+XR7f8qw+v8jhOVdkECxV67K6JuScfehIWwUB6vflc5LUAmtdDGUpGRDaviTGb/vqs4XhJWOAj5CwOrEV7F6s/iETpQKet/d6tlISHK/tqy0KHE/tCPVH1VkTb4bC6DennesuX1lwpX4+PrCbBqR1aIt6tDfzTYeVU7mV+CHCRJp7hzJKGijVrnhfdjwqkoHxElAadevkDOOqhOG6AGVwuX/ABYEodTxJZGdGDl0pL/jLykKmmvlg+hUptatvMt3VjDunXF/eZ2d0QGoaupw108zBvQIDAQAB",
-  "minimum_chrome_version": "116",
+  "minimum_chrome_version": "119",
   "icons": {
     "16": "icons/heartbeat-16.png",
     "32": "icons/heartbeat-32.png",
@@ -24,8 +24,11 @@
     "service_worker": "src/background/service-worker.js",
     "type": "module"
   },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
   "side_panel": {
-    "default_path": "src/sidepanel/sidepanel.html"
+    "default_path": "src/sidepanel/panel.html"
   },
   "permissions": [
     "activeTab",

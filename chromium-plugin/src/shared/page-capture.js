@@ -1,6 +1,6 @@
 // @ts-check
 
-/** Limits the app accepts for a captured page (`ChatWireLimits`). */
+/** Limits the app accepts for a captured page (`PageCaptureLimits`). */
 export const PAGE_LIMITS = Object.freeze({ text: 200_000, selection: 20_000, title: 512, url: 4096 });
 
 /**
