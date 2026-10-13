@@ -3,7 +3,6 @@ package io.aequicor.heartbeat.feature.aistudio.impl.ui
 import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AppUpdateUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentPreviewUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ComposerCaretRequestUi
@@ -138,7 +137,6 @@ internal data class SidebarInput(
     val selectedId: String?,
     val newSessionProjectId: String?,
     val awaitingPermission: ImmutableSet<String> = persistentSetOf(),
-    val appUpdate: AppUpdateUi? = null,
 )
 
 /**
@@ -283,7 +281,6 @@ internal fun AiStudioScreenState.sidebarInput(): SidebarInput {
         awaitingPermission = permissions.map { it.sessionId }.toImmutableSet(),
         running = running,
         sidebar = sidebar,
-        appUpdate = appUpdate,
         selectedId = focused?.sessionId,
         newSessionProjectId = focused?.projectId
             ?: session(focused?.sessionId)?.projectId

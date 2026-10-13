@@ -70,6 +70,7 @@ internal fun StudioSidebar(
     focus: StudioFocusState,
     modifier: Modifier = Modifier,
     isDrawer: Boolean = false,
+    appUpdate: AppUpdateUi? = null,
 ) {
     val sidebar = input.sidebar
     val content = remember(input.projects, input.sessions, input.running, input.awaitingPermission, sidebar) {
@@ -87,7 +88,7 @@ internal fun StudioSidebar(
     )
     HbColumn(modifier.testTag("studio-sidebar"), gap = HbTheme.spacing.none) {
         SidebarHeader(
-            appUpdate = input.appUpdate,
+            appUpdate = appUpdate,
             isAgentRunning = input.running.isNotEmpty(),
             onUpdate = { onIntent(AiStudioScreenIntent.InstallAppUpdate) },
             onNew = { onIntent(AiStudioScreenIntent.NewSession(input.newSessionProjectId)) },
@@ -139,14 +140,22 @@ private fun SidebarHeader(
             gap = HbTheme.spacing.m,
         ) {
             if (!HbTheme.dimensions.isDesktop) HbStudioMark()
-            HbText(
-                stringResource(Res.string.studio_brand),
-                Modifier.weight(1f),
-                style = HbTheme.typography.label,
-                color = if (HbTheme.dimensions.isDesktop) HbTheme.colors.textSecondary else HbTheme.colors.textPrimary,
-                maxLines = 1,
-            )
-            appUpdate?.let { update -> AppUpdateButton(update, isAgentRunning, onUpdate) }
+            // The window controls are measured first: the brand and an update offer share what remains, and the
+            // brand fades before the offer does.
+            HbRow(Modifier.weight(1f), gap = HbTheme.spacing.m) {
+                HbText(
+                    stringResource(Res.string.studio_brand),
+                    Modifier.weight(1f),
+                    style = HbTheme.typography.label,
+                    color = if (HbTheme.dimensions.isDesktop) {
+                        HbTheme.colors.textSecondary
+                    } else {
+                        HbTheme.colors.textPrimary
+                    },
+                    maxLines = 1,
+                )
+                appUpdate?.let { update -> AppUpdateButton(update, isAgentRunning, onUpdate) }
+            }
             HbIconButton(
                 HbIcons.Plus,
                 stringResource(Res.string.sidebar_new_session),

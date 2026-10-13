@@ -195,6 +195,7 @@ private fun WideWorkspace(
                     focus = focus,
                     modifier = Modifier.width(HbTheme.dimensions.sidebarWidth).fillMaxHeight()
                         .background(HbTheme.surfaces.sidebar).studioSidebarFocus(focus),
+                    appUpdate = state.appUpdate,
                 )
             }
         }
@@ -303,6 +304,7 @@ private fun CompactWorkspace(
                     focus = focus,
                     modifier = Modifier.fillMaxSize().studioSidebarFocus(focus),
                     isDrawer = true,
+                    appUpdate = state.appUpdate,
                 )
             }
         }

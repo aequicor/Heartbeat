@@ -272,10 +272,9 @@
     <string name="app_update_retry">Повторить</string>
     <string name="app_update_manual">Скачать</string>
     <string name="app_update_downloading">Загрузка…</string>
-    <string name="app_update_downloading_percent">Загрузка %1$d%%</string>
     <string name="app_update_preparing">Подготовка…</string>
     <string name="app_update_restarting">Перезапуск…</string>
-    <string name="app_update_available">Доступна версия Heartbeat %1$s — обновить приложение</string>
+    <string name="app_update_available">Доступна версия Heartbeat %1$s</string>
     <string name="app_update_confirm_title">Обновить до %1$s?</string>
     <string name="app_update_confirm_message">Heartbeat перезапустится, чтобы установить обновление. Агенты, которые сейчас работают, прервут свои ходы.</string>
     <string name="app_update_confirm">Обновить и перезапустить</string>
@@ -288,4 +287,9 @@
     <string name="app_update_failure_storage">Не удалось сохранить обновление.</string>
     <string name="app_update_failure_install">Не удалось установить обновление.</string>
     <string name="app_update_failure_previous">Прошлое обновление не завершилось. Повторите его.</string>
+    <string name="app_update_percent">%1$d%%</string>
+    <string name="app_update_manual_reason">Доступна версия Heartbeat %1$s. Эта установка не может обновить себя сама: скачайте и установите релиз.</string>
+    <string name="app_update_downloading_status">Загрузка Heartbeat %1$s</string>
+    <string name="app_update_preparing_status">Подготовка Heartbeat %1$s к установке</string>
+    <string name="app_update_restarting_status">Перезапуск для установки Heartbeat %1$s</string>
 </resources>

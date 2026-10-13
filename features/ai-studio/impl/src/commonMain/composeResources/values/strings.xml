@@ -278,7 +278,6 @@
     <string name="app_update_retry">Retry</string>
     <string name="app_update_manual">Download</string>
     <string name="app_update_downloading">Downloading…</string>
-    <string name="app_update_downloading_percent">Downloading %1$d%%</string>
     <string name="app_update_preparing">Preparing…</string>
     <string name="app_update_restarting">Restarting…</string>
     <string name="app_update_available">Heartbeat %1$s is available</string>
@@ -294,4 +293,9 @@
     <string name="app_update_failure_storage">The update could not be saved.</string>
     <string name="app_update_failure_install">The update could not be installed.</string>
     <string name="app_update_failure_previous">The previous update did not finish. Retry it.</string>
+    <string name="app_update_percent">%1$d%%</string>
+    <string name="app_update_manual_reason">Heartbeat %1$s is available. This installation cannot replace itself: download and install the release.</string>
+    <string name="app_update_downloading_status">Downloading Heartbeat %1$s</string>
+    <string name="app_update_preparing_status">Preparing Heartbeat %1$s for installation</string>
+    <string name="app_update_restarting_status">Restarting to install Heartbeat %1$s</string>
 </resources>
