@@ -226,19 +226,23 @@ class AiStudioComponent(
         serializer = null,
         initialItems = { Items() },
         key = "interface-cards",
-    ) { id, context ->
+    ) { key, context ->
+        val (paneId, cardId) = key.split(':', limit = 2)
         hosts.stack(
             context = context,
             parent = navigator,
-            name = "interface-card-$id",
-            initial = listOf(ServiceUiCardRoute(id)),
+            name = "interface-card-$key",
+            initial = listOf(ServiceUiCardRoute(cardId, surfaces.host(paneId.toInt()))),
             local = emptyList(),
             global = GlobalRoutes.Only(setOf(ServiceUiCardRoute::class)),
         )
     }
     private val cardHosts = MutableStateFlow<Map<String, StackHost>>(emptyMap())
 
-    /** Hosts of the cards shown in the replies of open transcripts, by card id, while interfaces are on. */
+    /**
+     * Hosts of the cards shown in the reply feeds of panes by [studioCardKey], while interfaces are on: a card draws in
+     * the place of its pane, so its prompts go to that pane.
+     */
     val cards: StateFlow<Map<String, StackHost>> = cardHosts.asStateFlow()
 
     /**
@@ -316,7 +320,7 @@ class AiStudioComponent(
             combine(
                 surfacePanes.cardIds,
                 surfaces.availability,
-            ) { ids, isOn -> if (isOn) ids.sorted() else emptyList() }
+            ) { panes, isOn -> if (isOn) cardKeys(panes) else emptyList() }
                 .distinctUntilChanged()
                 .collect { shown ->
                     cardNavigation.navigate { Items(shown, shown.associateWith { ActiveLifecycleState.RESUMED }) }
@@ -506,4 +510,15 @@ internal fun studioStartSlotKey(paneId: Int): String = studioSlotKey(paneId, UiS
 private fun studioSlotOf(key: String): Pair<Int, UiSlot> {
     val (pane, slot) = key.split('.', limit = 2)
     return pane.toInt() to UiSlot.entries.first { it.name.lowercase() == slot }
+}
+
+private fun cardKeys(panes: Map<Int, Set<String>>): List<String> =
+    panes.flatMap { (paneId, ids) -> ids.map { studioCardKey(paneId, it) } }.sorted()
+
+/** Key of the card [cardId] in the reply feed of pane [paneId] in [AiStudioComponent.cards]. */
+internal fun studioCardKey(paneId: Int, cardId: String): String = "$paneId:$cardId"
+
+/** The cards of pane [paneId] among [cards], by card id. */
+internal fun <T> paneCards(cards: Map<String, T>, paneId: Int): Map<String, T> = "$paneId:".let { prefix ->
+    cards.filterKeys { it.startsWith(prefix) }.mapKeys { it.key.removePrefix(prefix) }
 }

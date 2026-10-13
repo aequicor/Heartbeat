@@ -38,15 +38,15 @@ class StudioSurfaceBinding internal constructor(
 ) {
     private val log = Log.tag("StudioSurfaceBinding")
     private val panes = MutableStateFlow<Map<Int, PaneSurfaceUi>>(emptyMap())
-    private val cards = MutableStateFlow<Set<String>>(emptySet())
+    private val cards = MutableStateFlow<Map<Int, Set<String>>>(emptyMap())
 
     private var seen: SeenInputs? = null
 
     /** The open panes, for the slot hosts of the component. */
     internal val openPanes: StateFlow<Map<Int, PaneSurfaceUi>> = panes.asStateFlow()
 
-    /** Cards shown in the replies of the open transcripts, for the card hosts of the component. */
-    internal val cardIds: StateFlow<Set<String>> = cards.asStateFlow()
+    /** Cards shown in the reply feed of each pane, for the card hosts of the component. */
+    internal val cardIds: StateFlow<Map<Int, Set<String>>> = cards.asStateFlow()
 
     init {
         // Places live as long as the studio window, not its subscription: a panel stays open across settings.
@@ -74,9 +74,10 @@ class StudioSurfaceBinding internal constructor(
             log.v { "Interface panes: ${panes.value.size} -> ${next.size}" }
             panes.value = next
         }
-        val shown = state.transcripts.values.flatMapTo(mutableSetOf()) { messages ->
-            messages.flatMap { (it as? MessageUi.Reply)?.cardIds.orEmpty() }
-        }
+        val shown = state.panes.associate { pane ->
+            val messages = pane.sessionId?.let { state.transcripts[it] }.orEmpty()
+            pane.id to messages.flatMapTo(mutableSetOf()) { (it as? MessageUi.Reply)?.cardIds.orEmpty() }
+        }.filterValues { it.isNotEmpty() }
         if (cards.value != shown) {
             log.v { "Interface cards: ${cards.value.size} -> ${shown.size}" }
             cards.value = shown

@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.studioCardKey
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.studioComposerSlotKey
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.studioStartSlotKey
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
@@ -106,12 +107,16 @@ class StudioSurfaceSlotsUiTest {
                     {},
                     PaneLayout(isSplitAllowed = false, isCloseAllowed = false, isCompact = false),
                     Modifier.fillMaxSize(),
-                    cards = persistentMapOf("c_map" to Slot("card")),
+                    cards = persistentMapOf(
+                        studioCardKey(0, "c_map") to Slot("card"),
+                        studioCardKey(1, "c_map") to Slot("other"),
+                    ),
                 )
             }
         }
 
         onNodeWithTag("slot-card").assertIsDisplayed()
+        onNodeWithTag("slot-other").assertDoesNotExist()
     }
 
     @Test

@@ -58,6 +58,7 @@ import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.paneCards
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.studioComposerSlotKey
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.studioStartSlotKey
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
@@ -102,6 +103,7 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.collections.immutable.toImmutableMap
 import org.jetbrains.compose.resources.stringResource
 import kotlin.time.Duration
 
@@ -129,6 +131,7 @@ internal fun StudioPaneView(
     val pane = content.pane
     val composerSlot = slots[studioComposerSlotKey(pane.id)]
     val startSlot = slots[studioStartSlotKey(pane.id)]
+    val ownCards = remember(cards, pane.id) { paneCards(cards, pane.id).toImmutableMap() }
     var headerHeight by remember { mutableIntStateOf(0) }
     var footerHeight by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
@@ -170,7 +173,7 @@ internal fun StudioPaneView(
                     timelineState = timelineState,
                     messages = transcript,
                     checklists = checklists,
-                    cards = cards,
+                    cards = ownCards,
                     worktree = worktree,
                     section = sectionTitle(content.project, content.session),
                     calendar = content.calendar,
