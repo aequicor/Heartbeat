@@ -40,7 +40,7 @@ function fakeBrowser() {
         if (!tabs.has(id)) throw new Error('No tab');
         return tabs.get(id);
       },
-      query: async () => [tabs.get(1)],
+      query: async (query) => query.active ? [tabs.get(1)] : [...tabs.values()],
       create: async () => {
         const tab = { id: nextTab++, url: 'about:blank', title: '', status: 'complete' };
         tabs.set(tab.id, tab);
@@ -48,7 +48,10 @@ function fakeBrowser() {
       },
       update: async (/** @type {number} */ id, /** @type {any} */ change) => commands.push([id, 'update', change]),
       remove: async (/** @type {number} */ id) => tabs.delete(id),
-      group: async () => 7,
+      group: async ({ tabIds }) => {
+        for (const id of tabIds) tabs.get(id).groupId = 7;
+        return 7;
+      },
     },
     tabGroups: { update: async (/** @type {number} */ id, /** @type {any} */ change) => commands.push([id, 'group', change]) },
   };
@@ -361,4 +364,105 @@ test('handover refuses pending navigation even while the committed URL still mat
     assert.equal(control.size, 0);
     assert.equal(chrome.debugger.attached.size, 0);
   }
+});
+
+
+test('agent tabs remain discoverable by their owner after the app reconnects', async () => {
+  const { control, chrome, tabs } = setup();
+  await control.handle('tabs.open', { owner: 'chat-a' });
+  await control.handle('tabs.navigate', { tabId: '10', url: 'https://example.com/' });
+  await control.releaseAll();
+  assert.equal(chrome.debugger.attached.size, 0);
+  assert.deepEqual((await control.handle('tabs.owned', { owner: 'chat-a' })).tabs.map(t => t.id), ['10']);
+  assert.deepEqual(await control.handle('tabs.owned', { owner: 'chat-b' }), { tabs: [] });
+  await control.handle('tabs.recover', { owner: 'chat-a', tabId: '10', expectedUrl: 'https://example.com/' });
+  assert.equal(chrome.debugger.attached.has(10), true);
+  await control.handle('tabs.release', { tabId: '10' });
+  assert.deepEqual(await control.handle('tabs.owned', { owner: 'chat-a' }), { tabs: [] });
+  assert.equal(tabs.has(10), true);
+});
+
+test('moving an agent tab out of its group or revoking control removes recovery ownership', async () => {
+  const { control, chrome, tabs } = setup();
+  await control.handle('tabs.open', { owner: 'chat-a' });
+  tabs.get(10).groupId = 8;
+  assert.deepEqual(await control.handle('tabs.owned', { owner: 'chat-a' }), { tabs: [] });
+  await control.handle('tabs.open', { owner: 'chat-a' });
+  chrome.debugger.onDetach.emit({ tabId: 11 }, 'canceled_by_user');
+  assert.deepEqual(await control.handle('tabs.owned', { owner: 'chat-a' }), { tabs: [] });
+  await control.handle('tabs.open', { owner: 'chat-a' });
+  await control.releaseAll();
+  await control.revokeAll();
+  assert.deepEqual(await control.handle('tabs.owned', { owner: 'chat-a' }), { tabs: [] });
+});
+
+
+test('recovery rechecks ownership after listing and cannot reclaim a released tab', async () => {
+  const { control } = setup();
+  await control.handle('tabs.open', { owner: 'chat-a' });
+  await control.releaseAll();
+  await assert.rejects(control.handle('tabs.recover', {
+    owner: 'chat-b', tabId: '10', expectedUrl: 'about:blank',
+  }));
+  await control.handle('tabs.recover', { owner: 'chat-a', tabId: '10', expectedUrl: 'about:blank' });
+  await control.handle('tabs.release', { tabId: '10' });
+  await assert.rejects(control.handle('tabs.recover', {
+    owner: 'chat-a', tabId: '10', expectedUrl: 'about:blank',
+  }));
+});
+
+
+test('the active page can be read without handing over or retaining input control', async () => {
+  const { control, chrome, commands } = setup();
+  const original = chrome.debugger.sendCommand;
+  chrome.debugger.sendCommand = async (target, method, params) => {
+    if (method === 'Runtime.evaluate') return { result: { value: {
+      url: 'https://user.example/', title: 'Mail', text: 'Current page', selection: '',
+    } } };
+    return original(target, method, params);
+  };
+  const page = await control.handle('tabs.readActive', {});
+  assert.equal(page.text, 'Current page');
+  assert.equal(page.readOnly, true);
+  assert.equal(chrome.debugger.attached.size, 0);
+  assert.equal(control.size, 0);
+  assert.equal(commands.some(it => it[1].startsWith('Input.')), false);
+  assert.equal(commands.some(it => it[1] === 'Fetch.enable'), false);
+  await assert.rejects(control.handle('cdp.send', { tabId: '1', method: 'Input.insertText', params: { text: 'x' } }));
+});
+
+test('a failed active-page read releases temporary control and never returns a different page', async () => {
+  const { control, chrome, tabs } = setup();
+  const original = chrome.debugger.sendCommand;
+  chrome.debugger.sendCommand = async (target, method, params) => {
+    if (method === 'Runtime.evaluate') {
+      tabs.get(1).url = 'https://changed.example/';
+      return { result: { value: { url: 'https://user.example/', text: 'Stale' } } };
+    }
+    return original(target, method, params);
+  };
+  await assert.rejects(control.handle('tabs.readActive', {}));
+  assert.equal(chrome.debugger.attached.size, 0);
+});
+
+
+test('concurrent group creation records each tabs actual group rather than the last global group', async () => {
+  const { control, chrome, tabs } = setup();
+  let releaseFirst;
+  const first = new Promise(resolve => { releaseFirst = resolve; });
+  chrome.tabs.group = async ({ tabIds }) => {
+    const id = tabIds[0];
+    tabs.get(id).groupId = id;
+    return id;
+  };
+  chrome.tabGroups.update = async (id) => {
+    if (id === 10) await first;
+    else releaseFirst();
+  };
+  await Promise.all([
+    control.handle('tabs.open', { owner: 'a' }),
+    control.handle('tabs.open', { owner: 'b' }),
+  ]);
+  assert.deepEqual((await control.handle('tabs.owned', { owner: 'a' })).tabs.map(t => t.id), ['10']);
+  assert.deepEqual((await control.handle('tabs.owned', { owner: 'b' })).tabs.map(t => t.id), ['11']);
 });

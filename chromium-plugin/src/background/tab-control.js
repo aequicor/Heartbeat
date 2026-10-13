@@ -1,4 +1,5 @@
 // @ts-check
+import { readPage, normalizePage } from '../shared/page-capture.js';
 import { BridgeError, ErrorCode } from '../shared/protocol.js';
 import { isControllableUrl } from './url-policy.js';
 
@@ -29,9 +30,9 @@ const GROUP_TITLE = 'Heartbeat';
 
 /**
  * Drives tabs for Heartbeat agents. The debugger is attached only to tabs opened for the agent (kept in the
- * «Heartbeat» group of the current window) or handed over by the user, and only while the user allows agent
- * control. Every document load in a controlled tab waits for the app's navigation guard and fails if it does not
- * answer. Script evaluation is limited to isolated worlds this controller created, so the agent never runs code in
+ * «Heartbeat» group of the current window), handed over by the user, or temporarily for an active-page read,
+ * and only while the user allows agent control. Temporary reads do not intercept navigation. Every document load
+ * in a fully controlled tab waits for the app's navigation guard and fails if it does not answer. Script evaluation is limited to isolated worlds this controller created, so the agent never runs code in
  * the page's own world. The infobar Chrome shows for the debugger is the visible signal of control; cancelling it
  * revokes the tab.
  * @param {Options} options
@@ -42,6 +43,9 @@ export function createTabControl({ chrome, notify, isAllowed, timers = globalThi
   /** @type {number | null} */
   let group = null;
   let generation = 0;
+  // Ownership survives app reconnects; explicit release/revocation removes it. Never infer it from a group title.
+  /** @type {Map<number, { owner: string, groupId: number }>} */
+  const owned = new Map();
   /** @type {Map<number, { generation: number, cancelled: boolean }>} */
   const acquiring = new Map();
   /** @type {Map<number, Promise<unknown>>} */
@@ -56,12 +60,14 @@ export function createTabControl({ chrome, notify, isAllowed, timers = globalThi
   chrome.debugger.onDetach.addListener((/** @type {any} */ source, /** @type {string} */ reason) => {
     invalidateTab(source.tabId);
     if (!controlled.has(source.tabId)) return;
+    owned.delete(source.tabId);
     forget(source.tabId);
     notify(reason === 'target_closed' ? 'tab.removed' : 'tab.revoked', { tabId: String(source.tabId) });
     summarize();
   });
   chrome.tabs.onRemoved.addListener((/** @type {number} */ tabId) => {
     invalidateTab(tabId);
+    owned.delete(tabId);
     if (!controlled.has(tabId)) return;
     forget(tabId);
     notify('tab.removed', { tabId: String(tabId) });
@@ -129,7 +135,7 @@ export function createTabControl({ chrome, notify, isAllowed, timers = globalThi
   }
 
   /** @param {number} tabId @param {number} expected */
-  async function attach(tabId, expected) {
+  async function attach(tabId, expected, guard = true) {
     checkGeneration(expected);
     if (controlled.has(tabId)) return;
     const attempt = { generation: expected, cancelled: false };
@@ -149,7 +155,7 @@ export function createTabControl({ chrome, notify, isAllowed, timers = globalThi
       const tree = await send(tabId, 'Page.getFrameTree');
       check();
       tab.mainFrame = tree?.frameTree?.frame?.id ?? null;
-      await send(tabId, 'Fetch.enable', { patterns: [{ resourceType: 'Document', requestStage: 'Request' }] });
+      if (guard) await send(tabId, 'Fetch.enable', { patterns: [{ resourceType: 'Document', requestStage: 'Request' }] });
       check();
       summarize();
     } catch (error) {
@@ -246,14 +252,16 @@ export function createTabControl({ chrome, notify, isAllowed, timers = globalThi
 
   /** @param {number} tabId */
   async function joinGroup(tabId) {
+    let id;
     try {
-      group = await chrome.tabs.group({ tabIds: [tabId], ...(group === null ? {} : { groupId: group }) });
-      await chrome.tabGroups.update(group, { title: GROUP_TITLE, color: 'pink' });
+      id = await chrome.tabs.group({ tabIds: [tabId], ...(group === null ? {} : { groupId: group }) });
     } catch (error) {
       // The group was closed by the user meanwhile: start a new one.
-      group = await chrome.tabs.group({ tabIds: [tabId] });
-      await chrome.tabGroups.update(group, { title: GROUP_TITLE, color: 'pink' });
+      id = await chrome.tabs.group({ tabIds: [tabId] });
     }
+    group = id;
+    await chrome.tabGroups.update(id, { title: GROUP_TITLE, color: 'pink' });
+    return id;
   }
 
   /** @param {Record<string, any>} params */
@@ -276,16 +284,68 @@ export function createTabControl({ chrome, notify, isAllowed, timers = globalThi
         const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
         return { tab: tab && isControllableUrl(tab.url) ? { id: String(tab.id), url: tab.url, title: tab.title ?? '' } : null };
       }
+      case 'tabs.readActive': {
+        const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        if (!active || !isControllableUrl(active.url)) {
+          throw new BridgeError(ErrorCode.NO_SUCH_TAB, 'No active web page');
+        }
+        const tabId = active.id;
+        const expectedUrl = active.url;
+        return claim(tabId, async () => {
+          const wasControlled = controlled.has(tabId);
+          try {
+            requireApprovedPage(await chrome.tabs.get(tabId), expectedUrl);
+            await attach(tabId, expected, false);
+            const tree = await send(tabId, 'Page.getFrameTree');
+            const world = await send(tabId, 'Page.createIsolatedWorld', {
+              frameId: tree.frameTree.frame.id, worldName: 'heartbeat-active-read',
+            });
+            // Bound the value in the renderer before it crosses native messaging.
+            const result = await send(tabId, 'Runtime.evaluate', {
+              contextId: world.executionContextId, returnByValue: true,
+              expression: `(() => { const p = (${readPage.toString()})(); p.text = p.text.slice(0, 32000); ` +
+                `p.selection = p.selection.slice(0, 4000); p.title = p.title.slice(0, 512); return p; })()`,
+            });
+            checkGeneration(expected);
+            requireApprovedPage(await chrome.tabs.get(tabId), expectedUrl);
+            const [current] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+            if (current?.id !== tabId) throw new BridgeError(ErrorCode.FORBIDDEN, 'The active tab changed');
+            const page = normalizePage(result?.result?.value);
+            if (!page || page.url !== expectedUrl) throw new BridgeError(ErrorCode.FORBIDDEN, 'Page could not be read');
+            return { ...page, tabId: String(tabId), readOnly: true };
+          } finally {
+            if (!wasControlled) await detach(tabId);
+            summarize();
+          }
+        });
+      }
+      case 'tabs.owned': {
+        const result = [];
+        for (const tab of await chrome.tabs.query({})) {
+          const claim = owned.get(tab.id);
+          if (!claim || claim.owner !== params.owner) continue;
+          if (tab.groupId !== claim.groupId) {
+            owned.delete(tab.id);
+            continue;
+          }
+          result.push({ id: String(tab.id), url: tab.url ?? '', title: tab.title ?? '' });
+        }
+        checkGeneration(expected);
+        return { tabs: result };
+      }
       case 'tabs.open': {
         // Blank first: the app learns the tab before its first page load passes the guard.
         const created = await chrome.tabs.create({ url: 'about:blank', active: false });
         return claim(created.id, async () => {
           try {
             checkGeneration(expected);
-            await joinGroup(created.id);
+            const groupId = await joinGroup(created.id);
             checkGeneration(expected);
             await attach(created.id, expected);
             checkGeneration(expected);
+            if (typeof params.owner === 'string' && params.owner) {
+              owned.set(created.id, { owner: params.owner, groupId });
+            }
             return { tab: { id: String(created.id), url: '', title: '' } };
           } catch (error) {
             await detach(created.id);
@@ -295,16 +355,30 @@ export function createTabControl({ chrome, notify, isAllowed, timers = globalThi
           }
         });
       }
+      case 'tabs.recover':
       case 'tabs.control': {
         const tabId = Number(params.tabId);
         return claim(tabId, async () => {
           checkGeneration(expected);
           const tab = await chrome.tabs.get(tabId);
-          requireApprovedPage(tab, params.expectedUrl);
+          const recovery = method === 'tabs.recover';
+          const checkOwner = async () => {
+            if (!recovery) return;
+            const current = await chrome.tabs.get(tabId);
+            const claim = owned.get(tabId);
+            if (!claim || claim.owner !== params.owner || current.groupId !== claim.groupId) {
+              throw new BridgeError(ErrorCode.FORBIDDEN, 'Tab no longer belongs to this agent group');
+            }
+          };
+          await checkOwner();
+          requireApprovedPage(tab, params.expectedUrl, recovery);
           const alreadyControlled = controlled.has(tabId);
           try {
             await attach(tabId, expected);
-            const result = await describe(tabId, params.expectedUrl);
+            const current = await chrome.tabs.get(tabId);
+            requireApprovedPage(current, params.expectedUrl, recovery);
+            await checkOwner();
+            const result = await describe(tabId);
             checkGeneration(expected);
             if (!controlled.has(tabId) || result.url !== params.expectedUrl) {
               throw new BridgeError(ErrorCode.FORBIDDEN, 'The approved page changed');
@@ -323,11 +397,13 @@ export function createTabControl({ chrome, notify, isAllowed, timers = globalThi
         await chrome.tabs.update(tabIdOf(params), { active: true });
         return {};
       case 'tabs.release':
+        owned.delete(tabIdOf(params));
         await detach(tabIdOf(params));
         summarize();
         return {};
       case 'tabs.close': {
         const tabId = tabIdOf(params);
+        owned.delete(tabId);
         await detach(tabId);
         await chrome.tabs.remove(tabId);
         summarize();
@@ -376,6 +452,7 @@ export function createTabControl({ chrome, notify, isAllowed, timers = globalThi
   /** Releases every controlled tab, telling the app each one was revoked. */
   async function revokeAll() {
     generation++;
+    owned.clear();
     const tabs = [...controlled.keys()];
     for (const tabId of tabs) {
       await detach(tabId);
@@ -412,8 +489,8 @@ function requireUrl(url) {
 
 /** A navigation issued before debugger attachment is not covered by its new Fetch guard.
  * @param {any} tab @param {unknown} expectedUrl */
-function requireApprovedPage(tab, expectedUrl) {
-  if (!isControllableUrl(tab.url) || tab.url !== expectedUrl || tab.pendingUrl) {
+function requireApprovedPage(tab, expectedUrl, allowBlank = false) {
+  if (!(isControllableUrl(tab.url) || (allowBlank && tab.url === 'about:blank')) || tab.url !== expectedUrl || tab.pendingUrl) {
     throw new BridgeError(ErrorCode.FORBIDDEN, 'The approved page changed');
   }
 }

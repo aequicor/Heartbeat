@@ -166,7 +166,7 @@
     "message": "Let Heartbeat agents control this browser"
   },
   "agentConsentHint": {
-    "message": "Agents open their tabs in the Heartbeat group and use your tabs only when you approve it in Heartbeat."
+    "message": "Agents open their tabs in the Heartbeat group and can read the current page. Controlling your tab requires a separate approval in Heartbeat."
   },
   "agentControlling": {
     "message": "Agents control tabs: $COUNT$",
