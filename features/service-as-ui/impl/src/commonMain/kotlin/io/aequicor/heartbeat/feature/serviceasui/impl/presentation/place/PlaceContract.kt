@@ -26,6 +26,9 @@ internal data class PlaceState(
     val modal: PlaceSurfaceUi? = null,
     val panelTitle: String? = null,
 ) : MVIState {
+    /** Whether the place shows nothing: no surface, launcher or modal. */
+    val isEmpty: Boolean get() = surfaces.isEmpty() && launchers.isEmpty() && modal == null
+
     override fun toString(): String =
         "PlaceState(surfaces=${surfaces.size}, launchers=${launchers.size}, hasModal=${modal != null})"
 }

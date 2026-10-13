@@ -52,6 +52,8 @@ internal fun PlaceView(
     isPanel: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    // An empty slot emits nothing, so the host's spacing around it stays as without interfaces.
+    if (!isPanel && state.isEmpty) return
     HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.m) {
         state.panelTitle?.takeIf { isPanel }?.let { title -> PanelHeader(title, onIntent) }
         val scroll = rememberScrollState()

@@ -1,9 +1,12 @@
 package io.aequicor.heartbeat.feature.serviceasui.impl.ui
 
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
@@ -49,6 +52,16 @@ class PlaceUiTest {
         onNodeWithContentDescription("Close the panel").performClick()
         onNodeWithText("PR map").performClick()
         assertEquals(listOf(PlaceIntent.ClosePanel, PlaceIntent.Launch("harness:h_1:map")), intents)
+    }
+
+    @Test
+    fun `an empty slot draws nothing`() = runSkikoComposeUiTest(size = Size(480f, 200f)) {
+        setContent {
+            HbTheme(darkTheme = false) {
+                PlaceView(PlaceState(), persistentMapOf(), {}, isPanel = false, Modifier.testTag("slot"))
+            }
+        }
+        onNodeWithTag("slot").assertDoesNotExist()
     }
 
     @Test
