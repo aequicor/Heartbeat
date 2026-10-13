@@ -4,7 +4,7 @@ import io.aequicor.heartbeat.feature.chromiumbridge.protocol.WirePage
 import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
 import pro.respawn.flowmvi.api.MVIState
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent as StudioIntent
 
 /** Browser-only presentation state around the shared studio screen. */
 internal data class StudioPanelState(

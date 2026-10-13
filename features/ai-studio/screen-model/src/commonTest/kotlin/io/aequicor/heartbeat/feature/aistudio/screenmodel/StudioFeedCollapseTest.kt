@@ -1,11 +1,5 @@
-package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
+package io.aequicor.heartbeat.feature.aistudio.screenmodel
 
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedCollapseUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.ReplyPartUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.ToolStatusUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.ToolUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.collapsed
 import kotlinx.collections.immutable.persistentListOf
 import kotlin.test.Test
 import kotlin.test.assertEquals

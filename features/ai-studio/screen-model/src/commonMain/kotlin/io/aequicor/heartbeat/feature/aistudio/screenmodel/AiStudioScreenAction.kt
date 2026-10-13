@@ -1,4 +1,4 @@
-package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
+package io.aequicor.heartbeat.feature.aistudio.screenmodel
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable

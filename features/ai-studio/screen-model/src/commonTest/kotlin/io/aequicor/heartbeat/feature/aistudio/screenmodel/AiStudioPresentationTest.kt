@@ -1,17 +1,5 @@
-package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
+package io.aequicor.heartbeat.feature.aistudio.screenmodel
 
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.EnvironmentUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarMode
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.collapsed
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.reduce
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.sidebarContent
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toImmutableList

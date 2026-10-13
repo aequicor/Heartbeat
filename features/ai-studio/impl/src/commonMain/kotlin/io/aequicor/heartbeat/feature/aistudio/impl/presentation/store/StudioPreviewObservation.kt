@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAttachmentPreviews
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenAction
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.ExperimentalCoroutinesApi

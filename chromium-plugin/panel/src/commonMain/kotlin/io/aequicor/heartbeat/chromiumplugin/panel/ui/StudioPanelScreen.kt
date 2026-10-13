@@ -36,7 +36,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenui.StudioHostCapabilities
 import org.jetbrains.compose.resources.stringResource
 import pro.respawn.flowmvi.api.Store
 import pro.respawn.flowmvi.dsl.collect
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent as StudioIntent
 
 /** The shared studio, its connection state, capture gestures and manual recovery after a replaced view. */
 @Composable

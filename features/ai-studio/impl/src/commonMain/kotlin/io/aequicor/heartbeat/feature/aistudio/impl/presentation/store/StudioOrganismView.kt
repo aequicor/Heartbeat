@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenAction
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi

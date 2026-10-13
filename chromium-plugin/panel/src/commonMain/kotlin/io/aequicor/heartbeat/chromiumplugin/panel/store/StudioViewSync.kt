@@ -5,7 +5,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewFrame
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewMirror
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.predict
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent as StudioIntent
 
 /** A panel intent numbered for the app, which applies each [seq] once and in order. */
 internal data class PendingIntent(val seq: Long, val intent: StudioIntent)

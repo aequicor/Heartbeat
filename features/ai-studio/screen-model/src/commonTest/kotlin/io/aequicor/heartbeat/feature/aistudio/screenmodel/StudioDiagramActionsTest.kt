@@ -1,14 +1,5 @@
-package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
+package io.aequicor.heartbeat.feature.aistudio.screenmodel
 
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.DiagramDraftReasonUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.DiagramSubmissionUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.appendDiagramDraft
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.canUseDiagramActions
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.finishDiagramSubmission
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlin.test.Test

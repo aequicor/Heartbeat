@@ -31,7 +31,7 @@ import pro.respawn.flowmvi.plugins.init
 import pro.respawn.flowmvi.plugins.reduce
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent as StudioIntent
 
 private val log = Log.tag("Panel/Studio")
 
