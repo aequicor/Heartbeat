@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.appupdate.impl.data
 
 import dev.zacsweers.metro.Inject
+import io.aequicor.heartbeat.core.common.release.sha256FromSums
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.appupdate.api.AppRelease
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateFailure

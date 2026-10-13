@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.appupdate.impl.data
 
+import io.aequicor.heartbeat.core.network.release.ReleaseDownload
+import io.aequicor.heartbeat.core.network.release.VerifiedReleaseDownloader
 import io.aequicor.heartbeat.feature.appupdate.api.AppRelease
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateFailure
 import io.aequicor.heartbeat.feature.appupdate.api.AppVersion
@@ -8,8 +10,6 @@ import io.aequicor.heartbeat.feature.appupdate.impl.domain.GitHubRepository
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.InstallProgressSink
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.PreviousAttempt
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.ReleasePlatform
-import io.ktor.client.engine.mock.respond
-import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
@@ -127,9 +127,16 @@ class DesktopUpdateInstallerTest {
     private fun installer(file: Path, launcher: Path) = DesktopUpdateInstaller(
         workspace = workspace,
         downloader = UpdateDownloader(
-            releaseClient {
-                requests++
-                respond(file.readBytes(), HttpStatusCode.OK)
+            object : VerifiedReleaseDownloader {
+                override suspend fun download(
+                    request: ReleaseDownload,
+                    target: Path,
+                    progress: suspend (Long, Long?) -> Unit,
+                ) {
+                    requests++
+                    Files.copy(file, target)
+                    progress(Files.size(target), request.size)
+                }
             },
             TestDispatchers,
         ),

@@ -1,15 +1,18 @@
 package io.aequicor.heartbeat.feature.appupdate.impl.data
 
+import io.aequicor.heartbeat.core.common.release.GitHubRelease
+import io.aequicor.heartbeat.core.network.release.ReleaseException
+import io.aequicor.heartbeat.core.network.release.ReleaseFailure
+import io.aequicor.heartbeat.core.network.release.ReleaseSource
 import io.aequicor.heartbeat.feature.appupdate.api.AppRelease
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateFailure
 import io.aequicor.heartbeat.feature.appupdate.api.AppVersion
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.GitHubRepository
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.ReleasePlatform
-import io.ktor.client.engine.mock.respond
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -33,12 +36,28 @@ class AppReleasesTest {
     private fun releases(vararg bodies: Pair<String, Pair<HttpStatusCode, String>>, requested: MutableList<String>) =
         AppReleases(
             GitHubReleaseClient(
-                dispatchers = TestDispatchers,
-                client = releaseClient { request ->
-                    val url = request.url.toString()
-                    requested += url
-                    val (status, body) = bodies.toMap().getValue(url)
-                    respond(body, status, headersOf(HttpHeaders.ContentType, "application/json"))
+                source = object : ReleaseSource {
+                    override suspend fun latestGitHubRelease(owner: String, repository: String): GitHubRelease {
+                        val body = answer("https://api.github.com/repos/$owner/$repository/releases/latest")
+                        return try {
+                            Json { ignoreUnknownKeys = true }.decodeFromString(body)
+                        } catch (e: SerializationException) {
+                            throw ReleaseException(
+                                ReleaseFailure.InvalidMetadata,
+                                origin = e::class.simpleName,
+                            )
+                        }
+                    }
+                    override suspend fun document(url: String, allowedHosts: Set<String>, maxBytes: Int): String =
+                        answer(url)
+                    private fun answer(url: String): String {
+                        requested += url
+                        val (status, body) = bodies.toMap().getValue(url)
+                        if (status != HttpStatusCode.OK) {
+                            throw ReleaseException(ReleaseFailure.Http, status.value)
+                        }
+                        return body
+                    }
                 },
             ),
         )
@@ -89,6 +108,8 @@ class AppReleasesTest {
             HttpStatusCode.OK to release(tag = "v1.3.0"),
             HttpStatusCode.OK to release(tag = "152.0.6-hb2"),
             HttpStatusCode.NotFound to "",
+            HttpStatusCode.OK to release().replace("\"draft\": false", "\"draft\": true"),
+            HttpStatusCode.OK to release().replace("\"prerelease\": false", "\"prerelease\": true"),
         ).forEach { answer ->
             assertNull(
                 releases(latest to answer, requested = mutableListOf())
@@ -119,6 +140,10 @@ class AppReleasesTest {
         val latest = "https://api.github.com/repos/aequicor/Heartbeat/releases/latest"
         assertUpdateFailure(AppUpdateFailure.RateLimited) {
             releases(latest to (HttpStatusCode.Forbidden to ""), requested = mutableListOf())
+                .newer(repository, installed, ReleasePlatform.MacOsArm64)
+        }
+        assertUpdateFailure(AppUpdateFailure.Network) {
+            releases(latest to (HttpStatusCode.Gone to ""), requested = mutableListOf())
                 .newer(repository, installed, ReleasePlatform.MacOsArm64)
         }
         assertUpdateFailure(AppUpdateFailure.Network) {

@@ -1,78 +1,93 @@
 package io.aequicor.heartbeat.feature.appupdate.impl.data
 
+import io.aequicor.heartbeat.core.common.release.GitHubDownloadHosts
+import io.aequicor.heartbeat.core.network.release.ReleaseDownload
+import io.aequicor.heartbeat.core.network.release.ReleaseException
+import io.aequicor.heartbeat.core.network.release.ReleaseFailure
+import io.aequicor.heartbeat.core.network.release.VerifiedReleaseDownloader
 import io.aequicor.heartbeat.feature.appupdate.api.AppRelease
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateFailure
-import io.ktor.client.engine.mock.respond
-import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.headersOf
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
-import java.nio.file.Files
-import kotlin.io.path.createTempDirectory
-import kotlin.io.path.deleteRecursively
-import kotlin.io.path.exists
-import kotlin.io.path.readBytes
-import kotlin.test.AfterTest
+import java.nio.file.Path
 import kotlin.test.Test
-import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 
-@OptIn(kotlin.io.path.ExperimentalPathApi::class)
 class UpdateDownloaderTest {
-    private val directory = createTempDirectory("app-update-download")
-    private val bytes = ByteArray(200_000) { (it % 251).toByte() }
-    private val release = AppRelease(
-        version = "1.4.0",
-        assetName = "Heartbeat-1.4.0-macos-arm64.dmg",
-        url = "https://github.com/aequicor/Heartbeat/releases/download/v1.4.0/Heartbeat-1.4.0-macos-arm64.dmg",
-        sha256 = sha256(bytes),
-        size = bytes.size.toLong(),
-        pageUrl = "https://github.com/aequicor/Heartbeat/releases/tag/v1.4.0",
-    )
+    private val release = AppRelease("1.4.0", "build.dmg", "https://github.com/build", "ab".repeat(32), 42, "")
+    private val target = Path.of("unused")
 
-    @AfterTest
-    fun cleanUp() {
-        directory.deleteRecursively()
+    @Test
+    fun `app updates reserve three copies and forward progress`() = runTest {
+        val reports = mutableListOf<Pair<Long, Long?>>()
+        val shared = object : VerifiedReleaseDownloader {
+            override suspend fun download(
+                request: ReleaseDownload,
+                target: Path,
+                progress: suspend (Long, Long?) -> Unit,
+            ) {
+                assertEquals(
+                    ReleaseDownload(
+                        release.url,
+                        release.sha256,
+                        release.size,
+                        GitHubDownloadHosts,
+                        spaceFactor = 3,
+                    ),
+                    request,
+                )
+                assertEquals(Path.of("unused"), target)
+                progress(21, 42)
+            }
+        }
+        UpdateDownloader(
+            shared,
+            TestDispatchers,
+        ).download(release, target) { received, total -> reports += received to total }
+        assertEquals(listOf<Pair<Long, Long?>>(21L to 42L), reports)
     }
 
-    private fun downloader(body: ByteArray = bytes) = UpdateDownloader(
-        releaseClient {
-            respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentLength, body.size.toString()))
+    @Test
+    fun `all shared failures retain the app update categories`() = runTest {
+        val cases = listOf(
+            ReleaseException(ReleaseFailure.Http, 403) to AppUpdateFailure.RateLimited,
+            ReleaseException(ReleaseFailure.Http, 429) to AppUpdateFailure.RateLimited,
+            ReleaseException(ReleaseFailure.Http, 404) to AppUpdateFailure.Network,
+            ReleaseException(ReleaseFailure.Http, 410) to AppUpdateFailure.Network,
+            ReleaseException(ReleaseFailure.Http, 502) to AppUpdateFailure.Network,
+            ReleaseException(ReleaseFailure.Network) to AppUpdateFailure.Network,
+            ReleaseException(ReleaseFailure.InvalidMetadata) to AppUpdateFailure.InvalidRelease,
+            ReleaseException(ReleaseFailure.UntrustedSource) to AppUpdateFailure.InvalidRelease,
+            ReleaseException(ReleaseFailure.TooLarge) to AppUpdateFailure.InvalidRelease,
+            ReleaseException(ReleaseFailure.SizeMismatch) to AppUpdateFailure.Corrupted,
+            ReleaseException(ReleaseFailure.ChecksumMismatch) to AppUpdateFailure.Corrupted,
+            ReleaseException(ReleaseFailure.NotEnoughSpace) to AppUpdateFailure.NotEnoughSpace,
+            ReleaseException(ReleaseFailure.Storage) to AppUpdateFailure.Storage,
+        )
+        cases.forEach { (error, failure) ->
+            assertUpdateFailure(failure) { failing(error).download(release, target) { _, _ -> } }
+        }
+    }
+
+    @Test
+    fun `cancellation crosses the boundary unchanged`() = runTest {
+        val cancellation = CancellationException("cancel")
+        val error = assertFailsWith<CancellationException> {
+            failing(cancellation).download(release, target) { _, _ -> }
+        }
+        // Coroutine stack-trace recovery may copy cancellation when returning from the IO dispatcher.
+        assertEquals(cancellation.message, error.message)
+    }
+
+    private fun failing(failure: Exception) = UpdateDownloader(
+        object : VerifiedReleaseDownloader {
+            override suspend fun download(
+                request: ReleaseDownload,
+                target: Path,
+                progress: suspend (Long, Long?) -> Unit,
+            ): Unit = throw failure
         },
         TestDispatchers,
     )
-
-    @Test
-    fun `a verified download reports its progress`() = runTest {
-        val target = directory.resolve("update.dmg")
-        val progress = mutableListOf<Pair<Long, Long?>>()
-
-        downloader().download(release, target) { received, total -> progress += received to total }
-
-        assertContentEquals(bytes, target.readBytes())
-        assertEquals(bytes.size.toLong() to bytes.size.toLong(), progress.last())
-    }
-
-    @Test
-    fun `a corrupted download leaves no file`() = runTest {
-        val target = directory.resolve("update.dmg")
-        val corrupted = bytes.copyOf().also { it[0] = 1 }
-
-        assertUpdateFailure(AppUpdateFailure.Corrupted) { downloader(corrupted).download(release, target) { _, _ -> } }
-        assertFalse(target.exists())
-        assertUpdateFailure(AppUpdateFailure.Corrupted) {
-            downloader(bytes.copyOf(bytes.size - 1)).download(release, target) { _, _ -> }
-        }
-        assertFalse(target.exists())
-    }
-
-    @Test
-    fun `a release outside GitHub is not downloaded`() = runTest {
-        val target = directory.resolve("update.dmg")
-        assertUpdateFailure(AppUpdateFailure.InvalidRelease) {
-            downloader().download(release.copy(url = "https://example.com/a.dmg"), target) { _, _ -> }
-        }
-        assertFalse(Files.exists(target))
-    }
 }

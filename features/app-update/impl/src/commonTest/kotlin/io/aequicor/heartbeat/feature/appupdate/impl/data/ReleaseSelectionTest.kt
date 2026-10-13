@@ -1,5 +1,8 @@
 package io.aequicor.heartbeat.feature.appupdate.impl.data
 
+import io.aequicor.heartbeat.core.common.release.GitHubAsset
+import io.aequicor.heartbeat.core.common.release.GitHubRelease
+import io.aequicor.heartbeat.core.common.release.sha256FromSums
 import io.aequicor.heartbeat.feature.appupdate.api.AppRelease
 import io.aequicor.heartbeat.feature.appupdate.api.AppVersion
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.GitHubRepository
