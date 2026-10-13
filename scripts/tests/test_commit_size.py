@@ -177,6 +177,83 @@ class CommitSizeTests(unittest.TestCase):
         text, stats = policy.read_diff(merge, cwd=self.repo, base_sync=True)
         self.assertEqual("FAIL", policy.measure(merge, text, stats, self.encodings).status)
 
+    def deletion_sync(self, restore=False):
+        legacy = "legacy [1] имя.kt"
+        self.write(legacy, 'val legacy = "old"\n' * 6000)
+        self.write("keep.kt", "keep\n")
+        self.write("new-deletion.kt", "old\n")
+        self.commit()
+        self.git("checkout", "-b", "feature")
+        self.git("rm", "--", legacy)
+        deletion = self.commit()
+        self.git("checkout", "main")
+        self.write(legacy, 'val legacy = "upstream"\n' * 6000)
+        self.write("new-upstream.kt", "new upstream\n")
+        self.write("new-deletion.kt", "changed upstream\n")
+        base = self.commit()
+        self.git("checkout", "feature")
+        with self.assertRaises(RuntimeError):
+            self.git("merge", "--no-edit", "main")
+        if restore:
+            self.write(legacy, "restored manually\n")
+        else:
+            self.git("rm", "--", legacy)
+        self.git("rm", "-f", "new-upstream.kt", "new-deletion.kt")
+        self.write("keep.kt", "manual resolution\n")
+        merge = self.commit()
+        return legacy, deletion, base, merge
+
+    def test_base_sync_excludes_only_repeated_deletions(self):
+        legacy, deletion, base, merge = self.deletion_sync()
+        self.assertEqual([legacy.encode()], policy.repeated_deletions(merge, cwd=self.repo))
+        text, stats = policy.read_diff(merge, cwd=self.repo, base_sync=True)
+        result = policy.measure(merge, text, stats, self.encodings)
+        self.assertEqual(3, result.files)
+        self.assertIn("-new upstream", text)
+        self.assertIn("-changed upstream", text)
+        self.assertIn("+manual resolution", text)
+        self.assertNotIn("val legacy", text)
+        self.assertEqual("PASS", result.status)
+        # The original oversized deletion remains a failure in the branch range.
+        self.assertIn(deletion, policy.select_commits(base, merge, cwd=self.repo))
+        self.assertEqual("FAIL", self.measure(deletion).status)
+
+    def test_repeated_file_deletion_does_not_hide_new_directory_contents(self):
+        legacy, _, _, merge = self.deletion_sync()
+        self.write(f"{legacy}/new.kt", 'val new = "manual"\n' * 6000)
+        self.git("add", "--all")
+        self.git("commit", "--amend", "--quiet", "--no-edit")
+        merge = self.git("rev-parse", "HEAD")
+        text, stats = policy.read_diff(merge, cwd=self.repo, base_sync=True)
+        self.assertIn('+val new = "manual"', text)
+        self.assertEqual("FAIL", policy.measure(merge, text, stats, self.encodings).status)
+
+    def test_criss_cross_requires_file_in_every_common_base(self):
+        self.write("keep.kt", "keep\n")
+        root = self.commit()
+        self.write("legacy.kt", "legacy\n")
+        with_file = self.commit()
+        self.git("checkout", "-b", "other", root)
+        self.write("other.kt", "other\n")
+        without_file = self.commit()
+        # Build criss-cross parents with identical trees that omit legacy.kt.
+        tree = self.git("rev-parse", "HEAD^{tree}")
+        def merge_object(first, second):
+            return self.git("commit-tree", tree, "-p", first, "-p", second, "-m", "Merge")
+        first = merge_object(with_file, without_file)
+        second = merge_object(without_file, with_file)
+        merge = merge_object(first, second)
+        self.assertEqual({with_file, without_file}, set(self.git("merge-base", "--all", first, second).splitlines()))
+        self.assertEqual([], policy.repeated_deletions(merge, cwd=self.repo))
+
+    def test_base_sync_counts_restored_file(self):
+        _, _, _, merge = self.deletion_sync(restore=True)
+        self.assertEqual([], policy.repeated_deletions(merge, cwd=self.repo))
+        text, stats = policy.read_diff(merge, cwd=self.repo, base_sync=True)
+        self.assertIn("+restored manually", text)
+        self.assertIn('-val legacy = "upstream"', text)
+        self.assertEqual("FAIL", policy.measure(merge, text, stats, self.encodings).status)
+
     def test_octopus_base_sync_uses_first_parent_and_enforces_budget(self):
         self.write("base.kt", "base\n")
         root = self.commit()

@@ -18,12 +18,14 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
+import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
@@ -40,6 +42,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class StudioPreferencesTest {
     private val selected = DefaultRunSettings.copy(
         modelId = EngineTarget(EngineId("engine"), EngineBindingId("connection"), ModelId("model")).studioModelId(),
@@ -139,6 +142,40 @@ class StudioPreferencesTest {
         stores.values.beforeWrite = {}
         preferences.save(selected, version.copy(revision = 3))
         assertEquals(selected, KeyValueStudioPreferences(stores, profile).load(DefaultRunSettings))
+    }
+
+    @Test
+    fun `observers see accepted choices before disk IO and keep them when persistence fails`() = runTest {
+        val stores = PreferenceStores()
+        val preferences = KeyValueStudioPreferences(stores, PreferenceProfile(backgroundScope))
+        val seen = mutableListOf<RunSettings>()
+        backgroundScope.launch { preferences.observe(DefaultRunSettings).collect { seen += it } }
+        runCurrent()
+        assertEquals(listOf(DefaultRunSettings), seen)
+        val writing = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        stores.values.beforeWrite = {
+            writing.complete(Unit)
+            release.await()
+            error("disk unavailable")
+        }
+        val saving = launch {
+            assertFailsWith<IllegalStateException> { preferences.save(selected, version.copy(revision = 2)) }
+        }
+        writing.await()
+        runCurrent()
+        assertEquals(listOf(DefaultRunSettings, selected), seen)
+        release.complete(Unit)
+        saving.join()
+        preferences.save(DefaultRunSettings, version)
+        runCurrent()
+        assertEquals(listOf(DefaultRunSettings, selected), seen)
+
+        stores.values.beforeWrite = {}
+        val next = selected.copy(approval = ApprovalMode.Ask)
+        preferences.save(next, version.copy(revision = 3))
+        runCurrent()
+        assertEquals(listOf(DefaultRunSettings, selected, next), seen)
     }
 
     @Test

@@ -8,7 +8,9 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flow
 
 /** Profile service: accepted work and history observation outlive any individual screen. */
 interface StudioRuntime {
@@ -25,6 +27,9 @@ interface StudioRuntime {
 
     /** Restores start-page preferences and awaits route-scoped effort loading before the screen becomes ready. */
     suspend fun defaults(): RunSettings
+
+    /** Observes accepted start-page choices, including choices retained in memory after a failed write. */
+    fun observeDefaults(): Flow<RunSettings> = flow { emit(defaults()) }
 
     /** Persists start-page preferences; cancelling the screen waiter does not cancel the accepted write. */
     suspend fun saveDefaults(settings: RunSettings, version: StudioSettingsVersion) {
@@ -65,8 +70,11 @@ interface StudioRuntime {
         error("Captured permission delivery is unavailable")
     }
 
-    /** Applies a parameter in profile-owned work; a screen waiter may detach without cancelling the change. */
-    suspend fun configure(sessionId: String, change: StudioSettingChange) {
+    /**
+     * Applies a parameter in profile-owned work; a screen waiter may detach without cancelling the change. Returns
+     * `true` for an acknowledged change or an already applied value, `false` for refusal or a concurrent change.
+     */
+    suspend fun configure(sessionId: String, change: StudioSettingChange): Boolean {
         error("Session configuration is unavailable")
     }
 }
