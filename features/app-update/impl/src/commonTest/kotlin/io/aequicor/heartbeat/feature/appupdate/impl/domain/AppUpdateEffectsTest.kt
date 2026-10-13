@@ -77,7 +77,7 @@ class AppUpdateEffectsTest {
     }
 
     @Test
-    fun `an installation reports each new percent, the preparation and the started installer`() = runTest {
+    fun `an installation reports each new percent the preparation and the started installer`() = runTest {
         val machine = RecordingScope()
         val installer = FakeInstaller(chunks = listOf(1L, 5L, 10L, 15L, 500L, 1_000L))
 

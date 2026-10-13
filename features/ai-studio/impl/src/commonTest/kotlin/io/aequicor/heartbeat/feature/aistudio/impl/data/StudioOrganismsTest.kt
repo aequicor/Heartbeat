@@ -194,7 +194,7 @@ class StudioOrganismsTest {
     }
 
     @Test
-    fun `conception fails while organic AI is off, broken or refuses`() = runTest {
+    fun `conception fails while organic AI is off broken or refuses`() = runTest {
         val organisms = { machine: OrganicMachine? -> StudioOrganisms(Registry(machine), selections) }
         assertFailsWith<IllegalStateException> { organisms(null).submit(chat, "Build", settings, emptyList()) {} }
         assertFailsWith<IllegalStateException> {

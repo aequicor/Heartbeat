@@ -63,7 +63,7 @@ class OrganicAiEffectsTest {
     private val machine = Recorder()
 
     @Test
-    fun `a germinating cell binds its new session, submits its genesis and settles with its answer`() = runTest {
+    fun `a germinating cell binds its new session submits its genesis and settles with its answer`() = runTest {
         val germinating = organism(cell(C1).copy(session = null))
         cells.handle.pending = listOf(permission)
         effects.handle(OrganicAiEffect.Drive(germinating, C1, request(C1)), machine)
@@ -270,7 +270,7 @@ class OrganicAiEffectsTest {
     }
 
     @Test
-    fun `restore, hibernate, release and respond reach their ports`() = runTest {
+    fun `restore hibernate release and respond reach their ports`() = runTest {
         journal.stored = listOf(organism())
         effects.handle(OrganicAiEffect.Restore, machine)
         assertEquals(OrganicAiIntent.Internal.Restored(listOf(organism())), machine.sent.single())

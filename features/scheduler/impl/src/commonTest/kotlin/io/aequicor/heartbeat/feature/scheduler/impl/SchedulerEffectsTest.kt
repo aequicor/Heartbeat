@@ -176,7 +176,7 @@ class SchedulerEffectsTest {
     }
 
     @Test
-    fun `the wake prompt carries the reason, payload and note`() {
+    fun `the wake prompt carries the reason payload and note`() {
         val event = BusEvent(EventKeys.custom("build.done"), EventOrigin.Host, START, "exit 0")
         val prompt = wakePrompt(WakeDelivery(scheduled("w1", events = setOf(event.key)), WakeReason.Event(event)))
         assertTrue("custom.build.done" in prompt.visible)

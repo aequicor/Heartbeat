@@ -22,7 +22,7 @@ class StudioLearningCallsTest {
     }
 
     @Test
-    fun `incomplete, invalid and unknown arguments still make a card without raw text`() {
+    fun `incomplete invalid and unknown arguments still make a card without raw text`() {
         val empty = StudioLearningCall(LearningAction.Remember, null, "", "")
         assertEquals(empty, learningCall("remember", """{"kind":"""))
         assertEquals(empty, learningCall("remember", "{oops}"))

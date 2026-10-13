@@ -42,7 +42,7 @@ class StudioContextCarryTest {
     private var handle: ActiveSession? = null
 
     @Test
-    fun `a native compaction leaves the brief for the next turn, which consumes it with the seed`() = runTest {
+    fun `a native compaction leaves the brief for the next turn which consumes it with the seed`() = runTest {
         carry { listOf(user("Fix the parser")) }.brief("chat")
 
         assertTrue("[1] Fix the parser" in record.pendingBrief.orEmpty())
@@ -60,7 +60,7 @@ class StudioContextCarryTest {
     }
 
     @Test
-    fun `a rollover freezes the transcript, seeds the next session and closes the old one`() = runTest {
+    fun `a rollover freezes the transcript seeds the next session and closes the old one`() = runTest {
         record = StudioChatRecord("chat", "Chat", Instant.DISTANT_PAST, ref = old, pendingBrief = "brief")
         val session = Session()
         handle = session

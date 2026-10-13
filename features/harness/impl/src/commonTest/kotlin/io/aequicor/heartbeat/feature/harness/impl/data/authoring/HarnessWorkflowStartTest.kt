@@ -106,7 +106,7 @@ class HarnessWorkflowStartTest {
     }
 
     @Test
-    fun `a start is refused without its approval, an accepted turn or a host for helpers`() = runTest {
+    fun `a start is refused without its approval an accepted turn or a host for helpers`() = runTest {
         val tools = tools()
         val approval = tools.approval(context(), spec, arguments())
         val unapproved = tools.execute(context(), HarnessTools.WORKFLOW_START, arguments())
@@ -151,7 +151,7 @@ class HarnessWorkflowStartTest {
     }
 
     @Test
-    fun `a host precondition failing after the input check is a request mismatch, not an input error`() = runTest {
+    fun `a host precondition failing after the input check is a request mismatch not an input error`() = runTest {
         val tools = tools()
         // The tools read a snapshot whose schema accepts the input; the library at the same revision does not.
         val numeric = buildJsonObject {

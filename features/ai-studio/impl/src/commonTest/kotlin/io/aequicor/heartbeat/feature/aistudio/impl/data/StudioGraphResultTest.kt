@@ -37,7 +37,7 @@ class StudioGraphResultTest {
     }
 
     @Test
-    fun `a graph assignment takes the approval of its parent chat, also after the parent rolled over`() {
+    fun `a graph assignment takes the approval of its parent chat also after the parent rolled over`() {
         val old = SessionRef(EngineId("pi"), SessionSourceId("profile"), "old")
         val parent = StudioChatRecord(
             "parent",

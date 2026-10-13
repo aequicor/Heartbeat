@@ -23,7 +23,7 @@ class SettingsSectionsTest {
     private val all = SettingsSection.entries.toList()
 
     @Test
-    fun `profile sections need their toggle and a profile, feature flags are always offered`() {
+    fun `profile sections need their toggle and a profile feature flags are always offered`() {
         assertEquals(
             all,
             availableSections(

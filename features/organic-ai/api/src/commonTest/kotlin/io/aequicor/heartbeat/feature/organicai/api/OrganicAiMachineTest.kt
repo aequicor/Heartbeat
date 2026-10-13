@@ -203,7 +203,7 @@ class OrganicAiMachineTest {
     }
 
     @Test
-    fun `the resolved model starts the zygote, a missing one stalls it until resumed`() {
+    fun `the resolved model starts the zygote a missing one stalls it until resumed`() {
         val waiting = organism(target = null)
         val targeted = organism(version = 2)
         spec.assertTransition(
@@ -546,7 +546,7 @@ class OrganicAiMachineTest {
     }
 
     @Test
-    fun `a plaintiff rests until its verdict, which wakes it`() {
+    fun `a plaintiff rests until its verdict which wakes it`() {
         val complaint = ImmuneCase.Complaint(CaseId("k1"), ZYGOTE, C1, "loops")
         val filed = organism(
             cell(C1, phase = CellPhase.Completed("ok")),
@@ -602,7 +602,7 @@ class OrganicAiMachineTest {
     }
 
     @Test
-    fun `effect failures settle turns, cases and lifecycle`() {
+    fun `effect failures settle turns cases and lifecycle`() {
         val organism = organism()
         val failure = EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed)
         assertEquals(

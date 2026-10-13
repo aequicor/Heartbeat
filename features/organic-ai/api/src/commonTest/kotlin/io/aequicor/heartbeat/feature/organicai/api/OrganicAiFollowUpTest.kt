@@ -28,7 +28,7 @@ class OrganicAiFollowUpTest {
     )
 
     @Test
-    fun `a follow-up preserves the goal, native session, descendants and read cursor`() {
+    fun `a follow-up preserves the goal native session descendants and read cursor`() {
         val continued = continued()
         spec.assertTransition(
             living(finished),

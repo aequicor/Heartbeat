@@ -171,7 +171,7 @@ class AgentLearningMachineTest {
     }
 
     @Test
-    fun `switch, edit and delete persist a new revision`() {
+    fun `switch edit and delete persist a new revision`() {
         val disabled = ready.copy(instructions = listOf(encoding.copy(isEnabled = false)), revision = 4)
         spec.assertTransition(
             ready,

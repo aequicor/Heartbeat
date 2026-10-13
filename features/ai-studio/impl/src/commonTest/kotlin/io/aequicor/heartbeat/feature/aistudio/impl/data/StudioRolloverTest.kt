@@ -86,7 +86,7 @@ class StudioRolloverTest {
     }
 
     @Test
-    fun `the next turn carries the seed and brief, a compaction none and a handoff turn no brief`() {
+    fun `the next turn carries the seed and brief a compaction none and a handoff turn no brief`() {
         val chat = StudioChatRecord("chat", "Chat", Instant.DISTANT_PAST, pendingSeed = "seed", pendingBrief = "brief")
         val turn = StudioTurnRequest("chat", "prompt", DefaultRunSettings, WorktreeRunKind.Coding, RequestId("r"))
 
@@ -100,7 +100,7 @@ class StudioRolloverTest {
     }
 
     @Test
-    fun `helpers, organisms and chats without a session never roll over`() {
+    fun `helpers organisms and chats without a session never roll over`() {
         val chat = StudioChatRecord("chat", "Chat", Instant.DISTANT_PAST, ref = Ref)
 
         assertTrue(chat.isRolloverAllowed)

@@ -170,7 +170,7 @@ class EngineManagementPresentationTest {
     }
 
     @Test
-    fun `the panel shows the installation, the login and a running download`() {
+    fun `the panel shows the installation the login and a running download`() {
         val codex = managedCodex(
             installation = InstallationState(
                 Installation(InstallSource.System, "0.1.0", "/bin/codex"),

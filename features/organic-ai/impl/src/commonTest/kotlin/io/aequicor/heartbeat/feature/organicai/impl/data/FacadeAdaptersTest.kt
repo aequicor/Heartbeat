@@ -52,7 +52,7 @@ class FacadeAdaptersTest {
     private val route = CellRoute(TARGET, WorkspaceRef("project"), TrustLevel.AutoEdits)
 
     @Test
-    fun `a new cell session carries the detached tools, its project and trust`() = runTest {
+    fun `a new cell session carries the detached tools its project and trust`() = runTest {
         val native = FakeSession(session("new"))
         val facade = FakeFacade(ArrayDeque(listOf(native)))
         val cells = FacadeCellSessions(facade)
@@ -356,7 +356,7 @@ class FacadeAdaptersTest {
     }
 
     @Test
-    fun `a lysed cell's turn is cancelled, its session archived and never reopened`() = runTest {
+    fun `a lysed cell's turn is cancelled its session archived and never reopened`() = runTest {
         val native = FakeSession(session("new")).apply { finish = null }
         val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
         val handle = cells.open(key, route, null)

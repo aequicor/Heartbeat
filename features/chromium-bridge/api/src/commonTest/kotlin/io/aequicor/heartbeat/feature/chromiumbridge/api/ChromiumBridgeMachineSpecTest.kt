@@ -61,7 +61,7 @@ class ChromiumBridgeMachineSpecTest {
     }
 
     @Test
-    fun `server, hosts, connections and tabs update the enabled state`() {
+    fun `server hosts connections and tabs update the enabled state`() {
         val browser = ConnectedBrowser(1, "Google Chrome", "140", "0.1.0", isAgentControlAllowed = false)
         spec.assertTransition(
             enabled,

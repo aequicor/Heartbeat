@@ -81,7 +81,7 @@ class EngineManagementStorageTest {
     }
 
     @Test
-    fun `the gate needs both developer flags and, with management on, the profile switch`() = runTest {
+    fun `the gate needs both developer flags and with management on the profile switch`() = runTest {
         data class Case(val catalog: Boolean, val own: Boolean, val management: Boolean, val userOff: Boolean)
         val cases = listOf(true, false).flatMap { catalog ->
             listOf(true, false).flatMap { own ->
