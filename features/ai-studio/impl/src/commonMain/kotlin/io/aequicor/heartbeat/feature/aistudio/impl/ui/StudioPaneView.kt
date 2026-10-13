@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -57,6 +58,8 @@ import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.studioComposerSlotKey
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.studioStartSlotKey
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentPreviewUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
@@ -119,9 +122,12 @@ internal fun StudioPaneView(
     isAtWindowLeadingEdge: Boolean = false,
     questions: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
     checklists: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
+    slots: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
     timelineState: StudioTimelineState = remember { StudioTimelineState() },
 ) {
     val pane = content.pane
+    val composerSlot = slots[studioComposerSlotKey(pane.id)]
+    val startSlot = slots[studioStartSlotKey(pane.id)]
     var headerHeight by remember { mutableIntStateOf(0) }
     var footerHeight by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
@@ -150,6 +156,7 @@ internal fun StudioPaneView(
             ) {
                 NewSessionHero(
                     content.project,
+                    startSlot,
                     onDraft = { onIntent(AiStudioScreenIntent.Suggestions.DraftChanged(pane.id, it)) },
                     modifier = Modifier.align(BiasAlignment(0f, HbTheme.dimensions.emptyStateVerticalBias))
                         .padding(HbTheme.spacing.xl),
@@ -196,6 +203,7 @@ internal fun StudioPaneView(
                 layout.isCompact,
                 onOpenResearch,
                 isCenteredComposer,
+                PaneSlots(composerSlot, startSlot),
                 Modifier.align(
                     composerRegionAlignment(isCenteredComposer),
                 ).onSizeChanged { footerHeight = it.height },
@@ -217,6 +225,7 @@ private fun PaneComposerRegion(
     isCompact: Boolean,
     onOpenResearch: ((String) -> Unit)?,
     isCentered: Boolean,
+    slots: PaneSlots,
     modifier: Modifier = Modifier,
 ) {
     val heroScroll = rememberScrollState()
@@ -250,13 +259,14 @@ private fun PaneComposerRegion(
                         questions,
                         Modifier.weight(1f, fill = false),
                     )
-                    PaneFooter(content, onIntent, isCompact, onOpenResearch)
+                    PaneFooter(content, onIntent, isCompact, onOpenResearch, slots.composer)
                 }
             }
             if (isCentered) {
                 Box(Modifier.padding(top = HbTheme.spacing.l)) {
                     NewSessionStarters { onIntent(AiStudioScreenIntent.Suggestions.DraftChanged(content.pane.id, it)) }
                 }
+                slots.start?.Content(StartSlotModifier.padding(top = HbTheme.spacing.l))
             }
         }
     }
@@ -523,7 +533,12 @@ private fun PaneLayoutActions(
 }
 
 @Composable
-private fun NewSessionHero(project: ProjectUi?, onDraft: (String) -> Unit, modifier: Modifier = Modifier) {
+private fun NewSessionHero(
+    project: ProjectUi?,
+    startSlot: ComposableComponent?,
+    onDraft: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     HbColumn(
         modifier.widthIn(max = HbTheme.dimensions.composerMaxWidth + HbTheme.spacing.xl * 2)
             .fillMaxWidth().hbVerticalScroll(rememberScrollState()).padding(vertical = HbTheme.spacing.xxl)
@@ -532,6 +547,7 @@ private fun NewSessionHero(project: ProjectUi?, onDraft: (String) -> Unit, modif
     ) {
         NewSessionHeading(project)
         NewSessionStarters(onDraft)
+        startSlot?.Content(StartSlotModifier.padding(top = HbTheme.spacing.l))
     }
 }
 
@@ -627,6 +643,7 @@ private fun PaneFooter(
     onIntent: (AiStudioScreenIntent) -> Unit,
     isCompact: Boolean,
     onOpenResearch: ((String) -> Unit)?,
+    composerSlot: ComposableComponent?,
 ) {
     HbColumn(
         Modifier.fillMaxWidth().padding(
@@ -673,6 +690,8 @@ private fun PaneFooter(
                 previews = content.attachmentPreviews,
             )
         }
+        // Interfaces of the harnesses active in the chat sit right above its input.
+        composerSlot?.Content(column)
         StudioComposer(content, onIntent, isCompact, column, onOpenResearch)
     }
 }
@@ -731,3 +750,11 @@ private fun Modifier.focusOnPress(isFocused: Boolean, key: Any, onFocus: () -> U
         }
     }
 }
+
+/** Interface slots of one pane: the row above its input and the start window of a new chat. */
+@Immutable
+private data class PaneSlots(val composer: ComposableComponent?, val start: ComposableComponent?)
+
+private val StartSlotModifier: Modifier
+    @Composable @ReadOnlyComposable
+    get() = Modifier.widthIn(max = HbTheme.dimensions.composerMaxWidth).fillMaxWidth()

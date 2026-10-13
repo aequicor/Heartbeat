@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioCompactionPort
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaces
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
@@ -32,7 +33,6 @@ import io.aequicor.heartbeat.feature.attachments.api.AttachmentInput
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsIntent
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsMachineKey
-import io.aequicor.heartbeat.feature.attachments.api.AttachmentsOutput
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureOwner
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineKey
@@ -78,7 +78,7 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
-private typealias StudioPipeline = PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>
+internal typealias StudioPipeline = PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>
 
 /**
  * Feature-scoped screen store. Mirrors the machine (panes, runs, preferences), the repository (projects,
@@ -102,6 +102,7 @@ class AiStudioModel(
     previews: StudioAttachmentPreviews,
     private val harnesses: StudioHarnesses = StudioHarnesses.None,
     private val compactions: StudioCompactionPort = StudioCompactionPort.None,
+    surfaceBinding: StudioSurfaceBinding = StudioSurfaceBinding(StudioSurfaces.None, backend),
 ) {
     private val log = Log.tag("AiStudioModel")
     private val harnessSelection = StudioHarnessSelection(harnesses, backend)
@@ -134,6 +135,7 @@ class AiStudioModel(
                     log.d { "attachment preview visibility: ${previewRequests.value.size} -> ${requests.size}" }
                     previewRequests.value = requests
                 }
+                surfaceBinding.onState(next)
                 suggestions.onState(next)
             }
         }
@@ -182,40 +184,9 @@ class AiStudioModel(
                 launch { compactions.feed.collect { updateState { copy(feedCollapse = it) } } }
                 launch { entries.showsOrganism.collect { updateState { copy(isOrganismEnabled = it) } } }
                 launch { harnessSelection.observe(pipeline) }
+                launch { surfaceBinding.observe(pipeline) { paneId -> submit(pipeline, paneId) } }
                 launch { organisms.observe(pipeline) }
-                launch {
-                    machines.observe(AttachmentsMachineKey).collectLatest { ref ->
-                        ref?.outputs?.collect { output ->
-                            when (output) {
-                                is AttachmentsOutput.Imported -> appendAttachments(
-                                    pipeline,
-                                    output.requestId,
-                                    output.attachments.map { it.toUi() }.toImmutableList(),
-                                )
-
-                                is AttachmentsOutput.Failed, is AttachmentsOutput.Cancelled -> updateState {
-                                    val id = if (output is AttachmentsOutput.Failed) {
-                                        output.requestId
-                                    } else {
-                                        (output as AttachmentsOutput.Cancelled).requestId
-                                    }
-                                    val key = attachmentRequests[id]
-                                    val affected = panes.filter { draftKey(it.id) == key }.map { it.id }
-                                    copy(
-                                        attachmentRequests = (attachmentRequests - id).toImmutableMap(),
-                                        attachmentErrorPanes = if (output is AttachmentsOutput.Failed) {
-                                            (attachmentErrorPanes + affected).toImmutableSet()
-                                        } else {
-                                            attachmentErrorPanes
-                                        },
-                                    )
-                                }
-
-                                is AttachmentsOutput.Completed, is AttachmentsOutput.NativeRequested -> Unit
-                            }
-                        }
-                    }
-                }
+                launch { observeAttachmentOutputs(machines, pipeline) }
                 launch { observeResearch(pipeline) }
                 launch { observeComputerUse(pipeline) }
                 launch { observeEfforts(pipeline) }
@@ -617,23 +588,6 @@ class AiStudioModel(
             updateState {
                 copy(attachmentRequests = (attachmentRequests - requestId).toImmutableMap())
             }
-        }
-    }
-
-    private suspend fun appendAttachments(
-        pipeline: StudioPipeline,
-        requestId: String,
-        files: ImmutableList<AttachmentUi>,
-    ) = with(
-        pipeline,
-    ) {
-        updateState {
-            val key = attachmentRequests[requestId] ?: return@updateState this
-            val next = (draftAttachments[key].orEmpty() + files).distinctBy { it.id }.toImmutableList()
-            copy(
-                draftAttachments = (draftAttachments + (key to next)).toImmutableMap(),
-                attachmentRequests = (attachmentRequests - requestId).toImmutableMap(),
-            )
         }
     }
 

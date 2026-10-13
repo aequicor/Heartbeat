@@ -27,6 +27,12 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
                 (host.stack.value.active.instance as? ComposableComponent)?.let { id to it }
             }.toMap().toImmutableMap()
         }
+        val slotHosts by component.slots.collectAsState()
+        val slots = remember(slotHosts) {
+            slotHosts.mapNotNull { (key, host) ->
+                (host.stack.value.active.instance as? ComposableComponent)?.let { key to it }
+            }.toMap().toImmutableMap()
+        }
         val hosts by component.questions.collectAsState()
         // Each host has one fixed entry, so its component never changes.
         val questions = remember(hosts) {
@@ -46,6 +52,7 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
             isBrowserOpen,
             questions,
             checklists,
+            slots,
         ) {
             StudioExits(
                 onBack = component::close,
@@ -58,6 +65,7 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
                 onCloseChatArea = component::closeChatArea,
                 questions = questions,
                 checklists = checklists,
+                slots = slots,
                 onOpenSettings = if (isUnifiedSettingsShown) component::openSettings else null,
             )
         }
