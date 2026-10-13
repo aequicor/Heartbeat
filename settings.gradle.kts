@@ -23,7 +23,8 @@ dependencyResolutionManagement {
                 ivy {
                     name = "HeartbeatJcef"
                     url = uri("https://github.com/aequicor/Heartbeat/releases/download")
-                    patternLayout { artifact("[revision]/[artifact]-[revision].[ext]") }
+                    // Keep IDE sources/javadoc requests separate from the verified binary JARs.
+                    patternLayout { artifact("[revision]/[artifact]-[revision](-[classifier]).[ext]") }
                     metadataSources { artifact() }
                 }
             }
