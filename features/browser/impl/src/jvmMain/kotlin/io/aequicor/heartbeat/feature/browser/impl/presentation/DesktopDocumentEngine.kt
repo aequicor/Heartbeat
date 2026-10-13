@@ -80,8 +80,11 @@ internal class DesktopDocumentEngine(
     /** Added to the client as soon as it exists, so disposing the client always disposes the native router. */
     private var router: DesktopDocumentRouter? = null
 
-    /** Data the shown page holds: what it was served with, then what [deliver] sent; written on EDT and CEF IO. */
+    /** Data the latest page response carried, written on CEF IO when the document is served. */
     @Volatile
+    private var served: Delivered? = null
+
+    /** Data the shown page holds: what it was served with, then what [deliver] sent; EDT only. */
     private var delivered: Delivered? = null
 
     @Volatile
@@ -156,7 +159,7 @@ internal class DesktopDocumentEngine(
     /** The page with the data of this moment: the API comes first, so the page's own scripts already read it. */
     private fun page(): ByteArray {
         val data = document.data.value
-        delivered = Delivered(data)
+        served = Delivered(data)
         val query = router?.let { desktopDocumentQueryFunction }
         return desktopDocumentBody(desktopDocumentHtml(document.document.html, data, query))
     }
@@ -247,9 +250,12 @@ internal class DesktopDocumentEngine(
 
         override fun onLoadEnd(browser: CefBrowser, frame: CefFrame, httpStatusCode: Int) {
             if (frame.isMain && isDesktopDocumentFrame(url, frame.url)) {
-                isLoaded = true
-                // Data that changed while the page loaded was not served with it.
-                onSwing { deliver(document.data.value) }
+                onSwing {
+                    // The new page holds what it was served with; data that changed since then is sent now.
+                    delivered = served
+                    isLoaded = true
+                    deliver(document.data.value)
+                }
             }
         }
 
@@ -275,13 +281,19 @@ internal class DesktopDocumentEngine(
         const val CONTENT_SETTING_BLOCK = 2
         const val NETWORK_PREDICTION_NEVER = 2
 
-        /** Device permissions are refused, and no DNS prefetch or preconnect runs for hints in the page. */
-        val DOCUMENT_PREFERENCES = listOf(
+        /**
+         * Device permissions are refused, and no DNS prefetch or preconnect runs for hints in the page. WebRTC is out
+         * of reach of the content security policy and request handlers: it may use UDP only through a proxy and there
+         * is none, so STUN and TURN over UDP never leave. TURN over TCP would need a per-context proxy, which JCEF's
+         * preference bridge cannot set (it drops dictionary values); the page API removes the WebRTC constructors.
+         */
+        val DOCUMENT_PREFERENCES: List<Pair<String, Any>> = listOf(
             "profile.default_content_setting_values.media_stream_mic" to CONTENT_SETTING_BLOCK,
             "profile.default_content_setting_values.media_stream_camera" to CONTENT_SETTING_BLOCK,
             "profile.default_content_setting_values.geolocation" to CONTENT_SETTING_BLOCK,
             "profile.default_content_setting_values.notifications" to CONTENT_SETTING_BLOCK,
             "net.network_prediction_options" to NETWORK_PREDICTION_NEVER,
+            "webrtc.ip_handling_policy" to "disable_non_proxied_udp",
         )
     }
 }

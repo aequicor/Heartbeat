@@ -40,7 +40,8 @@ private val DOCTYPE = Regex("^\\s*<!doctype[^>]*>", RegexOption.IGNORE_CASE)
  * [html] with the page API placed before the page's own markup, after its doctype, which must stay first to keep
  * standards mode; a byte order mark is dropped, the response adds its own. `heartbeat.data` is [data]; with a
  * [queryFunction] of the message router, `heartbeat.call(method, args)` sends `{"method", "args"}` as JSON text and
- * returns a promise of the parsed result, rejected with an `Error` of the failure message.
+ * returns a promise of the parsed result, rejected with an `Error` of the failure message. The WebRTC constructors
+ * are removed from the page's window.
  */
 internal fun desktopDocumentHtml(html: String, data: JsonElement?, queryFunction: String?): String {
     val source = html.removePrefix("\uFEFF")
@@ -55,6 +56,8 @@ internal fun desktopDocumentDataScript(data: JsonElement?): String =
 
 private fun pageApi(data: JsonElement?, queryFunction: String?): String = """
 (() => {
+  // A page has no network, and WebRTC bypasses the content security policy: its constructors are removed.
+  for (const name of ['RTCPeerConnection', 'webkitRTCPeerConnection']) delete window[name];
   let data = ${data.scriptLiteral()};
   const query = ${queryFunction?.let { "window[${JsonPrimitive(it).scriptLiteral()}]" } ?: "null"};
   const api = {};

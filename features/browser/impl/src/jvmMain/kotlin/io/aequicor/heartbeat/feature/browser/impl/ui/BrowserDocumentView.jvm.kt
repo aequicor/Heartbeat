@@ -1,7 +1,7 @@
 package io.aequicor.heartbeat.feature.browser.impl.ui
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.RememberObserver
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -11,6 +11,7 @@ import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserDocumentSurface
+import io.aequicor.heartbeat.feature.browser.impl.presentation.DesktopDocumentPanel
 import io.aequicor.heartbeat.feature.browser.impl.presentation.DesktopDocumentPanels
 import io.aequicor.heartbeat.feature.browser.impl.resources.Res
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_engine_unavailable
@@ -34,8 +35,7 @@ private fun DocumentPanel(
     modifier: Modifier = Modifier,
 ) {
     key(surface) {
-        val panel = remember(surface) { panels.create(surface.document) }
-        DisposableEffect(panel) { onDispose(panel::release) }
+        val panel = remember(surface) { RememberedPanel(panels.create(surface.document)) }.panel
         val isUnavailable by panel.unavailable.collectAsState()
         if (isUnavailable) {
             BrowserDocumentNote(stringResource(Res.string.browser_engine_unavailable), modifier)
@@ -46,4 +46,13 @@ private fun DocumentPanel(
             )
         }
     }
+}
+
+/** Releases its panel when the composition forgets it, or abandons it before it was ever shown. */
+private class RememberedPanel(val panel: DesktopDocumentPanel) : RememberObserver {
+    override fun onRemembered() = Unit
+
+    override fun onForgotten() = panel.release()
+
+    override fun onAbandoned() = panel.release()
 }

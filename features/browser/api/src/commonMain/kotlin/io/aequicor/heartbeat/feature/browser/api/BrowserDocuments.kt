@@ -60,7 +60,11 @@ public sealed interface BrowserBridgeResult {
     }
 }
 
-/** An open document. Closing it closes its views and cancels the page's pending calls; it cannot reopen. */
+/**
+ * An open document. Its opener closes it once it no longer shows the document: an open document counts toward
+ * [BrowserDocumentLimits.DOCUMENTS] until then. Closing it closes its views and cancels the page's pending calls; it
+ * cannot reopen. A view that cannot show the page explains it itself.
+ */
 public interface BrowserDocumentHandle {
     /** Draws the document; a route of a closed document draws a "closed" note. */
     public val route: BrowserDocumentRoute

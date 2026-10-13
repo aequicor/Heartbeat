@@ -28,7 +28,11 @@ import org.cef.browser.CefRequestContext
 import org.junit.Assume.assumeTrue
 import java.awt.BorderLayout
 import java.awt.GridLayout
+import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.nio.ByteBuffer
+import java.nio.channels.DatagramChannel
+import java.nio.channels.NetworkChannel
 import java.nio.file.Files
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.LinkedBlockingQueue
@@ -38,6 +42,7 @@ import javax.swing.SwingUtilities
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -47,6 +52,10 @@ import kotlin.test.fail
  * The pages report through their own bridge, which this test answers.
  */
 class DesktopDocumentNativeTest {
+    private companion object {
+        const val PACKET_BYTES = 2048
+    }
+
     private val requests = ConcurrentLinkedQueue<String>()
 
     @Test
@@ -64,7 +73,6 @@ class DesktopDocumentNativeTest {
         val second = assertNotNull(documents.open(document(base, null, other)))
         val panels = mutableListOf<DesktopDocumentPanel>()
         var tab: DesktopBrowserEngine? = null
-        val tabStates = LinkedBlockingQueue<BrowserViewState>()
         val frames = mutableListOf<JFrame>()
         val show = { opened: BrowserDocumentHandle, frame: JFrame ->
             val panel = DesktopDocumentPanel(
@@ -94,15 +102,16 @@ class DesktopDocumentNativeTest {
             assertEquals(JsonNull, report(other, "data"))
             assertEquals(JsonNull, report(other, "storage-before"), "Documents share no storage")
 
-            first.update(buildJsonObject { put("count", 2) })
-            assertEquals(buildJsonObject { put("count", 2) }, report(reports, "update"))
-            assertEquals(JsonPrimitive(origin), report(reports, "after-navigation"), "Navigation must stay blocked")
+            verifyUpdateAndNavigation(first, reports, origin)
 
-            verifyUserTab(resources, base, tabStates) { engine, frame ->
+            verifyUserTab(resources, base, listOf(reports, other)) { engine, frame ->
                 tab = engine
                 frames += frame
             }
-            assertTrue(reports.none { it.first == "tab" } && other.none { it.first == "tab" })
+            verifyNoPeers(documents, resources, scope) { panel, frame ->
+                panels += panel
+                frames += frame
+            }
             assertEquals(emptyList(), requests.toList(), "Documents must not reach the network")
         } finally {
             SwingUtilities.invokeAndWait {
@@ -113,6 +122,88 @@ class DesktopDocumentNativeTest {
             close(resources, handle, scope, server, panels, tab)
             listOf(first, second).forEach(BrowserDocumentHandle::close)
         }
+    }
+
+    /**
+     * A page has no WebRTC constructor of its own, and even one taken from a child frame sends no STUN or TURN over
+     * UDP. TURN over TCP is not covered: it needs a per-context proxy that JCEF cannot set yet.
+     */
+    private fun verifyNoPeers(
+        documents: ProfileBrowserDocuments,
+        resources: DesktopDefaultBrowserResources,
+        scope: CoroutineScope,
+        shown: (DesktopDocumentPanel, JFrame) -> Unit,
+    ) {
+        val loopback = InetSocketAddress(InetAddress.getLoopbackAddress(), 0)
+        DatagramChannel.open().bind(loopback).use { udp ->
+            udp.configureBlocking(false)
+            val reports = LinkedBlockingQueue<Pair<String, JsonElement>>()
+            val opened = assertNotNull(documents.open(peerDocument(udp.localPort(), reports)))
+            SwingUtilities.invokeAndWait {
+                val panel = DesktopDocumentPanel(
+                    documents.documents.value.getValue(opened.route.id),
+                    resources,
+                    nativeDispatchers(),
+                    scope,
+                ) {}
+                val frame = JFrame("Heartbeat document WebRTC verification").apply {
+                    add(panel.createComponent())
+                    setSize(400, 300)
+                    isVisible = true
+                }
+                shown(panel, frame)
+            }
+            assertEquals(JsonPrimitive("undefined"), report(reports, "direct"))
+            val gathered = report(reports, "rtc").jsonPrimitive.content
+            assertTrue(gathered.startsWith("child:"), gathered)
+            assertNull(udp.receive(ByteBuffer.allocate(PACKET_BYTES)), "No STUN or TURN packet ($gathered)")
+        }
+    }
+
+    private fun peerDocument(udp: Int, reports: LinkedBlockingQueue<Pair<String, JsonElement>>) = BrowserDocument(
+        html = """
+                <!doctype html><title>Peer</title><script>
+                const report = (name, value) => heartbeat.call('report', { name, value });
+                (async () => {
+                  await report('direct', typeof window.RTCPeerConnection);
+                  try {
+                    const child = document.body.appendChild(document.createElement('iframe')).contentWindow;
+                    const pc = new child.RTCPeerConnection({ iceServers: [
+                      { urls: 'stun:127.0.0.1:$udp' },
+                      { urls: 'turn:127.0.0.1:$udp?transport=udp', username: 'u', credential: 'c' },
+                    ] });
+                    const candidates = [];
+                    pc.onicecandidate = (event) => { if (event.candidate) candidates.push(event.candidate.type); };
+                    pc.createDataChannel('x');
+                    await pc.setLocalDescription(await pc.createOffer());
+                    await new Promise((resolve) => {
+                      pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === 'complete') resolve(); };
+                      setTimeout(resolve, 5000);
+                    });
+                    await report('rtc', 'child:' + (candidates.join(',') || 'none'));
+                  } catch (error) {
+                    await report('rtc', 'refused: ' + error.name);
+                  }
+                })();
+                </script>
+        """.trimIndent(),
+        title = "Peer",
+        bridge = { _, arguments ->
+            val report = arguments as JsonObject
+            reports.offer(report.getValue("name").jsonPrimitive.content to (report["value"] ?: JsonNull))
+            BrowserBridgeResult.Value(JsonNull)
+        },
+    )
+
+    /** New data reaches the page as an event; navigating away is blocked and the page stays. */
+    private fun verifyUpdateAndNavigation(
+        document: BrowserDocumentHandle,
+        reports: LinkedBlockingQueue<Pair<String, JsonElement>>,
+        origin: String,
+    ) {
+        document.update(buildJsonObject { put("count", 2) })
+        assertEquals(buildJsonObject { put("count", 2) }, report(reports, "update"))
+        assertEquals(JsonPrimitive(origin), report(reports, "after-navigation"), "Navigation must stay blocked")
     }
 
     /** The page reads its data at its own origin, has storage, gets bridge failures and no network. */
@@ -129,9 +220,10 @@ class DesktopDocumentNativeTest {
     private fun verifyUserTab(
         resources: DesktopDefaultBrowserResources,
         base: String,
-        states: LinkedBlockingQueue<BrowserViewState>,
+        documentReports: List<LinkedBlockingQueue<Pair<String, JsonElement>>>,
         created: (DesktopBrowserEngine, JFrame) -> Unit,
     ) {
+        val states = LinkedBlockingQueue<BrowserViewState>()
         val app = runBlocking { resources.app() }
         SwingUtilities.invokeAndWait {
             val engine = DesktopBrowserEngine(
@@ -153,6 +245,7 @@ class DesktopDocumentNativeTest {
         }
         val title = awaitTitle(states) { it == "failed" || it == "answered" || it == "undefined" }
         assertTrue(title != "answered", "A tab's query must not be answered")
+        assertTrue(documentReports.all { queue -> queue.none { it.first == "tab" } }, "No document hears a tab")
     }
 
     private fun document(base: String, data: JsonElement?, reports: LinkedBlockingQueue<Pair<String, JsonElement>>) =
@@ -250,7 +343,7 @@ class DesktopDocumentNativeTest {
         resources: DesktopDefaultBrowserResources,
         handle: BrowserTestScope,
         scope: CoroutineScope,
-        server: HttpServer,
+        server: HttpServer?,
         panels: List<DesktopDocumentPanel>,
         tab: DesktopBrowserEngine?,
     ) {
@@ -265,7 +358,7 @@ class DesktopDocumentNativeTest {
         } finally {
             handle.close()
             scope.cancel()
-            server.stop(0)
+            server?.stop(0)
         }
     }
 
@@ -285,3 +378,5 @@ class DesktopDocumentNativeTest {
         override val default = Dispatchers.Default
     }
 }
+
+private fun NetworkChannel.localPort(): Int = (localAddress as InetSocketAddress).port

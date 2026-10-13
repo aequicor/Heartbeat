@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
+import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
@@ -30,8 +31,8 @@ import javax.swing.SwingUtilities
 
 /**
  * Native views of the profile's documents on desktop, on the app's CEF runtime: each view owns one browser, closed
- * when the view leaves the screen or the profile closes. Documents use their own in-memory contexts, so neither the
- * profile's browser storage nor clearing it concerns them.
+ * when the view leaves the screen or the profile closes, and known to [browsers] until it has closed natively.
+ * Documents use their own in-memory contexts, so neither the profile's browser storage nor clearing it concerns them.
  */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class, binding = binding<BrowserDocumentNatives>())
@@ -40,6 +41,8 @@ internal class DesktopDocumentPanels(
     private val resources: DesktopBrowserResources,
     private val dispatchers: DispatcherProvider,
     @ForScope(ProfileScope::class) private val scope: ScopeHandle,
+    @ForScope(AppScope::class) private val app: ScopeHandle,
+    private val browsers: DesktopDocumentViews,
 ) : BrowserDocumentNatives {
     private val panels = mutableSetOf<DesktopDocumentPanel>()
 
@@ -50,8 +53,17 @@ internal class DesktopDocumentPanels(
     /** A new view of [document]; called on EDT, released by its owner. */
     fun create(document: OpenBrowserDocument): DesktopDocumentPanel {
         check(SwingUtilities.isEventDispatchThread())
-        return DesktopDocumentPanel(document, resources, dispatchers, scope.coroutineScope) { panels -= it }
-            .also { panels += it }
+        return DesktopDocumentPanel(document, resources, dispatchers, scope.coroutineScope) { released ->
+            panels -= released
+            // The app scope outlives the profile, so the barrier holds until the native close completes.
+            app.coroutineScope.launch {
+                released.awaitClosed()
+                browsers.closed(released)
+            }
+        }.also {
+            panels += it
+            browsers.register(it)
+        }
     }
 }
 
