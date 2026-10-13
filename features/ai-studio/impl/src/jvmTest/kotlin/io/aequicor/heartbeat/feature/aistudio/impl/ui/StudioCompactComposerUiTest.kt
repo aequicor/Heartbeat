@@ -12,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -24,8 +25,10 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.unit.dp
 import io.aequicor.heartbeat.ds.theme.HbTheme
@@ -50,6 +53,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_paste
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_send
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_stop
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan_prompt
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.persistentSetOf
@@ -216,6 +221,47 @@ class StudioCompactComposerUiTest {
             runOnIdle { width = 900.dp }
             onNodeWithText(LONG_MODEL).assertIsDisplayed().performClick()
             onNodeWithContentDescription(LONG_MODEL).assertIsFocused()
+        }
+
+    @Test
+    fun `resizing the open add menu preserves the focused command and activates it`() =
+        runSkikoComposeUiTest(size = Size(1280f, 800f)) {
+            var width by mutableStateOf(900.dp)
+            val state = fixture()
+            val events = mutableListOf<AiStudioScreenIntent>()
+            var add = ""
+            var attach = ""
+            var plan = ""
+            var prompt = ""
+            setContent {
+                add = stringResource(Res.string.composer_add)
+                attach = stringResource(Res.string.attachments_add)
+                plan = stringResource(Res.string.template_plan)
+                prompt = stringResource(Res.string.template_plan_prompt)
+                HbTheme(dimensions = HbDimensions.Desktop) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                        StudioComposer(
+                            state.paneContent(PaneUi(0, sessionId = "chat")),
+                            events::add,
+                            isCompact = false,
+                            modifier = Modifier.width(width),
+                        )
+                    }
+                }
+            }
+            onNodeWithContentDescription(add).performClick()
+            onNodeWithText(attach).assertIsFocused().performKeyInput { pressKey(Key.DirectionDown) }
+            onNodeWithText(plan).assertIsFocused()
+            runOnIdle { width = 320.dp }
+            onNodeWithText(plan).assertIsFocused()
+            runOnIdle { width = 900.dp }
+            onNodeWithText(plan).assertIsFocused().performKeyInput { pressKey(Key.Enter) }
+            runOnIdle {
+                assertEquals(
+                    listOf<AiStudioScreenIntent>(AiStudioScreenIntent.Suggestions.DraftChanged(0, prompt)),
+                    events,
+                )
+            }
         }
 
     @Test
