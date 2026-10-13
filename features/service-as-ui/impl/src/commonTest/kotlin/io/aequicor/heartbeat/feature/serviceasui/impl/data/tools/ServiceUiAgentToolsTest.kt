@@ -157,6 +157,23 @@ class ServiceUiAgentToolsTest {
     }
 
     @Test
+    fun `put identifies an invalid card gap and accepts it on a nested column`() = runTest {
+        val invalid = """{"version":1,"body":{"children":[{"children":[],"gap":"small","type":"card"}],
+            "type":"column","gap":"large"}}"""
+        val rejected = call(ServiceUiTools.PUT, put(invalid))
+        assertTrue(rejected.isError)
+        assertTrue("$.body.children[0]:" in rejected.text, rejected.text)
+        assertTrue("gap" in rejected.text, rejected.text)
+        assertEquals(0, machine.writes)
+
+        val valid = """{"version":1,"body":{"children":[{"children":[{"children":[],"gap":"small",
+            "type":"column"}],"type":"card"}],"type":"column","gap":"large"}}"""
+        val saved = call(ServiceUiTools.PUT, put(valid))
+        assertFalse(saved.isError, saved.text)
+        assertEquals(1, machine.writes)
+    }
+
+    @Test
     fun `a web document always asks and deletes need the current revision`() = runTest {
         val web = put("""{"version":1,"body":{"type":"web","html":"<p>Hi</p>"}}""", placement = "panel")
         val spec = tools.specifications(null).first { it.name == ServiceUiTools.PUT }
