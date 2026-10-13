@@ -8,7 +8,6 @@ import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPane
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.ContextNoticeKind
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.LearningAction
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEnvironment
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarness
@@ -26,6 +25,7 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableSet
 import kotlin.time.Duration
 import kotlin.time.Instant
 
@@ -65,6 +65,8 @@ data class ModelUi(
     val connectionKey: String? = null,
     val isTrustSupported: Boolean = false,
     val inputSupport: InputSupportUi = InputSupportUi(),
+    /** A demo model of the scripted agent; its approval and effort preferences are local behavior. */
+    val isScripted: Boolean = false,
 )
 
 /** Composer preferences mirrored from the machine. */
@@ -75,10 +77,7 @@ data class SettingsUi(
     val approval: ApprovalUi,
     val engineEfforts: ImmutableMap<String, String> = persistentMapOf(),
     val nativeEffort: String? = null,
-) {
-    /** The selected model, or the first one when the id is unknown. */
-    val model: ModelUi get() = StudioModelOptions.firstOrNull { it.id == modelId } ?: StudioModelOptions.first()
-}
+)
 
 /** Confirmed configuration of one native conversation; pending operations never replace the applied values. */
 @Immutable
@@ -112,6 +111,7 @@ internal fun StudioModel.toUi(): ModelUi = ModelUi(
     studioModelTarget(id)?.takeIf { isModelSwitchSupported }?.let { "${it.engine.value}/${it.binding.value}" },
     isTrustSupported,
     inputSupport.toUi(),
+    isScripted = StudioModels.any { it.id == id },
 )
 
 /** Progress of an agent tool call. */
@@ -211,7 +211,8 @@ sealed interface MessageUi {
     ) : MessageUi
 }
 
-internal val DefaultSettingsUi: SettingsUi = DefaultRunSettings.toUi()
+/** Preferences of a fresh workspace; equals the domain `DefaultRunSettings`. */
+internal val DefaultSettingsUi: SettingsUi = SettingsUi("pulse-pro", EffortUi.High, ApprovalUi.Ask)
 
 internal fun StudioPane.toUi(): PaneUi = PaneUi(id, sessionId, projectId, isCreating, isWorktree, isOrganism)
 
@@ -321,10 +322,29 @@ private fun StudioToolRun.toUi(): ToolUi = ToolUi(
  */
 @Immutable
 data class HarnessChoicesUi(
-    val options: ImmutableList<StudioHarness> = persistentListOf(),
+    val options: ImmutableList<HarnessOptionUi> = persistentListOf(),
     val chats: ImmutableMap<String, ImmutableSet<String>> = persistentMapOf(),
     val panes: ImmutableMap<Int, ImmutableSet<String>> = persistentMapOf(),
     val failedChats: ImmutableSet<String> = persistentSetOf(),
+)
+
+/** An enabled harness of the library; [projectIds] restrict where it is offered (empty: everywhere). */
+@Immutable
+data class HarnessOptionUi(
+    val id: String,
+    val title: String,
+    val description: String = "",
+    val projectIds: ImmutableSet<String> = persistentSetOf(),
+) {
+    /** Project restrictions only control discovery, never automatic attachment. */
+    fun isAvailableFor(projectId: String?): Boolean = projectIds.isEmpty() || projectId in projectIds
+}
+
+internal fun StudioHarness.toUi(): HarnessOptionUi = HarnessOptionUi(
+    id,
+    title,
+    description,
+    projectIds.toImmutableSet(),
 )
 
 /** One harness of a pane's picker. */

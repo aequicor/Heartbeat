@@ -41,10 +41,10 @@ internal suspend fun handleStudioDiagramAction(
 
 internal fun AiStudioScreenState.canUseDiagramActions(sessionId: String): Boolean =
     sessions.any { it.id == sessionId && it.isContinuable } &&
-        panes.any { it.sessionId == sessionId } && selectedNative(sessionId) == PrimarySubSession &&
+        panes.any { it.sessionId == sessionId } && selectedNative(sessionId) == PRIMARY_SUB_SESSION &&
         (
             !sessions.any { it.id == sessionId && it.isOrganism } ||
-                (subSessions[sessionId] ?: PrimarySubSession) == PrimarySubSession
+                (subSessions[sessionId] ?: PRIMARY_SUB_SESSION) == PRIMARY_SUB_SESSION
         )
 
 /** Null reason means native acceptance; a rejection appends once without overwriting subsequently typed text. */

@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import io.aequicor.heartbeat.core.logging.HighFrequency
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.COMPACT_COMMAND
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
@@ -111,7 +112,7 @@ internal fun ComposerSuggestion.toUi(): SuggestionUi = SuggestionUi(
     },
     origin = when (val apiOrigin = origin) {
         is ComposerAssistOrigin.Heartbeat -> SuggestionOriginUi.Heartbeat
-        is ComposerAssistOrigin.Engine -> SuggestionOriginUi(apiOrigin.engine)
+        is ComposerAssistOrigin.Engine -> SuggestionOriginUi(apiOrigin.engine.value)
     },
     insert = when (this) {
         is ComposerSuggestion.Command -> insert
@@ -151,5 +152,5 @@ internal fun SuggestionUi.toCompletion(): ComposerSuggestion = when (kind) {
 }
 
 private fun SuggestionOriginUi.toApi(): ComposerAssistOrigin = engine
-    ?.let(ComposerAssistOrigin::Engine)
+    ?.let { ComposerAssistOrigin.Engine(EngineId(it)) }
     ?: ComposerAssistOrigin.Heartbeat

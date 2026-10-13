@@ -125,7 +125,7 @@ internal class StudioOrganismView(
         combine(organisms(), open, selection) { organisms, ids, selected ->
             ids.mapNotNull { id ->
                 organisms[id]?.let { organism ->
-                    val key = selected[id] ?: PrimarySubSession
+                    val key = selected[id] ?: PRIMARY_SUB_SESSION
                     id to (key to organism.sessionOf(key))
                 }
             }.toMap()

@@ -30,9 +30,9 @@ internal suspend fun submitStudioDraft(
 ) = with(pipeline) {
     withState {
         val chat = panes.firstOrNull { it.id == paneId }?.sessionId
-        if (selectedNative(chat) != PrimarySubSession) return@withState
+        if (selectedNative(chat) != PRIMARY_SUB_SESSION) return@withState
         val isOrganism = sessions.any { it.id == chat && it.isOrganism }
-        if (isOrganism && (subSessions[chat] ?: PrimarySubSession) != PrimarySubSession) return@withState
+        if (isOrganism && (subSessions[chat] ?: PRIMARY_SUB_SESSION) != PRIMARY_SUB_SESSION) return@withState
         val submissionId = Uuid.random().toString()
         val pending = pendingSubmission(paneId, submissionId)
         log.i { "Submit pane draft with attachments count=${pending.attachments.size}" }
@@ -59,7 +59,7 @@ internal suspend fun submitStudioDraft(
 /** Effective native selection shared by transcript projection and submission; missing children fall back to root. */
 internal fun AiStudioScreenState.selectedNative(sessionId: String?): String = subSessions[sessionId]?.takeIf { key ->
     nativeTrees[sessionId]?.sessions?.any { it.key == key && it.kind == SubSessionKindUi.Agent } == true
-} ?: PrimarySubSession
+} ?: PRIMARY_SUB_SESSION
 
 /**
  * Handles a draft typed as `/compact` while compaction is offered: the chat's context is compacted instead of sending
@@ -86,7 +86,7 @@ internal suspend fun compactStudioDraft(
 
 /** The chat a `/compact` draft of pane [paneId] compacts; none while the pane shows a native sub-agent of it. */
 internal fun AiStudioScreenState.compactedChat(paneId: Int): String? =
-    panes.firstOrNull { it.id == paneId }?.sessionId?.takeIf { selectedNative(it) == PrimarySubSession }
+    panes.firstOrNull { it.id == paneId }?.sessionId?.takeIf { selectedNative(it) == PRIMARY_SUB_SESSION }
 
 /** Correlates native acknowledgement with either a composer snapshot or a diagram-only message. */
 internal suspend fun handleStudioSubmissionOutput(

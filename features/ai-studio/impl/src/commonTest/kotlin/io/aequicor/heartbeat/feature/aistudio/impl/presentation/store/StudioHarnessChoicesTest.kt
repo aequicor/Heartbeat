@@ -1,6 +1,5 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarness
 import io.aequicor.heartbeat.feature.aistudio.impl.ui.harnessChoices
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
@@ -13,9 +12,9 @@ class StudioHarnessChoicesTest {
     private val state = AiStudioScreenState(
         harnessChoices = HarnessChoicesUi(
             options = persistentListOf(
-                StudioHarness("compose", "Compose"),
-                StudioHarness("verify", "Verify"),
-                StudioHarness("chosen", "Chosen"),
+                HarnessOptionUi("compose", "Compose"),
+                HarnessOptionUi("verify", "Verify"),
+                HarnessOptionUi("chosen", "Chosen"),
             ),
             chats = persistentMapOf("chat" to persistentSetOf("chosen")),
             panes = persistentMapOf(1 to persistentSetOf("chosen")),
@@ -59,7 +58,7 @@ class StudioHarnessChoicesTest {
             panes = persistentListOf(PaneUi(0)),
             drafts = persistentMapOf("pane:0" to "Question"),
             harnessChoices = HarnessChoicesUi(
-                options = persistentListOf(StudioHarness("chosen", "Chosen")),
+                options = persistentListOf(HarnessOptionUi("chosen", "Chosen")),
                 panes = persistentMapOf(0 to persistentSetOf("chosen")),
             ),
         )

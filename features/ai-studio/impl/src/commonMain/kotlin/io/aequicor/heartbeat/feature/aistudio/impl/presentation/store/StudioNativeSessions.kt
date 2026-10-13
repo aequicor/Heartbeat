@@ -59,7 +59,7 @@ internal class StudioNativeSessions(
         val chat: String,
         val ref: SessionRef,
         val access: SessionTreeAccess,
-        val owner: String = PrimarySubSession,
+        val owner: String = PRIMARY_SUB_SESSION,
         val name: String? = null,
     )
 
@@ -91,7 +91,7 @@ internal class StudioNativeSessions(
             combine(trees, selection) { families, selected ->
                 families.values.mapNotNull { pair ->
                     val (root, tree) = pair
-                    val key = selected[root.chat] ?: PrimarySubSession
+                    val key = selected[root.chat] ?: PRIMARY_SUB_SESSION
                     tree.descendants().firstOrNull { nativeKey(it.node.ref) == key }
                         ?.let { Triple(root, it.node.ref, key) }
                 }
@@ -200,7 +200,7 @@ internal fun SessionTreeSnapshot.toUi(rootName: String? = null): SessionTreeUi =
     sessions = (
         listOf(
             SubSessionUi(
-                PrimarySubSession,
+                PRIMARY_SUB_SESSION,
                 SubSessionKindUi.Root,
                 rootName ?: nodes.firstOrNull { it.ref == root }?.name.orEmpty(),
                 nodes.firstOrNull { it.ref == root }?.activity?.toUi() ?: SubSessionStateUi.Unknown,

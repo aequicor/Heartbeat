@@ -20,15 +20,16 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarness
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.EnvironmentUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.HarnessChoicesUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.HarnessOptionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_menu_section
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentSetOf
 import org.jetbrains.compose.resources.stringResource
 import java.io.File
 import javax.imageio.ImageIO
@@ -96,7 +97,9 @@ class StudioHarnessPickerUiTest {
         projects = persistentListOf(ProjectUi("project", "Heartbeat", EnvironmentUi.Local, "master")),
         isWorktreeAvailable = true,
         harnessChoices = HarnessChoicesUi(
-            options = persistentListOf(StudioHarness("code", "Разработка", "Код и тесты", setOf("project"))),
+            options = persistentListOf(
+                HarnessOptionUi("code", "Разработка", "Код и тесты", persistentSetOf("project")),
+            ),
         ),
     )
 }

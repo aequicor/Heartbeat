@@ -3,7 +3,6 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPane
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarness
 import io.aequicor.heartbeat.feature.aistudio.impl.ui.harnessChoices
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
@@ -13,9 +12,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 
 class StudioHarnessProjectTest {
-    private val shared = StudioHarness("shared", "Shared", "Available everywhere")
-    private val projectA = StudioHarness("a", "Project A", projectIds = setOf("project-a"))
-    private val projectB = StudioHarness("b", "Project B", projectIds = setOf("project-b"))
+    private val shared = HarnessOptionUi("shared", "Shared", "Available everywhere")
+    private val projectA = HarnessOptionUi("a", "Project A", projectIds = persistentSetOf("project-a"))
+    private val projectB = HarnessOptionUi("b", "Project B", projectIds = persistentSetOf("project-b"))
     private val state = AiStudioScreenState(
         panes = persistentListOf(PaneUi(0, projectId = "project-a")),
         harnessChoices = HarnessChoicesUi(options = persistentListOf(shared, projectA, projectB)),

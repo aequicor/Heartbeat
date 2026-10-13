@@ -342,7 +342,7 @@ class AiStudioModelTest {
         assertEquals("Follow up", screen.states.value.draft(0))
         assertTrue(screen.states.value.submissions.isEmpty())
 
-        fixture.model.store.intent(AiStudioScreenIntent.SelectSubSession("s-facade", PrimarySubSession))
+        fixture.model.store.intent(AiStudioScreenIntent.SelectSubSession("s-facade", PRIMARY_SUB_SESSION))
         fixture.model.store.intent(AiStudioScreenIntent.Submit(0))
         runCurrent()
         assertEquals(1, fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.Submit>().size)

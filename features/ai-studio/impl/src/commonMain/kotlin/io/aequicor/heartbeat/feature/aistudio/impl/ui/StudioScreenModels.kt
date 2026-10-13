@@ -12,9 +12,9 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.HarnessCho
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.OrganismUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PRIMARY_SUB_SESSION
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PermissionUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PrimarySubSession
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProviderUsageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.RenameUi
@@ -103,7 +103,7 @@ internal data class PaneContent(
     val harnesses: ImmutableList<HarnessChoiceUi> = persistentListOf(),
     val isHarnessFailed: Boolean = false,
     val organism: OrganismUi? = null,
-    val subSession: String = PrimarySubSession,
+    val subSession: String = PRIMARY_SUB_SESSION,
     val nativeTree: SessionTreeUi? = null,
     val isAttachmentFailed: Boolean = false,
     val attachmentPreviews: ImmutableMap<String, AttachmentPreviewUi> = persistentMapOf(),
@@ -232,7 +232,7 @@ private fun AiStudioScreenState.transcriptOf(sessionId: String?, session: Sessio
     when {
         sessionId == null -> null
 
-        selectedNative(sessionId) != PrimarySubSession -> nativeTranscripts[sessionId]
+        selectedNative(sessionId) != PRIMARY_SUB_SESSION -> nativeTranscripts[sessionId]
             ?.takeIf { it.key == selectedNative(sessionId) }?.messages ?: persistentListOf()
 
         session?.isOrganism == true -> subTranscripts[sessionId] ?: persistentListOf()
@@ -294,16 +294,16 @@ private fun AiStudioScreenState.displayedSession(id: String?): SessionUi? {
         val isRunning = organismObservation(id)?.isRunning
         if (current.isOrganism && isRunning != null) current.copy(isRunning = isRunning) else current
     }
-    return if (selectedNative(id) == PrimarySubSession) session else session?.copy(isContinuable = false)
+    return if (selectedNative(id) == PRIMARY_SUB_SESSION) session else session?.copy(isContinuable = false)
 }
 
 /** Selection changes hide the previous cell's telemetry immediately, before the new observer emits. */
 private fun AiStudioScreenState.organismObservation(id: String?) = subObservations[id]?.takeIf {
-    selectedNative(id) == PrimarySubSession && it.key == (subSessions[id] ?: PrimarySubSession)
+    selectedNative(id) == PRIMARY_SUB_SESSION && it.key == (subSessions[id] ?: PRIMARY_SUB_SESSION)
 }
 
 private fun AiStudioScreenState.selectedSubSession(id: String?, session: SessionUi?): String =
-    if (session?.isOrganism == true) subSessions[id] ?: PrimarySubSession else selectedNative(id)
+    if (session?.isOrganism == true) subSessions[id] ?: PRIMARY_SUB_SESSION else selectedNative(id)
 
 /** Diagram interaction state of one pane, separate from normal composer submissions. */
 @Immutable

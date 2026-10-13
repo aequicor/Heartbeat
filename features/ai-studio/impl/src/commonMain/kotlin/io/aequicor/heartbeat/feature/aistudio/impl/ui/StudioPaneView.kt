@@ -64,7 +64,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioSc
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentPreviewUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.DiagramDraftReasonUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PrimarySubSession
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PRIMARY_SUB_SESSION
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
@@ -745,7 +745,7 @@ private fun Modifier.focusOnPress(isFocused: Boolean, key: Any, onFocus: () -> U
 }
 
 private fun PaneContent.diagramActionHandler(onIntent: (AiStudioScreenIntent) -> Unit): ((HbDiagramAction) -> Unit)? =
-    session?.takeIf { it.isContinuable && subSession == PrimarySubSession && !diagram.isPending }?.let { source ->
+    session?.takeIf { it.isContinuable && subSession == PRIMARY_SUB_SESSION && !diagram.isPending }?.let { source ->
         { action ->
             onIntent(
                 AiStudioScreenIntent.DiagramAction(source.id, action.text, action.kind == HbDiagramActionKind.Send),

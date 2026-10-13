@@ -22,12 +22,12 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarness
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ApprovalUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.EffortUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.HarnessChoicesUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.HarnessOptionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionConfigurationUi
@@ -308,7 +308,7 @@ class StudioComposerUiTest {
             val state = AiStudioScreenState(
                 panes = persistentListOf(pane),
                 harnessChoices = HarnessChoicesUi(
-                    options = persistentListOf(StudioHarness("compose", "Compose UI")),
+                    options = persistentListOf(HarnessOptionUi("compose", "Compose UI")),
                     chats = persistentMapOf("chat" to persistentSetOf("compose")),
                 ),
             )
@@ -335,7 +335,7 @@ class StudioComposerUiTest {
             val pane = PaneUi(0, sessionId = "chat")
             val state = AiStudioScreenState(
                 panes = persistentListOf(pane),
-                harnessChoices = HarnessChoicesUi(options = persistentListOf(StudioHarness("compose", "Compose UI"))),
+                harnessChoices = HarnessChoicesUi(options = persistentListOf(HarnessOptionUi("compose", "Compose UI"))),
             )
             var harnessLabel = ""
             setContent {

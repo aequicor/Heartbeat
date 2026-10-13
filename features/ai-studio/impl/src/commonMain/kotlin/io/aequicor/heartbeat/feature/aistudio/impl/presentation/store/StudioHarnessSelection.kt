@@ -2,7 +2,6 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarness
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
@@ -22,7 +21,7 @@ internal class StudioHarnessSelection(private val harnesses: StudioHarnesses, pr
     /** Library choices with connections projected from native sessions onto studio chats. */
     suspend fun observe(pipeline: HarnessPipeline) = with(pipeline) {
         combine(harnesses.choices, backend.repository().observeWorkspace()) { choices, workspace ->
-            choices.harnesses.toImmutableList() to workspace.sessions.mapNotNull { session ->
+            choices.harnesses.map { it.toUi() }.toImmutableList() to workspace.sessions.mapNotNull { session ->
                 val native = session.nativeSession ?: return@mapNotNull null
                 val attached = choices.attached[native] ?: return@mapNotNull null
                 session.id to attached.toImmutableSet()
@@ -103,7 +102,7 @@ internal fun HarnessChoicesUi.withoutPane(paneId: Int): HarnessChoicesUi =
     if (paneId in panes) copy(panes = (panes - paneId).toImmutableMap()) else this
 
 /** Shared harnesses plus this project's choices; connected chat harnesses remain reachable for disconnection. */
-internal fun AiStudioScreenState.availableHarnesses(pane: PaneUi): List<StudioHarness> {
+internal fun AiStudioScreenState.availableHarnesses(pane: PaneUi): List<HarnessOptionUi> {
     val projectId = pane.projectId ?: sessions.firstOrNull { it.id == pane.sessionId }?.projectId
     val attached = pane.sessionId?.let { harnessChoices.chats[it] }.orEmpty()
     return harnessChoices.options.filter { it.isAvailableFor(projectId) || it.id in attached }

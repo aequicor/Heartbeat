@@ -7,7 +7,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionObservationSnaps
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.organicai.api.Cell
-import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.DeathCause
 import io.aequicor.heartbeat.feature.organicai.api.ImmuneCase
@@ -20,8 +19,8 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 
-/** The sub-session an organism chat shows until another is chosen: its zygote. */
-internal val PrimarySubSession: String = CellId.ZYGOTE.value
+/** The sub-session an organism chat shows until another is chosen: its zygote (`CellId.ZYGOTE`). */
+internal const val PRIMARY_SUB_SESSION: String = "zygote"
 
 /** An organism chat: the organism's state, every session that grew from it and the decisions it awaits. */
 @Immutable

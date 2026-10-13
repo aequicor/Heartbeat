@@ -35,10 +35,9 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.Environmen
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.NativeAttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.OrganismStatusUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PRIMARY_SUB_SESSION
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PrimarySubSession
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioModelOptions
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SuggestionKindUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SuggestionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeJournalUi
@@ -215,18 +214,18 @@ private fun composerSuggestions(content: PaneContent): HbComposerSuggestions? {
     return HbComposerSuggestions(rows, list.selectedIndex)
 }
 
-private fun SuggestionUi.sectionKey(): String = "${origin.engine?.value.orEmpty()}:${kind.name}"
+private fun SuggestionUi.sectionKey(): String = "${origin.engine.orEmpty()}:${kind.name}"
 
 @Composable
 private fun sectionLabel(suggestion: SuggestionUi): String = when (suggestion.kind) {
     SuggestionKindUi.Command -> when (val origin = suggestion.origin.engine) {
         null -> stringResource(Res.string.suggestions_section_commands)
-        else -> stringResource(Res.string.suggestions_section_engine_commands, origin.value)
+        else -> stringResource(Res.string.suggestions_section_engine_commands, origin)
     }
 
     SuggestionKindUi.Skill -> when (val origin = suggestion.origin.engine) {
         null -> stringResource(Res.string.suggestions_section_skills)
-        else -> stringResource(Res.string.suggestions_section_engine_skills, origin.value)
+        else -> stringResource(Res.string.suggestions_section_engine_skills, origin)
     }
 
     SuggestionKindUi.File -> stringResource(Res.string.suggestions_section_files)
@@ -365,7 +364,7 @@ private fun ComposerEffort(
 
 /** Scripted approvals are local demo behavior; native permission policies remain engine-owned. */
 private fun PaneContent.supportsRunPreferences(): Boolean = models.any { model ->
-    model.id == settings.modelId && StudioModelOptions.any { it.id == model.id }
+    model.id == settings.modelId && model.isScripted
 }
 
 /** Engines that apply trust levels take the composer's approval mode with every prompt. */
@@ -376,7 +375,7 @@ private fun PaneContent.isTrustSupported(): Boolean = models.any { it.id == sett
  * its goal again. Both require organic AI to be on. Descendants and judges remain read-only.
  */
 private fun PaneContent.takesPrompts(): Boolean = session?.isContinuable != false || (
-    session.isOrganism && isOrganismEnabled && subSession == PrimarySubSession &&
+    session.isOrganism && isOrganismEnabled && subSession == PRIMARY_SUB_SESSION &&
         (organism == null || organism.status == OrganismStatusUi.Completed)
 )
 

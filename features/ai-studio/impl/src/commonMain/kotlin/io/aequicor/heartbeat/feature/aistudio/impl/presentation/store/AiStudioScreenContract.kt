@@ -1,8 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioFeedCollapse
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
@@ -131,7 +129,7 @@ data class AiStudioScreenState(
     /** Whether the composer offers `/compact` and the context indicator its compaction action. */
     val isCompactEnabled: Boolean = false,
     /** How the feed collapses agent work. */
-    val feedCollapse: StudioFeedCollapse = StudioFeedCollapse(),
+    val feedCollapse: FeedCollapseUi = FeedCollapseUi(),
     /** Whether a new chat may be started as an organic AI organism. */
     val isOrganismEnabled: Boolean = false,
     /** Harnesses offered in the "+" menu, chat connections and choices of new chats. */
@@ -399,9 +397,13 @@ sealed interface AiStudioScreenAction : MVIAction
 /** What a suggestion completes; the section label and icon derive from kind and origin. */
 enum class SuggestionKindUi { Command, Skill, File }
 
-/** Where a suggestion comes from: Heartbeat itself or a native engine. */
+/** Which parts of answers the feed hides (context settings): reasoning, tool calls. */
 @Immutable
-data class SuggestionOriginUi(val engine: EngineId?) {
+data class FeedCollapseUi(val isReasoningCollapsed: Boolean = false, val isToolCallsCollapsed: Boolean = false)
+
+/** Where a suggestion comes from: Heartbeat itself or a native engine (its engine id). */
+@Immutable
+data class SuggestionOriginUi(val engine: String?) {
     val isHeartbeat: Boolean get() = engine == null
 
     /** Named origins of the screen projection. */

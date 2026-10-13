@@ -1,6 +1,5 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioFeedCollapse
 import kotlinx.collections.immutable.persistentListOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -27,13 +26,13 @@ class StudioFeedCollapseTest {
     @Test
     fun `nothing changes while the feed is not collapsed`() {
         val feed = persistentListOf<MessageUi>(reply)
-        assertSame(feed, feed.collapsed(StudioFeedCollapse()))
+        assertSame(feed, feed.collapsed(FeedCollapseUi()))
     }
 
     @Test
     fun `reasoning disappears and the tool calls become one line at the first call`() {
         val collapsed = persistentListOf<MessageUi>(reply)
-            .collapsed(StudioFeedCollapse(isReasoningCollapsed = true, isToolCallsCollapsed = true))
+            .collapsed(FeedCollapseUi(isReasoningCollapsed = true, isToolCallsCollapsed = true))
             .single() as MessageUi.Reply
 
         assertEquals(
@@ -113,7 +112,7 @@ class StudioFeedCollapseTest {
         assertEquals(ReplyPartUi.CollapsedTools("collapsed:reply", 1, isRunning = true), collapsed.parts.last())
     }
 
-    private val both = StudioFeedCollapse(isReasoningCollapsed = true, isToolCallsCollapsed = true)
+    private val both = FeedCollapseUi(isReasoningCollapsed = true, isToolCallsCollapsed = true)
 
     private fun tool(id: String, status: ToolStatusUi = ToolStatusUi.Done) =
         ToolUi(id = id, title = id, status = status, output = "", diff = null)

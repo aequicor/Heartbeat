@@ -1,7 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import io.aequicor.heartbeat.core.logging.HighFrequency
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioFeedCollapse
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlin.concurrent.Volatile
@@ -16,7 +15,7 @@ import kotlin.concurrent.Volatile
  * change is returned as is. Unchanged entries keep their identity and equality checks downstream stay shallow.
  */
 @HighFrequency
-internal fun ImmutableList<MessageUi>.collapsed(collapse: StudioFeedCollapse): ImmutableList<MessageUi> {
+internal fun ImmutableList<MessageUi>.collapsed(collapse: FeedCollapseUi): ImmutableList<MessageUi> {
     if (!collapse.isReasoningCollapsed && !collapse.isToolCallsCollapsed) return this
     var isChanged = false
     val shown = map { message ->
@@ -32,10 +31,10 @@ internal fun ImmutableList<MessageUi>.collapsed(collapse: StudioFeedCollapse): I
  */
 internal class CollapseMemo {
     @Volatile
-    private var entry: Pair<StudioFeedCollapse, MessageUi.Reply>? = null
+    private var entry: Pair<FeedCollapseUi, MessageUi.Reply>? = null
 
     @HighFrequency
-    fun of(collapse: StudioFeedCollapse, compute: () -> MessageUi.Reply): MessageUi.Reply {
+    fun of(collapse: FeedCollapseUi, compute: () -> MessageUi.Reply): MessageUi.Reply {
         entry?.let { (key, value) -> if (key == collapse) return value }
         return compute().also { entry = collapse to it }
     }
@@ -46,7 +45,7 @@ internal class CollapseMemo {
  * hidden work as running, so the in-flight reply never looks finished.
  */
 @HighFrequency
-private fun MessageUi.Reply.collapsed(collapse: StudioFeedCollapse): MessageUi.Reply {
+private fun MessageUi.Reply.collapsed(collapse: FeedCollapseUi): MessageUi.Reply {
     val kept = ArrayList<ReplyPartUi>(parts.size)
     var linePosition = -1
     var hiddenCalls = 0
@@ -81,7 +80,7 @@ private fun MessageUi.Reply.collapsed(collapse: StudioFeedCollapse): MessageUi.R
     }
 }
 
-private fun StudioFeedCollapse.hides(part: ReplyPartUi): Boolean = when (part) {
+private fun FeedCollapseUi.hides(part: ReplyPartUi): Boolean = when (part) {
     is ReplyPartUi.Reasoning -> isReasoningCollapsed
     is ReplyPartUi.Tool -> isToolCallsCollapsed && part.tool.isCollapsible
     is ReplyPartUi.Text, is ReplyPartUi.CollapsedTools -> false
