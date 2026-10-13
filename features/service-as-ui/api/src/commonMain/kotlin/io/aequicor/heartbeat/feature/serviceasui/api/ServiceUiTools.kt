@@ -32,10 +32,15 @@ public object ServiceUiTools {
         return "UI card $cardId shown. The user sees it in your reply; do not repeat its content."
     }
 
-    /** The card created by a successful [SHOW] call, read from its [result] text; null for other tools and errors. */
+    /**
+     * The card created by a successful [SHOW] call, read from its whole [result] text as [shown] writes it; null for
+     * other tools, errors and any other text.
+     */
     public fun shownCardId(toolName: String, result: String): String? =
-        if (toolName == SHOW) Shown.find(result)?.groupValues?.get(1) else null
+        if (toolName == SHOW) Shown.matchEntire(result.trim())?.groupValues?.get(1) else null
 }
 
 private val CardId = Regex("[a-z0-9_]{1,40}")
-private val Shown = Regex("UI card ([a-z0-9_]{1,40}) shown\\.")
+private val Shown = Regex(
+    "UI card ([a-z0-9_]{1,40}) shown\\. The user sees it in your reply; do not repeat its content\\.",
+)

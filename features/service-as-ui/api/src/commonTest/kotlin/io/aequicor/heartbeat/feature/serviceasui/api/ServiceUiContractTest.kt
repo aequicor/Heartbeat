@@ -44,7 +44,7 @@ class ServiceUiContractTest {
         val result = ServiceUiTools.shown("uc_0123abcd")
 
         assertEquals("uc_0123abcd", ServiceUiTools.shownCardId(ServiceUiTools.SHOW, result))
-        assertEquals("uc_0123abcd", ServiceUiTools.shownCardId(ServiceUiTools.SHOW, "Result: $result"))
+        assertNull(ServiceUiTools.shownCardId(ServiceUiTools.SHOW, "Result: $result"))
         assertNull(ServiceUiTools.shownCardId(ServiceUiTools.PUT, result))
         assertNull(ServiceUiTools.shownCardId(ServiceUiTools.SHOW, "Card limit for this chat reached"))
         assertFailsWith<IllegalArgumentException> { ServiceUiTools.shown("Bad Id") }

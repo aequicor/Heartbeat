@@ -86,6 +86,23 @@ class CardModelTest {
     }
 
     @Test
+    fun `a card prompts only into its own place while that place shows its chat`() = runTest {
+        val elsewhere = ServiceUiState.Ready(
+            hosts = mapOf(host to bound, UiHostId("pane-2") to UiHostContext(UiCallContext(session = chat))),
+        )
+        val second = Fixture(this, elsewhere, "pane-2")
+        second.press()
+        assertEquals(UiHostId("pane-2"), (second.machine.sent.single() as ServiceUiIntent.Internal.RequestPrompt).host)
+
+        val other = ServiceUiState.Ready(
+            hosts = mapOf(host to UiHostContext(UiCallContext(session = chat.copy(nativeId = "other")))),
+        )
+        val fixture = Fixture(this, other)
+        fixture.press()
+        assertEquals(emptyList(), fixture.machine.sent, "a place showing another chat takes no prompt")
+    }
+
+    @Test
     fun `a missing card shows a placeholder until it is stored`() = runTest {
         val fixture = Fixture(this, ready())
         val card = fixture.subscribe()
@@ -134,16 +151,25 @@ class CardModelTest {
         createdAt = Instant.fromEpochSeconds(0),
     )
 
-    private class Fixture(private val scope: TestScope, state: ServiceUiState) {
+    private class Fixture(private val scope: TestScope, state: ServiceUiState, place: String? = "pane-1") {
         val machine = FakeMachine(state)
         val cards = MutableStateFlow<Map<String, UiCard>>(emptyMap())
+        var inlineCard: UiCard = UiCard(
+            id = ID,
+            chat = SessionRef(EngineId("pi"), SessionSourceId("s"), "chat"),
+            callId = "call-1",
+            title = "PRs",
+            source = UiCardSource.Inline(ASK),
+            args = JsonObject(emptyMap()),
+            createdAt = Instant.fromEpochSeconds(0),
+        )
         private val stores = HeartbeatStoreFactory(TestDispatchers(StandardTestDispatcher(scope.testScheduler)))
         private val storage = object : UiCardStorage {
             override suspend fun add(card: UiCard): UiCardAdded = error("unused")
             override fun observe(id: String): Flow<UiCard?> = cards.map { it[id] }
         }
         val model = CardModel(
-            ServiceUiCardRoute(ID),
+            ServiceUiCardRoute(ID, place),
             storage,
             machine,
             { session, child -> SurfaceModel(session, NoCalls, UnsupportedUiPlatform, stores, child) },
@@ -153,6 +179,15 @@ class CardModelTest {
         )
 
         suspend fun subscribe(): Provider<CardState, CardIntent, CardAction> = subscribe(model.store)
+
+        /** Stores an inline card asking for a prompt and presses its button. */
+        suspend fun press() {
+            cards.value = mapOf(ID to inlineCard)
+            val card = subscribe()
+            val surface = subscribe(model.surfaces.value.getValue(card.states.value.key!!).store)
+            surface.intent(SurfaceIntent.Press(assertIs<UiNodeUi.Button>(surface.states.value.root).press))
+            scope.runCurrent()
+        }
 
         suspend fun <S : MVIState, I : MVIIntent, A : MVIAction> subscribe(store: Store<S, I, A>): Provider<S, I, A> {
             val provider = CompletableDeferred<Provider<S, I, A>>()

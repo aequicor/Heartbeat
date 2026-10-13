@@ -50,9 +50,9 @@ private typealias CardPipeline = PipelineContext<CardState, CardIntent, CardActi
 
 /**
  * One card the agent showed in a response: an inline spec without an owner, or a library surface drawn with the
- * card's arguments. A card loads no data by itself and only inserts prompts into the composer of the place bound to
- * its chat; an evicted card, a gone or disabled surface or a switched-off feature shows a placeholder. The drawn
- * surface restarts when its spec, owner, place or arguments change.
+ * card's arguments. A card loads no data by itself and only inserts prompts into the composer of the place it is
+ * drawn in, while that place shows its chat; an evicted card, a gone or disabled surface or a switched-off feature
+ * shows a placeholder. The drawn surface restarts when its spec, owner, place or arguments change.
  */
 @SingleIn(ServiceUiCardScope::class)
 @Inject
@@ -67,6 +67,7 @@ internal class CardModel(
 ) {
     private val log = Log.tag("ServiceUiCard")
     private val id = route.id
+    private val place = route.host?.let(::placeOf)
     private val scope = handle.coroutineScope
     private val platform = platformFact(platformInfo.host)
     private val models = MutableStateFlow<ImmutableMap<String, SurfaceModel>>(persistentMapOf())
@@ -132,8 +133,9 @@ internal class CardModel(
     /** What [card] draws in [state], or null while the feature is off or its library surface is not available. */
     private fun drawn(card: UiCard, state: ServiceUiState): DrawnCard? {
         val ready = state as? ServiceUiState.Ready ?: return null
-        val bound = ready.hosts.entries.firstOrNull { it.value.call.session == card.chat }
-        val context = bound?.value ?: UiHostContext(UiCallContext(session = card.chat))
+        // Only the place the card is drawn in, and only while it shows the card's chat, takes its prompts and panels.
+        val bound = place?.takeIf { ready.hosts[it]?.call?.session == card.chat }
+        val context = bound?.let { ready.hosts[it] } ?: UiHostContext(UiCallContext(session = card.chat))
         val (spec, owner) = when (val source = card.source) {
             is UiCardSource.Inline -> source.spec to null
 
@@ -141,7 +143,14 @@ internal class CardModel(
                 ?.let { it.content.spec to it.content.owner }
                 ?: return null
         }
-        return DrawnCard(card.title, spec, owner, bound?.key, context, card.args)
+        return DrawnCard(card.title, spec, owner, bound, context, card.args)
+    }
+
+    private fun placeOf(host: String): UiHostId? = try {
+        UiHostId(host)
+    } catch (e: IllegalArgumentException) {
+        log.w(e) { "Card $id has an invalid place" }
+        null
     }
 
     /** Starts the store of [drawn] unless it runs already, closing the previous one; an unreadable spec once. */

@@ -18,10 +18,14 @@ public data class ServiceUiSlotRoute(public val host: String, public val slot: U
 @SerialName("service_ui_panel")
 public data class ServiceUiPanelRoute(public val dock: String) : Route
 
-/** A card the agent showed in a response; the host controls its placement inside the message. */
+/**
+ * A card the agent showed in a response, drawn in the host place [host] (a `UiHostId` value) of its chat: prompts and
+ * panels of the card go there only while that place is bound to the card's chat. The host controls its placement
+ * inside the message.
+ */
 @Serializable
 @SerialName("service_ui_card")
-public data class ServiceUiCardRoute(public val id: String) : Route
+public data class ServiceUiCardRoute(public val id: String, public val host: String? = null) : Route
 
 /** The surface library of the profile; [isEmbedded] draws only the content inside the settings window. */
 @Serializable
