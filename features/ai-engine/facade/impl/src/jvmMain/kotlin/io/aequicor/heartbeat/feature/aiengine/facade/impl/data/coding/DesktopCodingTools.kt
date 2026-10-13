@@ -4,27 +4,37 @@ import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import java.nio.file.Path
 
-/** Files and commands share the same implementation and trust semantics across local engines. */
+/** Files and commands share host-bound interactive or independent automatic decisions across local engines. */
 @Inject
 @ContributesIntoSet(ProfileScope::class)
 internal class DesktopCodingTools(
     private val workspaces: LocalWorkspaces,
     private val dispatchers: DispatcherProvider,
+    reviewer: AgentSafetyReviewer,
 ) : AgentToolContribution {
+    private val safety = DesktopCodingSafety(workspaces, dispatchers, reviewer)
+    private val mutations = Mutex()
     override val group: String = "coding"
     override val title: String = "Работа с проектом"
     override val catalog: List<ToolCatalogEntry> = listOf(
@@ -91,9 +101,72 @@ internal class DesktopCodingTools(
         },
     )
 
+    override suspend fun approval(
+        context: AgentToolContext,
+        spec: AgentToolSpec,
+        arguments: JsonObject,
+    ): AgentToolApproval {
+        val original = approval(spec, arguments)
+        return if (context.isAutomaticMutation(spec.name)) {
+            safety.snapshot(context, original, arguments)?.approval ?: original
+        } else {
+            original
+        }
+    }
+
+    override suspend fun automaticAuthorization(
+        context: AgentToolContext,
+        spec: AgentToolSpec,
+        arguments: JsonObject,
+    ): AgentToolAutomaticAuthorization? = if (context.isAutomaticMutation(spec.name)) {
+        val snapshot = safety.snapshot(context, approval(spec, arguments), arguments)
+        if (snapshot == null) {
+            AgentToolAutomaticAuthorization.Denied("The project action cannot be captured safely")
+        } else {
+            safety.authorize(context, snapshot)
+        }
+    } else {
+        null
+    }
+
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult =
-        tools(context.workspace).singleOrNull { it.descriptor.name == name }?.run(arguments)
-            ?: AgentToolResult("Project tools are unavailable", isError = true)
+        if (name in MUTATIONS) {
+            mutations.withLock { executeMutation(context, name, arguments) }
+        } else {
+            tools(context.workspace).singleOrNull { it.descriptor.name == name }?.run(arguments) ?: unavailable()
+        }
+
+    /** Final snapshot and execution share the mutation slot, including writes from interactive callers. */
+    private suspend fun executeMutation(
+        context: AgentToolContext,
+        name: String,
+        arguments: JsonObject,
+    ): AgentToolResult {
+        val tool = tools(context.workspace).singleOrNull { it.descriptor.name == name }
+        return when {
+            tool == null -> unavailable()
+            !context.isAutomaticMutation(name) -> tool.run(arguments)
+            else -> executeReviewed(context, tool, arguments)
+        }
+    }
+
+    private suspend fun executeReviewed(
+        context: AgentToolContext,
+        tool: CodingTool,
+        arguments: JsonObject,
+    ): AgentToolResult {
+        val action = if (tool.descriptor.name == SHELL_TOOL) AgentToolAction.Command else AgentToolAction.Edit
+        val original = approval(tool.descriptor.specification(action), arguments)
+        val snapshot = safety.snapshot(context, original, arguments)
+        return if (snapshot == null || !safety.consume(context, snapshot)) {
+            AgentToolResult("The safety review expired or the project action changed; request it again", true)
+        } else {
+            currentCoroutineContext().ensureActive()
+            val capturedTools = codingFileTools(snapshot.root, dispatchers.io) +
+                CodingShellTool(snapshot.root, dispatchers.io)
+            capturedTools.single { it.descriptor.name == tool.descriptor.name }.run(snapshot.arguments)
+        }
+    }
 
     private suspend fun tools(workspace: WorkspaceRef?): List<CodingTool> {
         if (workspace == null || !workspaces.isAvailable) return emptyList()
@@ -105,5 +178,11 @@ internal class DesktopCodingTools(
     }
 }
 
+private fun AgentToolContext.isAutomaticMutation(name: String): Boolean =
+    decisionMode == AgentToolDecisionMode.AutomaticSafety && name in MUTATIONS
+
+private fun unavailable() = AgentToolResult("Project tools are unavailable", isError = true)
+
 private const val MAX_APPROVAL_CHARS = 4_000
 private const val SHELL_TOOL = "run_command"
+private val MUTATIONS = setOf("write_file", "edit_file", SHELL_TOOL)

@@ -36,6 +36,9 @@ internal class ProjectRoot(directory: Path) {
         return candidate
     }
 
+    /** Validated physical target, including the existing prefix of a path to a new file. */
+    fun canonical(raw: String): Path = real(resolve(raw))
+
     private fun rejectMetadata(candidate: Path, realPath: Path) {
         if (path.relativize(candidate).firstOrNull()?.toString().equals(".git", ignoreCase = true) ||
             path.relativize(realPath).firstOrNull()?.toString().equals(".git", ignoreCase = true)

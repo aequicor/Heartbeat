@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.coding
 
 import io.aequicor.heartbeat.core.common.DispatcherProvider
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
@@ -49,7 +50,7 @@ class DesktopCodingToolsTest {
             override suspend fun register(directory: String) = error("Registration is not part of tool execution")
             override suspend fun resolve(ref: WorkspaceRef): String? = directory.toString().takeIf { ref == workspace }
         }
-        return DesktopCodingTools(projects, dispatchers)
+        return DesktopCodingTools(projects, dispatchers, AgentSafetyReviewer { _, _, _ -> error("Unexpected review") })
     }
 
     @Test
