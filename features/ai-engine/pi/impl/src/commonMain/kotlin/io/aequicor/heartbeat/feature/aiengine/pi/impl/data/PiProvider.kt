@@ -23,6 +23,7 @@ internal enum class PiProvider(
     Anthropic("anthropic", "https://api.anthropic.com", "ANTHROPIC_API_KEY"),
     OpenAi("openai", "https://api.openai.com", "OPENAI_API_KEY"),
     Google("google", "https://generativelanguage.googleapis.com", "GEMINI_API_KEY"),
+    ZaiCodingPlan("zai", "https://api.z.ai", "ZAI_API_KEY"),
     OpenAiCompatible(
         CompatibleProtocol.OpenAI.provider.id.value,
         null,
