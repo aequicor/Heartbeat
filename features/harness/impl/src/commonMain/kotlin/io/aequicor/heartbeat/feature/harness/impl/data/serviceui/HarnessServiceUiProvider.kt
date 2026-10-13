@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodCall
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodFailure
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodInfo
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodResult
+import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodReview
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethods
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwnerInfo
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwners
@@ -83,6 +84,11 @@ internal class HarnessServiceUiProvider(
 
     override fun dataRevision(owner: String): Flow<Long> = data.revision(HarnessId(owner))
 
+    override suspend fun review(owner: String, method: String, context: UiCallContext): UiMethodReview? {
+        if (!host.isAvailable || owner !in library.first().active(context)) return null
+        return dispatch.value.review(HarnessId(owner), method)?.let { UiMethodReview(it.binding, it.source) }
+    }
+
     override suspend fun call(owner: String, call: UiMethodCall): UiMethodResult {
         val isActive = owner in library.first().active(call.context)
         val result = when {
@@ -94,6 +100,7 @@ internal class HarnessServiceUiProvider(
                 HarnessId(owner),
                 call.method,
                 ScriptUiCall(call.arguments, call.context.session, call.context.workspace),
+                call.expectedBinding,
             ).result()
         }
         log.v { "UI method ${call.method} of a harness: ${result::class.simpleName ?: "UiMethodResult"}" }

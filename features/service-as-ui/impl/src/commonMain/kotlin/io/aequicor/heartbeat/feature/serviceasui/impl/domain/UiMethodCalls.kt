@@ -1,7 +1,10 @@
 package io.aequicor.heartbeat.feature.serviceasui.impl.domain
 
 import io.aequicor.heartbeat.feature.serviceasui.api.UiCallContext
+import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodCall
+import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodFailure
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodResult
+import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodReview
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethods
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwner
 import kotlinx.coroutines.flow.Flow
@@ -18,6 +21,16 @@ internal interface UiMethodCalls {
 
     /** Methods [owner] publishes now; unavailable when no provider knows its kind. */
     fun methods(owner: UiOwner): Flow<UiMethods>
+
+    /** Exact live source for independent review; null refuses automatic invocation without executing code. */
+    suspend fun review(owner: UiOwner, method: String, context: UiCallContext): UiMethodReview? = null
+
+    /** Carries a reviewed binding intact; implementations without binding support must fail closed. */
+    suspend fun call(owner: UiOwner, call: UiMethodCall): UiMethodResult = if (call.expectedBinding != null) {
+        UiMethodResult.Failure(UiMethodFailure.Unavailable)
+    } else {
+        this.call(owner, call.method, call.arguments, call.context)
+    }
 
     /**
      * Calls [method] of [owner] for a user action in [context]. Never throws except for cancellation, which also

@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.serviceasui.api.spi
 import io.aequicor.heartbeat.feature.serviceasui.api.UiCallContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodCall
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodResult
+import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodReview
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethods
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwners
 import kotlinx.coroutines.flow.Flow
@@ -13,9 +14,9 @@ import kotlinx.coroutines.flow.flowOf
  * methods. Bound into a profile multibinding by the implementing feature; only implementers and
  * `platform-main:di-bundle` use this package (checked on review).
  *
- * Methods run for user actions in surfaces, never for agent turns, with the owner's own authority: approving the
- * owner's code covers them. The provider checks on every call that the owner exists, is enabled and is active in the
- * call context; surfaces of other owners cannot reach its methods.
+ * Methods run for surface actions with the owner's authority. Agent calls additionally require independent review
+ * of [review] and a matching [UiMethodCall.expectedBinding]. The provider checks on every call that the owner exists,
+ * is enabled and is active in the call context; surfaces of other owners cannot reach its methods.
  */
 public interface ServiceUiProvider {
     /** Stable kind written into `UiOwner.kind` of stored surfaces; never renamed. */
@@ -42,8 +43,16 @@ public interface ServiceUiProvider {
     public fun methods(owner: String): Flow<UiMethods>
 
     /**
-     * Runs a method of [owner] for a user action. Main-safe; never throws except for cancellation, which also
-     * cancels the method. Failures, including the owner's own errors, are results.
+     * Reads the exact live implementation selected for [method], without invoking author code. Returns null when
+     * unavailable, inactive in [context], or not reviewable. Main-safe; only cancellation may throw. Providers that
+     * support this snapshot must enforce its binding in [call] after all waits, immediately before author code.
+     */
+    public suspend fun review(owner: String, method: String, context: UiCallContext): UiMethodReview? = null
+
+    /**
+     * Runs a method of [owner] for a surface action or independently reviewed agent call. A non-null expected
+     * binding must match the current selected registration; unsupported or stale bindings return Unavailable.
+     * Main-safe; never throws except cancellation, which also cancels the method. Owner failures are results.
      */
     public suspend fun call(owner: String, call: UiMethodCall): UiMethodResult
 }

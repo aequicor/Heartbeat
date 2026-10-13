@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiCallContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodCall
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodFailure
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodResult
+import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodReview
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethods
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwner
 import io.aequicor.heartbeat.feature.serviceasui.api.spi.ServiceUiProvider
@@ -72,12 +73,26 @@ internal class ProviderUiMethodCalls(private val providers: Set<ServiceUiProvide
         }
     }
 
+    override suspend fun review(owner: UiOwner, method: String, context: UiCallContext): UiMethodReview? {
+        val provider = providers.firstOrNull { it.kind == owner.kind } ?: return null
+        return try {
+            withTimeoutOrNull(CALL_TIMEOUT) { provider.review(owner.id, method, context) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e.redactedFailure()) { "Provider ${provider.kind} failed a method review snapshot" }
+            null
+        }
+    }
+
+    override suspend fun call(owner: UiOwner, call: UiMethodCall): UiMethodResult = perform(owner, call, isPage = false)
+
     override suspend fun call(
         owner: UiOwner,
         method: String,
         arguments: JsonObject,
         context: UiCallContext,
-    ): UiMethodResult = perform(owner, method, arguments, context, isPage = false)
+    ): UiMethodResult = call(owner, UiMethodCall(method, arguments, context))
 
     @HighFrequency
     override suspend fun callFromPage(
@@ -85,30 +100,24 @@ internal class ProviderUiMethodCalls(private val providers: Set<ServiceUiProvide
         method: String,
         arguments: JsonObject,
         context: UiCallContext,
-    ): UiMethodResult = perform(owner, method, arguments, context, isPage = true)
+    ): UiMethodResult = perform(owner, UiMethodCall(method, arguments, context), isPage = true)
 
-    private suspend fun perform(
-        owner: UiOwner,
-        method: String,
-        arguments: JsonObject,
-        context: UiCallContext,
-        isPage: Boolean,
-    ): UiMethodResult {
+    private suspend fun perform(owner: UiOwner, call: UiMethodCall, isPage: Boolean): UiMethodResult {
         val started = TimeSource.Monotonic.markNow()
         val provider = providers.firstOrNull { it.kind == owner.kind }
         val result = when {
             provider == null -> UiMethodResult.Failure(UiMethodFailure.Unavailable)
 
-            arguments.toString().encodeToByteArray().size > ServiceUiLimits.ARGS_BYTES ->
+            call.arguments.toString().encodeToByteArray().size > ServiceUiLimits.ARGS_BYTES ->
                 UiMethodResult.Failure(UiMethodFailure.TooLarge)
 
-            else -> invoke(provider, owner, UiMethodCall(method, arguments, context))
+            else -> invoke(provider, owner, call)
         }
         val elapsed = started.elapsedNow().inWholeMilliseconds
         if (isPage) {
-            log.v { "Page call $method of ${owner.kind} ${owner.id}: ${result.outcome()} in $elapsed ms" }
+            log.v { "Page call ${call.method} of ${owner.kind} ${owner.id}: ${result.outcome()} in $elapsed ms" }
         } else {
-            log.i { "Call $method of ${owner.kind} ${owner.id}: ${result.outcome()} in $elapsed ms" }
+            log.i { "Call ${call.method} of ${owner.kind} ${owner.id}: ${result.outcome()} in $elapsed ms" }
         }
         return result
     }

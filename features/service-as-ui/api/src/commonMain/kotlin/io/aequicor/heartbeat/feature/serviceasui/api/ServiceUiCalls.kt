@@ -37,8 +37,30 @@ public data class UiMethodInfo(val name: String, val description: String)
  */
 public data class UiMethods(val isAvailable: Boolean, val methods: List<UiMethodInfo> = emptyList())
 
-/** One call of [method] with JSON [arguments], made by a user action in a surface working in [context]. */
-public data class UiMethodCall(val method: String, val arguments: JsonObject, val context: UiCallContext) {
+/**
+ * Exact executable source selected for one method and its opaque live [binding]. The binding changes when its
+ * activation or callback registration changes, including a restart with identical source. Source and binding
+ * are private review inputs, never logged. This snapshot grants no authority to invoke the method.
+ */
+public data class UiMethodReview(val binding: String, val source: String) {
+    init {
+        require(binding.isNotBlank()) { "A method review requires a live binding" }
+    }
+
+    override fun toString(): String = "UiMethodReview(***)"
+}
+
+/**
+ * One host-authorized call of [method] with JSON [arguments] in [context]. Surface actions leave [expectedBinding]
+ * null. An independently reviewed agent call must pass its reviewed binding; the provider refuses a changed or
+ * retired registration immediately before invoking code. A binding never substitutes for context admission.
+ */
+public data class UiMethodCall(
+    val method: String,
+    val arguments: JsonObject,
+    val context: UiCallContext,
+    val expectedBinding: String? = null,
+) {
     override fun toString(): String = "UiMethodCall(method=$method, arguments=***, context=$context)"
 }
 
@@ -60,7 +82,7 @@ public sealed interface UiMethodResult {
 
 /** Why a method call produced no result. */
 public enum class UiMethodFailure {
-    /** The provider cannot run methods here or now, for example on mobile or while its runtime is off. */
+    /** The provider cannot run here or now, or the reviewed callback binding is no longer current. */
     Unavailable,
 
     /** The owner does not publish this method. */

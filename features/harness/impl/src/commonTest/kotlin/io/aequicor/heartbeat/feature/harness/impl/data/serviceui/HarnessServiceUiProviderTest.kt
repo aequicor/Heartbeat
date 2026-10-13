@@ -37,6 +37,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 
 class HarnessServiceUiProviderTest {
     private val registry = SchedulerAccessRegistry()
@@ -90,10 +92,23 @@ class HarnessServiceUiProviderTest {
         }
 
         assertEquals(UiMethods(isAvailable = false), setup.provider.methods(id).first())
+        assertNull(setup.provider.review(id, "prs", chosen))
         setup.fixture.activate()
         assertEquals(UiMethods(true, listOf(UiMethodInfo("prs", "Pull requests"))), setup.provider.methods(id).first())
 
         val args = JsonObject(mapOf("repo" to JsonPrimitive("a/b")))
+        val reviewed = assertNotNull(setup.provider.review(id, "prs", chosen))
+        assertEquals("fixture", reviewed.source)
+        assertNull(setup.provider.review(id, "prs", UiCallContext(session = dispatchSession)))
+        assertNull(setup.provider.review(id, "missing", chosen))
+        assertEquals(
+            UiMethodResult.Success(JsonPrimitive("a/b")),
+            setup.provider.call(id, UiMethodCall("prs", args, chosen, reviewed.binding)),
+        )
+        assertEquals(
+            UiMethodResult.Failure(UiMethodFailure.Unavailable),
+            setup.provider.call(id, UiMethodCall("prs", args, chosen, "obsolete-binding")),
+        )
         assertEquals(
             UiMethodResult.Success(JsonPrimitive("a/b")),
             setup.provider.call(id, UiMethodCall("prs", args, chosen)),
@@ -116,6 +131,7 @@ class HarnessServiceUiProviderTest {
         library(HarnessState.Ready(listOf(HarnessEntry(harness))))
 
         assertEquals(UiMethods(isAvailable = false), setup.provider.methods(harness.id.value).first())
+        assertNull(setup.provider.review(harness.id.value, "prs", chosen))
         assertEquals(
             UiMethodResult.Failure(UiMethodFailure.Unavailable),
             setup.provider.call(harness.id.value, UiMethodCall("prs", JsonObject(emptyMap()), chosen)),

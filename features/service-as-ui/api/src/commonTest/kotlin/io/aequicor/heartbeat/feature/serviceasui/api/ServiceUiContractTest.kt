@@ -58,10 +58,11 @@ class ServiceUiContractTest {
             workspace = WorkspaceRef("/home/$secret"),
             preselected = mapOf("harness" to setOf(secret)),
         )
-        val call = UiMethodCall("prs", buildJsonObject { put("token", secret) }, context)
+        val call = UiMethodCall("prs", buildJsonObject { put("token", secret) }, context, expectedBinding = secret)
         val texts = listOf(
             context.toString(),
             call.toString(),
+            UiMethodReview(secret, secret).toString(),
             UiMethodResult.Success(JsonPrimitive(secret)).toString(),
             UiMethodResult.UserError(secret).toString(),
         )
