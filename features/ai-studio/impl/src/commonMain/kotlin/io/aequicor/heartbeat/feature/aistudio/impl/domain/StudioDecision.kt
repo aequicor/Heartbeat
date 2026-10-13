@@ -14,7 +14,26 @@ import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireId
 internal data class StudioDecision(val optionId: String, val answer: StudioPermissionAnswer?)
 
 /** Profile-unique question id of this permission. */
-internal fun StudioPermission.questionnaireId() = QuestionnaireId("$sessionId/$requestId")
+internal fun StudioPermission.questionnaireId(): QuestionnaireId = turnId?.let { turn ->
+    QuestionnaireId("studio/${sessionId.length}:$sessionId/${turn.length}:$turn/$requestId")
+} ?: legacyQuestionnaireId()
+
+/** Identity used by journals created before native turn correlation was retained. */
+internal fun StudioPermission.legacyQuestionnaireId() = QuestionnaireId("$sessionId/$requestId")
+
+/** Recognizes journal ids from another handle of this logical request, without depending on a stable turn alias. */
+internal fun StudioPermission.ownsQuestionnaireId(id: QuestionnaireId): Boolean {
+    if (id == legacyQuestionnaireId()) return true
+    val prefix = "studio/${sessionId.length}:$sessionId/"
+    if (!id.value.startsWith(prefix)) return false
+    val suffix = id.value.removePrefix(prefix)
+    val separator = suffix.indexOf(':')
+    if (separator < 0) return false
+    val length = suffix.substring(0, separator).toIntOrNull() ?: return false
+    val tail = suffix.substring(separator + 1)
+    if (length < 0 || length >= tail.length || tail[length] != '/') return false
+    return tail.substring(length + 1) == requestId
+}
 
 /**
  * The permission as a question of its session; null when it cannot be answered (no options, or an input without

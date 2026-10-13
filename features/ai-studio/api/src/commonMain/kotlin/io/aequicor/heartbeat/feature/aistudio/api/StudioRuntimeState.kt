@@ -14,6 +14,8 @@ public data class StudioPermission(
     val description: String? = null,
     /** Structured answer the engine expects besides the chosen option; null for plain buttons. */
     val input: StudioPermissionInput? = null,
+    /** Native turn identity; prevents retaining a stale request when another turn becomes unavailable. */
+    val turnId: String? = null,
 )
 
 /** Structured input of a permission; its options stay the submit and skip ([StudioPermissionOption.isSkip]) actions. */

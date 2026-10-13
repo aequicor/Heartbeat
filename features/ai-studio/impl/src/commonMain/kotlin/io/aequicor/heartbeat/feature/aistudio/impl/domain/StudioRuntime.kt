@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.domain
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
+import io.aequicor.heartbeat.feature.aistudio.api.StudioPermission
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
@@ -53,8 +54,16 @@ interface StudioRuntime {
     /** Requests native interruption; only native terminal state completes the run. */
     suspend fun cancel(sessionId: String)
 
-    /** Sends an exact currently pending permission option with the structured [answer] of its input. */
+    /**
+     * Sends an exact currently pending permission option and awaits engine acknowledgement of that request.
+     * Fails on late delivery failure, terminal turn or lost handle; command admission alone is not success.
+     */
     suspend fun respond(sessionId: String, requestId: String, optionId: String, answer: StudioPermissionAnswer? = null)
+
+    /** Delivers an observed permission only to its captured native turn, refusing a reused request id. */
+    suspend fun respond(permission: StudioPermission, optionId: String, answer: StudioPermissionAnswer? = null) {
+        error("Captured permission delivery is unavailable")
+    }
 
     /** Applies a parameter in profile-owned work; a screen waiter may detach without cancelling the change. */
     suspend fun configure(sessionId: String, change: StudioSettingChange) {

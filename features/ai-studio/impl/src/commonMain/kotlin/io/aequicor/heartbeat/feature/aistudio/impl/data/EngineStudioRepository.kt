@@ -48,6 +48,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
+import io.aequicor.heartbeat.feature.aistudio.api.StudioPermission
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
@@ -726,24 +727,21 @@ internal class EngineStudioRepository(
         optionId: String,
         answer: StudioPermissionAnswer?,
     ) {
-        log.i { "Responding to pending engine permission" }
+        log.i { "Respond to pending permission" }
         handlesLock.withLock { handles[sessionId] }.respondStudioPermission(requestId, optionId, answer)
+    }
+
+    override suspend fun respond(permission: StudioPermission, optionId: String, answer: StudioPermissionAnswer?) {
+        log.i { "Respond to captured permission" }
+        handlesLock.withLock { handles[permission.sessionId] }.respondStudioPermission(permission, optionId, answer)
     }
 
     /** Fails the answer so the machine shows the request again instead of hiding it forever. */
     override suspend fun updatePermissions(id: String, state: ActiveSessionState) {
         log.v { "Update pending permission projection" }
-        val pending = (state as? ActiveSessionState.AwaitingUserAction)?.requests.orEmpty().map { it.toStudio(id) }
         val (handle, isStopRequested) = handlesLock.withLock { handles[id] to (id in stopRequests) }
         val isStopSupported = handle?.features?.resolve(CancelsTurns) != FeatureAccess.Unsupported
-        val isStopFailed = isStopRequested && state is ActiveSessionState.Unavailable && state.activeTurn != null
-        mutableState.update {
-            it.copy(
-                permissions = it.permissions.filterNot { request -> request.sessionId == id } + pending,
-                stopFailures = if (isStopFailed) it.stopFailures + id else it.stopFailures,
-                uncancellable = if (isStopSupported) it.uncancellable - id else it.uncancellable + id,
-            )
-        }
+        mutableState.update { it.withPermissionState(id, state, isStopRequested, isStopSupported) }
     }
 
     override suspend fun edit(sessionId: String, edit: SessionEdit) {

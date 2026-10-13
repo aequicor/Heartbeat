@@ -3,7 +3,6 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
-import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
@@ -12,7 +11,6 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
-import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEntry
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatList
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatRejection
@@ -36,27 +34,6 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.selects.select
-
-/** Run settings of a chat's next turn started outside the screen. */
-internal fun interface StudioChatSettings {
-    /** The chat's confirmed model and approval over the studio defaults. */
-    suspend fun settings(chatId: String): RunSettings
-}
-
-/** [StudioChatSettings] from the studio's chat records, the way scheduled turns are configured. */
-@ContributesBinding(ProfileScope::class)
-@Inject
-internal class StoredStudioChatSettings(
-    @ForScope(ProfileScope::class) private val stores: DataStores,
-    private val runtime: StudioRuntime,
-) : StudioChatSettings {
-    override suspend fun settings(chatId: String): RunSettings {
-        val record = checkNotNull(stores.keyValue(ChatSpec).get(ChatsKey).orEmpty().firstOrNull { it.id == chatId }) {
-            "Unknown studio conversation"
-        }
-        return hostRunSettings(record, runtime.state.value.configurations[chatId]?.applied, runtime.defaults())
-    }
-}
 
 /**
  * Profile chats for hosts outside the screen. Turns run in the profile scope like the screen's: the shared run

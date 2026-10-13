@@ -11,14 +11,12 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartup
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.SendResult
-import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
-import io.aequicor.heartbeat.feature.aistudio.api.AiStudioMachineKey
-import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermission
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.decision
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.followUpText
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.ownsQuestionnaireId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.questionnaireId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.toQuestionnaire
 import io.aequicor.heartbeat.feature.questionnaire.api.Answer
@@ -48,15 +46,11 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * Profile-owned bridge between engine permissions and the questionnaire (toggle `questionnaire.enabled`).
- * Pending permissions are asked as questions of their session. Answers go to the studio machine
- * (`AiStudioMachineKey`): a live request is answered with `RespondPermission`, a question restored after a restart
- * whose native request is gone is answered with a `FollowUp` message (a skipped one is just withdrawn).
- * Answers of live questions (`LIVE_QUESTION_ID_PREFIX`) belong to their owner, e.g. the ask-user tool, and are left
- * to it. An accepted answer withdraws its question; an undeliverable one reopens it, and so does an accepted one
- * whose delivery fails later (`PermissionAnswerFailed`, a follow-up run ending `Failed`). Answers reach the studio
- * machine only while the studio screen runs it; otherwise their questions reopen. Failures are logged and never
- * stop the bridge. Started with the profile ([StudioQuestionStartup]).
+ * Profile-owned delivery of engine permissions and restored questions. It uses the shared runtime without any
+ * studio window. A live decision waits for native acknowledgement; a restored answer starts a profile-owned
+ * follow-up with that chat's settings. Failed deliveries reopen the captured question. Live ask-user questions
+ * retain their own owner. Claims are captured before launching concurrent deliveries, so another session can
+ * answer a permission while a follow-up is still running. Started by [StudioQuestionStartup].
  */
 @SingleIn(ProfileScope::class)
 @Inject
@@ -64,21 +58,25 @@ internal class StudioQuestionBridge(
     private val runtime: Lazy<StudioRuntime>,
     private val machines: MachineRegistry,
     private val toggles: FeatureToggles,
+    private val settings: Lazy<StudioChatSettings>,
 ) {
     private val log = Log.tag("StudioQuestions")
     private val lock = Mutex()
 
-    // Permissions seen pending during live observation and the ones already answered; guarded by [lock].
     private val live = mutableMapOf<QuestionnaireId, StudioPermission>()
-    private val answered = mutableSetOf<QuestionnaireId>()
 
-    // Restored questions answered by a follow-up run of their session that has not ended yet; guarded by [lock].
-    private val followUps = mutableMapOf<String, Questionnaire>()
+    // Profile-lifetime provenance: an expired live request must never become a restored follow-up.
+    private val nativeIds = mutableSetOf<QuestionnaireId>()
+    private val deliveries = mutableMapOf<QuestionnaireId, Delivery>()
+    private val followUps = mutableMapOf<String, Delivery>()
 
-    // Answers being delivered and the ones among them reopened by a failure before [deliver] finished; guarded by
-    // [lock]. A reopened question must not be withdrawn once its send returns.
-    private val delivering = mutableSetOf<QuestionnaireId>()
-    private val reopenedEarly = mutableSetOf<QuestionnaireId>()
+    private class Delivery(val question: Questionnaire, val permission: StudioPermission?, val isNative: Boolean) {
+        var isAccepted = false
+            private set
+        fun accept() {
+            isAccepted = true
+        }
+    }
 
     /** Sessions with open questions while the questionnaire is enabled. */
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -97,29 +95,48 @@ internal class StudioQuestionBridge(
         launch {
             toggles.observe(QuestionnaireEnabled)
                 .flatMapLatest { isEnabled ->
-                    if (isEnabled) runtime.value.state.map { it.permissions } else emptyFlow()
+                    if (isEnabled) {
+                        combine(
+                            runtime.value.state.map { it.permissions }.distinctUntilChanged(),
+                            machines.observe(QuestionnaireMachineKey).flatMapLatest {
+                                it?.state ?: flowOf(QuestionnaireState.Idle)
+                            },
+                        ) { permissions, _ -> permissions }
+                    } else {
+                        emptyFlow()
+                    }
                 }
-                .distinctUntilChanged()
                 .collect { permissions -> guarded("sync permissions") { sync(permissions) } }
         }
         launch { deliverAnswers() }
-        launch { watchDeliveries() }
     }
 
     private suspend fun sync(permissions: List<StudioPermission>) {
         val current = permissions.associateBy { it.questionnaireId() }
         // Machine intents are sent outside the lock: their outputs are consumed by [deliverAnswers].
         val (resolved, changed) = lock.withLock {
-            val resolved = (live.keys - current.keys).filterNot { answered.remove(it) }
+            val resolved = live.keys - current.keys
             live.keys.retainAll(current.keys)
             val changed = current.values.filter { live[it.questionnaireId()] != it }
-            changed.forEach { live[it.questionnaireId()] = it }
-            answered.removeAll(changed.map { it.questionnaireId() }.toSet())
+            changed.forEach {
+                live[it.questionnaireId()] = it
+                nativeIds += it.questionnaireId()
+            }
             resolved to changed
         }
         resolved.forEach { id ->
             log.i { "Engine resolved a question" }
-            withdraw(id)
+            pending(id)?.let { withdrawCurrent(it) }
+        }
+        // Turn aliases may change across handles/restarts. Replace late journal copies, but never re-Ask the
+        // current identity: that would clear its submitting flag while the answer is still in flight.
+        current.values.forEach { permission ->
+            val expected = permission.toQuestionnaire()
+            if (permission.turnId != null && expected != null) {
+                pendingQuestions().filter {
+                    it.id != expected.id && permission.ownsQuestionnaireId(it.id) && it == expected.copy(id = it.id)
+                }.forEach { withdrawCurrent(it) }
+            }
         }
         changed.forEach { permission ->
             val questionnaire = permission.toQuestionnaire()
@@ -132,145 +149,119 @@ internal class StudioQuestionBridge(
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    private suspend fun deliverAnswers() {
+    private suspend fun deliverAnswers() = coroutineScope {
         machines.observe(QuestionnaireMachineKey)
             .flatMapLatest { it?.outputs ?: emptyFlow() }
             .filterIsInstance<QuestionnaireOutput.Answered>()
-            .collect { answered ->
-                if (answered.questionnaire.id.value.startsWith(LIVE_QUESTION_ID_PREFIX)) {
-                    log.d { "Live question is answered to its owner" }
-                } else {
-                    deliver(answered.questionnaire, answered.answer)
+            .collect { output ->
+                val question = output.questionnaire
+                if (!question.id.value.startsWith(LIVE_QUESTION_ID_PREFIX)) {
+                    val delivery = lock.withLock {
+                        if (question.id in deliveries || pending(question.id) != question) {
+                            null
+                        } else {
+                            Delivery(question, live[question.id], question.id in nativeIds).also {
+                                deliveries[question.id] = it
+                            }
+                        }
+                    }
+                    if (delivery != null) {
+                        launch { deliver(delivery, output.answer) }
+                    } else if (pending(question.id) == question) {
+                        // Answer already set submitting in the queue. A busy/replaced delivery must permit retry.
+                        guarded("reopen busy answer") { reopen(question) }
+                    }
                 }
             }
     }
 
-    private suspend fun deliver(questionnaire: Questionnaire, answer: Answer) {
-        lock.withLock { delivering += questionnaire.id }
-        var isReopened = false
-        val isDelivered = try {
-            val permission = lock.withLock { live[questionnaire.id]?.takeIf { questionnaire.id !in answered } }
+    private suspend fun deliver(delivery: Delivery, answer: Answer) {
+        val question = delivery.question
+        try {
+            val permission = delivery.permission
             when {
-                permission != null -> respondNatively(permission, answer)
-                answer == Answer.Skipped -> true.also { log.i { "Restored question skipped" } }
-                else -> followUp(questionnaire, answer)
+                permission != null -> respondNatively(delivery, permission, answer)
+                delivery.isNative -> log.i { "Ignore answer to an expired native request" }
+                answer == Answer.Skipped -> withdrawCurrent(question)
+                else -> followUp(delivery, answer)
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             log.e(e) { "Failed to deliver an answer" }
-            false
+            guarded("reopen a question") { reopenCurrent(delivery) }
         } finally {
-            // Released even when the bridge stops mid-send, so a later failure never marks a stale delivery.
-            isReopened = withContext(NonCancellable) {
+            withContext(NonCancellable) {
                 lock.withLock {
-                    delivering -= questionnaire.id
-                    reopenedEarly.remove(questionnaire.id)
+                    if (deliveries[question.id] === delivery) deliveries.remove(question.id)
+                    if (followUps[question.source] === delivery) followUps.remove(question.source)
                 }
             }
         }
-        if (isReopened) {
-            log.i { "Question was reopened while its answer was sent" }
+    }
+
+    private suspend fun respondNatively(delivery: Delivery, permission: StudioPermission, answer: Answer) {
+        val question = delivery.question
+        val current = runtime.value.state.value.permissions.firstOrNull { it.questionnaireId() == question.id }
+        if (current != permission || permission.toQuestionnaire() != question) {
+            log.i { "Ignore changed native request" }
             return
         }
-        guarded(if (isDelivered) "withdraw a question" else "reopen a question") {
-            if (isDelivered) withdraw(questionnaire.id) else reopen(questionnaire)
+        val decision = checkNotNull(permission.decision(answer)) { "Answer does not fit the native request" }
+        log.i { "Deliver native permission answer" }
+        runtime.value.respond(permission, decision.optionId, decision.answer)
+        // sync may already have replaced an identical-looking request with one from a later native turn.
+        val currentAfterDelivery = runtime.value.state.value.permissions.firstOrNull {
+            it.questionnaireId() == question.id
         }
+        if (currentAfterDelivery == null || currentAfterDelivery == permission) withdrawCurrent(question)
     }
 
-    /** Reopens questions whose accepted answer failed to reach the engine. */
-    @OptIn(ExperimentalCoroutinesApi::class)
-    private suspend fun watchDeliveries() {
-        machines.observe(AiStudioMachineKey)
-            .flatMapLatest { machine ->
-                // Runs outlive the studio machine unobserved: their follow-ups are no longer tracked.
-                if (machine == null) lock.withLock { followUps.clear() }
-                machine?.outputs ?: emptyFlow()
-            }
-            .collect { output -> guarded("watch a delivery") { onDelivery(output) } }
-    }
-
-    private suspend fun onDelivery(output: AiStudioOutput) {
-        val failed = lock.withLock {
-            when (output) {
-                is AiStudioOutput.PermissionAnswerFailed ->
-                    live.values
-                        .firstOrNull { it.sessionId == output.sessionId && it.requestId == output.requestId }
-                        ?.takeIf { answered.remove(it.questionnaireId()) }
-                        ?.toQuestionnaire()
-
-                is AiStudioOutput.RunEnded ->
-                    followUps.remove(output.sessionId)?.takeIf { output.outcome == RunOutcome.Failed }
-
-                is AiStudioOutput.SubmitAccepted,
-                is AiStudioOutput.SubmitRejected,
-                is AiStudioOutput.SubmitPrepared,
-                -> null
-
-                is AiStudioOutput.SubmitFailed -> null
-            }?.also { if (it.id in delivering) reopenedEarly += it.id }
-        }
-        if (failed != null) {
-            log.w { "Answer was not delivered, reopen its question" }
-            reopen(failed)
-        }
-    }
-
-    /** Answers the pending native request through the studio machine; false when the answer does not fit it. */
-    private suspend fun respondNatively(permission: StudioPermission, answer: Answer): Boolean {
-        val decision = permission.decision(answer)
-        if (decision == null) {
-            log.w { "Answer does not fit the pending request=${permission.requestId}" }
-            return false
-        }
-        log.i { "Answer native permission request=${permission.requestId}" }
-        val id = permission.questionnaireId()
-        // Marked before sending: the answer may fail (PermissionAnswerFailed) before [send] returns.
-        lock.withLock { answered += id }
-        var result: SendResult? = null
-        try {
-            result = machines.send(
-                AiStudioMachineKey,
-                AiStudioIntent.Public.RespondPermission(
-                    permission.sessionId,
-                    permission.requestId,
-                    decision.optionId,
-                    decision.answer,
-                ),
-            )
-        } finally {
-            // The claim is released even when the caller is cancelled mid-send.
-            if (result != SendResult.Accepted) withContext(NonCancellable) { lock.withLock { answered -= id } }
-        }
-        if (result != SendResult.Accepted) log.w { "Permission answer was not accepted: $result" }
-        return result == SendResult.Accepted
-    }
-
-    /** Sends the answer as the next user message of the session; false while the studio cannot run it. */
-    private suspend fun followUp(questionnaire: Questionnaire, answer: Answer): Boolean {
-        log.i { "Deliver answer as a follow-up message kind=${answer::class.simpleName.orEmpty()}" }
-        // Registered before sending: the run may end before [send] returns. A session runs one follow-up at a time.
-        val isRegistered = lock.withLock {
-            (questionnaire.source !in followUps).also { if (it) followUps[questionnaire.source] = questionnaire }
-        }
-        if (!isRegistered) {
-            log.w { "Session already runs a follow-up answer" }
-            return false
-        }
-        var result: SendResult? = null
-        try {
-            result = machines.send(
-                AiStudioMachineKey,
-                AiStudioIntent.Public.FollowUp(questionnaire.source, questionnaire.followUpText(answer)),
-            )
-        } finally {
-            if (result != SendResult.Accepted) {
-                withContext(NonCancellable) { lock.withLock { followUps.remove(questionnaire.source) } }
+    private suspend fun followUp(delivery: Delivery, answer: Answer) {
+        val question = delivery.question
+        val isReserved = lock.withLock {
+            if (question.source in followUps) {
+                false
+            } else {
+                followUps[question.source] = delivery
+                true
             }
         }
-        if (result != SendResult.Accepted) log.w { "Follow-up answer was not accepted: $result" }
-        return result == SendResult.Accepted
+        check(isReserved) { "Session already runs a follow-up answer" }
+        log.i { "Deliver restored answer as a profile-owned follow-up" }
+        val outcome = runtime.value.run(
+            question.source,
+            question.followUpText(answer),
+            settings.value.settings(question.source),
+            attachments = emptyList(),
+        ) {
+            withdrawCurrent(question)
+            delivery.accept()
+        }
+        if (outcome == RunOutcome.Failed) reopenCurrent(delivery)
     }
+
+    /** A stale completion must not withdraw a replacement with the same id. */
+    private suspend fun withdrawCurrent(question: Questionnaire) {
+        if (pending(question.id) == question) withdraw(question.id)
+    }
+
+    /** Reopen only this delivery; never overwrite a replacement or resurrect an engine-resolved permission. */
+    private suspend fun reopenCurrent(delivery: Delivery) {
+        val question = delivery.question
+        val replacement = pending(question.id)
+        if (replacement != null && (replacement != question || delivery.isAccepted)) return
+        if (delivery.isNative) {
+            val permission = runtime.value.state.value.permissions.firstOrNull { it.questionnaireId() == question.id }
+            if (permission != delivery.permission) return
+        }
+        reopen(question)
+    }
+
+    private fun pending(id: QuestionnaireId): Questionnaire? = pendingQuestions().firstOrNull { it.id == id }
+
+    private fun pendingQuestions(): List<Questionnaire> =
+        (machines.find(QuestionnaireMachineKey)?.state?.value as? QuestionnaireState.Asking)?.pending.orEmpty()
 
     private suspend fun ask(questionnaire: Questionnaire) {
         val result = machines.send(QuestionnaireMachineKey, QuestionnaireIntent.Public.Ask(questionnaire))
