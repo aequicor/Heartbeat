@@ -13,7 +13,7 @@ description: "Интерфейсы агента Heartbeat (features:service-as-u
 
 | Что | Где |
 |---|---|
-| Библиотека, владельцы, места, лимиты, тоглы, маршруты, имена инструментов | `service-as-ui/api` (`ServiceUiLibrary.kt`, `ServiceUiIds.kt`, `ServiceUiCalls.kt`, `ServiceUiLimits.kt`, `ServiceUiRoutes.kt`, `ServiceUiTools.kt`) |
+| Библиотека, владельцы, места, лимиты, тогл `service_ui.enabled`, маршруты, имена инструментов | `service-as-ui/api` (`ServiceUiLibrary.kt`, `ServiceUiIds.kt`, `ServiceUiCalls.kt`, `ServiceUiLimits.kt`, `ServiceUiRoutes.kt`, `ServiceUiTools.kt`); тогл `service_ui.web` — `impl/domain/ServiceUiToggles.kt` |
 | Профильная машина `ServiceUiMachineKey` | `api/ServiceUiMachineSpec.kt` — таблица переходов в KDoc, тесты в `api/src/commonTest` |
 | SPI владельцев и методов | `api/spi/ServiceUiProvider.kt` — только реализующие модули (`harness:impl`) и `di-bundle` |
 | Спека v1: узлы, действия, привязки `{{path}}`, разбор, валидатор, справочник агента | `impl/domain/spec` (`UiNode`, `UiAction`, `UiTemplate`, `UiSpecCodec`, `UiSpecValidator`, `UiSpecReference`) |
@@ -56,8 +56,9 @@ description: "Интерфейсы агента Heartbeat (features:service-as-u
   `HbDimensions.webDocumentHeight`, без документа — заметку.
 - Изоляция — в `browser:impl` (`DesktopDocument*`): свой origin `https://<id>.document.heartbeat.invalid/`, контекст в
   памяти, CSP без соединений, запросы кроме самого документа отклоняются, WebRTC — UDP только через прокси (его
-  нет), конструкторы WebRTC удалены из окна страницы. TURN по TCP из дочернего фрейма закрыть нельзя, пока JCEF не
-  умеет задавать словарные настройки контекста (прокси). Проверка с настоящим Chromium —
+  нет), конструкторы WebRTC удалены из окна страницы. TURN по TCP из дочернего фрейма закроет прокси контекста на
+  закрытый порт: нужен рантайм hb3, где JCEF передаёт словарные настройки (`native/jcef/README.md`). Вызовы страницы —
+  свой лимит (1) и лог trace; только Desktop. Проверка с настоящим Chromium —
   `./gradlew :features:browser:impl:browserDocumentNativeTest` (локально, нужен рабочий стол).
 
 ## Проверка

@@ -121,7 +121,7 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > Сервисный контракт `BrowserDocuments` (`browser:api`) — изолированные локальные HTML-документы, которые фича рисует
 > в своём экране маршрутом `BrowserDocumentRoute`: только Desktop, свой origin и контекст в памяти на документ, CSP без
 > соединений, все прочие запросы и навигация отклоняются, WebRTC без UDP и без конструкторов в окне страницы (TCP-TURN
-> из дочернего фрейма не закрыт: JCEF не задаёт словарные настройки контекста), мост `heartbeat.call` к открывшему.
+> из дочернего фрейма закроет прокси контекста в рантайме hb3 — `native/jcef/README.md`), мост `heartbeat.call`.
 > iOS — WKWebView с непостоянным хранилищем, Android — WebView без cookies и DOM storage; автоматизация только Desktop.
 > `features:chromium-bridge:{api,impl}` + `chromium-plugin/` — расширение для Chrome и других Chromium-браузеров
 > (MV3, чистый JS без сборки, `node --test chromium-plugin/tests/`) и мост к нему (тогл `chromium_bridge.enabled`, по умолчанию false;
