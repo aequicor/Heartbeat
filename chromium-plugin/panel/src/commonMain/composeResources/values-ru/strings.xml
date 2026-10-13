@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_connecting">Подключение к Heartbeat…</string>
+    <string name="status_host_missing">Heartbeat не зарегистрирован в этом браузере. Откройте Heartbeat → Настройки → «Браузер Chrome» → «Зарегистрировать».</string>
+    <string name="status_forbidden">Регистрация Heartbeat не допускает это расширение. Зарегистрируйте браузер заново в настройках Heartbeat.</string>
+    <string name="status_waiting">Heartbeat не запущен или мост с браузером выключен.</string>
+    <string name="status_incompatible">Версии Heartbeat и расширения несовместимы. Обновите расширение или приложение.</string>
+    <string name="status_disconnected">Связь с Heartbeat потеряна. Переподключение…</string>
+    <string name="chats_off">Чаты профиля выключены в Heartbeat.</string>
+    <string name="agent_consent">Разрешить агентам Heartbeat управлять этим браузером</string>
+    <string name="agent_consent_hint">Агенты открывают свои вкладки в группе «Heartbeat», а ваши вкладки используют только после вашего подтверждения в Heartbeat.</string>
+    <string name="agent_controlling">Агенты управляют вкладками: %1$d</string>
+    <string name="revoke_all">Забрать все</string>
+</resources>

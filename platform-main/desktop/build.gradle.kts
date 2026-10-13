@@ -107,8 +107,9 @@ val collectAppResources = tasks.register<Sync>("collectAppResources") {
     preparePiRuntime?.let { task -> from(task.flatMap { it.outputDirectory }) }
     from(layout.settingsDirectory.dir("chromium-plugin")) {
         into("common/chromium-plugin")
-        // Tests, editor typings and a private signing key are not part of the extension.
-        exclude("tests/**", "jsconfig.json", "src/types/**", "*.pem")
+        // Tests, editor typings, a private signing key and the Kotlin sources of the side panel (built into app/)
+        // are not part of the extension.
+        exclude("tests/**", "jsconfig.json", "src/types/**", "*.pem", "panel/**")
     }
     into(layout.buildDirectory.dir("generated/appResources"))
 }
