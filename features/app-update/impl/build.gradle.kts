@@ -11,9 +11,16 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(projects.features.appUpdate.api)
+            implementation(projects.core.common)
             implementation(projects.core.logging)
             implementation(projects.core.network.api)
+            implementation(projects.core.stateMachine.api)
             implementation(libs.kotlinx.serialization.json)
+        }
+        jvmMain.dependencies {
+            implementation(projects.core.datastore.api)
+            implementation(projects.core.di.api)
+            implementation(projects.core.featureToggles.api)
         }
         jvmTest.dependencies {
             implementation(libs.ktor.client.mock)
