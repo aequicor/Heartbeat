@@ -164,3 +164,18 @@ test('the app\'s chat events reduce into the panel state', () => {
   assert.equal(withEntry.transcript[0].parts[1].truncated, true);
   assert.equal(withEntry.olderOmitted, 12);
 });
+
+
+test('existing detached chats only offer models of their connection, while new chats remain unrestricted', () => {
+  const opened = reduce(withModels, { type: 'open', chatId: 'b' });
+  const detached = { ...opened, chats: opened.chats.map((chat) => ({ ...chat, projectId: null })) };
+  assert.deepEqual(composerView(detached).models.map((model) => model.id), ['gpt', 'codex']);
+
+  const fixed = {
+    ...detached,
+    composer: { ...detached.composer, models: detached.composer.models.map((model) => ({ ...model, connection: null })) },
+  };
+  assert.deepEqual(composerView(fixed).models.map((model) => model.id), ['gpt'], 'no in-place switching capability');
+  assert.deepEqual(composerView(reduce(detached, { type: 'compose' })).models.map((model) => model.id),
+    ['gpt', 'codex', 'local', 'other']);
+});

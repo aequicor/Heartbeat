@@ -458,7 +458,7 @@ byId('rail-archive').addEventListener('click', () => sidebar({ change: 'mode', m
 // Open menus close on a click elsewhere or Escape.
 document.addEventListener('click', (/** @type {MouseEvent} */ event) => {
   const target = /** @type {Element | null} */ (event.target);
-  if (state.sidebar.menu && !target?.closest?.('.menu, .row.menu-open .row-actions')) sidebar({ change: 'menu', chatId: null });
+  if (state.sidebar.menu && !target?.closest?.('.menu, .row-actions')) sidebar({ change: 'menu', chatId: null });
   if (state.composerMenu && !target?.closest?.('.menu-anchor')) closeMenu();
 });
 document.addEventListener('keydown', (/** @type {KeyboardEvent} */ event) => {

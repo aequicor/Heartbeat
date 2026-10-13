@@ -45,14 +45,17 @@ internal class StudioChatControls(
 ) {
     private val log = Log.tag("StudioChatControls")
 
-    /** Models and the start page's settings; re-read whenever the models or effort choices change. */
-    fun observeComposer(): Flow<StudioChatComposer> =
-        combine(repository.value.observeModels(), efforts.state) { models, choices ->
-            StudioChatComposer(
-                models = models.map { it.toChatModel(choices) },
-                newChat = runtime.value.defaults().toNewChat(models),
-            )
-        }
+    /** Models, effort choices and accepted start-page settings, updated independently. */
+    fun observeComposer(): Flow<StudioChatComposer> = combine(
+        repository.value.observeModels(),
+        efforts.state,
+        runtime.value.observeDefaults(),
+    ) { models, choices, defaults ->
+        StudioChatComposer(
+            models = models.map { it.toChatModel(choices) },
+            newChat = defaults.toNewChat(models),
+        )
+    }
 
     /**
      * Run settings of a new chat: the caller's model and approvals when that model is offered (and works in a
@@ -78,7 +81,6 @@ internal class StudioChatControls(
         log.i { "Outside chat setting kind=${change::class.simpleName.orEmpty()}" }
         return try {
             runtime.value.configure(chatId, change)
-            true
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

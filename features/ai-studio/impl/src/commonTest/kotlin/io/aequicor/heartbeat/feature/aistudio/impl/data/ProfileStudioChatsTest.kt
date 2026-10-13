@@ -11,10 +11,13 @@ import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.hostDirective
 import io.aequicor.heartbeat.feature.aiengine.facade.api.withHostDirectives
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
@@ -24,6 +27,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatComposer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEntry
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatNotice
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatPart
@@ -57,13 +61,16 @@ import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -71,6 +78,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ProfileStudioChatsTest {
     private val earlier = Instant.fromEpochSeconds(1_000)
     private val later = Instant.fromEpochSeconds(2_000)
@@ -233,6 +241,38 @@ class ProfileStudioChatsTest {
         assertEquals("high", engine.newChatEffort)
         assertEquals("pi/b1", engine.connection)
         assertTrue(engine.isTrustSupported && !engine.isProjectSupported)
+    }
+
+    @Test
+    fun `composer follows default model and approvals without model or effort changes`() = runTest {
+        val fixture = Fixture(this)
+        val seen = mutableListOf<StudioChatComposer>()
+        backgroundScope.launch { fixture.chats.observeComposer().collect { seen += it } }
+        runCurrent()
+        assertEquals("pi/default", seen.last().newChat?.modelId)
+
+        fixture.runtime.defaults = DEFAULTS.copy(modelId = ENGINE_MODEL)
+        runCurrent()
+        assertEquals(ENGINE_MODEL, seen.last().newChat?.modelId)
+        fixture.runtime.defaults = fixture.runtime.defaults.copy(approval = ApprovalMode.AutoApprove)
+        runCurrent()
+        assertEquals(ApprovalMode.AutoApprove, seen.last().newChat?.approval)
+        assertEquals(3, seen.size)
+    }
+
+    @Test
+    fun `a native configuration refusal reaches the outside caller`() = runTest {
+        val fixture = Fixture(this)
+        val configuration = StudioConfigurationFixture(this)
+        val native = configuration.add("a")
+        native.onApply = { _, _ -> throw EngineException(EngineFailure.Transport(TransportFailureReason.Timeout)) }
+        fixture.repository.workspace.value = StudioWorkspace(emptyList(), listOf(session("a", later)))
+        fixture.runtime.configureOperation = { id, change ->
+            configuration.controller.configure(configuration.access, id, change)
+        }
+
+        assertFalse(fixture.chats.configure("a", StudioSettingChange.Effort("high")))
+        assertEquals("low", configuration.access.states.getValue("a").applied.reasoningEffort)
     }
 
     @Test
@@ -442,7 +482,15 @@ class ProfileStudioChatsTest {
         val release = CompletableDeferred<Unit>()
         var isAccepting = true
 
-        var defaults = DEFAULTS
+        private val defaultsState = MutableStateFlow(DEFAULTS)
+        var defaults: RunSettings
+            get() = defaultsState.value
+            set(value) {
+                defaultsState.value = value
+            }
+        var configureOperation: suspend (String, StudioSettingChange) -> Boolean = { _, _ -> true }
+
+        override fun observeDefaults(): Flow<RunSettings> = defaultsState
 
         override suspend fun defaults(): RunSettings = defaults
 
@@ -464,8 +512,9 @@ class ProfileStudioChatsTest {
             return RunOutcome.Completed
         }
 
-        override suspend fun configure(sessionId: String, change: StudioSettingChange) {
+        override suspend fun configure(sessionId: String, change: StudioSettingChange): Boolean {
             configured += change
+            return configureOperation(sessionId, change)
         }
 
         override suspend fun cancel(sessionId: String) {

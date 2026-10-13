@@ -18,7 +18,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioToolRun
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolRunStatus
 
-/** Chats an outside host may list: neither archived nor helpers of another chat; pinned first, then recent. */
+/** Chats an outside host may list: archived ones included, helpers excluded; pinned first, then recent. */
 internal fun StudioWorkspace.toChatList(runtime: StudioRuntimeState): StudioChatList {
     val chats = sessions.asSequence()
         .filter { it.parentChatId == null }

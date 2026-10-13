@@ -252,7 +252,7 @@ function pick(source, keys) {
 /**
  * What the composer shows, as the studio decides it: a new chat runs on the panel's choice or the start page's
  * model (one that works in a project when the chat has one); an existing chat shows its confirmed settings and may
- * switch only within its connection when it has a project. Pickers wait while a change is in flight and stay off
+ * switch only within its connection. Pickers wait while a change is in flight and stay off
  * for archived chats and chats without a model.
  * @param {PanelState} state
  * @returns {ComposerView}
@@ -271,8 +271,8 @@ export function composerView(state) {
   const modelId = chat.settings?.modelId ?? chat.modelId ?? null;
   const model = models.find((it) => it.id === modelId) ?? null;
   const connection = model?.connection;
-  const offered = models.filter((it) => !chat.projectId ||
-    (it.projects && (!modelId || it.id === modelId || (Boolean(connection) && it.connection === connection))));
+  const offered = models.filter((it) => (!chat.projectId || it.projects) &&
+    (it.id === modelId || (Boolean(connection) && it.connection === connection)));
   return {
     isNew: false,
     model,
