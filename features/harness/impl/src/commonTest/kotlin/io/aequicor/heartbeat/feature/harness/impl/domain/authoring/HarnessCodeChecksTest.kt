@@ -3,9 +3,11 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.authoring
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.CompiledHarnessCode
+import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeDiagnostic
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeKind
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCompilationRequest
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCompilationResult
+import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessDiagnosticSeverity
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationContext
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessScriptHost
@@ -22,6 +24,24 @@ import kotlin.test.assertTrue
 class HarnessCodeChecksTest {
     private val host = CountingHost()
     private val checks = HarnessCodeChecks(host) { it }
+
+    @Test
+    fun `listing preserves overload candidates and subsequent diagnostics for correction`() {
+        val diagnostics = listOf(
+            HarnessCodeDiagnostic(
+                severity = HarnessDiagnosticSeverity.Error,
+                message = "Overload resolution ambiguity:\nfun put(value: String)\nfun put(value: JsonElement)",
+                line = 12,
+                column = 8,
+            ),
+            HarnessCodeDiagnostic(HarnessDiagnosticSeverity.Warning, "Unused variable"),
+        )
+        assertEquals(
+            "12:8 error Overload resolution ambiguity:\n" +
+                "fun put(value: String)\nfun put(value: JsonElement)\nwarning Unused variable",
+            diagnostics.listing(),
+        )
+    }
 
     @Test
     fun `one request compiles once and later checks reuse the outcome`() = runTest {

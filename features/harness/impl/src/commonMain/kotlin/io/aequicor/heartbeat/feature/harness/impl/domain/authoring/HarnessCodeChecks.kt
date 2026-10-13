@@ -74,11 +74,11 @@ internal class HarnessCodeChecks(private val host: HarnessScriptHost, private va
         }
 }
 
-/** Compact listing for the model and the editor, `line:column message`, at most the shared diagnostic limit. */
+/** Lists host-bounded diagnostics with locations, preserving continuation lines such as overload candidates. */
 internal fun List<HarnessCodeDiagnostic>.listing(): String = joinToString("\n") { diagnostic ->
     val place = listOfNotNull(diagnostic.line, diagnostic.column).joinToString(":")
     val severity = if (diagnostic.severity == HarnessDiagnosticSeverity.Error) "error" else "warning"
-    listOf(place, severity, diagnostic.message.lineSequence().firstOrNull().orEmpty())
+    listOf(place, severity, diagnostic.message)
         .filter(String::isNotEmpty).joinToString(" ")
 }
 
