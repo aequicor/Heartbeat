@@ -11,6 +11,9 @@ dependencies {
     compileOnly(libs.android.gradlePlugin)
     compileOnly(libs.metro.gradlePlugin)
     compileOnly(libs.room.gradlePlugin)
+
+    testImplementation(libs.kotlin.gradlePlugin)
+    testImplementation(libs.kotlin.testJunit)
 }
 
 gradlePlugin {
