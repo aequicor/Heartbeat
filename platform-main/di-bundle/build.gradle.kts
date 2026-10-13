@@ -71,6 +71,8 @@ kotlin {
             implementation(projects.features.scheduler.impl)
             api(projects.features.appUpdate.api)
             implementation(projects.features.appUpdate.impl)
+            implementation(projects.features.serviceAsUi.api)
+            implementation(projects.features.serviceAsUi.impl)
             api(projects.core.di.api)
             api(projects.core.profileFacade.api)
             api(projects.core.navigation.api)

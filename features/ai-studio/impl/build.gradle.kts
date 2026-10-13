@@ -13,6 +13,7 @@ kotlin {
             implementation(projects.features.scheduler.api)
             implementation(projects.features.agentLearning.api)
             implementation(projects.features.harness.api)
+            implementation(projects.features.serviceAsUi.api)
             implementation(projects.features.autocomplete.api)
             implementation(projects.features.computerUse.api)
             implementation(projects.features.appUpdate.api)

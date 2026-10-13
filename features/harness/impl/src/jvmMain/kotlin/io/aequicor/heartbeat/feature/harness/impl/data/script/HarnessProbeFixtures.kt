@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.harness.api.script.ScriptHooks
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptPrompts
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptScheduler
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptSessions
+import io.aequicor.heartbeat.feature.harness.api.script.ScriptUi
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptWorkflows
 import io.aequicor.heartbeat.feature.harness.api.workflow.AgentOptions
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowDefinition
@@ -88,6 +89,7 @@ private class ProbeScriptScope(override val scope: CoroutineScope) : HarnessScri
     override val scheduler: ScriptScheduler get() = unexpectedProbeService()
     override val agent: ScriptAgent get() = unexpectedProbeService()
     override val workflows: ScriptWorkflows get() = unexpectedProbeService()
+    override val ui: ScriptUi get() = unexpectedProbeService()
 }
 
 private class ProbeWorkflowScope : WorkflowScope {

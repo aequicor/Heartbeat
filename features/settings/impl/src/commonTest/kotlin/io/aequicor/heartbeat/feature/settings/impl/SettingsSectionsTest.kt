@@ -5,8 +5,10 @@ import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeRoute
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRoute
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessRoute
+import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiLibraryRoute
 import io.aequicor.heartbeat.feature.settings.api.SettingsSection
 import io.aequicor.heartbeat.feature.settings.api.deepLinkName
+import io.aequicor.heartbeat.feature.settings.api.settingsSectionOf
 import io.aequicor.heartbeat.feature.settings.impl.domain.availableSections
 import io.aequicor.heartbeat.feature.settings.impl.presentation.component.route
 import io.aequicor.heartbeat.feature.settings.impl.presentation.store.SettingsScreenState
@@ -35,6 +37,7 @@ class SettingsSectionsTest {
                 isLearningEnabled = true,
                 isHarnessEnabled = true,
                 isContextEnabled = true,
+                isInterfacesEnabled = true,
             ),
         )
         assertEquals(
@@ -91,6 +94,18 @@ class SettingsSectionsTest {
         }
         assertEquals(HarnessRoute(isEmbedded = true), SettingsSection.Harness.route())
         assertEquals("harness", SettingsSection.Harness.deepLinkName)
+    }
+
+    @Test
+    fun `interfaces are offered only with their toggle and an active profile and open embedded`() {
+        for (enabled in listOf(false, true)) {
+            for (profile in listOf(false, true)) {
+                val sections = availableSections(false, false, profile, isInterfacesEnabled = enabled)
+                assertEquals(enabled && profile, SettingsSection.Interfaces in sections)
+            }
+        }
+        assertEquals(ServiceUiLibraryRoute(isEmbedded = true), SettingsSection.Interfaces.route())
+        assertEquals(SettingsSection.Interfaces, settingsSectionOf("interfaces"))
     }
 
     @Test

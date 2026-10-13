@@ -39,6 +39,10 @@ public enum class SettingsSection {
     @SerialName("harness")
     Harness,
 
+    /** Interfaces the agent built for harnesses: their switches, specs and previews. */
+    @SerialName("interfaces")
+    Interfaces,
+
     /** Device-local feature flags. */
     @SerialName("feature_flags")
     FeatureFlags,
@@ -83,6 +87,7 @@ public val SettingsSection.deepLinkName: String
         SettingsSection.AgentLearning -> "agent_learning"
         SettingsSection.Context -> "context"
         SettingsSection.Harness -> "harness"
+        SettingsSection.Interfaces -> "interfaces"
         SettingsSection.FeatureFlags -> "feature_flags"
     }
 
