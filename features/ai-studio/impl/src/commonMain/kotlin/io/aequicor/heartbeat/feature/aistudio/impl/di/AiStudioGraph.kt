@@ -35,12 +35,16 @@ import io.aequicor.heartbeat.feature.aistudio.impl.data.StudioWorkspaceToggle
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.AiStudioComponent
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.ui.AiStudioUiComponent
 
 /** Feature graph retained by its Decompose entry. */
 @GraphExtension(AiStudioScope::class)
 interface AiStudioGraph {
     val factory: AiStudioComponent.Factory
+
+    /** The screen store; a remote view drives it without a window component. */
+    val model: AiStudioModel
 
     /** Metro factory for a lifecycle-owned feature instance. */
     @ContributesTo(ProfileScope::class)
@@ -49,6 +53,7 @@ interface AiStudioGraph {
         /** Creates an instance owned by the supplied component or scope. */
         fun createAiStudio(
             @Provides @ForScope(AiStudioScope::class) scope: ScopeHandle,
+            @Provides host: StudioScreenHost,
         ): AiStudioGraph
     }
 }
@@ -64,10 +69,13 @@ object AiStudioBindings {
         launcher: MachineLauncher,
         @ForScope(AiStudioScope::class) scope: ScopeHandle,
         backend: StudioBackend,
+        host: StudioScreenHost,
     ): Machine<AiStudioState, AiStudioIntent, AiStudioOutput> = launcher.launch(
         AiStudioMachineSpec,
         scope,
         EffectHandler { effect, machine -> backend.effects().handle(effect, machine) },
+        // Other features address the window's studio; a remote view keeps its machine to itself.
+        isAddressable = host == StudioScreenHost.Window,
     )
 }
 
@@ -99,6 +107,6 @@ internal class AiStudioRouteEntry(
     private val graphs: AiStudioGraph.Factory,
 ) : RouteEntry<AiStudioRoute>(AiStudioRoute::class, AiStudioRoute.serializer()) {
     override fun create(route: AiStudioRoute, context: ComponentContext, navigator: Navigator): NavComponent =
-        context.retainedGraph(scopes, profile, name = "aistudio") { graphs.createAiStudio(it) }
+        context.retainedGraph(scopes, profile, name = "aistudio") { graphs.createAiStudio(it, StudioScreenHost.Window) }
             .factory.create(context, navigator).let { AiStudioUiComponent(it) }
 }

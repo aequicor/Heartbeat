@@ -172,6 +172,8 @@ data class AiStudioScreenState(
     val failedPanes: ImmutableSet<Int> = persistentSetOf(),
     val sidebar: SidebarUi = SidebarUi(),
     val now: Instant = Instant.DISTANT_PAST,
+    /** Sequence number of the last intent a remote view applied ([AiStudioScreenIntent.RemoteApplied]). */
+    val remoteSeq: Long = 0,
 ) : MVIState {
     /** The session of [id] with its running flag. */
     fun session(id: String?): SessionUi? =
@@ -279,6 +281,14 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     @Serializable
     @SerialName("AiStudioScreenIntent.SessionAction")
     sealed interface SessionAction : AiStudioScreenIntent
+
+    /**
+     * Marks the intents of a remote view up to [seq] as applied. The store applies intents in order, so the state
+     * after this marker reflects all of them; the view acknowledges them with that state.
+     */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.RemoteApplied")
+    data class RemoteApplied(val seq: Long) : AiStudioScreenIntent
 
     /** Local sidebar presentation. */
     @Serializable

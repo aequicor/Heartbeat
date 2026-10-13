@@ -421,6 +421,7 @@ class AiStudioModel(
             is AiStudioScreenIntent.Sidebar -> updateState { copy(sidebar = sidebar.reduce(intent)) }
             is AiStudioScreenIntent.Organism -> organisms.handle(pipeline, intent)
             is AiStudioScreenIntent.SelectHarness -> harnessSelection.select(pipeline, intent)
+            is AiStudioScreenIntent.RemoteApplied -> updateState { copy(remoteSeq = intent.seq) }
         }
     }
 
