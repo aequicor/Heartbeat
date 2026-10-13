@@ -36,4 +36,6 @@
     <string name="browser_actions">Browser actions</string>
     <string name="browser_tab_groups">Tab groups</string>
     <string name="browser_group_selector">Switch tab group: %1$s, %2$d tabs</string>
+    <string name="browser_document_closed">This page is closed</string>
+    <string name="browser_document_unsupported">This page opens in the desktop app</string>
 </resources>

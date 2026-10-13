@@ -36,4 +36,6 @@
     <string name="browser_actions">Действия браузера</string>
     <string name="browser_tab_groups">Группы вкладок</string>
     <string name="browser_group_selector">Переключить группу: %1$s, вкладок: %2$d</string>
+    <string name="browser_document_closed">Эта страница закрыта</string>
+    <string name="browser_document_unsupported">Эта страница открывается в приложении для компьютера</string>
 </resources>
