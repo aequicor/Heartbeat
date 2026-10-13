@@ -281,11 +281,16 @@ internal class DesktopDocumentEngine(
         const val CONTENT_SETTING_BLOCK = 2
         const val NETWORK_PREDICTION_NEVER = 2
 
+        /** A local port nothing listens on: connections through it fail at once and never leave the machine. */
+        const val CLOSED_PROXY = "127.0.0.1:1"
+
         /**
          * Device permissions are refused, and no DNS prefetch or preconnect runs for hints in the page. WebRTC is out
-         * of reach of the content security policy and request handlers: it may use UDP only through a proxy and there
-         * is none, so STUN and TURN over UDP never leave. TURN over TCP would need a per-context proxy, which JCEF's
-         * preference bridge cannot set (it drops dictionary values); the page API removes the WebRTC constructors.
+         * of reach of the content security policy and request handlers: it may use UDP only through a proxy, and the
+         * context's only proxy is a closed local port, also for loopback addresses, so neither STUN nor TURN over UDP
+         * or TCP reaches a peer, local or remote, and peer host names are not resolved here. The document itself is
+         * answered by its resource handler, never by the network, so the proxy does not affect it. Dictionary
+         * preferences need the hb3 runtime.
          */
         val DOCUMENT_PREFERENCES: List<Pair<String, Any>> = listOf(
             "profile.default_content_setting_values.media_stream_mic" to CONTENT_SETTING_BLOCK,
@@ -294,6 +299,8 @@ internal class DesktopDocumentEngine(
             "profile.default_content_setting_values.notifications" to CONTENT_SETTING_BLOCK,
             "net.network_prediction_options" to NETWORK_PREDICTION_NEVER,
             "webrtc.ip_handling_policy" to "disable_non_proxied_udp",
+            // "<-loopback>" drops Chromium's implicit bypass, so local addresses go to the closed proxy as well.
+            "proxy" to mapOf("mode" to "fixed_servers", "server" to CLOSED_PROXY, "bypass_list" to "<-loopback>"),
         )
     }
 }

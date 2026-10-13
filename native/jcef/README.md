@@ -4,9 +4,15 @@ Heartbeat builds Java-CEF `17e805ad387d89839fdd2b864466b6510b2a783c` with CEF
 `152.0.6+g708dc14+chromium-152.0.7977.83`. `source-lock.json` pins the source and
 SHA-256 of `request-context-settings.patch`. Upstream files retain their BSD license.
 
-The published **152.0.6-hb2** release is pinned by this source lock and by Gradle
+The published **152.0.6-hb3** release is pinned by this source lock and by Gradle
 verification metadata. It contains the matching Java API and native libraries
-for all four desktop targets. The previous hb1 release remains immutable.
+for all four desktop targets. The previous hb1 and hb2 releases remain immutable.
+
+hb3 fixes upstream `GetCefValueFromJNIMap`, which built a dictionary but returned an
+empty, null-typed `CefValue`: `Map` (and nested `List`) values of
+`CefRequestContext.setPreference` never reached CEF, so dictionary preferences such as
+`proxy` were rejected. Unsupported or null entries now become explicit nulls. Heartbeat
+routes the WebRTC traffic of isolated documents to a closed local proxy with it.
 
 hb2 fixes a confirmed macOS use-after-free in queued visibility updates and the
 same resize/close race: Swing paint previously read NSView before dispatching to
@@ -44,31 +50,15 @@ and explicitly follows accepted HTTP(S) locations within one transfer budget. A 
 context fails rather than falling back to the global profile. Keep the context
 alive until request completion, then dispose the request before its context.
 
-## Next release: hb3 (prepared, not published)
+## Next release
 
-`next/` holds the next release while the application still uses the current one: `next/request-context-settings.patch`
+`next/` holds a prepared release while the application still uses the current one: `next/request-context-settings.patch`
 is its complete patch and `next/source-lock.json` its lock (the patch's SHA-256, `artifactVersion`, no artifacts yet).
-For hb3 the patch is the hb2 patch plus a fix of
-upstream `GetCefValueFromJNIMap`, which built a dictionary but returned an empty, null-typed `CefValue`. Java
-`Map` (and nested `List`) values of `CefRequestContext.setPreference` therefore never reached CEF; dictionary
-preferences such as `proxy` were rejected as "type NULL". Unsupported or null entries now become explicit nulls.
-Heartbeat needs this for isolated documents: their contexts route WebRTC through a closed local proxy
-(`"proxy": {"mode": "fixed_servers", "server": "127.0.0.1:1", "bypass_list": "<-loopback>"}`), so TURN over
-TCP cannot reach a peer. The change only affects `SetPreference`, the sole caller of the conversion.
-
-macOS ARM64 was built from it locally and checked: `build`, `package` and `verify` pass, and
-`browserDocumentNativeTest` and `browserNativeTest` pass on the resulting jars. The native probe crashed in its
-visibility/close phase (`CefClient.dispose` from `onAfterClose`, a focus handler on teardown); the published hb2
-jars crash the same way on that host, in an earlier phase, so the crash is not caused by this change.
-
-To release it, build every target from `next/` — in CI (below) or locally with
-`--patch native/jcef/next/request-context-settings.patch --source-lock native/jcef/next/source-lock.json` added to
-every `build_runtime.py` command — then collect and publish as below. The release commit moves
-`next/request-context-settings.patch` over `request-context-settings.patch`, replaces `source-lock.json` with the
-completed lock, removes `next/`, sets `jcef-native` to
-`152.0.6-hb3` in `gradle/libs.versions.toml`, pins the five jars in `gradle/verification-metadata.xml`, adds the
-`proxy` preference to `DesktopDocumentEngine` and makes `browserDocumentNativeTest` assert that no TURN connection
-over TCP opens. Until then documents block STUN and TURN over UDP only.
+Build every target from it — in CI (below) or locally with `--patch native/jcef/next/request-context-settings.patch
+--source-lock native/jcef/next/source-lock.json` added to every `build_runtime.py` command — then collect and publish
+as below. The release commit moves the patch over `request-context-settings.patch`, replaces `source-lock.json` with
+the completed lock, removes `next/`, sets `jcef-native` in `gradle/libs.versions.toml` and pins the five jars in
+`gradle/verification-metadata.xml`.
 
 ## Build in CI
 
@@ -150,14 +140,14 @@ python native/jcef/build_runtime.py collect --source build/jcef-inputs --output 
 
 The release directory contains:
 
-- `jcef-api-152.0.6-hb2.jar`
-- `jcef-natives-<target>-152.0.6-hb2.jar` for each target
+- `jcef-api-152.0.6-hb3.jar`
+- `jcef-natives-<target>-152.0.6-hb3.jar` for each target
 - `SHA256SUMS`, `runtime-manifest.json`, and completed `source-lock.json`
 
 The native jar contains a tar.gz resource named exactly as jcefmaven expects:
 `jcef-natives-<target>-<release_tag>.tar.gz`. Both API `build_meta.json` and native
 metadata use the unique release tag
-`jcef-17e805a+cef-152.0.6+g708dc14+chromium-152.0.7977.83+heartbeat-hb2`.
+`jcef-17e805a+cef-152.0.6+g708dc14+chromium-152.0.7977.83+heartbeat-hb3`.
 This prevents reuse of an unpatched extraction cache. Native archives include
 resources, locales, helper executables/apps and licenses. macOS symlinks and
 executable modes are preserved. Jar entries and archive timestamps are normalized;
@@ -168,13 +158,13 @@ with the GitHub CLI; existing assets are never replaced and a retry must match t
 published checksums and manifests:
 
 ```shell
-python native/jcef/publish_draft.py --artifacts build/jcef-release --repository aequicor/Heartbeat --commit <sha> --version 152.0.6-hb2
+python native/jcef/publish_draft.py --artifacts build/jcef-release --repository aequicor/Heartbeat --commit <sha> --version 152.0.6-hb3
 ```
 
 Publication follows inspection of the verified five jars and manifests as immutable
-assets of the GitHub release tag `152.0.6-hb2`. Copy the completed source lock into
+assets of the GitHub release tag `152.0.6-hb3`. Copy the completed source lock into
 this directory, and pin actual jar hashes in Gradle verification metadata.
-Coordinates are `io.aequicor.heartbeat.jcef:<artifact>:152.0.6-hb2`;
+Coordinates are `io.aequicor.heartbeat.jcef:<artifact>:152.0.6-hb3`;
 Gradle consumes release assets using an Ivy artifact pattern. JOGL/gluegen Java
 API dependencies remain explicit dependencies of the application.
 

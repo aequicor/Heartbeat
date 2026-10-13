@@ -33,6 +33,7 @@ import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.nio.channels.DatagramChannel
 import java.nio.channels.NetworkChannel
+import java.nio.channels.ServerSocketChannel
 import java.nio.file.Files
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.LinkedBlockingQueue
@@ -126,7 +127,7 @@ class DesktopDocumentNativeTest {
 
     /**
      * A page has no WebRTC constructor of its own, and even one taken from a child frame sends no STUN or TURN over
-     * UDP. TURN over TCP is not covered: it needs a per-context proxy that JCEF cannot set yet.
+     * UDP and opens no TURN connection over TCP.
      */
     private fun verifyNoPeers(
         documents: ProfileBrowserDocuments,
@@ -136,9 +137,11 @@ class DesktopDocumentNativeTest {
     ) {
         val loopback = InetSocketAddress(InetAddress.getLoopbackAddress(), 0)
         DatagramChannel.open().bind(loopback).use { udp ->
+            val tcp = ServerSocketChannel.open().bind(loopback)
             udp.configureBlocking(false)
+            tcp.configureBlocking(false)
             val reports = LinkedBlockingQueue<Pair<String, JsonElement>>()
-            val opened = assertNotNull(documents.open(peerDocument(udp.localPort(), reports)))
+            val opened = assertNotNull(documents.open(peerDocument(udp.localPort(), tcp.localPort(), reports)))
             SwingUtilities.invokeAndWait {
                 val panel = DesktopDocumentPanel(
                     documents.documents.value.getValue(opened.route.id),
@@ -157,11 +160,13 @@ class DesktopDocumentNativeTest {
             val gathered = report(reports, "rtc").jsonPrimitive.content
             assertTrue(gathered.startsWith("child:"), gathered)
             assertNull(udp.receive(ByteBuffer.allocate(PACKET_BYTES)), "No STUN or TURN packet ($gathered)")
+            tcp.use { assertNull(it.accept(), "No TURN connection ($gathered)") }
         }
     }
 
-    private fun peerDocument(udp: Int, reports: LinkedBlockingQueue<Pair<String, JsonElement>>) = BrowserDocument(
-        html = """
+    private fun peerDocument(udp: Int, tcp: Int, reports: LinkedBlockingQueue<Pair<String, JsonElement>>) =
+        BrowserDocument(
+            html = """
                 <!doctype html><title>Peer</title><script>
                 const report = (name, value) => heartbeat.call('report', { name, value });
                 (async () => {
@@ -171,6 +176,7 @@ class DesktopDocumentNativeTest {
                     const pc = new child.RTCPeerConnection({ iceServers: [
                       { urls: 'stun:127.0.0.1:$udp' },
                       { urls: 'turn:127.0.0.1:$udp?transport=udp', username: 'u', credential: 'c' },
+                      { urls: 'turn:127.0.0.1:$tcp?transport=tcp', username: 'u', credential: 'c' },
                     ] });
                     const candidates = [];
                     pc.onicecandidate = (event) => { if (event.candidate) candidates.push(event.candidate.type); };
@@ -186,14 +192,14 @@ class DesktopDocumentNativeTest {
                   }
                 })();
                 </script>
-        """.trimIndent(),
-        title = "Peer",
-        bridge = { _, arguments ->
-            val report = arguments as JsonObject
-            reports.offer(report.getValue("name").jsonPrimitive.content to (report["value"] ?: JsonNull))
-            BrowserBridgeResult.Value(JsonNull)
-        },
-    )
+            """.trimIndent(),
+            title = "Peer",
+            bridge = { _, arguments ->
+                val report = arguments as JsonObject
+                reports.offer(report.getValue("name").jsonPrimitive.content to (report["value"] ?: JsonNull))
+                BrowserBridgeResult.Value(JsonNull)
+            },
+        )
 
     /** New data reaches the page as an event; navigating away is blocked and the page stays. */
     private fun verifyUpdateAndNavigation(

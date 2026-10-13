@@ -56,8 +56,8 @@ description: "Интерфейсы агента Heartbeat (features:service-as-u
   `HbDimensions.webDocumentHeight`, без документа — заметку.
 - Изоляция — в `browser:impl` (`DesktopDocument*`): свой origin `https://<id>.document.heartbeat.invalid/`, контекст в
   памяти, CSP без соединений, запросы кроме самого документа отклоняются, WebRTC — UDP только через прокси (его
-  нет), конструкторы WebRTC удалены из окна страницы. TURN по TCP из дочернего фрейма закроет прокси контекста на
-  закрытый порт: нужен рантайм hb3, где JCEF передаёт словарные настройки (`native/jcef/README.md`). Вызовы страницы —
+  нет), конструкторы WebRTC удалены из окна страницы, TCP (TURN) идёт только в прокси контекста на закрытый порт,
+  включая loopback (рантайм hb3: JCEF передаёт словарные настройки). Вызовы страницы —
   свой лимит (1) и лог trace; только Desktop. Проверка с настоящим Chromium —
   `./gradlew :features:browser:impl:browserDocumentNativeTest` (локально, нужен рабочий стол).
 

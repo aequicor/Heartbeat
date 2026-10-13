@@ -11,7 +11,7 @@ Python 3.11+, Windows или macOS с доступной графической 
 `macosx-amd64` или `macosx-arm64`:
 
 ```text
-python native/jcef/verification/run_probe.py --jcef-api build/jcef-artifacts/jcef-api-152.0.6-hb2.jar --native-dir build/jcef-source/heartbeat-native-stage --extra-classpath build/jcef-artifacts/jcef-natives-<target>-152.0.6-hb2.jar --extra-classpath build/jcef-source/third_party/jogamp/jar/jogl-all.jar --extra-classpath build/jcef-source/third_party/jogamp/jar/gluegen-rt.jar --output build/jcef-verification
+python native/jcef/verification/run_probe.py --jcef-api build/jcef-artifacts/jcef-api-152.0.6-hb3.jar --native-dir build/jcef-source/heartbeat-native-stage --extra-classpath build/jcef-artifacts/jcef-natives-<target>-152.0.6-hb3.jar --extra-classpath build/jcef-source/third_party/jogamp/jar/jogl-all.jar --extra-classpath build/jcef-source/third_party/jogamp/jar/gluegen-rt.jar --output build/jcef-verification
 ```
 
 `--java` и `--javac` позволяют выбрать абсолютные пути к JDK. `--output` должен быть
