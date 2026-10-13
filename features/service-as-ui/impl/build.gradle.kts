@@ -9,6 +9,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(projects.features.serviceAsUi.api)
+            implementation(projects.features.browser.api)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.okio)
             implementation(projects.core.common)

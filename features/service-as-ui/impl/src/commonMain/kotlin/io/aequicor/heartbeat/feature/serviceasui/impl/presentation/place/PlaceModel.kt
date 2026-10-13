@@ -237,6 +237,7 @@ internal class PlaceModel(
             args = placed.args,
             facts = UiFacts(platform, hasSession = placed.context.call.session != null),
             host = PlaceSurfaceHost(placed),
+            title = placed.surface.content.title,
         )
         return try {
             Running(surfaceModels.create(session, child), child, "drawing-${++drawings}")

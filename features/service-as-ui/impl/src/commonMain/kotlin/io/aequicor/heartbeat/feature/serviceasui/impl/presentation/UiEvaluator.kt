@@ -119,7 +119,7 @@ internal class UiEvaluator(private val spec: UiSpec) {
                 key,
                 node.html,
                 node.hasBridge,
-                node.data?.let { bindings.value(it, scope).toString() },
+                node.data?.let { bindings.value(it, scope) },
             )
         }
 

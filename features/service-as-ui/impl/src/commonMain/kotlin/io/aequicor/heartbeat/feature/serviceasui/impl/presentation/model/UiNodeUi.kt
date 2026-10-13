@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiAction
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiScope
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.serialization.json.JsonElement
 
 /** Spacing between children. */
 internal enum class GapUi { None, Small, Medium, Large }
@@ -172,7 +173,10 @@ internal sealed interface UiNodeUi {
     ) : Input
 
     /** An isolated web document; [data] is JSON delivered to the page. */
-    data class Web(override val key: String, val html: String, val hasBridge: Boolean, val data: String?) : Content
+    data class Web(override val key: String, val html: String, val hasBridge: Boolean, val data: JsonElement?) :
+        Content {
+        override fun toString(): String = "Web(key=$key, hasBridge=$hasBridge)"
+    }
 }
 
 /** A modal dialog of a surface. */

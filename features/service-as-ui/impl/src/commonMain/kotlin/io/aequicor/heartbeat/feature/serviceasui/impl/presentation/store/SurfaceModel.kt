@@ -5,11 +5,15 @@ import dev.zacsweers.metro.AssistedFactory
 import dev.zacsweers.metro.AssistedInject
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
+import io.aequicor.heartbeat.feature.browser.api.BrowserBridgeResult
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentBridge
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodFailure
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodResult
+import io.aequicor.heartbeat.feature.serviceasui.api.UiOwner
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiMethodCalls
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiPlatform
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiPlatformResult
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiWebDocuments
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiAction
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiLoad
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiPresentation
@@ -21,14 +25,18 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiSourceStatu
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiValues
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.NativeWidgetUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiPress
+import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import pro.respawn.flowmvi.api.PipelineContext
@@ -50,6 +58,7 @@ internal class SurfaceModel(
     private val platform: UiPlatform,
     factory: HeartbeatStoreFactory,
     @Assisted scope: CoroutineScope,
+    web: UiWebDocuments = UiWebDocuments.Off,
 ) {
     /** Creates the store of one drawn surface in its own [scope]. */
     @AssistedFactory
@@ -60,19 +69,56 @@ internal class SurfaceModel(
     private val log = Log.tag("ServiceUiSurface")
     private val evaluator = UiEvaluator(session.spec)
     private val calling = Semaphore(UiSpecLimits.CALLS)
+    private val initial = rendered(SurfaceState(values = initialValues()))
+
+    // Pages call methods on their own, so only surfaces that load data by themselves get a bridge: never a card.
+    private val documents = SurfaceWebDocuments(
+        web,
+        session.owner?.takeUnless { session.isCard }?.let { BrowserDocumentBridge(PageCalls(it)::call) },
+        session.title,
+    )
+
+    /** Route ids of the browser documents drawn for `web` nodes, by node key. */
+    val webDocuments: StateFlow<ImmutableMap<String, String>> = documents.shown
 
     val store: Store<SurfaceState, SurfaceIntent, SurfaceAction> =
         factory.create<SurfaceState, SurfaceIntent, SurfaceAction>(
             name = "Surface",
-            initial = rendered(SurfaceState(values = initialValues())),
+            initial = initial,
             onError = { copy(notice = NoticeUi.Broken) },
         ) {
+            install {
+                name = "web-documents"
+                onStart {
+                    documents.show(this@SurfaceModel.initial)
+                    launch { web.availability.collect(documents::enable) }
+                }
+                onState { _, next -> next.also(documents::show) }
+                onStop { documents.close() }
+            }
             whileSubscribed { Work(this).observeMethods() }
             reduce { intent -> Work(this).handle(intent) }
         }
 
     init {
         store.start(scope)
+    }
+
+    /** Calls of a page into the methods of [owner]: JSON object arguments (or none), bounded with the surface's own. */
+    private inner class PageCalls(private val owner: UiOwner) {
+        suspend fun call(method: String, arguments: JsonElement): BrowserBridgeResult {
+            val objectArguments = when (arguments) {
+                is JsonObject -> arguments
+                JsonNull -> JsonObject(emptyMap())
+                is JsonPrimitive, is JsonArray -> return BrowserBridgeResult.Failure("Arguments must be a JSON object")
+            }
+            val result = calling.withPermit { calls.call(owner, method, objectArguments, session.context) }
+            return when (result) {
+                is UiMethodResult.Success -> BrowserBridgeResult.Value(result.value)
+                is UiMethodResult.UserError -> BrowserBridgeResult.Failure(result.message)
+                is UiMethodResult.Failure -> BrowserBridgeResult.Failure(result.reason.pageMessage())
+            }
+        }
     }
 
     private fun initialValues() = UiValues(
@@ -301,6 +347,16 @@ private fun UiValues.withInput(key: String, value: JsonElement): UiValues = copy
 
 private fun UiBindings.arguments(arguments: JsonObject, scope: UiScope): JsonObject =
     json(arguments, scope) as? JsonObject ?: JsonObject(emptyMap())
+
+/** Why a page's call failed, in the English of page scripts. */
+private fun UiMethodFailure.pageMessage(): String = when (this) {
+    UiMethodFailure.Unavailable -> "Methods are unavailable here"
+    UiMethodFailure.NotFound -> "No such method"
+    UiMethodFailure.Inactive -> "The owner is not active here"
+    UiMethodFailure.TimedOut -> "The call timed out"
+    UiMethodFailure.Failed -> "The call failed"
+    UiMethodFailure.TooLarge -> "The arguments or the result are too large"
+}
 
 private fun UiMethodFailure.ui(): FailureUi = when (this) {
     UiMethodFailure.Unavailable -> FailureUi.Unavailable

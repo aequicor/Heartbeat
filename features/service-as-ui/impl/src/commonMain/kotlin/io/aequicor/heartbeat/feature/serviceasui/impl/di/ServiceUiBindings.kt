@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiEnabled
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiMachineSpec
+import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiWeb
 import io.aequicor.heartbeat.feature.serviceasui.api.spi.ServiceUiProvider
 import io.aequicor.heartbeat.feature.serviceasui.impl.data.ServiceUiEffects
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiMachine
@@ -47,4 +48,9 @@ object ServiceUiToggleBindings {
     @Provides
     @IntoSet
     fun enabled(): FeatureToggle<*> = ServiceUiEnabled
+
+    /** Web documents in surfaces (desktop), off by default. */
+    @Provides
+    @IntoSet
+    fun web(): FeatureToggle<*> = ServiceUiWeb
 }
