@@ -28,6 +28,7 @@ internal fun EngineEffortMenu(
     model: ModelUi,
     selected: String?,
     onIntent: (AiStudioScreenIntent) -> Unit,
+    modifier: Modifier = Modifier,
     paneId: Int? = null,
     enabled: Boolean = true,
 ) {
@@ -46,7 +47,7 @@ internal fun EngineEffortMenu(
             val effort = if (it == DEFAULT_EFFORT) null else it.removePrefix(EFFORT_PREFIX)
             onIntent(AiStudioScreenIntent.SelectEngineEffort(model.id, effort, paneId))
         },
-        modifier = Modifier.testTag("effort-chip"),
+        modifier = modifier.testTag("effort-chip"),
         accessibleLabel = stringResource(Res.string.composer_effort_menu),
         headerLabel = stringResource(Res.string.composer_effort_menu),
         icon = HbIcons.Sparkles,
