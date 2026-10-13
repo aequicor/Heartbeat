@@ -42,6 +42,7 @@ class RemoteStudioStoreTest {
             override val default = dispatcher
             override val io = dispatcher
         })
+        host.deliver("""{"type":"status","status":"ready"}""")
         return remoteStudioStore(factory, PanelLink(host), VIEW, retryDelay = 5.seconds)
     }
 

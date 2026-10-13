@@ -28,6 +28,9 @@ kotlin {
         commonMain.dependencies {
             implementation(projects.features.chromiumBridge.protocol)
             implementation(projects.features.aiStudio.screenModel)
+            implementation(projects.features.aiStudio.screenUi)
+            implementation(projects.features.questionnaire.screenUi)
+            implementation(projects.features.checklist.screenUi)
             implementation(projects.designSystem.components)
             implementation(projects.designSystem.theme)
             implementation(projects.designSystem.layouts)
@@ -40,6 +43,10 @@ kotlin {
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.kotlinx.collectionsImmutable)
+        }
+        jvmTest.dependencies {
+            implementation(libs.compose.uiTest)
+            implementation(compose.desktop.currentOs)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

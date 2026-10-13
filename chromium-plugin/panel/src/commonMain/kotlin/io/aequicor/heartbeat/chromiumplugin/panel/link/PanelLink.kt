@@ -32,6 +32,10 @@ internal class PanelLink(private val host: PanelHost, private val callTimeout: D
     private val watchers = mutableMapOf<String, (PanelInbound.ForWatch) -> Unit>()
     private var nextCall = 0L
 
+    /** Changes synchronously on every loss of readiness, before queued watch events or reducers run. */
+    var connectionEpoch: Long = 0
+        private set
+
     /** Link status of the extension and the app's bridge features. */
     val status: StateFlow<PanelInbound.Status> = statuses.asStateFlow()
 
@@ -92,12 +96,20 @@ internal class PanelLink(private val host: PanelHost, private val callTimeout: D
             return
         }
         when (message) {
-            is PanelInbound.Status -> statuses.value = message
+            is PanelInbound.Status -> {
+                if (message.status != "ready") connectionEpoch++
+                watchers.forEach { (key, listener) -> listener(PanelInbound.Connection(key, message.status)) }
+                statuses.value = message
+            }
 
             is PanelInbound.Agent -> agents.value = message
 
             is PanelInbound.Reply -> pending[message.id]?.complete(message)
                 ?: log.v { "reply ${message.id} without a waiting call" }
+
+            is PanelInbound.Event -> message.key?.let(watchers::get)
+                ?.invoke(message.copy(connectionEpoch = connectionEpoch))
+                ?: log.v { "message of a closed watch" }
 
             is PanelInbound.ForWatch -> message.key?.let(watchers::get)?.invoke(message)
                 ?: log.v { "message of a closed watch" }

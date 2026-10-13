@@ -22,6 +22,7 @@ internal class StudioViewSync {
     private var ack = 0L
     private var sentUpTo = 0L
     private var nextSeq = 0L
+    private var addedInputs = 0L
     private var isReady = false
 
     /** The instance that may receive the queued intents, learned only from its snapshot. */
@@ -32,6 +33,9 @@ internal class StudioViewSync {
     var interruptedScreen: AiStudioScreenState? = null
         private set
     private val pending = mutableListOf<PendingIntent>()
+
+    /** Local inputs acknowledged by a frame or discarded with a lost generation. */
+    val settledInputs: Long get() = addedInputs - pending.size
 
     /** The screen to draw, `null` until the first snapshot. */
     val screen: AiStudioScreenState?
@@ -71,6 +75,7 @@ internal class StudioViewSync {
     /** Numbers [intent] and predicts it. */
     @HighFrequency
     fun add(intent: AiStudioScreenIntent) {
+        addedInputs++
         pending += PendingIntent(++nextSeq, intent)
     }
 

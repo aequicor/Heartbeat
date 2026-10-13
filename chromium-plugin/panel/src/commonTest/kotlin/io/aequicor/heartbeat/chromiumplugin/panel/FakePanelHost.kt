@@ -20,11 +20,17 @@ internal class FakePanelHost : PanelHost {
         posted += Json.parseToJsonElement(json).jsonObject
     }
 
-    override suspend fun capturePage(): String? = null
+    var capture: suspend () -> String? = { null }
+    var selection: String? = null
+    var selectionArrival: () -> Unit = {}
 
-    override suspend fun takeSelection(): String? = null
+    override suspend fun capturePage(): String? = capture()
 
-    override fun onSelection(onArrival: () -> Unit) = Unit
+    override suspend fun takeSelection(): String? = selection.also { selection = null }
+
+    override fun onSelection(onArrival: () -> Unit) {
+        selectionArrival = onArrival
+    }
 
     /** A message of the service worker; kept until the panel listens, like `panel-host.js`. */
     fun deliver(json: String) {

@@ -11,4 +11,19 @@
     <string name="agent_consent_hint">Agents open their tabs in the Heartbeat group and use your tabs only when you approve it in Heartbeat.</string>
     <string name="agent_controlling">Agents control tabs: %1$d</string>
     <string name="revoke_all">Take all back</string>
+    <string name="studio_connecting">Opening studio…</string>
+    <string name="studio_unavailable">Studio is unavailable in Heartbeat.</string>
+    <string name="studio_incompatible">Update the extension from this Heartbeat installation.</string>
+    <string name="studio_busy">Too many studio panels are open. Close another panel and wait.</string>
+    <string name="studio_too_large">This view is too large. Open a new view to continue.</string>
+    <string name="studio_new_view">New view</string>
+    <string name="capture_attach">Attach</string>
+    <string name="capture_capturing">Reading the page…</string>
+    <string name="capture_ready">A page selection is ready to attach to the current chat.</string>
+    <string name="capture_changed">The chat changed while reading the page. Choose where to attach it.</string>
+    <string name="capture_unreadable">This page could not be read. Open a regular web page and try again.</string>
+    <string name="capture_unsupported">This draft cannot accept a page yet. Wait for imports or choose a model that accepts documents.</string>
+    <string name="draft_recovery">The connection opened a new view. Your previous draft can be added to the current draft.</string>
+    <string name="draft_recover">Restore draft</string>
+    <string name="dismiss">Dismiss</string>
 </resources>

@@ -32,10 +32,20 @@ internal sealed interface PanelInbound {
         val key: String?
     }
 
+    /** Local link transition, delivered in port order before any frames of the restored watch. */
+    @Serializable
+    @SerialName("connection")
+    data class Connection(override val key: String, val status: String) : ForWatch
+
     /** An app event of a watch the panel opened under [key]. */
     @Serializable
     @SerialName("event")
-    data class Event(override val key: String? = null, val event: String, val params: JsonObject) : ForWatch
+    data class Event(
+        override val key: String? = null,
+        val event: String,
+        val params: JsonObject,
+        @kotlinx.serialization.Transient val connectionEpoch: Long = 0,
+    ) : ForWatch
 
     /** The answer to a [PanelOutbound.Call] with the same [id]. */
     @Serializable

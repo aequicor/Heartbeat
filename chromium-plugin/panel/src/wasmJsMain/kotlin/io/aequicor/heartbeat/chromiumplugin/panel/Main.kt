@@ -8,8 +8,10 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.window.ComposeViewport
 import io.aequicor.heartbeat.chromiumplugin.panel.link.PanelLink
+import io.aequicor.heartbeat.chromiumplugin.panel.store.StudioPanelModel
 import io.aequicor.heartbeat.chromiumplugin.panel.store.panelStore
 import io.aequicor.heartbeat.chromiumplugin.panel.ui.PanelApp
+import io.aequicor.heartbeat.chromiumplugin.panel.ui.StudioPanelScreen
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
@@ -39,8 +41,14 @@ fun main() {
     }
     val dispatchers = BrowserDispatchers()
     // The store lives as long as the side panel page.
-    val store = panelStore(HeartbeatStoreFactory(dispatchers), PanelLink(ChromePanelHost(js)))
-    store.start(CoroutineScope(SupervisorJob() + dispatchers.main))
+    val host = ChromePanelHost(js)
+    val link = PanelLink(host)
+    val factory = HeartbeatStoreFactory(dispatchers)
+    val scope = CoroutineScope(SupervisorJob() + dispatchers.main)
+    val store = panelStore(factory, link)
+    val studio = StudioPanelModel(factory, link, host)
+    store.start(scope)
+    studio.store.start(scope)
     log.i { "panel started" }
     ComposeViewport(PANEL_ELEMENT) {
         val fonts by produceState<PanelFonts?>(null) { value = loadFonts() }
@@ -50,7 +58,7 @@ fun main() {
             value = fonts != null
         }
         // Text laid out before the fallback fonts would keep empty boxes for emoji and symbols.
-        if (ready) PanelTheme(fonts) { PanelApp(store) }
+        if (ready) PanelTheme(fonts) { PanelApp(store) { StudioPanelScreen(studio.store) } }
     }
 }
 

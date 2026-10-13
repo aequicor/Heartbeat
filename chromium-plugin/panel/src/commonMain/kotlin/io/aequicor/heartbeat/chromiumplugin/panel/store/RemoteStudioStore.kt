@@ -72,6 +72,7 @@ private class StudioViewLink(
 ) {
     private val sync = StudioViewSync()
     private val reader = StudioViewReader()
+    private var snapshotEpoch: Long? = null
 
     // Wakes the sender; conflated, since every wake-up sends all that is unsent.
     private val outbox = Channel<Unit>(Channel.CONFLATED)
@@ -97,13 +98,25 @@ private class StudioViewLink(
      */
     suspend fun follow(update: suspend (StateChange) -> Unit) {
         while (true) {
+            update { copy(status = StudioViewStatus.Connecting) }
             sync.restart()
             reader.reset()
             val end = merge(link.watch(WATCH_KEY, STUDIO_WATCH, params), restarts.receiveAsFlow().map { null })
                 .mapNotNull { message ->
                     when (message) {
                         null -> WatchEnd.Again
+
+                        is PanelInbound.Connection -> {
+                            if (message.status != LinkStatus.Ready.wire) {
+                                sync.restart()
+                                reader.reset()
+                                update { copy(status = StudioViewStatus.Connecting) }
+                            }
+                            null
+                        }
+
                         is PanelInbound.WatchFailed -> refused(message, update)
+
                         is PanelInbound.Event -> receive(message, update)
                     }
                 }
@@ -132,6 +145,7 @@ private class StudioViewLink(
     /** Applies a frame event; [WatchEnd.Again] when the mirror lost track. */
     @HighFrequency
     private suspend fun receive(event: PanelInbound.Event, update: suspend (StateChange) -> Unit): WatchEnd? {
+        if (link.status.value.status != LinkStatus.Ready.wire) return null
         if (event.event != STUDIO_CHANGED || (event.params["view"] as? JsonPrimitive)?.content != viewId) return null
         val frame = try {
             reader.read(requireNotNull(event.params["frame"] as? JsonObject))
@@ -154,14 +168,25 @@ private class StudioViewLink(
             log.w(e) { "studio frames lost, watching again" }
             return WatchEnd.Again
         }
+        if (frame is StudioViewFrame.Snapshot) snapshotEpoch = event.connectionEpoch
         val screen = sync.screen
-        update { copy(status = StudioViewStatus.Live, screen = screen, interruptedScreen = sync.interruptedScreen) }
+        update {
+            copy(
+                status = StudioViewStatus.Live,
+                screen = screen,
+                generation = sync.generation,
+                settledInputs = sync.settledInputs,
+                connectionEpoch = snapshotEpoch,
+                interruptedScreen = sync.interruptedScreen,
+            )
+        }
         if (frame is StudioViewFrame.Snapshot) outbox.trySend(Unit)
         return null
     }
 
     /** Sends one batch of unsent intents; `false` when nothing is left or the send failed. */
     private suspend fun sendBatch(): Boolean {
+        if (link.status.value.status != LinkStatus.Ready.wire || snapshotEpoch != link.connectionEpoch) return false
         val batch = sync.unsent(MAX_BATCH).nextStudioBatch()
         if (batch.isEmpty()) return false
         val generation = checkNotNull(sync.generation)

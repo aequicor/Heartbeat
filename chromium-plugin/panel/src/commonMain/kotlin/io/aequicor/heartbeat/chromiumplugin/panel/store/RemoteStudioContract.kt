@@ -29,6 +29,12 @@ internal enum class StudioViewStatus {
 internal data class RemoteStudioState(
     val status: StudioViewStatus = StudioViewStatus.Connecting,
     val screen: AiStudioScreenState? = null,
+    /** Generation of the mirrored screen, used to bind asynchronous browser capture. */
+    val generation: String? = null,
+    /** Local inputs settled by a frame, including those discarded with a lost generation. */
+    val settledInputs: Long = 0,
+    /** Transport epoch whose snapshot established the live mirror. */
+    val connectionEpoch: Long? = null,
     /** Previous screen retained after the app recreated the view; actions were not replayed. */
     val interruptedScreen: AiStudioScreenState? = null,
 ) : MVIState

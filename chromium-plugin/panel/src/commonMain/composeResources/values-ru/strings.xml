@@ -11,4 +11,19 @@
     <string name="agent_consent_hint">Агенты открывают свои вкладки в группе «Heartbeat», а ваши вкладки используют только после вашего подтверждения в Heartbeat.</string>
     <string name="agent_controlling">Агенты управляют вкладками: %1$d</string>
     <string name="revoke_all">Забрать все</string>
+    <string name="studio_connecting">Открываем студию…</string>
+    <string name="studio_unavailable">Студия недоступна в Heartbeat.</string>
+    <string name="studio_incompatible">Обновите расширение из этой установки Heartbeat.</string>
+    <string name="studio_busy">Открыто слишком много панелей студии. Закройте другую панель и подождите.</string>
+    <string name="studio_too_large">Этот экран слишком большой. Откройте новый, чтобы продолжить.</string>
+    <string name="studio_new_view">Новый экран</string>
+    <string name="capture_attach">Прикрепить</string>
+    <string name="capture_capturing">Читаем страницу…</string>
+    <string name="capture_ready">Выделение страницы готово к прикреплению в текущий чат.</string>
+    <string name="capture_changed">Чат сменился во время чтения страницы. Выберите, куда её прикрепить.</string>
+    <string name="capture_unreadable">Не удалось прочитать страницу. Откройте обычную веб-страницу и повторите.</string>
+    <string name="capture_unsupported">Этот черновик пока не принимает страницу. Дождитесь импорта или выберите модель с поддержкой документов.</string>
+    <string name="draft_recovery">Соединение открыло новый экран. Прежний черновик можно добавить к текущему.</string>
+    <string name="draft_recover">Вернуть черновик</string>
+    <string name="dismiss">Скрыть</string>
 </resources>
