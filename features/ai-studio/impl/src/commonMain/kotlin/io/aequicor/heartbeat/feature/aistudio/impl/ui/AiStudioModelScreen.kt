@@ -5,7 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModel
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenui.AiStudioContent
 import io.aequicor.heartbeat.feature.aistudio.screenui.StudioEmbed
 import io.aequicor.heartbeat.feature.aistudio.screenui.StudioExits

@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioProject
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PermissionOptionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PermissionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectUi

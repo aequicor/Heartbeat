@@ -9,7 +9,7 @@ import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioChecklistView
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioEmbedViews
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioQuestionView

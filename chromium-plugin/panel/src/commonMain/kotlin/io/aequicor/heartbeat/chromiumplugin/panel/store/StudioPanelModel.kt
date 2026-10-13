@@ -6,7 +6,7 @@ import io.aequicor.heartbeat.chromiumplugin.panel.link.panelJson
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.attachmentSupport
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.isAttachmentPending

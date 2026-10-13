@@ -1,7 +1,7 @@
 package io.aequicor.heartbeat.chromiumplugin.panel.store
 
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewEncoder
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
 import kotlin.test.Test

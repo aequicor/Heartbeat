@@ -1,6 +1,6 @@
 package io.aequicor.heartbeat.chromiumplugin.panel.store
 
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIState
 

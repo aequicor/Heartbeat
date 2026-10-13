@@ -1,7 +1,5 @@
 package io.aequicor.heartbeat.feature.aistudio.screenmodel
 
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
-
 /** Effective native selection shared by transcript projection and submission; missing children fall back to root. */
 fun AiStudioScreenState.selectedNative(sessionId: String?): String = subSessions[sessionId]?.takeIf { key ->
     nativeTrees[sessionId]?.sessions?.any { it.key == key && it.kind == SubSessionKindUi.Agent } == true

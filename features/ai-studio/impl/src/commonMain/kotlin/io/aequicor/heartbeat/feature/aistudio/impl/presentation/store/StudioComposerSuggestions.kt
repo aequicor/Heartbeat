@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.COMPACT_COMMAND
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ComposerSuggestionsUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SuggestionKindUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SuggestionOriginUi

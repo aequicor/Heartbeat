@@ -3,7 +3,7 @@ package io.aequicor.heartbeat.chromiumplugin.panel.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenui.StudioEmbed
 import io.aequicor.heartbeat.feature.aistudio.screenui.StudioExits
 import io.aequicor.heartbeat.feature.checklist.screenui.ChecklistScreen
