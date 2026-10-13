@@ -10,8 +10,17 @@ import kotlinx.serialization.json.JsonObject
 /** Who asked for a library write: the agent through its tools, the user in settings, or the feature itself. */
 public enum class UiWriteOrigin { Agent, User, System }
 
-/** A library write with a caller-chosen unique [id]; its outcome comes back as an output with the same id. */
-public data class UiWrite(val id: String, val origin: UiWriteOrigin, val op: UiWriteOp) {
+/**
+ * A library write with a caller-chosen unique [id]; its outcome comes back as an output with the same id.
+ * [expectedLibraryRevision], when supplied, must match the committed library before the machine accepts the write.
+ * This binds reviewed writes to their snapshot even when a surface was deleted and recreated at revision one.
+ */
+public data class UiWrite(
+    val id: String,
+    val origin: UiWriteOrigin,
+    val op: UiWriteOp,
+    val expectedLibraryRevision: Long? = null,
+) {
     override fun toString(): String = "UiWrite(id=$id, origin=$origin, op=${op::class.simpleName ?: "UiWriteOp"})"
 }
 
@@ -30,7 +39,7 @@ public data class UiPanel(
 
 /** Why a library write was refused. */
 public enum class UiEditRejection {
-    /** The surface changed meanwhile, or a creation found it present. */
+    /** The surface or expected library snapshot changed meanwhile, or a creation found the surface present. */
     Conflict,
 
     /** The surface does not exist. */

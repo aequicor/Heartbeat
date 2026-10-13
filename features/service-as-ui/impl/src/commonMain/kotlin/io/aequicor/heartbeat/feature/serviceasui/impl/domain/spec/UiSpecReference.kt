@@ -26,6 +26,9 @@ private fun placesAndDocument(): String = """
 A surface is a JSON document that Heartbeat draws with its own components. It belongs to an owner, a harness whose
 script publishes the methods the surface calls (`ui.method` in the harness script API). The user presses its buttons
 without you: nothing runs except the owner's methods, with the owner's permissions.
+Creating, replacing, removing and showing surfaces, and agent method calls, pass automatic safety review.
+Safe proposals execute without a user permission dialog. Risk, uncertainty or unavailable review returns an error
+to you; inspect the reason and correct the operation. Do not ask the user to bypass a safety refusal.
 
 ## Places (`placement`)
 - `card`: a live mini-app inside an ordinary chat reply, shown with `ui_show(surface: id)`. No launcher.

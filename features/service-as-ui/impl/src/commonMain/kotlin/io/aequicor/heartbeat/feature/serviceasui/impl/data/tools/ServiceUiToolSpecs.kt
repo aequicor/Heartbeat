@@ -12,7 +12,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 
-/** Declarations of the interface tools; library edits are `Edit` in the trust table. */
+/** Interface tool declarations; mutations, display and agent calls use contribution-owned automatic review. */
 internal val ServiceUiToolSpecs: List<AgentToolSpec> = listOf(
     AgentToolSpec(
         ServiceUiTools.REFERENCE,
