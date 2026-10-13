@@ -44,11 +44,14 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardSource
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardStorage
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiMethodCalls
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -354,6 +357,43 @@ class ServiceUiAgentToolsTest {
     }
 
     @Test
+    fun `a surface changed while waiting for another review cannot enter the transcript`() = runTest {
+        assertFalse(call(ServiceUiTools.PUT, put(SPEC)).isError)
+        val arguments = show(surface = "harness:h_1:start")
+        val approved = approval(ServiceUiTools.SHOW, arguments)
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        reviewer.beforeReview = {
+            entered.complete(Unit)
+            release.await()
+        }
+        val otherReview = async { approval(ServiceUiTools.SHOW, show(spec = TEXT)) }
+        entered.await()
+        val execution = async { execute(ServiceUiTools.SHOW, arguments, approved) }
+        runCurrent()
+        assertFalse(execution.isCompleted, "The exact-snapshot memo is locked by the other review")
+
+        val ready = machine.state.value as ServiceUiState.Ready
+        machine.state.value = ready.copy(
+            library = ready.library.copy(
+                surfaces = ready.library.surfaces.map { it.copy(content = it.content.copy(spec = TEXT)) },
+            ),
+        )
+        release.complete(Unit)
+        otherReview.await()
+        assertTrue(execution.await().isError)
+        assertTrue(cards.added.isEmpty())
+        assertEquals(3, reviewer.proposals.size, "Execution cannot review the replacement implicitly")
+
+        assertFalse(call(ServiceUiTools.SHOW, arguments).isError)
+        assertEquals(
+            UiCardSource.Surface(UiSurfaceId("harness:h_1:start")),
+            cards.added.single().source,
+            "A newly reviewed card remains a live reference for subsequent updates",
+        )
+    }
+
+    @Test
     fun `unreviewable methods and cancelled reviews never execute`() = runTest {
         calls.snapshot = null
         assertTrue(call(ServiceUiTools.CALL, methodArgs()).isError)
@@ -512,9 +552,11 @@ class ServiceUiAgentToolsTest {
     private class Reviewer : AgentSafetyReviewer {
         var verdict = AgentSafetyReview("safe", "Bounded local interface")
         var failure: Exception? = null
+        var beforeReview: suspend () -> Unit = {}
         val proposals = mutableListOf<String>()
         override suspend fun review(target: EngineTarget, policy: String, change: String): AgentSafetyReview {
             proposals += change
+            beforeReview()
             failure?.let { throw it }
             return verdict
         }

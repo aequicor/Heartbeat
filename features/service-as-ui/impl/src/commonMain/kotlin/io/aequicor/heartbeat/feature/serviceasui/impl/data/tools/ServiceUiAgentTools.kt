@@ -222,18 +222,25 @@ internal class ServiceUiAgentTools(
                 "the spec is invalid:\n" + inline.diagnostics.joinToString("\n") { it.describe() },
             )
         }
-        val snapshot = if (surface != null) {
+        val shownSurface = if (surface != null) {
             val ready = ready() ?: return SafetyPlan.Invalid(NOT_LOADED)
-            val found = ready.library.surfaces.firstOrNull { it.id.value == surface && it.isEnabled }
+            ready.library.surfaces.firstOrNull { it.id.value == surface && it.isEnabled }
                 ?: return SafetyPlan.Invalid("no enabled interface $surface")
-            buildJsonObject { put("surface", Json.encodeToJsonElement(found)) }
+        } else {
+            null
+        }
+        val snapshot = if (shownSurface != null) {
+            buildJsonObject { put("surface", Json.encodeToJsonElement(shownSurface)) }
         } else {
             buildJsonObject { put("spec", requireNotNull(arguments["spec"])) }
         }
         if (arguments["args"]?.toString().orEmpty().encodeToByteArray().size > ServiceUiLimits.ARGS_BYTES) {
             return SafetyPlan.Invalid("args are too large")
         }
-        return SafetyPlan.Ready(uiToolSafetyRequest(context, unreviewedApproval(spec, arguments), arguments, snapshot))
+        return SafetyPlan.Ready(
+            uiToolSafetyRequest(context, unreviewedApproval(spec, arguments), arguments, snapshot),
+            shownSurface,
+        )
     }
 
     private suspend fun callSafetyPlan(
@@ -269,12 +276,12 @@ internal class ServiceUiAgentTools(
         val proposal = if (name in REVIEWED_TOOLS) {
             when (val planned = authorizedPlan(context, name, arguments)) {
                 is SafetyPlan.Invalid -> return failure(planned.message)
-                is SafetyPlan.Ready -> planned.request
+                is SafetyPlan.Ready -> planned
             }
         } else {
             null
         }
-        val authorized = proposal?.let { context.copy(authorization = it.original) } ?: context
+        val authorized = proposal?.let { context.copy(authorization = it.request.original) } ?: context
         return when (name) {
             ServiceUiTools.REFERENCE -> AgentToolResult(
                 uiSpecReference(RESULT_BYTES, CALL_SECONDS),
@@ -284,11 +291,12 @@ internal class ServiceUiAgentTools(
 
             ServiceUiTools.GET -> get(arguments)
 
-            ServiceUiTools.PUT, ServiceUiTools.DELETE -> write(authorized, name, arguments, proposal?.libraryRevision)
+            ServiceUiTools.PUT, ServiceUiTools.DELETE ->
+                write(authorized, name, arguments, proposal?.request?.libraryRevision)
 
-            ServiceUiTools.SHOW -> show(authorized, arguments)
+            ServiceUiTools.SHOW -> show(authorized, arguments, proposal?.shownSurface)
 
-            ServiceUiTools.CALL -> callMethod(authorized, arguments, proposal?.methodBinding)
+            ServiceUiTools.CALL -> callMethod(authorized, arguments, proposal?.request?.methodBinding)
 
             else -> failure("unknown interface tool")
         }
@@ -361,7 +369,11 @@ internal class ServiceUiAgentTools(
         return AgentToolResult(result.toString())
     }
 
-    private suspend fun show(context: AgentToolContext, arguments: JsonObject): AgentToolResult {
+    private suspend fun show(
+        context: AgentToolContext,
+        arguments: JsonObject,
+        reviewedSurface: UiSurface?,
+    ): AgentToolResult {
         val title = arguments.text("title")?.takeIf { it.length <= ServiceUiLimits.TITLE_CHARS }
             ?: return failure("title is required, at most ${ServiceUiLimits.TITLE_CHARS} characters")
         val surface = arguments.text("surface")
@@ -379,6 +391,11 @@ internal class ServiceUiAgentTools(
                 val ready = ready() ?: return failure(NOT_LOADED)
                 val found = ready.library.surfaces.firstOrNull { it.id.value == surface && it.isEnabled }
                     ?: return failure("no enabled interface ${surface.orEmpty()}")
+                // Reading the safety memo can suspend. Admit the same initial snapshot after that wait;
+                // the stored reference remains live, so later owner-approved updates still reach this card.
+                if (found != reviewedSurface) {
+                    return failure("the interface changed after safety review; request it again")
+                }
                 UiCardSource.Surface(found.id)
             }
         }
@@ -595,7 +612,10 @@ internal class ServiceUiAgentTools(
     private sealed interface SafetyPlan {
         data class Invalid(val message: String) : SafetyPlan
 
-        data class Ready(val request: UiToolSafetyRequest) : SafetyPlan
+        /** The initial displayed surface is checked again after awaiting the safety memo. */
+        data class Ready(val request: UiToolSafetyRequest, val shownSurface: UiSurface? = null) : SafetyPlan {
+            override fun toString(): String = "SafetyPlan.Ready(***)"
+        }
     }
 
     /** What a tool call would do, computed alike for its approval and its execution. */
