@@ -55,6 +55,15 @@ class PlaceUiTest {
     }
 
     @Test
+    fun `a panel without a title still offers its close button`() = runSkikoComposeUiTest(size = Size(360f, 640f)) {
+        val intents = mutableListOf<PlaceIntent>()
+        setContent { HbTheme(darkTheme = true) { PlaceView(PlaceState(), persistentMapOf(), { intents += it }, true) } }
+        onNodeWithText("Interface").assertIsDisplayed()
+        onNodeWithContentDescription("Close the panel").performClick()
+        assertEquals(listOf<PlaceIntent>(PlaceIntent.ClosePanel), intents)
+    }
+
+    @Test
     fun `an empty slot draws nothing`() = runSkikoComposeUiTest(size = Size(480f, 200f)) {
         setContent {
             HbTheme(darkTheme = false) {

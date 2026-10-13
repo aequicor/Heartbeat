@@ -1,6 +1,8 @@
 package io.aequicor.heartbeat.feature.serviceasui.impl.ui
 
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -8,21 +10,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbChip
 import io.aequicor.heartbeat.ds.components.HbDialog
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
-import io.aequicor.heartbeat.ds.components.HbText
+import io.aequicor.heartbeat.ds.components.HbPaneHeader
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbFlowRow
-import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.TextStyleUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.place.PlaceIntent
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.place.PlaceModel
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.place.PlaceState
@@ -31,6 +29,7 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.Surface
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.Res
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_close
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_close_panel
+import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_panel_title
 import kotlinx.collections.immutable.ImmutableMap
 import org.jetbrains.compose.resources.stringResource
 import pro.respawn.flowmvi.dsl.collect
@@ -54,28 +53,28 @@ internal fun PlaceView(
 ) {
     // An empty slot emits nothing, so the host's spacing around it stays as without interfaces.
     if (!isPanel && state.isEmpty) return
-    HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.m) {
-        state.panelTitle?.takeIf { isPanel }?.let { title -> PanelHeader(title, onIntent) }
-        val scroll = rememberScrollState()
-        val body = if (isPanel) Modifier.fillMaxWidth().hbVerticalScroll(scroll) else Modifier
-        HbColumn(body, gap = HbTheme.spacing.m) {
-            state.surfaces.forEach { surface ->
-                key(surface.key) { PlacedSurfaceView(surface, surfaces) }
-            }
-            if (state.launchers.isNotEmpty()) {
-                HbFlowRow(gap = HbTheme.spacing.s) {
-                    state.launchers.forEach { launcher ->
-                        key(launcher.surface) {
-                            HbChip(
-                                label = launcher.title,
-                                onClick = { onIntent(PlaceIntent.Launch(launcher.surface)) },
-                                trailingIcon = null,
-                            )
-                        }
-                    }
-                }
-            }
+    if (isPanel) {
+        // A panel can cover the whole chat on a phone: its header always offers a way out.
+        HbColumn(modifier.fillMaxSize(), gap = HbTheme.spacing.none) {
+            HbPaneHeader(
+                state.panelTitle ?: stringResource(Res.string.service_ui_panel_title),
+                actions = {
+                    HbIconButton(
+                        HbIcons.Close,
+                        stringResource(Res.string.service_ui_close_panel),
+                        { onIntent(PlaceIntent.ClosePanel) },
+                    )
+                },
+            )
+            PlaceContent(
+                state,
+                surfaces,
+                onIntent,
+                Modifier.weight(1f).fillMaxWidth().hbVerticalScroll(rememberScrollState()).padding(HbTheme.spacing.xl),
+            )
         }
+    } else {
+        PlaceContent(state, surfaces, onIntent, modifier.fillMaxWidth())
     }
     val modal = state.modal ?: return
     HbDialog(
@@ -91,20 +90,31 @@ internal fun PlaceView(
     ) { PlacedSurfaceView(modal, surfaces) }
 }
 
+/** The surfaces and launchers of a place. */
 @Composable
-private fun PanelHeader(title: String, onIntent: (PlaceIntent) -> Unit) {
-    HbRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
-        HbText(
-            title,
-            Modifier.weight(1f).semantics { heading() },
-            style = TextStyleUi.Title.style(),
-            maxLines = 1,
-        )
-        HbIconButton(
-            HbIcons.Close,
-            stringResource(Res.string.service_ui_close_panel),
-            { onIntent(PlaceIntent.ClosePanel) },
-        )
+private fun PlaceContent(
+    state: PlaceState,
+    surfaces: ImmutableMap<String, SurfaceModel>,
+    onIntent: (PlaceIntent) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    HbColumn(modifier, gap = HbTheme.spacing.m) {
+        state.surfaces.forEach { surface ->
+            key(surface.key) { PlacedSurfaceView(surface, surfaces) }
+        }
+        if (state.launchers.isNotEmpty()) {
+            HbFlowRow(gap = HbTheme.spacing.s) {
+                state.launchers.forEach { launcher ->
+                    key(launcher.surface) {
+                        HbChip(
+                            label = launcher.title,
+                            onClick = { onIntent(PlaceIntent.Launch(launcher.surface)) },
+                            trailingIcon = null,
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
