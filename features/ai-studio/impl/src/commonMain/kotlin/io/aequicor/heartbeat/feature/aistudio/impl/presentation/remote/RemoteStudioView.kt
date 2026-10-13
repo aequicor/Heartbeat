@@ -54,7 +54,7 @@ internal class RemoteStudioView(
             // Collecting subscribes to the store, which also starts its subscription-bound observations.
             model.store.collect {
                 states.collect { state ->
-                    writer.write(state, state.remoteSeq).forEach { send(it) }
+                    writer.write(state.withRemoteToolOutput(), state.remoteSeq).forEach { send(it) }
                     delay(frameInterval)
                 }
             }
