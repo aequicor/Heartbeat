@@ -10,9 +10,9 @@ import kotlin.test.assertTrue
 class BridgePathsTest {
     @Test
     fun `short base keeps the socket in its run directory`() {
-        val base = Path.of("/tmp/hb")
+        val base = Path.of("/tmp/hb").toAbsolutePath().normalize()
 
-        assertEquals(Path.of("/tmp/hb/run/bridge.sock"), BridgePaths.socket(base))
+        assertEquals(base.resolve("run").resolve("bridge.sock"), BridgePaths.socket(base))
     }
 
     @Test
