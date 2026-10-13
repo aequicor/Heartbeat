@@ -7,6 +7,8 @@ import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.ChunkAsse
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.decodeFrame
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.encodeFrame
 import io.aequicor.heartbeat.feature.chromiumbridge.protocol.BridgeErrorCode
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
@@ -44,6 +46,58 @@ class BridgeConnectionTest {
     }
     private val hello = HelloHandler("1.2.3") { BridgeFeatureSet(isChat = true, isAgentControl = false) }
     private val connections = BridgeConnections(BridgeDispatcher(setOf(hello, echo, strict))) { it == origin }
+
+    @Test
+    fun `watch activation follows the response even with more than 64 immediate events`() = runTest {
+        val streaming = object : BridgeRequestHandler {
+            override val methods = setOf("stream")
+            override suspend fun handle(call: BridgeCall): BridgeReply {
+                val delivered = CompletableDeferred<Boolean>()
+                call.session.scope.launch {
+                    if (delivered.await()) {
+                        repeat(72) { index ->
+                            call.session.emit("studio.changed", buildJsonObject { put("index", index) })
+                        }
+                    }
+                }
+                return BridgeReply.Ok(JsonPrimitive("w:1")) { delivered.complete(it) }
+            }
+        }
+        val server = BridgeConnections(BridgeDispatcher(setOf(hello, streaming))) { it == origin }
+        backgroundScope.launch { server.serve(transport) }
+        transport.deliver(BridgeFrame.Host(origin = origin))
+        transport.deliver(helloRequest(listOf(1)))
+        transport.next<BridgeFrame.Response>()
+        transport.deliver(BridgeFrame.Request("stream:1", "stream"))
+        runCurrent()
+        assertEquals("stream:1", transport.next<BridgeFrame.Response>().id)
+        repeat(72) { index ->
+            assertEquals(index, transport.next<BridgeFrame.Event>().params.getValue("index").jsonPrimitive.int)
+        }
+        transport.close()
+    }
+
+    @Test
+    fun `response failure and cancellation notify the reserved producer`() = runTest {
+        val results = mutableListOf<Boolean>()
+        val watched = object : BridgeRequestHandler {
+            override val methods = setOf("watch")
+            override suspend fun handle(call: BridgeCall): BridgeReply =
+                BridgeReply.Ok(JsonPrimitive("w:1")) { results += it }
+        }
+        val server = BridgeConnections(BridgeDispatcher(setOf(hello, watched))) { it == origin }
+        backgroundScope.launch { server.serve(transport) }
+        transport.deliver(BridgeFrame.Host(origin = origin))
+        transport.deliver(helloRequest(listOf(1)))
+        transport.next<BridgeFrame.Response>()
+        for (failure in listOf(BridgeException("unavailable", "Lost"), CancellationException("Cancelled"))) {
+            transport.sendFailure = failure
+            transport.deliver(BridgeFrame.Request("w", "watch"))
+            runCurrent()
+        }
+        assertEquals(listOf(false, false), results)
+        transport.close()
+    }
 
     @Test
     fun `unknown origin is closed before any request`() = runTest {
@@ -244,10 +298,12 @@ private typealias BridgeFrameError = io.aequicor.heartbeat.feature.chromiumbridg
 internal class FakeTransport : FrameTransport {
     private val incoming = Channel<ByteArray?>(Channel.UNLIMITED)
     val sent = Channel<ByteArray>(Channel.UNLIMITED)
+    var sendFailure: Exception? = null
 
     override suspend fun receive(): ByteArray? = incoming.receive()
 
     override suspend fun send(payload: ByteArray) {
+        sendFailure?.let { throw it }
         sent.send(payload)
     }
 

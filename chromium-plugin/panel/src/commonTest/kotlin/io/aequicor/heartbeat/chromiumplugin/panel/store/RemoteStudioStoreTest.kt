@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioViewJson
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewEncoder
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewFrame
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewSchema
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewWriter
 import io.aequicor.heartbeat.feature.chromiumbridge.protocol.BridgeErrorCode
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -48,6 +49,10 @@ class RemoteStudioStoreTest {
             StudioViewFrame.serializer(),
             checkNotNull(app.frame(state, ack)),
         )
+        showPacket(frame.jsonObject)
+    }
+
+    private fun showPacket(frame: JsonObject) {
         val params = JsonObject(mapOf("watch" to JsonPrimitive("w"), "view" to JsonPrimitive(VIEW), "frame" to frame))
         host.deliver(
             JsonObject(
@@ -65,6 +70,29 @@ class RemoteStudioStoreTest {
 
     private fun reply(call: JsonObject, result: String) {
         host.deliver("""{"type":"reply","id":${call.getValue("id")},$result}""")
+    }
+
+    @Test
+    fun `oversized screens suspend delivery without retrying and recover on the same watch`() = runTest {
+        val writer = StudioViewWriter(maxBytes = 10_000)
+        store().subscribeAndTest {
+            runCurrent()
+            writer.write(AiStudioScreenState(), 0).forEach(::showPacket)
+            runCurrent()
+            writer.write(AiStudioScreenState().withDraft(0, "x".repeat(20_000)), 0).forEach(::showPacket)
+            runCurrent()
+            assertEquals(StudioViewStatus.TooLarge, states.value.status)
+            AiStudioScreenIntent.ToggleSearch resultsIn { runCurrent() }
+            advanceTimeBy(60.seconds)
+            assertEquals(1, posted("watch").size)
+            assertEquals(0, posted("call").size)
+
+            writer.write(AiStudioScreenState().withDraft(0, "small"), 0).forEach(::showPacket)
+            runCurrent()
+            assertEquals(StudioViewStatus.Live, states.value.status)
+            assertEquals("small", states.value.screen?.draft(0))
+            assertEquals(1, posted("call").size)
+        }
     }
 
     @Test

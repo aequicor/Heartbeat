@@ -56,6 +56,9 @@ class SidePanelStudioHandlersTest {
 
         val reply = call(session, "studio.watch", open()) as BridgeReply.Ok
         runCurrent()
+        assertEquals(emptyList(), session.emitted)
+        reply.afterSend?.invoke(true)
+        runCurrent()
 
         val watch = reply.result.jsonObject.getValue("watch").jsonPrimitive.content
         val (event, params) = session.emitted.single()
@@ -63,6 +66,25 @@ class SidePanelStudioHandlersTest {
         assertEquals(JsonPrimitive(watch), params["watch"])
         assertEquals(JsonPrimitive("v1"), params["view"])
         assertEquals(frame, params["frame"])
+    }
+
+    @Test
+    fun `a failed reply or cancellation before activation releases the reserved watch`() = runTest {
+        val session = FakeSession(this)
+        studio.frames = flowOf(buildJsonObject { put("snapshot", true) })
+        val failed = call(session, "studio.watch", open()) as BridgeReply.Ok
+        val failedId = failed.result.jsonObject.getValue("watch").jsonPrimitive.content
+        failed.afterSend?.invoke(false)
+        runCurrent()
+        assertEquals(false, watches.cancel(session, failedId))
+        assertEquals(emptyList(), session.emitted)
+
+        val cancelled = call(session, "studio.watch", open()) as BridgeReply.Ok
+        val cancelledId = cancelled.result.jsonObject.getValue("watch").jsonPrimitive.content
+        assertEquals(true, watches.cancel(session, cancelledId))
+        cancelled.afterSend?.invoke(true)
+        runCurrent()
+        assertEquals(emptyList(), session.emitted)
     }
 
     @Test

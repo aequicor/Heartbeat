@@ -168,10 +168,14 @@ internal class BridgeConnection(
             is BridgeReply.Ok -> BridgeFrame.Response(request.id, result = reply.result)
             is BridgeReply.Refused -> BridgeFrame.Response(request.id, error = BridgeError(reply.code, reply.message))
         }
+        var isDelivered = false
         try {
             send(response)
+            isDelivered = true
         } catch (e: BridgeException) {
             log.w(e) { "Bridge response lost method=${request.method}" }
+        } finally {
+            if (reply is BridgeReply.Ok) reply.afterSend?.invoke(isDelivered)
         }
     }
 

@@ -1,14 +1,12 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote
 
-import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteIntent
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteReply
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioViewJson
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewEncoder
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewFrame
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewWriter
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -21,7 +19,6 @@ import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.job
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonObject
 import pro.respawn.flowmvi.dsl.collect
 import kotlin.time.Duration
 import kotlin.uuid.Uuid
@@ -52,12 +49,12 @@ internal class RemoteStudioView(
     fun frames(onDetached: () -> Unit): Flow<JsonObject> = channelFlow {
         attached.getAndUpdate { currentCoroutineContext().job }?.cancel()
         log.i { "view ${id.take(SHORT_ID)} attached" }
-        val encoder = StudioViewEncoder(generation = generation)
+        val writer = StudioViewWriter(generation = generation)
         try {
             // Collecting subscribes to the store, which also starts its subscription-bound observations.
             model.store.collect {
                 states.collect { state ->
-                    encoder.frame(state, state.remoteSeq)?.let { send(encode(it)) }
+                    writer.write(state, state.remoteSeq).forEach { send(it) }
                     delay(frameInterval)
                 }
             }
@@ -102,10 +99,6 @@ internal class RemoteStudioView(
         log.w(e) { "intent ${remote.seq} is not a studio intent" }
         null
     }
-
-    @HighFrequency
-    private fun encode(frame: StudioViewFrame): JsonObject =
-        StudioViewJson.encodeToJsonElement(StudioViewFrame.serializer(), frame).jsonObject
 
     private companion object {
         const val SHORT_ID = 8

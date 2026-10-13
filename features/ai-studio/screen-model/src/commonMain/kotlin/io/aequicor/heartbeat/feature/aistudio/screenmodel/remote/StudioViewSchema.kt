@@ -15,6 +15,8 @@ object StudioViewSchema {
     val fingerprint: String by lazy {
         fingerprintOf(
             StudioViewFrame.serializer().descriptor,
+            StudioViewPacket.serializer().descriptor,
+            StudioViewLimit.serializer().descriptor,
             AiStudioScreenState.serializer().descriptor,
             AiStudioScreenIntent.serializer().descriptor,
         )

@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeReque
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeSession
 import io.aequicor.heartbeat.feature.chromiumbridge.protocol.BridgeErrorCode
 import io.aequicor.heartbeat.feature.chromiumbridge.protocol.WatchRef
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
@@ -53,14 +54,19 @@ internal class SidePanelStudioHandlers(private val studio: StudioRemoteScreens, 
     }
 
     private suspend fun relay(session: BridgeSession, view: String, frames: Flow<JsonObject>): BridgeReply {
+        // Large snapshots can exceed the early-event buffer before the caller knows its watch id. Reserve a
+        // running job now, but only collect after the response reaches the transport. Failed sends release it.
+        val delivered = CompletableDeferred<Boolean>()
         val watch = watches.open(session) { watch ->
-            frames.collect { frame -> emitFrame(session, watch, view, frame) }
+            if (delivered.await()) frames.collect { frame -> emitFrame(session, watch, view, frame) }
         }
         return if (watch == null) {
             BridgeReply.Refused(BridgeErrorCode.BUSY, "Too many watches")
         } else {
             log.i { "Studio view watched" }
-            BridgeReply.Ok(BridgeProtocol.json.encodeToJsonElement(WatchRef.serializer(), WatchRef(watch)))
+            BridgeReply.Ok(BridgeProtocol.json.encodeToJsonElement(WatchRef.serializer(), WatchRef(watch))) {
+                delivered.complete(it)
+            }
         }
     }
 

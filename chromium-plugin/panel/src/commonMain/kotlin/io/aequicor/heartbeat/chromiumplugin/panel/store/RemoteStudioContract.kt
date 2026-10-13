@@ -20,6 +20,9 @@ internal enum class StudioViewStatus {
 
     /** The app already serves its limit of views. */
     Busy,
+
+    /** The view exceeds the bounded receiver; awaiting a smaller snapshot on the same watch. */
+    TooLarge,
 }
 
 /** The studio drawn in the panel: [screen] stays visible while the view reconnects. */

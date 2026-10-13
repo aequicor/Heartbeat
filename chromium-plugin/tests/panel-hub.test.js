@@ -265,3 +265,26 @@ test('the studio view is watched, its early frames kept and its intents relayed'
     { type: 'reply', id: 7, result: { ack: 0, refused: [] } },
   ]);
 });
+
+
+test('a multipart studio snapshot overflowing a delayed watch is refused and a new watch can recover', async () => {
+  const { hub, link, port } = delayedHub();
+  const open = () => port.deliver({ type: 'watch', key: 'studio', method: 'studio.watch', params: { view: 'v1' } });
+  const part = (watch, index) => hub.onEvent('studio.changed', {
+    watch, view: 'v1', frame: { transfer: 'snapshot', index, count: 72, totalBytes: 18 * 1024 * 1024, data: 'YQ==' },
+  });
+  open();
+  for (let index = 0; index < 72; index++) part('w:1', index);
+  link.calls[0].resolve({ watch: 'w:1' });
+  await flush();
+  assert.equal(port.posted.some((it) => it.type === 'event'), false);
+  assert.equal(port.posted.at(-1).error.code, 'busy');
+  assert.deepEqual(link.calls.at(-1).params, { watch: 'w:1' });
+
+  open();
+  link.calls.at(-1).resolve({ watch: 'w:2' });
+  await flush();
+  for (let index = 0; index < 72; index++) part('w:2', index);
+  assert.deepEqual(port.posted.filter((it) => it.type === 'event').map((it) => it.params.frame.index),
+    Array.from({ length: 72 }, (_, index) => index));
+});

@@ -12,6 +12,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioSc
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioViewJson
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewFrame
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewGapException
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewLimitException
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewReader
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewSchema
 import io.aequicor.heartbeat.feature.chromiumbridge.protocol.BridgeErrorCode
 import kotlinx.coroutines.channels.Channel
@@ -25,7 +27,6 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import pro.respawn.flowmvi.api.Store
@@ -72,6 +73,7 @@ private class StudioViewLink(
     private val retryDelay: Duration,
 ) {
     private val sync = StudioViewSync()
+    private val reader = StudioViewReader()
 
     // Wakes the sender; conflated, since every wake-up sends all that is unsent.
     private val outbox = Channel<Unit>(Channel.CONFLATED)
@@ -98,6 +100,7 @@ private class StudioViewLink(
     suspend fun follow(update: suspend (StateChange) -> Unit) {
         while (true) {
             sync.restart()
+            reader.reset()
             val end = merge(link.watch(WATCH_KEY, STUDIO_WATCH, params), restarts.receiveAsFlow().map { null })
                 .mapNotNull { message ->
                     when (message) {
@@ -132,7 +135,21 @@ private class StudioViewLink(
     @HighFrequency
     private suspend fun receive(event: PanelInbound.Event, update: suspend (StateChange) -> Unit): WatchEnd? {
         if (event.event != STUDIO_CHANGED || (event.params["view"] as? JsonPrimitive)?.content != viewId) return null
-        val frame = decodeFrame(event.params["frame"]) ?: return WatchEnd.Again
+        val frame = try {
+            reader.read(requireNotNull(event.params["frame"] as? JsonObject))
+        } catch (e: StudioViewLimitException) {
+            log.w(e) { "studio view too large; awaiting a smaller snapshot" }
+            sync.restart()
+            update { copy(status = StudioViewStatus.TooLarge) }
+            return null
+        } catch (e: SerializationException) {
+            log.w(e) { "studio frame unreadable, watching again" }
+            return WatchEnd.Again
+        } catch (e: IllegalArgumentException) {
+            log.w(e) { "studio frame unreadable, watching again" }
+            return WatchEnd.Again
+        }
+        if (frame == null) return null
         try {
             sync.receive(frame)
         } catch (e: StudioViewGapException) {
@@ -143,17 +160,6 @@ private class StudioViewLink(
         update { copy(status = StudioViewStatus.Live, screen = screen, interruptedScreen = sync.interruptedScreen) }
         if (frame is StudioViewFrame.Snapshot) outbox.trySend(Unit)
         return null
-    }
-
-    @HighFrequency
-    private fun decodeFrame(json: JsonElement?): StudioViewFrame? = try {
-        StudioViewJson.decodeFromJsonElement(StudioViewFrame.serializer(), json ?: JsonNull)
-    } catch (e: SerializationException) {
-        log.w(e) { "studio frame unreadable, watching again" }
-        null
-    } catch (e: IllegalArgumentException) {
-        log.w(e) { "studio frame unreadable, watching again" }
-        null
     }
 
     /** Sends one batch of unsent intents; `false` when nothing is left or the send failed. */
