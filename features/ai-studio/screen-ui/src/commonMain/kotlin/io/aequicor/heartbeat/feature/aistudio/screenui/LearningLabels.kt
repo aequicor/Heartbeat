@@ -2,14 +2,14 @@ package io.aequicor.heartbeat.feature.aistudio.screenui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.LearningCallUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.LearningKindUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.learning_kind_general
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.learning_kind_model
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.learning_kind_skill
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.learning_tool_remember
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.learning_tool_skill
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.LearningCallUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.LearningKindUi
 import org.jetbrains.compose.resources.stringResource
 
 /** Localized copy of self-learning tool cards, prepared in composition. */

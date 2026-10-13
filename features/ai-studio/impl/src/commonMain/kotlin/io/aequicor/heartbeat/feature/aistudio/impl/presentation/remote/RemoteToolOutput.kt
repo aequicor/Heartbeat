@@ -1,9 +1,9 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote
 
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ReplyPartUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ToolUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ReplyPartUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ToolUi
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap

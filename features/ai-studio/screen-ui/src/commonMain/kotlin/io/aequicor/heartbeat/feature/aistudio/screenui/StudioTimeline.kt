@@ -16,11 +16,11 @@ import io.aequicor.heartbeat.ds.components.HbToolBlock
 import io.aequicor.heartbeat.ds.components.HbToolCall
 import io.aequicor.heartbeat.ds.components.HbToolKind
 import io.aequicor.heartbeat.ds.components.HbToolStatus
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.FailureUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ReplyPartUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ToolStatusUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ToolUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.FailureUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ReplyPartUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ToolStatusUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ToolUi
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf

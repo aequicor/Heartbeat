@@ -1,6 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.screenmodel.remote
 
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement

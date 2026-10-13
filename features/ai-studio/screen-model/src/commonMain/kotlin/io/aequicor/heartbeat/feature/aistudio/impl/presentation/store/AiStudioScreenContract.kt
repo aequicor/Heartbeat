@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.DiagramSubmissionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableListSerializer
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableMapSerializer
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableSetSerializer
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeTranscriptUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismActionUi

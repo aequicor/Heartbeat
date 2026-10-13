@@ -2,10 +2,6 @@ package io.aequicor.heartbeat.feature.aistudio.screenmodel
 
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.FeedCollapseUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ReplyPartUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ToolStatusUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ToolUi
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlin.concurrent.Volatile

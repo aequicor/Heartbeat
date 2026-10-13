@@ -35,7 +35,6 @@ import io.aequicor.heartbeat.feature.aistudio.impl.data.studioSeed
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PermissionOptionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PermissionUi
@@ -43,8 +42,6 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionWai
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarMode
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioModelOptions
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioPhase
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ToolStatusUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ToolUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.toUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.withWorkspace
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
@@ -54,6 +51,9 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_running
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_sleeping
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_waiting_event
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.stopping
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ToolStatusUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ToolUi
 import io.aequicor.heartbeat.feature.aistudio.screenui.AiStudioContent
 import io.aequicor.heartbeat.feature.aistudio.screenui.StudioEmbed
 import io.aequicor.heartbeat.feature.aistudio.screenui.StudioExits
