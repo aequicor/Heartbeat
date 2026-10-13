@@ -121,6 +121,16 @@ class RemoteStudioViewsTest {
         assertTrue(harness.scopes.single().isClosed)
     }
 
+    @Test
+    fun `a view opened but never collected closes after the grace period`() = runTest {
+        val harness = Harness(this)
+        assertIs<StudioRemoteOpen.Opened>(harness.open("view"))
+
+        advanceTimeBy(31.seconds)
+
+        assertEquals(StudioRemoteReply.UnknownView, harness.views.send("view", emptyList()))
+    }
+
     private class FakeScope(override val coroutineScope: CoroutineScope, override val name: String) : OwnedScope {
         override var isClosed = false
         override val savedState = object : ScopeSavedState {

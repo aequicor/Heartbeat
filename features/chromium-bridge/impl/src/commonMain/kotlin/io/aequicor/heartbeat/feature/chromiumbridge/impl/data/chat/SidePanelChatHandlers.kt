@@ -46,17 +46,18 @@ import kotlinx.serialization.json.jsonObject
  */
 @ContributesIntoSet(ProfileScope::class, binding = binding<BridgeRequestHandler>())
 @Inject
-internal class SidePanelChatHandlers(private val chats: StudioChats, private val pages: PageImporter) :
-    BridgeRequestHandler {
+internal class SidePanelChatHandlers(
+    private val chats: StudioChats,
+    private val pages: PageImporter,
+    private val watches: BridgeWatches,
+) : BridgeRequestHandler {
     private val log = Log.tag("SidePanelChat")
-    private val watches = BridgeWatches()
 
-    override val methods: Set<String> = setOf(CHATS_WATCH, CHAT_WATCH, WATCH_CANCEL, CHAT_SEND, CHAT_STOP, RESPOND)
+    override val methods: Set<String> = setOf(CHATS_WATCH, CHAT_WATCH, CHAT_SEND, CHAT_STOP, RESPOND)
 
     override suspend fun handle(call: BridgeCall): BridgeReply = when (call.method) {
         CHATS_WATCH -> watchList(call.session)
         CHAT_WATCH -> watchChat(call.session, decode(call, ChatRef.serializer()).chatId.checkedId())
-        WATCH_CANCEL -> cancel(call.session, decode(call, WatchRef.serializer()).watch)
         CHAT_SEND -> send(decode(call, ChatSendParams.serializer()))
         CHAT_STOP -> stop(decode(call, ChatRef.serializer()).chatId.checkedId())
         RESPOND -> respond(decode(call, PermissionAnswerParams.serializer()))
@@ -107,11 +108,6 @@ internal class SidePanelChatHandlers(private val chats: StudioChats, private val
         BridgeReply.Refused(BridgeErrorCode.BUSY, "Too many watches")
     } else {
         BridgeReply.Ok(encode(WatchRef.serializer(), WatchRef(watch)))
-    }
-
-    private suspend fun cancel(session: BridgeSession, watch: String): BridgeReply {
-        watches.cancel(session, watch)
-        return BridgeReply.Ok(JsonObject(emptyMap()))
     }
 
     private suspend fun send(params: ChatSendParams): BridgeReply {
@@ -176,7 +172,6 @@ internal class SidePanelChatHandlers(private val chats: StudioChats, private val
     private companion object {
         const val CHATS_WATCH = "chats.watch"
         const val CHAT_WATCH = "chat.watch"
-        const val WATCH_CANCEL = "watch.cancel"
         const val CHAT_SEND = "chat.send"
         const val CHAT_STOP = "chat.stop"
         const val RESPOND = "permission.respond"

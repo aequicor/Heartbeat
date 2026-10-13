@@ -1,5 +1,8 @@
 package io.aequicor.heartbeat.feature.chromiumbridge.impl.data.chat
 
+import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.SingleIn
+import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeException
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeSession
@@ -14,8 +17,10 @@ import kotlinx.coroutines.withContext
 
 /**
  * Subscriptions extensions hold on a connection. A watch runs in the connection's scope, so it ends with the
- * connection; at most [HelloHandler.MAX_WATCHES] run per connection.
+ * connection; at most [HelloHandler.MAX_WATCHES] run per connection, whatever handler opened them.
  */
+@SingleIn(ProfileScope::class)
+@Inject
 internal class BridgeWatches {
     private val log = Log.tag("BridgeWatches")
     private val lock = Mutex()

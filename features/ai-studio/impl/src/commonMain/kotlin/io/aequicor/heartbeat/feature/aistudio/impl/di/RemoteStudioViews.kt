@@ -75,6 +75,8 @@ internal class RemoteStudioViews(
         }
         graces.remove(viewId)?.cancel()
         val view = views.getOrPut(viewId) { create(viewId) }
+        // A host that never collects the frames must not keep the view: it waits like a detached one.
+        detached(view)
         StudioRemoteOpen.Opened(view.frames(onDetached = { detached(view) }))
     }
 

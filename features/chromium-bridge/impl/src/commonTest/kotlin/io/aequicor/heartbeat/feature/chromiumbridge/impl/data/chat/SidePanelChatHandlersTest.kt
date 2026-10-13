@@ -54,10 +54,16 @@ class SidePanelChatHandlersTest {
     private val chats = FakeChats()
     private val imported = mutableListOf<List<WirePage>>()
     private var importResult: PageImport = PageImport.Imported(listOf(ResourceRef("attachment:1", "text/markdown")))
-    private val handlers = SidePanelChatHandlers(chats) { pages ->
-        imported += pages
-        importResult
-    }
+    private val bridgeWatches = BridgeWatches()
+    private val cancels = WatchCancelHandler(bridgeWatches)
+    private val handlers = SidePanelChatHandlers(
+        chats,
+        pages = PageImporter { pages ->
+            imported += pages
+            importResult
+        },
+        watches = bridgeWatches,
+    )
     private val at = Instant.fromEpochSeconds(1_700_000_000)
 
     @Test
@@ -231,7 +237,7 @@ class SidePanelChatHandlersTest {
     }
 
     private suspend fun call(session: BridgeSession, method: String, params: JsonObject = JsonObject(emptyMap())) =
-        handlers.handle(BridgeCall(method, params, session))
+        (if (method in cancels.methods) cancels else handlers).handle(BridgeCall(method, params, session))
 
     private fun list(title: String) = StudioChatList(
         projects = listOf(StudioChatProject("p1", "Heartbeat")),

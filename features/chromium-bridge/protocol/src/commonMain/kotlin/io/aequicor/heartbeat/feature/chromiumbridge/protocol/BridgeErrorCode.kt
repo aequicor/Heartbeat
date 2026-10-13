@@ -12,6 +12,7 @@ public object BridgeErrorCode {
     public const val UNAVAILABLE: String = "unavailable"
     public const val BUSY: String = "busy"
     public const val UNKNOWN_CHAT: String = "unknown_chat"
+    public const val UNKNOWN_VIEW: String = "unknown_view"
     public const val NOT_CONTINUABLE: String = "not_continuable"
     public const val NO_MODEL: String = "no_model"
     public const val STALE_REQUEST: String = "stale_request"
