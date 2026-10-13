@@ -5,7 +5,7 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 
 /** The sub-session an organism chat shows until another is chosen: its zygote (`CellId.ZYGOTE`). */
-internal const val PRIMARY_SUB_SESSION: String = "zygote"
+const val PRIMARY_SUB_SESSION: String = "zygote"
 
 /** An organism chat: the organism's state, every session that grew from it and the decisions it awaits. */
 @Immutable
@@ -79,7 +79,8 @@ data class OrganismPermissionUi(
 /** What a pane does with an organism. */
 enum class OrganismActionUi { Abort, Resume }
 
-internal fun OrganismUi.activeDescendants(): Int = if (
+/** Cells and judges of the organism still at work; none once it ended. */
+fun OrganismUi.activeDescendants(): Int = if (
     status == OrganismStatusUi.Aborted || status == OrganismStatusUi.Completed
 ) {
     0

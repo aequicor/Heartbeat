@@ -36,17 +36,20 @@ internal fun FeedbackRecord.toUi(): FeedbackUi {
         (model.before.engine != model.requested.engine || model.before.binding != model.requested.binding)
     return value.copy(failure = if (isConnectionChanged) FeedbackFailureUi.ConnectionChange else failed.failure.toUi())
 }
+
 private fun FeedbackOutcome.toUi(): FeedbackOutcomeUi = when (this) {
     FeedbackOutcome.Pending -> FeedbackOutcomeUi.Pending
     is FeedbackOutcome.Applied -> FeedbackOutcomeUi.Applied
     is FeedbackOutcome.Failed -> FeedbackOutcomeUi.Failed
     FeedbackOutcome.Unknown -> FeedbackOutcomeUi.Unknown
 }
+
 private fun TrustLevel.toUi(): ApprovalUi = when (this) {
     TrustLevel.Ask -> ApprovalUi.Ask
     TrustLevel.AutoEdits -> ApprovalUi.AutoEdits
     TrustLevel.Full -> ApprovalUi.AutoApprove
 }
+
 private fun EngineFailure.toUi(): FeedbackFailureUi = when (this) {
     is EngineFailure.Engine -> if (reason == EngineFailureReason.UnsupportedCapability) {
         FeedbackFailureUi.Unsupported

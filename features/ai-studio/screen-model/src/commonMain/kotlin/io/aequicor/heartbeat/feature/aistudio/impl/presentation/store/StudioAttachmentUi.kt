@@ -26,7 +26,9 @@ data class AttachmentPreviewUi(
 /** Multiple visible rows may share one stable attachment; only the last disposal releases its preview. */
 @Immutable
 data class PreviewVisibilityUi(val mediaType: String, val consumers: Int)
-internal fun AiStudioScreenState.withPreviewVisibility(
+
+/** Counts how many views show an attachment preview, so previews load only while visible. */
+fun AiStudioScreenState.withPreviewVisibility(
     event: AiStudioScreenIntent.AttachmentPreviewVisible,
 ): AiStudioScreenState {
     val count = (visibleAttachmentPreviews[event.id]?.consumers ?: 0) + if (event.isVisible) 1 else -1
@@ -87,11 +89,13 @@ data class SubmissionUi(
 )
 
 /** Creation binds a pending draft to its native session even when the pane later changes. */
-internal fun AiStudioScreenState.prepareSubmission(id: String, sessionId: String): AiStudioScreenState {
+fun AiStudioScreenState.prepareSubmission(id: String, sessionId: String): AiStudioScreenState {
     val submitted = submissions[id] ?: return this
     return copy(submissions = (submissions + (id to submitted.copy(sessionId = sessionId))).toImmutableMap())
 }
-internal fun AiStudioScreenState.pendingSubmission(paneId: Int, id: String): SubmissionUi {
+
+/** The submission pane [paneId] would send now, with its draft and attachments under [id]. */
+fun AiStudioScreenState.pendingSubmission(paneId: Int, id: String): SubmissionUi {
     val key = draftKey(paneId)
     val pane = panes.firstOrNull { it.id == paneId }
     val sessionId = pane?.sessionId
@@ -111,7 +115,7 @@ internal fun AiStudioScreenState.pendingSubmission(paneId: Int, id: String): Sub
 }
 
 /** Moves only the owning new-page draft to a request key before the async machine operation starts. */
-internal fun AiStudioScreenState.queueSubmission(id: String, pending: SubmissionUi): AiStudioScreenState {
+fun AiStudioScreenState.queueSubmission(id: String, pending: SubmissionUi): AiStudioScreenState {
     val currentKey = draftKey(pending.paneId)
     return copy(
         submissions = (submissions + (id to pending)).toImmutableMap(),
@@ -125,7 +129,7 @@ internal fun AiStudioScreenState.queueSubmission(id: String, pending: Submission
 }
 
 /** Clear exactly the accepted snapshot; editing during native validation preserves the newer draft. */
-internal fun AiStudioScreenState.acceptSubmission(id: String, sessionId: String = ""): AiStudioScreenState {
+fun AiStudioScreenState.acceptSubmission(id: String, sessionId: String = ""): AiStudioScreenState {
     val submitted = submissions[id] ?: return this
     val text = if (drafts[submitted.draftKey] == submitted.text) drafts - submitted.draftKey else drafts
     val files = draftAttachments[submitted.draftKey].orEmpty()
@@ -157,7 +161,7 @@ internal fun AiStudioScreenState.acceptSubmission(id: String, sessionId: String 
  * Rejection never rewrites the current text or files. A new chat's draft returns to its pane together with the
  * harness choice that left with it, added to anything chosen there since.
  */
-internal fun AiStudioScreenState.rejectSubmission(id: String, sessionId: String = ""): AiStudioScreenState {
+fun AiStudioScreenState.rejectSubmission(id: String, sessionId: String = ""): AiStudioScreenState {
     val submitted = submissions[id] ?: return this
     val nextKey = sessionId.ifBlank { submitted.sessionId.orEmpty() }.ifBlank {
         if (submitted.isDisplayed && submitted.draftKey.startsWith("submission:")) {
@@ -195,12 +199,15 @@ internal fun AiStudioScreenState.rejectSubmission(id: String, sessionId: String 
         ).toImmutableSet(),
     )
 }
-internal fun AiStudioScreenState.attachmentSupport(paneId: Int): InputSupportUi? {
+
+/** What the model of pane [paneId] accepts as attachments, or `null` when unknown. */
+fun AiStudioScreenState.attachmentSupport(paneId: Int): InputSupportUi? {
     val sessionId = panes.firstOrNull { it.id == paneId }?.sessionId
     val modelId = organisms[sessionId]?.modelId ?: configurations[sessionId]?.modelId
         ?: session(sessionId)?.modelId ?: settings.modelId
     return models.firstOrNull { it.id == modelId }?.inputSupport
 }
+
 private const val DEFAULT_FILE_BYTES = 10L * 1024 * 1024
 private const val DEFAULT_FILE_COUNT = 10
 private const val DEFAULT_TOTAL_BYTES = 25L * 1024 * 1024

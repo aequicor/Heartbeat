@@ -15,7 +15,7 @@ import kotlin.concurrent.Volatile
  * change is returned as is. Unchanged entries keep their identity and equality checks downstream stay shallow.
  */
 @HighFrequency
-internal fun ImmutableList<MessageUi>.collapsed(collapse: FeedCollapseUi): ImmutableList<MessageUi> {
+fun ImmutableList<MessageUi>.collapsed(collapse: FeedCollapseUi): ImmutableList<MessageUi> {
     if (!collapse.isReasoningCollapsed && !collapse.isToolCallsCollapsed) return this
     var isChanged = false
     val shown = map { message ->
@@ -29,10 +29,11 @@ internal fun ImmutableList<MessageUi>.collapsed(collapse: FeedCollapseUi): Immut
  * One-entry memo of a reply's collapsed presentation, owned by that reply instance: the same instance asked with the
  * same settings returns the same result. It never takes part in equality of the reply.
  */
-internal class CollapseMemo {
+class CollapseMemo {
     @Volatile
     private var entry: Pair<FeedCollapseUi, MessageUi.Reply>? = null
 
+    /** The reply collapsed for [collapse], computed once per setting. */
     @HighFrequency
     fun of(collapse: FeedCollapseUi, compute: () -> MessageUi.Reply): MessageUi.Reply {
         entry?.let { (key, value) -> if (key == collapse) return value }

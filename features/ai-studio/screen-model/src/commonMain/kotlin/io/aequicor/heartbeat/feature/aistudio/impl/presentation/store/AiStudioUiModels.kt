@@ -148,7 +148,7 @@ sealed interface MessageUi {
         val checklistIds: ImmutableList<String> = persistentListOf(),
     ) : MessageUi {
         /** How this instance looks in a collapsed feed, computed once per settings; not part of equality. */
-        internal val collapseMemo: CollapseMemo = CollapseMemo()
+        val collapseMemo: CollapseMemo = CollapseMemo()
     }
 
     /** The user stopped the run after [elapsed]. */
@@ -167,7 +167,7 @@ sealed interface MessageUi {
 }
 
 /** Preferences of a fresh workspace; equals the domain `DefaultRunSettings`. */
-internal val DefaultSettingsUi: SettingsUi = SettingsUi("pulse-pro", EffortUi.High, ApprovalUi.Ask)
+val DefaultSettingsUi: SettingsUi = SettingsUi("pulse-pro", EffortUi.High, ApprovalUi.Ask)
 
 /**
  * Harnesses of the composer picker: enabled [options], committed connections by chat id and choices kept on the panes

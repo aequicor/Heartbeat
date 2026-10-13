@@ -1,10 +1,10 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 /** The `/remember` command of the composer; equals the domain `REMEMBER_COMMAND`. */
-internal const val COMPOSER_REMEMBER_COMMAND: String = "/remember"
+const val COMPOSER_REMEMBER_COMMAND: String = "/remember"
 
 /** [draft] starting with the `/remember` command once, keeping the text the user already typed. */
-internal fun withRememberCommand(draft: String): String {
+fun withRememberCommand(draft: String): String {
     val typed = draft.trimStart()
     val rest = typed.removePrefix(COMPOSER_REMEMBER_COMMAND)
     // `/rememberance` is text, not the command: only a separate command word is removed.

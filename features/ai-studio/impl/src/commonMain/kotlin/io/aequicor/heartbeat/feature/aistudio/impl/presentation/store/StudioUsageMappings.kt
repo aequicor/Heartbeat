@@ -10,6 +10,7 @@ internal fun ContextUsage.toUi(): ContextUsageUi = ContextUsageUi(
     capacityTokens,
     (usedTokens.toDouble() / capacityTokens * PERCENT_MAX).coerceIn(0.0, PERCENT_MAX).roundToInt(),
 )
+
 internal fun ProviderUsageSnapshot.toUi(): ProviderUsageUi = ProviderUsageUi(
     windows.mapNotNull { window ->
         val percent = window.usedPercent?.takeIf { it.isFinite() && it >= 0 } ?: return@mapNotNull null

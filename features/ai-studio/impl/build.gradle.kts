@@ -8,6 +8,7 @@ plugins {
 kotlin {
     sourceSets {
         commonMain.dependencies {
+            implementation(projects.features.aiStudio.screenModel)
             implementation(projects.features.searchEngine.api)
             implementation(projects.features.aiStudio.api)
             implementation(projects.features.scheduler.api)

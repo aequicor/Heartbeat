@@ -182,6 +182,7 @@ internal class StudioNativeSessions(
         }
     }
 }
+
 internal fun nativeKey(ref: SessionRef): String = "native:" + Json.encodeToString(SessionRef.serializer(), ref)
 internal fun SessionTreeSnapshot.toUi(rootName: String? = null): SessionTreeUi = SessionTreeUi(
     sessions = (
@@ -207,6 +208,7 @@ internal fun SessionTreeSnapshot.toUi(rootName: String? = null): SessionTreeUi =
     activeCount = activeCount,
     isActivityKnown = isActivityKnown,
 )
+
 private fun SessionActivity.toUi(): SubSessionStateUi = when (this) {
     SessionActivity.Queued -> SubSessionStateUi.Queued
     SessionActivity.Running -> SubSessionStateUi.Working

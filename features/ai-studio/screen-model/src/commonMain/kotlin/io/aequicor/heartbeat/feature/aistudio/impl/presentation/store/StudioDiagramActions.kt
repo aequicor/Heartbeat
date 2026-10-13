@@ -11,7 +11,9 @@ data class DiagramSubmissionUi(val sessionId: String, val text: String) {
 
 /** Why an attempted diagram send was appended to the draft instead of being delivered. */
 enum class DiagramDraftReasonUi { Busy, Rejected }
-internal fun AiStudioScreenState.canUseDiagramActions(sessionId: String): Boolean =
+
+/** Whether diagram actions may insert into or send to chat [sessionId] now. */
+fun AiStudioScreenState.canUseDiagramActions(sessionId: String): Boolean =
     sessions.any { it.id == sessionId && it.isContinuable } &&
         panes.any { it.sessionId == sessionId } && selectedNative(sessionId) == PRIMARY_SUB_SESSION &&
         (
@@ -20,15 +22,14 @@ internal fun AiStudioScreenState.canUseDiagramActions(sessionId: String): Boolea
         )
 
 /** Null reason means native acceptance; a rejection appends once without overwriting subsequently typed text. */
-internal fun AiStudioScreenState.finishDiagramSubmission(
-    id: String,
-    reason: DiagramDraftReasonUi?,
-): AiStudioScreenState {
+fun AiStudioScreenState.finishDiagramSubmission(id: String, reason: DiagramDraftReasonUi?): AiStudioScreenState {
     val pending = diagramSubmissions[id] ?: return this
     val next = copy(diagramSubmissions = (diagramSubmissions - id).toImmutableMap())
     return if (reason == null) next else next.appendDiagramDraft(pending, reason)
 }
-internal fun AiStudioScreenState.appendDiagramDraft(
+
+/** Appends a diagram that could not be sent to the chat's draft, focusing its pane; [reason] says why. */
+fun AiStudioScreenState.appendDiagramDraft(
     pending: DiagramSubmissionUi,
     reason: DiagramDraftReasonUi?,
 ): AiStudioScreenState {

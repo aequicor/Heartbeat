@@ -8,7 +8,7 @@ import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toImmutableSet
 
 /** An empty draft is forgotten; editing clears a previous send failure. */
-internal fun AiStudioScreenState.withDraft(paneId: Int, text: String): AiStudioScreenState = copy(
+fun AiStudioScreenState.withDraft(paneId: Int, text: String): AiStudioScreenState = copy(
     diagramDraftReasons = (diagramDraftReasons - draftKey(paneId)).toImmutableMap(),
     drafts = draftKey(paneId).let { key -> if (text.isEmpty()) drafts - key else drafts + (key to text) }
         .toImmutableMap(),
@@ -16,7 +16,7 @@ internal fun AiStudioScreenState.withDraft(paneId: Int, text: String): AiStudioS
 )
 
 /** Local follow-up of an accepted navigation: the drawer closes, closed panes forget their drafts. */
-internal fun AiStudioScreenState.afterNavigation(
+fun AiStudioScreenState.afterNavigation(
     intent: AiStudioScreenIntent.Navigation,
     replacedPanes: Set<Int> = when (intent) {
         is AiStudioScreenIntent.NewSession, is AiStudioScreenIntent.OpenSession -> setOf(focusedPaneId)
@@ -47,11 +47,15 @@ internal fun AiStudioScreenState.afterNavigation(
     is AiStudioScreenIntent.AddProject,
     -> this
 }
-internal fun AiStudioScreenState.startRename(sessionId: String, origin: String): AiStudioScreenState {
+
+/** Starts renaming [sessionId] in the sidebar; [origin] tells where the rename was started. */
+fun AiStudioScreenState.startRename(sessionId: String, origin: String): AiStudioScreenState {
     val title = session(sessionId)?.title ?: return this
     return copy(sidebar = sidebar.copy(renaming = RenameUi(sessionId, title, origin)))
 }
-internal fun SidebarUi.reduce(intent: AiStudioScreenIntent.Sidebar): SidebarUi = when (intent) {
+
+/** The sidebar after one of its own intents (mode, search, rename). */
+fun SidebarUi.reduce(intent: AiStudioScreenIntent.Sidebar): SidebarUi = when (intent) {
     is AiStudioScreenIntent.ShowSidebarMode -> copy(mode = intent.mode, isVisible = true, renaming = null)
 
     AiStudioScreenIntent.ToggleSearch -> copy(isSearchVisible = !isSearchVisible, query = "", isVisible = true)
@@ -96,7 +100,7 @@ data class SidebarContent(
 )
 
 /** Groups the sessions of [state] for the sidebar. */
-internal fun sidebarContent(state: AiStudioScreenState): SidebarContent = sidebarContent(
+fun sidebarContent(state: AiStudioScreenState): SidebarContent = sidebarContent(
     state.projects,
     state.sessions,
     state.running,

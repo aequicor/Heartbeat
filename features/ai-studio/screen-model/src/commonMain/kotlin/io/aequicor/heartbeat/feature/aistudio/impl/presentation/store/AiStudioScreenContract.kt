@@ -159,7 +159,8 @@ data class AiStudioScreenState(
     /** Composer text of [paneId]: a draft follows the session shown in the pane; a new-session page keeps its own. */
     fun draft(paneId: Int): String = drafts[draftKey(paneId)].orEmpty()
 
-    internal fun draftKey(paneId: Int): String {
+    /** Key of the draft pane [paneId] edits: its displayed submission, its chat or the pane itself. */
+    fun draftKey(paneId: Int): String {
         val sessionId = panes.firstOrNull { it.id == paneId }?.sessionId
         return submissions.values.firstOrNull {
             it.paneId == paneId && it.isDisplayed

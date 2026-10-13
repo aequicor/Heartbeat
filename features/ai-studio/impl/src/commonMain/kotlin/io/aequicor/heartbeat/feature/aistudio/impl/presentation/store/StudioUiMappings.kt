@@ -32,6 +32,7 @@ internal fun StudioSessionConfiguration.toUi(): SessionConfigurationUi = Session
 val StudioModelOptions: ImmutableList<ModelUi> = StudioModels.map {
     it.toUi()
 }.toImmutableList()
+
 internal fun StudioModel.toUi(): ModelUi = ModelUi(
     id,
     name,
@@ -45,38 +46,45 @@ internal fun StudioModel.toUi(): ModelUi = ModelUi(
     inputSupport.toUi(),
     isScripted = StudioModels.any { it.id == id },
 )
+
 internal fun StudioPane.toUi(): PaneUi = PaneUi(id, sessionId, projectId, isCreating, isWorktree, isOrganism)
 internal fun StudioEnvironment.toUi(): EnvironmentUi = when (this) {
     StudioEnvironment.Local -> EnvironmentUi.Local
     StudioEnvironment.Cloud -> EnvironmentUi.Cloud
 }
+
 internal fun RunSettings.toUi(): SettingsUi = SettingsUi(
     modelId,
     effort.toUi(),
     approval.toUi(),
 )
+
 internal fun ReasoningEffort.toUi(): EffortUi = when (this) {
     ReasoningEffort.Low -> EffortUi.Low
     ReasoningEffort.Medium -> EffortUi.Medium
     ReasoningEffort.High -> EffortUi.High
     ReasoningEffort.VeryHigh -> EffortUi.VeryHigh
 }
+
 internal fun EffortUi.toDomain(): ReasoningEffort = when (this) {
     EffortUi.Low -> ReasoningEffort.Low
     EffortUi.Medium -> ReasoningEffort.Medium
     EffortUi.High -> ReasoningEffort.High
     EffortUi.VeryHigh -> ReasoningEffort.VeryHigh
 }
+
 internal fun ApprovalMode.toUi(): ApprovalUi = when (this) {
     ApprovalMode.Ask -> ApprovalUi.Ask
     ApprovalMode.AutoEdits -> ApprovalUi.AutoEdits
     ApprovalMode.AutoApprove -> ApprovalUi.AutoApprove
 }
+
 internal fun ApprovalUi.toDomain(): ApprovalMode = when (this) {
     ApprovalUi.Ask -> ApprovalMode.Ask
     ApprovalUi.AutoEdits -> ApprovalMode.AutoEdits
     ApprovalUi.AutoApprove -> ApprovalMode.AutoApprove
 }
+
 internal fun StudioMessage.toUi(): MessageUi = when (this) {
     is StudioMessage.Prompt -> MessageUi.Prompt(
         id,
@@ -111,6 +119,7 @@ internal fun StudioMessage.toUi(): MessageUi = when (this) {
 
     is StudioMessage.ContextNotice -> MessageUi.ContextNotice(id, createdAt, kind == ContextNoticeKind.RolledOver)
 }
+
 private fun StudioToolRun.toUi(): ToolUi = ToolUi(
     id = id,
     title = title,
@@ -138,6 +147,7 @@ private fun StudioToolRun.toUi(): ToolUi = ToolUi(
         )
     },
 )
+
 internal fun StudioHarness.toUi(): HarnessOptionUi = HarnessOptionUi(
     id,
     title,

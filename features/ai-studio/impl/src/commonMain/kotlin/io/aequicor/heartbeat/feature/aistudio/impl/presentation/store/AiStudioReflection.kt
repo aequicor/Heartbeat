@@ -81,6 +81,7 @@ internal fun AiStudioScreenState.restoreDraft(
         failedPanes = (failedPanes + output.paneId).toImmutableSet(),
     )
 }
+
 internal fun StudioProject.toUi(): ProjectUi = ProjectUi(id, name, environment.toUi(), branch)
 internal fun StudioSession.toUi(): SessionUi = SessionUi(
     id, title, projectId, updatedAt, isPinned, isUnread, isArchived, branch,

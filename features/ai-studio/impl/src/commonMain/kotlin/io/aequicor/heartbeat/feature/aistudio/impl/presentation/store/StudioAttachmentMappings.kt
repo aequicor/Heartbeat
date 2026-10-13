@@ -13,6 +13,7 @@ internal fun PromptInputSupport.toUi() = InputSupportUi(
     maxAttachments,
     maxTotalBytes,
 )
+
 internal fun InputSupportUi.toDomain() = PromptInputSupport(
     imageMediaTypes.toSet(),
     (mediaTypes - imageMediaTypes.toSet()).toSet(),
@@ -20,4 +21,5 @@ internal fun InputSupportUi.toDomain() = PromptInputSupport(
     maxAttachments,
     maxTotalBytes,
 )
+
 internal fun AttachmentDescriptor.toUi() = AttachmentUi(id.value, name, mediaType, sizeBytes)

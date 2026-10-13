@@ -5,14 +5,16 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
  * ancestry become roots, so filtered, archived or malformed metadata never makes a conversation unreachable.
  * The caller supplies sibling order; descendants inherit their root's visible sidebar section.
  */
-internal class SidebarSessionTree(sessions: List<SessionUi>) {
+class SidebarSessionTree(sessions: List<SessionUi>) {
     private val indexed = sessions.distinctBy { it.id }.associateBy { it.id }
     private val parents = indexed.values.associate { it.id to parentOf(it) }
     private val children = indexed.values.groupBy { parents[it.id] }
     val roots: List<SessionUi> = children[null].orEmpty()
 
+    /** Every session in sidebar order, children under their parents. */
     fun all(): List<SessionUi> = rows(roots)
 
+    /** [roots] and their descendants in sidebar order. */
     fun rows(roots: List<SessionUi>): List<SessionUi> = buildList {
         val pending = ArrayDeque<Pair<SessionUi, Int>>()
         roots.asReversed().forEach { pending.addLast(it to 0) }

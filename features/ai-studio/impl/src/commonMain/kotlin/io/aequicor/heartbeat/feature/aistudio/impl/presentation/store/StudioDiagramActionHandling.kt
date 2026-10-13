@@ -28,6 +28,7 @@ internal suspend fun handleStudioDiagramAction(
         sendDiagramMessage(pipeline, machine, pending)
     }
 }
+
 private suspend fun sendDiagramMessage(
     pipeline: PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>,
     machine: Machine<AiStudioState, AiStudioIntent, AiStudioOutput>,
