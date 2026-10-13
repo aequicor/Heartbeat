@@ -26,10 +26,10 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.shortcut_command
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.shortcut_control
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import org.jetbrains.compose.resources.stringResource
 
 private val shortcutLog = Log.tag("Studio/Shortcuts")

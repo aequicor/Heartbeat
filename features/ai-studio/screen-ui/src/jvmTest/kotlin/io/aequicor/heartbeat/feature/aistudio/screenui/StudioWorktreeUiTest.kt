@@ -37,7 +37,6 @@ import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.test.withKeyDown
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_failure_checkout_dirty
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_failure_unknown
@@ -45,6 +44,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_merge_targ
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_preparing
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_result
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_this_computer
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.BuildPhaseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.BuildUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.EnvironmentUi

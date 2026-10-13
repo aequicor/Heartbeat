@@ -21,7 +21,7 @@ import androidx.compose.ui.test.withKeyDown
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.InputSupportUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi

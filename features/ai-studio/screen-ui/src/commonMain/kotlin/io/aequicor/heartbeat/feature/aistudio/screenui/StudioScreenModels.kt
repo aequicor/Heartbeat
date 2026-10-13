@@ -1,7 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.screenui
 
 import androidx.compose.runtime.Immutable
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentPreviewUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ComposerCaretRequestUi

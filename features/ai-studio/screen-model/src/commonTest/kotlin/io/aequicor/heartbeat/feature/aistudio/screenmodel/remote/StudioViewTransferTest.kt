@@ -1,6 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.screenmodel.remote
 
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
 import kotlin.test.Test
 import kotlin.test.assertEquals

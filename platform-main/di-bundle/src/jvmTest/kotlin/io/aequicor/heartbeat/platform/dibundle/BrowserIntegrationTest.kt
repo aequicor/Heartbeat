@@ -8,6 +8,7 @@ import dev.zacsweers.metro.createGraphFactory
 import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.feature.aistudio.impl.di.AiStudioGraph
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost
 import io.aequicor.heartbeat.feature.browser.api.BrowserEnabled
 import io.aequicor.heartbeat.feature.browser.api.BrowserIntent
 import io.aequicor.heartbeat.feature.browser.api.BrowserMachineKey
@@ -83,7 +84,7 @@ class BrowserIntegrationTest {
             val flags = (app as TestToggleAccessors).toggleControl
             val profile = app.profileSessions.open(ProfileId("browser-entry"))
             val scope = app.scopes.child(profile.graph.scope, "browser-entry")
-            val graph = (profile.graph as AiStudioGraph.Factory).createAiStudio(scope)
+            val graph = (profile.graph as AiStudioGraph.Factory).createAiStudio(scope, StudioScreenHost.Window)
             val entries = (graph as StudioEntryTestAccessors).entries
             assertFalse(entries.showsBrowser.first())
             flags.setOverride(BrowserEnabled, true)

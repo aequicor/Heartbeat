@@ -41,7 +41,6 @@ import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.research_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_back
@@ -51,6 +50,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_error
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_loading
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_retry
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_title
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioPhase
 import org.jetbrains.compose.resources.stringResource
