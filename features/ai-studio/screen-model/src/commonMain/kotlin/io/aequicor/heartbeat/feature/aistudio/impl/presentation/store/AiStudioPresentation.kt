@@ -1,11 +1,19 @@
+@file:UseSerializers(ImmutableListSerializer::class, ImmutableSetSerializer::class, ImmutableMapSerializer::class)
+
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableListSerializer
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableMapSerializer
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableSetSerializer
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toImmutableSet
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.UseSerializers
 
 /** An empty draft is forgotten; editing clears a previous send failure. */
 fun AiStudioScreenState.withDraft(paneId: Int, text: String): AiStudioScreenState = copy(
@@ -80,6 +88,8 @@ fun SidebarUi.reduce(intent: AiStudioScreenIntent.Sidebar): SidebarUi = when (in
 }
 
 /** Unpinned sessions of one project, newest first; collapsed groups retain their hidden contents. */
+@Serializable
+@SerialName("ProjectGroupUi")
 @Immutable
 data class ProjectGroupUi(val project: ProjectUi, val sessions: ImmutableList<SessionUi>, val isExpanded: Boolean)
 
@@ -90,6 +100,8 @@ data class ProjectGroupUi(val project: ProjectUi, val sessions: ImmutableList<Se
  * The renderer controls visibility of the recent section without changing its contents.
  * With a query: [results] only. Archived sessions are listed separately.
  */
+@Serializable
+@SerialName("SidebarContent")
 @Immutable
 data class SidebarContent(
     val pinned: ImmutableList<SessionUi> = persistentListOf(),

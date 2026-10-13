@@ -1,6 +1,12 @@
+@file:UseSerializers(ImmutableListSerializer::class, ImmutableSetSerializer::class, ImmutableMapSerializer::class)
+
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.Base64BytesSerializer
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableListSerializer
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableMapSerializer
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableSetSerializer
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
@@ -8,14 +14,22 @@ import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toImmutableSet
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.UseSerializers
 
 /** UI metadata of one durable profile file; never contains its native source path. */
+@Serializable
+@SerialName("AttachmentUi")
 @Immutable
 data class AttachmentUi(val id: String, val name: String, val mediaType: String, val sizeBytes: Long)
 
 /** UI-only reduced bytes and text; neither drafts nor persisted histories serialize this representation. */
+@Serializable
+@SerialName("AttachmentPreviewUi")
 @Immutable
 data class AttachmentPreviewUi(
+    @Serializable(with = Base64BytesSerializer::class)
     val imageBytes: ByteArray? = null,
     val documentSnippet: String? = null,
     val isUnavailable: Boolean = false,
@@ -24,6 +38,8 @@ data class AttachmentPreviewUi(
 }
 
 /** Multiple visible rows may share one stable attachment; only the last disposal releases its preview. */
+@Serializable
+@SerialName("PreviewVisibilityUi")
 @Immutable
 data class PreviewVisibilityUi(val mediaType: String, val consumers: Int)
 
@@ -41,6 +57,8 @@ fun AiStudioScreenState.withPreviewVisibility(
 }
 
 /** Exact model capability projected to immutable screen values. */
+@Serializable
+@SerialName("InputSupportUi")
 @Immutable
 data class InputSupportUi(
     val mediaTypes: ImmutableList<String> = persistentListOf(),
@@ -61,14 +79,22 @@ data class InputSupportUi(
 }
 
 /** Transient platform input captured only by an explicit drop or clipboard gesture. */
+@Serializable
+@SerialName("NativeAttachmentUi")
 sealed interface NativeAttachmentUi {
     /** Native file drop location, forgotten as soon as it is imported. */
+    @Serializable
+    @SerialName("NativeAttachmentUi.File")
     data class File(val location: String) : NativeAttachmentUi {
         override fun toString(): String = "NativeAttachmentUi.File(redacted)"
     }
 
     /** PNG image captured by an explicit clipboard gesture. */
-    data class Image(val bytes: ByteArray) : NativeAttachmentUi {
+    @Serializable
+    @SerialName("NativeAttachmentUi.Image")
+    data class Image(
+        @Serializable(with = Base64BytesSerializer::class) val bytes: ByteArray,
+    ) : NativeAttachmentUi {
         override fun toString(): String = "NativeAttachmentUi.Image(size=${bytes.size})"
     }
 }
@@ -77,6 +103,8 @@ sealed interface NativeAttachmentUi {
  * Snapshot retained until native acceptance; a newer draft is never replaced or cleared. [harnesses] is the new
  * chat's harness choice that left the pane with it, returned to the pane when the submission is rejected.
  */
+@Serializable
+@SerialName("SubmissionUi")
 @Immutable
 data class SubmissionUi(
     val paneId: Int,

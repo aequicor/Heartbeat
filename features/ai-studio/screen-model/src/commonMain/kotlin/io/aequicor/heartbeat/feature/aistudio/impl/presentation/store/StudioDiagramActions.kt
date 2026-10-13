@@ -2,14 +2,20 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
 import kotlinx.collections.immutable.toImmutableMap
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 
 /** Text belongs to the original session and never consumes a composer draft or its attachments. */
+@Serializable
+@SerialName("DiagramSubmissionUi")
 @Immutable
 data class DiagramSubmissionUi(val sessionId: String, val text: String) {
     override fun toString(): String = "DiagramSubmissionUi(sessionId=$sessionId)"
 }
 
 /** Why an attempted diagram send was appended to the draft instead of being delivered. */
+@Serializable
+@SerialName("DiagramDraftReasonUi")
 enum class DiagramDraftReasonUi { Busy, Rejected }
 
 /** Whether diagram actions may insert into or send to chat [sessionId] now. */
