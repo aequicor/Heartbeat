@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.serviceasui.impl.ui
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -13,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.ds.components.HbActivityIndicator
 import io.aequicor.heartbeat.ds.components.HbBadge
 import io.aequicor.heartbeat.ds.components.HbCard
@@ -34,42 +36,54 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.resources.Res
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_more
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_web_unavailable
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.persistentMapOf
 import org.jetbrains.compose.resources.stringResource
 
-/** Draws one resolved node; presses and inputs go to [onIntent]. */
+/** Draws one resolved node; presses and inputs go to [onIntent], `web` nodes draw [webs] by node key. */
 @Composable
-internal fun UiNodeView(node: UiNodeUi, onIntent: (SurfaceIntent) -> Unit, modifier: Modifier = Modifier) {
+internal fun UiNodeView(
+    node: UiNodeUi,
+    onIntent: (SurfaceIntent) -> Unit,
+    modifier: Modifier = Modifier,
+    webs: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
+) {
     when (node) {
-        is UiNodeUi.Layout -> LayoutView(node, onIntent, modifier)
-        is UiNodeUi.Content -> ContentView(node, onIntent, modifier)
+        is UiNodeUi.Layout -> LayoutView(node, onIntent, modifier, webs)
+        is UiNodeUi.Content -> ContentView(node, onIntent, modifier, webs)
         is UiNodeUi.Input -> InputView(node, onIntent, modifier)
     }
 }
 
 @Composable
-private fun LayoutView(node: UiNodeUi.Layout, onIntent: (SurfaceIntent) -> Unit, modifier: Modifier = Modifier) {
+private fun LayoutView(
+    node: UiNodeUi.Layout,
+    onIntent: (SurfaceIntent) -> Unit,
+    modifier: Modifier = Modifier,
+    webs: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
+) {
     when (node) {
         is UiNodeUi.Column -> HbColumn(modifier.fillMaxWidth(), gap = node.gap.spacing()) {
-            Children(node.children, onIntent)
+            Children(node.children, onIntent, webs)
         }
 
         is UiNodeUi.Row -> if (node.isWrapped) {
-            HbFlowRow(modifier, gap = node.gap.spacing()) { Children(node.children, onIntent) }
+            HbFlowRow(modifier, gap = node.gap.spacing()) { Children(node.children, onIntent, webs) }
         } else {
-            HbRow(modifier, gap = node.gap.spacing()) { RowChildren(node.children, onIntent) }
+            HbRow(modifier, gap = node.gap.spacing()) { RowChildren(node.children, onIntent, webs) }
         }
 
         is UiNodeUi.Card -> HbCard(modifier.fillMaxWidth(), contentPadding = HbTheme.spacing.l) {
             HbColumn(Modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
                 node.title?.let { Title(it, TextStyleUi.Title) }
-                Children(node.children, onIntent)
+                Children(node.children, onIntent, webs)
             }
         }
 
         is UiNodeUi.Section -> HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
             Title(node.title, TextStyleUi.Heading)
             node.description?.let { Note(it) }
-            Children(node.children, onIntent)
+            Children(node.children, onIntent, webs)
         }
 
         is UiNodeUi.Divider -> HbDivider(modifier)
@@ -79,7 +93,12 @@ private fun LayoutView(node: UiNodeUi.Layout, onIntent: (SurfaceIntent) -> Unit,
 }
 
 @Composable
-private fun ContentView(node: UiNodeUi.Content, onIntent: (SurfaceIntent) -> Unit, modifier: Modifier = Modifier) {
+private fun ContentView(
+    node: UiNodeUi.Content,
+    onIntent: (SurfaceIntent) -> Unit,
+    modifier: Modifier = Modifier,
+    webs: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
+) {
     when (node) {
         is UiNodeUi.Text -> if (node.style.isHeading) {
             Title(node.text, node.style, modifier)
@@ -106,7 +125,20 @@ private fun ContentView(node: UiNodeUi.Content, onIntent: (SurfaceIntent) -> Uni
 
         is UiNodeUi.More -> Note(stringResource(Res.string.service_ui_more, node.count), modifier)
 
-        is UiNodeUi.Web -> Note(stringResource(Res.string.service_ui_web_unavailable), modifier)
+        is UiNodeUi.Web -> WebView(webs[node.key], modifier)
+    }
+}
+
+/**
+ * A web node's embedded browser document at a fixed height (native views cannot size to their content), or a note
+ * while web documents are off or cannot be shown here.
+ */
+@Composable
+private fun WebView(document: ComposableComponent?, modifier: Modifier = Modifier) {
+    if (document == null) {
+        Note(stringResource(Res.string.service_ui_web_unavailable), modifier)
+    } else {
+        document.Content(modifier.fillMaxWidth().height(HbTheme.dimensions.webDocumentHeight))
     }
 }
 
@@ -205,8 +237,12 @@ private fun Note(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun Children(children: ImmutableList<UiNodeUi>, onIntent: (SurfaceIntent) -> Unit) {
-    children.forEach { child -> key(child.key) { UiNodeView(child, onIntent) } }
+private fun Children(
+    children: ImmutableList<UiNodeUi>,
+    onIntent: (SurfaceIntent) -> Unit,
+    webs: ImmutableMap<String, ComposableComponent>,
+) {
+    children.forEach { child -> key(child.key) { UiNodeView(child, onIntent, webs = webs) } }
 }
 
 /**
@@ -214,7 +250,11 @@ private fun Children(children: ImmutableList<UiNodeUi>, onIntent: (SurfaceIntent
  * rows take no more than they need, so a field or a long text never pushes a button out of the row.
  */
 @Composable
-private fun RowScope.RowChildren(children: ImmutableList<UiNodeUi>, onIntent: (SurfaceIntent) -> Unit) {
+private fun RowScope.RowChildren(
+    children: ImmutableList<UiNodeUi>,
+    onIntent: (SurfaceIntent) -> Unit,
+    webs: ImmutableMap<String, ComposableComponent>,
+) {
     children.forEach { child ->
         key(child.key) {
             val share = when {
@@ -222,7 +262,7 @@ private fun RowScope.RowChildren(children: ImmutableList<UiNodeUi>, onIntent: (S
                 child is UiNodeUi.Text || child is UiNodeUi.Row -> Modifier.weight(1f, fill = false)
                 else -> Modifier.weight(1f)
             }
-            UiNodeView(child, onIntent, share)
+            UiNodeView(child, onIntent, share, webs)
         }
     }
 }

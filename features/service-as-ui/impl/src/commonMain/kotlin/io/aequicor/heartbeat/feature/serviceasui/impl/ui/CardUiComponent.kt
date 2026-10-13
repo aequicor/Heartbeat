@@ -9,6 +9,6 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.component.Car
 internal class CardUiComponent(private val component: CardComponent) : ComposableComponent {
     @Composable
     override fun Content(modifier: Modifier) {
-        CardScreen(component.model, modifier)
+        CardScreen(component.model, modifier, rememberWebDocuments(component.documents.documents))
     }
 }

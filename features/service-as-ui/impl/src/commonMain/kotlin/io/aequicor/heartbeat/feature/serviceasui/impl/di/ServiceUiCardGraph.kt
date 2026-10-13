@@ -48,6 +48,6 @@ internal class ServiceUiCardRouteEntry(
 ) : RouteEntry<ServiceUiCardRoute>(ServiceUiCardRoute::class, ServiceUiCardRoute.serializer()) {
     override fun create(route: ServiceUiCardRoute, context: ComponentContext, navigator: Navigator): NavComponent {
         val graph = context.retainedGraph(scopes, profile, name = "service_ui_card") { graphs.create(route, it) }
-        return CardUiComponent(graph.factory.create(context))
+        return CardUiComponent(graph.factory.create(context, navigator))
     }
 }

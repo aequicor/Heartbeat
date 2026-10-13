@@ -137,6 +137,8 @@ data class HbDimensions(
     val markdownTableMaxHeight: Dp = 480.dp,
     /** Inline diagram preview in a conversation; the full-size viewer shows the rest. */
     val diagramPreviewMaxHeight: Dp = 480.dp,
+    /** An embedded web document in a scrolling surface: native views need a fixed height and scroll inside. */
+    val webDocumentHeight: Dp = 480.dp,
     /** One arrow-key step of a keyboard-scrolled viewport, such as the full-size diagram viewer. */
     val keyboardScrollStep: Dp = 40.dp,
     /** Height of a code editor holding a whole source file, such as a harness script. */

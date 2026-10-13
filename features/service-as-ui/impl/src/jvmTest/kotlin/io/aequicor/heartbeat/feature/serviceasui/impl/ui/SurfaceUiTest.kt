@@ -5,11 +5,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasClickAction
@@ -18,12 +23,14 @@ import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.unit.Density
+import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiIconNames
@@ -32,10 +39,12 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.decodeUiSpec
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiEvaluator
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiSourceStatus
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiValues
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiNodeUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.FailureUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.NoticeUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceIntent
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceState
+import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -147,6 +156,28 @@ class SurfaceUiTest {
     }
 
     @Test
+    fun `web nodes draw their embedded document at a fixed height, or a note without one`() =
+        runSkikoComposeUiTest(size = Size(720f, 1200f)) {
+            val values = UiValues()
+            val root = assertIs<UiNodeUi.Column>(
+                UiEvaluator((decodeUiSpec(WEB) as UiSpecDecoding.Decoded).spec).body(values),
+            )
+            var webs by mutableStateOf(persistentMapOf<String, ComposableComponent>())
+            setContent { Themed { SurfaceContent(SurfaceState(values = values, root = root), {}, webs = webs) } }
+            onNodeWithText("Web content is not available here").assertIsDisplayed()
+
+            webs = persistentMapOf(root.children.single().key to TestDocument)
+            onNodeWithTag("document").assertIsDisplayed().assertHeightIsEqualTo(HbDimensions.Desktop.webDocumentHeight)
+        }
+
+    private object TestDocument : ComposableComponent {
+        @Composable
+        override fun Content(modifier: Modifier) {
+            Box(modifier.testTag("document"))
+        }
+    }
+
+    @Test
     fun `every icon the reference names draws an icon`() {
         assertEquals(emptyList(), UiIconNames.filter { iconOf(it) == null })
     }
@@ -199,6 +230,8 @@ class SurfaceUiTest {
     }
 
     private companion object {
+        const val WEB = """{"version":1,"body":{"type":"column","children":[{"type":"web","html":"<p>Map</p>"}]}}"""
+
         /** Clicks a link from the start of its line, where the text is, not in the middle of a full-width block. */
         const val LINK_X = 8f
 

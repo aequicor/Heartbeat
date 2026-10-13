@@ -14,6 +14,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.tooling.preview.Preview
+import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.ds.components.HbBanner
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonSize
@@ -83,7 +84,12 @@ import pro.respawn.flowmvi.dsl.collect
 
 /** Details, spec editor and preview of one library surface; leaving or deleting it calls [onBack]. */
 @Composable
-internal fun EditorScreen(model: EditorModel, onBack: () -> Unit, modifier: Modifier = Modifier) {
+internal fun EditorScreen(
+    model: EditorModel,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    documents: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
+) {
     val back by rememberUpdatedState(onBack)
     val state by produceState(EditorState(), model) {
         model.store.collect {
@@ -92,7 +98,7 @@ internal fun EditorScreen(model: EditorModel, onBack: () -> Unit, modifier: Modi
         }
     }
     val surfaces by model.surfaces.collectAsState()
-    EditorContent(state, surfaces, model.store::intent, onBack, modifier)
+    EditorContent(state, surfaces, model.store::intent, onBack, modifier, documents)
 }
 
 /** Stateless editor; deleting asks the user first. */
@@ -103,6 +109,7 @@ internal fun EditorContent(
     onIntent: (EditorIntent) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    documents: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
 ) {
     var isDeleting by remember { mutableStateOf(false) }
     ServiceUiPane(state.info.title, "service-ui-editor", onBack, modifier) {
@@ -114,7 +121,9 @@ internal fun EditorContent(
         if (state.isChangedElsewhere) item(key = "changed") { ChangedBanner(onIntent) }
         item(key = "editor") { SpecEditor(state, onIntent) }
         if (state.diagnostics.isNotEmpty()) item(key = "problems") { Problems(state.diagnostics) }
-        item(key = "preview") { PreviewSection(state.previewKey?.let { surfaces[it] }, state.isValid, onIntent) }
+        item(key = "preview") {
+            PreviewSection(state.previewKey?.let { surfaces[it] }, state.isValid, onIntent, documents = documents)
+        }
         item(key = "delete") {
             HbButton(
                 stringResource(Res.string.service_ui_editor_delete),
@@ -313,6 +322,7 @@ private fun PreviewSection(
     isValid: Boolean,
     onIntent: (EditorIntent) -> Unit,
     modifier: Modifier = Modifier,
+    documents: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
 ) {
     HbSettingsSection(
         stringResource(Res.string.service_ui_editor_preview),
@@ -344,7 +354,7 @@ private fun PreviewSection(
                 )
             }
             // A surface draws without a scroll of its own, so it fits the lazy list of the pane.
-            HbCard(Modifier.fillMaxWidth(), contentPadding = HbTheme.spacing.l) { SurfaceScreen(preview.store) }
+            HbCard(Modifier.fillMaxWidth(), contentPadding = HbTheme.spacing.l) { SurfaceScreen(preview, documents) }
         }
     }
 }

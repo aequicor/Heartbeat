@@ -52,7 +52,7 @@ internal class ServiceUiSlotRouteEntry(
         val graph = context.retainedGraph(scopes, profile, name = "service_ui_slot") {
             graphs.create(ServiceUiPlace.of(route), it)
         }
-        return PlaceUiComponent(graph.factory.create(context))
+        return PlaceUiComponent(graph.factory.create(context, navigator))
     }
 }
 
@@ -68,6 +68,6 @@ internal class ServiceUiPanelRouteEntry(
         val graph = context.retainedGraph(scopes, profile, name = "service_ui_panel") {
             graphs.create(ServiceUiPlace.of(route), it)
         }
-        return PlaceUiComponent(graph.factory.create(context))
+        return PlaceUiComponent(graph.factory.create(context, navigator))
     }
 }

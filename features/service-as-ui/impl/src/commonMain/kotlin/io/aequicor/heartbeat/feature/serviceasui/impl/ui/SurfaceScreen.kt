@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.serviceasui.impl.ui
 
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -13,6 +14,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
+import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.ds.components.HbBanner
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonSize
@@ -28,6 +30,7 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.Failure
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.NoticeUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceAction
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceIntent
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceModel
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceState
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.Res
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_broken
@@ -45,6 +48,9 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_inval
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_open_link
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_open_link_title
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_unsupported
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.StringResource
@@ -55,11 +61,32 @@ import pro.respawn.flowmvi.dsl.collect
 private val log = Log.tag("ServiceUiScreen")
 
 /**
- * A surface drawn from its [store]: notice, content and the open modal. Links of cards without an owner are opened
- * only after the user confirms them.
+ * The surface of [model] with the browser documents its `web` nodes show: [documents] are the documents its host
+ * embeds, by route id.
  */
 @Composable
-internal fun SurfaceScreen(store: Store<SurfaceState, SurfaceIntent, SurfaceAction>, modifier: Modifier = Modifier) {
+internal fun SurfaceScreen(
+    model: SurfaceModel,
+    documents: ImmutableMap<String, ComposableComponent>,
+    modifier: Modifier = Modifier,
+) {
+    val shown by model.webDocuments.collectAsState()
+    val webs = remember(shown, documents) {
+        shown.mapNotNull { (node, id) -> documents[id]?.let { node to it } }.toMap().toImmutableMap()
+    }
+    SurfaceScreen(model.store, modifier, webs)
+}
+
+/**
+ * A surface drawn from its [store]: notice, content and the open modal, with [webs] for its `web` nodes by node key.
+ * Links of cards without an owner are opened only after the user confirms them.
+ */
+@Composable
+internal fun SurfaceScreen(
+    store: Store<SurfaceState, SurfaceIntent, SurfaceAction>,
+    modifier: Modifier = Modifier,
+    webs: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
+) {
     val uriHandler = LocalUriHandler.current
     val clipboard = LocalClipboard.current
     var link by remember { mutableStateOf<String?>(null) }
@@ -81,7 +108,7 @@ internal fun SurfaceScreen(store: Store<SurfaceState, SurfaceIntent, SurfaceActi
             states.collect { value = it }
         }
     }
-    SurfaceContent(state, store::intent, modifier)
+    SurfaceContent(state, store::intent, modifier, webs)
     link?.let { url ->
         HbDialog(
             title = stringResource(Res.string.service_ui_open_link_title),
@@ -100,9 +127,14 @@ internal fun SurfaceScreen(store: Store<SurfaceState, SurfaceIntent, SurfaceActi
     }
 }
 
-/** Notice, content and the open modal of [state]. */
+/** Notice, content and the open modal of [state]; `web` nodes draw [webs] by node key. */
 @Composable
-internal fun SurfaceContent(state: SurfaceState, onIntent: (SurfaceIntent) -> Unit, modifier: Modifier = Modifier) {
+internal fun SurfaceContent(
+    state: SurfaceState,
+    onIntent: (SurfaceIntent) -> Unit,
+    modifier: Modifier = Modifier,
+    webs: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
+) {
     HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.m) {
         state.notice?.let { notice ->
             HbBanner(
@@ -118,7 +150,7 @@ internal fun SurfaceContent(state: SurfaceState, onIntent: (SurfaceIntent) -> Un
                 },
             )
         }
-        state.root?.let { UiNodeView(it, onIntent) }
+        state.root?.let { UiNodeView(it, onIntent, webs = webs) }
     }
     val modal = state.modal ?: return
     HbDialog(
@@ -132,7 +164,7 @@ internal fun SurfaceContent(state: SurfaceState, onIntent: (SurfaceIntent) -> Un
                 style = HbButtonStyle.Ghost,
             )
         },
-    ) { modal.body?.let { UiNodeView(it, onIntent) } }
+    ) { modal.body?.let { UiNodeView(it, onIntent, webs = webs) } }
 }
 
 @Composable

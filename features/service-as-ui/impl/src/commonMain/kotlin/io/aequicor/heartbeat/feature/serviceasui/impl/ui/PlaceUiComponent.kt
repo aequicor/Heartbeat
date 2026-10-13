@@ -9,6 +9,6 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.component.Pla
 internal class PlaceUiComponent(private val component: PlaceComponent) : ComposableComponent {
     @Composable
     override fun Content(modifier: Modifier) {
-        PlaceScreen(component.model, modifier)
+        PlaceScreen(component.model, modifier, rememberWebDocuments(component.documents.documents))
     }
 }

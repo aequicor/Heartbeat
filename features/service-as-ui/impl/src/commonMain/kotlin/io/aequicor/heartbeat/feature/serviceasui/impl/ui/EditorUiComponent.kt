@@ -9,6 +9,11 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.component.Edi
 internal class EditorUiComponent(private val component: EditorComponent) : ComposableComponent {
     @Composable
     override fun Content(modifier: Modifier) {
-        EditorScreen(component.model, onBack = component::close, modifier = modifier)
+        EditorScreen(
+            component.model,
+            onBack = component::close,
+            modifier = modifier,
+            documents = rememberWebDocuments(component.documents.documents),
+        )
     }
 }

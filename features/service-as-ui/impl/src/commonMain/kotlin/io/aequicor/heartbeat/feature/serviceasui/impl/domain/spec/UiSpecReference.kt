@@ -71,8 +71,13 @@ private fun nodesAndActions(): String = """
   multiline?}; `toggle` {bind, label}; `select` {bind, options: [{value, label}], label?}; `native` {widget: date |
   file | folder, bind, label?, extensions?}: a date is written as YYYY-MM-DD, a file or folder as an absolute path
   (desktop only).
-- `web` {html, bridge?, data?}: in panel and modal surfaces and in modals (cards: modals only, without bridge), one
-  per surface, desktop only; saving or showing it always asks the user.
+- `web` {html, bridge?, data?}: an isolated page in panel and modal surfaces and in modals (cards: modals only,
+  without bridge), one per surface, desktop only and only while the user has web documents on; saving or showing it
+  always asks the user. The page has its own origin and no network: inline scripts and styles, `data:` images and
+  fonts; no fetch, sockets, WebRTC, frames, workers, forms or links away. It reads `data` (a binding) as
+  `heartbeat.data` and later values from the `heartbeat:data` event on `window` (`event.detail`). With `bridge: true`
+  (library surfaces), `await heartbeat.call(method, args)` calls the owner's method with object `args` and returns
+  its value, or rejects with an `Error` of the owner's message.
 Icons draw an icon button whose label is its tooltip and accessible name: ${UiIconNames.joinToString(", ")}.
 
 ## Actions (`type`)

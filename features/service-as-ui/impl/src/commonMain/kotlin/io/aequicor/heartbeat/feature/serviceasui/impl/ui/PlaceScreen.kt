@@ -10,6 +10,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
+import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbChip
@@ -31,15 +32,23 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_close
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_close_panel
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_panel_title
 import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.persistentMapOf
 import org.jetbrains.compose.resources.stringResource
 import pro.respawn.flowmvi.dsl.collect
 
-/** The surfaces of a place; a panel adds its header and scrolls, a slot leaves bounds and scrolling to its host. */
+/**
+ * The surfaces of a place; a panel adds its header and scrolls, a slot leaves bounds and scrolling to its host.
+ * [documents] are the browser documents the place hosts for its surfaces, by route id.
+ */
 @Composable
-internal fun PlaceScreen(model: PlaceModel, modifier: Modifier = Modifier) {
+internal fun PlaceScreen(
+    model: PlaceModel,
+    modifier: Modifier = Modifier,
+    documents: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
+) {
     val state by produceState(PlaceState(), model) { model.store.collect { states.collect { value = it } } }
     val surfaces by model.surfaces.collectAsState()
-    PlaceView(state, surfaces, model.store::intent, model.isPanel, modifier)
+    PlaceView(state, surfaces, model.store::intent, model.isPanel, modifier, documents)
 }
 
 /** The drawn surfaces from [surfaces], launchers and the modal of [state]. */
@@ -50,6 +59,7 @@ internal fun PlaceView(
     onIntent: (PlaceIntent) -> Unit,
     isPanel: Boolean,
     modifier: Modifier = Modifier,
+    documents: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
 ) {
     // An empty slot emits nothing, so the host's spacing around it stays as without interfaces.
     if (!isPanel && state.isEmpty) return
@@ -71,10 +81,11 @@ internal fun PlaceView(
                 surfaces,
                 onIntent,
                 Modifier.weight(1f).fillMaxWidth().hbVerticalScroll(rememberScrollState()).padding(HbTheme.spacing.xl),
+                documents,
             )
         }
     } else {
-        PlaceContent(state, surfaces, onIntent, modifier.fillMaxWidth())
+        PlaceContent(state, surfaces, onIntent, modifier.fillMaxWidth(), documents)
     }
     val modal = state.modal ?: return
     HbDialog(
@@ -87,7 +98,7 @@ internal fun PlaceView(
                 style = HbButtonStyle.Ghost,
             )
         },
-    ) { PlacedSurfaceView(modal, surfaces) }
+    ) { PlacedSurfaceView(modal, surfaces, documents) }
 }
 
 /** The surfaces and launchers of a place. */
@@ -97,10 +108,11 @@ private fun PlaceContent(
     surfaces: ImmutableMap<String, SurfaceModel>,
     onIntent: (PlaceIntent) -> Unit,
     modifier: Modifier = Modifier,
+    documents: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
 ) {
     HbColumn(modifier, gap = HbTheme.spacing.m) {
         state.surfaces.forEach { surface ->
-            key(surface.key) { PlacedSurfaceView(surface, surfaces) }
+            key(surface.key) { PlacedSurfaceView(surface, surfaces, documents) }
         }
         if (state.launchers.isNotEmpty()) {
             HbFlowRow(gap = HbTheme.spacing.s) {
@@ -119,6 +131,10 @@ private fun PlaceContent(
 }
 
 @Composable
-private fun PlacedSurfaceView(surface: PlaceSurfaceUi, surfaces: ImmutableMap<String, SurfaceModel>) {
-    surfaces[surface.key]?.let { SurfaceScreen(it.store) }
+private fun PlacedSurfaceView(
+    surface: PlaceSurfaceUi,
+    surfaces: ImmutableMap<String, SurfaceModel>,
+    documents: ImmutableMap<String, ComposableComponent>,
+) {
+    surfaces[surface.key]?.let { SurfaceScreen(it, documents) }
 }
