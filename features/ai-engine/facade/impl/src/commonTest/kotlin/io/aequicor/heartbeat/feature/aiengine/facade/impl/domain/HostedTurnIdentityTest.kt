@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
@@ -40,6 +41,39 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HostedTurnIdentityTest {
+    @Test
+    fun `automatic prompt mode binds before native acceptance and stays on the accepted turn`() = runTest {
+        val owner = HostedIdentityOwner(action = AgentToolAction.Read)
+        val tools = DefaultAgentTools(setOf(owner))
+        val native = FakeNativeSession()
+        val session = open(native, tools)
+        native.onAccepted = {
+            tools.execute(
+                AgentToolContext(
+                    native.ref,
+                    WorkspaceRef("project"),
+                    it.id,
+                    it.request,
+                    permissions = AgentToolPermissions { throw AssertionError("No manual permission") },
+                ),
+                "tool",
+                EMPTY_ARGUMENTS,
+            )
+        }
+        session.sender().send(
+            PromptRequest(
+                RequestId("automatic"),
+                listOf(ContentPart.Text("Run")),
+                decisionMode = AgentToolDecisionMode.AutomaticSafety,
+            ),
+        )
+        assertEquals(AgentToolDecisionMode.AutomaticSafety, owner.contexts.single().decisionMode)
+        assertEquals(
+            AgentToolDecisionMode.AutomaticSafety,
+            assertIs<ActiveSessionState.Running>(session.state.value).turn.decisionMode,
+        )
+    }
+
     @Test
     fun `hosted identity is canonical before and after native send acknowledgement`() = runTest {
         for (isEarly in listOf(true, false)) {
@@ -153,13 +187,16 @@ class HostedTurnIdentityTest {
     private fun ActiveSession.sender() = (features.resolve(SendsPrompts) as FeatureAccess.Available).feature
 }
 
-private class HostedIdentityOwner(private val isBlocking: Boolean = false) : AgentToolContribution {
+private class HostedIdentityOwner(
+    private val isBlocking: Boolean = false,
+    private val action: AgentToolAction = AgentToolAction.Command,
+) : AgentToolContribution {
     val contexts = mutableListOf<AgentToolContext>()
     val entered = CompletableDeferred<Unit>()
     val cleaning = CompletableDeferred<Unit>()
     val releaseCleanup = CompletableDeferred<Unit>()
     override suspend fun specifications(workspace: WorkspaceRef?) = listOf(
-        AgentToolSpec("tool", "Tool", EMPTY_ARGUMENTS, AgentToolAction.Command),
+        AgentToolSpec("tool", "Tool", EMPTY_ARGUMENTS, action),
     )
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
         contexts += context

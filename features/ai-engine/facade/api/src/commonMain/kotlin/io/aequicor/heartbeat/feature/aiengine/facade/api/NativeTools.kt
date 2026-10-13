@@ -4,8 +4,8 @@ import kotlinx.serialization.json.JsonObject
 
 /**
  * Native call decoded and classified by the adapter, never by the model-facing hosted dispatcher.
- * [covered] applies the adapter's trust rules (including workspace and host-preservation restrictions).
- * It may only decide whether a user decision can be skipped; policy and hook denials always take precedence.
+ * [covered] applies the adapter's trust rules in [AgentToolDecisionMode.Interactive]. Automatic safety instead
+ * reviews the full invocation and honors [automaticDenial]; policy and hook denials always take precedence.
  * Paths and command must describe the entire action shown for approval, without truncation.
  */
 public data class NativeToolCall(
@@ -15,13 +15,17 @@ public data class NativeToolCall(
     val command: String? = null,
     val covered: (TrustLevel) -> Boolean,
     val arguments: JsonObject? = null,
+    /** Actual execution directory pinned by the adapter, not a model-provided workspace claim. */
+    val workingDirectory: String? = null,
+    /** An adapter restriction that independent review cannot override, such as terminating the host. */
+    val automaticDenial: String? = null,
 ) {
     override fun toString(): String = "NativeToolCall"
 }
 
 /** The adapter may execute only after Allow and while its captured native turn is still active. */
 public sealed interface NativeVerdict {
-    /** Policy, hooks and the applicable user decision permit this exact call in this turn. */
+    /** Policy, hooks and the applicable safety or user decision permit this exact call in this turn. */
     public data object Allow : NativeVerdict
 
     /** Safe user-facing diagnostic; adapters must not treat a denied call as successful execution. */
@@ -30,7 +34,7 @@ public sealed interface NativeVerdict {
     }
 }
 
-/** Noninteractive policy, hook and trust check, bound to one exact native call and its captured turn. */
+/** Preflight bound to the exact call and turn; automatic safety returns only [Allow] or [Deny]. */
 public sealed interface NativePreparation {
     /** Complete authorization, subject to the adapter's final native lifetime check. */
     public data object Allow : NativePreparation

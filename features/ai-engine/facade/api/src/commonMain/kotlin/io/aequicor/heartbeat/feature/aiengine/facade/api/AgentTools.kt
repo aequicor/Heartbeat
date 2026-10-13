@@ -60,6 +60,8 @@ public data class AgentToolContext(
     val target: EngineTarget? = null,
     /** Adapter turn identity used by SessionHistory, retained when the dispatcher correlates the facade turn. */
     val historyTurn: TurnId? = null,
+    /** Host-bound decision mode of the accepted request, independent of the session's trust level. */
+    val decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
 ) {
     override fun toString(): String = "AgentToolContext"
 }
@@ -241,12 +243,14 @@ public interface ProfileAgentTools {
     /**
      * Binds a trusted request to its facade turn before native submission can invoke any hosted tools.
      * [target] is the engine and model the turn runs on; calls of the request see it as [AgentToolContext.target].
+     * [decisionMode] is the host's immutable choice, applied before any native or hosted authorization.
      */
     public suspend fun bindTurn(
         session: SessionRef,
         request: RequestId,
         turn: TurnId,
         target: EngineTarget? = null,
+        decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
     ): Unit = Unit
 
     /** Available tool declarations for a session's immutable execution workspace. */

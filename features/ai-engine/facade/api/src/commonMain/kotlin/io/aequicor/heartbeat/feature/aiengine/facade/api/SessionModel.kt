@@ -123,6 +123,8 @@ public data class PromptRequest(
     val trust: TrustLevel? = null,
     /** Native context compaction instead of a prompt; see [CompactsContext]. */
     val compaction: ContextCompaction? = null,
+    /** Trusted host decision mode; automatic review never falls back to an interactive permission. */
+    val decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
 ) {
     init {
         require(parts.isNotEmpty() == (compaction == null)) { "A prompt has parts, a compaction has none" }
@@ -181,6 +183,8 @@ public data class Turn(
     val outcome: TurnOutcome? = null,
     /** Acknowledged permission ids retained until the turn ends, including across reconciliation. */
     val resolvedPermissions: Set<PermissionRequestId> = emptySet(),
+    /** Decision mode captured from the accepted prompt, retained with the turn during reconciliation. */
+    val decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
 )
 
 /**

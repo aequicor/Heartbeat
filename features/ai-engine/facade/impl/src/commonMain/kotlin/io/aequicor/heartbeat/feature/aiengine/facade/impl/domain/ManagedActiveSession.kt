@@ -259,7 +259,12 @@ class ManagedActiveSession(
 
                     else -> fail(Busy)
                 }
-                val turn = Turn(policy.newTurnId(), request.id, EngineTarget(route.engine, route.binding, model))
+                val turn = Turn(
+                    policy.newTurnId(),
+                    request.id,
+                    EngineTarget(route.engine, route.binding, model),
+                    decisionMode = request.decisionMode,
+                )
                 policy.bindTurn(ref, request.id, turn)
                 val prepared = hookHandle?.prepare(request, turn) ?: request
                 submit(prepared, turn)

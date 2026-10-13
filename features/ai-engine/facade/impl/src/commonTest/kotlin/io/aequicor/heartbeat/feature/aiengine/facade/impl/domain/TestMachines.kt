@@ -188,7 +188,9 @@ internal class FakeNativeSession(
                         val id = TurnId("native-${sent.size}")
                         if (isAcceptanceOnSend) {
                             val correlated = request.id.takeIf { isCorrelationOnSend }
-                            native.value = ActiveSessionState.Running(Turn(id, correlated, TestTarget))
+                            native.value = ActiveSessionState.Running(
+                                Turn(id, correlated, TestTarget, decisionMode = request.decisionMode),
+                            )
                             onAccepted(activeTurn)
                         }
                         return id
