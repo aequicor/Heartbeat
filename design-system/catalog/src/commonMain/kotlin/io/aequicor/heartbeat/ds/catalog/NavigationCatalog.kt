@@ -46,6 +46,7 @@ internal fun NavigationExample(modifier: Modifier = Modifier) {
             HbChip(hbString(HbString.LocalDemo), icon = HbIcons.Laptop)
         }
         GroupMenuExample()
+        MultiSelectExample()
         HbColumn(Modifier.widthIn(max = HbTheme.dimensions.sidebarWidth).fillMaxWidth(), gap = HbTheme.spacing.xxs) {
             HbNavigationHeader(
                 title = hbString(HbString.Projects),
