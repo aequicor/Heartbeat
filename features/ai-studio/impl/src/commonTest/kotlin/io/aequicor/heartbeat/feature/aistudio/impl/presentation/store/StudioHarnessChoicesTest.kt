@@ -1,6 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
-import io.aequicor.heartbeat.feature.aistudio.impl.ui.harnessChoices
+import io.aequicor.heartbeat.feature.aistudio.screenui.harnessChoices
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.persistentSetOf

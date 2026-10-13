@@ -32,8 +32,8 @@ import io.aequicor.heartbeat.ds.components.HbTone
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
-import io.aequicor.heartbeat.feature.aistudio.impl.ui.AiStudioContent
-import io.aequicor.heartbeat.feature.aistudio.impl.ui.StudioHostCapabilities
+import io.aequicor.heartbeat.feature.aistudio.screenui.AiStudioContent
+import io.aequicor.heartbeat.feature.aistudio.screenui.StudioHostCapabilities
 import org.jetbrains.compose.resources.stringResource
 import pro.respawn.flowmvi.api.Store
 import pro.respawn.flowmvi.dsl.collect

@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.mergeSessi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.nativeKey
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.selectedNative
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.toUi
+import io.aequicor.heartbeat.feature.aistudio.screenui.paneContent
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlin.test.Test

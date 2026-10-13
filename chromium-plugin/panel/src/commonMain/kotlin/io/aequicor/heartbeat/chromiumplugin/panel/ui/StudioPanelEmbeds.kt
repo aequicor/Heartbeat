@@ -4,8 +4,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
-import io.aequicor.heartbeat.feature.aistudio.impl.ui.StudioEmbed
-import io.aequicor.heartbeat.feature.aistudio.impl.ui.StudioExits
+import io.aequicor.heartbeat.feature.aistudio.screenui.StudioEmbed
+import io.aequicor.heartbeat.feature.aistudio.screenui.StudioExits
 import io.aequicor.heartbeat.feature.checklist.screenui.ChecklistScreen
 import io.aequicor.heartbeat.feature.questionnaire.screenui.QuestionnaireScreen
 import kotlinx.collections.immutable.toImmutableMap

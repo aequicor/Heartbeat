@@ -11,6 +11,8 @@ import io.aequicor.heartbeat.core.navigation.compose.NavStack
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.AiStudioComponent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.BrowserPaneMode
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.StudioNoDialog
+import io.aequicor.heartbeat.feature.aistudio.screenui.StudioEmbed
+import io.aequicor.heartbeat.feature.aistudio.screenui.StudioExits
 import kotlinx.collections.immutable.toImmutableMap
 
 /** Rendering adapter assembled by the route entry; presentation never imports Compose screens. */

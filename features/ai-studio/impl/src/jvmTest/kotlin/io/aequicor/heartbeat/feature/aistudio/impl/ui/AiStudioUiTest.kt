@@ -54,6 +54,9 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_running
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_sleeping
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_waiting_event
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.stopping
+import io.aequicor.heartbeat.feature.aistudio.screenui.AiStudioContent
+import io.aequicor.heartbeat.feature.aistudio.screenui.StudioEmbed
+import io.aequicor.heartbeat.feature.aistudio.screenui.StudioExits
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.persistentSetOf
