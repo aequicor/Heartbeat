@@ -1,15 +1,22 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.core.navigation.compose.NavStack
+import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.AiStudioComponent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.BrowserPaneMode
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.SidePanelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.StudioNoDialog
 import kotlinx.collections.immutable.toImmutableMap
 
@@ -80,10 +87,29 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
         // Any entry above the studio's own chat (research) takes over the chat area; the sidebar
         // stays.
         val chatArea = workspace.active.instance as? ComposableComponent
-        StudioBrowserLayout(browserMode, modifier, browser = { NavStack(component.browser) }) {
+        val side by component.sidePanel.collectAsState()
+        val sideMode = when (side) {
+            SidePanelUi.Browser -> browserMode
+            SidePanelUi.Interface -> BrowserPaneMode.Panel
+            SidePanelUi.None -> BrowserPaneMode.Hidden
+        }
+        StudioBrowserLayout(sideMode, modifier, browser = { SidePanel(component, side) }) {
             AiStudioScreen(component.model, exits, Modifier, chatArea = chatArea)
         }
         val dialogs by component.dialogs.stack.subscribeAsState()
         if (dialogs.active.instance !== StudioNoDialog) NavStack(component.dialogs)
+    }
+}
+
+/** The browser, or the interface panel of the window on the assistant surface. */
+@Composable
+private fun SidePanel(component: AiStudioComponent, side: SidePanelUi) {
+    if (side == SidePanelUi.Interface) {
+        Box(
+            Modifier.fillMaxSize().background(HbTheme.surfaces.assistant).padding(HbTheme.spacing.l)
+                .testTag("studio-interface-panel"),
+        ) { NavStack(component.interfacePanel) }
+    } else {
+        NavStack(component.browser)
     }
 }

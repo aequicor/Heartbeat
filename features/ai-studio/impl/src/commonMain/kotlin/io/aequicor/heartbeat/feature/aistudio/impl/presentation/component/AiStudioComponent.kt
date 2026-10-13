@@ -51,6 +51,7 @@ import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRoute
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatRoute
 import io.aequicor.heartbeat.feature.searchengine.api.ProfileSettingsRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiCardRoute
+import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiPanelRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiSlotRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSlot
 import io.aequicor.heartbeat.feature.settings.api.SettingsRoute
@@ -113,9 +114,24 @@ class AiStudioComponent(
     val browserMode: StateFlow<BrowserPaneMode> = browserPresentation
     private val browserBack = StudioBrowserBack(::hideBrowser)
 
+    /** The panel of interfaces open in this window's dock; it shares the side of the window with the browser. */
+    val interfacePanel: StackHost = hosts.stack(
+        context = this,
+        parent = navigator,
+        name = "interface-panel",
+        initial = listOf(ServiceUiPanelRoute(surfaces.dock)),
+        local = emptyList(),
+        global = GlobalRoutes.Only(setOf(ServiceUiPanelRoute::class)),
+    )
+    private val side = StudioSidePanel(browserPresentation, surfaces, scope.coroutineScope)
+
+    /** What the side of the window shows: the browser or the interface panel opened last. */
+    val sidePanel: StateFlow<SidePanelUi> = side.shown
+
     init {
         // Registered before the dialog host: an open attachment dialog above the browser handles "back" first.
         backHandler.register(browserBack.callback)
+        backHandler.register(side.back)
         val presentation = scope.coroutineScope.launch {
             machines.observe(BrowserMachineKey).collectLatest { machine ->
                 log.v { "Browser presentation observed" }

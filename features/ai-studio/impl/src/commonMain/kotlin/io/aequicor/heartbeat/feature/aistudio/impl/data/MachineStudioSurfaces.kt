@@ -27,9 +27,12 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.withContext
 import kotlin.uuid.Uuid
@@ -49,7 +52,14 @@ internal class MachineStudioSurfaces(private val machines: MachineRegistry, togg
     StudioSurfaces {
     private val log = Log.tag("StudioSurfaces")
     private val prefix = "studio-${Uuid.random().toHexString().take(PREFIX_CHARS)}"
-    private val dock = UiDockId("$prefix.side")
+    private val side = UiDockId("$prefix.side")
+
+    override val dock: String get() = side.value
+
+    override val panel: Flow<Long?> = machines.observe(ServiceUiMachineKey)
+        .flatMapLatest { it?.state ?: flowOf(null) }
+        .map { (it as? ServiceUiState.Ready)?.panels?.get(side)?.sequence }
+        .distinctUntilChanged()
 
     override val availability: Flow<Boolean> = toggles.observe(ServiceUiEnabled)
 
@@ -61,6 +71,12 @@ internal class MachineStudioSurfaces(private val machines: MachineRegistry, togg
         }
 
     override fun host(paneId: Int): String = "$prefix.pane-$paneId"
+
+    override suspend fun closePanel() {
+        log.i { "Close the interface panel of the studio" }
+        val result = machines.send(ServiceUiMachineKey, ServiceUiIntent.Public.ClosePanel(side))
+        if (result != SendResult.Accepted) log.w { "Interface panel not closed: $result" }
+    }
 
     override suspend fun keep(places: Flow<Map<Int, StudioSurfacePlace>>) {
         var bound = emptyMap<Int, UiHostContext>()
@@ -105,7 +121,7 @@ internal class MachineStudioSurfaces(private val machines: MachineRegistry, togg
         // A new chat offers the harnesses selected for it; a chat has its own connections.
         val selected = harnesses.takeIf { chat == null && it.isNotEmpty() }
         val preselected = selected?.let { mapOf(HarnessTools.GROUP to it) }.orEmpty()
-        return UiHostContext(UiCallContext(session = chat, workspace = workspace, preselected = preselected), dock)
+        return UiHostContext(UiCallContext(session = chat, workspace = workspace, preselected = preselected), side)
     }
 
     private fun paneOf(host: UiHostId): Int? =

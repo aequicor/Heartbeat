@@ -20,7 +20,10 @@ import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiIntent
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiMachineKey
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiOutput
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiState
+import io.aequicor.heartbeat.feature.serviceasui.api.UiDockId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostId
+import io.aequicor.heartbeat.feature.serviceasui.api.UiPanel
+import io.aequicor.heartbeat.feature.serviceasui.api.UiSurfaceId
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -94,9 +97,30 @@ class MachineStudioSurfacesTest {
         job.cancel()
     }
 
+    @Test
+    fun `the panel of this window's dock is followed and closed through the machine`() = runTest {
+        val machine = FakeSurfaceMachine()
+        val surfaces = MachineStudioSurfaces(Registry(machine), Toggles(true))
+        val seen = mutableListOf<Long?>()
+        val job = launch { surfaces.panel.toList(seen) }
+        runCurrent()
+
+        val dock = UiDockId(surfaces.dock)
+        val panel = UiPanel(UiSurfaceId("harness:h:map"), UiHostId(surfaces.host(0)), sequence = 4)
+        machine.state.value = ServiceUiState.Ready(panels = mapOf(dock to panel))
+        runCurrent()
+        machine.state.value = ServiceUiState.Ready(panels = mapOf(UiDockId("other.side") to panel))
+        runCurrent()
+        assertEquals(listOf(null, 4L, null), seen)
+
+        surfaces.closePanel()
+        assertEquals(listOf<ServiceUiIntent.Public>(ServiceUiIntent.Public.ClosePanel(dock)), machine.sent)
+        job.cancel()
+    }
+
     private class FakeSurfaceMachine : MachineRef<ServiceUiState, ServiceUiIntent.Public, ServiceUiOutput> {
         override val name = "service_ui"
-        override val state: StateFlow<ServiceUiState> = MutableStateFlow(ServiceUiState.Disabled())
+        override val state = MutableStateFlow<ServiceUiState>(ServiceUiState.Disabled())
         override val outputs = MutableSharedFlow<ServiceUiOutput>(extraBufferCapacity = 8)
         val sent = mutableListOf<ServiceUiIntent.Public>()
 

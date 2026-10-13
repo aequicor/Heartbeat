@@ -33,6 +33,15 @@ interface StudioSurfaces {
     /** The place id of pane [paneId] for the slot routes of interfaces. */
     fun host(paneId: Int): String
 
+    /** The dock of this window for the panel route of interfaces. */
+    val dock: String
+
+    /** The opening sequence of the panel open in [dock], or null while none is open. */
+    val panel: Flow<Long?>
+
+    /** Closes the panel open in [dock]. */
+    suspend fun closePanel()
+
     /** Keeps the places of the panes in [places] bound until cancelled; panes leaving the map are unbound. */
     suspend fun keep(places: Flow<Map<Int, StudioSurfacePlace>>)
 
@@ -42,6 +51,11 @@ interface StudioSurfaces {
         override val prompts: Flow<StudioSurfacePrompt> = emptyFlow()
 
         override fun host(paneId: Int): String = "none.pane-$paneId"
+
+        override val dock: String = "none.side"
+        override val panel: Flow<Long?> = flowOf(null)
+
+        override suspend fun closePanel() = Unit
 
         override suspend fun keep(places: Flow<Map<Int, StudioSurfacePlace>>) = awaitCancellation()
     }

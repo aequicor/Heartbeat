@@ -85,6 +85,10 @@ class StudioSurfaceModelTest {
         override val prompts = MutableSharedFlow<StudioSurfacePrompt>(extraBufferCapacity = 4)
 
         override fun host(paneId: Int): String = "test.pane-$paneId"
+        override val dock: String = "test.side"
+        override val panel: Flow<Long?> = flowOf(null)
+
+        override suspend fun closePanel() = Unit
 
         override suspend fun keep(places: Flow<Map<Int, StudioSurfacePlace>>) = places.collect { this.places += it }
     }
