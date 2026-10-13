@@ -24,13 +24,6 @@ import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ApprovalUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.EffortUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.HarnessChoicesUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.HarnessOptionUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionConfigurationUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_auto
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_edits
@@ -42,6 +35,13 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_menu_sectio
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan_prompt
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_remember
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ApprovalUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.EffortUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoicesUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessOptionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ModelUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionConfigurationUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf

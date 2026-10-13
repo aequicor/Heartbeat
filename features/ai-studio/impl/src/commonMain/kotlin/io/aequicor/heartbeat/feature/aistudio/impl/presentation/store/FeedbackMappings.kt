@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ApprovalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedbackFailureUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedbackOutcomeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedbackParameterUi

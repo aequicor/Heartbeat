@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.REMEMBER_COMMAND
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.COMPOSER_REMEMBER_COMMAND
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.DefaultSettingsUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
 import io.aequicor.heartbeat.feature.organicai.api.CellId
 import kotlin.test.Test

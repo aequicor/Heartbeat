@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPane
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.InputSupportUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubmissionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.acceptSubmission
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.afterNavigation

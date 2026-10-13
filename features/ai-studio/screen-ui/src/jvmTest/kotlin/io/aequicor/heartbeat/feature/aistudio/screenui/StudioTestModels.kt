@@ -1,6 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.screenui
 
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ModelUi
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 

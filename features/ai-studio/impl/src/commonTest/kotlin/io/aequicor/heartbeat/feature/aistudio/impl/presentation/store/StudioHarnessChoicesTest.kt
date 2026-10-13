@@ -1,5 +1,9 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoiceUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoicesUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessOptionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.choosePane
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.pendingSubmission
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.prepareSubmission

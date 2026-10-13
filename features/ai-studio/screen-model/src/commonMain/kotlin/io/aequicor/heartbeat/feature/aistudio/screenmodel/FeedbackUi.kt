@@ -1,7 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.screenmodel
 
 import androidx.compose.runtime.Immutable
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ApprovalUi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 

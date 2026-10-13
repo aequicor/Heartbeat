@@ -9,7 +9,7 @@ import io.aequicor.heartbeat.ds.components.HbToolBlock
 import io.aequicor.heartbeat.ds.components.HbToolCall
 import io.aequicor.heartbeat.ds.components.HbToolKind
 import io.aequicor.heartbeat.ds.components.HbToolStatus
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ApprovalUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ApprovalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedbackFailureUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedbackOutcomeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedbackParameterUi

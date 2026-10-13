@@ -35,7 +35,6 @@ import io.aequicor.heartbeat.feature.aistudio.impl.data.studioSeed
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PermissionOptionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PermissionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionWaitUi
@@ -52,6 +51,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_sleeping
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_waiting_event
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.stopping
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ToolStatusUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ToolUi
 import io.aequicor.heartbeat.feature.aistudio.screenui.AiStudioContent

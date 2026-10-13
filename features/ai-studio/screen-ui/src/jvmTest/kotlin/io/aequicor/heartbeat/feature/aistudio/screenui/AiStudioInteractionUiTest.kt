@@ -34,7 +34,6 @@ import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarMode
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioPhase
@@ -44,6 +43,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_send
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_stop
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_no_results
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ToolStatusUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ToolUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.reduce

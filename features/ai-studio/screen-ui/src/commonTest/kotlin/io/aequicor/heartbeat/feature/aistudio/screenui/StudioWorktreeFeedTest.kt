@@ -10,10 +10,10 @@ import io.aequicor.heartbeat.ds.components.HbToolKind
 import io.aequicor.heartbeat.ds.components.HbToolStatus
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.BuildPhaseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.BuildUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeActionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreePhaseUi

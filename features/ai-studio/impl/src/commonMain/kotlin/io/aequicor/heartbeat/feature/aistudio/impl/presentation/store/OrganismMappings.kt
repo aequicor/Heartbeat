@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionObservationSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ApprovalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismPermissionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismStatusUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismUi

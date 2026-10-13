@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioReplyPart
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioToolRun
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolRunStatus
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ApprovalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedbackFailureUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedbackOutcomeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedbackParameterUi

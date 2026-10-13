@@ -1,7 +1,9 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentPreviewUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.EnvironmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ReplyPartUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioViewJson
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ToolStatusUi

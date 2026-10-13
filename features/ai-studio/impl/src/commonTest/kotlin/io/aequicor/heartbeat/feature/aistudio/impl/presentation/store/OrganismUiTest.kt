@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ApprovalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismStatusUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionKindUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionStateUi

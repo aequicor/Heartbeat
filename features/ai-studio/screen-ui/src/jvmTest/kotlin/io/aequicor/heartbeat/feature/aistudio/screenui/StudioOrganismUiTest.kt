@@ -43,8 +43,6 @@ import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.ds.tokens.HbMotion
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PermissionOptionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
@@ -57,10 +55,12 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_zygote
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_tree_activity
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.InputSupportUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismActionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismPermissionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismStatusUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionTreeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionKindUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionStateUi

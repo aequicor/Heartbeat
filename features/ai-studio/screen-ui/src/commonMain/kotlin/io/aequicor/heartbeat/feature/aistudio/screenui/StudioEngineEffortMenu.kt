@@ -12,10 +12,10 @@ import io.aequicor.heartbeat.ds.components.HbComposerMenuButton
 import io.aequicor.heartbeat.ds.components.HbComposerMenuStyle
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_effort_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_default
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ModelUi
 import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.stringResource
 
