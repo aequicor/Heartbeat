@@ -49,7 +49,7 @@ import kotlin.time.Instant
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioConfiguredSubmissionTest {
     @Test
-    fun `a compaction keeps the chat's trust, which the engine then reports back unchanged`() = runTest {
+    fun `a compaction keeps the chat's trust which the engine then reports back unchanged`() = runTest {
         val fixture = SubmissionFixture(this)
 
         fixture.submit("compact-1", compaction = ContextCompaction())
@@ -61,7 +61,7 @@ class StudioConfiguredSubmissionTest {
     }
 
     @Test
-    fun `the handoff summary turn asks, but its trust never becomes the chat's configuration`() = runTest {
+    fun `the handoff summary turn asks but its trust never becomes the chat's configuration`() = runTest {
         val fixture = SubmissionFixture(this)
         fixture.submit("prompt")
         runCurrent()
@@ -115,7 +115,7 @@ class StudioConfiguredSubmissionTest {
     }
 
     @Test
-    fun `the carried seed reaches the turns until one marks it delivered, even when marking fails`() = runTest {
+    fun `the carried seed reaches the turns until one marks it delivered even when marking fails`() = runTest {
         val fixture = SubmissionFixture(this)
         fixture.access.records["chat"] = fixture.access.records.getValue("chat").copy(pendingSeed = "the essence")
         fixture.access.seedFailure = IllegalStateException("store unavailable")

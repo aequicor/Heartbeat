@@ -322,6 +322,7 @@ private fun AiStudioScreenState.auditIntent(intent: StudioIntent): AiStudioScree
     is StudioIntent.SelectHarness,
     is StudioIntent.RemoteApplied,
     is StudioIntent.Embed,
+    StudioIntent.InstallAppUpdate,
     -> this
 }
 

@@ -115,7 +115,7 @@ class AiStudioModel(
     previews: StudioAttachmentPreviews,
     private val harnesses: StudioHarnesses = StudioHarnesses.None,
     private val compactions: StudioCompactionPort = StudioCompactionPort.None,
-    host: StudioScreenHost = StudioScreenHost.Window,
+    private val host: StudioScreenHost = StudioScreenHost.Window,
     private val embeddedScreens: StudioEmbeds = StudioEmbeds.None,
     surfaceBinding: StudioSurfaceBinding = StudioSurfaceBinding(StudioSurfaces.None, backend, scope),
 ) {
@@ -135,6 +135,7 @@ class AiStudioModel(
     private val previewRequests = MutableStateFlow<List<ResourceRef>>(emptyList())
 
     private val organisms = StudioOrganismView(machine, machines, backend) { it.withAttachmentMetadata() }
+    private val appUpdate = StudioAppUpdate(machines)
 
     /** Late-bound file attach of an accepted suggestion: the store itself is created below. */
     private var attachSuggestedFile: suspend (paneId: Int, location: String) -> Unit = { _, _ -> }
@@ -205,6 +206,7 @@ class AiStudioModel(
                 }
                 launch { organisms.observe(pipeline) }
                 launch { observeResearch(pipeline) }
+                if (host == StudioScreenHost.Window) launch { appUpdate.observe(pipeline) }
                 launch { observeComputerUse(pipeline) }
                 launch { observeEfforts(pipeline) }
                 launch { observeWorktrees(pipeline) }
@@ -439,6 +441,7 @@ class AiStudioModel(
             is AiStudioScreenIntent.SelectHarness -> harnessSelection.select(pipeline, intent)
             is AiStudioScreenIntent.RemoteApplied -> updateState { copy(remoteSeq = intent.seq) }
             is AiStudioScreenIntent.Embed -> embeddedScreens.handle(pipeline, intent, environment)
+            AiStudioScreenIntent.InstallAppUpdate -> if (host == StudioScreenHost.Window) appUpdate.install()
         }
     }
 

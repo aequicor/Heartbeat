@@ -15,7 +15,7 @@ class StoredSettingsTest {
     }
 
     @Test
-    fun `values outside the allowed ranges are brought into them, the others are kept`() {
+    fun `values outside the allowed ranges are brought into them the others are kept`() {
         val json = """
             {"thresholdPercent": 20, "koogKeepRecentTurns": 99, "koogToolStubChars": -1,
              "offloadThresholdChars": 1, "strategy": "Rollover", "isToolCallsCollapsed": true}

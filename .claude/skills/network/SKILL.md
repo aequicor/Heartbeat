@@ -99,3 +99,17 @@ val api = ProjectsApi(client, ProjectsEndpoints("https://test"))
 
 Поведение самого клиента (ретраи, таймауты, логи, редактирование) покрыто в `core:network:impl`:
 `./gradlew :core:network:api:jvmTest :core:network:impl:jvmTest`; граф — `:platform-main:di-bundle:jvmTest`.
+
+## Релизы и проверенная загрузка
+
+`ReleaseSource` (`core:network:api`, common) читает GitHub releases/latest и ограниченные текстовые документы;
+`VerifiedReleaseDownloader` (jvm) создаёт новый файл, проверяет HTTPS/хост до и после редиректов, размер,
+свободное место и SHA-256. Обе реализации — internal в `core:network:impl`, биндинги AppScope.
+Чистые `GitHubRelease`/`GitHubAsset`, allowlist, checksum-парсер и сравнение версий — `core:common:release`:
+их могут использовать feature API без зависимости от сети. Политика релиза и выбора ассета остаётся у фичи.
+
+Release-запросы отключают `expectSuccess`: тела HTTP-ошибок не буферизуются валидатором Ktor.
+`ReleaseException` сохраняет категорию, HTTP-статус и имя типа причины без исходного текста или cause.
+Фича преобразует её в собственную ошибку и логирует один WARN на своей границе обработки;
+транспорт отмечает начало/успех и ретраи, но не дублирует WARN и не пишет URL/пути release-запросов.
+Транспортные тесты — в core:network:impl; фичи тестируют маппинг через фейки API, без зависимостей на impl.

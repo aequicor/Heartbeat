@@ -59,7 +59,7 @@ import kotlin.test.assertTrue
 
 class ResearchBrowserCancellationTest {
     @Test
-    fun `profile closure cancels import, rejects the late attachment result and settles the live caller`() = runTest {
+    fun `profile closure cancels import rejects the late attachment result and settles the live caller`() = runTest {
         val profileJob = Job(backgroundScope.coroutineContext[Job])
         val attachments = PendingAttachments()
         val fixture = Fixture(CoroutineScope(backgroundScope.coroutineContext + profileJob), attachments)

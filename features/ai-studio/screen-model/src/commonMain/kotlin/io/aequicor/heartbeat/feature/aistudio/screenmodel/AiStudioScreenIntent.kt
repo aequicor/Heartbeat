@@ -14,6 +14,11 @@ import pro.respawn.flowmvi.api.MVIIntent
 @Serializable
 @SerialName("AiStudioScreenIntent")
 sealed interface AiStudioScreenIntent : MVIIntent {
+    /** Requests a native app update after the UI confirms active agents. */
+    @Serializable
+    @SerialName("InstallAppUpdate")
+    data object InstallAppUpdate : AiStudioScreenIntent
+
     /** An input addressed to one particular child handle of the remote view. */
     @Serializable
     @SerialName("io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent.Embed")

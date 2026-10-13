@@ -78,7 +78,7 @@ class UiEvaluatorTest {
     }
 
     @Test
-    fun `lists expand over arrays with stable keys, an empty view and a count of hidden elements`() {
+    fun `lists expand over arrays with stable keys an empty view and a count of hidden elements`() {
         val evaluator = UiEvaluator(
             spec(
                 """{"version":1,"state":{"rows":[]},"body":{"type":"list","items":"{{state.rows}}","key":"id",
@@ -109,7 +109,7 @@ class UiEvaluatorTest {
     }
 
     @Test
-    fun `values become text, truthiness and typed arguments`() {
+    fun `values become text truthiness and typed arguments`() {
         val bindings = UiBindings(
             UiValues(
                 state = mapOf(

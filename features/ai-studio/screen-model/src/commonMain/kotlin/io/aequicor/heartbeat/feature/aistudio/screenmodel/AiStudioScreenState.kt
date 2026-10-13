@@ -24,6 +24,8 @@ import kotlin.time.Instant
 @SerialName("AiStudioScreenState")
 @Immutable
 data class AiStudioScreenState(
+    /** Native app update offer; remote hosts never install it. */
+    val appUpdate: AppUpdateUi? = null,
     val models: ImmutableList<ModelUi> = persistentListOf(),
     val isResearchEnabled: Boolean = false,
     val isProjectAddingAvailable: Boolean = false,

@@ -39,7 +39,7 @@ class PlaceSelectionTest {
     )
 
     @Test
-    fun `a slot shows enabled surfaces of its placement and launchers of active owners, oldest first`() {
+    fun `a slot shows enabled surfaces of its placement and launchers of active owners oldest first`() {
         val content = PlaceTarget.Slot(host, UiSlot.Start).content(ready, setOf(PrMap))
 
         assertEquals(
@@ -54,7 +54,7 @@ class PlaceSelectionTest {
     }
 
     @Test
-    fun `nothing shows before the library is ready, the place is bound or an owner is active`() {
+    fun `nothing shows before the library is ready the place is bound or an owner is active`() {
         val slot = PlaceTarget.Slot(host, UiSlot.Start)
         assertEquals(PlaceContent(), slot.content(ready.copy(hosts = emptyMap()), setOf(PrMap)))
         assertNull(slot.host(ServiceUiState.Disabled(hosts = ready.hosts)))

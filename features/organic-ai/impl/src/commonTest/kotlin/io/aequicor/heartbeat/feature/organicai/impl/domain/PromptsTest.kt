@@ -134,7 +134,7 @@ class PromptsTest {
     }
 
     @Test
-    fun `a recovery turn repeats the role, warns about the interrupted turn and repeats the work`() {
+    fun `a recovery turn repeats the role warns about the interrupted turn and repeats the work`() {
         val organism = organism(zygote = zygoteCell(working(ZYGOTE, turn = 2, isRecovery = true)))
         val prompt = turnPrompt(organism, organism.zygote)
         assertTrue("Heartbeat restarted" in prompt && OrganismTools.DIVIDE in prompt)

@@ -108,7 +108,7 @@ class HarnessReadToolsTest {
     }
 
     @Test
-    fun `get describes item statuses and the tool policy, and returns one item on request`() = runTest {
+    fun `get describes item statuses and the tool policy and returns one item on request`() = runTest {
         val described = tools.execute(context, HarnessTools.GET, ref("test")).text
         assertTrue(described.contains("Activation: connected chats only · on · revision 0"), described)
         assertTrue(described.contains("- script script · failed and disabled"), described)
@@ -122,7 +122,7 @@ class HarnessReadToolsTest {
     }
 
     @Test
-    fun `tools catalog shows effective switches, defaults and what can be switched on`() = runTest {
+    fun `tools catalog shows effective switches defaults and what can be switched on`() = runTest {
         val text = tools.execute(context, HarnessTools.TOOLS_CATALOG, JsonObject(emptyMap())).text
         assertTrue(text.contains("- Поиск [search]: web_search (read)"), text)
         assertTrue(text.contains("native enabling is off (flag harness.native_tools)"), text)

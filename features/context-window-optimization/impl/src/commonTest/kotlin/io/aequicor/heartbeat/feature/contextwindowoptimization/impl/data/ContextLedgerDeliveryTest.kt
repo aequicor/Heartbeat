@@ -80,7 +80,7 @@ class ContextLedgerDeliveryTest {
     }
 
     @Test
-    fun `checkpoint and compact reach the machine, status reads it`() = runTest {
+    fun `checkpoint and compact reach the machine status reads it`() = runTest {
         val registry = Registry()
         val tools = ContextAgentTools(view, registry, EnabledToggles(), Clock.System)
         val checkpoint = Json.parseToJsonElement("""{"done":["#12"],"next":["#13"]}""").jsonObject

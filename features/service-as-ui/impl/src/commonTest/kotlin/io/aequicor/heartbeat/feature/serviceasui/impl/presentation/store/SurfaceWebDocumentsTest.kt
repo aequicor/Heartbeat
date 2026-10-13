@@ -44,7 +44,7 @@ import kotlin.test.assertTrue
 
 class SurfaceWebDocumentsTest {
     @Test
-    fun `web nodes get documents only while web documents are on, named by their surface or modal`() = runTest {
+    fun `web nodes get documents only while web documents are on named by their surface or modal`() = runTest {
         val fixture = Fixture(this)
         val screen = subscribe(fixture.model.store)
         assertTrue(fixture.web.opened.isEmpty())

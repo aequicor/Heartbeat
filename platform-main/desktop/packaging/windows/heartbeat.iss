@@ -12,6 +12,9 @@
 #endif
 
 #define AppName "Heartbeat"
+; Launcher files of installations made before the app was named Heartbeat (package name io.aequicor).
+#define LegacyExeName "io.aequicor.exe"
+#define LegacyIconName "io.aequicor.ico"
 
 [Setup]
 ; Identifies the installation for upgrades and Windows' installed apps list: never change it.
@@ -59,6 +62,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; Jar names change between builds: drop the previous app and runtime so an upgrade leaves no stale files behind.
 Type: filesandordirs; Name: "{app}\app"; Check: IsInstalledHere
 Type: filesandordirs; Name: "{app}\runtime"; Check: IsInstalledHere
+; Installations made before the app was named Heartbeat had a launcher named after the package.
+Type: files; Name: "{app}\{#LegacyExeName}"; Check: IsInstalledHere
+Type: files; Name: "{app}\{#LegacyIconName}"; Check: IsInstalledHere
 
 [Files]
 Source: "{#AppImageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -92,11 +98,11 @@ Root: HKCU; Subkey: "Software\Vivaldi\NativeMessagingHosts\io.aequicor.heartbeat
 const
   RetiredMsiKey = 'Software\Aequicor\Heartbeat';
 
-// [InstallDelete] runs only over an existing installation: a first install may go into a folder the user typed in,
-// and its own app or runtime subfolders must survive.
+// [InstallDelete] runs only over an existing installation, also one made before the app was named Heartbeat: a first
+// install may go into a folder the user typed in, and its own app or runtime subfolders must survive.
 function IsInstalledHere: Boolean;
 begin
-  Result := FileExists(ExpandConstant('{app}\{#AppExeName}'));
+  Result := FileExists(ExpandConstant('{app}\{#AppExeName}')) or FileExists(ExpandConstant('{app}\{#LegacyExeName}'));
 end;
 
 // Earlier Heartbeat versions were MSI packages that remembered the data folders under HKCU\Software\Aequicor\Heartbeat

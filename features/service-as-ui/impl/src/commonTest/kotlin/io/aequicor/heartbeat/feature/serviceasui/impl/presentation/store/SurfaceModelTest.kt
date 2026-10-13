@@ -49,7 +49,7 @@ private typealias SurfaceProvider = Provider<SurfaceState, SurfaceIntent, Surfac
 
 class SurfaceModelTest {
     @Test
-    fun `automatic sources load once methods are available, with arguments from state`() = runTest {
+    fun `automatic sources load once methods are available with arguments from state`() = runTest {
         val fixture = Fixture(this)
         val screen = fixture.subscribe()
         runCurrent()
@@ -132,7 +132,7 @@ class SurfaceModelTest {
     }
 
     @Test
-    fun `prompts, panels, links and other surfaces go to the host and the screen`() = runTest {
+    fun `prompts panels links and other surfaces go to the host and the screen`() = runTest {
         val fixture = Fixture(this, available = true)
         val screen = fixture.subscribe()
         val actions = mutableListOf<SurfaceAction>()

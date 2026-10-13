@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.core.network.impl
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.network.NetworkConfig
+import io.aequicor.heartbeat.core.network.impl.release.ReleaseRequest
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.network.sockets.ConnectTimeoutException
@@ -55,7 +56,11 @@ internal fun createHttpClient(
         exponentialDelay(respectRetryAfterHeader = false)
         delay(retryDelay)
         modifyRequest { request ->
-            log.i { "retry #$retryCount ${request.method.value} ${request.url.build().forLog()}" }
+            if (request.attributes.contains(ReleaseRequest)) {
+                log.i { "retry release request #$retryCount" }
+            } else {
+                log.i { "retry #$retryCount ${request.method.value} ${request.url.build().forLog()}" }
+            }
         }
     }
 
@@ -71,7 +76,7 @@ internal fun createHttpClient(
     // Connect/socket timeouts are plain IOExceptions — NetworkLogging already logged them as failures.
     HttpResponseValidator {
         handleResponseExceptionWithRequest { cause, request ->
-            if (cause is HttpRequestTimeoutException) {
+            if (cause is HttpRequestTimeoutException && !request.attributes.contains(ReleaseRequest)) {
                 log.w { "${request.method.value} ${request.url.forLog()} timed out" }
             }
         }

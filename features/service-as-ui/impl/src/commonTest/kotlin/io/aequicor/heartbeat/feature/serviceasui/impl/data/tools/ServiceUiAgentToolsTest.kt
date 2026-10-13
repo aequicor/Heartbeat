@@ -84,7 +84,7 @@ class ServiceUiAgentToolsTest {
     }
 
     @Test
-    fun `an approved put saves the interface, which list and get show`() = runTest {
+    fun `an approved put saves the interface which list and get show`() = runTest {
         val saved = call(ServiceUiTools.PUT, put(SPEC))
         assertFalse(saved.isError, saved.text)
         assertEquals("Saved interface harness:h_1:start at revision 1.", saved.text)
@@ -139,7 +139,7 @@ class ServiceUiAgentToolsTest {
     }
 
     @Test
-    fun `an invalid spec, an unknown owner or a stale approval change nothing`() = runTest {
+    fun `an invalid spec an unknown owner or a stale approval change nothing`() = runTest {
         val invalid = call(
             ServiceUiTools.PUT,
             put("""{"version":1,"body":{"type":"button","label":"Go","action":{"type":"call","method":"nope"}}}"""),

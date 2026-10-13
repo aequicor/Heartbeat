@@ -11,6 +11,13 @@ kotlin {
         jvmTarget = JvmTarget.JVM_17
     }
 }
+
+// One app version for all builds (gradle.properties, or the release tag's version in the release workflow).
+val heartbeatVersion = providers.gradleProperty("heartbeat.version").get()
+val heartbeatVersionParts = requireNotNull(Regex("([1-9][0-9]*)\\.([0-9]+)\\.([0-9]+)").matchEntire(heartbeatVersion)) {
+    "heartbeat.version must be MAJOR.MINOR.PATCH with a major of at least 1: $heartbeatVersion"
+}.destructured.toList().map(String::toInt)
+
 dependencies {
     implementation(projects.platformMain.shared)
 
@@ -29,8 +36,9 @@ android {
         applicationId = "io.aequicor"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 1
-        versionName = "1.0"
+        // Monotonic for MAJOR.MINOR.PATCH while minor and patch stay below 1000.
+        versionCode = heartbeatVersionParts.let { (major, minor, patch) -> major * 1_000_000 + minor * 1_000 + patch }
+        versionName = heartbeatVersion
     }
     packaging {
         resources {

@@ -75,7 +75,7 @@ class EngineManagementTest {
     }
 
     @Test
-    fun `a flag or the platform leaves only launch settings, the profile switch does not`() {
+    fun `a flag or the platform leaves only launch settings but the profile switch does not`() {
         val flagOff = engine(cli, reasons = setOf(DisabledReason.EngineFlagOff))
         assertEquals(setOf(Configure), flagOff.actions())
         val unsupported = engine(

@@ -179,7 +179,7 @@ class EngineJobsTest {
     }
 
     @Test
-    fun `a sign-in shows the page, takes the pasted code and refreshes CLI connections`() = runTest {
+    fun `a sign-in shows the page takes the pasted code and refreshes CLI connections`() = runTest {
         val jobs = jobs()
 
         jobs.start(engine, EngineAction.Login(LoginMethod.DeviceCode))

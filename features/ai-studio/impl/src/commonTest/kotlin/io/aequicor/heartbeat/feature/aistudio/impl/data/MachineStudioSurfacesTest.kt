@@ -44,7 +44,7 @@ class MachineStudioSurfacesTest {
     private val native = SessionRef(EngineId("engine"), SessionSourceId("source"), "chat")
 
     @Test
-    fun `places follow the panes, are unbound when they leave and when the studio stops`() = runTest {
+    fun `places follow the panes are unbound when they leave and when the studio stops`() = runTest {
         val machine = FakeSurfaceMachine()
         val surfaces = MachineStudioSurfaces(Registry(machine), Toggles(true))
         val places = MutableStateFlow(mapOf(0 to StudioSurfacePlace(chat = native), 1 to StudioSurfacePlace()))

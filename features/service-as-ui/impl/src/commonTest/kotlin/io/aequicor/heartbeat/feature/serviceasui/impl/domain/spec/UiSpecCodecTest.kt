@@ -78,7 +78,7 @@ class UiSpecCodecTest {
     }
 
     @Test
-    fun `invalid json, size and version are rejected`() {
+    fun `invalid json size and version are rejected`() {
         assertEquals(UiSpecProblem.InvalidJson, single("""{"version":1,"""").problem)
         assertEquals(UiSpecProblem.InvalidJson, single("").problem)
         val padding = " ".repeat(ServiceUiLimits.SPEC_BYTES)

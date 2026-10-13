@@ -137,4 +137,5 @@ include(
 include(":features:harness:api", ":features:harness:impl")
 include(":features:browser:api", ":features:browser:impl")
 include(":features:chromium-bridge:api", ":features:chromium-bridge:impl", ":features:chromium-bridge:protocol")
+include(":features:app-update:api", ":features:app-update:impl")
 include(":features:service-as-ui:api", ":features:service-as-ui:impl")

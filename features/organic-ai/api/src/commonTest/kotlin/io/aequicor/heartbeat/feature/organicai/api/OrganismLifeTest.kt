@@ -24,7 +24,7 @@ class OrganismLifeTest {
     )
 
     @Test
-    fun `lineage, depth and subtree follow the parents`() {
+    fun `lineage depth and subtree follow the parents`() {
         assertEquals(listOf(C2, C1, ZYGOTE), grown.lineage(C2).map { it.id })
         assertEquals(0, grown.depth(ZYGOTE))
         assertEquals(3, grown.depth(C3))
@@ -72,7 +72,7 @@ class OrganismLifeTest {
     }
 
     @Test
-    fun `only a working cell divides, within the explicit limits`() {
+    fun `only a working cell divides within the explicit limits`() {
         assertNull(grown.divisionRefusal(C1))
         assertEquals(Refusal.UnknownCell, grown.divisionRefusal(CellId("c9")))
         assertEquals(Refusal.NotWorking, grown.divisionRefusal(C3))

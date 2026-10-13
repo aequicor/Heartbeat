@@ -168,7 +168,7 @@ class EngineManagementServiceTest {
     }
 
     @Test
-    fun `an inspection records the adapter's installation, login and launch warnings`() = runTest {
+    fun `an inspection records the adapter's installation login and launch warnings`() = runTest {
         manager.installation = Installation(InstallSource.System, "1.2.0", "/usr/local/bin/cli")
         manager.login = LoginState.SignedIn("me@example.com")
         manager.warnings = listOf(LaunchProblem(LaunchOption.Executable, LaunchProblemReason.NotFound))
@@ -189,7 +189,7 @@ class EngineManagementServiceTest {
     }
 
     @Test
-    fun `a failing or hanging adapter is recorded, never thrown`() = runTest {
+    fun `a failing or hanging adapter is recorded never thrown`() = runTest {
         manager.failure = EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
         val service = service()
         runCurrent()
@@ -230,7 +230,7 @@ class EngineManagementServiceTest {
     }
 
     @Test
-    fun `launch settings are validated, saved and applied by stopping idle runtimes`() = runTest {
+    fun `launch settings are validated saved and applied by stopping idle runtimes`() = runTest {
         val service = service()
         runCurrent()
         val invalid = LaunchSettings(environment = listOf(EnvironmentEntry("CLI_HOME", "/tmp")))

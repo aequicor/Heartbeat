@@ -134,7 +134,7 @@ class ContextOptimizationMachineTest {
     }
 
     @Test
-    fun `a checkpoint updates and saves the ledger, which follows a rollover`() {
+    fun `a checkpoint updates and saves the ledger which follows a rollover`() {
         val at = Instant.fromEpochSeconds(10)
         val ledger = null.updated(LedgerUpdate(goal = "Fix issues", done = listOf("#1")), at)
         spec.assertTransition(
@@ -161,7 +161,7 @@ class ContextOptimizationMachineTest {
     }
 
     @Test
-    fun `stale finishes, claims and self rollovers are ignored`() {
+    fun `stale finishes claims and self rollovers are ignored`() {
         spec.assertIgnored(Ready(), Public.Finished(Session, CompactionResult.Compacted))
         spec.assertIgnored(
             Ready(pending = mapOf(Session to Pending), running = mapOf(Session to Pending)),

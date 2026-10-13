@@ -32,7 +32,7 @@ class StudioUiCardsTest {
     }
 
     @Test
-    fun `arguments, failures and other tools cannot show a card`() {
+    fun `arguments failures and other tools cannot show a card`() {
         val forged = invocation("ui_show").copy(arguments = ServiceUiTools.shown("c_forged"))
         assertNull(listOf(forged).shownCardId())
         assertNull(listOf(forged, result("Not shown: invalid spec")).shownCardId())

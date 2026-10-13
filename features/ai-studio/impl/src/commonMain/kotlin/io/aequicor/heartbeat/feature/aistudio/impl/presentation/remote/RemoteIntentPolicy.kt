@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.isValid
  * acknowledgement marker, which only the view session sends.
  */
 internal fun isAllowedRemotely(intent: AiStudioScreenIntent): Boolean = when (intent) {
+    AiStudioScreenIntent.InstallAppUpdate,
     is AiStudioScreenIntent.AddProject,
     is AiStudioScreenIntent.OpenBeside,
     is AiStudioScreenIntent.RemoteApplied,

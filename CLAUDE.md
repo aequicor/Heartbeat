@@ -206,6 +206,14 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > Скрипты и workflow работают только на Desktop: K2 компилирует
 > в отдельном процессе-воркере (свой малый heap, убивается по таймауту), исполняются они в процессе приложения
 > (проба `--heartbeat-harness-probe`); запуски workflow восстанавливаются после рестарта.
+> `features:app-update:{api,impl}` — самообновление установленного desktop-приложения (macOS, Windows) из GitHub Releases
+> (тогл `app_update.enabled`, по умолчанию true): машина в AppScope (`AppUpdateMachineKey`, запуск — `AppStartup` desktop)
+> проверяет последний релиз `vX.Y.Z` при запуске и раз в 6 ч; кнопка «Обновить» в шапке сайдбара студии скачивает сборку
+> с проверкой SHA-256, на macOS меняет бандл из DMG, на Windows тихо ставит установщик Inno Setup поверх, после выхода
+> приложения helper запускает новую версию (desktop выходит штатно по `Restarting`). Активно только в установленной
+> релизной сборке (`-Dheartbeat.app.update.repository` у release-лаунчера). Версия — `heartbeat.version` в
+> `gradle.properties`; `.github/workflows/release.yml` запускается кнопкой Run workflow из `master` с уровнем
+> `patch` / `minor` / `major`, вычисляет следующую версию и публикует её тег и релиз после всех тестов и сборок.
 > `features:service-as-ui:{api,impl}` — интерфейсы агента (тогл `service_ui.enabled`, по умолчанию false): профильная
 > библиотека поверхностей — декларативных экранов спеки v1 (узлы, действия, привязки `{{path}}`), владельцы которых
 > (харнессы через SPI `ServiceUiProvider` и `ui.method` скриптов) дают методы для кнопок; нажатия пользователя вызывают

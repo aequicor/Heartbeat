@@ -24,6 +24,7 @@ class StudioScreenSerializationTest {
 
     private val state = AiStudioScreenState(
         phase = StudioPhase.Ready,
+        appUpdate = AppUpdateUi("1.4.0", AppUpdateStageUi.Downloading, 25, AppUpdateFailureUi.Network),
         projects = persistentListOf(ProjectUi("p1", "Heartbeat", EnvironmentUi.Local, "main")),
         sessions = persistentListOf(SessionUi("s1", "Перенос панели ✅", "p1", at, isRunning = true)),
         panes = persistentListOf(PaneUi(1, sessionId = "s1", projectId = "p1")),
@@ -74,6 +75,7 @@ class StudioScreenSerializationTest {
     fun `intents survive a JSON round trip as the sealed hierarchy`() {
         val intents = listOf(
             AiStudioScreenIntent.Retry,
+            AiStudioScreenIntent.InstallAppUpdate,
             AiStudioScreenIntent.OpenSession("s1"),
             AiStudioScreenIntent.Submit(1),
             AiStudioScreenIntent.RespondPermission("s1", "r1", "allow"),

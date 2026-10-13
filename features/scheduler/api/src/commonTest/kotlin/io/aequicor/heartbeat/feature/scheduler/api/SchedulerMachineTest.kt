@@ -128,7 +128,7 @@ class SchedulerMachineTest {
     }
 
     @Test
-    fun `loading ignores bus events, ticks and delivery results`() {
+    fun `loading ignores bus events ticks and delivery results`() {
         val loading = SchedulerState.Loading
         spec.assertIgnored(loading, SchedulerIntent.Internal.Observed(event(done)))
         spec.assertIgnored(loading, SchedulerIntent.Internal.Tick(now))

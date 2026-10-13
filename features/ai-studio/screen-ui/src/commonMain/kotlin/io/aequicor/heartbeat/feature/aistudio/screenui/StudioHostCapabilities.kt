@@ -13,5 +13,6 @@ data class StudioHostCapabilities(
     val isProjectAddingAvailable: Boolean = true,
     val isSplitAvailable: Boolean = true,
     val isOrganismLaunchingAvailable: Boolean = true,
+    val isAppUpdateAvailable: Boolean = true,
     val onAttachPage: ((Int) -> Unit)? = null,
 )

@@ -52,6 +52,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_title
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioPhase
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.hasRunningAgentsForUpdate
 import org.jetbrains.compose.resources.stringResource
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent as StudioIntent
 
@@ -192,6 +193,8 @@ private fun WideWorkspace(
                     focus = focus,
                     modifier = Modifier.width(HbTheme.dimensions.sidebarWidth).fillMaxHeight()
                         .background(HbTheme.surfaces.sidebar).studioSidebarFocus(focus),
+                    appUpdate = state.appUpdate.takeIf { host.isAppUpdateAvailable },
+                    isAgentRunning = state.hasRunningAgentsForUpdate(),
                 )
             }
         }
@@ -305,6 +308,8 @@ private fun CompactWorkspace(
                     focus = focus,
                     modifier = Modifier.fillMaxSize().studioSidebarFocus(focus),
                     isDrawer = true,
+                    appUpdate = state.appUpdate.takeIf { host.isAppUpdateAvailable },
+                    isAgentRunning = state.hasRunningAgentsForUpdate(),
                 )
             }
         }

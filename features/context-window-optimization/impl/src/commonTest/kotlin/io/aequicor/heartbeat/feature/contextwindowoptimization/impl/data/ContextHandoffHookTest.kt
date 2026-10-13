@@ -21,7 +21,7 @@ class ContextHandoffHookTest {
     private val hook = ContextHandoffHook { true }
 
     @Test
-    fun `tool calls of a handoff summary turn are refused, native ones too`() = runTest {
+    fun `tool calls of a handoff summary turn are refused native ones too`() = runTest {
         assertIs<ToolHookVerdict.Deny>(hook.beforeTool(call(RequestId("${HANDOFF_REQUEST_PREFIX}1"))))
         assertIs<ToolHookVerdict.Deny>(hook.beforeTool(call(RequestId("${HANDOFF_REQUEST_PREFIX}1"), isNative = true)))
     }

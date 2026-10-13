@@ -51,7 +51,7 @@ class ToggleStudioEntriesTest {
     }
 
     @Test
-    fun `organism mode needs organic AI, the engine runtime and a profile`() = runTest {
+    fun `organism mode needs organic AI the engine runtime and a profile`() = runTest {
         val organic = MutableStateFlow(true)
         val runtime = MutableStateFlow(true)
         val gated = ToggleStudioEntries(

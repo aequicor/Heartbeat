@@ -23,6 +23,10 @@ paths:
   из `shared`) с плиткой приложения, которому macOS выдаёт право (ответственный процесс: в разработке — IDE или
   терминал), и перетаскиванием этой плитки в список; закрытие — `dismiss()`. Когда показывать и скрывать гид,
   решает фича.
+  Так же устроено обновление приложения: desktop после создания графа один раз запускает `AppStartup` из
+  `AppStartupAccessors` (jvmMain `di-bundle`; сбой одного логируется, остальные стартуют), а когда машина
+  `AppUpdateMachineKey` переходит в `Restarting`, завершает приложение своим обычным `closeRequest` (`QuitForAppUpdate`) —
+  установщик ждёт выхода процесса. Когда проверять, ставить и перезапускаться, решает фича; кнопку рисует ai-studio.
   Так же подключаются диаграммы markdown: desktop берёт `PlantUmlRenderer` через `PlantUmlAccessors` (jvmMain
   `di-bundle`), адаптирует его к SPI ДС (`PlantUmlDiagramRenderer`: стиль строки → запрос, PNG и кликабельные
   области передаются вместе, PNG декодируется на `dispatchers.default`) и передаёт в `App(root, diagramRenderer = …)`, пока `availability` фичи true; `App` оборачивает

@@ -35,7 +35,19 @@ val desktopRuntime = javaToolchains.launcherFor {
     vendor.set(JvmVendorSpec.JETBRAINS)
 }
 val desktopJavaHome = desktopRuntime.map { it.metadata.installationPath.asFile.absolutePath }
-val heartbeatApplicationVersion = "1.0.0"
+// gradle.properties holds the development default; the release workflow passes the version of the release tag.
+// jpackage accepts only MAJOR.MINOR.PATCH with a major of at least 1, and installed builds compare these numbers.
+val heartbeatApplicationVersion = providers.gradleProperty("heartbeat.version").get().also { version ->
+    require(Regex("[1-9][0-9]*\\.[0-9]+\\.[0-9]+").matches(version)) {
+        "heartbeat.version must be MAJOR.MINOR.PATCH with a major of at least 1: $version"
+    }
+}
+// Installed release builds update themselves from this repository's GitHub releases (owner/name).
+val heartbeatUpdateRepository = providers.gradleProperty("heartbeat.updateRepository").get().also { repository ->
+    require(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+").matches(repository)) {
+        "heartbeat.updateRepository must be owner/name: $repository"
+    }
+}
 
 tasks.withType<Test>().configureEach {
     // Match launchHeartbeat's owned-window layers, including tests that do not enter main().
@@ -144,7 +156,9 @@ compose.desktop {
                 "jdk.compiler",
                 "jdk.unsupported",
             )
-            packageName = "io.aequicor"
+            // The installed app's name: Heartbeat.app on macOS, Heartbeat.exe on Windows (heartbeat.iss cleans up the
+            // launcher of installations made before the rename).
+            packageName = "Heartbeat"
             packageVersion = heartbeatApplicationVersion
             description = "Heartbeat AI Studio"
             vendor = "Aequicor"
@@ -156,6 +170,8 @@ compose.desktop {
                 iconFile.set(layout.projectDirectory.file("icons/heartbeat.ico"))
             }
             linux {
+                // Debian package names are lowercase.
+                packageName = "heartbeat"
                 iconFile.set(layout.projectDirectory.file("icons/heartbeat.png"))
             }
             appResourcesRootDir.set(layout.dir(collectAppResources.map { it.destinationDir }))
@@ -208,6 +224,9 @@ afterEvaluate {
         dependsOn(verifyBrowserRuntime)
         if (!name.contains("Release")) {
             launcherMainClass.set("io.aequicor.heartbeat.platform.desktop.DevelopmentMainKt")
+        } else {
+            // Only the release launcher names the update source: development launches never replace themselves.
+            launcherJvmArgs.add("-Dheartbeat.app.update.repository=$heartbeatUpdateRepository")
         }
     }
     tasks.withType<JavaExec>().configureEach {

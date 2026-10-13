@@ -57,7 +57,7 @@ class WakeDriverTest {
     }
 
     @Test
-    fun `the timer ticks at the earliest deadline, also beyond the sleep cap`() = runTest {
+    fun `the timer ticks at the earliest deadline also beyond the sleep cap`() = runTest {
         val machine = SpecMachine(
             SchedulerState.Ready(
                 listOf(scheduled("late", deadline = START + 2.hours), scheduled("soon", deadline = START + 5.minutes)),

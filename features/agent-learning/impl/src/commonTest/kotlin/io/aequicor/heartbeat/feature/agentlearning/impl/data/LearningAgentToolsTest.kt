@@ -140,7 +140,7 @@ class LearningAgentToolsTest {
     }
 
     @Test
-    fun `the approval opens with the host line, then the whole stored text and the agent's single lines`() = runTest {
+    fun `the approval opens with the host line then the whole stored text and the agent's single lines`() = runTest {
         val tools = tools()
         val spec = tools.specifications(PROJECT).first { it.name == LearningTools.REMEMBER }
         val arguments = remember(

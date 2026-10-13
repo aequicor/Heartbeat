@@ -48,7 +48,7 @@ class CompactionDecisionTest {
     }
 
     @Test
-    fun `auto strategy tries native, then rollover, then stops`() {
+    fun `auto strategy tries native then rollover then stops`() {
         val first = settings.decideCompaction(CompactionMark(), usage(90), Both)
         assertEquals(CompactionMethod.Native, first.pending?.method)
         val second = settings.decideCompaction(first.mark, usage(90), Both)

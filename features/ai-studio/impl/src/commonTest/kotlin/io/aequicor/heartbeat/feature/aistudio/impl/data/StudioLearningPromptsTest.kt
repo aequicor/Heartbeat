@@ -59,7 +59,7 @@ class StudioLearningPromptsTest {
     }
 
     @Test
-    fun `file contents, arguments and learning results are not environment errors`() = runTest {
+    fun `file contents arguments and learning results are not environment errors`() = runTest {
         val learning = StudioLearningPrompts(LearningToggle(isEnabled = true), TestDispatchers)
         val items = listOf(
             SessionItem.Message(info(0), MessageRole.User, listOf(ContentPart.Text("Read it"))),

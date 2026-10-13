@@ -50,6 +50,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_search
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_search_clear
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_shortcut_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_brand
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AppUpdateUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectGroupUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarContent
@@ -67,8 +68,10 @@ internal fun StudioSidebar(
     isOpenBesideAllowed: Boolean,
     exits: StudioExits,
     focus: StudioFocusState,
+    isAgentRunning: Boolean,
     modifier: Modifier = Modifier,
     isDrawer: Boolean = false,
+    appUpdate: AppUpdateUi? = null,
 ) {
     val sidebar = input.sidebar
     val content = remember(input.projects, input.sessions, input.running, input.awaitingPermission, sidebar) {
@@ -86,6 +89,9 @@ internal fun StudioSidebar(
     )
     HbColumn(modifier.testTag("studio-sidebar"), gap = HbTheme.spacing.none) {
         SidebarHeader(
+            appUpdate = appUpdate,
+            isAgentRunning = isAgentRunning,
+            onUpdate = { onIntent(StudioIntent.InstallAppUpdate) },
             onNew = { onIntent(StudioIntent.NewSession(input.newSessionProjectId)) },
             onCollapse = {
                 onIntent(
@@ -120,7 +126,13 @@ internal fun StudioSidebar(
 }
 
 @Composable
-private fun SidebarHeader(onNew: () -> Unit, onCollapse: () -> Unit) {
+private fun SidebarHeader(
+    appUpdate: AppUpdateUi?,
+    isAgentRunning: Boolean,
+    onUpdate: () -> Unit,
+    onNew: () -> Unit,
+    onCollapse: () -> Unit,
+) {
     HbWindowDragArea(Modifier.fillMaxWidth()) {
         HbRow(
             Modifier.fillMaxWidth().padding(top = HbTheme.dimensions.titlebarInset)
@@ -129,13 +141,22 @@ private fun SidebarHeader(onNew: () -> Unit, onCollapse: () -> Unit) {
             gap = HbTheme.spacing.m,
         ) {
             if (!HbTheme.dimensions.isDesktop) HbStudioMark()
-            HbText(
-                stringResource(Res.string.studio_brand),
-                Modifier.weight(1f),
-                style = HbTheme.typography.label,
-                color = if (HbTheme.dimensions.isDesktop) HbTheme.colors.textSecondary else HbTheme.colors.textPrimary,
-                maxLines = 1,
-            )
+            // The window controls are measured first: the brand and an update offer share what remains, and the
+            // brand fades before the offer does.
+            HbRow(Modifier.weight(1f), gap = HbTheme.spacing.m) {
+                HbText(
+                    stringResource(Res.string.studio_brand),
+                    Modifier.weight(1f),
+                    style = HbTheme.typography.label,
+                    color = if (HbTheme.dimensions.isDesktop) {
+                        HbTheme.colors.textSecondary
+                    } else {
+                        HbTheme.colors.textPrimary
+                    },
+                    maxLines = 1,
+                )
+                appUpdate?.let { update -> AppUpdateButton(update, isAgentRunning, onUpdate) }
+            }
             HbIconButton(
                 HbIcons.Plus,
                 stringResource(Res.string.sidebar_new_session),

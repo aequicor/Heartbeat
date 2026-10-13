@@ -162,7 +162,7 @@ class PlaceModelTest {
         }
 
     @Test
-    fun `a modal closes for good when its surface, owner or host leaves the place`() = runTest {
+    fun `a modal closes for good when its surface owner or host leaves the place`() = runTest {
         val fixture = Fixture(this, ServiceUiPlace.of(slot), ready(docked))
         fixture.calls.report(docked.call, setOf(PrMap))
         val place = fixture.subscribe()
@@ -254,7 +254,7 @@ class PlaceModelTest {
     }
 
     @Test
-    fun `a disabled feature, a malformed place and an unreadable spec show nothing`() = runTest {
+    fun `a disabled feature a malformed place and an unreadable spec show nothing`() = runTest {
         val disabled = Fixture(this, ServiceUiPlace.of(slot), ServiceUiState.Disabled(hosts = mapOf(host to docked)))
         assertEquals(PlaceState(), disabled.subscribe().states.value)
         assertEquals(0, disabled.calls.subscriptions)

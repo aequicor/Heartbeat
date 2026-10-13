@@ -30,7 +30,7 @@ class HarnessAuthoringDraftsTest {
     }
 
     @Test
-    fun `create refuses bad slugs, multi-line titles and unknown arguments without echoing them`() {
+    fun `create refuses bad slugs multi-line titles and unknown arguments without echoing them`() {
         listOf(
             args("name" to "X", "title" to "T"),
             args("name" to "ok_name", "title" to "line\nbreak"),
@@ -81,7 +81,7 @@ class HarnessAuthoringDraftsTest {
     }
 
     @Test
-    fun `skills and templates need a description, instructions respect their limit`() {
+    fun `skills and templates need a description instructions respect their limit`() {
         assertIs<Parsed.Invalid>(
             parseItemPut(args("harness" to "h1", "kind" to "skill", "name" to "s", "content" to "Body")),
         )
@@ -98,7 +98,7 @@ class HarnessAuthoringDraftsTest {
     }
 
     @Test
-    fun `code with forbidden constructs, secrets or hidden characters is refused before any question`() {
+    fun `code with forbidden constructs secrets or hidden characters is refused before any question`() {
         listOf(
             "kotlin.system.exitProcess(0)",
             "System . exit(1)",

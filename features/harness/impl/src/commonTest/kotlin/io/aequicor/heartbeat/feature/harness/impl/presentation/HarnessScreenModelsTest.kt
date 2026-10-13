@@ -76,7 +76,7 @@ class HarnessScreenModelsTest {
     }
 
     @Test
-    fun `failing code shows diagnostics, keeps the draft and saves nothing`() = runTest {
+    fun `failing code shows diagnostics keeps the draft and saves nothing`() = runTest {
         val library = RecordingLibrary(ready)
         val host = EditorHost(
             HarnessCompilationResult.Failure(

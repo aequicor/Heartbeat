@@ -84,6 +84,7 @@ private fun StudioViewContent(
             screen.panelExits(dispatch),
             modifier = Modifier.fillMaxSize().then(semantics),
             host = StudioHostCapabilities(
+                isAppUpdateAvailable = false,
                 isNativeAttachmentInputAvailable = false,
                 isAttachmentOpeningAvailable = false,
                 isProjectAddingAvailable = false,

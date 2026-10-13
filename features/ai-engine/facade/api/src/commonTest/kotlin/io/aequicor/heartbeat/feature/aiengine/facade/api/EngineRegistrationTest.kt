@@ -138,7 +138,7 @@ class EngineRegistrationTest {
     }
 
     @Test
-    fun `an engine that installs or signs in a CLI must bring a manager, without constructing it`() {
+    fun `an engine that installs or signs in a CLI must bring a manager without constructing it`() {
         listOf(
             ManagementSpec(install = InstallSupport.Managed),
             ManagementSpec(install = InstallSupport.Bundled),
