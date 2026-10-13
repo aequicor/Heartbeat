@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.attachmentSupport
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.availableHarnesses
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.collapsed
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.selectedNative
 import kotlinx.collections.immutable.ImmutableList
@@ -145,8 +146,8 @@ internal data class SidebarInput(
  */
 internal fun AiStudioScreenState.harnessChoices(pane: PaneUi): ImmutableList<HarnessChoiceUi> {
     val selected = if (pane.sessionId != null) harnessChoices.chats[pane.sessionId] else harnessChoices.panes[pane.id]
-    return harnessChoices.options.map { harness ->
-        HarnessChoiceUi(harness.id, harness.title, selected?.contains(harness.id) == true)
+    return availableHarnesses(pane).map { harness ->
+        HarnessChoiceUi(harness.id, harness.title, selected?.contains(harness.id) == true, harness.description)
     }.toImmutableList()
 }
 

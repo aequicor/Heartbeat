@@ -155,7 +155,8 @@ private fun SkikoComposeUiTest.assertReferenceGeometry(
         composer.height <= maxComposerHeight,
         "Empty composer including its project context must remain compact",
     )
-    val context = onNode(hasText(computerLabel) and hasAnyAncestor(hasTestTag("composer-0")))
+    onNodeWithText(computerLabel).assertDoesNotExist()
+    val context = onNode(hasText("Дизайн студии") and hasAnyAncestor(hasTestTag("composer-0")))
         .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
     val editor = onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("composer-0")))
         .fetchSemanticsNode().boundsInRoot

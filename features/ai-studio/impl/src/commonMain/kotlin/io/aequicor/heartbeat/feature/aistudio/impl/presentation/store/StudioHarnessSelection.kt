@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarness
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
@@ -14,7 +15,7 @@ import pro.respawn.flowmvi.api.PipelineContext
 
 private typealias HarnessPipeline = PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>
 
-/** Harnesses of the chat "+" menu: the library's choices and the user's selection per chat or new-chat pane. */
+/** Harnesses of the composer picker: the library's choices and the user's selection per chat or new-chat pane. */
 internal class StudioHarnessSelection(private val harnesses: StudioHarnesses, private val backend: StudioBackend) {
     private val log = Log.tag("AiStudioModel")
 
@@ -27,7 +28,11 @@ internal class StudioHarnessSelection(private val harnesses: StudioHarnesses, pr
                 session.id to attached.toImmutableSet()
             }.toMap().toImmutableMap()
         }.distinctUntilChanged().collect { (options, chats) ->
-            updateState { copy(harnessChoices = harnessChoices.copy(options = options, chats = chats)) }
+            updateState {
+                copy(
+                    harnessChoices = harnessChoices.copy(options = options, chats = chats),
+                ).pruneHarnessChoices()
+            }
         }
     }
 
@@ -37,9 +42,14 @@ internal class StudioHarnessSelection(private val harnesses: StudioHarnesses, pr
      * A new chat keeps the choice on its pane until its first submission.
      */
     suspend fun select(pipeline: HarnessPipeline, intent: AiStudioScreenIntent.SelectHarness) = with(pipeline) {
-        var chat: String? = null
-        withState { chat = panes.firstOrNull { it.id == intent.paneId }?.sessionId }
-        val id = chat
+        var target: PaneUi? = null
+        withState {
+            target = panes.firstOrNull { pane ->
+                pane.id == intent.paneId && !pane.isCreating && availableHarnesses(pane).any { it.id == intent.harness }
+            }
+        }
+        val pane = target ?: return@with
+        val id = pane.sessionId
         if (id == null) {
             log.i { "New chat harness choice selected=${intent.isSelected}" }
             updateState {
@@ -91,3 +101,21 @@ internal fun HarnessChoicesUi.restorePane(submitted: SubmissionUi, draftKey: Str
 /** The pane's choice left with its submission. */
 internal fun HarnessChoicesUi.withoutPane(paneId: Int): HarnessChoicesUi =
     if (paneId in panes) copy(panes = (panes - paneId).toImmutableMap()) else this
+
+/** Shared harnesses plus this project's choices; connected chat harnesses remain reachable for disconnection. */
+internal fun AiStudioScreenState.availableHarnesses(pane: PaneUi): List<StudioHarness> {
+    val projectId = pane.projectId ?: sessions.firstOrNull { it.id == pane.sessionId }?.projectId
+    val attached = pane.sessionId?.let { harnessChoices.chats[it] }.orEmpty()
+    return harnessChoices.options.filter { it.isAvailableFor(projectId) || it.id in attached }
+}
+
+/** A project switch or library update must not leave invisible selections in a new session's first prompt. */
+internal fun AiStudioScreenState.pruneHarnessChoices(): AiStudioScreenState {
+    val choices = harnessChoices.panes.mapNotNull { (id, selected) ->
+        val pane = panes.firstOrNull { it.id == id && it.sessionId == null } ?: return@mapNotNull null
+        val available = availableHarnesses(pane).mapTo(mutableSetOf()) { it.id }
+        val retained = selected.filter { it in available }.toImmutableSet()
+        if (retained.isEmpty()) null else id to retained
+    }.toMap().toImmutableMap()
+    return if (choices == harnessChoices.panes) this else copy(harnessChoices = harnessChoices.copy(panes = choices))
+}

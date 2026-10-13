@@ -53,6 +53,20 @@ class MachineStudioHarnessesTest {
     private val other = SessionRef(EngineId("test"), SessionSourceId("local"), "other")
 
     @Test
+    fun `clearing eight connected harnesses waits for each persisted disconnection`() = runTest {
+        val names = (1..8).map { "harness_$it" }
+        val library = SpecHarnessLibrary(backgroundScope, names, writeMillis = 100)
+        library.state.value = (library.state.value as HarnessState.Ready).copy(
+            attachments = mapOf(session to names.map(::HarnessId).toSet()),
+        )
+        val harnesses = MachineStudioHarnesses(HarnessRegistry(library), HarnessToggleOn)
+        val results = names.map { name -> async { harnesses.connect(session, name, false) } }.awaitAll()
+        assertTrue(results.all { it })
+        assertTrue(library.attached(session).isEmpty())
+        assertEquals(8, library.sent.size, "bulk clear should not race its own attachment writes")
+    }
+
+    @Test
     fun `the first turn of a submission connects every claimed harness one write after another`() = runTest {
         val library = SpecHarnessLibrary(backgroundScope)
         val harnesses = MachineStudioHarnesses(HarnessRegistry(library), HarnessToggleOn)
@@ -169,6 +183,8 @@ class MachineStudioHarnessesTest {
         val choices = harnesses.choices.first()
 
         assertEquals(listOf("compose", "verify"), choices.harnesses.map { it.id })
+        assertTrue(choices.harnesses.first().projectIds.isEmpty())
+        assertEquals(setOf("project"), choices.harnesses.last().projectIds)
         assertEquals(mapOf(other to setOf("verify")), choices.attached)
     }
 }

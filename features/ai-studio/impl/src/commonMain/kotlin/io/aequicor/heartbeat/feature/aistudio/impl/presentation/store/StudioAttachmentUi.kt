@@ -118,14 +118,20 @@ internal fun AiStudioScreenState.prepareSubmission(id: String, sessionId: String
 
 internal fun AiStudioScreenState.pendingSubmission(paneId: Int, id: String): SubmissionUi {
     val key = draftKey(paneId)
-    val sessionId = panes.firstOrNull { it.id == paneId }?.sessionId
+    val pane = panes.firstOrNull { it.id == paneId }
+    val sessionId = pane?.sessionId
     return SubmissionUi(
         paneId,
         if (key.startsWith("pane:")) "submission:$id" else key,
         draft(paneId),
         attachments(paneId),
         sessionId = sessionId,
-        harnesses = if (sessionId == null) harnessChoices.panes[paneId] ?: persistentSetOf() else persistentSetOf(),
+        harnesses = if (pane != null && sessionId == null) {
+            val selected = harnessChoices.panes[paneId].orEmpty()
+            availableHarnesses(pane).filter { it.id in selected }.map { it.id }.toImmutableSet()
+        } else {
+            persistentSetOf()
+        },
     )
 }
 

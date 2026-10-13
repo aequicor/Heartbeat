@@ -31,7 +31,6 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
-import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
@@ -159,7 +158,7 @@ class StudioWorktreeUiTest {
         }
 
     @Test
-    fun `compact composer keeps selected context and scrolling cannot consume keyboard submit`() {
+    fun `compact composer wraps selected context without consuming keyboard submit`() {
         for (dark in listOf(false, true)) {
             runSkikoComposeUiTest(size = Size(520f, 700f)) {
                 val events = mutableListOf<AiStudioScreenIntent>()
@@ -180,7 +179,7 @@ class StudioWorktreeUiTest {
                     }
                 }
                 onNodeWithText("Heartbeat").assertIsDisplayed()
-                onNodeWithText(computerLabel).assertIsDisplayed()
+                onNodeWithText(computerLabel).assertDoesNotExist()
                 onNodeWithTag("worktree-mode-7").assertIsOn()
                 saveImage(captureToImage(), "composer-new-520-$dark")
                 runOnIdle {
@@ -199,7 +198,7 @@ class StudioWorktreeUiTest {
                 }
                 onNodeWithTag("worktree-pinned-7").assertIsDisplayed()
                 saveImage(captureToImage(), "composer-pinned-520-$dark")
-                onNodeWithTag("worktree-branch-7").performScrollTo().assertIsDisplayed()
+                onNodeWithTag("worktree-branch-7").assertIsDisplayed()
                 val editor = onNode(hasAnyAncestor(hasTestTag("composer-7")) and hasSetTextAction())
                 editor.performClick()
                 saveImage(captureToImage(), "composer-focus-520-$dark")

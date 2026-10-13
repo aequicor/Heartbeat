@@ -58,7 +58,10 @@ class StudioHarnessChoicesTest {
         val initial = AiStudioScreenState(
             panes = persistentListOf(PaneUi(0)),
             drafts = persistentMapOf("pane:0" to "Question"),
-            harnessChoices = HarnessChoicesUi(panes = persistentMapOf(0 to persistentSetOf("chosen"))),
+            harnessChoices = HarnessChoicesUi(
+                options = persistentListOf(StudioHarness("chosen", "Chosen")),
+                panes = persistentMapOf(0 to persistentSetOf("chosen")),
+            ),
         )
         val pending = initial.pendingSubmission(0, "send")
         assertEquals<Set<String>>(setOf("chosen"), pending.harnesses)
