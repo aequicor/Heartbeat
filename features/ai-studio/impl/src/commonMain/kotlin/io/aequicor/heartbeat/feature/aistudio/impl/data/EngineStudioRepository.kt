@@ -48,13 +48,13 @@ import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.OrganismRequest
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.RunFailureKind
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioChatResolver
@@ -69,7 +69,6 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolChoices
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
-import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackAnchor
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeActionRequest
@@ -315,13 +314,13 @@ internal class EngineStudioRepository(
     }
 
     override suspend fun defaults(): RunSettings {
-        log.d { "Read model defaults" }
-        val selection = selections.observe().first()
-        val target = selection.defaultTarget
-        efforts.state.first { it is EffortConfigurationState.Ready }
-        return preferences.load(
-            DefaultRunSettings.copy(modelId = target?.studioModelId().orEmpty()),
-        )
+        log.v { "Read start-page defaults" }
+        return observeDefaults().first()
+    }
+
+    override fun observeDefaults(): Flow<RunSettings> {
+        log.v { "Observe start-page defaults" }
+        return observeStudioDefaults(preferences, selections, efforts)
     }
 
     override suspend fun saveDefaults(settings: RunSettings, version: StudioSettingsVersion) {
@@ -400,10 +399,8 @@ internal class EngineStudioRepository(
         }
     }
 
-    override suspend fun run(sessionId: String, prompt: String, settings: RunSettings): RunOutcome {
-        log.i { "Run studio conversation" }
-        return run(sessionId, prompt, settings, emptyList()) { }
-    }
+    override suspend fun run(sessionId: String, prompt: String, settings: RunSettings): RunOutcome =
+        run(sessionId, prompt, settings, emptyList()) { }.also { log.i { "Studio conversation completed" } }
 
     override suspend fun run(
         sessionId: String,
@@ -411,9 +408,11 @@ internal class EngineStudioRepository(
         settings: RunSettings,
         attachments: List<ResourceRef>,
         submissionId: String,
+        environment: StudioChatEnvironment?,
         onAccepted: suspend () -> Unit,
     ): RunOutcome {
         log.i { "Run studio conversation with durable attachments count=${attachments.size}" }
+        requireBrowserHostSupport(record(sessionId), environment)
         return organisms.submit(record(sessionId), prompt, settings, attachments, onAccepted) ?: launchRun(
             sessionId,
             prompt,
@@ -423,6 +422,7 @@ internal class EngineStudioRepository(
             attachments = attachments,
             onAccepted = onAccepted,
             submissionId = submissionId,
+            environment = environment,
         )
     }
 
@@ -436,11 +436,12 @@ internal class EngineStudioRepository(
         attachments: List<ResourceRef> = emptyList(),
         submissionId: String = "",
         onAccepted: suspend () -> Unit = {},
+        environment: StudioChatEnvironment? = null,
         beforeExecute: suspend () -> Unit = {},
     ): RunOutcome = runs.run(
         this,
         StudioTurnRequest(sessionId, prompt, settings, kind, request, attachments, onAccepted)
-            .copy(submissionId = submissionId),
+            .copy(submissionId = submissionId, environment = environment),
         waitForIdle,
         beforeExecute = beforeExecute,
     )
@@ -557,9 +558,9 @@ internal class EngineStudioRepository(
         return target
     }
 
-    override suspend fun configure(sessionId: String, change: StudioSettingChange) {
+    override suspend fun configure(sessionId: String, change: StudioSettingChange): Boolean {
         log.i { "Configure session parameter kind=${change::class.simpleName.orEmpty()}" }
-        configurations.configure(this, sessionId, change)
+        return configurations.configure(this, sessionId, change)
     }
 
     override suspend fun configurationRecord(id: String): StudioChatRecord {
@@ -942,4 +943,9 @@ private fun studioResumeRequest(target: EngineTarget, workspace: WorkspaceRef?):
 private suspend fun LocalWorkspaces.requireExecutionWorkspace(workspace: WorkspaceRef?, isSupported: Boolean) {
     require(workspace == null || isSupported)
     if (workspace != null) requireNotNull(resolve(workspace)) { "The execution folder is unavailable" }
+}
+
+/** Organism children have independent native sessions and cannot share a single browser-turn binding. */
+private fun requireBrowserHostSupport(chat: StudioChatRecord, environment: StudioChatEnvironment?) {
+    check(environment == null || chat.organismId == null) { "Browser-hosted turns are unavailable for organism chats" }
 }

@@ -69,14 +69,14 @@ public fun HbComposerToggle(
     }
     HbRow(
         modifier = modifier
-            .heightIn(min = controlTargetSize(HbTheme.dimensions.composerActionSize))
+            .heightIn(min = maxOf(HbTheme.dimensions.touchTarget, HbTheme.dimensions.composerPillHeight))
             .hbFocusOutline(isFocused, shape)
             .toggleable(isChecked, interactions, indication = null, enabled = enabled, role = Role.Switch) {
                 log.i { "composer toggle changed checked=$it" }
                 onCheckedChange(it)
             }
             .hbControlSurface(background, shape)
-            .padding(horizontal = HbTheme.spacing.m),
+            .padding(horizontal = HbTheme.spacing.m, vertical = HbTheme.spacing.xs),
         gap = HbTheme.spacing.xs,
     ) {
         if (icon != null) {

@@ -27,10 +27,11 @@ import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbHorizontalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
 
-/** A stable editor and preferences toolbar; narrow layouts give each preference group its own row. */
+/** Stable editor and toolbar; compact panels keep one bounded row, ordinary panels wrap their groups when narrow. */
 @Composable
 internal fun ComposerPanelLayout(
     isFocused: Boolean,
+    isCompact: Boolean,
     leadingContent: @Composable RowScope.() -> Unit,
     trailingContent: @Composable RowScope.() -> Unit,
     action: @Composable () -> Unit,
@@ -47,26 +48,36 @@ internal fun ComposerPanelLayout(
         gap = HbTheme.spacing.xs,
     ) {
         editor(Modifier.fillMaxWidth().padding(horizontal = HbTheme.spacing.xs, vertical = HbTheme.spacing.xs))
-        HbBoxWithConstraints(Modifier.fillMaxWidth()) {
-            val toolbarBreakpoint = if (HbTheme.dimensions.isDesktop) {
-                HbTheme.dimensions.composerToolbarBreakpoint
-            } else {
-                HbTheme.dimensions.compactBreakpoint
+        if (isCompact) {
+            HbRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.xs) {
+                leadingContent()
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                    HbRow(gap = HbTheme.spacing.xs, content = trailingContent)
+                }
+                action()
             }
-            val isNarrow = maxWidth < toolbarBreakpoint
-            val gap = HbTheme.spacing.xs
-            // Both groups keep the same parents and composition when their placement changes.
-            Layout(
-                content = {
-                    HbRow(
-                        Modifier.hbHorizontalScroll(rememberScrollState()),
-                        gap = gap,
-                        content = leadingContent,
-                    )
-                    ComposerActionRow(trailingContent, action)
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) { measurables, constraints -> measurePanelToolbar(measurables, constraints, isNarrow, gap) }
+        } else {
+            HbBoxWithConstraints(Modifier.fillMaxWidth()) {
+                val toolbarBreakpoint = if (HbTheme.dimensions.isDesktop) {
+                    HbTheme.dimensions.composerToolbarBreakpoint
+                } else {
+                    HbTheme.dimensions.compactBreakpoint
+                }
+                val isNarrow = maxWidth < toolbarBreakpoint
+                val gap = HbTheme.spacing.xs
+                // Both groups keep the same parents and composition when their placement changes.
+                Layout(
+                    content = {
+                        HbRow(
+                            Modifier.hbHorizontalScroll(rememberScrollState()),
+                            gap = gap,
+                            content = leadingContent,
+                        )
+                        ComposerActionRow(trailingContent, action)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { measurables, constraints -> measurePanelToolbar(measurables, constraints, isNarrow, gap) }
+            }
         }
     }
 }

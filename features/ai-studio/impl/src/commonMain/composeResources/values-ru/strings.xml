@@ -292,4 +292,12 @@
     <string name="app_update_downloading_status">Загрузка Heartbeat %1$s</string>
     <string name="app_update_preparing_status">Подготовка Heartbeat %1$s к установке</string>
     <string name="app_update_restarting_status">Перезапуск для установки Heartbeat %1$s</string>
+    <string name="harness_picker_search">Найти харнесс</string>
+    <string name="harness_picker_clear_search">Очистить поиск</string>
+    <string name="harness_picker_empty">Ничего не найдено</string>
+    <string name="harness_picker_selected">Выбрано: %1$d</string>
+    <string name="harness_picker_clear">Очистить</string>
+    <string name="harness_picker_done">Готово</string>
+    <string name="harness_picker_one">Харнесс · %1$s</string>
+    <string name="harness_picker_many">Харнессы · %1$d</string>
 </resources>

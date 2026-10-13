@@ -47,7 +47,7 @@ internal fun AiStudioScreenState.reflectMachine(machine: AiStudioState): AiStudi
         uncancellable = machine.uncancellable.toImmutableSet(),
         settings = machine.settings.toUi().copy(engineEfforts = settings.engineEfforts),
         configurations = machine.configurations.mapValues { it.value.toUi() }.toImmutableMap(),
-    )
+    ).pruneHarnessChoices()
 }
 
 /** Pending wakes remain visible until delivery settles, including while the next turn is being admitted. */

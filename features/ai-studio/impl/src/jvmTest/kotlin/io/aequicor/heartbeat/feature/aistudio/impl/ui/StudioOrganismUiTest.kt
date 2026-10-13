@@ -59,6 +59,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SubSession
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SubSessionStateUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SubSessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_send
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_abort
@@ -380,6 +381,8 @@ class StudioOrganismUiTest {
     fun `images can be attached and sent after choosing organism mode`() =
         runSkikoComposeUiTest(size = Size(900f, 700f)) {
             var send = ""
+            var add = ""
+            var attach = ""
             val file = AttachmentUi("image", "shape.png", "image/png", 10)
             val pane = PaneUi(0, isOrganism = true)
             val initial = AiStudioScreenState(panes = persistentListOf(pane), isOrganismEnabled = true)
@@ -393,14 +396,17 @@ class StudioOrganismUiTest {
             )
             setContent {
                 send = stringResource(Res.string.composer_send)
+                add = stringResource(Res.string.composer_add)
+                attach = stringResource(Res.string.attachments_add)
                 HbTheme(darkTheme = false) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
                         StudioComposer(state.paneContent(pane), {}, isCompact = false)
                     }
                 }
             }
-            onNodeWithTag("attachment-add-0").assertIsEnabled()
             onNodeWithContentDescription(send).assertIsEnabled()
+            onNodeWithContentDescription(add).performClick()
+            onNodeWithText(attach).assertIsEnabled()
         }
 
     @Test

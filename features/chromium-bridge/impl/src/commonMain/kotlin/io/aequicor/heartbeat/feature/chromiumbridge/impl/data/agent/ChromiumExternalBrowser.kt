@@ -13,21 +13,26 @@ import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeExcep
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeIncomingEvent
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeSession
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -48,7 +53,29 @@ internal class ChromiumExternalBrowser(sessions: StateFlow<List<BridgeSession>>,
     private val tabsLock = Mutex()
     private val knownTabs = mutableSetOf<String>()
     private val pendingTabs = mutableSetOf<PendingTab>()
+    private val observed = MutableStateFlow<Set<Long>>(emptySet())
     private val connections = sessions
+    private val routes = MutableStateFlow<Map<String, SessionRoute>>(emptyMap())
+
+    override fun bindSession(owner: String, connectionId: String): AutoCloseable {
+        val route = SessionRoute(connectionId)
+        routes.update { it + (owner to route) }
+        log.i { "External browser turn bound" }
+        return AutoCloseable {
+            routes.update { if (it[owner] === route) it - owner else it }
+            log.i { "External browser turn binding released" }
+        }
+    }
+
+    override fun isExternalSession(owner: String): Boolean = owner in routes.value
+
+    override fun isTabInSession(owner: String, tabId: String): Boolean =
+        routes.value[owner]?.connection?.let { it == tabId.substringBefore(':') } ?: true
+
+    // Referential equality publishes a fresh lease even when the same owner binds the same browser again.
+    @Suppress("UseDataClass")
+    private class SessionRoute(val connection: String)
+
     private val agentSessions: StateFlow<List<BridgeSession>> = sessions.flatMapLatest { list ->
         if (list.isEmpty()) {
             flowOf(emptyList())
@@ -80,7 +107,7 @@ internal class ChromiumExternalBrowser(sessions: StateFlow<List<BridgeSession>>,
             }
             revoked.forEach { send(ExternalTabEvent.Revoked(it)) }
             list.filter { it.id !in collectors }.forEach { session ->
-                collectors[session.id] = launch {
+                collectors[session.id] = launch(start = CoroutineStart.UNDISPATCHED) {
                     session.events.collect { incoming ->
                         incoming.toTabEvent(session.id)?.let { event ->
                             tabsLock.withLock {
@@ -96,18 +123,46 @@ internal class ChromiumExternalBrowser(sessions: StateFlow<List<BridgeSession>>,
                     }
                 }
             }
+            observed.value = live
+            log.v { "External browser event subscriptions updated count=${live.size}" }
         }
     }.shareIn(scope, SharingStarted.Eagerly)
 
-    override suspend fun activeTab(): ExternalTab? {
-        val session = newest()
+    override suspend fun activeTab(owner: String?): ExternalTab? {
+        val session = selected(owner)
         return (call(session, "tabs.active", JsonObject(emptyMap()))["tab"] as? JsonObject)?.toTab(session.id)
     }
 
-    override suspend fun openTab(): ExternalTab {
-        val session = newest()
-        return tabCall(session, "tabs.open", JsonObject(emptyMap()))
+    override suspend fun readActiveTab(owner: String): JsonObject {
+        val session = selected(owner)
+        val result = call(session, "tabs.readActive", JsonObject(emptyMap()))
+        val id = result["tabId"]?.jsonPrimitive?.contentOrNull
+        return if (id == null) result else JsonObject(result + ("tabId" to JsonPrimitive("${session.id}:$id")))
     }
+
+    override suspend fun openTab(owner: String): ExternalTab {
+        val session = selected(owner)
+        return tabCall(session, "tabs.open", buildJsonObject { put("owner", owner) })
+    }
+
+    override suspend fun ownedTabs(owner: String): List<ExternalTab> {
+        val selected = selected(owner) // An unavailable browser must not look like an empty group.
+        return connections.value
+            .filter { it.client.value.isAgentCapable() && (!isExternalSession(owner) || it === selected) }
+            .flatMap { session ->
+                val result = call(session, "tabs.owned", buildJsonObject { put("owner", owner) })
+                (result["tabs"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonObject)?.toTab(session.id) }
+            }
+    }
+
+    override suspend fun recoverTab(owner: String, tabId: String, expectedUrl: String): ExternalTab = tabCall(
+        route(tabId),
+        "tabs.recover",
+        tabParams(tabId) {
+            put("owner", owner)
+            put("expectedUrl", expectedUrl)
+        },
+    )
 
     override suspend fun control(tabId: String, expectedUrl: String): ExternalTab {
         val session = route(tabId)
@@ -166,6 +221,12 @@ internal class ChromiumExternalBrowser(sessions: StateFlow<List<BridgeSession>>,
         )
     }
 
+    private fun selected(owner: String?): BridgeSession {
+        val selected = routes.value[owner]?.connection ?: return newest()
+        return connections.value.firstOrNull { it.id.toString() == selected && it.client.value.isAgentCapable() }
+            ?: throw ExternalBrowserException(ExternalBrowserFailure.Unavailable, "The chat's browser is unavailable")
+    }
+
     private fun newest(): BridgeSession = connections.value.lastOrNull { it.client.value.isAgentCapable() }
         ?: throw ExternalBrowserException(ExternalBrowserFailure.Unavailable, "No browser allows agent control")
 
@@ -190,6 +251,7 @@ internal class ChromiumExternalBrowser(sessions: StateFlow<List<BridgeSession>>,
         params: JsonObject,
         timeout: Long = CALL_TIMEOUT_MILLIS,
     ): ExternalTab {
+        awaitObservation(session)
         val pending = PendingTab(session.id)
         tabsLock.withLock { pendingTabs.add(pending) }
         try {
@@ -211,6 +273,15 @@ internal class ChromiumExternalBrowser(sessions: StateFlow<List<BridgeSession>>,
             kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
                 tabsLock.withLock { pendingTabs.remove(pending) }
             }
+        }
+    }
+
+    /** Install event listeners before an RPC can create a tab or emit its revocation. */
+    private suspend fun awaitObservation(session: BridgeSession) {
+        combine(observed, session.client) { ids, client -> session.id in ids || !client.isAgentCapable() }
+            .first { it }
+        if (!session.client.value.isAgentCapable()) {
+            throw ExternalBrowserException(ExternalBrowserFailure.Unavailable, "The browser connection is gone")
         }
     }
 

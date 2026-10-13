@@ -12,11 +12,14 @@ import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChats
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalBrowser
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.DesktopBridgeEnvironment
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.DesktopExtensionFolder
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.ToggleBridgeFeatures
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.agent.ChromiumExternalBrowser
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.chat.PageImporter
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.chat.SidePanelChatHandlers
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.hosts.DesktopNativeHostRegistry
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.hosts.JnaWindowsRegistry
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeConnections
@@ -57,6 +60,12 @@ public object JvmChromiumBridgeBindings {
     @IntoSet
     internal fun hello(features: ToggleBridgeFeatures): BridgeRequestHandler =
         HelloHandler(System.getProperty(APP_VERSION) ?: DEVELOPMENT_VERSION) { features.current() }
+
+    /** Outside chat turns need the desktop browser route; mobile has no native messaging host. */
+    @Provides
+    @IntoSet
+    internal fun chats(chats: StudioChats, pages: PageImporter, browser: Lazy<ExternalBrowser>): BridgeRequestHandler =
+        SidePanelChatHandlers(chats, pages, browser)
 
     /** The socket. */
     @Provides

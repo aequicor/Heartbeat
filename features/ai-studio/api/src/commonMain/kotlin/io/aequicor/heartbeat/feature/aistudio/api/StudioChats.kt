@@ -1,21 +1,26 @@
 package io.aequicor.heartbeat.feature.aistudio.api
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import kotlinx.coroutines.flow.Flow
 import kotlin.time.Instant
 
 /**
  * Profile chats of the studio for hosts outside the studio screen (the Chromium side panel). Turns started here are
  * the profile's own: the studio screen shows them running, can stop them and answer their permissions, and they
- * survive the caller going away. Only reading, sending, stopping and answering offered permissions are exposed;
- * chat metadata and configuration stay with the studio. Unavailable while `ai_studio.engine_runtime` is off.
+ * survive the caller going away. Hosts read and send, stop, answer offered permissions, change a chat's model,
+ * reasoning effort and approvals, and rename, pin, mark or archive chats, the way the studio's sidebar and composer
+ * do. Unavailable while `ai_studio.engine_runtime` is off.
  */
 public interface StudioChats {
     /** Whether profile chats exist (`ai_studio.engine_runtime`). */
     public val availability: Flow<Boolean>
 
-    /** Chats of the profile, pinned first, then by recent activity; empty while unavailable. */
+    /** Chats of the profile, archived ones included, pinned first, then by recent activity; empty while unavailable. */
     public fun observeList(): Flow<StudioChatList>
+
+    /** Models chats can run on and the settings a new chat starts with; empty while unavailable. */
+    public fun observeComposer(): Flow<StudioChatComposer>
 
     /** Transcript of [chatId] in chronological order; empty for an unknown chat. Host directives are removed. */
     public fun observeTranscript(chatId: String): Flow<List<StudioChatEntry>>
@@ -36,6 +41,21 @@ public interface StudioChats {
         optionId: String,
         answer: StudioPermissionAnswer? = null,
     ): Boolean
+
+    /**
+     * Changes the model, reasoning effort or approvals of the existing chat [chatId] like the studio's composer;
+     * `false` when the chat is unknown, archived, busy changing or the engine refused the change.
+     */
+    public suspend fun configure(chatId: String, change: StudioSettingChange): Boolean
+
+    /**
+     * Chooses the profile's reasoning effort for new chats on [modelId] (`null`: the model's default), the choice
+     * the studio's start page shows; `false` for a model without effort levels.
+     */
+    public suspend fun chooseNewChatEffort(modelId: String, effort: String?): Boolean
+
+    /** Renames, pins, marks or archives [chatId]; `false` for an unknown chat or an invalid edit. */
+    public suspend fun edit(chatId: String, edit: SessionEdit): Boolean
 }
 
 /** Projects, chats and the permissions waiting for an answer. */
@@ -48,7 +68,7 @@ public data class StudioChatList(
 /** A project chats can belong to. */
 public data class StudioChatProject(val id: String, val name: String)
 
-/** One chat of the list; helper and archived chats are not listed. */
+/** One chat of the list; helper chats are not listed. */
 public data class StudioChatSummary(
     val id: String,
     val title: String,
@@ -59,6 +79,47 @@ public data class StudioChatSummary(
     val isUnread: Boolean,
     /** A new prompt can continue the chat. */
     val isContinuable: Boolean,
+    val isArchived: Boolean = false,
+    /** The chat's model route; `null` before its first turn. */
+    val modelId: String? = null,
+    /** Settings the chat's engine confirmed; `null` until then. */
+    val settings: StudioChatSettings? = null,
+    /** A settings change is in flight; the chat's pickers wait for it. */
+    val isConfiguring: Boolean = false,
+)
+
+/** Model route, reasoning effort (`null`: the model's default) and approvals of a chat. */
+public data class StudioChatSettings(
+    val modelId: String,
+    val effort: String? = null,
+    val approval: ApprovalMode = ApprovalMode.Ask,
+)
+
+/** What a composer offers: the models and the model and approvals of a new chat. */
+public data class StudioChatComposer(
+    val models: List<StudioChatModel> = emptyList(),
+    /** The start page's model and approvals; `null` when it has no model. Effort comes from [StudioChatModel]. */
+    val newChat: StudioChatSettings? = null,
+)
+
+/** A model chats can run on. */
+public data class StudioChatModel(
+    val id: String,
+    val name: String,
+    val shortName: String = name,
+    /** Reasoning effort levels in the provider's own names; empty when the model has none. */
+    val efforts: List<String> = emptyList(),
+    /** The profile's effort for new chats on this model; `null` for the model's default. */
+    val newChatEffort: String? = null,
+    /** The engine applies the chat's approvals to its own tool calls. */
+    val isTrustSupported: Boolean = false,
+    /** The model can work in a local project. */
+    val isProjectSupported: Boolean = false,
+    /**
+     * Engine connection of the model: a chat may switch only to models of its own connection, and only when this is
+     * not `null` (the engine changes models in place).
+     */
+    val connection: String? = null,
 )
 
 /** One entry of a chat transcript. */
@@ -111,13 +172,17 @@ public enum class StudioChatNotice { Stopped, Failed, Compacted, RolledOver }
 
 /**
  * A prompt for [chatId], or for a new chat in [projectId] (`null`: without a project) when [chatId] is `null`.
- * New chats use the studio's default model; existing chats keep their own model and approval.
+ * A new chat runs on [settings] (model and approvals; effort is the profile's choice for the model), else on the
+ * start page's; existing chats keep their own settings and ignore [settings].
  */
 public data class StudioChatSend(
     val chatId: String?,
     val projectId: String?,
     val prompt: String,
     val attachments: List<ResourceRef> = emptyList(),
+    val settings: StudioChatSettings? = null,
+    /** Trusted host context, installed before submission and retained until the turn and its cleanup finish. */
+    val environment: StudioChatEnvironment? = null,
 )
 
 /** Result of [StudioChats.send]. */
@@ -146,6 +211,21 @@ public enum class StudioChatRejection {
     /** A turn already runs in the chat. */
     Busy,
 
+    /** No connected model is chosen for a new chat. */
+    NoModel,
+
     /** The engine refused or failed the turn before accepting it. */
     Failed,
+}
+
+/**
+ * Host-specific routing for one outside turn; never decoded from model arguments or prompt text.
+ * A native submission with an uncertain outcome retains its binding rather than relaxing tool restrictions.
+ */
+public interface StudioChatEnvironment {
+    /** Declarations for a newly created session, before its native identity exists. */
+    public val preselected: Map<String, Set<String>> get() = emptyMap()
+
+    /** Binds the concrete session before its first prompt; closing the lease removes only this binding. */
+    public fun bind(session: SessionRef): AutoCloseable
 }

@@ -298,4 +298,12 @@
     <string name="app_update_downloading_status">Downloading Heartbeat %1$s</string>
     <string name="app_update_preparing_status">Preparing Heartbeat %1$s for installation</string>
     <string name="app_update_restarting_status">Restarting to install Heartbeat %1$s</string>
+    <string name="harness_picker_search">Find a harness</string>
+    <string name="harness_picker_clear_search">Clear search</string>
+    <string name="harness_picker_empty">No matching harnesses</string>
+    <string name="harness_picker_selected">Selected: %1$d</string>
+    <string name="harness_picker_clear">Clear</string>
+    <string name="harness_picker_done">Done</string>
+    <string name="harness_picker_one">Harness · %1$s</string>
+    <string name="harness_picker_many">Harnesses · %1$d</string>
 </resources>

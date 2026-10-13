@@ -316,7 +316,7 @@ private fun StudioToolRun.toUi(): ToolUi = ToolUi(
 )
 
 /**
- * Harnesses of the "+" menu: enabled [options], committed connections by chat id and choices kept on the panes
+ * Harnesses of the composer picker: enabled [options], committed connections by chat id and choices kept on the panes
  * of chats that have no session yet. [failedChats] are chats whose last connection change was not confirmed.
  */
 @Immutable
@@ -327,6 +327,6 @@ data class HarnessChoicesUi(
     val failedChats: ImmutableSet<String> = persistentSetOf(),
 )
 
-/** One harness of a pane's "+" menu. */
+/** One harness of a pane's picker. */
 @Immutable
-data class HarnessChoiceUi(val id: String, val title: String, val isSelected: Boolean)
+data class HarnessChoiceUi(val id: String, val title: String, val isSelected: Boolean, val description: String = "")

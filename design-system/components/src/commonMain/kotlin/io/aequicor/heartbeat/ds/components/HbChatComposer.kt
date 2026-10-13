@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.round
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.layouts.HbColumn
+import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbHorizontalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
@@ -49,7 +50,7 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 private val log = Log.tag("DS/ChatComposer")
 
 /** Chooses a conventional editor, an inline input, or a spacious panel with an integrated toolbar. */
-public enum class HbComposerLayout { Stacked, Inline, Panel }
+public enum class HbComposerLayout { Stacked, Inline, Panel, CompactPanel }
 
 /**
  * One owner-requested caret move after replacing [text]. [id] identifies the operation and must change for
@@ -70,10 +71,13 @@ public data class HbComposerCaretRequest(public val id: Long, public val text: S
  * Constrain [inputMaxHeight] to the minimum composer height in short viewports to preserve history space.
  * [leadingContent] and [trailingContent] populate the bottom toolbar; overflowing controls scroll
  * independently of the send action. Menus in either slot open above the complete editor.
- * [contextContent] is an optional scrollable context row above the editor; [inputModifier] targets its input.
+ * [contextContent] is an optional wrapping context row above the editor; [inputModifier] targets its input.
  * [layout] keeps the conventional stacked editor by default; [HbComposerLayout.Inline] pairs the
  * editor with its primary action in one rounded flat surface and places secondary controls below.
- * [HbComposerLayout.Panel] keeps the editor above one integrated toolbar at every window width.
+ * [HbComposerLayout.Panel] keeps the editor above a toolbar that can wrap into two groups.
+ * [HbComposerLayout.CompactPanel] grows from one text line and keeps a single bounded toolbar row.
+ * Its owner must collapse secondary actions and constrain preference labels to fit the available width;
+ * toolbar slots receive finite width and support RowScope weights. This Foundation layout uses host tokens on all kits.
  */
 @Composable
 public fun HbChatComposer(
@@ -103,7 +107,7 @@ public fun HbChatComposer(
     onCaretRequestApply: (Long) -> Unit = {},
     leadingContent: @Composable RowScope.() -> Unit = {},
     trailingContent: @Composable RowScope.() -> Unit = {},
-    contextContent: (@Composable RowScope.() -> Unit)? = null,
+    contextContent: (@Composable () -> Unit)? = null,
     inputModifier: Modifier = Modifier,
 ) {
     val isEnterSendingEnabled = HbTheme.dimensions.isDesktop
@@ -118,6 +122,7 @@ public fun HbChatComposer(
         HbComposerLayout.Stacked -> HbTheme.dimensions.composerEditorMinHeight
         HbComposerLayout.Inline -> HbTheme.dimensions.controlHeight
         HbComposerLayout.Panel -> HbTheme.dimensions.controlHeight
+        HbComposerLayout.CompactPanel -> HbTheme.spacing.none
     }
     CompositionLocalProvider(LocalComposerAnchor provides anchor) {
         Box(
@@ -129,12 +134,10 @@ public fun HbChatComposer(
         ) {
             HbColumn(gap = HbTheme.spacing.none) {
                 if (contextContent != null) {
-                    HbRow(
-                        Modifier.fillMaxWidth().hbHorizontalScroll(rememberScrollState())
-                            .padding(horizontal = HbTheme.spacing.m, vertical = HbTheme.spacing.xs),
+                    HbFlowRow(
+                        Modifier.fillMaxWidth().padding(horizontal = HbTheme.spacing.m, vertical = HbTheme.spacing.xs),
                         gap = HbTheme.spacing.s,
-                        content = contextContent,
-                    )
+                    ) { contextContent() }
                 }
                 ComposerLayout(
                     layout = layout,
@@ -197,7 +200,7 @@ private fun ComposerPrimaryAction(
     onClick: () -> Unit,
     enabled: Boolean,
 ) {
-    val isPanel = layout == HbComposerLayout.Panel
+    val isPanel = layout == HbComposerLayout.Panel || layout == HbComposerLayout.CompactPanel
     ComposerIconButton(
         icon = if (isStreaming) HbIcons.Stop else HbIcons.ArrowUp,
         label = label,
@@ -205,7 +208,11 @@ private fun ComposerPrimaryAction(
         enabled = enabled,
         isPrimary = !isStreaming,
         shape = if (isPanel || layout == HbComposerLayout.Stacked) HbTheme.shapes.small else CircleShape,
-        size = if (isPanel) HbTheme.dimensions.composerActionSize else HbTheme.dimensions.touchTarget,
+        size = if (layout == HbComposerLayout.Panel) {
+            HbTheme.dimensions.composerActionSize
+        } else {
+            HbTheme.dimensions.touchTarget
+        },
         background = if (isPanel && enabled) HbTheme.surfaces.composerAction else null,
         tint = HbTheme.surfaces.onComposerAction.takeIf { isPanel && enabled },
         iconSize = HbTheme.dimensions.iconSize,
@@ -270,7 +277,8 @@ private fun ComposerLayout(
             }
         }
 
-        HbComposerLayout.Panel -> ComposerPanelLayout(
+        HbComposerLayout.Panel, HbComposerLayout.CompactPanel -> ComposerPanelLayout(
+            isCompact = layout == HbComposerLayout.CompactPanel,
             isFocused = isFocused,
             leadingContent = currentLeading,
             trailingContent = currentTrailing,

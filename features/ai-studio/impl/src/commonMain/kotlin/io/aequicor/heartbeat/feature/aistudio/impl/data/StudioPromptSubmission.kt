@@ -7,11 +7,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CompactsContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextCompaction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
-import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
@@ -19,10 +17,16 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import io.aequicor.heartbeat.feature.aiengine.facade.api.isRejection
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 
 private val log = Log.tag("StudioPromptSubmission")
+
+/** Native send evidence; preparation failures and proven rejections never retain outside tool restrictions. */
+internal class StudioPromptDelivery {
+    var isPending: Boolean = false
+}
 
 internal suspend fun ActiveSession.submitStudioPrompt(
     prompt: String,
@@ -31,6 +35,7 @@ internal suspend fun ActiveSession.submitStudioPrompt(
     attachments: List<ResourceRef>,
     requestId: RequestId,
     compaction: ContextCompaction? = null,
+    delivery: StudioPromptDelivery? = null,
 ): TurnId {
     // A compaction carries no input and no effort: it only summarizes the native context. It keeps the chat's trust,
     // which the engine would otherwise reset to its default and report back as the chat's configuration.
@@ -46,16 +51,18 @@ internal suspend fun ActiveSession.submitStudioPrompt(
             trust = trust,
         )
     }
+    val sender = features.requireFeature(SendsPrompts)
     return try {
-        features.requireFeature(SendsPrompts).send(request)
+        delivery?.isPending = true
+        sender.send(request)
     } catch (e: EngineException) {
         log.e(e) { "Submission failed; local pending identity does not prove native acceptance" }
-        val failure = e.failure as? EngineFailure.Request
-        if (failure?.reason != RequestFailureReason.OutcomeUnknown) {
+        if (e.failure.isRejection()) {
+            delivery?.isPending = false
             synchronizeSubmission()
             throw e
         }
-        resolveUnknownSubmission(request.id, e)
+        resolveUnknownSubmission(request.id, e, delivery)
     }
 }
 
@@ -68,14 +75,20 @@ private fun ActiveSession.supportedCompaction(compaction: ContextCompaction): Co
 }
 
 /** Keeps the profile reservation until reconciliation establishes acceptance or a known idle native session. */
-private suspend fun ActiveSession.resolveUnknownSubmission(request: RequestId, error: EngineException): TurnId {
+private suspend fun ActiveSession.resolveUnknownSubmission(
+    request: RequestId,
+    error: EngineException,
+    delivery: StudioPromptDelivery?,
+): TurnId {
     val initial = state.value
     val isSynchronized = synchronizeSubmission()
     val resolved = state.first { current ->
         current.confirmedTurn(request) != null ||
             (current is ActiveSessionState.Ready && (isSynchronized || current != initial))
     }
-    return resolved.confirmedTurn(request)?.id ?: throw error
+    resolved.confirmedTurn(request)?.let { return it.id }
+    delivery?.isPending = false
+    throw error
 }
 
 /** Rechecks local failure against the native session so the same handle can accept a corrected prompt. */

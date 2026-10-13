@@ -6,7 +6,15 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
 /** A harness available for explicit connection from a chat's composer. */
-data class StudioHarness(val id: String, val title: String)
+data class StudioHarness(
+    val id: String,
+    val title: String,
+    val description: String = "",
+    val projectIds: Set<String> = emptySet(),
+) {
+    /** Empty scope is shared; project restrictions only control discovery, never automatic attachment. */
+    fun isAvailableFor(projectId: String?): Boolean = projectIds.isEmpty() || projectId in projectIds
+}
 
 /** Library choices: enabled harnesses and committed chat connections. */
 data class StudioHarnessChoices(

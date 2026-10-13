@@ -46,8 +46,12 @@ internal fun ComposerMenuPill(
         isAccent -> studio.onComposerPillAccent
         else -> colors.textPrimary
     }
+    val iconCount = if (icon == null) 1 else 2
+    val maxWidth = HbTheme.dimensions.composerLabelMaxWidth + HbTheme.spacing.m * 2 +
+        (HbTheme.dimensions.iconSize + HbTheme.spacing.xs) * iconCount
     HbRow(
         modifier = modifier
+            .widthIn(max = maxWidth)
             .heightIn(min = maxOf(HbTheme.dimensions.touchTarget, HbTheme.dimensions.composerPillHeight))
             .hbFocusOutline(isFocused, shape)
             .background(background, shape)
@@ -58,7 +62,7 @@ internal fun ComposerMenuPill(
         if (icon != null) HbIcon(icon, null, tint = foreground)
         HbText(
             label,
-            Modifier.widthIn(max = HbTheme.dimensions.composerLabelMaxWidth),
+            Modifier.weight(1f, fill = false).widthIn(max = HbTheme.dimensions.composerLabelMaxWidth),
             style = HbTheme.typography.label,
             color = foreground,
             maxLines = 1,

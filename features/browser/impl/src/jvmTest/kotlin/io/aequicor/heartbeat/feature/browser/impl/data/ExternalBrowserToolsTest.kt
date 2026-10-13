@@ -47,11 +47,11 @@ class ExternalBrowserToolsTest {
     fun `tools are declared only with both bridge flags and keep their trust category`() = runTest {
         val specs = tools.specifications(null)
 
-        assertEquals(13, specs.size)
+        assertEquals(14, specs.size)
         assertTrue(specs.all { it.name.startsWith("ex_control_") })
         assertEquals(AgentToolAction.Command, specs.single { it.name == "ex_control_click" }.action)
         assertEquals(AgentToolAction.Read, specs.single { it.name == "ex_control_read" }.action)
-        assertEquals(13, tools.catalog.size)
+        assertEquals(14, tools.catalog.size)
         toggles.values[ChromiumBridgeAgentControl.key] = false
         assertTrue(tools.specifications(null).isEmpty())
         assertTrue(tools.execute(context, "ex_control_tabs", JsonObject(emptyMap())).isError)
@@ -170,14 +170,26 @@ class ExternalBrowserToolsTest {
             if (tabId == "t1") "https://shop.example/" else null
     }
 
-    private class FakeBrowser : ExternalBrowser {
+    internal class FakeBrowser : ExternalBrowser {
         var active: ExternalTab? = null
         override val state = MutableStateFlow<ExternalBrowserState>(ExternalBrowserState.Connected("Chrome", "140"))
         override val events: Flow<ExternalTabEvent> = emptyFlow()
 
-        override suspend fun activeTab(): ExternalTab? = active
+        val owners = mutableSetOf<String>()
+        override fun isExternalSession(owner: String): Boolean = owner in owners
+        override fun bindSession(owner: String, connectionId: String): AutoCloseable {
+            owners += owner
+            return AutoCloseable { owners -= owner }
+        }
 
-        override suspend fun openTab(): ExternalTab = error("Unused")
+        override suspend fun readActiveTab(owner: String): JsonObject = JsonObject(emptyMap())
+
+        override suspend fun activeTab(owner: String?): ExternalTab? = active
+
+        override suspend fun recoverTab(owner: String, tabId: String, expectedUrl: String): ExternalTab =
+            control(tabId, expectedUrl)
+
+        override suspend fun openTab(owner: String): ExternalTab = error("Unused")
 
         override suspend fun control(tabId: String, expectedUrl: String): ExternalTab = error("Unused")
 
