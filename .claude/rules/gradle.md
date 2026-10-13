@@ -12,6 +12,8 @@ paths:
 - Модули подключают convention-плагины из `build-logic/` вместо копипасты конфигурации:
   - `heartbeat.kmp.library` — таргеты `android`, `jvm`, `iosArm64`, `iosSimulatorArm64`, toolchain, detekt;
   - `heartbeat.kmp.compose` — + Compose Multiplatform;
+  - `heartbeat.kmp.wasm` — + таргет `wasmJs` (браузер) только для боковой панели Chromium-расширения и модулей, которые
+    она компилирует; браузерные тесты выключены — `commonTest` идёт на JVM, `check` только компилирует тесты под wasm;
   - `heartbeat.feature.api` / `heartbeat.feature.impl` — зависимости и ограничения для фич;
   - `heartbeat.metro` — Metro-плагин;
   - `heartbeat.detekt` — detekt + ktlint-wrapper + compose-rules;

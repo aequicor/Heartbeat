@@ -153,6 +153,7 @@ room = { id = "androidx.room", version.ref = "room" }
 heartbeat-detekt = { id = "heartbeat.detekt" }
 heartbeat-kmp-library = { id = "heartbeat.kmp.library" }
 heartbeat-kmp-compose = { id = "heartbeat.kmp.compose" }
+heartbeat-kmp-wasm = { id = "heartbeat.kmp.wasm" }
 heartbeat-metro = { id = "heartbeat.metro" }
 heartbeat-room = { id = "heartbeat.room" }
 heartbeat-jcef = { id = "heartbeat.jcef" }
