@@ -43,7 +43,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.UsageCreditsUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.UsageWindowUi
 import org.jetbrains.compose.resources.stringResource
 import kotlin.time.Instant
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent as StudioIntent
 
 /** Context is per conversation; a quota-only connection still offers the same details panel. */
 @Composable

@@ -24,7 +24,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_connections
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarMode
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarUi
 import org.jetbrains.compose.resources.stringResource
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent as StudioIntent
 
 /** Existing destinations grouped in the unified sidebar footer; each retains its original callback and label. */
 @Composable

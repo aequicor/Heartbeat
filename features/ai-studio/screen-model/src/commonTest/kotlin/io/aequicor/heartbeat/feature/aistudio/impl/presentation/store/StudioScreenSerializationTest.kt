@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentPreviewUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.EnvironmentUi
@@ -22,6 +23,14 @@ import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
 class StudioScreenSerializationTest {
+    @Test
+    fun `child intent wire names survive the shared package move`() {
+        val prefix = "io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent."
+        assertEquals(prefix + "Embed", AiStudioScreenIntent.Embed.serializer().descriptor.serialName)
+        assertEquals(prefix + "QuestionInput", AiStudioScreenIntent.QuestionInput.serializer().descriptor.serialName)
+        assertEquals(prefix + "ChecklistInput", AiStudioScreenIntent.ChecklistInput.serializer().descriptor.serialName)
+    }
+
     private val at = Instant.parse("2026-10-13T09:20:30.123456789Z")
 
     private val tool = ToolUi("t1", "git status", ToolStatusUi.Done, "clean\n", diff = "+a\n-b")

@@ -2,7 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote
 
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModelTest
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioEmbedViews
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioQuestionView
 import io.aequicor.heartbeat.feature.questionnaire.screenmodel.QuestionKindUi

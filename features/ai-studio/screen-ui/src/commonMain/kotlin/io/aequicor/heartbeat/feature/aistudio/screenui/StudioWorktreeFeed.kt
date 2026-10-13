@@ -66,7 +66,7 @@ import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toPersistentSet
 import kotlinx.coroutines.CancellationException
 import org.jetbrains.compose.resources.stringResource
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent as StudioIntent
 
 /**
  * Localized copy of the worktree cards of a transcript. Templates keep their `%1$s` / `%1$d` placeholders for

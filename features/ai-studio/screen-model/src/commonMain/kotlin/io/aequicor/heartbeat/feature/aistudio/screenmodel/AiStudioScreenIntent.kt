@@ -1,24 +1,13 @@
 @file:UseSerializers(ImmutableListSerializer::class, ImmutableSetSerializer::class, ImmutableMapSerializer::class)
 
-package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
+package io.aequicor.heartbeat.feature.aistudio.screenmodel
 
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.ApprovalUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.EffortUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableListSerializer
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableMapSerializer
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableSetSerializer
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismActionUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarMode
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeActionUi
 import io.aequicor.heartbeat.feature.checklist.screenmodel.ChecklistScreenIntent
 import io.aequicor.heartbeat.feature.questionnaire.screenmodel.QuestionnaireScreenIntent
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.UseSerializers
-import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
 
 /** User events of the studio screen. */
@@ -27,14 +16,17 @@ import pro.respawn.flowmvi.api.MVIIntent
 sealed interface AiStudioScreenIntent : MVIIntent {
     /** An input addressed to one particular child handle of the remote view. */
     @Serializable
+    @SerialName("io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent.Embed")
     sealed interface Embed : AiStudioScreenIntent
 
     /** Input to the question source's current handle. */
     @Serializable
+    @SerialName("io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent.QuestionInput")
     data class QuestionInput(val source: String, val instance: String, val input: QuestionnaireScreenIntent) : Embed
 
     /** Input to a persisted checklist's current handle. */
     @Serializable
+    @SerialName("io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent.ChecklistInput")
     data class ChecklistInput(val id: String, val instance: String, val input: ChecklistScreenIntent) : Embed
 
     /** Changes what the panes show; forwarded to the machine. */
@@ -380,8 +372,3 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     @SerialName("AiStudioScreenIntent.SetDrawerOpen")
     data class SetDrawerOpen(val isOpen: Boolean) : Sidebar
 }
-
-/** No one-shot screen actions: every reaction is state. */
-@Serializable
-@SerialName("AiStudioScreenAction")
-sealed interface AiStudioScreenAction : MVIAction

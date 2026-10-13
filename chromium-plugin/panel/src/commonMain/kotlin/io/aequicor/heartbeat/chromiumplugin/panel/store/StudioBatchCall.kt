@@ -6,7 +6,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioViewJson
 import io.aequicor.heartbeat.feature.chromiumbridge.protocol.WirePage
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent as StudioIntent
 
 /** A call carrying the next contiguous part of the shared studio sequence. */
 internal data class StudioBatchCall(val method: String, val params: JsonElement)

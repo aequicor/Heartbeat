@@ -57,7 +57,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarMode
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.sidebarContent
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent as StudioIntent
 
 /** Session lists of the studio. Menus are transient composition state; everything else comes from the store. */
 @Composable

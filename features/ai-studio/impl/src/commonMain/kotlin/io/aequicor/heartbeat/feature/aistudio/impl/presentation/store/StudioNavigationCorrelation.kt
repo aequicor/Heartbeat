@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.MAX_STUDIO_PANES
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 
 /** Uses authoritative before/after panes so focus reflection order cannot detach another pane's pending input. */
 internal fun navigationReplacedPanes(

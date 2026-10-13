@@ -6,7 +6,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent as StudioIntent
 
 class StudioViewSyncTest {
     private fun typed(text: String) = StudioIntent.Suggestions.DraftChanged(paneId = 0, text = text)

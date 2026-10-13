@@ -56,7 +56,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.stringResource
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent as StudioIntent
 
 /**
  * Parameters shared by every session row of the sidebar. A session may be listed in several sections, so

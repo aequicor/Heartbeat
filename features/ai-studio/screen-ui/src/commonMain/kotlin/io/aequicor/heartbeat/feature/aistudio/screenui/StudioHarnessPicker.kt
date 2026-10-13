@@ -23,7 +23,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_picker_sear
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_picker_selected
 import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.stringResource
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent as StudioIntent
 
 /** Project-aware choices replace the computer label; an empty library occupies no space in the context toolbar. */
 @Composable

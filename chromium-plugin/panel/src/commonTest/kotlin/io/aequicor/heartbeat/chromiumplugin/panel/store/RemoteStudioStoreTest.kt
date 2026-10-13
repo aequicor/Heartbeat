@@ -29,7 +29,7 @@ import pro.respawn.flowmvi.test.subscribeAndTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.time.Duration.Companion.seconds
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent as StudioIntent
 
 class RemoteStudioStoreTest {
     private val host = FakePanelHost()

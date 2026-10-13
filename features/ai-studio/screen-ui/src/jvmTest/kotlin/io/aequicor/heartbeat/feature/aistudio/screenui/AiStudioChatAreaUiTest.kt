@@ -19,7 +19,7 @@ import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.reduce
 import kotlin.test.Test
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent as StudioIntent
 
 /** Research replaces only the chat area: the studio sidebar, its toggle and the header stay with the studio. */
 @OptIn(ExperimentalTestApi::class)

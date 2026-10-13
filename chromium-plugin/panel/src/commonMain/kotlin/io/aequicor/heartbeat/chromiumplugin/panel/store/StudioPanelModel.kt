@@ -25,7 +25,7 @@ import pro.respawn.flowmvi.dsl.collect
 import pro.respawn.flowmvi.plugins.init
 import pro.respawn.flowmvi.plugins.reduce
 import kotlin.uuid.Uuid
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent as StudioIntent
 
 private typealias PanelPipeline = PipelineContext<StudioPanelState, StudioPanelIntent, StudioPanelAction>
 private typealias StudioStore = Store<RemoteStudioState, StudioIntent, RemoteStudioAction>

@@ -81,7 +81,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.activeDescendants
 import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent as StudioIntent
 
 /** An organism chat's feed follows the shown sub-session, so switching resets its timeline. */
 internal fun PaneContent.feedId(): String? = pane.sessionId?.let {

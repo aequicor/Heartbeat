@@ -8,7 +8,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenui.StudioExits
 import io.aequicor.heartbeat.feature.checklist.screenui.ChecklistScreen
 import io.aequicor.heartbeat.feature.questionnaire.screenui.QuestionnaireScreen
 import kotlinx.collections.immutable.toImmutableMap
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent as StudioIntent
 
 /** Embeds draw the exact shared children and address every input to the owning handle instance. */
 internal fun AiStudioScreenState.panelExits(onIntent: (StudioIntent) -> Unit): StudioExits = StudioExits(
