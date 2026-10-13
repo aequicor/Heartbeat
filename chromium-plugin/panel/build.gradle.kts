@@ -94,3 +94,28 @@ tasks.register<Sync>("syncChromiumPanel") {
     from(tasks.named("wasmJsBrowserDistribution"))
     into(layout.settingsDirectory.dir("chromium-plugin/app"))
 }
+
+// Temporary diagnostics for the Windows npm installation lifecycle.
+val diagnosticWasmDirectory = rootProject.layout.buildDirectory.dir("wasm")
+for (diagnosticTask in listOf(
+    rootProject.tasks.named("kotlinWasmNpmInstall"),
+    tasks.named("wasmJsProductionExecutableCompileSync"),
+)) {
+    diagnosticTask.configure {
+        val directoryProvider = diagnosticWasmDirectory
+        doLast {
+            val directory = directoryProvider.get().asFile
+            logger.lifecycle("NPM DIAGNOSTIC AFTER $path")
+            for (name in listOf(
+                "package.json",
+                "packages/heartbeat-panel/package.json",
+                "node_modules/.yarn-integrity",
+                "node_modules/@js-joda/core/package.json",
+            )) {
+                val file = directory.resolve(name)
+                logger.lifecycle("$file: ${if (file.isFile) file.readText() else "MISSING"}")
+            }
+            logger.lifecycle("NPM ROOT CONTENTS: ${directory.resolve("node_modules").list()?.toList()}")
+        }
+    }
+}
