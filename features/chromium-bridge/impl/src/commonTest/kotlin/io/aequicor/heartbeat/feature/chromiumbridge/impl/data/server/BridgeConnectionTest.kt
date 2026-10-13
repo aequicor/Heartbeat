@@ -44,7 +44,7 @@ class BridgeConnectionTest {
         override val methods = setOf("strict")
         override suspend fun handle(call: BridgeCall): BridgeReply = throw IllegalArgumentException("secret input")
     }
-    private val hello = HelloHandler("1.2.3") { BridgeFeatureSet(isChat = true, isAgentControl = false) }
+    private val hello = HelloHandler("1.2.3") { BridgeFeatureSet(isStudio = true, isAgentControl = false) }
     private val connections = BridgeConnections(BridgeDispatcher(setOf(hello, echo, strict))) { it == origin }
 
     @Test
@@ -129,8 +129,8 @@ class BridgeConnectionTest {
         val result = transport.next<BridgeFrame.Response>().result?.jsonObject
         assertEquals(1, result?.get("protocol")?.jsonPrimitive?.int)
         assertEquals("1.2.3", result?.get("app")?.jsonObject?.get("version")?.jsonPrimitive?.content)
-        assertEquals(JsonPrimitive(true), result?.get("features")?.jsonObject?.get("chat"))
-        assertEquals(setOf("chat"), session.client.value?.capabilities)
+        assertEquals(JsonPrimitive(true), result?.get("features")?.jsonObject?.get("studio"))
+        assertEquals(setOf("studio"), session.client.value?.capabilities)
         assertEquals("Chrome", session.client.value?.browserBrand)
         transport.close()
     }
@@ -287,7 +287,7 @@ class BridgeConnectionTest {
                 put("brand", "Chrome")
                 put("version", "140")
             }
-            putJsonArray("capabilities") { add(JsonPrimitive("chat")) }
+            putJsonArray("capabilities") { add(JsonPrimitive("studio")) }
         },
     )
 }

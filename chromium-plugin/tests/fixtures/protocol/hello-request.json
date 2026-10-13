@@ -6,6 +6,6 @@
     "protocol": [1],
     "extension": { "version": "0.1.0" },
     "browser": { "brand": "Google Chrome", "version": "140" },
-    "capabilities": ["chat"]
+    "capabilities": ["studio"]
   }
 }

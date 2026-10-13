@@ -10,8 +10,6 @@ import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.HelloResu
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.decodeFrame
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.HelloHandler
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.ExtensionIdentity
-import io.aequicor.heartbeat.feature.chromiumbridge.protocol.ChatChanged
-import io.aequicor.heartbeat.feature.chromiumbridge.protocol.ChatsChanged
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -47,7 +45,7 @@ class ProtocolFixturesTest {
 
         assertEquals(HelloHandler.METHOD, request.method)
         assertEquals(listOf(BridgeProtocol.VERSION), params.protocol)
-        assertEquals(listOf("chat"), params.capabilities)
+        assertEquals(listOf("studio"), params.capabilities)
     }
 
     @Test
@@ -60,29 +58,10 @@ class ProtocolFixturesTest {
             HelloResult(
                 protocol = BridgeProtocol.VERSION,
                 app = HelloApp("1.0.0"),
-                features = BridgeFeatureSet(isChat = true, isAgentControl = false),
+                features = BridgeFeatureSet(isStudio = true, isAgentControl = false),
                 limits = HelloLimits(BridgeProtocol.MAX_FROM_BROWSER_BYTES, HelloHandler.MAX_WATCHES),
             ),
             result,
-        )
-    }
-
-    @Test
-    fun `chat events the app sends match what the side panel reads`() {
-        val list = decodeFrame(fixture("chats-changed")) as BridgeFrame.Event
-        val transcript = decodeFrame(fixture("chat-changed")) as BridgeFrame.Event
-
-        val chats = BridgeProtocol.json.decodeFromJsonElement(ChatsChanged.serializer(), list.params)
-        val change = BridgeProtocol.json.decodeFromJsonElement(ChatChanged.serializer(), transcript.params)
-
-        assertEquals(true, chats.chats.single().isRunning)
-        assertEquals("text", chats.permissions.single().input?.kind)
-        assertEquals(true, chats.permissions.single().options.last().isSkip)
-        assertEquals(listOf("m0"), change.removed)
-        assertEquals(true, change.upserts.single().parts?.last()?.isTruncated)
-        assertEquals(
-            list.params,
-            BridgeProtocol.json.encodeToJsonElement(ChatsChanged.serializer(), chats),
         )
     }
 
