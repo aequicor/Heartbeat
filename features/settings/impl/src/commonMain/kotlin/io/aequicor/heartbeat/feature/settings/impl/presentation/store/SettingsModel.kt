@@ -20,7 +20,7 @@ import pro.respawn.flowmvi.api.MVIState
 import pro.respawn.flowmvi.plugins.reduce
 
 /** A settings section as the screen knows it; mapped from and to the contract's [SettingsSection]. */
-enum class SettingsSectionUi { Models, Search, ComputerUse, AgentLearning, Context, Harness, FeatureFlags }
+enum class SettingsSectionUi { Models, Search, ComputerUse, AgentLearning, Context, Harness, Interfaces, FeatureFlags }
 
 /** Screen value of a contract section. */
 fun SettingsSection.toUi(): SettingsSectionUi = when (this) {
@@ -30,6 +30,7 @@ fun SettingsSection.toUi(): SettingsSectionUi = when (this) {
     SettingsSection.AgentLearning -> SettingsSectionUi.AgentLearning
     SettingsSection.Context -> SettingsSectionUi.Context
     SettingsSection.Harness -> SettingsSectionUi.Harness
+    SettingsSection.Interfaces -> SettingsSectionUi.Interfaces
     SettingsSection.FeatureFlags -> SettingsSectionUi.FeatureFlags
 }
 
@@ -41,6 +42,7 @@ fun SettingsSectionUi.toSection(): SettingsSection = when (this) {
     SettingsSectionUi.AgentLearning -> SettingsSection.AgentLearning
     SettingsSectionUi.Context -> SettingsSection.Context
     SettingsSectionUi.Harness -> SettingsSection.Harness
+    SettingsSectionUi.Interfaces -> SettingsSection.Interfaces
     SettingsSectionUi.FeatureFlags -> SettingsSection.FeatureFlags
 }
 

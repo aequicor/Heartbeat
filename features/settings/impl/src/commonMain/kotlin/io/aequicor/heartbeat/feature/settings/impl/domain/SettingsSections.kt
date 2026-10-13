@@ -20,14 +20,18 @@ internal fun availableSections(
     isLearningEnabled: Boolean = false,
     isHarnessEnabled: Boolean = false,
     isContextEnabled: Boolean = false,
+    isInterfacesEnabled: Boolean = false,
 ): ImmutableList<SettingsSection> = SettingsSection.entries.filter { section ->
-    when (section) {
-        SettingsSection.Models -> isModelsEnabled && hasProfile
-        SettingsSection.Search -> isSearchEnabled && hasProfile
-        SettingsSection.ComputerUse -> isComputerUseEnabled && hasProfile
-        SettingsSection.AgentLearning -> isLearningEnabled && hasProfile
-        SettingsSection.Context -> isContextEnabled && hasProfile
-        SettingsSection.Harness -> isHarnessEnabled && hasProfile
+    val isOn = when (section) {
+        SettingsSection.Models -> isModelsEnabled
+        SettingsSection.Search -> isSearchEnabled
+        SettingsSection.ComputerUse -> isComputerUseEnabled
+        SettingsSection.AgentLearning -> isLearningEnabled
+        SettingsSection.Context -> isContextEnabled
+        SettingsSection.Harness -> isHarnessEnabled
+        SettingsSection.Interfaces -> isInterfacesEnabled
         SettingsSection.FeatureFlags -> true
     }
+    // Every section but the device-local feature flags belongs to a profile.
+    isOn && (hasProfile || section == SettingsSection.FeatureFlags)
 }.toImmutableList()
