@@ -1,12 +1,9 @@
 @file:UseSerializers(ImmutableListSerializer::class, ImmutableSetSerializer::class, ImmutableMapSerializer::class)
 
-package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
+package io.aequicor.heartbeat.feature.aistudio.screenmodel
 
 import androidx.compose.runtime.Immutable
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableListSerializer
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableMapSerializer
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableSetSerializer
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable

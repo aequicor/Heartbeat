@@ -41,13 +41,13 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarMod
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioPhase
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ToolStatusUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ToolUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.reduce
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.withDraft
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_placeholder
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_send
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_stop
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_no_results
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.reduce
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.persistentSetOf

@@ -9,12 +9,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeNode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeSnapshot
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.NativeTranscriptUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.mergeSessionTrees
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.nativeKey
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.toUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeTranscriptUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismStatusUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION

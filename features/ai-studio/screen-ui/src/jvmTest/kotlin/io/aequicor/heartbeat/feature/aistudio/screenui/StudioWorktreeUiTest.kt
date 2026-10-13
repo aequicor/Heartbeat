@@ -45,7 +45,6 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioPhase
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.withDraft
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_failure_checkout_dirty
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_failure_unknown
@@ -59,6 +58,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeActionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreePhaseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import org.jetbrains.compose.resources.stringResource

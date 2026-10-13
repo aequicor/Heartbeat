@@ -5,8 +5,6 @@ package io.aequicor.heartbeat.feature.aistudio.screenmodel
 import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.availableHarnesses
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.restorePane
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf

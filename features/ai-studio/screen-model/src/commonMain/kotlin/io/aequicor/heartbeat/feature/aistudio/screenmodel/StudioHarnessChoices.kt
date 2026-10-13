@@ -1,6 +1,9 @@
-package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
+package io.aequicor.heartbeat.feature.aistudio.screenmodel
 
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubmissionUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.HarnessChoicesUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.HarnessOptionUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toImmutableSet
 

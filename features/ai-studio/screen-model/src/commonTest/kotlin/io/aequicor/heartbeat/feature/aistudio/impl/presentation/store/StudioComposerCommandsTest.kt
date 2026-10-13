@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.withRememberCommand
 import kotlin.test.Test
 import kotlin.test.assertEquals
 

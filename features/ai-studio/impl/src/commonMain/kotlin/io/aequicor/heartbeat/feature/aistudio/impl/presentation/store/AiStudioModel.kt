@@ -31,7 +31,10 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote.StudioEmbeds
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.afterNavigation
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.isAttachmentPending
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.reduce
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.startRename
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists

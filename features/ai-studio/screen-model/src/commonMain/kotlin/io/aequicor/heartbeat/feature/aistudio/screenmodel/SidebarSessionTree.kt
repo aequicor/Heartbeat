@@ -1,4 +1,6 @@
-package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
+package io.aequicor.heartbeat.feature.aistudio.screenmodel
+
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 
 /**
  * A stable preorder of logical helper chats, independent of native subagent trees. Missing parents and cyclic

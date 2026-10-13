@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.collapsed
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.sidebarContent
 import io.aequicor.heartbeat.feature.aistudio.screenui.sidebarInput
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentSetOf

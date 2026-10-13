@@ -3,6 +3,9 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.availableHarnesses
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.choosePane
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.pruneHarnessChoices
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toImmutableSet

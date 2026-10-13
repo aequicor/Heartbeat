@@ -42,11 +42,11 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.reduce
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.withDraft
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_send
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.jump_latest
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.reduce
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive

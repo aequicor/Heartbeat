@@ -9,10 +9,12 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.InputSupportUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubmissionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.acceptSubmission
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.afterNavigation
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.pendingSubmission
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.prepareSubmission
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.queueSubmission
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.rejectSubmission
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlin.test.Test

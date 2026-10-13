@@ -1,5 +1,9 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.collapsed
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.reduce
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.sidebarContent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toImmutableList

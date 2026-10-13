@@ -1,4 +1,4 @@
-package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
+package io.aequicor.heartbeat.feature.aistudio.screenmodel
 
 /** The `/remember` command of the composer; equals the domain `REMEMBER_COMMAND`. */
 const val COMPOSER_REMEMBER_COMMAND: String = "/remember"

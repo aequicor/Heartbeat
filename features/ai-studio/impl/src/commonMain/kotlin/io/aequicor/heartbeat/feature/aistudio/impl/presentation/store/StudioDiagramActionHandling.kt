@@ -6,6 +6,11 @@ import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.DiagramDraftReasonUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.DiagramSubmissionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.appendDiagramDraft
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.canUseDiagramActions
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.finishDiagramSubmission
 import kotlinx.collections.immutable.toImmutableMap
 import pro.respawn.flowmvi.api.PipelineContext
 import kotlin.uuid.Uuid
