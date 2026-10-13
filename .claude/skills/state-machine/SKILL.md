@@ -30,6 +30,8 @@ KStateMachine — фичи его **не видят**), `core:state-machine:flow
 8. **impl**: `EffectHandler<Effect, Intent>` с `@ContributesBinding(<Feature>Scope::class)` + `@Provides @SingleIn(<Feature>Scope::class)`
    машины через `MachineLauncher.launch(spec, scope, effects)`.
    Машина создаётся лениво — инжектируй её в корневой компонент фичи, чтобы она стартовала с открытием фичи.
+   Реестр адресует последний запущенный экземпляр ключа. Второй экземпляр, который не должен перехватывать адрес
+   (удалённый вид фичи рядом с её окном), запускай с `isAddressable = false`: владелец держит `Machine` напрямую.
 9. **Диаграмма**: `<Name>MachineSpec.toMermaid()` → в KDoc/PR.
 
 ## DSL

@@ -55,11 +55,16 @@ public interface MachineLauncher {
     /**
      * Starts the machine described by [spec] in [scope] and registers it in [MachineRegistry]. The state is
      * restored from `scope.savedState` when the spec is persistent. Main thread only.
+     *
+     * A machine launched with [isAddressable] `false` is a private instance of its owner (e.g. a second, remote
+     * view of a feature next to its window): it runs and stops with [scope] like any other, but the registry never
+     * addresses it, so other features keep talking to the registered instance.
      */
     public fun <S : MachineState, I : MachineIntent, E : MachineEffect, O : MachineOutput> launch(
         spec: MachineSpec<S, I, E, O>,
         scope: ScopeHandle,
         effects: EffectHandler<E, I>,
+        isAddressable: Boolean = true,
     ): Machine<S, I, O>
 }
 
