@@ -201,7 +201,8 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > с проверкой SHA-256, на macOS меняет бандл из DMG, на Windows тихо ставит установщик Inno Setup поверх, после выхода
 > приложения helper запускает новую версию (desktop выходит штатно по `Restarting`). Активно только в установленной
 > релизной сборке (`-Dheartbeat.app.update.repository` у release-лаунчера). Версия — `heartbeat.version` в
-> `gradle.properties`; релиз публикует `.github/workflows/release.yml` по тегу после всех тестов и сборок.
+> `gradle.properties`; `.github/workflows/release.yml` запускается кнопкой Run workflow из `master` с уровнем
+> `patch` / `minor` / `major`, вычисляет следующую версию и публикует её тег и релиз после всех тестов и сборок.
 > Приложение: `core:mvi`, фичи `welcome`, `ai-studio`, `toggles-panel`, `ai-engine:connections` (профильные маршруты); платформенные входы подключены к root.
 
 ## Жёсткие правила (нарушение = блокер ревью)

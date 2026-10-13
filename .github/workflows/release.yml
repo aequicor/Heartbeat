@@ -1,29 +1,34 @@
 name: Release
 
-# Publishes a Heartbeat release when a tag vMAJOR.MINOR.PATCH is pushed; the tagged commit must be on master.
+# Run workflow on master with patch, minor or major to publish the next Heartbeat release.
 # Publishing needs every job to pass: all tests and lint, the Android and iOS builds, and the four desktop
 # installers, each checked by running its packaged app (verifyReleaseHarnessCompiler).
 # Installed release builds update themselves from the latest release (features/app-update): the release is
 # created as a draft, gets every installer and SHA256SUMS, and only then becomes public and latest. The asset
 # names are what the app looks for (ReleasePlatform in features/app-update/impl): keep them in sync.
-# A manual run builds and checks everything for a version without publishing it, e.g. before the first tag:
-#   gh workflow run release.yml --ref <branch> -f version=1.4.0
-run-name: "${{ github.event_name == 'push' && format('Release {0}', github.ref_name) || format('Release dry run {0}', inputs.version) }}"
+# dry_run builds and checks everything without creating a tag or publishing:
+#   gh workflow run release.yml --ref <branch> -f release_level=patch -F dry_run=true
+run-name: "Release ${{ inputs.release_level }}${{ inputs.dry_run && ' (dry run)' || '' }}"
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Version to build and check without publishing: MAJOR.MINOR.PATCH'
-        type: string
+      release_level:
+        description: 'Release level / Уровень релиза'
+        type: choice
         required: true
+        default: patch
+        options: [patch, minor, major]
+      dry_run:
+        description: 'Only build and check, without publishing / Пробный прогон'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  # Serialize version selection and publication, including runs from different branches.
+  group: heartbeat-release
   cancel-in-progress: false
 
 jobs:
@@ -33,30 +38,23 @@ jobs:
     timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Check the version
+      - name: Choose the next version
         id: version
         shell: bash
         env:
-          EVENT: ${{ github.event_name }}
-          TAG: ${{ github.ref_name }}
-          INPUT: ${{ inputs.version }}
+          LEVEL: ${{ inputs.release_level }}
+          REF: ${{ github.ref }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          if [ "$EVENT" = push ]; then version=${TAG#v}; else version=$INPUT; fi
-          # jpackage needs a major of at least 1; Android's versionCode needs minor and patch below 1000.
-          if [[ ! $version =~ ^[1-9][0-9]{0,2}\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$ ]]; then
-            echo "::error::The version must be MAJOR.MINOR.PATCH with numbers up to 999 and a major of at least 1"
-            exit 1
-          fi
-          if [ "$EVENT" = push ] && ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
-            echo "::error::Release tags must point to a commit on master"
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          python3 scripts/release_version.py --level="$LEVEL" --ref="$REF" --dry-run="$DRY_RUN" > version.txt
+          cat version.txt >> "$GITHUB_OUTPUT"
+          cat version.txt >> "$GITHUB_STEP_SUMMARY"
 
   checks:
     name: Tests and lint
@@ -179,12 +177,31 @@ jobs:
   publish:
     name: Publish
     needs: [version, checks, mobile, desktop]
-    if: github.event_name == 'push'
+    if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Tag the tested commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          # A retry may find its own tag, but must never publish assets for another commit.
+          if git show-ref --verify --quiet "refs/tags/$TAG"; then
+            if [ "$(git rev-parse "refs/tags/$TAG^{commit}")" != "$GITHUB_SHA" ]; then
+              echo "::error::Release tag already points to another commit"
+              exit 1
+            fi
+          else
+            gh api --method POST "repos/$GH_REPO/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$GITHUB_SHA"
+          fi
       - uses: actions/download-artifact@v8
         with:
           pattern: desktop-*
@@ -199,7 +216,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.version.outputs.tag }}
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           cat > notes.md <<'NOTES'
