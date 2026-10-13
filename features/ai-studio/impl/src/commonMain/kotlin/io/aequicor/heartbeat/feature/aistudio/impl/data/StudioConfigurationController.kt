@@ -101,13 +101,15 @@ internal class StudioConfigurationController(
         toggles.observe(FeedbackEnabled),
     ) { records, enabled -> if (enabled) records.filter { it.source == id } else emptyList() }
 
-    suspend fun configure(access: StudioConfigurationAccess, id: String, change: StudioSettingChange) {
+    suspend fun configure(access: StudioConfigurationAccess, id: String, change: StudioSettingChange): Boolean {
         // The profile owns the accepted operation; awaiting it only attaches this screen effect.
-        profile.coroutineScope.async(start = CoroutineStart.UNDISPATCHED) {
-            if (!lock.withLock { changing.add(id) }) return@async
+        return profile.coroutineScope.async(start = CoroutineStart.UNDISPATCHED) {
+            if (!lock.withLock { changing.add(id) }) return@async false
             var completion: StudioSessionSettings? = null
             try {
-                completion = apply(access, id, change)
+                val result = apply(access, id, change)
+                completion = result.settings
+                result.isApplied
             } finally {
                 withContext(NonCancellable) { complete(access, id, completion) }
             }
@@ -132,13 +134,13 @@ internal class StudioConfigurationController(
         access: StudioConfigurationAccess,
         id: String,
         change: StudioSettingChange,
-    ): StudioSessionSettings? {
+    ): ConfigurationResult {
         val record = access.configurationRecord(id)
         val target = record.configurationTarget()
         var actual = record.configuration?.native(target)
             ?: SessionConfiguration(target.model)
         val requested = change.feedback(target, actual)
-        if (change.matches(target, actual)) return null
+        if (change.matches(target, actual)) return ConfigurationResult(null, true)
         val stored = actual
         val operation = Uuid.random().toString()
         val report = FeedbackRecord(
@@ -179,16 +181,18 @@ internal class StudioConfigurationController(
             val latest = if (isTrustKept) native.copy(trust = stored.trust) else native
             val latestTarget = target.copy(model = latest.model)
             observe(access, id, session, confirmedTarget)
-            latest.studio(latestTarget)
+            ConfigurationResult(latest.studio(latestTarget), true)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             log.e(e) { "Session parameter change failed" }
             val failure = (e as? EngineException)?.failure ?: EngineFailure.Unknown()
             publish(report.copy(revision = 1, outcome = FeedbackOutcome.Failed(failure)))
-            actual.studio(target.copy(model = actual.model))
+            ConfigurationResult(actual.studio(target.copy(model = actual.model)), false)
         }
     }
+
+    private data class ConfigurationResult(val settings: StudioSessionSettings?, val isApplied: Boolean)
 
     /** A retired session runs with a narrowed trust that is not the chat's; changing anything else keeps the chat's. */
     private suspend fun keepsChatTrust(

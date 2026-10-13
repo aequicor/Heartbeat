@@ -1,16 +1,26 @@
 package io.aequicor.heartbeat.feature.chromiumbridge.impl.data.chat
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
+import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatComposer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEntry
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatList
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatModel
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatPart
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatProject
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatRejection
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatSend
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatSendResult
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatSummary
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChats
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.agent.ChromiumExternalBrowser
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeErrorCode
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeFrame
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeProtocol
@@ -33,6 +43,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -47,6 +58,7 @@ import kotlinx.serialization.json.putJsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 
@@ -87,6 +99,37 @@ class SidePanelChatHandlersTest {
         assertEquals("p1", first["projects"]!!.jsonArray.single().jsonObject["id"]!!.jsonPrimitive.content)
         val updatedAt = first["chats"]!!.jsonArray.single().jsonObject["updatedAt"]!!.jsonPrimitive.content
         assertEquals(1_700_000_000_000, updatedAt.toLong())
+    }
+
+    @Test
+    fun `the list carries chat settings, archived chats last and the composer`() = runTest {
+        val session = FakeSession(this)
+        val settings = StudioChatSettings("m1", "high", ApprovalMode.AutoEdits)
+        chats.list.value = StudioChatList(
+            chats = listOf(
+                StudioChatSummary("old", "Old", null, at, false, false, false, true, isArchived = true),
+                StudioChatSummary("c1", "Live", null, at, false, false, false, true, settings = settings),
+            ),
+        )
+        chats.composer.value = StudioChatComposer(
+            models = listOf(StudioChatModel("m1", "Model One", "One", listOf("low", "high"), "high")),
+            newChat = StudioChatSettings("m1"),
+        )
+
+        call(session, "chats.watch")
+        runCurrent()
+
+        val params = session.emitted.single().second
+        val listed = params["chats"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(listOf("c1", "old"), listed.map { it["id"]!!.jsonPrimitive.content })
+        assertEquals("auto_edits", listed.first()["settings"]!!.jsonObject["approval"]!!.jsonPrimitive.content)
+        assertEquals(true, listed.last()["archived"]!!.jsonPrimitive.boolean)
+        val composer = params["composer"]!!.jsonObject
+        assertEquals(
+            "high",
+            composer["models"]!!.jsonArray.single().jsonObject["newChatEffort"]!!.jsonPrimitive.content,
+        )
+        assertEquals("ask", composer["newChat"]!!.jsonObject["approval"]!!.jsonPrimitive.content)
     }
 
     @Test
@@ -184,6 +227,37 @@ class SidePanelChatHandlersTest {
     }
 
     @Test
+    fun `a new chat takes the panel's settings and binds its browser environment`() = runTest {
+        val session = FakeSession(this)
+        val browser = ChromiumExternalBrowser(MutableStateFlow(listOf(session)), backgroundScope)
+        val boundHandlers = SidePanelChatHandlers(chats, PageImporter { importResult }, lazyOf(browser))
+        chats.sendResult = StudioChatSendResult.Accepted("c2")
+        fun send(approval: String) = buildJsonObject {
+            put("text", "Hi")
+            putJsonObject("settings") {
+                put("modelId", "m1")
+                put("approval", approval)
+            }
+        }
+
+        boundHandlers.handle(BridgeCall("chat.send", send("auto_approve"), session))
+
+        val sent = chats.sent.single()
+        assertEquals(StudioChatSettings("m1", null, ApprovalMode.AutoApprove), sent.settings)
+        val environment = checkNotNull(sent.environment)
+        assertEquals(mapOf("external_browser" to setOf(session.id.toString())), environment.preselected)
+        val ref = SessionRef(EngineId("pi"), SessionSourceId("local"), "chat-session")
+        val owner = Json.encodeToString(ref)
+        val lease = environment.bind(ref)
+        assertTrue(browser.isExternalSession(owner))
+        assertTrue(browser.isTabInSession(owner, "${session.id}:1"))
+        assertFalse(browser.isTabInSession(owner, "other:1"))
+        lease.close()
+        assertFalse(browser.isExternalSession(owner))
+        assertFailsWith<IllegalArgumentException> { call(session, "chat.send", send("sometimes")) }
+    }
+
+    @Test
     fun `captured pages are imported before the prompt and refused imports stop it`() = runTest {
         val session = FakeSession(this)
         chats.sendResult = StudioChatSendResult.Accepted("c1")
@@ -248,6 +322,7 @@ class SidePanelChatHandlersTest {
 
     private class FakeChats : StudioChats {
         val list = MutableStateFlow(StudioChatList())
+        val composer = MutableStateFlow(StudioChatComposer())
         val transcripts = mutableMapOf<String, Flow<List<StudioChatEntry>>>()
         val sent = mutableListOf<StudioChatSend>()
         val answers = mutableListOf<StudioPermissionAnswer?>()
@@ -256,6 +331,8 @@ class SidePanelChatHandlersTest {
         override val availability: Flow<Boolean> = flowOf(true)
 
         override fun observeList(): Flow<StudioChatList> = list
+
+        override fun observeComposer(): Flow<StudioChatComposer> = composer
 
         override fun observeTranscript(chatId: String): Flow<List<StudioChatEntry>> =
             transcripts[chatId] ?: flowOf(emptyList())
@@ -270,6 +347,12 @@ class SidePanelChatHandlersTest {
             optionId: String,
             answer: StudioPermissionAnswer?,
         ): Boolean = (requestId == "r1").also { if (it) answers += answer }
+
+        override suspend fun configure(chatId: String, change: StudioSettingChange): Boolean = false
+
+        override suspend fun chooseNewChatEffort(modelId: String, effort: String?): Boolean = false
+
+        override suspend fun edit(chatId: String, edit: SessionEdit): Boolean = false
     }
 
     private class FakeSession(test: TestScope) : BridgeSession {

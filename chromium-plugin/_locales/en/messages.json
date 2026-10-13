@@ -102,12 +102,6 @@
   "noticeRolledOver": {
     "message": "Continued in a new session"
   },
-  "placeholderNew": {
-    "message": "Ask Heartbeat…"
-  },
-  "placeholderChat": {
-    "message": "Reply…"
-  },
   "chatClosed": {
     "message": "This chat cannot be continued."
   },
@@ -115,7 +109,7 @@
     "message": "Send"
   },
   "sendHint": {
-    "message": "Send (Ctrl+Enter)"
+    "message": "Send (Enter)"
   },
   "stop": {
     "message": "Stop"
@@ -134,6 +128,9 @@
   },
   "errorNotContinuable": {
     "message": "This chat cannot be continued."
+  },
+  "errorNoModel": {
+    "message": "Choose a model for new chats in Heartbeat."
   },
   "errorUnavailable": {
     "message": "Heartbeat is not available."
@@ -178,5 +175,153 @@
   },
   "revokeAll": {
     "message": "Take all back"
+  },
+  "searchSessions": {
+    "message": "Search sessions"
+  },
+  "clearSearch": {
+    "message": "Clear search"
+  },
+  "sectionPinned": {
+    "message": "Pinned"
+  },
+  "sectionProjects": {
+    "message": "Projects"
+  },
+  "sectionRecent": {
+    "message": "Recent"
+  },
+  "sectionResults": {
+    "message": "Results"
+  },
+  "nothingFound": {
+    "message": "Nothing found"
+  },
+  "archiveEmpty": {
+    "message": "The archive is empty"
+  },
+  "noSessions": {
+    "message": "No sessions yet"
+  },
+  "railSessions": {
+    "message": "Sessions"
+  },
+  "railArchive": {
+    "message": "Archive"
+  },
+  "rename": {
+    "message": "Rename"
+  },
+  "pin": {
+    "message": "Pin"
+  },
+  "unpin": {
+    "message": "Unpin"
+  },
+  "markRead": {
+    "message": "Mark as read"
+  },
+  "markUnread": {
+    "message": "Mark as unread"
+  },
+  "archive": {
+    "message": "Archive"
+  },
+  "restore": {
+    "message": "Restore"
+  },
+  "sessionActions": {
+    "message": "Session actions"
+  },
+  "awaitingPermission": {
+    "message": "Awaiting permission"
+  },
+  "agentWorking": {
+    "message": "Agent is working"
+  },
+  "sessionTitle": {
+    "message": "Session title"
+  },
+  "chatArchived": {
+    "message": "The chat is archived. Restore it to continue."
+  },
+  "errorNotApplied": {
+    "message": "Heartbeat did not apply the change."
+  },
+  "newSessionIn": {
+    "message": "New session in $NAME$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "placeholder": {
+    "message": "Work with Heartbeat"
+  },
+  "composerAdd": {
+    "message": "Add"
+  },
+  "templatePlan": {
+    "message": "Plan a feature"
+  },
+  "templatePlanPrompt": {
+    "message": "Plan the feature: "
+  },
+  "templateTests": {
+    "message": "Write tests"
+  },
+  "templateTestsPrompt": {
+    "message": "Write tests for "
+  },
+  "templateReview": {
+    "message": "Review changes"
+  },
+  "templateReviewPrompt": {
+    "message": "Review the changes in "
+  },
+  "approvalMenu": {
+    "message": "Approvals"
+  },
+  "approvalAsk": {
+    "message": "Ask for approval"
+  },
+  "approvalEdits": {
+    "message": "Allow file edits"
+  },
+  "approvalAuto": {
+    "message": "Approve for me"
+  },
+  "effortMenu": {
+    "message": "Reasoning mode"
+  },
+  "effortAuto": {
+    "message": "Auto"
+  },
+  "modelMenu": {
+    "message": "Model and reasoning"
+  },
+  "modelNotSelected": {
+    "message": "No model selected"
+  },
+  "connectModelHint": {
+    "message": "Connect and select a model in settings"
+  },
+  "newHeading": {
+    "message": "What shall we build?"
+  },
+  "newHint": {
+    "message": "From idea to result — start with a task."
+  },
+  "newHeadingIn": {
+    "message": "What shall we build in $NAME$?",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseModelHint": {
+    "message": "Choose a model for the new chat."
   }
 }

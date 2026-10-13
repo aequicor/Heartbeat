@@ -102,12 +102,6 @@
   "noticeRolledOver": {
     "message": "Продолжено в новой сессии"
   },
-  "placeholderNew": {
-    "message": "Спросите Heartbeat…"
-  },
-  "placeholderChat": {
-    "message": "Ответить…"
-  },
   "chatClosed": {
     "message": "Этот чат нельзя продолжить."
   },
@@ -115,10 +109,10 @@
     "message": "Отправить"
   },
   "sendHint": {
-    "message": "Отправить (Ctrl+Enter)"
+    "message": "Отправить (Enter)"
   },
   "stop": {
-    "message": "Стоп"
+    "message": "Остановить"
   },
   "permissionAnswer": {
     "message": "Ответ"
@@ -134,6 +128,9 @@
   },
   "errorNotContinuable": {
     "message": "Этот чат нельзя продолжить."
+  },
+  "errorNoModel": {
+    "message": "Выберите модель для новых чатов в Heartbeat."
   },
   "errorUnavailable": {
     "message": "Heartbeat недоступен."
@@ -178,5 +175,153 @@
   },
   "revokeAll": {
     "message": "Забрать все"
+  },
+  "searchSessions": {
+    "message": "Поиск по сессиям"
+  },
+  "clearSearch": {
+    "message": "Очистить поиск"
+  },
+  "sectionPinned": {
+    "message": "Закреплённые"
+  },
+  "sectionProjects": {
+    "message": "Проекты"
+  },
+  "sectionRecent": {
+    "message": "Недавние"
+  },
+  "sectionResults": {
+    "message": "Результаты"
+  },
+  "nothingFound": {
+    "message": "Ничего не найдено"
+  },
+  "archiveEmpty": {
+    "message": "В архиве пусто"
+  },
+  "noSessions": {
+    "message": "Сессий пока нет"
+  },
+  "railSessions": {
+    "message": "Сессии"
+  },
+  "railArchive": {
+    "message": "Архив"
+  },
+  "rename": {
+    "message": "Переименовать"
+  },
+  "pin": {
+    "message": "Закрепить"
+  },
+  "unpin": {
+    "message": "Открепить"
+  },
+  "markRead": {
+    "message": "Отметить как прочитанное"
+  },
+  "markUnread": {
+    "message": "Отметить как непрочитанное"
+  },
+  "archive": {
+    "message": "Архивировать"
+  },
+  "restore": {
+    "message": "Восстановить"
+  },
+  "sessionActions": {
+    "message": "Действия с сессией"
+  },
+  "awaitingPermission": {
+    "message": "Ожидает разрешения"
+  },
+  "agentWorking": {
+    "message": "Агент работает"
+  },
+  "sessionTitle": {
+    "message": "Название сессии"
+  },
+  "chatArchived": {
+    "message": "Чат в архиве. Восстановите его, чтобы продолжить."
+  },
+  "errorNotApplied": {
+    "message": "Heartbeat не применил изменение."
+  },
+  "newSessionIn": {
+    "message": "Новая сессия в $NAME$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "placeholder": {
+    "message": "Работайте с Heartbeat"
+  },
+  "composerAdd": {
+    "message": "Добавить"
+  },
+  "templatePlan": {
+    "message": "Спланировать фичу"
+  },
+  "templatePlanPrompt": {
+    "message": "Спланируй фичу: "
+  },
+  "templateTests": {
+    "message": "Написать тесты"
+  },
+  "templateTestsPrompt": {
+    "message": "Напиши тесты для "
+  },
+  "templateReview": {
+    "message": "Провести ревью"
+  },
+  "templateReviewPrompt": {
+    "message": "Проведи ревью изменений в "
+  },
+  "approvalMenu": {
+    "message": "Подтверждения"
+  },
+  "approvalAsk": {
+    "message": "Спрашивать разрешение"
+  },
+  "approvalEdits": {
+    "message": "Разрешать правки файлов"
+  },
+  "approvalAuto": {
+    "message": "Подтверждать за меня"
+  },
+  "effortMenu": {
+    "message": "Режим размышления"
+  },
+  "effortAuto": {
+    "message": "Авто"
+  },
+  "modelMenu": {
+    "message": "Модель и рассуждение"
+  },
+  "modelNotSelected": {
+    "message": "Модель не выбрана"
+  },
+  "connectModelHint": {
+    "message": "Подключите и выберите модель в настройках"
+  },
+  "newHeading": {
+    "message": "Что создадим?"
+  },
+  "newHint": {
+    "message": "От идеи до результата — начните с задачи."
+  },
+  "newHeadingIn": {
+    "message": "Что создадим в $NAME$?",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseModelHint": {
+    "message": "Выберите модель для нового чата."
   }
 }

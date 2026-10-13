@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfiguration
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackAnchor
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackOutcome
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
@@ -69,6 +70,29 @@ class StudioConfigurationControllerTest {
     }
 
     @Test
+    fun `a concurrent change is refused while the accepted operation completes`() = runTest {
+        val fixture = StudioConfigurationFixture(this)
+        val native = fixture.add()
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        native.onApply = { _, _ ->
+            started.complete(Unit)
+            release.await()
+            fixture.initial.copy(reasoningEffort = "high")
+        }
+        val first = async {
+            fixture.controller.configure(fixture.access, "chat", StudioSettingChange.Effort("high"))
+        }
+        started.await()
+
+        assertFalse(fixture.controller.configure(fixture.access, "chat", StudioSettingChange.Effort(null)))
+        assertEquals(1, native.calls.size)
+        release.complete(Unit)
+        assertTrue(first.await())
+        assertEquals("high", fixture.access.states.getValue("chat").applied.reasoningEffort)
+    }
+
+    @Test
     fun `changing one conversation keeps another conversation configuration isolated`() = runTest {
         val fixture = StudioConfigurationFixture(this)
         val first = fixture.add("first")
@@ -101,7 +125,7 @@ class StudioConfigurationControllerTest {
         val native = fixture.add()
         val failure = EngineFailure.Transport(TransportFailureReason.Timeout)
         native.onApply = { _, _ -> throw EngineException(failure) }
-        fixture.controller.configure(fixture.access, "chat", StudioSettingChange.Effort("high"))
+        assertFalse(fixture.controller.configure(fixture.access, "chat", StudioSettingChange.Effort("high")))
         runCurrent()
         assertEquals("low", fixture.access.states.getValue("chat").applied.reasoningEffort)
         assertTrue(fixture.access.saved.all { it.second.reasoningEffort == "low" })
@@ -114,7 +138,7 @@ class StudioConfigurationControllerTest {
     fun `choosing the already applied value creates no call or feedback card`() = runTest {
         val fixture = StudioConfigurationFixture(this)
         val native = fixture.add()
-        fixture.controller.configure(fixture.access, "chat", StudioSettingChange.Effort("low"))
+        assertTrue(fixture.controller.configure(fixture.access, "chat", StudioSettingChange.Effort("low")))
         runCurrent()
         assertTrue(native.calls.isEmpty())
         assertTrue(fixture.registry.publications.isEmpty())
@@ -127,7 +151,9 @@ class StudioConfigurationControllerTest {
         val fixture = StudioConfigurationFixture(this)
         val native = fixture.add()
         val requested = fixture.target.copy(engine = EngineId("another-engine"))
-        fixture.controller.configure(fixture.access, "chat", StudioSettingChange.Model(requested.studioModelId()))
+        assertFalse(
+            fixture.controller.configure(fixture.access, "chat", StudioSettingChange.Model(requested.studioModelId())),
+        )
         runCurrent()
         assertTrue(native.calls.isEmpty())
         assertTrue(fixture.access.validated.isEmpty())
