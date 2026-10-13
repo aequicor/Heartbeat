@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.ApprovalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismPermissionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismStatusUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PermissionOptionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionKindUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionObservationUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionStateUi

@@ -22,11 +22,11 @@ import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.action_pin
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.action_unpin
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_awaiting_permission
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import org.jetbrains.compose.resources.stringResource
 import java.io.File
 import javax.imageio.ImageIO

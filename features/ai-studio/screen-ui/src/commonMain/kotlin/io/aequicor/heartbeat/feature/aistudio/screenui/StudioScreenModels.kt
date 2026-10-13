@@ -2,14 +2,9 @@ package io.aequicor.heartbeat.feature.aistudio.screenui
 
 import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ComposerCaretRequestUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PermissionUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.RenameUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentPreviewUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ComposerCaretRequestUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextUsageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoiceUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoicesUi
@@ -18,10 +13,15 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PermissionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProviderUsageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.RenameUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionConfigurationUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionTreeUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SettingsUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.attachmentSupport
@@ -109,7 +109,7 @@ data class PaneContent(
     val isAttachmentPending: Boolean = false,
     val attachmentPreviews: ImmutableMap<String, AttachmentPreviewUi> = persistentMapOf(),
     /** Suggestions of the pane's active composer token; null hides the popup. */
-    val suggestions: io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ComposerSuggestionsUi? = null,
+    val suggestions: io.aequicor.heartbeat.feature.aistudio.screenmodel.ComposerSuggestionsUi? = null,
     val caretRequest: ComposerCaretRequestUi? = null,
     val diagram: DiagramActionsUi = DiagramActionsUi(),
     val host: StudioHostCapabilities = StudioHostCapabilities(),

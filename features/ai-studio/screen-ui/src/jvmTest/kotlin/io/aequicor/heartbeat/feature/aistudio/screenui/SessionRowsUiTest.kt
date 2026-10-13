@@ -35,10 +35,10 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.ds.tokens.HbMotion
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.action_rename
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_running
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import org.jetbrains.compose.resources.stringResource
 import java.io.File
 import javax.imageio.ImageIO

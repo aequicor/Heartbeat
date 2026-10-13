@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ComposerCaretRequestUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SuggestionKindUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraftCaret
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists

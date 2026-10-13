@@ -6,12 +6,14 @@ import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ApprovalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentPreviewUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ComposerCaretRequestUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ComposerSuggestionsUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextUsageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.DefaultSettingsUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.DiagramDraftReasonUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.DiagramSubmissionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.EffortUi
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.EnvironmentUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedCollapseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoicesUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableListSerializer
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableMapSerializer
@@ -23,12 +25,18 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeTranscriptUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismActionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PermissionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PreviewVisibilityUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProviderUsageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionConfigurationUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionTreeUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SettingsUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarMode
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioEmbedViews
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioPhase
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionObservationUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubmissionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeActionUi
@@ -49,84 +57,6 @@ import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
 import pro.respawn.flowmvi.api.MVIState
 import kotlin.time.Instant
-
-/** Screen phase derived from the studio machine. */
-@Serializable
-@SerialName("StudioPhase")
-enum class StudioPhase { Loading, Ready, Disabled, Error }
-
-/** Which list the sidebar shows. */
-@Serializable
-@SerialName("SidebarMode")
-enum class SidebarMode { Workspace, Archive }
-
-/** A project row of the sidebar. */
-@Serializable
-@SerialName("ProjectUi")
-@Immutable
-data class ProjectUi(val id: String, val name: String, val environment: EnvironmentUi, val branch: String)
-
-/** A pending scheduler wake, distinct from a currently executing engine turn. */
-@Serializable
-@SerialName("SessionWaitUi")
-enum class SessionWaitUi { Sleeping, WaitingForEvent }
-
-/** A session row; execution and scheduled waits come from their machines, metadata from the repository. */
-@Serializable
-@SerialName("SessionUi")
-@Immutable
-data class SessionUi(
-    val id: String,
-    val title: String,
-    val projectId: String?,
-    val updatedAt: Instant,
-    val isPinned: Boolean = false,
-    val isUnread: Boolean = false,
-    val isArchived: Boolean = false,
-    val branch: String? = null,
-    val isRunning: Boolean = false,
-    val modelId: String? = null,
-    val isContinuable: Boolean = true,
-    val isWorktree: Boolean = false,
-    /** An organic AI organism of the same id drives this chat; the chat only shows its sessions. */
-    val isOrganism: Boolean = false,
-    val isAwaitingChecklist: Boolean = false,
-    val isReady: Boolean = false,
-    val scheduledWait: SessionWaitUi? = null,
-    val parentChatId: String? = null,
-    /** Sidebar-only indentation, derived after filtering and grouping the visible helper tree. */
-    val depth: Int = 0,
-    val isAwaitingPermission: Boolean = false,
-    /** A real parent exists outside the search filter; nested chats inherit that root's sidebar section. */
-    val isNestedInSidebar: Boolean = false,
-    /** Actual execution directory reference, which differs from [projectId] for worktree chats. */
-    val executionWorkspace: String? = null,
-) {
-    /** Work is pending even when no engine turn is currently executing. */
-    val isWaiting: Boolean get() = isAwaitingPermission || scheduledWait != null || isAwaitingChecklist
-}
-
-/** Title being edited inline; [origin] is the list row or pane header hosting the field. */
-@Serializable
-@SerialName("RenameUi")
-@Immutable
-data class RenameUi(val sessionId: String, val title: String, val origin: String)
-
-/** Local sidebar presentation: none of it is business state. */
-@Serializable
-@SerialName("SidebarUi")
-@Immutable
-data class SidebarUi(
-    val mode: SidebarMode = SidebarMode.Workspace,
-    val query: String = "",
-    val isSearchVisible: Boolean = false,
-    val collapsedProjects: ImmutableSet<String> = persistentSetOf(),
-    val isProjectsExpanded: Boolean = true,
-    val isRecentExpanded: Boolean = true,
-    val renaming: RenameUi? = null,
-    val isVisible: Boolean = true,
-    val isDrawerOpen: Boolean = false,
-)
 
 /**
  * Studio screen. [panes], [focusedPaneId], [running], [stopping] and [settings] mirror the machine;
@@ -237,12 +167,6 @@ data class AiStudioScreenState(
     /** Last accepted completion's caret request for the pane's editor. */
     fun caretRequest(paneId: Int): ComposerCaretRequestUi? = draftCaretRequests[draftKey(paneId)]
 }
-
-/** Apply this caret once, after the editor displays [text]; [id] is unique across this screen's drafts. */
-@Serializable
-@SerialName("ComposerCaretRequestUi")
-@Immutable
-data class ComposerCaretRequestUi(val id: Long, val text: String, val caret: Int)
 
 /** User events of the studio screen. */
 @Serializable
@@ -608,79 +532,3 @@ sealed interface AiStudioScreenIntent : MVIIntent {
 @Serializable
 @SerialName("AiStudioScreenAction")
 sealed interface AiStudioScreenAction : MVIAction
-
-/** What a suggestion completes; the section label and icon derive from kind and origin. */
-@Serializable
-@SerialName("SuggestionKindUi")
-enum class SuggestionKindUi { Command, Skill, File }
-
-/** Which parts of answers the feed hides (context settings): reasoning, tool calls. */
-@Serializable
-@SerialName("FeedCollapseUi")
-@Immutable
-data class FeedCollapseUi(val isReasoningCollapsed: Boolean = false, val isToolCallsCollapsed: Boolean = false)
-
-/** Where a suggestion comes from: Heartbeat itself or a native engine (its engine id). */
-@Serializable
-@SerialName("SuggestionOriginUi")
-@Immutable
-data class SuggestionOriginUi(val engine: String?) {
-    val isHeartbeat: Boolean get() = engine == null
-
-    /** Named origins of the screen projection. */
-    companion object {
-        val Heartbeat = SuggestionOriginUi(null)
-    }
-}
-
-/** One row of the composer suggestion popup; the API suggestion projected for the screen. */
-@Serializable
-@SerialName("SuggestionUi")
-@Immutable
-data class SuggestionUi(
-    val id: String,
-    val label: String,
-    val description: String,
-    val kind: SuggestionKindUi,
-    val origin: SuggestionOriginUi,
-    /** Text replacing the active token; empty for files, which complete from their path. */
-    val insert: String,
-    /** File suggestions the current model cannot take stay visible, greyed. */
-    val isSupported: Boolean = true,
-    val relativePath: String? = null,
-    val location: String? = null,
-    val sizeBytes: Long = 0,
-    val mediaType: String? = null,
-)
-
-/** Suggestions of one pane's active composer token; [selectedIndex] follows keyboard navigation. */
-@Serializable
-@SerialName("ComposerSuggestionsUi")
-@Immutable
-data class ComposerSuggestionsUi(
-    val items: ImmutableList<SuggestionUi>,
-    val selectedIndex: Int,
-    /** Token the list belongs to; Escape hides it until the token changes. */
-    val token: String,
-    /** Coordinator generation; acceptance and publication reject obsolete requests. */
-    val requestId: Long = 0,
-)
-
-/** One actionable permission exposed by the current native session. */
-@Serializable
-@SerialName("PermissionUi")
-@Immutable
-data class PermissionUi(
-    val sessionId: String,
-    val requestId: String,
-    val title: String,
-    val options: ImmutableList<PermissionOptionUi>,
-    /** What exactly is being approved, e.g. the text of an instruction the agent wants to remember. */
-    val description: String? = null,
-)
-
-/** Exact native choice identity, displayed without inventing approval policy. */
-@Serializable
-@SerialName("PermissionOptionUi")
-@Immutable
-data class PermissionOptionUi(val id: String, val title: String)

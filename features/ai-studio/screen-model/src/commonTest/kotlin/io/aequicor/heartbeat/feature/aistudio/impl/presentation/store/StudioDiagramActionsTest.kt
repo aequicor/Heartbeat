@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.DiagramDraftReasonUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.DiagramSubmissionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.appendDiagramDraft
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.canUseDiagramActions
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.finishDiagramSubmission

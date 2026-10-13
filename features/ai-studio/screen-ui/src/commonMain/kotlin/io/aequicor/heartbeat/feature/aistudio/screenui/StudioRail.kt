@@ -13,8 +13,6 @@ import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbHorizontalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarMode
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.browser_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_archive
@@ -24,6 +22,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_settings
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_toggles
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_back
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_connections
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarMode
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarUi
 import org.jetbrains.compose.resources.stringResource
 
 /** Existing destinations grouped in the unified sidebar footer; each retains its original callback and label. */

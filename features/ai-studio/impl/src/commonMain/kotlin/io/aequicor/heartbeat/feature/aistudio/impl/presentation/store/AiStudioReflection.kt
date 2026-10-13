@@ -5,6 +5,12 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioProject
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PermissionOptionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PermissionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionWaitUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioPhase
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.pruneHarnessChoices
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import kotlinx.collections.immutable.toImmutableList

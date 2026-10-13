@@ -34,8 +34,6 @@ import io.aequicor.heartbeat.ds.layouts.HbLazyColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarMode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_sidebar_hide
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_archive_empty
@@ -54,7 +52,9 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_search_clea
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_shortcut_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_brand
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectGroupUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarContent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarMode
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.sidebarContent
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource

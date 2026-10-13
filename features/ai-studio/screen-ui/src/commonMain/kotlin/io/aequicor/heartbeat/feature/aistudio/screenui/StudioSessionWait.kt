@@ -11,11 +11,11 @@ import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionWaitUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_sleeping
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_waiting_event
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionWaitUi
 import org.jetbrains.compose.resources.stringResource
 
 /** A scheduled wait never marks the engine busy or enables its stop control. */

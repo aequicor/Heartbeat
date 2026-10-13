@@ -19,8 +19,8 @@ import io.aequicor.heartbeat.ds.components.HbWindowChrome
 import io.aequicor.heartbeat.ds.components.HbWindowChromeProvider
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioPhase
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioPhase
 import kotlinx.collections.immutable.persistentListOf
 import java.io.File
 import javax.imageio.ImageIO

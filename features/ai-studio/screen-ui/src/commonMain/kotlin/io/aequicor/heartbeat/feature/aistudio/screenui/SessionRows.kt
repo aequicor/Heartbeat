@@ -37,8 +37,6 @@ import io.aequicor.heartbeat.ds.components.HbTextField
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.RenameUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.action_archive
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.action_mark_read
@@ -54,6 +52,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_branch
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_running
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_title_field
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_unread
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.RenameUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.stringResource
