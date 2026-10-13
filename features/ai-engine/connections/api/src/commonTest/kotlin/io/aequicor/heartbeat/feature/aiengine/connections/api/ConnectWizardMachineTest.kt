@@ -247,7 +247,7 @@ class ConnectWizardMachineTest {
     }
 
     @Test
-    fun `dismiss steps back, cancels or rolls back depending on the step`() {
+    fun `dismiss steps back cancels or rolls back depending on the step`() {
         spec.assertTransition(
             ChoosingMethod(koog),
             Public.Dismiss,

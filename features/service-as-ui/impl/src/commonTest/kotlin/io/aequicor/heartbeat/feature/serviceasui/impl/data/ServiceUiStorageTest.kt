@@ -65,7 +65,7 @@ class ServiceUiStorageTest {
     }
 
     @Test
-    fun `effects load, save and pause before another read`() = runTest {
+    fun `effects load save and pause before another read`() = runTest {
         val machine = RecordingScope()
         val effects = ServiceUiEffects(storage)
         val library = library("map")

@@ -112,6 +112,7 @@ class AiStudioModel(
     private val previewRequests = MutableStateFlow<List<ResourceRef>>(emptyList())
 
     private val organisms = StudioOrganismView(machine, machines, backend) { it.withAttachmentMetadata() }
+    private val appUpdate = StudioAppUpdate(machines)
 
     /** Late-bound file attach of an accepted suggestion: the store itself is created below. */
     private var attachSuggestedFile: suspend (paneId: Int, location: String) -> Unit = { _, _ -> }
@@ -158,6 +159,7 @@ class AiStudioModel(
                 launch { organisms.observe(pipeline) }
                 launch { observeAttachmentOutputs(machines, pipeline) }
                 launch { observeResearch(pipeline) }
+                launch { appUpdate.observe(pipeline) }
                 launch { observeComputerUse(pipeline) }
                 launch { observeEfforts(pipeline) }
                 launch { observeWorktrees(pipeline) }
@@ -384,6 +386,7 @@ class AiStudioModel(
             is AiStudioScreenIntent.Sidebar -> updateState { copy(sidebar = sidebar.reduce(intent)) }
             is AiStudioScreenIntent.Organism -> organisms.handle(pipeline, intent)
             is AiStudioScreenIntent.SelectHarness -> harnessSelection.select(pipeline, intent)
+            AiStudioScreenIntent.InstallAppUpdate -> appUpdate.install()
         }
     }
 

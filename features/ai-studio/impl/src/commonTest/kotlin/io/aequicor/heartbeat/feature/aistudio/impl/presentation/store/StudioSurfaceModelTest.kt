@@ -9,6 +9,9 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPane
 import io.aequicor.heartbeat.feature.aistudio.impl.data.InMemoryStudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarness
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessChoices
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfacePlace
@@ -30,7 +33,7 @@ class StudioSurfaceModelTest {
     private val native = SessionRef(EngineId("engine"), SessionSourceId("source"), "chat")
 
     @Test
-    fun `panes are bound with their chat, project and the harnesses chosen for a new chat`() = runTest {
+    fun `panes are bound with their chat and project and the harnesses chosen for a new chat`() = runTest {
         val workspace = StudioWorkspace(
             emptyList(),
             listOf(StudioSession("s-chat", "p-app", "Chat", TestClock(this).now(), nativeSession = native)),
@@ -40,10 +43,17 @@ class StudioSurfaceModelTest {
         }
         val surfaces = FakeStudioSurfaces()
         val state = ready(StudioPane(0, sessionId = "s-chat"), StudioPane(1, projectId = "p-new"))
-        val fixture = Fixture(this, state, repository, surfaces = surfaces)
-        fixture.subscribe()
+        val harnesses = object : StudioHarnesses by StudioHarnesses.None {
+            override val choices = flowOf(
+                StudioHarnessChoices(listOf(StudioHarness("pr_map", "PR map", projectIds = setOf("p-new")))),
+            )
+        }
+        val fixture = Fixture(this, state, repository, harnesses = harnesses, surfaces = surfaces)
+        val screen = fixture.subscribe()
+        assertEquals(listOf("pr_map"), screen.states.value.harnessChoices.options.map { it.id })
         fixture.model.store.intent(AiStudioScreenIntent.SelectHarness(1, "pr_map", true))
         runCurrent()
+        assertEquals<Set<String>?>(setOf("pr_map"), screen.states.value.harnessChoices.panes[1])
 
         assertEquals(
             mapOf(

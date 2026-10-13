@@ -55,7 +55,7 @@ class ProviderUiMethodCallsTest {
     }
 
     @Test
-    fun `failing, hanging and broken providers end as results`() = runTest {
+    fun `failing hanging and broken providers end as results`() = runTest {
         val failing = ProviderUiMethodCalls(setOf(FakeProvider { error("provider bug") }))
         assertEquals(UiMethodResult.Failure(UiMethodFailure.Failed), failing.call(owner, "prs", empty, UiCallContext()))
 

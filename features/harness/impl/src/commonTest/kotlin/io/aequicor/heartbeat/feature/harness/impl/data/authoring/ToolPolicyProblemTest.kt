@@ -49,7 +49,7 @@ class ToolPolicyProblemTest {
     }
 
     @Test
-    fun `unknown names, own harness tools and hosted collisions are refused`() {
+    fun `unknown names own harness tools and hosted collisions are refused`() {
         assertEquals("harness tools cannot be turned off by a harness", problem(hosted = setOf("harness_list")))
         assertEquals("unknown Heartbeat tools: nope; see harness_tools_catalog", problem(hosted = setOf("nope")))
         val engine = problem(native = mapOf("claude" to mapOf("Bash" to ToolSwitch.Off)))

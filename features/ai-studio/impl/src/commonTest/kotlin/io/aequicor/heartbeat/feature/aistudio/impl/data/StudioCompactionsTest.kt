@@ -108,7 +108,7 @@ class StudioCompactionsTest {
     }
 
     @Test
-    fun `a pending compaction of a studio chat is claimed, run as a turn and finished`() = runTest {
+    fun `a pending compaction of a studio chat is claimed run as a turn and finished`() = runTest {
         val fixture = Fixture(this)
         val job = launch { fixture.compactions.run() }
 
@@ -144,7 +144,7 @@ class StudioCompactionsTest {
     }
 
     @Test
-    fun `only the agent's own compaction continues its work, and only with the brief`() = runTest {
+    fun `only the agent's own compaction continues its work and only with the brief`() = runTest {
         val user = Fixture(this)
         val userJob = launch { user.compactions.run() }
         user.pending(Chat to PendingCompaction(CompactionMethod.Native, CompactionOrigin.User))

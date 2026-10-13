@@ -320,6 +320,7 @@ private fun AiStudioScreenState.auditIntent(intent: AiStudioScreenIntent): AiStu
     is AiStudioScreenIntent.SessionAction,
     is AiStudioScreenIntent.Organism,
     is AiStudioScreenIntent.SelectHarness,
+    AiStudioScreenIntent.InstallAppUpdate,
     -> this
 }
 

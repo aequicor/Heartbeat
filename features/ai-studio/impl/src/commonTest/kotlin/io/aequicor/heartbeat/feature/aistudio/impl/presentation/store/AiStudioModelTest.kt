@@ -49,6 +49,10 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaces
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.TestClock
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
+import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateIntent
+import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateMachineKey
+import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateOutput
+import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateState
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentDescriptor
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
@@ -880,6 +884,7 @@ internal class FakeEfforts :
     val sent = mutableListOf<Any>()
     val computerUse = FakeComputerUseMachine()
     val scheduler = FakeSchedulerMachine()
+    val appUpdate = FakeAppUpdateMachine()
 
     override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> find(
         key: MachineKey<S, I, P, E, O>,
@@ -897,6 +902,8 @@ internal class FakeEfforts :
             MutableStateFlow<MachineRef<SchedulerState, SchedulerIntent.Public, SchedulerOutput>?>(scheduler) as
                 StateFlow<MachineRef<S, P, O>?>
 
+        AppUpdateMachineKey -> appUpdate.ref as StateFlow<MachineRef<S, P, O>?>
+
         else -> MutableStateFlow(null)
     }
 
@@ -904,7 +911,22 @@ internal class FakeEfforts :
         key: MachineKey<S, I, P, E, O>,
         intent: P,
     ): SendResult {
+        if (key == AppUpdateMachineKey) return appUpdate.send(intent as AppUpdateIntent)
         assertEquals(EffortConfigurationMachineKey.name, key.name)
+        sent += intent
+        return SendResult.Accepted
+    }
+}
+
+/** The desktop update machine as the studio sees it; [ref] is null where the host runs none. */
+internal class FakeAppUpdateMachine : Machine<AppUpdateState, AppUpdateIntent, AppUpdateOutput> {
+    override val name = "app-update"
+    override val state = MutableStateFlow<AppUpdateState>(AppUpdateState.Inactive)
+    override val outputs = MutableSharedFlow<AppUpdateOutput>()
+    val ref = MutableStateFlow<MachineRef<AppUpdateState, AppUpdateIntent.Public, AppUpdateOutput>?>(this)
+    val sent = mutableListOf<AppUpdateIntent>()
+
+    override suspend fun send(intent: AppUpdateIntent): SendResult {
         sent += intent
         return SendResult.Accepted
     }

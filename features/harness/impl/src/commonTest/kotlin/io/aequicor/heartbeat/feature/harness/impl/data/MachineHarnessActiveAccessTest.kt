@@ -88,7 +88,7 @@ class MachineHarnessActiveAccessTest {
     }
 
     @Test
-    fun `a connection activates in any workspace, including for a legacy project scope`() = runTest {
+    fun `a connection activates in any workspace including for a legacy project scope`() = runTest {
         val entry = harness.copy(scope = HarnessScope.Projects(setOf(WorkspaceRef("project"))))
         registry.library.value = SchedulerAccessMachine(
             HarnessState.Ready(

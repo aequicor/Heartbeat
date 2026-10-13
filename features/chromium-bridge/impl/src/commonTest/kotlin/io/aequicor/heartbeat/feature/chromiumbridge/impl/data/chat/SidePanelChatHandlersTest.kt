@@ -102,7 +102,7 @@ class SidePanelChatHandlersTest {
     }
 
     @Test
-    fun `the list carries chat settings, archived chats last and the composer`() = runTest {
+    fun `the list carries chat settings archived chats last and the composer`() = runTest {
         val session = FakeSession(this)
         val settings = StudioChatSettings("m1", "high", ApprovalMode.AutoEdits)
         chats.list.value = StudioChatList(

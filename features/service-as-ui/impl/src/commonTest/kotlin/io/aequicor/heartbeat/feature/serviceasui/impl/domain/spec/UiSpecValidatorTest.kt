@@ -141,7 +141,7 @@ class UiSpecValidatorTest {
     }
 
     @Test
-    fun `web documents only in panels, modals and dialogs, once, without bridges in cards`() {
+    fun `web documents only in panels modals and dialogs once without bridges in cards`() {
         val web = """{"type":"web","html":"<p>x</p>","bridge":true}"""
         val inline = spec(web)
         val inModal = spec("""{"type":"divider"}""", modals = """{"view":{"title":"V","body":$web}}""")

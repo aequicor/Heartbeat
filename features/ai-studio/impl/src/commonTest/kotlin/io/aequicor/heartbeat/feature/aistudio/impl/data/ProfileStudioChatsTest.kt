@@ -87,7 +87,7 @@ class ProfileStudioChatsTest {
     private val later = Instant.fromEpochSeconds(2_000)
 
     @Test
-    fun `the list hides helpers, keeps archived chats, puts pinned first and carries settings and permissions`() =
+    fun `the list hides helpers keeps archived chats puts pinned first and carries settings and permissions`() =
         runTest {
             val fixture = Fixture(this)
             fixture.repository.workspace.value = StudioWorkspace(
@@ -285,7 +285,7 @@ class ProfileStudioChatsTest {
     }
 
     @Test
-    fun `chat settings, new-chat effort and edits take the studio's paths`() = runTest {
+    fun `chat settings new-chat effort and edits take the studio's paths`() = runTest {
         val fixture = Fixture(this)
         fixture.repository.workspace.value = StudioWorkspace(
             emptyList(),

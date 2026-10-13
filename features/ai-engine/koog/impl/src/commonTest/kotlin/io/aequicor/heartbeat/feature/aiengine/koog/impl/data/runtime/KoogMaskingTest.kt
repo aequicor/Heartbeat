@@ -29,7 +29,7 @@ class KoogMaskingTest {
     }
 
     @Test
-    fun `older tool results keep their beginning and a note, the newest turns stay verbatim`() {
+    fun `older tool results keep their beginning and a note the newest turns stay verbatim`() {
         val masked = items.masked(ContextPolicy(keepRecentTurns = 2, toolStubChars = 50))
 
         val results = masked.filterIsInstance<SessionItem.ToolResult>()

@@ -6,6 +6,7 @@ plugins {
 kotlin {
     sourceSets {
         commonMain.dependencies {
+            api(projects.core.common)
             api(projects.features.aiEngine.authenticator.api)
             api(projects.core.stateMachine.api)
             api(projects.core.featureToggles.api)

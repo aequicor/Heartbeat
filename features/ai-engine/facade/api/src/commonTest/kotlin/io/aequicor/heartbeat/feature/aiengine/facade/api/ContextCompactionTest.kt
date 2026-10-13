@@ -10,7 +10,7 @@ import kotlin.test.assertTrue
 
 class ContextCompactionTest {
     @Test
-    fun `essence drops reasoning, tool arguments and host directives`() {
+    fun `essence drops reasoning and tool arguments and host directives`() {
         val items = listOf(
             message(0, MessageRole.User, ContentPart.Text("fix issue\n\n" + hostDirective("secret host note"))),
             message(1, MessageRole.Assistant, ContentPart.Reasoning("private thinking"), ContentPart.Text("Done.")),

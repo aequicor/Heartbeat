@@ -71,7 +71,7 @@ class HarnessUiDispatchTest {
     }
 
     @Test
-    fun `expected errors, failures and oversized values are told apart`() = runTest {
+    fun `expected errors failures and oversized values are told apart`() = runTest {
         val fixture = HarnessDispatchFixture(backgroundScope, StandardTestDispatcher(testScheduler))
         fixture.onEvaluate = { script ->
             script.ui.method(ItemName("login"), "Needs login") { ScriptUiResult.Error("x".repeat(1_000)) }

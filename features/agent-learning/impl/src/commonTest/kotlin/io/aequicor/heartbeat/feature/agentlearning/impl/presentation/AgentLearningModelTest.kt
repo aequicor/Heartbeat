@@ -49,7 +49,7 @@ class AgentLearningModelTest {
     }
 
     @Test
-    fun `approval, switches and removal go to the registry`() = runTest {
+    fun `approval switches and removal go to the registry`() = runTest {
         val fixture = Fixture(this, AgentLearningState.Ready(listOf(project, chat)))
         val screen = fixture.subscribe()
         screen.intent(AgentLearningScreenIntent.SelectApproval(ApprovalUi.AcceptAll))

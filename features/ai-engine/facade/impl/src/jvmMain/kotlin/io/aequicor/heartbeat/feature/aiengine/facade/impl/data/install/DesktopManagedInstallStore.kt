@@ -9,7 +9,6 @@ import io.aequicor.heartbeat.core.common.HostPlatform
 import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.datastore.StorageRoot
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ManagedInstallStore
-import io.ktor.client.HttpClient
 import java.nio.file.Path
 import kotlin.time.Clock
 
@@ -22,7 +21,7 @@ import kotlin.time.Clock
 @SingleIn(AppScope::class)
 @ContributesBinding(AppScope::class, priority = 1)
 internal class DesktopManagedInstallStore(
-    client: HttpClient,
+    downloader: ReleaseDownloader,
     storage: StorageRoot,
     platform: PlatformInfo,
     dispatchers: DispatcherProvider,
@@ -30,7 +29,7 @@ internal class DesktopManagedInstallStore(
     fileLocks: ManagedFileLocks,
 ) : ManagedInstallStore by FileManagedInstallStore(
         managedRoot(platform.host, storage),
-        ReleaseDownloader(client, dispatchers.io),
+        downloader,
         ArchiveExtractor(),
         dispatchers.io,
         clock,

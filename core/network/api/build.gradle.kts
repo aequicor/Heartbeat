@@ -8,6 +8,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(libs.ktor.client.core)
+            api(projects.core.common)
         }
         commonTest.dependencies {
             implementation(libs.ktor.client.mock)

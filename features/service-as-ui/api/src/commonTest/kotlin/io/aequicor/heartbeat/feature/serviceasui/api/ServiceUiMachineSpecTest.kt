@@ -220,7 +220,7 @@ class ServiceUiMachineSpecTest {
     }
 
     @Test
-    fun `panels need a docked place, an enabled panel surface and bounded arguments`() {
+    fun `panels need a docked place an enabled panel surface and bounded arguments`() {
         val undocked = Ready.copy(hosts = mapOf(Host to UiHostContext()))
         val disable = UiWriteOp.SetEnabled(PanelSurface.id, false, 1, At)
         val disabled = assertIs<UiWriteResult.Applied>(Library.apply(disable))

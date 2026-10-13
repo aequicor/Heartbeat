@@ -78,6 +78,46 @@ data class SidebarUi(
     val isDrawerOpen: Boolean = false,
 )
 
+/** A newer release of the app offered by the desktop update (`app-update`); [pageUrl] is its release page. */
+@Immutable
+data class AppUpdateUi(
+    val version: String,
+    val stage: AppUpdateStageUi,
+    val percent: Int? = null,
+    val failure: AppUpdateFailureUi? = null,
+    val pageUrl: String = "",
+)
+
+/** What the update button does now. */
+enum class AppUpdateStageUi {
+    /** Installs the release and restarts; after a [AppUpdateUi.failure] it retries. */
+    Ready,
+
+    /** The app cannot replace itself: the button opens the release page. */
+    ManualInstall,
+
+    /** Downloading the release. */
+    Downloading,
+
+    /** Verifying and unpacking the download, starting the installer. */
+    Preparing,
+
+    /** The app quits so that the installer can replace it. */
+    Restarting,
+}
+
+/** Why the last check or installation ended, shown in the button's tooltip. */
+enum class AppUpdateFailureUi {
+    Network,
+    RateLimited,
+    InvalidRelease,
+    Corrupted,
+    NotEnoughSpace,
+    Storage,
+    InstallFailed,
+    PreviousAttemptFailed,
+}
+
 /**
  * Studio screen. [panes], [focusedPaneId], [running], [stopping] and [settings] mirror the machine;
  * [projects], [sessions] and [transcripts] (of open sessions) mirror the repository; [drafts] and [sidebar]
@@ -86,6 +126,8 @@ data class SidebarUi(
 @Immutable
 data class AiStudioScreenState(
     val models: ImmutableList<ModelUi> = persistentListOf(),
+    /** The app update the sidebar header offers; absent while there is no newer release. */
+    val appUpdate: AppUpdateUi? = null,
     val isResearchEnabled: Boolean = false,
     val isProjectAddingAvailable: Boolean = false,
     val isWorktreeAvailable: Boolean = false,
@@ -195,6 +237,9 @@ sealed interface AiStudioScreenIntent : MVIIntent {
 
     /** Composer input, runs and model preferences. */
     sealed interface Composer : AiStudioScreenIntent
+
+    /** Installs the offered app update and restarts the app. */
+    data object InstallAppUpdate : AiStudioScreenIntent
 
     /** Connects a harness to the chat of [paneId], or remembers the choice for a new chat. */
     data class SelectHarness(val paneId: Int, val harness: String, val isSelected: Boolean) : AiStudioScreenIntent

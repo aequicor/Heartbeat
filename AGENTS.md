@@ -76,6 +76,14 @@ CI подтверждает проверенный результат, а не �
   workflow отклоняет. Сборка приложения целиком и упаковка (задачи `platform-main`: `assembleDebug`,
   `createReleaseDistributable`, `verifyReleaseHarnessCompiler`) — только по просьбе пользователя. ОС, задачи и
   ссылку на прогон укажи в «Проверке» описания PR.
+- **Релиз — `release.yml`, только по решению пользователя.** В Actions → Release → Run workflow выбери `master`
+  и `release_level`: `patch`, `minor` или `major`. Версия увеличивается от наибольшего стабильного тега `vX.Y.Z`
+  (если тегов нет — от `heartbeat.version` в `gradle.properties`); minor сбрасывает patch, major — minor и patch.
+  После всех тестов и lint, сборок Android и iOS и упаковки четырёх desktop-установщиков с проверкой упакованного
+  приложения workflow создаёт тег на проверенном коммите и публикует релиз для автообновления (`features/app-update`).
+  Опция `dry_run` — пробный прогон без тега и публикации, в том числе из рабочей ветки:
+  `gh workflow run release.yml --ref <branch> -f release_level=patch -F dry_run=true`.
+  Push тега релиз не запускает. Агент теги не создаёт и релизный workflow не запускает без просьбы пользователя.
 - **Рантайм JCEF** (`native/jcef`) собирается не `module-build.yml`, а `jcef-runtime.yml`: все четыре хоста, проба
   и артефакт `jcef-release`. Запуск — метка `jcef-runtime` на PR (снимается вручную) или
   `gh workflow run jcef-runtime.yml --ref <branch>`, когда подготовлен выпуск в `native/jcef/next` или по просьбе

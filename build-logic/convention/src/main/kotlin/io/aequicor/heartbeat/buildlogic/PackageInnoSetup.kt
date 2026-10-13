@@ -42,7 +42,7 @@ abstract class PackageInnoSetup : DefaultTask() {
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val appImage: DirectoryProperty
 
-    /** Launcher file name inside [appImage], e.g. `io.aequicor.exe`. */
+    /** Launcher file name inside [appImage], e.g. `Heartbeat.exe`. */
     @get:Input abstract val appExecutable: Property<String>
 
     @get:Input abstract val appVersion: Property<String>

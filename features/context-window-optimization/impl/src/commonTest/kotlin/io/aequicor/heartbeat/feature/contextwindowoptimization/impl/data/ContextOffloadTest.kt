@@ -32,7 +32,7 @@ class ContextOffloadTest {
     private val recall = ContextRecallTools(EnabledToggles(), outputs)
 
     @Test
-    fun `long output is stored and shortened, short output stays`() = runTest {
+    fun `long output is stored and shortened short output stays`() = runTest {
         val output = "a".repeat(3_000) + "b".repeat(3_000) + "c".repeat(3_000)
 
         val stub = assertNotNull(offload.offload(Session, "run_command", output))

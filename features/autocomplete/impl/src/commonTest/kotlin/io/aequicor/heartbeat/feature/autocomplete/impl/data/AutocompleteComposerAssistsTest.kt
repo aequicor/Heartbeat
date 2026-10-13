@@ -142,7 +142,7 @@ class AutocompleteComposerAssistsTest {
     }
 
     @Test
-    fun `mentions offer learned skills and engine skills, dropping duplicates`() = runTest {
+    fun `mentions offer learned skills and engine skills dropping duplicates`() = runTest {
         val service = service(
             assists = listOf(skill("verification", "verification", "engine checks")),
         )

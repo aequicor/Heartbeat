@@ -105,7 +105,7 @@ class CodexDetachedToolsTest {
     }
 
     @Test
-    fun `manifest compatibility compares shared declarations, version and workspace`() {
+    fun `manifest compatibility compares shared declarations version and workspace`() {
         val base = manifest("project", "run_command" to "Run")
         assertTrue(isManifestCompatible(base, workspace, manifest("project", "run_command" to "Run", "x" to "X")))
         assertTrue(isManifestCompatible(base, workspace, null))

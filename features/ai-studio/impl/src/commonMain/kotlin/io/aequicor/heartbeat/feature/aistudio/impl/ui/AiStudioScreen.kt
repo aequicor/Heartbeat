@@ -47,6 +47,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioSc
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.NativeAttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioPhase
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.hasRunningAgentsForUpdate
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.research_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_back
@@ -195,6 +196,8 @@ private fun WideWorkspace(
                     focus = focus,
                     modifier = Modifier.width(HbTheme.dimensions.sidebarWidth).fillMaxHeight()
                         .background(HbTheme.surfaces.sidebar).studioSidebarFocus(focus),
+                    appUpdate = state.appUpdate,
+                    isAgentRunning = state.hasRunningAgentsForUpdate(),
                 )
             }
         }
@@ -307,6 +310,8 @@ private fun CompactWorkspace(
                     focus = focus,
                     modifier = Modifier.fillMaxSize().studioSidebarFocus(focus),
                     isDrawer = true,
+                    appUpdate = state.appUpdate,
+                    isAgentRunning = state.hasRunningAgentsForUpdate(),
                 )
             }
         }

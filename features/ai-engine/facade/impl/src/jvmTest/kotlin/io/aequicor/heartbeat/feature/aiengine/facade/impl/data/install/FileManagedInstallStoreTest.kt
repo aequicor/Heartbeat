@@ -2,14 +2,17 @@ package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.install
 
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.di.ScopeSavedState
+import io.aequicor.heartbeat.core.network.release.ReleaseDownload
+import io.aequicor.heartbeat.core.network.release.ReleaseException
+import io.aequicor.heartbeat.core.network.release.ReleaseFailure
+import io.aequicor.heartbeat.core.network.release.VerifiedReleaseDownloader
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ArchiveKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.GitHubDownloadHosts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.InstallPlan
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.InstallStep
-import io.ktor.client.engine.mock.respond
-import io.ktor.http.HttpStatusCode
+import io.ktor.http.Url
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.DisposableHandle
@@ -305,13 +308,23 @@ class FileManagedInstallStoreTest {
     }
 
     private fun store(io: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO): FileManagedInstallStore {
-        val client = releaseClient { request ->
-            val bytes = releases[request.url.encodedPath]
-            if (bytes == null) respond("", HttpStatusCode.NotFound) else respond(bytes, HttpStatusCode.OK)
+        val downloader = object : VerifiedReleaseDownloader {
+            override suspend fun download(
+                request: ReleaseDownload,
+                target: Path,
+                progress: suspend (Long, Long?) -> Unit,
+            ) {
+                val bytes = releases[Url(request.url).encodedPath] ?: throw ReleaseException(ReleaseFailure.Http, 404)
+                if (sha256(bytes) != request.sha256) {
+                    throw ReleaseException(ReleaseFailure.ChecksumMismatch)
+                }
+                Files.write(target, bytes)
+                progress(bytes.size.toLong(), request.size)
+            }
         }
         return FileManagedInstallStore(
             root,
-            ReleaseDownloader(client, io),
+            ReleaseDownloader(downloader),
             ArchiveExtractor(),
             io,
             clock,
