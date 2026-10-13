@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
@@ -350,6 +351,10 @@ internal class DefaultAgentTools(
         approval: AgentToolApproval,
         verdict: ToolHookVerdict,
     ): AgentToolResult? {
+        val automatic = owner.automaticAuthorization(context, spec, arguments)
+        if (automatic != null) {
+            return automaticRefusal(context, HostedApproval(owner, spec, arguments, approval), automatic, verdict)
+        }
         val isRequiredByTrust = requiresTrustDecision(spec.action, context.trust)
         // The owner may add a decision (its own approval policy); it can never remove one the table demands.
         val existing = owner.existingAuthorization(context, spec, arguments)
@@ -376,6 +381,37 @@ internal class DefaultAgentTools(
             AgentToolResult("Tool became unavailable", isError = true)
         } else if ((isDecisionRequired || isCovered) && owner.approval(context, spec, arguments) != approval) {
             AgentToolResult("The action changed while awaiting approval; request it again", isError = true)
+        } else {
+            null
+        }
+    }
+
+    /** Review never overrides a hook or a changed operation, and never opens an interactive permission path. */
+    private suspend fun automaticRefusal(
+        context: AgentToolContext,
+        operation: HostedApproval,
+        decision: AgentToolAutomaticAuthorization,
+        verdict: ToolHookVerdict,
+    ): AgentToolResult? {
+        val refusal = decision.refusal(operation.approval, verdict)
+        if (refusal != null) return AgentToolResult(refusal, isError = true)
+        val call = hooks.context(context.session, context.request, context.turn)?.let {
+            HookedToolCall(it, operation.spec.name, operation.spec.action, operation.arguments)
+        }
+        val currentHook = call?.let { hooks.beforeTool(it) } ?: ToolHookVerdict.Continue
+        val hookRefusal = currentHook.automaticRefusal()
+        if (hookRefusal != null) return AgentToolResult(hookRefusal, isError = true)
+        val (owner, spec, arguments) = operation
+        val approval = operation.approval
+        return if (declarations(
+                context.toolScope(),
+                isExecuting = true,
+                isAdapterOperated = owner.isAdapterOperated,
+            ).none { it.first === owner && it.second == spec }
+        ) {
+            AgentToolResult("Tool became unavailable after safety review", isError = true)
+        } else if (owner.approval(context, spec, arguments) != approval) {
+            AgentToolResult("The action changed during safety review; request it again", isError = true)
         } else {
             null
         }

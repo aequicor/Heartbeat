@@ -110,6 +110,8 @@ public data class AgentToolImage(val mimeType: String, val data: String) {
  * Specifications and instructions are scoped to an opaque workspace. IO belongs to the implementation.
  * A session without a project (workspace null) consults only contributions with [isDetachedSupported].
  */
+// Declaration, authorization and turn cleanup belong to the same owner; compatibility overloads preserve consumers.
+@Suppress("TooManyFunctions")
 public interface AgentToolContribution {
     /**
      * Adapter-operated host tools publish policy metadata here but execute through their existing transport.
@@ -176,6 +178,20 @@ public interface AgentToolContribution {
         spec: AgentToolSpec,
         arguments: JsonObject,
     ): Boolean = false
+
+    /**
+     * Opts this exact hosted operation into independent automatic safety review. A non-null result never asks
+     * the user: only an [AgentToolAutomaticAuthorization.Allowed] matching [approval] can execute; risk, missing
+     * evidence, changed bindings and a hook requiring confirmation all refuse. Implementations must return a
+     * non-null refusal when review is unavailable, and bind the verdict to immutable operation content and trusted
+     * caller identity. The handler revalidates it immediately before mutation. Null preserves the ordinary gate.
+     * Native tools and other contributions are unaffected.
+     */
+    public suspend fun automaticAuthorization(
+        context: AgentToolContext,
+        spec: AgentToolSpec,
+        arguments: JsonObject,
+    ): AgentToolAutomaticAuthorization? = null
 
     /**
      * A previously granted, durable authorization covering this exact operation, or null. Implementations must

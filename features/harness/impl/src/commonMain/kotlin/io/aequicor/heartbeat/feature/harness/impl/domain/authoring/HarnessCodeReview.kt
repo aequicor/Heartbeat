@@ -5,16 +5,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.serialization.KSerializer
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.SerializationException
-import kotlinx.serialization.descriptors.buildClassSerialDescriptor
-import kotlinx.serialization.descriptors.element
-import kotlinx.serialization.encoding.CompositeDecoder
-import kotlinx.serialization.encoding.Decoder
-import kotlinx.serialization.encoding.Encoder
-import kotlinx.serialization.encoding.decodeStructure
-import kotlinx.serialization.json.Json
 
 /** Independent assessment of the complete proposed change. No source or assessment text is logged. */
 internal fun interface HarnessCodeReviewer {
@@ -22,7 +12,6 @@ internal fun interface HarnessCodeReviewer {
 }
 
 /** A positive verdict requires a complete, explicit assessment, never a substring in free-form output. */
-@Serializable
 internal data class CodeReview(val verdict: String, val reason: String) {
     val isSafe: Boolean get() = verdict == "safe" && reason.isNotBlank()
     override fun toString(): String = "CodeReview(verdict=$verdict)"
@@ -51,60 +40,15 @@ internal class HarnessCodeReviews(private val reviewer: HarnessCodeReviewer) {
                     throw e
                 } catch (e: Exception) {
                     // Provider exceptions can contain source fragments; record only their class.
-                    log.w(IllegalStateException(e::class.simpleName.orEmpty())) { "Script review unavailable" }
-                    CodeReview("uncertain", "Автоматическое ревью недоступно. Требуется ваше решение.")
+                    log.w(IllegalStateException(e::class.simpleName.orEmpty())) { "Harness safety review unavailable" }
+                    CodeReview("uncertain", "Автоматическая проверка безопасности недоступна. Повторите позже.")
                 }
             }
             if (memo.size >= REVIEW_MEMO) memo.remove(memo.keys.first())
             memo[key] = result
-            log.i { "Script assessed safe=${result.isSafe}" }
+            log.i { "Harness assessed safe=${result.isSafe}" }
             result
         }
 }
 
-/** Rejects missing fields, unknown verdicts, prose, fences and truncated or oversized answers. */
-internal fun parseCodeReview(answer: String): CodeReview {
-    if (answer.length > MAX_REVIEW_ANSWER) return invalidReview()
-    val review = try {
-        Json.decodeFromString(UniqueCodeReview, answer)
-    } catch (e: IllegalArgumentException) {
-        reviewLog.w(
-            IllegalArgumentException(e::class.simpleName.orEmpty()),
-        ) { "Script review did not match the schema" }
-        return invalidReview()
-    }
-    return review.takeIf {
-        it.verdict in setOf("safe", "risk", "uncertain") && it.reason.isNotBlank() && it.reason.length <= MAX_REASON
-    } ?: invalidReview()
-}
-
-private fun invalidReview() = CodeReview("uncertain", "Автоматическое ревью не дало однозначного вердикта.")
-private val reviewLog = Log.tag("HarnessCodeReview")
 private const val REVIEW_MEMO = 16
-private const val MAX_REVIEW_ANSWER = 4096
-private const val MAX_REASON = 2000
-
-/** Reads fields directly: a JSON tree would already have discarded duplicate keys. */
-private object UniqueCodeReview : KSerializer<CodeReview> {
-    override val descriptor = buildClassSerialDescriptor("UniqueCodeReview") {
-        element<String>("verdict")
-        element<String>("reason")
-    }
-
-    override fun deserialize(decoder: Decoder): CodeReview = decoder.decodeStructure(descriptor) {
-        val fields = mutableMapOf<Int, String>()
-        while (true) {
-            val index = decodeElementIndex(descriptor)
-            if (index == CompositeDecoder.DECODE_DONE) break
-            if (index !in 0..1 || index in fields) throw SerializationException("Ambiguous review fields")
-            fields[index] = decodeStringElement(descriptor, index)
-        }
-        CodeReview(
-            fields[0] ?: throw SerializationException("Missing verdict"),
-            fields[1] ?: throw SerializationException("Missing reason"),
-        )
-    }
-
-    override fun serialize(encoder: Encoder, value: CodeReview) =
-        throw SerializationException("Review decoder is read-only")
-}

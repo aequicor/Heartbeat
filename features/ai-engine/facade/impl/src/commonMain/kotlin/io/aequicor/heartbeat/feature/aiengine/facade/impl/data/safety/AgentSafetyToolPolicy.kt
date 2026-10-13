@@ -1,4 +1,4 @@
-package io.aequicor.heartbeat.feature.harness.impl.data.authoring
+package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.safety
 
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.ContributesIntoSet
@@ -15,8 +15,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
-internal interface HarnessReviewIsolation {
+internal interface AgentSafetyIsolation {
     val isActive: Boolean
+    fun contains(session: SessionRef): Boolean
     fun restrict(session: SessionRef, nativeTools: List<String>)
     fun release(session: SessionRef)
 }
@@ -27,20 +28,22 @@ internal interface HarnessReviewIsolation {
  * A session whose terminal state is unknown retains its restrictions until observed completion or profile closure.
  */
 @SingleIn(ProfileScope::class)
-@ContributesBinding(ProfileScope::class, binding = binding<HarnessReviewIsolation>())
+@ContributesBinding(ProfileScope::class, binding = binding<AgentSafetyIsolation>())
 @ContributesIntoSet(ProfileScope::class, binding = binding<AgentToolPolicyProvider>())
 @Inject
-internal class HarnessReviewToolPolicy :
+internal class AgentSafetyToolPolicy :
     AgentToolPolicyProvider,
-    HarnessReviewIsolation {
-    private val log = Log.tag("HarnessReviewPolicy")
+    AgentSafetyIsolation {
+    private val log = Log.tag("AgentSafetyPolicy")
     private val sessions = MutableStateFlow<Map<SessionRef, ToolPolicy>>(emptyMap())
 
     override val isActive: Boolean get() = sessions.value.isNotEmpty()
 
+    override fun contains(session: SessionRef): Boolean = session in sessions.value
+
     override fun restrict(session: SessionRef, nativeTools: List<String>) {
         sessions.update { it + (session to ToolPolicy(native = nativeTools.associateWith { ToolSwitch.Off })) }
-        log.d { "Restricted tools of a script review session" }
+        log.d { "Restricted tools of a safety review session" }
     }
 
     override fun release(session: SessionRef) {
