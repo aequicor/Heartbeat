@@ -14,10 +14,10 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiEnabled
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiMachineSpec
-import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiWeb
 import io.aequicor.heartbeat.feature.serviceasui.api.spi.ServiceUiProvider
 import io.aequicor.heartbeat.feature.serviceasui.impl.data.ServiceUiEffects
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiMachine
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiWeb
 
 /** The profile machine of agent interfaces; it survives screens and starts with the profile. */
 @ContributesTo(ProfileScope::class)

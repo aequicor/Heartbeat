@@ -27,6 +27,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiSlot
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSurface
 import io.aequicor.heartbeat.feature.serviceasui.impl.data.UnsupportedUiPlatform
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiMethodCalls
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiWebDocuments
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiNodeUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceIntent
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceModel
@@ -240,7 +241,16 @@ class PlaceModelTest {
             place,
             machine,
             calls,
-            { session, child -> SurfaceModel(session, calls, UnsupportedUiPlatform, stores, child) },
+            { session, child ->
+                SurfaceModel(
+                    session,
+                    calls,
+                    UnsupportedUiPlatform,
+                    stores,
+                    child,
+                    UiWebDocuments.Off,
+                )
+            },
             Desktop,
             stores,
             TestScopeHandle(scope.backgroundScope),

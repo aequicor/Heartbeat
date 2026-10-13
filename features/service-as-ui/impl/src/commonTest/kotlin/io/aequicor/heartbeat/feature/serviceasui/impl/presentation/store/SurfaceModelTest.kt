@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiOwner
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiMethodCalls
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiPlatform
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiPlatformResult
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiWebDocuments
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpecDecoding
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.decodeUiSpec
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiFacts
@@ -258,6 +259,7 @@ class SurfaceModelTest {
             platform,
             HeartbeatStoreFactory(TestDispatchers(StandardTestDispatcher(scope.testScheduler))),
             scope.backgroundScope,
+            UiWebDocuments.Off,
         )
 
         suspend fun subscribe(): SurfaceProvider {

@@ -20,6 +20,17 @@ internal interface UiMethodCalls {
      * cancels the method; arguments and results beyond the limits are refused.
      */
     suspend fun call(owner: UiOwner, method: String, arguments: JsonObject, context: UiCallContext): UiMethodResult
+
+    /**
+     * [call] made by the script of a web page rather than a user action: the page decides how often it calls, so it is
+     * logged only at trace level.
+     */
+    suspend fun callFromPage(
+        owner: UiOwner,
+        method: String,
+        arguments: JsonObject,
+        context: UiCallContext,
+    ): UiMethodResult = call(owner, method, arguments, context)
 }
 
 /** How a platform operation ended. */

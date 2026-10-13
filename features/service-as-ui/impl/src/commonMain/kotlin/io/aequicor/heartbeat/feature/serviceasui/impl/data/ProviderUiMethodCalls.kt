@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.serviceasui.impl.data
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiLimits
@@ -68,6 +69,22 @@ internal class ProviderUiMethodCalls(private val providers: Set<ServiceUiProvide
         method: String,
         arguments: JsonObject,
         context: UiCallContext,
+    ): UiMethodResult = perform(owner, method, arguments, context, isPage = false)
+
+    @HighFrequency
+    override suspend fun callFromPage(
+        owner: UiOwner,
+        method: String,
+        arguments: JsonObject,
+        context: UiCallContext,
+    ): UiMethodResult = perform(owner, method, arguments, context, isPage = true)
+
+    private suspend fun perform(
+        owner: UiOwner,
+        method: String,
+        arguments: JsonObject,
+        context: UiCallContext,
+        isPage: Boolean,
     ): UiMethodResult {
         val started = TimeSource.Monotonic.markNow()
         val provider = providers.firstOrNull { it.kind == owner.kind }
@@ -80,7 +97,11 @@ internal class ProviderUiMethodCalls(private val providers: Set<ServiceUiProvide
             else -> invoke(provider, owner, UiMethodCall(method, arguments, context))
         }
         val elapsed = started.elapsedNow().inWholeMilliseconds
-        log.i { "Call $method of ${owner.kind} ${owner.id}: ${result.outcome()} in $elapsed ms" }
+        if (isPage) {
+            log.v { "Page call $method of ${owner.kind} ${owner.id}: ${result.outcome()} in $elapsed ms" }
+        } else {
+            log.i { "Call $method of ${owner.kind} ${owner.id}: ${result.outcome()} in $elapsed ms" }
+        }
         return result
     }
 

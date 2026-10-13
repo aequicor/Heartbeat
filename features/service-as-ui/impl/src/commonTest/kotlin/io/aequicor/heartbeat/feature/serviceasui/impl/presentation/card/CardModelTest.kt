@@ -29,6 +29,7 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardAdded
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardSource
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardStorage
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiMethodCalls
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiWebDocuments
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiNodeUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.place.PrMap
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.place.surface
@@ -172,7 +173,16 @@ class CardModelTest {
             ServiceUiCardRoute(ID, place),
             storage,
             machine,
-            { session, child -> SurfaceModel(session, NoCalls, UnsupportedUiPlatform, stores, child) },
+            { session, child ->
+                SurfaceModel(
+                    session,
+                    NoCalls,
+                    UnsupportedUiPlatform,
+                    stores,
+                    child,
+                    UiWebDocuments.Off,
+                )
+            },
             Desktop,
             stores,
             TestScopeHandle(scope.backgroundScope),

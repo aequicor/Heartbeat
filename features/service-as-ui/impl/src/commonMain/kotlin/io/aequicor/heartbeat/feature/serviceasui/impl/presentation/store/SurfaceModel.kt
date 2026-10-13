@@ -58,7 +58,7 @@ internal class SurfaceModel(
     private val platform: UiPlatform,
     factory: HeartbeatStoreFactory,
     @Assisted scope: CoroutineScope,
-    web: UiWebDocuments = UiWebDocuments.Off,
+    web: UiWebDocuments,
 ) {
     /** Creates the store of one drawn surface in its own [scope]. */
     @AssistedFactory
@@ -69,7 +69,9 @@ internal class SurfaceModel(
     private val log = Log.tag("ServiceUiSurface")
     private val evaluator = UiEvaluator(session.spec)
     private val calling = Semaphore(UiSpecLimits.CALLS)
-    private val initial = rendered(SurfaceState(values = initialValues()))
+
+    // Pages call on their own; their own permit keeps the user's buttons and data sources free.
+    private val pageCalling = Semaphore(1)
 
     // Pages call methods on their own, so only surfaces that load data by themselves get a bridge: never a card.
     private val documents = SurfaceWebDocuments(
@@ -84,13 +86,13 @@ internal class SurfaceModel(
     val store: Store<SurfaceState, SurfaceIntent, SurfaceAction> =
         factory.create<SurfaceState, SurfaceIntent, SurfaceAction>(
             name = "Surface",
-            initial = initial,
+            initial = rendered(SurfaceState(values = initialValues())),
             onError = { copy(notice = NoticeUi.Broken) },
         ) {
             install {
                 name = "web-documents"
                 onStart {
-                    documents.show(this@SurfaceModel.initial)
+                    withState { documents.show(this) }
                     launch { web.availability.collect(documents::enable) }
                 }
                 onState { _, next -> next.also(documents::show) }
@@ -112,7 +114,9 @@ internal class SurfaceModel(
                 JsonNull -> JsonObject(emptyMap())
                 is JsonPrimitive, is JsonArray -> return BrowserBridgeResult.Failure("Arguments must be a JSON object")
             }
-            val result = calling.withPermit { calls.call(owner, method, objectArguments, session.context) }
+            val result = pageCalling.withPermit {
+                calls.callFromPage(owner, method, objectArguments, session.context)
+            }
             return when (result) {
                 is UiMethodResult.Success -> BrowserBridgeResult.Value(result.value)
                 is UiMethodResult.UserError -> BrowserBridgeResult.Failure(result.message)

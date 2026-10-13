@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiWriteOp
 import io.aequicor.heartbeat.feature.serviceasui.api.UiWriteOrigin
 import io.aequicor.heartbeat.feature.serviceasui.impl.data.UnsupportedUiPlatform
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiMethodCalls
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiWebDocuments
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.FakeServiceUiMachine
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.TestScopeHandle
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.WriteNoticeUi
@@ -170,7 +171,16 @@ class EditorModelTest {
             ServiceUiSurfaceRoute(map().id.value),
             machine,
             calls,
-            { session, child -> SurfaceModel(session, calls, UnsupportedUiPlatform, stores, child) },
+            { session, child ->
+                SurfaceModel(
+                    session,
+                    calls,
+                    UnsupportedUiPlatform,
+                    stores,
+                    child,
+                    UiWebDocuments.Off,
+                )
+            },
             object : Clock {
                 override fun now(): Instant = NOW
             },

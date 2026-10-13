@@ -43,10 +43,3 @@ public val ServiceUiEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "Интерфейсы агента: библиотека, слоты студии и карточки ответов",
     default = false,
 )
-
-/** Web documents of agent interfaces (desktop): `web` nodes draw their HTML in an isolated browser document. */
-public val ServiceUiWeb: FeatureToggle.Flag = FeatureToggle.Flag(
-    "service_ui.web",
-    "Веб-документы в интерфейсах агента (Desktop)",
-    default = false,
-)

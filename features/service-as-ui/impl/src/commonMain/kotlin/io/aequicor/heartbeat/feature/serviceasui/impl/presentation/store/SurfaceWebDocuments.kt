@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store
 
+import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocument
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentBridge
@@ -19,7 +20,10 @@ import kotlinx.serialization.json.JsonElement
  * documents are on; a new HTML or bridge setting replaces the document, a new data binding value updates it, and the
  * document closes when the node leaves, web documents turn off or the surface closes ([close]). Only a node with
  * `bridge` gets [bridge] (null for surfaces that may not call methods). A document is named by its modal's [title] or
- * the surface's. Confined to the store of the surface: its start, state changes and stop call it one at a time.
+ * the surface's. A document the browser refuses (over its limits) is not asked for again until its node changes or
+ * web documents are turned on again; the browser logs refusals and openings itself. Confined to the store of the
+ * surface: its plugin calls run on the store's single main context with `parallelIntents = false`
+ * (`HeartbeatStoreFactory`), one at a time.
  */
 internal class SurfaceWebDocuments(
     private val documents: UiWebDocuments,
@@ -28,6 +32,7 @@ internal class SurfaceWebDocuments(
 ) {
     private val log = Log.tag("ServiceUiWeb")
     private val open = mutableMapOf<String, Opened>()
+    private val refused = mutableMapOf<String, Drawn>()
     private var drawn: List<Drawn> = emptyList()
     private var isEnabled = false
     private var isClosed = false
@@ -36,43 +41,49 @@ internal class SurfaceWebDocuments(
     /** Route ids of the open documents by the key of their node. */
     val shown: StateFlow<ImmutableMap<String, String>> = routes.asStateFlow()
 
-    /** The surface now draws [state]. */
+    /** The surface now draws [state]: every state change of the store, so nothing here logs. */
+    @HighFrequency
     fun show(state: SurfaceState) = sync { drawn = state.webs() }
 
-    /** Web documents were turned on or off. */
-    fun enable(isEnabled: Boolean) = sync { this.isEnabled = isEnabled }
+    /** Web documents were turned on or off; turning them on asks again for documents refused before. */
+    fun enable(isEnabled: Boolean) = sync {
+        this.isEnabled = isEnabled
+        refused.clear()
+    }
 
     /** The surface closed: its documents close for good. */
     fun close() = sync { isClosed = true }
 
+    @HighFrequency
     private fun sync(change: () -> Unit) {
         change()
         val wanted = if (isEnabled && !isClosed) drawn.associateBy { it.key } else emptyMap()
         open.keys.filter { key -> wanted[key]?.let { open.getValue(key).isSame(it) } != true }.forEach { key ->
             open.remove(key)?.handle?.close()
-            log.d { "Web document of a surface closed" }
         }
+        refused.keys.retainAll { key -> wanted[key]?.let { refused.getValue(key).isSameDocument(it) } == true }
         wanted.values.forEach { node ->
             val current = open[node.key]
             if (current == null) {
-                opened(node)?.let { open[node.key] = it }
+                if (node.key !in refused) {
+                    val document = opened(node)
+                    if (document == null) refused[node.key] = node else open[node.key] = document
+                }
             } else if (current.data != node.data) {
                 current.handle.update(node.data)
                 open[node.key] = current.copy(data = node.data)
             }
         }
-        routes.value = open.mapValues { it.value.handle.route.id }.toImmutableMap()
+        val next = open.mapValues { it.value.handle.route.id }.toImmutableMap()
+        if (next != routes.value) {
+            routes.value = next
+            log.v { "Web documents of a surface: ${next.size}" }
+        }
     }
 
     private fun opened(node: Drawn): Opened? {
         val document = BrowserDocument(node.html, node.title, node.data, bridge.takeIf { node.hasBridge })
-        val handle = documents.open(document)
-        if (handle == null) {
-            log.w { "Web document of a surface refused by the browser" }
-            return null
-        }
-        log.d { "Web document of a surface opened (bridge=${document.bridge != null})" }
-        return Opened(handle, node.html, node.hasBridge, node.data)
+        return documents.open(document)?.let { Opened(it, node.html, node.hasBridge, node.data) }
     }
 
     /** A `web` node as drawn: the document opens with [title] as its accessible name. */
@@ -82,7 +93,10 @@ internal class SurfaceWebDocuments(
         val hasBridge: Boolean,
         val data: JsonElement?,
         val title: String,
-    )
+    ) {
+        /** [node] needs the same document, whatever its data. */
+        fun isSameDocument(node: Drawn): Boolean = html == node.html && hasBridge == node.hasBridge
+    }
 
     private data class Opened(
         val handle: BrowserDocumentHandle,

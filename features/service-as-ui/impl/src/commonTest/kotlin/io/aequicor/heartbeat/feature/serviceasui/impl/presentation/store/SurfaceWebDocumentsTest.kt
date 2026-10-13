@@ -109,6 +109,39 @@ class SurfaceWebDocumentsTest {
     }
 
     @Test
+    fun `a refused document is asked for again only after its node changes or web documents turn on again`() = runTest {
+        val fixture = Fixture(this, enabled = true, refuse = true)
+        val screen = subscribe(fixture.model.store)
+        assertEquals(1, fixture.web.requests)
+        screen.intent(SurfaceIntent.Press(button(screen).press))
+        runCurrent()
+        assertEquals(1, fixture.web.requests, "A data change does not ask again")
+
+        fixture.web.refuse = false
+        fixture.web.enabled.value = false
+        runCurrent()
+        fixture.web.enabled.value = true
+        runCurrent()
+        assertEquals(2, fixture.web.requests)
+        assertEquals(JsonPrimitive(2), fixture.web.opened.single().document.data)
+    }
+
+    @Test
+    fun `turning web documents off and on opens a new document`() = runTest {
+        val fixture = Fixture(this, enabled = true)
+        subscribe(fixture.model.store)
+        val first = fixture.web.opened.single()
+        fixture.web.enabled.value = false
+        runCurrent()
+        fixture.web.enabled.value = true
+        runCurrent()
+        assertTrue(first.isClosed)
+        val second = fixture.web.opened.last()
+        assertTrue(first !== second && !second.isClosed)
+        assertEquals(listOf(second.route.id), fixture.model.webDocuments.value.values.toList())
+    }
+
+    @Test
     fun `cards and surfaces without an owner get no bridge`() = runTest {
         listOf(Fixture(this, enabled = true, isCard = true), Fixture(this, enabled = true, hasOwner = false))
             .forEach { fixture ->
@@ -129,8 +162,9 @@ class SurfaceWebDocumentsTest {
         enabled: Boolean = false,
         hasOwner: Boolean = true,
         isCard: Boolean = false,
+        refuse: Boolean = false,
     ) {
-        val web = FakeWeb(enabled)
+        val web = FakeWeb(enabled).also { it.refuse = refuse }
         val calls = Calls()
         val surface = CoroutineScope(scope.backgroundScope.coroutineContext + Job())
         val model = SurfaceModel(
@@ -154,10 +188,15 @@ class SurfaceWebDocumentsTest {
     private class FakeWeb(enabled: Boolean) : UiWebDocuments {
         val enabled = MutableStateFlow(enabled)
         val opened = mutableListOf<Handle>()
+        var refuse = false
+        var requests = 0
         override val availability: Flow<Boolean> = this.enabled
 
-        override fun open(document: BrowserDocument): BrowserDocumentHandle =
-            Handle(document, BrowserDocumentRoute("doc-${opened.size}")).also { opened += it }
+        override fun open(document: BrowserDocument): BrowserDocumentHandle? {
+            requests++
+            if (refuse) return null
+            return Handle(document, BrowserDocumentRoute("doc-${opened.size}")).also { opened += it }
+        }
     }
 
     private class Handle(val document: BrowserDocument, override val route: BrowserDocumentRoute) :
