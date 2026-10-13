@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.questionnaire.impl.di
 import com.arkivanov.decompose.ComponentContext
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.BindingContainer
+import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.GraphExtension
@@ -32,12 +33,15 @@ import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireEnabled
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireIntent
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireMachineSpec
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireOutput
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRemoteScreen
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRemoteScreens
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRoute
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireState
 import io.aequicor.heartbeat.feature.questionnaire.impl.di.scope.QuestionnaireScope
 import io.aequicor.heartbeat.feature.questionnaire.impl.domain.QuestionnaireJournal
 import io.aequicor.heartbeat.feature.questionnaire.impl.domain.QuestionnaireStorage
 import io.aequicor.heartbeat.feature.questionnaire.impl.presentation.component.QuestionnaireComponent
+import io.aequicor.heartbeat.feature.questionnaire.impl.presentation.remote.RemoteQuestionnaireScreen
 import io.aequicor.heartbeat.feature.questionnaire.impl.ui.QuestionnaireUiComponent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
@@ -47,6 +51,9 @@ import kotlinx.coroutines.launch
 @GraphExtension(QuestionnaireScope::class)
 interface QuestionnaireGraph {
     val factory: QuestionnaireComponent.Factory
+
+    /** Remote facade over the same source/card model. */
+    val remote: RemoteQuestionnaireScreen
 
     /** Creates the graph of a source's questionnaire screen. */
     @ContributesTo(ProfileScope::class)
@@ -131,4 +138,31 @@ internal class QuestionnaireRouteEntry(
     override fun create(route: QuestionnaireRoute, context: ComponentContext, navigator: Navigator): NavComponent =
         context.retainedGraph(scopes, profile, name = "questionnaire") { graphs.create(route, it) }
             .factory.create(context).let { QuestionnaireUiComponent(it) }
+}
+
+/** Remote children have independent drafts and close with their owning studio view. */
+@ContributesBinding(ProfileScope::class)
+@Inject
+internal class ProfileQuestionnaireRemoteScreens(
+    private val scopes: ScopeFactory,
+    @ForScope(ProfileScope::class) private val profile: ScopeHandle,
+    private val graphs: QuestionnaireGraph.Factory,
+) : QuestionnaireRemoteScreens {
+    override fun open(id: String): QuestionnaireRemoteScreen {
+        val scope = scopes.child(profile, "remote-questionnaire")
+        return try {
+            val model = graphs.create(QuestionnaireRoute(id), scope).remote
+            object : QuestionnaireRemoteScreen {
+                override val states = model.states
+                override suspend fun dispatch(intent: kotlinx.serialization.json.JsonObject) = model.dispatch(intent)
+                override fun close() = scope.close()
+            }
+        } catch (error: CancellationException) {
+            scope.close()
+            throw error
+        } catch (error: Exception) {
+            scope.close()
+            throw error
+        }
+    }
 }

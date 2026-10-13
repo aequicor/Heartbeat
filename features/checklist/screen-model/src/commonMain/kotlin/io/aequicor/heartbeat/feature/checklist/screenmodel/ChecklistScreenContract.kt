@@ -7,6 +7,7 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlinx.serialization.UseSerializers
 import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
@@ -50,6 +51,8 @@ data class ChecklistScreenState(
     val hasFailed: Boolean = false,
     val isDeliveryFailed: Boolean = false,
     val isDeliveryPending: Boolean = false,
+    /** Host-local commit revision; the remote handle sends it in its envelope. */
+    @Transient val revision: Long = 0,
 ) : MVIState
 
 /** User input; completion and delivery are confirmed by the owning app. */

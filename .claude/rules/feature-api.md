@@ -273,3 +273,8 @@ send/wake/spawn/workflow. Ограничения (Off/hosted_off, Deny/Ask-ху�
 Они не выдаются generic hosted bridge. Адаптер вызывает `authorizeHosted` под тем же lifetime,
 а затем свой транспорт; обычные контрибуции через этот путь не авторизуются. Политика использует
 `hostedOff`, не native On; хук получает исходные аргументы и `isNative = false`.
+
+`questionnaire/api` и `checklist/api` содержат узкие remote-screen контракты для вложенных экранов студии:
+открытие хэндла по source/card id, поток JSON-проекций с ревизиями и dispatch с барьером применения ввода.
+UI-типы и FlowMVI остаются в screen-model/impl. Хэндл владеет отдельным стором, профильная машина общая;
+закрытие хэндла освобождает его scope и ожидающие dispatch. Это не альтернативный domain API.

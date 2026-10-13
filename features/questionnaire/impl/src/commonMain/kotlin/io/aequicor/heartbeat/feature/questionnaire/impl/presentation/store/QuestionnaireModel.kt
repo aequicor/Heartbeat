@@ -26,6 +26,10 @@ import io.aequicor.heartbeat.feature.questionnaire.screenmodel.QuestionnaireScre
 import io.aequicor.heartbeat.feature.questionnaire.screenmodel.QuestionnaireScreenState
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableSet
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.job
+import pro.respawn.flowmvi.api.MVIIntent
 import pro.respawn.flowmvi.plugins.reduce
 
 private typealias QuestionnaireMachine = Machine<QuestionnaireState, QuestionnaireIntent, QuestionnaireOutput>
@@ -39,45 +43,88 @@ internal class QuestionnaireModel(
     @ForScope(QuestionnaireScope::class) scope: ScopeHandle,
     factory: HeartbeatStoreFactory,
 ) {
+    private val lifetime = scope.coroutineScope.coroutineContext.job
     private val log = Log.tag("Questionnaire")
     private val source = route.source
 
-    val store = factory.create<QuestionnaireScreenState, QuestionnaireScreenIntent, QuestionnaireScreenAction>(
+    val store = factory.create<QuestionnaireScreenState, QuestionnaireModelInput, QuestionnaireScreenAction>(
         name = "Questionnaire",
         initial = QuestionnaireScreenState().reflectQueue(machine.state.value, source),
         onError = { this },
     ) {
-        reflect(machine) { reflectQueue(it, source) }
-        reduce { intent ->
-            val answer: Answer? = when (intent) {
-                is QuestionnaireScreenIntent.ToggleChoice -> {
-                    updateState { edited(intent.questionId) { toggled(intent.choiceId) } }
-                    null
-                }
-
-                is QuestionnaireScreenIntent.TextChanged -> {
-                    updateState { edited(intent.questionId) { copy(text = intent.text) } }
-                    null
-                }
-
-                is QuestionnaireScreenIntent.Confirm -> Answer.Confirmed(intent.isConfirmed)
-
-                is QuestionnaireScreenIntent.Submit -> {
-                    var draft: Answer? = null
-                    withState { draft = questions.firstOrNull { it.id == intent.questionId }?.draftAnswer() }
-                    if (draft == null) log.w { "Submit ignored: the answer is not ready" }
-                    draft
-                }
-
-                is QuestionnaireScreenIntent.Skip -> Answer.Skipped
+        reflect(machine) { reflectQueue(machine.state.value, source) }
+        install {
+            name = "committed-revision"
+            onState { old, new ->
+                val normalized = new.copy(revision = old.revision)
+                if (normalized == old) old else normalized.copy(revision = old.revision + 1)
             }
-            if (answer != null) {
-                log.i { "Answer question kind=${answer::class.simpleName.orEmpty()}" }
-                val id = QuestionnaireId(intent.questionId)
-                sendTo(machine, QuestionnaireIntent.Public.Answer(id, answer)) { rejected ->
-                    log.w { "Answer was not accepted: $rejected" }
+        }
+        reduce { input ->
+            val intent = input.intent
+            try {
+                run handle@{
+                    val isShown = (machine.state.value as? QuestionnaireState.Asking)?.pending.orEmpty()
+                        .any { it.source == source && it.id.value == intent.questionId }
+                    if (!isShown) {
+                        log.w { "Question input does not belong to this screen" }
+                        return@handle
+                    }
+                    val answer: Answer? = when (intent) {
+                        is QuestionnaireScreenIntent.ToggleChoice -> {
+                            updateState { edited(intent.questionId) { toggled(intent.choiceId) } }
+                            null
+                        }
+
+                        is QuestionnaireScreenIntent.TextChanged -> {
+                            updateState { edited(intent.questionId) { copy(text = intent.text) } }
+                            null
+                        }
+
+                        is QuestionnaireScreenIntent.Confirm -> Answer.Confirmed(intent.isConfirmed)
+
+                        is QuestionnaireScreenIntent.Submit -> {
+                            var draft: Answer? = null
+                            withState { draft = questions.firstOrNull { it.id == intent.questionId }?.draftAnswer() }
+                            if (draft == null) log.w { "Submit ignored: the answer is not ready" }
+                            draft
+                        }
+
+                        is QuestionnaireScreenIntent.Skip -> Answer.Skipped
+                    }
+                    if (answer != null) {
+                        log.i { "Answer question kind=${answer::class.simpleName.orEmpty()}" }
+                        val id = QuestionnaireId(intent.questionId)
+                        sendTo(machine, QuestionnaireIntent.Public.Answer(id, answer)) { rejected ->
+                            log.w { "Answer was not accepted: $rejected" }
+                        }
+                    }
                 }
+                // Machine.send commits before returning, while reflect may still be queued on another coroutine.
+                updateState { reflectQueue(machine.state.value, source) }
+                withState { input.completion?.complete(this) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                input.completion?.completeExceptionally(error)
+                throw error
+            } finally {
+                input.completion?.cancel()
             }
+        }
+    }
+
+    /** Local input uses the same reducer as a remote dispatch. */
+    fun intent(intent: QuestionnaireScreenIntent) = store.intent(QuestionnaireModelInput(intent))
+
+    /** Waits for committed reduction, and is cancelled when this screen closes. */
+    suspend fun dispatch(intent: QuestionnaireScreenIntent): QuestionnaireScreenState {
+        val completion = CompletableDeferred<QuestionnaireScreenState>(lifetime)
+        try {
+            store.intent(QuestionnaireModelInput(intent, completion))
+            return completion.await()
+        } finally {
+            completion.cancel()
         }
     }
 
@@ -144,3 +191,9 @@ internal fun QuestionUi.draftAnswer(): Answer? = when (val kind = kind) {
     is QuestionKindUi.Choice -> Answer.Selected(kind.choices.map { it.id }.filter { it in selected })
     is QuestionKindUi.Text -> Answer.Text(text)
 }.takeIf { isAnswerReady }
+
+/** Internal queue envelope; completion never travels over the wire. */
+internal data class QuestionnaireModelInput(
+    val intent: QuestionnaireScreenIntent,
+    val completion: CompletableDeferred<QuestionnaireScreenState>? = null,
+) : MVIIntent

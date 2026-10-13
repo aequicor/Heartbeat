@@ -8,6 +8,7 @@ import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlinx.serialization.UseSerializers
 import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
@@ -65,7 +66,11 @@ data class QuestionUi(
 /** Pending questions of the shown source, in asking order. */
 @Serializable
 @Immutable
-data class QuestionnaireScreenState(val questions: ImmutableList<QuestionUi> = persistentListOf()) : MVIState
+data class QuestionnaireScreenState(
+    val questions: ImmutableList<QuestionUi> = persistentListOf(),
+    /** Host-local commit revision; the remote handle sends it in its envelope. */
+    @Transient val revision: Long = 0,
+) : MVIState
 
 /** User input on the questionnaire screen. */
 @Serializable

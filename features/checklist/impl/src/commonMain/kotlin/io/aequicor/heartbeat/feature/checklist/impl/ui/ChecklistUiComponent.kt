@@ -18,6 +18,6 @@ internal class ChecklistUiComponent(private val component: ChecklistComponent) :
         val state by produceState(ChecklistScreenState(), model) {
             model.store.collect { states.collect { value = it } }
         }
-        ChecklistScreen(state, model.store::intent, modifier)
+        ChecklistScreen(state, model::intent, modifier)
     }
 }

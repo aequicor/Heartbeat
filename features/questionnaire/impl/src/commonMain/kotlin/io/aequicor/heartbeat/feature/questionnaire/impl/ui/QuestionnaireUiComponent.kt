@@ -18,6 +18,6 @@ internal class QuestionnaireUiComponent(private val component: QuestionnaireComp
         val state by produceState(QuestionnaireScreenState(), model) {
             model.store.collect { states.collect { value = it } }
         }
-        QuestionnaireScreen(state, model.store::intent, modifier)
+        QuestionnaireScreen(state, model::intent, modifier)
     }
 }
