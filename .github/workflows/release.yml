@@ -88,7 +88,8 @@ jobs:
   mobile:
     name: Android and iOS builds
     needs: version
-    runs-on: macos-15
+    # The Intel runner has 14 GiB RAM; the 7 GiB arm64 runner cannot fit the release linker heap.
+    runs-on: macos-15-intel
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
@@ -101,8 +102,10 @@ jobs:
       - name: Build the Android app and the iOS framework
         env:
           VERSION: ${{ needs.version.outputs.version }}
+        # Kotlin/Native links in the Gradle JVM. The release optimizer exceeds the default 4 GiB heap.
         run: >-
           ./gradlew -Pheartbeat.version="$VERSION"
+          -Dorg.gradle.jvmargs="-Xmx8g -Dfile.encoding=UTF-8"
           :platform-main:android:assembleRelease :platform-main:shared:linkReleaseFrameworkIosArm64
           --stacktrace
 
