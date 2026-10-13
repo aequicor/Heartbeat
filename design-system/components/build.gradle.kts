@@ -4,6 +4,7 @@ import org.gradle.jvm.toolchain.JavaToolchainService
 
 plugins {
     alias(libs.plugins.heartbeat.kmp.compose)
+    alias(libs.plugins.heartbeat.kmp.wasm)
 }
 
 // The native macOS kit contains Java 21 classes; compilation remains on the convention's JDK 17.

@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.heartbeat.kmp.compose)
+    alias(libs.plugins.heartbeat.kmp.wasm)
 }
 
 kotlin {
