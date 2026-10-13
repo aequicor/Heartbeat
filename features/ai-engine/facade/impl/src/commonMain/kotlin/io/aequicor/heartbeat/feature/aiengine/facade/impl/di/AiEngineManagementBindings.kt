@@ -12,7 +12,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ReleaseFeeds
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.ToggleEngineFlags
-import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.install.HttpReleaseFeeds
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ActiveSessionRegistry
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.CliConnections
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineBindingsService
@@ -26,16 +25,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ManagedInstallS
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.PooledEngineRuntimes
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.RefreshingCliConnections
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.RuntimePool
-import io.ktor.client.HttpClient
 
 /** Engine management of the profile: the service, the flags it reads and the release feeds adapters use. */
 @ContributesTo(ProfileScope::class)
 @BindingContainer
 object AiEngineManagementBindings {
-    /** Release metadata over the app's HTTP client. */
-    @Provides
-    fun feeds(client: HttpClient): ReleaseFeeds = HttpReleaseFeeds(client)
-
     /** Developer flags engine management reads. */
     @Provides
     fun flags(toggles: FeatureToggles): EngineFlags = ToggleEngineFlags(toggles)

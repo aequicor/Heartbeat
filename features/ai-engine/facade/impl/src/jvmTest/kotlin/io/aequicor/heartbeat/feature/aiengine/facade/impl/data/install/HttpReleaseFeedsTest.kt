@@ -1,92 +1,82 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.install
 
+import io.aequicor.heartbeat.core.common.release.GitHubRelease
+import io.aequicor.heartbeat.core.network.release.ReleaseException
+import io.aequicor.heartbeat.core.network.release.ReleaseFailure
+import io.aequicor.heartbeat.core.network.release.ReleaseSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason
-import io.ktor.client.engine.mock.respond
-import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.headersOf
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertSame
 
 class HttpReleaseFeedsTest {
-    private val release = """
-        {"tag_name": "rust-v0.159.3", "draft": false, "prerelease": false, "assets": [
-          {"name": "codex-package-aarch64-apple-darwin.tar.gz", "size": 42,
-           "browser_download_url": "https://github.com/openai/codex/releases/download/rust-v0.159.3/a.tar.gz",
-           "digest": "sha256:${"ab".repeat(32)}"}
-        ]}
-    """.trimIndent()
-
     @Test
-    fun `the latest GitHub release is read from the API`() = runTest {
-        val requested = mutableListOf<String>()
-        val feeds = HttpReleaseFeeds(
-            releaseClient { request ->
-                requested += request.url.toString()
-                respond(release, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
-            },
-        )
-
-        val latest = feeds.latestGitHubRelease("openai", "codex")
-
-        assertEquals("rust-v0.159.3", latest.tag)
-        assertEquals("ab".repeat(32), latest.assets.single().sha256)
-        assertEquals(listOf("https://api.github.com/repos/openai/codex/releases/latest"), requested)
-    }
-
-    @Test
-    fun `drafts, pre-releases and missing releases are no release`() = runTest {
-        listOf(
-            release.replace("\"draft\": false", "\"draft\": true"),
-            release.replace("\"prerelease\": false", "\"prerelease\": true"),
-            "not json",
-        ).forEach { body ->
-            assertInstallFailure(InstallFailureReason.NoRelease) {
-                HttpReleaseFeeds(
-                    releaseClient { respond(body, HttpStatusCode.OK) },
-                ).latestGitHubRelease("openai", "codex")
+    fun `metadata and custom publisher hosts reach the shared source`() = runTest {
+        val release = GitHubRelease("v1.0.0")
+        val source = object : ReleaseSource {
+            override suspend fun latestGitHubRelease(owner: String, repository: String): GitHubRelease {
+                assertEquals("openai", owner)
+                assertEquals("codex", repository)
+                return release
+            }
+            override suspend fun document(url: String, allowedHosts: Set<String>, maxBytes: Int): String {
+                assertEquals("https://downloads.claude.ai/stable", url)
+                assertEquals(setOf("downloads.claude.ai"), allowedHosts)
+                return "1.2.3"
             }
         }
-        assertInstallFailure(InstallFailureReason.NoRelease) {
-            HttpReleaseFeeds(
-                releaseClient { respond("", HttpStatusCode.NotFound) },
-            ).latestGitHubRelease("openai", "codex")
-        }
-        assertInstallFailure(InstallFailureReason.RateLimited) {
-            HttpReleaseFeeds(
-                releaseClient { respond("", HttpStatusCode.Forbidden) },
-            ).latestGitHubRelease("openai", "codex")
+        val feeds = HttpReleaseFeeds(source)
+        assertSame(release, feeds.latestGitHubRelease("openai", "codex"))
+        assertEquals("1.2.3", feeds.document("https://downloads.claude.ai/stable", setOf("downloads.claude.ai")))
+    }
+
+    @Test
+    fun `draft and prerelease remain no release`() = runTest {
+        listOf(GitHubRelease("v1", isDraft = true), GitHubRelease("v1", isPrerelease = true)).forEach { release ->
+            assertInstallFailure(InstallFailureReason.NoRelease) {
+                HttpReleaseFeeds(source { release }).latestGitHubRelease("o", "r")
+            }
         }
     }
 
     @Test
-    fun `documents come only over https from the named hosts and stay small`() = runTest {
-        val stable = "https://downloads.claude.ai/claude-code-releases/stable"
-        val hosts = setOf("downloads.claude.ai")
-        val feeds = HttpReleaseFeeds(releaseClient { respond("2.1.285\n", HttpStatusCode.OK) }, maxBytes = 16)
+    fun `all shared failures map to installation failures`() = runTest {
+        val cases = listOf(
+            ReleaseException(ReleaseFailure.Http, 403) to InstallFailureReason.RateLimited,
+            ReleaseException(ReleaseFailure.Http, 429) to InstallFailureReason.RateLimited,
+            ReleaseException(ReleaseFailure.Http, 404) to InstallFailureReason.NoRelease,
+            ReleaseException(ReleaseFailure.Http, 410) to InstallFailureReason.NoRelease,
+            ReleaseException(ReleaseFailure.Http, 502) to InstallFailureReason.Network,
+            ReleaseException(ReleaseFailure.Network) to InstallFailureReason.Network,
+            ReleaseException(ReleaseFailure.InvalidMetadata) to InstallFailureReason.NoRelease,
+            ReleaseException(ReleaseFailure.UntrustedSource) to InstallFailureReason.UntrustedSource,
+            ReleaseException(ReleaseFailure.TooLarge) to InstallFailureReason.TooLarge,
+            ReleaseException(ReleaseFailure.SizeMismatch) to InstallFailureReason.SizeMismatch,
+            ReleaseException(ReleaseFailure.ChecksumMismatch) to InstallFailureReason.ChecksumMismatch,
+            ReleaseException(ReleaseFailure.NotEnoughSpace) to InstallFailureReason.NotEnoughSpace,
+            ReleaseException(ReleaseFailure.Storage) to InstallFailureReason.Storage,
+        )
+        cases.forEach { (failure, reason) ->
+            assertInstallFailure(reason) { HttpReleaseFeeds(source { throw failure }).latestGitHubRelease("o", "r") }
+        }
+    }
 
-        assertEquals("2.1.285\n", feeds.document(stable, hosts))
-        assertInstallFailure(InstallFailureReason.UntrustedSource) {
-            feeds.document(stable.replace("https", "http"), hosts)
-        }
-        assertInstallFailure(InstallFailureReason.UntrustedSource) {
-            feeds.document("https://example.com/stable", hosts)
-        }
-        assertInstallFailure(InstallFailureReason.TooLarge) {
-            HttpReleaseFeeds(releaseClient { respond("x".repeat(17), HttpStatusCode.OK) }, maxBytes = 16)
-                .document(stable, hosts)
-        }
-        assertInstallFailure(InstallFailureReason.UntrustedSource) {
-            HttpReleaseFeeds(
-                releaseClient { request ->
-                    if (request.url.host == "downloads.claude.ai") {
-                        respond("", HttpStatusCode.Found, headersOf(HttpHeaders.Location, "https://example.com/x"))
-                    } else {
-                        respond("2.0.0", HttpStatusCode.OK)
-                    }
-                },
-            ).document(stable, hosts)
-        }
+    @Test
+    fun `cancellation is not mapped`() = runTest {
+        val cancellation = CancellationException("cancel")
+        assertSame(
+            cancellation,
+            assertFailsWith<CancellationException> {
+                HttpReleaseFeeds(source { throw cancellation }).latestGitHubRelease("o", "r")
+            },
+        )
+    }
+
+    private fun source(latest: () -> GitHubRelease): ReleaseSource = object : ReleaseSource {
+        override suspend fun latestGitHubRelease(owner: String, repository: String) = latest()
+        override suspend fun document(url: String, allowedHosts: Set<String>, maxBytes: Int): String = error("unused")
     }
 }
