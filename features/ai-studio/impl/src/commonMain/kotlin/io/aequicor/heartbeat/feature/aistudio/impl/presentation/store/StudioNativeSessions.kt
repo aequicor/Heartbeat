@@ -1,6 +1,5 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
-import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.MachineRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionActivity
@@ -34,14 +33,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import pro.respawn.flowmvi.api.PipelineContext
-
-/** Root-scoped family and the certainty of its activity count. */
-@Immutable
-data class SessionTreeUi(val sessions: ImmutableList<SubSessionUi>, val activeCount: Int, val isActivityKnown: Boolean)
-
-/** Selection identity prevents a previous child transcript flashing during a switch. */
-@Immutable
-data class NativeTranscriptUi(val key: String, val messages: ImmutableList<MessageUi>)
 
 /** Stable roots come from the repository; changing only selection never restarts the tree subscription. */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -191,11 +182,7 @@ internal class StudioNativeSessions(
         }
     }
 }
-
-private const val TREE_RETRY_MILLIS = 2_000L
-
 internal fun nativeKey(ref: SessionRef): String = "native:" + Json.encodeToString(SessionRef.serializer(), ref)
-
 internal fun SessionTreeSnapshot.toUi(rootName: String? = null): SessionTreeUi = SessionTreeUi(
     sessions = (
         listOf(
@@ -220,7 +207,6 @@ internal fun SessionTreeSnapshot.toUi(rootName: String? = null): SessionTreeUi =
     activeCount = activeCount,
     isActivityKnown = isActivityKnown,
 )
-
 private fun SessionActivity.toUi(): SubSessionStateUi = when (this) {
     SessionActivity.Queued -> SubSessionStateUi.Queued
     SessionActivity.Running -> SubSessionStateUi.Working
@@ -257,3 +243,5 @@ internal fun mergeSessionTrees(organism: OrganismUi, families: Map<String, Sessi
         families.values.all { it.isActivityKnown },
     )
 }
+
+private const val TREE_RETRY_MILLIS = 2_000L
