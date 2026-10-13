@@ -125,8 +125,9 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > хост ретранслирует кадры (JSON с 4-байтовым LE-префиксом, протокол v1) в Unix-сокет профиля; приложение принимает только
 > origin своего расширения (ID закреплён ключом в `manifest.json`). Раздел настроек «Браузер Chrome» регистрирует хост
 > в Chrome/Edge/Brave/Chromium/Vivaldi и показывает папку расширения (входит в ресурсы дистрибутива, `collectAppResources`).
-> Side panel — полный чат студии через `StudioChats` (`ai-studio:api`; нужны чаты профиля `ai_studio.engine_runtime`):
-> все чаты, новый чат, стриминг, «Стоп», разрешения, вложение страницы или выделения. `chromium_bridge.agent_control`
+> Side panel — чат студии через `StudioChats` (`ai-studio:api`; нужны чаты профиля `ai_studio.engine_runtime`) со списком
+> сессий и композером как в приложении (токены и иконки ДС): разделы, поиск, архив, действия с сессией, модель, режим
+> размышления и подтверждения чата, стриминг, «Стоп», разрешения, вложение страницы или выделения. `chromium_bridge.agent_control`
 > (по умолчанию false) плюс переключатель согласия в расширении дают агентам инструменты `ex_control_*` (`browser:impl`,
 > группа `external_browser`) поверх `ExternalBrowser` (`chromium-bridge:api`): вкладки агента — в группе «Heartbeat»
 > текущего окна, вкладка пользователя — только после подтверждения, CDP через `chrome.debugger` по allowlist,
