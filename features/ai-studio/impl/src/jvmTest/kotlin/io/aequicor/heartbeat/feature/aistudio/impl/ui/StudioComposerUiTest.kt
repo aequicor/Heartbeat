@@ -40,6 +40,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_effort_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_default
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_low
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_menu_section
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan_prompt
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_remember
@@ -311,9 +312,14 @@ class StudioComposerUiTest {
                     chats = persistentMapOf("chat" to persistentSetOf("compose")),
                 ),
             )
-            setContent { NativeComposerFixture(state.paneContent(pane), events::add) }
+            var harnessLabel = ""
+            setContent {
+                harnessLabel = stringResource(Res.string.harness_menu_section)
+                NativeComposerFixture(state.paneContent(pane), events::add)
+            }
 
-            onNodeWithTag("harness-chip-0-compose").assertIsDisplayed().performClick()
+            onNodeWithContentDescription(harnessLabel).performClick()
+            onNodeWithText("Compose UI").performClick()
             runOnIdle {
                 assertEquals(
                     listOf<AiStudioScreenIntent>(AiStudioScreenIntent.SelectHarness(0, "compose", false)),
@@ -323,7 +329,7 @@ class StudioComposerUiTest {
         }
 
     @Test
-    fun `a harness is unselected until the user picks it from the plus menu`() =
+    fun `a harness is unselected until the user picks it from the context toolbar`() =
         runSkikoComposeUiTest(size = Size(900f, 700f)) {
             val events = mutableListOf<AiStudioScreenIntent>()
             val pane = PaneUi(0, sessionId = "chat")
@@ -331,14 +337,13 @@ class StudioComposerUiTest {
                 panes = persistentListOf(pane),
                 harnessChoices = HarnessChoicesUi(options = persistentListOf(StudioHarness("compose", "Compose UI"))),
             )
-            var addLabel = ""
+            var harnessLabel = ""
             setContent {
-                addLabel = stringResource(Res.string.composer_add)
+                harnessLabel = stringResource(Res.string.harness_menu_section)
                 NativeComposerFixture(state.paneContent(pane), events::add)
             }
 
-            onNodeWithTag("harness-chip-0-compose").assertDoesNotExist()
-            onNodeWithContentDescription(addLabel).performClick()
+            onNodeWithContentDescription(harnessLabel).performClick()
             onNodeWithText("Compose UI").performClick()
             runOnIdle {
                 assertEquals(

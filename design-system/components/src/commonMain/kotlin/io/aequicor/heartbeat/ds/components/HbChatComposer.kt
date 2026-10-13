@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.round
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.layouts.HbColumn
+import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbHorizontalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
@@ -70,7 +71,7 @@ public data class HbComposerCaretRequest(public val id: Long, public val text: S
  * Constrain [inputMaxHeight] to the minimum composer height in short viewports to preserve history space.
  * [leadingContent] and [trailingContent] populate the bottom toolbar; overflowing controls scroll
  * independently of the send action. Menus in either slot open above the complete editor.
- * [contextContent] is an optional scrollable context row above the editor; [inputModifier] targets its input.
+ * [contextContent] is an optional wrapping context row above the editor; [inputModifier] targets its input.
  * [layout] keeps the conventional stacked editor by default; [HbComposerLayout.Inline] pairs the
  * editor with its primary action in one rounded flat surface and places secondary controls below.
  * [HbComposerLayout.Panel] keeps the editor above one integrated toolbar at every window width.
@@ -103,7 +104,7 @@ public fun HbChatComposer(
     onCaretRequestApply: (Long) -> Unit = {},
     leadingContent: @Composable RowScope.() -> Unit = {},
     trailingContent: @Composable RowScope.() -> Unit = {},
-    contextContent: (@Composable RowScope.() -> Unit)? = null,
+    contextContent: (@Composable () -> Unit)? = null,
     inputModifier: Modifier = Modifier,
 ) {
     val isEnterSendingEnabled = HbTheme.dimensions.isDesktop
@@ -129,12 +130,10 @@ public fun HbChatComposer(
         ) {
             HbColumn(gap = HbTheme.spacing.none) {
                 if (contextContent != null) {
-                    HbRow(
-                        Modifier.fillMaxWidth().hbHorizontalScroll(rememberScrollState())
-                            .padding(horizontal = HbTheme.spacing.m, vertical = HbTheme.spacing.xs),
+                    HbFlowRow(
+                        Modifier.fillMaxWidth().padding(horizontal = HbTheme.spacing.m, vertical = HbTheme.spacing.xs),
                         gap = HbTheme.spacing.s,
-                        content = contextContent,
-                    )
+                    ) { contextContent() }
                 }
                 ComposerLayout(
                     layout = layout,

@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessMachineKey
 import io.aequicor.heartbeat.feature.harness.api.HarnessMutation
 import io.aequicor.heartbeat.feature.harness.api.HarnessOutput
 import io.aequicor.heartbeat.feature.harness.api.HarnessRejection
+import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.HarnessTools
 import kotlinx.coroutines.CoroutineStart
@@ -38,6 +39,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
@@ -60,6 +63,9 @@ internal class MachineStudioHarnesses(private val machines: MachineRegistry, pri
     /** Harness choices by submission id, oldest first; submissions that never reach a turn are evicted. */
     private val claims = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
 
+    /** The library persists one attachment at a time; bulk selection must not race its own writes. */
+    private val connectionWrites = Mutex()
+
     @OptIn(ExperimentalCoroutinesApi::class)
     override val choices: Flow<StudioHarnessChoices> = toggles.observe(HarnessEnabled).flatMapLatest { isEnabled ->
         if (isEnabled) {
@@ -74,7 +80,14 @@ internal class MachineStudioHarnesses(private val machines: MachineRegistry, pri
                 .filter { it.isEnabled && ready.pending[it.id] !is HarnessMutation.Remove }
                 .sortedBy { it.name.value }
                 .map { harness ->
-                    StudioHarness(harness.id.value, harness.title)
+                    StudioHarness(
+                        harness.id.value,
+                        harness.title,
+                        harness.description,
+                        (harness.scope as? HarnessScope.Projects)?.projects?.mapTo(
+                            mutableSetOf(),
+                        ) { it.value }.orEmpty(),
+                    )
                 }.toList(),
             attached = ready.attachments.mapValues { (_, ids) -> ids.mapTo(mutableSetOf()) { it.value } },
         )
@@ -154,7 +167,10 @@ internal class MachineStudioHarnesses(private val machines: MachineRegistry, pri
      * library is retried once the write in flight has finished. A write the library did not take, did not answer
      * or that stayed busy past [CONFIRMATION] is [Written.Unanswered].
      */
-    private suspend fun write(library: Library, change: (RequestId) -> HarnessIntent.Public): Written {
+    private suspend fun write(library: Library, change: (RequestId) -> HarnessIntent.Public): Written =
+        connectionWrites.withLock { writeLocked(library, change) }
+
+    private suspend fun writeLocked(library: Library, change: (RequestId) -> HarnessIntent.Public): Written {
         var attempts = 0
         var receipt: HarnessOutput?
         var isWritable = true

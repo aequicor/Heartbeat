@@ -274,4 +274,12 @@
     <string name="browser_mode">Browser</string>
     <string name="diagram_draft_busy">Chat is busy. Button text was added to the draft.</string>
     <string name="diagram_draft_rejected">Message was not accepted. Button text was added to the draft.</string>
+    <string name="harness_picker_search">Find a harness</string>
+    <string name="harness_picker_clear_search">Clear search</string>
+    <string name="harness_picker_empty">No matching harnesses</string>
+    <string name="harness_picker_selected">Selected: %1$d</string>
+    <string name="harness_picker_clear">Clear</string>
+    <string name="harness_picker_done">Done</string>
+    <string name="harness_picker_one">Harness · %1$s</string>
+    <string name="harness_picker_many">Harnesses · %1$d</string>
 </resources>
