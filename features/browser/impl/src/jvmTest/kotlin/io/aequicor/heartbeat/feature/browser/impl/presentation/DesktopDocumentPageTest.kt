@@ -89,6 +89,18 @@ class DesktopDocumentPageTest {
             isDesktopDocumentRequest(url, "${url}x", isNavigation = true, isMainFrame = true, isDownload = false),
         )
         assertFalse(isDesktopDocumentRequest(url, desktopDocumentUrl("b"), true, true, false))
+        assertTrue(
+            allowsDesktopDocumentNavigation(url, url, isMainFrame = true, isRedirect = false, isBootstrap = false),
+        )
+        assertFalse(
+            allowsDesktopDocumentNavigation(url, url, isMainFrame = false, isRedirect = false, isBootstrap = true),
+        )
+        assertFalse(
+            allowsDesktopDocumentNavigation(url, url, isMainFrame = true, isRedirect = true, isBootstrap = true),
+        )
+        assertTrue(allowsDesktopDocumentNavigation(url, "about:blank", true, isRedirect = false, isBootstrap = true))
+        assertFalse(allowsDesktopDocumentNavigation(url, "about:blank", true, isRedirect = false, isBootstrap = false))
+        assertFalse(allowsDesktopDocumentNavigation(url, "https://example.com/", true, false, isBootstrap = true))
         assertTrue(isDesktopDocumentFrame(url, url))
         assertTrue(isDesktopDocumentFrame(url, "$url#section"))
         assertFalse(isDesktopDocumentFrame(url, "${url}page"))

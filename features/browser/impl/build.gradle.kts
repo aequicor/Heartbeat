@@ -61,6 +61,12 @@ heartbeatJcef.registerNativeTest(
     testClass = "DesktopBrowserNativeTest",
     enablingProperty = "heartbeat.browser.nativeTest",
 )
+heartbeatJcef.registerNativeTest(
+    name = "browserDocumentNativeTest",
+    description = "Checks isolated documents in real Chromium: own origin, no network, bridge and data updates.",
+    testClass = "DesktopDocumentNativeTest",
+    enablingProperty = "heartbeat.browser.documentNativeTest",
+)
 // Its storage root (with unpacked JCEF natives, locked on Windows until the JVM exits) is cleared by Gradle.
 val composeNativeRoot = layout.buildDirectory.dir("native-compose-browser")
 val prepareComposeNativeRoot = tasks.register<Delete>("prepareBrowserComposeNativeRoot") {

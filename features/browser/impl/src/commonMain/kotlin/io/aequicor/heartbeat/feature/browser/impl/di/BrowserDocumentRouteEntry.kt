@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.core.navigation.Navigator
 import io.aequicor.heartbeat.core.navigation.ProfileRouteBinding
 import io.aequicor.heartbeat.core.navigation.RouteEntry
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentRoute
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserDocumentNatives
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserDocumentRegistry
 import io.aequicor.heartbeat.feature.browser.impl.presentation.component.BrowserDocumentComponent
 import io.aequicor.heartbeat.feature.browser.impl.ui.BrowserDocumentUiComponent
@@ -25,9 +26,11 @@ internal class BrowserDocumentRouteEntry(
     private val scopes: ScopeFactory,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val registry: BrowserDocumentRegistry,
+    private val natives: BrowserDocumentNatives = BrowserDocumentNatives.None,
 ) : RouteEntry<BrowserDocumentRoute>(BrowserDocumentRoute::class, BrowserDocumentRoute.serializer()) {
     override fun create(route: BrowserDocumentRoute, context: ComponentContext, navigator: Navigator): NavComponent {
         val scope = context.retainedScope(scopes, profile, name = "browser-document")
-        return BrowserDocumentUiComponent(BrowserDocumentComponent(context, route.id, registry, scope.coroutineScope))
+        val component = BrowserDocumentComponent(context, route.id, registry, scope.coroutineScope, natives)
+        return BrowserDocumentUiComponent(component)
     }
 }

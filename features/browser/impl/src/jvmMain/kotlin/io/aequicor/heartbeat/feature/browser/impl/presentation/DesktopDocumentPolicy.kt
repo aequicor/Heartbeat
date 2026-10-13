@@ -23,12 +23,14 @@ import org.cef.network.CefResponse
  * from memory by [page] (read on every load, so a reload shows the current data); every other navigation, frame,
  * resource, redirect, link opening a tab, download and external protocol is refused before any IO. Pop-ups, dialogs
  * and the remaining native UI are refused by the runtime's life span handler and `installDesktopBrowserRestrictions`.
+ * While [isBootstrap], the new browser may show its own blank page until the runtime has configured its context.
  * [unavailable] reports a renderer that terminated while the document was shown.
  */
 internal class DesktopDocumentPolicy(
     private val url: String,
     private val page: () -> ByteArray,
     private val isReleased: () -> Boolean,
+    isBootstrap: () -> Boolean,
     unavailable: () -> Unit,
 ) {
     private val log = Log.tag("DesktopDocumentPolicy")
@@ -44,7 +46,13 @@ internal class DesktopDocumentPolicy(
             request: CefRequest,
             userGesture: Boolean,
             isRedirect: Boolean,
-        ): Boolean = isReleased() || isRedirect || !frame.isMain || request.url != url
+        ): Boolean = isReleased() || !allowsDesktopDocumentNavigation(
+            url,
+            request.url,
+            frame.isMain,
+            isRedirect,
+            isBootstrap(),
+        )
 
         override fun onOpenURLFromTab(
             browser: CefBrowser,
@@ -139,6 +147,20 @@ internal class DesktopDocumentPolicy(
         ) = allowOsExecution.set(false)
     }
 }
+
+/**
+ * A browser shows nothing but its document: the main frame navigates only to the document's own address, without
+ * redirects, and to its own blank page only while [isBootstrap].
+ */
+internal fun allowsDesktopDocumentNavigation(
+    documentUrl: String,
+    url: String?,
+    isMainFrame: Boolean,
+    isRedirect: Boolean,
+    isBootstrap: Boolean,
+): Boolean = isMainFrame && !isRedirect && (url == documentUrl || (isBootstrap && url == BLANK_PAGE))
+
+private const val BLANK_PAGE = "about:blank"
 
 /** Only the main frame's navigation to the document's own address is the document; never a download. */
 internal fun isDesktopDocumentRequest(

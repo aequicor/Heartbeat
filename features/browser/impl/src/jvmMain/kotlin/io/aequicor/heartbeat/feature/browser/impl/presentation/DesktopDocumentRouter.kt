@@ -23,8 +23,8 @@ internal val desktopDocumentQueryFunction: String get() = queryNames.jsQueryFunc
 
 /**
  * Bridge of one document browser: one-shot queries of its main frame, while that frame shows the document's own
- * address [url], go to [calls]; anything else is refused. Created on the CEF UI thread before the browser, added to
- * its client and released with [dispose] when the browser closes.
+ * address [url], go to [calls]; anything else is refused. Added to the document browser's client before the browser
+ * is created; the client disposes the native router, [close] detaches this bridge first.
  */
 internal class DesktopDocumentRouter(url: String, private val calls: DesktopDocumentCalls) {
     private val log = Log.tag("DesktopDocumentRouter")
@@ -60,11 +60,10 @@ internal class DesktopDocumentRouter(url: String, private val calls: DesktopDocu
     /** The native router to add to the document browser's client. */
     val router: CefMessageRouter = CefMessageRouter.create(queryNames).also { it.addHandler(handler, true) }
 
-    /** Drops the page's pending calls and the native router. */
-    fun dispose() {
+    /** Drops the page's pending calls and detaches the handler; the client then disposes the native router. */
+    fun close() {
         calls.cancelAll()
         router.removeHandler(handler)
-        router.dispose()
     }
 
     private companion object {
