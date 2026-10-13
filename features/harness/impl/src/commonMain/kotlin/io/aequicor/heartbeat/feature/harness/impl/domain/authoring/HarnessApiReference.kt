@@ -49,7 +49,9 @@ private val GUIDE = """
     connection, disconnection and deletion, and deleting an enabled script asks too.
     Off switches and Deny/Ask hooks apply in every chat a harness is connected to; everything else comes from the
     first ${HarnessLimits.ACTIVE_PER_SESSION} connected harnesses of a chat by name.
-    Never store secrets, tokens or personal data in a harness. Keep instructions short: the whole harness block
+    Never put secrets, tokens or personal data in harness source, instructions or templates. Runtime mini-app
+    values belong in data (the protected profile store); do not use script fields or browser localStorage for
+    persistent state. Keep instructions short: the whole harness block
     shares $HARNESS_CONTEXT_CHARS characters per chat; skills are not in the block, only their index.
     Limits: ${HarnessLimits.HARNESSES} harnesses, ${HarnessLimits.ITEMS} items each, ${HarnessLimits.SCRIPT_TOOLS}
     script tools, ${HarnessLimits.TIMERS} timers (≥ ${HarnessLimits.MIN_TIMER}), ${HarnessLimits.RUNS} concurrent
@@ -59,8 +61,8 @@ private val GUIDE = """
 
 private val API = """
     Kotlin API (scripts: base class HarnessScriptBase; workflows: HarnessWorkflowBase). Imported by default:
-    ItemName, events.on<…>, AgentOptions, ScriptUiResult, launch, JsonElement/JsonObject/JsonArray/JsonPrimitive/
-    JsonNull, buildJsonObject/buildJsonArray, put/add/addJsonObject/putJsonArray/putJsonObject, seconds/minutes/hours.
+    ItemName, events.on<…>, AgentOptions, ScriptUiResult, ScriptDataSnapshot, ScriptDataWriteResult, launch,
+    JsonElement/JsonObject/JsonArray/JsonPrimitive/JsonNull, buildJsonObject/buildJsonArray, put/add/addJsonObject/putJsonArray/putJsonObject, seconds/minutes/hours.
     Import other types explicitly (package io.aequicor.heartbeat.feature.harness.api.*
     and io.aequicor.heartbeat.feature.aiengine.facade.api.*).
 
@@ -82,6 +84,17 @@ private val API = """
       ${HarnessLimits.UI_RESULT_BYTES} bytes; at most ${HarnessLimits.UI_METHODS} methods. Return ScriptUiResult.Error
       for expected problems (missing login, bad input): thrown exceptions count as failures. Put UI methods in their
       own script item: an activation runs its callbacks one at a time, so a slow method delays hooks of its item.
+    - data.read("state"): ScriptDataSnapshot(value: JsonElement?, revision: Long) — durable JSON shared by all
+      script items of this harness. Source/item replacement, detach, disable and restart keep data; deleting the
+      harness removes it. Each call requires the current published activation; evaluation cannot read or write.
+    - data.write("state", jsonOrNull, expectedRevision): ScriptDataWriteResult.Written(snapshot) or Conflict(current).
+      Revision is namespace-wide; Conflict does not write. Null deletes a key; JsonNull stores JSON null.
+    - data.update("state") { old -> newJsonOrNull }: ScriptDataSnapshot — atomic optimistic read/modify/write.
+      The transform must be pure and quick, because concurrent changes can run it again. Never perform IO inside.
+      Keys: [a-z][a-z0-9_]{0,63}, at most ${HarnessLimits.DATA_KEYS} keys / ${HarnessLimits.DATA_BYTES} UTF-8 bytes
+      per harness including metadata. Invalid keys/quotas throw IllegalArgumentException before changing data.
+      Only successful changed writes invalidate the owner's surfaces; a snapshot/read method must not initialize
+      data by writing on every load. Use defaults on read, initialize through an explicit user action.
     - sessions.list(), sessions.history(session) — only chats where this harness is active.
     - sessions.send(session, text) — a visible message to that chat (quota ${HarnessLimits.SENDS_PER_MINUTE}/min).
     - sessions.spawn(parent, title, prompt) — a helper chat with Ask trust.
@@ -221,6 +234,39 @@ internal val EXAMPLE_UI_SCRIPT = """
     }
 """.trimIndent()
 
+/** Durable mini-app methods: auto-load reads, atomic progress and revision-checked reset. */
+internal val EXAMPLE_MINIAPP_SCRIPT = """
+    import kotlinx.serialization.json.intOrNull
+    import kotlinx.serialization.json.longOrNull
+
+    fun view(snapshot: ScriptDataSnapshot): JsonObject = buildJsonObject {
+        put("count", snapshot.value ?: JsonPrimitive(0))
+        put("revision", snapshot.revision)
+    }
+
+    ui.method(ItemName("snapshot"), "Read the saved progress without changing it") {
+        ScriptUiResult.Value(view(data.read("progress")))
+    }
+    ui.method(ItemName("record"), "Record one completed activity") {
+        val saved = data.update("progress") { previous ->
+            val count = (previous as? JsonPrimitive)?.intOrNull ?: 0
+            JsonPrimitive(count + 1)
+        }
+        ScriptUiResult.Value(view(saved))
+    }
+    ui.method(ItemName("reset"), "Reset only the revision the user reviewed") { call ->
+        val expected = (call.arguments["revision"] as? JsonPrimitive)?.longOrNull
+        if (expected == null || expected < 0) {
+            ScriptUiResult.Error("Reload progress before resetting it")
+        } else {
+            when (val result = data.write("progress", null, expected)) {
+                is ScriptDataWriteResult.Written -> ScriptUiResult.Value(view(result.snapshot))
+                is ScriptDataWriteResult.Conflict -> ScriptUiResult.Error("Progress changed; review it again")
+            }
+        }
+    }
+""".trimIndent()
+
 /** Desktop workflow of the example harness: a design pass and an implementation pass by helper chats. */
 internal val EXAMPLE_SCREEN_WORKFLOW = """
     workflow { input ->
@@ -272,6 +318,12 @@ ${EXAMPLE_VERIFY_SCRIPT.prependIndent("    ")}
     a button; next time the user selects the harness and presses the button without asking the agent:
 
 ${EXAMPLE_UI_SCRIPT.prependIndent("    ")}
+
+    Mini-app: a durable progress tracker. Use snapshot as the surface's auto data source, record for its action
+    button, and pass the displayed revision to reset. A web card calls heartbeat.call("record", {}), while
+    native buttons use the same owner method. Every visible surface reloads after a changed durable write.
+
+${EXAMPLE_MINIAPP_SCRIPT.prependIndent("    ")}
 
     Why: the instruction keeps every chat on tokens; the skill carries detail without filling the prompt; the
     workflow splits design and implementation into helper chats; the script tightens destructive commands and

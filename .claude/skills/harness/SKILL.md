@@ -26,6 +26,7 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
 | Экраны настроек | `harness/impl/presentation`, `ui`; раздел — `settings` (`SettingsSection.Harness`) |
 | Подключение из чата («+», чипы) | `ai-studio/impl` (`MachineStudioHarnesses`, `StudioTurnExecutor`) |
 | UI-методы для интерфейсов service-as-ui (`ui.method`) | `harness/api/script/ScriptUi.kt`; `impl/domain/runtime/HarnessUiDispatch.kt` (`connectedAdmission`); провайдер `impl/data/serviceui/HarnessServiceUiProvider.kt` |
+| Постоянные данные мини-приложения (`data.read/write/update`) | `api/script/ScriptData.kt`; `impl/domain/services/HarnessScriptData`, `impl/data/services/ProtectedHarnessData` |
 | Хуки сессий, политика, гейт нативных вызовов | `ai-engine/facade:{api,impl}` (`SessionHooks`, `ToolPolicy`, `authorizeNative`) |
 
 ## Правила
@@ -68,6 +69,12 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
   снимок владельцев только в Ready (не suspended, не reloading, тогл включён), иначе поверхности не удаляются.
 - Логи: никогда не логируются исходники, тексты, payload, wake note, диагностика компилятора и сообщения
   исключений скриптов — только класс исключения. Частые события — `log.v` и `@HighFrequency`.
+- Данные `ScriptData` принадлежат харнессу целиком и сохраняются в профильном `SecretStore`; ключ не содержит
+  пользовательских сведений. Обновление исходника, detach и disable не очищают данные; удаление харнесса очищает
+  его пространство. Доступ требует опубликованной действующей активации, пробная компиляция данных не читает.
+  Запись атомарна по ожидаемой ревизии; `update` повторяет чистую функцию при конфликте. Квоты — `HarnessLimits`.
+  `dataRevision` обновляется после успешной изменяющей записи, не после чтения или любого `ui.method`:
+  автоисточники поверхностей тоже вызывают методы, общая инвалидизация каждого вызова создаёт цикл.
 - UI (`impl/ui`) не импортирует `harness:api`: только презентационные модели (`presentation/HarnessUiModels.kt`).
   Presentation видит только порты `domain` (`domain/authoring/HarnessLibraryPorts.kt`), не `data`. Навигацию
   экранов выполняют компоненты по `MVIAction` сторов; retained-модели навигатор не держат. Экран повторяет

@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRuntime
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessUiDispatch
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessUiOutcome
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessScriptHost
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDataStorage
 import io.aequicor.heartbeat.feature.serviceasui.api.UiCallContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodCall
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodFailure
@@ -50,6 +51,7 @@ internal class HarnessServiceUiProvider(
     private val host: HarnessScriptHost,
     private val runtime: Lazy<HarnessRuntime>,
     private val dispatch: Lazy<HarnessUiDispatch>,
+    private val data: HarnessDataStorage,
 ) : ServiceUiProvider {
     private val log = Log.tag("HarnessServiceUi")
 
@@ -78,6 +80,8 @@ internal class HarnessServiceUiProvider(
             }
         }.distinctUntilChanged()
     }
+
+    override fun dataRevision(owner: String): Flow<Long> = data.revision(HarnessId(owner))
 
     override suspend fun call(owner: String, call: UiMethodCall): UiMethodResult {
         val isActive = owner in library.first().active(call.context)

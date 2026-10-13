@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodResult
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethods
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwners
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 /**
  * Source of surface owners and of the methods their surfaces call — for example harnesses, whose scripts publish
@@ -28,6 +29,14 @@ public interface ServiceUiProvider {
      * Emits the current set at once: places combine every provider and show nothing until each one has reported.
      */
     public fun activeOwners(context: UiCallContext): Flow<Set<String>>
+
+    /**
+     * Revision of durable data owned by [owner], emitted immediately and after each successful change. Reads,
+     * failed writes and unchanged values must not advance it: automatic sources reload when it changes. The
+     * revision only needs to be monotonic for this profile runtime; opening a surface always reads fresh data.
+     * Implementations without durable data emit the constant zero.
+     */
+    public fun dataRevision(owner: String): Flow<Long> = flowOf(0L)
 
     /** Methods [owner] publishes now. */
     public fun methods(owner: String): Flow<UiMethods>

@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessName
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.script.HarnessScriptScope
+import io.aequicor.heartbeat.feature.harness.impl.data.services.harnessTestData
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.CompiledHarnessCode
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeKind
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCompilationRequest
@@ -16,6 +17,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluatio
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessScriptHost
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSchedulerHost
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptData
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptSessions
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -33,6 +35,7 @@ internal class HarnessRegistrationFixture(
     var evaluate: suspend (HarnessScriptScope) -> Unit = {}
     val scripts = mutableListOf<HarnessScriptScope>()
     val origins = RegistrationTestOrigins()
+    private val data = harnessTestData()
     private val admission = object : HarnessRuntimeAdmission {
         override fun canPublish(request: HarnessActivationRequest) = isEnabled && request == desired
         override fun canInvoke(request: HarnessActivationRequest) = isEnabled
@@ -44,9 +47,12 @@ internal class HarnessRegistrationFixture(
             request,
             access,
             origins,
-            schedulers.create(request, access),
-            workflowTestFactory(origins).create(request, access),
-            sessionServices(HarnessInstanceTarget(request, access), origins),
+            HarnessScriptServices(
+                schedulers.create(request, access),
+                workflowTestFactory(origins).create(request, access),
+                sessionServices(HarnessInstanceTarget(request, access), origins),
+                HarnessScriptData(request.harness.id, access, data),
+            ),
         )
     }
     private val host = object : HarnessScriptHost {

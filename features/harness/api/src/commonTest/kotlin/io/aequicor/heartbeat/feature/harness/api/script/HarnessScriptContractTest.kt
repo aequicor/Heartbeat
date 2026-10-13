@@ -89,7 +89,7 @@ class HarnessScriptContractTest {
         assertEquals(listOf<KClass<out HarnessEvent>>(SystemEvent.Started::class), subscribed)
         assertEquals(listOf(AgentToolAction.Command), actions)
         assertEquals(listOf(ItemName("prs")), methods)
-        assertEquals(2, HARNESS_API_VERSION)
+        assertEquals(3, HARNESS_API_VERSION)
     }
 
     @Test
@@ -114,6 +114,7 @@ private class ContractScriptScope(
     override val name = HarnessName("sample")
     override val item = ItemId("script")
     override val revision = 1L
+    override val data: ScriptData get() = error("unused")
     override val hooks: ScriptHooks get() = error("unused")
     override val sessions: ScriptSessions get() = error("unused")
     override val scheduler: ScriptScheduler get() = error("unused")

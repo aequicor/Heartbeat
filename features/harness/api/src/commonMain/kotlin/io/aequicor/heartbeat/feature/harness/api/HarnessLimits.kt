@@ -13,6 +13,8 @@ public object HarnessLimits {
     public const val ATTACHED_PER_HARNESS: Int = 64
     public const val ACTIVE_PER_SESSION: Int = 8
     public const val SCRIPT_TOOLS: Int = 8
+    public const val DATA_KEYS: Int = 64
+    public const val DATA_BYTES: Int = 256 * 1024
     public const val UI_METHODS: Int = 16
     public const val UI_RESULT_BYTES: Int = 256 * 1024
     public const val UI_ERROR_CHARS: Int = 500

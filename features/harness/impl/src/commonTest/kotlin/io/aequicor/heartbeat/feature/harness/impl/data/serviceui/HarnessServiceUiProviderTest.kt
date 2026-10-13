@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.harness.api.script.ScriptUiResult
 import io.aequicor.heartbeat.feature.harness.impl.data.services.SchedulerAccessMachine
 import io.aequicor.heartbeat.feature.harness.impl.data.services.SchedulerAccessRegistry
 import io.aequicor.heartbeat.feature.harness.impl.data.services.SchedulerAccessToggles
+import io.aequicor.heartbeat.feature.harness.impl.data.services.harnessTestData
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessDispatchFixture
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessUiDispatch
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.connectedAdmission
@@ -137,6 +138,7 @@ class HarnessServiceUiProviderTest {
             StaticHost(isHostAvailable),
             lazyOf(fixture.runtime),
             lazyOf(dispatch),
+            harnessTestData(),
         )
         return Setup(fixture, provider)
     }
