@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.NoStudioHarnessAttach
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessAttach
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolChoices
@@ -110,6 +111,10 @@ internal data class StudioTurnRequest(
     val isBriefed: Boolean = false,
     /** With [isRollover] and [isBriefed]: the handoff summary turn completed, so its answer is the work summary. */
     val isSummarized: Boolean = false,
+    /** The outside host routing retained throughout this turn. */
+    val environment: StudioChatEnvironment? = null,
+    /** Executor-owned evidence recorded at the native send boundary, after preparation. */
+    val delivery: StudioPromptDelivery? = null,
 ) {
     override fun toString(): String = "StudioTurnRequest(id=$id, kind=$kind, attachments=${attachments.size})"
 }
@@ -127,12 +132,16 @@ internal class StudioTurnExecutor(
 
     suspend fun execute(host: StudioTurnHost, request: StudioTurnRequest): RunOutcome {
         val progress = Progress()
+        var environment: AutoCloseable? = null
         try {
-            val preselected = request.submissionId.takeIf { it.isNotEmpty() }?.let(harnesses::preselected).orEmpty()
+            val preselected = request.submissionId.takeIf { it.isNotEmpty() }?.let(harnesses::preselected).orEmpty() +
+                request.environment?.preselected.orEmpty()
             progress.isIsolated = request.compaction == null && host.isWorktree(request.id)
             if (progress.isIsolated) prepare(host, request, progress, preselected)
             val active = host.openTurn(request.id, request.settings, preselected)
-            return runNative(host, request, active, progress)
+            environment = request.environment?.bind(active.ref)
+            val boundRequest = if (environment == null) request else request.copy(delivery = progress.delivery)
+            return runNative(host, boundRequest, active, progress)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -140,6 +149,8 @@ internal class StudioTurnExecutor(
             if (progress.isPrepared || progress.active != null) recover(host, request, progress)
             return host.failedTurn(request.id, error)
         } finally {
+            // An interrupted/uncertain native submission must never regain embedded tools.
+            if (!progress.delivery.isPending || progress.isTerminal) environment?.close()
             if (request.submissionId.isNotEmpty()) harnesses.release(request.submissionId)
             if (request.submission?.isCancelled == true && progress.isPrepared) {
                 withContext(NonCancellable) {
@@ -344,6 +355,7 @@ internal class StudioTurnExecutor(
             if (stopped == null) observeInterrupted(host, request, active, turn, progress.isIsolated)
         }
         tools.finishTurn(active.ref, turn)
+        progress.isTerminal = true
         val terminal = active.state.value.takeIf { it.isTerminalFor(turn) }?.lastCompletedTurn()
         // The observer already ran for this terminal turn if the failure came after it; never call it twice.
         if (!progress.isTerminalObserved && terminal?.request == request.request && terminal.outcome != null) {
@@ -379,6 +391,7 @@ internal class StudioTurnExecutor(
         var active: ActiveSession? = null
         var turn: TurnId? = null
         var isTerminal = false
+        val delivery = StudioPromptDelivery()
         var isTerminalObserved = false
     }
 

@@ -7,12 +7,14 @@ import kotlinx.serialization.json.JsonObject
 /**
  * The user's external Chromium browser as the Heartbeat extension exposes it to agent tools (desktop only). Only an
  * extension whose user allowed agent control serves it. The extension keeps agent tabs in a «Heartbeat» tab group,
- * attaches the debugger only to tabs it opened for the agent or the user handed over, allows a fixed set of DevTools
- * methods and fails a guarded navigation unless [resolveDocument] allows it in time. Ownership, approvals and the
- * navigation policy are the caller's: this contract only transports.
+ * attaches the debugger to owned/handed-over tabs or temporarily for a read-only active-page snapshot, allows fixed
+ * DevTools methods and fails a guarded navigation unless [resolveDocument] allows it in time. Ownership, approvals
+ * and the navigation policy are the caller's: this contract only transports.
  *
  * Every call fails with [ExternalBrowserException] when no such extension is connected or it refuses.
  */
+// One transport capability keeps tab ownership, routing and guarded DevTools calls on the same connection.
+@Suppress("TooManyFunctions")
 public interface ExternalBrowser {
     /** Whether an agent-capable extension is connected. */
     public val state: StateFlow<ExternalBrowserState>
@@ -20,14 +22,32 @@ public interface ExternalBrowser {
     /** What happens to controlled tabs. */
     public val events: Flow<ExternalTabEvent>
 
+    /** Pins one trusted agent session to the browser hosting its chat turn, even if that connection disappears. */
+    public fun bindSession(owner: String, connectionId: String): AutoCloseable
+
+    /** Whether this session currently belongs to a turn submitted from a browser panel. */
+    public fun isExternalSession(owner: String): Boolean = false
+
+    /** Whether a tab belongs to the browser hosting this owner; unbound desktop sessions may use any browser. */
+    public fun isTabInSession(owner: String, tabId: String): Boolean = true
+
     /** The tab the user is looking at in that browser, or `null` (no window, a browser page). */
-    public suspend fun activeTab(): ExternalTab?
+    public suspend fun activeTab(owner: String? = null): ExternalTab?
+
+    /** Reads the current page without handing its control to the agent; browser consent still applies. */
+    public suspend fun readActiveTab(owner: String): JsonObject
 
     /**
      * Opens a blank tab in the «Heartbeat» group and starts controlling it; [navigate] then loads a page, so the
      * first document already passes the navigation guard of a known tab.
      */
-    public suspend fun openTab(): ExternalTab
+    public suspend fun openTab(owner: String = ""): ExternalTab
+
+    /** Agent-created tabs still in their original group, including across app reconnects. Never includes user tabs. */
+    public suspend fun ownedTabs(owner: String): List<ExternalTab> = emptyList()
+
+    /** Reattaches only while the extension still recognizes this owner, tab, group and exact page. */
+    public suspend fun recoverTab(owner: String, tabId: String, expectedUrl: String): ExternalTab
 
     /** Starts controlling an existing tab only while it still shows the approved [expectedUrl]. */
     public suspend fun control(tabId: String, expectedUrl: String): ExternalTab

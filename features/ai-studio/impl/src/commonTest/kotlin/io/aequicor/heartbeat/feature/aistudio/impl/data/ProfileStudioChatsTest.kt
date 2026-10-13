@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.hostDirective
 import io.aequicor.heartbeat.feature.aiengine.facade.api.withHostDirectives
@@ -29,6 +30,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatComposer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEntry
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatNotice
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatPart
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatRejection
@@ -75,6 +77,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 
@@ -212,12 +215,18 @@ class ProfileStudioChatsTest {
             emptyList(),
         )
         val chosen = StudioChatSettings(ENGINE_MODEL, approval = ApprovalMode.AutoApprove)
+        val environment = object : StudioChatEnvironment {
+            override fun bind(session: SessionRef): AutoCloseable = error("The turn executor owns binding")
+        }
 
-        val accepted = fixture.chats.send(StudioChatSend(null, null, "Hi", settings = chosen))
+        val accepted = fixture.chats.send(
+            StudioChatSend(null, null, "Hi", settings = chosen, environment = environment),
+        )
         val unknown = fixture.chats.send(StudioChatSend(null, null, "Hi", settings = chosen.copy(modelId = "gone")))
         val noProjects = fixture.chats.send(StudioChatSend(null, "p1", "Hi", settings = chosen))
 
         assertTrue(accepted is StudioChatSendResult.Accepted)
+        assertSame(environment, fixture.runtime.environments.single())
         assertEquals(
             listOf(DEFAULTS.copy(modelId = ENGINE_MODEL, approval = ApprovalMode.AutoApprove)),
             fixture.runtime.settings,
@@ -476,6 +485,7 @@ class ProfileStudioChatsTest {
         override val state = MutableStateFlow(StudioRuntimeState())
         val runs = mutableListOf<Run>()
         val settings = mutableListOf<RunSettings>()
+        val environments = mutableListOf<StudioChatEnvironment?>()
         val configured = mutableListOf<StudioSettingChange>()
         val cancelled = mutableListOf<String>()
         val answers = mutableListOf<Triple<String, String, String>>()
@@ -502,10 +512,12 @@ class ProfileStudioChatsTest {
             settings: RunSettings,
             attachments: List<ResourceRef>,
             submissionId: String,
+            environment: StudioChatEnvironment?,
             onAccepted: suspend () -> Unit,
         ): RunOutcome {
             runs += Run(sessionId, prompt, attachments)
             this.settings += settings
+            environments += environment
             if (!isAccepting) return RunOutcome.Failed
             onAccepted()
             release.await()

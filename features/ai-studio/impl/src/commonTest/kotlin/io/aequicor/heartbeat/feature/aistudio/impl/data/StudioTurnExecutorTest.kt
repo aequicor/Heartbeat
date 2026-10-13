@@ -27,6 +27,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCheckpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
@@ -50,6 +51,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.NoStudioHarnessAttach
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessAttach
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeAdmission
@@ -701,6 +703,140 @@ class StudioTurnExecutorTest {
     }
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
+class StudioBrowserEnvironmentTest {
+    @Test
+    fun `closed sender before submission releases outside routing without waiting for reconciliation`() = runTest {
+        val fixture = TurnFixture()
+        val environment = ExecutorEnvironment()
+        fixture.host.isNativeSubmissionEnabled = true
+        fixture.active.state.value = ActiveSessionState.Closed
+        fixture.active.senderFailure = EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed)
+
+        assertEquals(
+            RunOutcome.Failed,
+            fixture.executor.execute(fixture.host, fixture.request.copy(environment = environment)),
+        )
+        assertFalse(environment.isBound)
+        assertNull(fixture.active.submittedRequest)
+        assertEquals(0, fixture.active.reconciliations)
+    }
+
+    @Test
+    fun `outside environment reaches declarations and stays bound until tool cleanup completes`() = runTest {
+        val fixture = TurnFixture()
+        var bound = false
+        val environment = object : StudioChatEnvironment {
+            override val preselected = mapOf("external_browser" to setOf("browser"))
+            override fun bind(session: SessionRef): AutoCloseable {
+                assertEquals(fixture.active.ref, session)
+                bound = true
+                return AutoCloseable { bound = false }
+            }
+        }
+        fixture.host.beforeSubmit = { assertTrue(bound) }
+        val run = async { fixture.executor.execute(fixture.host, fixture.request.copy(environment = environment)) }
+        runCurrent()
+        assertTrue(bound)
+        assertEquals(listOf(environment.preselected), fixture.host.opened)
+        fixture.tools.release.complete(Unit)
+        assertEquals(RunOutcome.Completed, run.await())
+        assertFalse(bound)
+    }
+
+    @Test
+    fun `interrupted native submission retains outside restrictions until its outcome is known`() = runTest {
+        val fixture = TurnFixture()
+        var bound = false
+        val environment = object : StudioChatEnvironment {
+            override fun bind(session: SessionRef): AutoCloseable {
+                bound = true
+                return AutoCloseable { bound = false }
+            }
+        }
+        fixture.host.isNativeSubmissionEnabled = true
+        fixture.active.sendFailure = EngineException(
+            EngineFailure.Request(RequestFailureReason.OutcomeUnknown, fixture.request.request),
+        )
+        val run = async { fixture.executor.execute(fixture.host, fixture.request.copy(environment = environment)) }
+        runCurrent()
+        run.cancelAndJoin()
+        assertTrue(bound)
+    }
+
+    @Test
+    fun `preparation failure releases outside routing before the next desktop turn`() = runTest {
+        val fixture = TurnFixture()
+        val environment = ExecutorEnvironment()
+        fixture.host.beforeSubmit = { error("Configuration rejected") }
+        assertEquals(
+            RunOutcome.Failed,
+            fixture.executor.execute(fixture.host, fixture.request.copy(environment = environment)),
+        )
+        assertFalse(environment.isBound)
+        fixture.host.beforeSubmit = { assertFalse(environment.isBound) }
+        fixture.tools.release.complete(Unit)
+        assertEquals(RunOutcome.Completed, fixture.executor.execute(fixture.host, fixture.request))
+    }
+
+    @Test
+    fun `proven native rejection releases outside routing including reconciled unknown delivery`() = runTest {
+        val failures = listOf(
+            EngineFailure.Request(RequestFailureReason.Invalid),
+            EngineFailure.Request(RequestFailureReason.OutcomeUnknown),
+            EngineFailure.Unknown(),
+        )
+        for (failure in failures) {
+            val fixture = TurnFixture()
+            val environment = ExecutorEnvironment()
+            fixture.host.isNativeSubmissionEnabled = true
+            fixture.active.sendFailure = EngineException(failure)
+            fixture.active.reconcile = { fixture.active.state.value = ActiveSessionState.Ready() }
+            assertEquals(
+                RunOutcome.Failed,
+                fixture.executor.execute(fixture.host, fixture.request.copy(environment = environment)),
+            )
+            assertFalse(environment.isBound)
+            fixture.active.sendFailure = null
+            fixture.host.beforeSubmit = {
+                assertFalse(environment.isBound)
+                fixture.active.state.value = ActiveSessionState.Ready(fixture.turn)
+            }
+            fixture.tools.release.complete(Unit)
+            assertEquals(RunOutcome.Completed, fixture.executor.execute(fixture.host, fixture.request))
+        }
+    }
+
+    @Test
+    fun `unclassified send failure retains outside routing until native evidence and cleanup arrive`() = runTest {
+        val fixture = TurnFixture()
+        val environment = ExecutorEnvironment()
+        fixture.host.isNativeSubmissionEnabled = true
+        fixture.active.sendFailure = EngineException(EngineFailure.Unknown())
+        val run = async { fixture.executor.execute(fixture.host, fixture.request.copy(environment = environment)) }
+        runCurrent()
+        assertTrue(environment.isBound)
+        assertFalse(run.isCompleted)
+        assertTrue(fixture.host.acceptedReceipts.isEmpty())
+
+        fixture.active.state.value = ActiveSessionState.Running(fixture.turn.copy(outcome = null))
+        runCurrent()
+        assertEquals(listOf(fixture.request.request to fixture.turn.id), fixture.host.acceptedReceipts)
+        assertTrue(environment.isBound)
+        assertFalse(run.isCompleted)
+
+        fixture.active.state.value = ActiveSessionState.Ready(fixture.turn)
+        runCurrent()
+        assertTrue(environment.isBound)
+        assertFalse(run.isCompleted)
+        assertTrue("finish-start" in fixture.events)
+        fixture.tools.release.complete(Unit)
+        assertEquals(RunOutcome.Completed, run.await())
+        assertFalse(environment.isBound)
+        assertEquals(fixture.active.ref to fixture.turn.id, fixture.tools.finished)
+    }
+}
+
 private class TurnFixture(harnesses: StudioHarnessAttach = NoStudioHarnessAttach) {
     val events = mutableListOf<String>()
     val request = StudioTurnRequest(
@@ -819,8 +955,10 @@ private class ExecutorHost(
                 null,
                 request.attachments,
                 request.request,
+                delivery = request.delivery,
             )
         }
+        request.delivery?.isPending = true
         return turn.id
     }
     override suspend fun shouldStop(id: String): Boolean {
@@ -859,6 +997,7 @@ private class ExecutorSession(private val turn: Turn) : ActiveSession {
     override val state = MutableStateFlow<ActiveSessionState>(ActiveSessionState.Ready(turn))
     var submittedRequest: PromptRequest? = null
     var sendFailure: EngineException? = null
+    var senderFailure: EngineFailure? = null
     var inspection: TurnInspection? = null
     var inspections = 0
     var inspectedCheckpoint: String? = null
@@ -894,13 +1033,16 @@ private class ExecutorSession(private val turn: Turn) : ActiveSession {
         override fun watch(after: HistoryCheckpoint) = emptyFlow<SessionEvent>()
     }
     override val features = object : EngineFeatures {
-        override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> = listOfNotNull(
-            history,
-            prompts,
-            reconciler,
-            inspector.takeIf { inspection != null },
-        ).firstNotNullOfOrNull { key.type.safeCast(it) }
-            ?.let { FeatureAccess.Available(it) } ?: FeatureAccess.Unsupported
+        override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> {
+            if (key == SendsPrompts) senderFailure?.let { return FeatureAccess.Unavailable(it) }
+            return listOfNotNull(
+                history,
+                prompts,
+                reconciler,
+                inspector.takeIf { inspection != null },
+            ).firstNotNullOfOrNull { key.type.safeCast(it) }
+                ?.let { FeatureAccess.Available(it) } ?: FeatureAccess.Unsupported
+        }
     }
     override suspend fun close() = Unit
 }
@@ -990,4 +1132,12 @@ private class ExecutorProfile(override val coroutineScope: CoroutineScope) : Sco
     override val savedState: ScopeSavedState get() = error("unused")
     override val isClosed = false
     override fun onClose(action: () -> Unit): DisposableHandle = DisposableHandle { }
+}
+
+private class ExecutorEnvironment : StudioChatEnvironment {
+    var isBound = false
+    override fun bind(session: SessionRef): AutoCloseable {
+        isBound = true
+        return AutoCloseable { isBound = false }
+    }
 }

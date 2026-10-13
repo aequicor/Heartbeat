@@ -1,6 +1,9 @@
 package io.aequicor.heartbeat.feature.chromiumbridge.impl.data.chat
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatComposer
@@ -17,6 +20,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioChatSummary
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChats
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.agent.ChromiumExternalBrowser
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeErrorCode
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeFrame
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeProtocol
@@ -39,6 +43,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -53,6 +58,7 @@ import kotlinx.serialization.json.putJsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 
@@ -60,10 +66,14 @@ class SidePanelChatHandlersTest {
     private val chats = FakeChats()
     private val imported = mutableListOf<List<WirePage>>()
     private var importResult: PageImport = PageImport.Imported(listOf(ResourceRef("attachment:1", "text/markdown")))
-    private val handlers = SidePanelChatHandlers(chats) { pages ->
-        imported += pages
-        importResult
-    }
+    private val handlers = SidePanelChatHandlers(
+        chats,
+        PageImporter { pages ->
+            imported += pages
+            importResult
+        },
+        lazy { error("Unused browser") },
+    )
     private val at = Instant.fromEpochSeconds(1_700_000_000)
 
     @Test
@@ -204,17 +214,23 @@ class SidePanelChatHandlersTest {
 
         assertEquals("c9", accepted.result.jsonObject["chatId"]?.jsonPrimitive?.content)
         assertEquals(BridgeErrorCode.BUSY, busy.code)
+        assertEquals(
+            mapOf("external_browser" to setOf(session.id.toString())),
+            chats.sent.first().environment?.preselected,
+        )
         val page = ResourceRef("attachment:1", "text/markdown")
         assertEquals(
             listOf(StudioChatSend(null, null, "Hi", listOf(page)), StudioChatSend("c9", null, "Again", listOf(page))),
-            chats.sent,
+            chats.sent.map { it.copy(environment = null) },
         )
         assertFailsWith<IllegalArgumentException> { call(session, "chat.send", buildJsonObject { put("text", " ") }) }
     }
 
     @Test
-    fun `a new chat takes the panel's model and approvals`() = runTest {
+    fun `a new chat takes the panel's settings and binds its browser environment`() = runTest {
         val session = FakeSession(this)
+        val browser = ChromiumExternalBrowser(MutableStateFlow(listOf(session)), backgroundScope)
+        val boundHandlers = SidePanelChatHandlers(chats, PageImporter { importResult }, lazyOf(browser))
         chats.sendResult = StudioChatSendResult.Accepted("c2")
         fun send(approval: String) = buildJsonObject {
             put("text", "Hi")
@@ -224,9 +240,20 @@ class SidePanelChatHandlersTest {
             }
         }
 
-        call(session, "chat.send", send("auto_approve"))
+        boundHandlers.handle(BridgeCall("chat.send", send("auto_approve"), session))
 
-        assertEquals(StudioChatSettings("m1", null, ApprovalMode.AutoApprove), chats.sent.single().settings)
+        val sent = chats.sent.single()
+        assertEquals(StudioChatSettings("m1", null, ApprovalMode.AutoApprove), sent.settings)
+        val environment = checkNotNull(sent.environment)
+        assertEquals(mapOf("external_browser" to setOf(session.id.toString())), environment.preselected)
+        val ref = SessionRef(EngineId("pi"), SessionSourceId("local"), "chat-session")
+        val owner = Json.encodeToString(ref)
+        val lease = environment.bind(ref)
+        assertTrue(browser.isExternalSession(owner))
+        assertTrue(browser.isTabInSession(owner, "${session.id}:1"))
+        assertFalse(browser.isTabInSession(owner, "other:1"))
+        lease.close()
+        assertFalse(browser.isExternalSession(owner))
         assertFailsWith<IllegalArgumentException> { call(session, "chat.send", send("sometimes")) }
     }
 

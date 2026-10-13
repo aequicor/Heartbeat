@@ -48,6 +48,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
@@ -398,10 +399,8 @@ internal class EngineStudioRepository(
         }
     }
 
-    override suspend fun run(sessionId: String, prompt: String, settings: RunSettings): RunOutcome {
-        log.i { "Run studio conversation" }
-        return run(sessionId, prompt, settings, emptyList()) { }
-    }
+    override suspend fun run(sessionId: String, prompt: String, settings: RunSettings): RunOutcome =
+        run(sessionId, prompt, settings, emptyList()) { }.also { log.i { "Studio conversation completed" } }
 
     override suspend fun run(
         sessionId: String,
@@ -409,9 +408,11 @@ internal class EngineStudioRepository(
         settings: RunSettings,
         attachments: List<ResourceRef>,
         submissionId: String,
+        environment: StudioChatEnvironment?,
         onAccepted: suspend () -> Unit,
     ): RunOutcome {
         log.i { "Run studio conversation with durable attachments count=${attachments.size}" }
+        requireBrowserHostSupport(record(sessionId), environment)
         return organisms.submit(record(sessionId), prompt, settings, attachments, onAccepted) ?: launchRun(
             sessionId,
             prompt,
@@ -421,6 +422,7 @@ internal class EngineStudioRepository(
             attachments = attachments,
             onAccepted = onAccepted,
             submissionId = submissionId,
+            environment = environment,
         )
     }
 
@@ -434,11 +436,12 @@ internal class EngineStudioRepository(
         attachments: List<ResourceRef> = emptyList(),
         submissionId: String = "",
         onAccepted: suspend () -> Unit = {},
+        environment: StudioChatEnvironment? = null,
         beforeExecute: suspend () -> Unit = {},
     ): RunOutcome = runs.run(
         this,
         StudioTurnRequest(sessionId, prompt, settings, kind, request, attachments, onAccepted)
-            .copy(submissionId = submissionId),
+            .copy(submissionId = submissionId, environment = environment),
         waitForIdle,
         beforeExecute = beforeExecute,
     )
@@ -940,4 +943,9 @@ private fun studioResumeRequest(target: EngineTarget, workspace: WorkspaceRef?):
 private suspend fun LocalWorkspaces.requireExecutionWorkspace(workspace: WorkspaceRef?, isSupported: Boolean) {
     require(workspace == null || isSupported)
     if (workspace != null) requireNotNull(resolve(workspace)) { "The execution folder is unavailable" }
+}
+
+/** Organism children have independent native sessions and cannot share a single browser-turn binding. */
+private fun requireBrowserHostSupport(chat: StudioChatRecord, environment: StudioChatEnvironment?) {
+    check(environment == null || chat.organismId == null) { "Browser-hosted turns are unavailable for organism chats" }
 }

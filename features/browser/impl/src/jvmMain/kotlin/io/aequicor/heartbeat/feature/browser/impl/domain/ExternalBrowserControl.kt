@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonObject
 /** What an agent does in the user's external browser through the `ex_control_*` tools. */
 internal enum class ExternalOperation {
     Tabs,
+    ActiveTab,
     NewTab,
     CloseTab,
     RequestTab,

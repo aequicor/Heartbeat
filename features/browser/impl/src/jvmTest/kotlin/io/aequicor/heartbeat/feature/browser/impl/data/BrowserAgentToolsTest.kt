@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
@@ -57,6 +58,22 @@ class BrowserAgentToolsTest {
         workspace = null,
         turn = TurnId("turn"),
     )
+
+    @Test
+    fun `external turns hide embedded tools and reject stale declarations until their lease closes`() = runTest {
+        val fixture = Fixture()
+        val scope = AgentToolScope(null, session = context.session)
+        val lease = fixture.external.bindSession(Json.encodeToString(context.session), "browser")
+        assertTrue(fixture.tools.specifications(scope).isEmpty())
+        assertTrue(fixture.tools.execute(context, "browser_tabs", JsonObject(emptyMap())).isError)
+        assertEquals(0, fixture.registry.lookups)
+        val otherScope = scope.copy(session = context.session.copy(nativeId = "other"))
+        assertEquals(13, fixture.tools.specifications(otherScope).size)
+        lease.close()
+        assertEquals(13, fixture.tools.specifications(scope).size)
+        val newScope = AgentToolScope(null, preselected = mapOf("external_browser" to setOf("1")))
+        assertTrue(fixture.tools.specifications(newScope).isEmpty())
+    }
 
     @Test
     fun `catalog retains every tool and its trust category when either availability flag is disabled`() = runTest {
@@ -383,7 +400,8 @@ class BrowserAgentToolsTest {
         val machine = ToolMachine()
         val registry = ToolRegistry(machine)
         val toggles = ToolToggles()
-        val tools = BrowserAgentTools(registry, toggles)
+        val external = ExternalBrowserToolsTest.FakeBrowser()
+        val tools = BrowserAgentTools(registry, toggles, lazyOf(external))
 
         fun openTabs(vararg ids: String) {
             machine.state.value = BrowserState.Running(
