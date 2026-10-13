@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.appupdate.impl.data
 
+import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.appupdate.api.AppRelease
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateFailure
@@ -14,8 +15,9 @@ import io.aequicor.heartbeat.feature.appupdate.impl.domain.updateFailure
  * SHA-256 its download must have: GitHub's digest of the asset, else the release's `SHA256SUMS`. A newer release
  * without such a build or checksum is [AppUpdateFailure.InvalidRelease]: it is never offered unverified.
  */
+@Inject
 internal class AppReleases(private val client: GitHubReleaseClient) : AppReleaseSource {
-    private val log = Log.tag("AppUpdateReleases")
+    private val log = Log.tag("AppReleases")
 
     override suspend fun newer(
         repository: GitHubRepository,
@@ -29,16 +31,10 @@ internal class AppReleases(private val client: GitHubReleaseClient) : AppRelease
             return null
         }
         val build = latest.buildFor(version, platform)
-        if (build == null) {
-            log.w { "release $version has no build platform=$platform" }
-            updateFailure(AppUpdateFailure.InvalidRelease)
-        }
+            ?: updateFailure(AppUpdateFailure.InvalidRelease, "release $version has no build platform=$platform")
         val sha256 = build.sha256
             ?: latest.checksums()?.let { sums -> sha256FromSums(client.document(sums.url), build.name) }
-        if (sha256 == null) {
-            log.w { "release $version states no checksum asset=${build.name}" }
-            updateFailure(AppUpdateFailure.InvalidRelease)
-        }
+            ?: updateFailure(AppUpdateFailure.InvalidRelease, "release $version states no checksum asset=${build.name}")
         log.i { "newer release version=$version asset=${build.name} installed=$installed" }
         return latest.toAppRelease(version, build, sha256)
     }

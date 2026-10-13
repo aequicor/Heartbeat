@@ -1,6 +1,8 @@
 package io.aequicor.heartbeat.feature.appupdate.impl.data
 
+import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.common.HostPlatform
+import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.appupdate.api.AppVersion
 import io.aequicor.heartbeat.feature.appupdate.api.UnsupportedReason
@@ -17,7 +19,7 @@ import java.nio.file.Path
  * (`platform-main/desktop/build.gradle.kts`); `jpackage.app-path` is the installed launcher executable.
  */
 internal class LaunchProperties(private val property: (String) -> String? = System::getProperty) {
-    private val log = Log.tag("AppUpdate")
+    private val log = Log.tag("LaunchProperties")
 
     /** The installed version, or null for a launch without one (`development`). */
     val version: AppVersion? get() = property(APP_VERSION)?.let(AppVersion::parse)
@@ -48,7 +50,8 @@ internal class LaunchProperties(private val property: (String) -> String? = Syst
 }
 
 /** An installed release build on a desktop OS with a published build updates itself; any other launch does not. */
-internal class DesktopInstallationProbe(private val host: HostPlatform, private val launch: LaunchProperties) :
+@Inject
+internal class DesktopInstallationProbe(private val platform: PlatformInfo, private val launch: LaunchProperties) :
     InstallationProbe {
     override fun current(): InstallationCheck {
         val version = launch.version
@@ -56,9 +59,9 @@ internal class DesktopInstallationProbe(private val host: HostPlatform, private 
         if (version == null || repository == null || launch.launcher == null) {
             return InstallationCheck.Unsupported(UnsupportedReason.NotReleaseBuild)
         }
-        val platform = releasePlatform(host, launch.architecture)
+        val build = releasePlatform(platform.host, launch.architecture)
             ?: return InstallationCheck.Unsupported(UnsupportedReason.UnsupportedPlatform)
-        return InstallationCheck.Supported(AppInstallation(version, repository, platform))
+        return InstallationCheck.Supported(AppInstallation(version, repository, build))
     }
 }
 

@@ -33,7 +33,8 @@ class AppReleasesTest {
     private fun releases(vararg bodies: Pair<String, Pair<HttpStatusCode, String>>, requested: MutableList<String>) =
         AppReleases(
             GitHubReleaseClient(
-                releaseClient { request ->
+                dispatchers = TestDispatchers,
+                client = releaseClient { request ->
                     val url = request.url.toString()
                     requested += url
                     val (status, body) = bodies.toMap().getValue(url)

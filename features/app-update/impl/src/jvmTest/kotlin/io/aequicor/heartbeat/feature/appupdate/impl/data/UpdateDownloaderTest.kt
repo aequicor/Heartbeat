@@ -6,7 +6,6 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import kotlin.io.path.createTempDirectory
@@ -41,7 +40,7 @@ class UpdateDownloaderTest {
         releaseClient {
             respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentLength, body.size.toString()))
         },
-        Dispatchers.IO,
+        TestDispatchers,
     )
 
     @Test

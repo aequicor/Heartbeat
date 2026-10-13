@@ -1,7 +1,6 @@
 package io.aequicor.heartbeat.feature.appupdate.impl.data
 
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateFailure
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import java.nio.file.Path
@@ -20,7 +19,7 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalPathApi::class)
 class MacBundleUpdateTest {
     private val root = createTempDirectory("app-update-mac")
-    private val update = MacBundleUpdate(CommandRunner(Dispatchers.IO))
+    private val update = MacBundleUpdate(CommandRunner(TestDispatchers))
 
     @AfterTest
     fun cleanUp() {

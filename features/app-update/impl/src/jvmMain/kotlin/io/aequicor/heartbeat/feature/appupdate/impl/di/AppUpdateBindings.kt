@@ -23,13 +23,12 @@ import io.aequicor.heartbeat.feature.appupdate.impl.data.AppReleases
 import io.aequicor.heartbeat.feature.appupdate.impl.data.CommandRunner
 import io.aequicor.heartbeat.feature.appupdate.impl.data.DesktopInstallationProbe
 import io.aequicor.heartbeat.feature.appupdate.impl.data.DesktopUpdateInstaller
-import io.aequicor.heartbeat.feature.appupdate.impl.data.GitHubReleaseClient
 import io.aequicor.heartbeat.feature.appupdate.impl.data.LaunchProperties
+import io.aequicor.heartbeat.feature.appupdate.impl.data.MacBundleUpdate
 import io.aequicor.heartbeat.feature.appupdate.impl.data.UpdateDownloader
 import io.aequicor.heartbeat.feature.appupdate.impl.data.UpdateWorkspace
 import io.aequicor.heartbeat.feature.appupdate.impl.data.updatesRoot
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.AppUpdateEffects
-import io.ktor.client.HttpClient
 
 /**
  * The update machine lives for the whole desktop launch (app scope). Only the desktop graph has it: mobile apps are
@@ -48,24 +47,34 @@ public object AppUpdateBindings {
 
     @Provides
     internal fun effects(
-        client: HttpClient,
+        probe: DesktopInstallationProbe,
+        releases: AppReleases,
+        installer: DesktopUpdateInstaller,
+    ): AppUpdateEffects = AppUpdateEffects(probe, releases, installer)
+
+    /** What the jpackage launcher states about this launch. */
+    @Provides
+    internal fun launch(): LaunchProperties = LaunchProperties()
+
+    /** One installer per launch: it reads the outcome of an earlier attempt once. */
+    @Provides
+    @SingleIn(AppScope::class)
+    internal fun installer(
         platform: PlatformInfo,
         storage: StorageRoot,
+        downloader: UpdateDownloader,
+        mac: MacBundleUpdate,
+        commands: CommandRunner,
+        launch: LaunchProperties,
         dispatchers: DispatcherProvider,
-    ): AppUpdateEffects {
-        val launch = LaunchProperties()
-        return AppUpdateEffects(
-            probe = DesktopInstallationProbe(platform.host, launch),
-            releases = AppReleases(GitHubReleaseClient(client)),
-            installer = DesktopUpdateInstaller(
-                workspace = UpdateWorkspace(updatesRoot(platform.host, storage)),
-                downloader = UpdateDownloader(client, dispatchers.io),
-                commands = CommandRunner(dispatchers.io),
-                launch = launch,
-                io = dispatchers.io,
-            ),
-        )
-    }
+    ): DesktopUpdateInstaller = DesktopUpdateInstaller(
+        workspace = UpdateWorkspace(updatesRoot(platform.host, storage)),
+        downloader = downloader,
+        mac = mac,
+        launch = launch,
+        io = dispatchers.io,
+        startHelper = commands::startDetached,
+    )
 }
 
 /** Registers the update toggle in the desktop controls. */

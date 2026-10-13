@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.appupdate.impl.data
 
 import io.aequicor.heartbeat.core.common.HostPlatform
+import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.feature.appupdate.api.AppVersion
 import io.aequicor.heartbeat.feature.appupdate.api.UnsupportedReason
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.AppInstallation
@@ -20,7 +21,12 @@ class LaunchPropertiesTest {
     )
 
     private fun probe(properties: Map<String, String>, host: HostPlatform = HostPlatform.MacOs) =
-        DesktopInstallationProbe(host, LaunchProperties(properties::get))
+        DesktopInstallationProbe(
+            object : PlatformInfo {
+                override val host = host
+            },
+            LaunchProperties(properties::get),
+        )
 
     @Test
     fun `an installed release build updates itself`() {

@@ -1,11 +1,14 @@
 package io.aequicor.heartbeat.feature.appupdate.impl.data
 
+import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateFailure
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.AppUpdateException
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandler
 import io.ktor.client.plugins.HttpTimeout
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import java.security.MessageDigest
 import java.util.HexFormat
 import kotlin.test.assertEquals
@@ -24,4 +27,11 @@ internal fun sha256(bytes: ByteArray): String = HexFormat.of().formatHex(
 /** Asserts that [block] fails with the update failure [failure]. */
 internal inline fun assertUpdateFailure(failure: AppUpdateFailure, block: () -> Unit) {
     assertEquals(failure, assertFailsWith<AppUpdateException> { block() }.failure)
+}
+
+/** Real dispatchers: the tests drive files, processes and a mock HTTP engine. */
+internal object TestDispatchers : DispatcherProvider {
+    override val main: CoroutineDispatcher = Dispatchers.IO
+    override val default: CoroutineDispatcher = Dispatchers.Default
+    override val io: CoroutineDispatcher = Dispatchers.IO
 }

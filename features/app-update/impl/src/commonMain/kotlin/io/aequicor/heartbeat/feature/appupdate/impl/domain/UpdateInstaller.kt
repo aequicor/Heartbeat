@@ -27,8 +27,8 @@ internal interface InstallProgressSink {
 /** Replaces the installed app with a release; desktop only. */
 internal interface UpdateInstaller {
     /**
-     * Reports, once per launch, how the installation started by an earlier launch ended for the [installed] version,
-     * and forgets it.
+     * How the installation started by an earlier launch ended for the [installed] version. Determined once per launch,
+     * before any download; the mark and the files of that attempt are then cleared.
      */
     suspend fun previousAttempt(installed: AppVersion): PreviousAttempt
 

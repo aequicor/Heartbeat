@@ -112,6 +112,18 @@ class DesktopUpdateInstallerTest {
         assertEquals(PreviousAttempt.Failed, workspace.takeOutcome(AppVersion(1, 3, 0)))
     }
 
+    @Test
+    fun `the outcome of an earlier attempt is read once per launch`() = runTest {
+        workspace.releaseDirectory("1.4.0")
+        workspace.markStarted("1.4.0")
+        val installer = installer(root.resolve("unused"), root.resolve("Heartbeat/Heartbeat.exe"))
+
+        assertEquals(PreviousAttempt.Failed, installer.previousAttempt(AppVersion(1, 3, 0)))
+        // A later check of the same launch keeps the outcome; the mark itself is already gone.
+        assertEquals(PreviousAttempt.Failed, installer.previousAttempt(AppVersion(1, 3, 0)))
+        assertEquals(PreviousAttempt.None, workspace.takeOutcome(AppVersion(1, 3, 0)))
+    }
+
     private fun installer(file: Path, launcher: Path) = DesktopUpdateInstaller(
         workspace = workspace,
         downloader = UpdateDownloader(
@@ -119,9 +131,9 @@ class DesktopUpdateInstallerTest {
                 requests++
                 respond(file.readBytes(), HttpStatusCode.OK)
             },
-            Dispatchers.IO,
+            TestDispatchers,
         ),
-        commands = CommandRunner(Dispatchers.IO),
+        mac = MacBundleUpdate(CommandRunner(TestDispatchers)),
         launch = LaunchProperties(mapOf("jpackage.app-path" to "$launcher")::get),
         io = Dispatchers.IO,
         processId = { PROCESS_ID },

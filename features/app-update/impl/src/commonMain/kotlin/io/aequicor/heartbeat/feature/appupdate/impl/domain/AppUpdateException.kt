@@ -2,16 +2,13 @@ package io.aequicor.heartbeat.feature.appupdate.impl.domain
 
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateFailure
 
-/** An update step failed for a reason the user sees as [failure]. */
-internal class AppUpdateException(val failure: AppUpdateFailure, cause: Throwable? = null) :
-    Exception(failure.name, cause)
-
-/** Stops the current update step with [failure]. */
-internal fun updateFailure(failure: AppUpdateFailure, cause: Throwable? = null): Nothing =
-    throw AppUpdateException(failure, cause)
-
 /**
- * This failure without its message: file system and process messages name the user's paths, which are never logged.
- * Only the kind of failure is kept.
+ * An update step failed for a reason the user sees as [failure]; [detail] tells the log why, without paths. The
+ * effect handler logs it once.
  */
-internal fun Throwable.withoutDetails(): Throwable = IllegalStateException(this::class.simpleName ?: "Failure")
+internal class AppUpdateException(val failure: AppUpdateFailure, detail: String? = null, cause: Throwable? = null) :
+    Exception(detail?.let { "$failure: $it" } ?: failure.name, cause)
+
+/** Stops the current update step with [failure]; [detail] is logged with it. */
+internal fun updateFailure(failure: AppUpdateFailure, detail: String? = null, cause: Throwable? = null): Nothing =
+    throw AppUpdateException(failure, detail, cause)

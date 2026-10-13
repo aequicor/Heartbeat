@@ -20,7 +20,8 @@ import kotlin.time.Duration.Companion.hours
 
 /**
  * Starts the update machine with the launch and asks it to check at once and every [CHECK_INTERVAL] while updates
- * are switched on; switching them off forgets the offer. The machine itself ignores checks while it installs.
+ * are switched on; switching them off forgets the offer. A launch that cannot update itself stops asking, and a busy
+ * machine (checking, installing, restarting) skips a tick, so routine ticks never reach it as ignored intents.
  */
 @ContributesIntoSet(AppScope::class)
 @Inject
@@ -34,15 +35,27 @@ internal class AppUpdateStartup(
         val updates = machine.value
         scope.coroutineScope.launch(dispatchers.main) {
             toggles.observe(AppUpdateEnabled).collectLatest { isEnabled ->
-                if (!isEnabled) {
+                if (isEnabled) {
+                    checkPeriodically(updates)
+                } else if (updates.state.value != AppUpdateState.Inactive) {
                     updates.send(AppUpdateIntent.Public.Deactivate)
-                    return@collectLatest
-                }
-                while (true) {
-                    updates.send(AppUpdateIntent.Public.Check)
-                    delay(CHECK_INTERVAL)
                 }
             }
+        }
+    }
+
+    private suspend fun checkPeriodically(updates: Machine<AppUpdateState, AppUpdateIntent, AppUpdateOutput>) {
+        while (true) {
+            when (updates.state.value) {
+                is AppUpdateState.Unsupported -> return
+
+                is AppUpdateState.Checking, is AppUpdateState.Installing, is AppUpdateState.Restarting -> Unit
+
+                AppUpdateState.Inactive, AppUpdateState.UpToDate, is AppUpdateState.CheckFailed,
+                is AppUpdateState.Available,
+                -> updates.send(AppUpdateIntent.Public.Check)
+            }
+            delay(CHECK_INTERVAL)
         }
     }
 

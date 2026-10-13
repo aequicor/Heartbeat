@@ -1,10 +1,10 @@
 package io.aequicor.heartbeat.feature.appupdate.impl.data
 
+import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateFailure
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.AppUpdateException
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.updateFailure
-import io.aequicor.heartbeat.feature.appupdate.impl.domain.withoutDetails
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -19,8 +19,9 @@ import kotlin.io.path.name
  * replace (another owner, a read-only volume, App Translocation of a bundle never moved out of Downloads) is
  * installed by hand.
  */
+@Inject
 internal class MacBundleUpdate(private val commands: CommandRunner) {
-    private val log = Log.tag("AppUpdate")
+    private val log = Log.tag("MacBundleUpdate")
 
     /** The `.app` bundle of the launcher `<name>.app/Contents/MacOS/<launcher>`, or null outside a bundle. */
     fun bundleOf(launcher: Path): Path? {
@@ -34,8 +35,10 @@ internal class MacBundleUpdate(private val commands: CommandRunner) {
     /** Fails with [AppUpdateFailure.ManualInstallRequired] unless this user can move [bundle] aside and replace it. */
     fun requireReplaceable(bundle: Path) {
         if (!Files.isWritable(bundle) || !Files.isWritable(bundle.parent)) {
-            log.w { "the installed bundle is not replaceable by this user" }
-            updateFailure(AppUpdateFailure.ManualInstallRequired)
+            updateFailure(
+                AppUpdateFailure.ManualInstallRequired,
+                "the installed bundle is not replaceable by this user",
+            )
         }
     }
 
@@ -60,11 +63,10 @@ internal class MacBundleUpdate(private val commands: CommandRunner) {
                     entries.filter { it.name.endsWith(APP_SUFFIX) && Files.isDirectory(it, LinkOption.NOFOLLOW_LINKS) }
                         .toList()
                 }
-            }.singleOrNull()
-            if (app == null) {
-                log.w { "the release image holds no single app bundle" }
-                updateFailure(AppUpdateFailure.InvalidRelease)
-            }
+            }.singleOrNull() ?: updateFailure(
+                AppUpdateFailure.InvalidRelease,
+                "the release image holds no single app bundle",
+            )
             commands.run(listOf(DITTO, "$app", "$staged"))
         } finally {
             // Also after cancellation: an image left attached keeps a mount until logout.
@@ -72,8 +74,10 @@ internal class MacBundleUpdate(private val commands: CommandRunner) {
         }
         val bundled = files { bundleVersion(staged) }
         if (bundled != version) {
-            log.w { "the release image holds another version expected=$version actual=${bundled.orEmpty()}" }
-            updateFailure(AppUpdateFailure.InvalidRelease)
+            updateFailure(
+                AppUpdateFailure.InvalidRelease,
+                "the release image holds another version expected=$version actual=${bundled.orEmpty()}",
+            )
         }
         log.i { "update bundle prepared version=$version" }
         return staged
@@ -97,8 +101,11 @@ internal class MacBundleUpdate(private val commands: CommandRunner) {
     private fun <T> files(block: () -> T): T = try {
         block()
     } catch (e: IOException) {
-        log.w(e.withoutDetails()) { "the update bundle could not be prepared" }
-        throw AppUpdateException(AppUpdateFailure.InstallFailed, e.withoutDetails())
+        throw AppUpdateException(
+            AppUpdateFailure.InstallFailed,
+            "the update bundle could not be prepared",
+            e.withoutDetails(),
+        )
     }
 
     private fun bundleVersion(bundle: Path): String? {

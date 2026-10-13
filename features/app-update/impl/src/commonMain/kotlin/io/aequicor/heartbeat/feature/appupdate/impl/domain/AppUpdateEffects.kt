@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.appupdate.impl.domain
 
+import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.EffectScope
@@ -18,7 +19,7 @@ internal class AppUpdateEffects(
     private val releases: AppReleaseSource,
     private val installer: UpdateInstaller,
 ) : EffectHandler<AppUpdateEffect, AppUpdateIntent> {
-    private val log = Log.tag("AppUpdate")
+    private val log = Log.tag("AppUpdateEffects")
 
     override suspend fun handle(effect: AppUpdateEffect, machine: EffectScope<AppUpdateIntent>) {
         when (effect) {
@@ -65,7 +66,8 @@ internal class AppUpdateEffects(
         val progress = object : InstallProgressSink {
             private var reported = -1L
 
-            // Chunks arrive every 64 KiB: the machine hears of a new percent (or MiB, size unknown) only.
+            // Chunks arrive many times a second: the machine hears of a new percent (or MiB, size unknown) only.
+            @HighFrequency
             override suspend fun downloading(received: Long, total: Long?) {
                 val step = if (total != null && total > 0) received * PERCENT / total else received / MEBIBYTE
                 if (step == reported) return

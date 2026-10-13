@@ -1,11 +1,11 @@
 package io.aequicor.heartbeat.feature.appupdate.impl.data
 
+import dev.zacsweers.metro.Inject
+import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateFailure
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.AppUpdateException
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.updateFailure
-import io.aequicor.heartbeat.feature.appupdate.impl.domain.withoutDetails
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.runInterruptible
 import java.io.File
 import java.io.IOException
@@ -15,8 +15,11 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
 /** Runs the OS tools of an update (`hdiutil`, `ditto`) and starts the installer helper. */
-internal class CommandRunner(private val io: CoroutineDispatcher) {
-    private val log = Log.tag("AppUpdate")
+@Inject
+internal class CommandRunner(dispatchers: DispatcherProvider) {
+    private val io = dispatchers.io
+
+    private val log = Log.tag("CommandRunner")
 
     /**
      * Runs [command] to its end within [timeout]; its output is discarded (it names the user's paths). A failure to
@@ -31,13 +34,12 @@ internal class CommandRunner(private val io: CoroutineDispatcher) {
             val isFinished = runInterruptible(
                 io,
             ) { process.waitFor(timeout.inWholeMilliseconds, TimeUnit.MILLISECONDS) }
-            if (!isFinished) {
-                log.w { "update tool timed out tool=$tool" }
-                updateFailure(AppUpdateFailure.InstallFailed)
-            }
+            if (!isFinished) updateFailure(AppUpdateFailure.InstallFailed, "update tool timed out tool=$tool")
             if (process.exitValue() != 0) {
-                log.w { "update tool failed tool=$tool exit=${process.exitValue()}" }
-                updateFailure(AppUpdateFailure.InstallFailed)
+                updateFailure(
+                    AppUpdateFailure.InstallFailed,
+                    "update tool failed tool=$tool exit=${process.exitValue()}",
+                )
             }
         } finally {
             if (process.isAlive) process.destroyForcibly()
@@ -63,8 +65,12 @@ internal class CommandRunner(private val io: CoroutineDispatcher) {
     private fun start(builder: ProcessBuilder): Process = try {
         builder.start()
     } catch (e: IOException) {
-        log.w(e.withoutDetails()) { "update tool could not be started tool=${File(builder.command().first()).name}" }
-        throw AppUpdateException(AppUpdateFailure.InstallFailed, e.withoutDetails())
+        val tool = File(builder.command().first()).name
+        throw AppUpdateException(
+            AppUpdateFailure.InstallFailed,
+            "update tool could not start tool=$tool",
+            e.withoutDetails(),
+        )
     }
 
     private companion object {

@@ -1,12 +1,14 @@
 package io.aequicor.heartbeat.feature.appupdate.impl.data
 
+import dev.zacsweers.metro.Inject
+import io.aequicor.heartbeat.core.common.DispatcherProvider
+import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.network.networkResult
 import io.aequicor.heartbeat.feature.appupdate.api.AppRelease
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateFailure
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.AppUpdateException
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.updateFailure
-import io.aequicor.heartbeat.feature.appupdate.impl.domain.withoutDetails
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.prepareGet
@@ -15,10 +17,8 @@ import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.contentLength
 import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.readAvailable
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.io.IOException
-import java.io.OutputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
@@ -26,42 +26,43 @@ import java.security.MessageDigest
 import java.util.HexFormat
 
 /**
- * Streams a release file to disk and proves it: the final URL after redirects is https on GitHub, the size never
- * exceeds the published size or [maxBytes], free space covers the file and its unpacked copy, and the SHA-256
- * computed while streaming matches the published one. A failed or cancelled download leaves no file behind.
+ * Streams a release file to disk on the IO dispatcher and proves it: the final URL after redirects is https on
+ * GitHub, the size never exceeds the published size or [maxBytes], free space covers the file and its unpacked copy,
+ * and the SHA-256 computed while streaming matches the published one. A failed or cancelled download leaves no file
+ * behind. Progress is reported from the IO dispatcher.
  */
-internal class UpdateDownloader(
-    private val client: HttpClient,
-    private val io: CoroutineDispatcher,
-    private val maxBytes: Long = MAX_DOWNLOAD_BYTES,
-) {
-    private val log = Log.tag("AppUpdateDownload")
+@Inject
+internal class UpdateDownloader(private val client: HttpClient, dispatchers: DispatcherProvider) {
+    private val io = dispatchers.io
+
+    private val log = Log.tag("UpdateDownloader")
 
     /** Downloads [release] into the new file [target], reporting the bytes received and the expected total. */
     suspend fun download(release: AppRelease, target: Path, progress: suspend (bytes: Long, total: Long?) -> Unit) {
         log.i { "download release version=${release.version} asset=${release.assetName}" }
         if (!isTrustedUrl(release.url, GitHubDownloadHosts)) {
-            log.w { "release download outside GitHub host=${hostOf(release.url)}" }
-            updateFailure(AppUpdateFailure.InvalidRelease)
+            updateFailure(
+                AppUpdateFailure.InvalidRelease,
+                "release download outside GitHub host=${hostOf(release.url)}",
+            )
         }
-        var isComplete = false
-        try {
-            networkResult {
-                client.prepareGet(release.url) {
-                    timeout {
-                        requestTimeoutMillis = DOWNLOAD_TIMEOUT_MILLIS
-                        socketTimeoutMillis = SOCKET_TIMEOUT_MILLIS
-                    }
-                }.execute { response -> receive(release, response, target, progress) }
-            }.getOrElse { error ->
-                log.w(error) { "release download failed version=${release.version}" }
-                throw error.asUpdateFailure()
+        withContext(io) {
+            var isComplete = false
+            try {
+                networkResult {
+                    client.prepareGet(release.url) {
+                        timeout {
+                            requestTimeoutMillis = DOWNLOAD_TIMEOUT_MILLIS
+                            socketTimeoutMillis = SOCKET_TIMEOUT_MILLIS
+                        }
+                    }.execute { response -> receive(release, response, target, progress) }
+                }.getOrElse { error -> throw error.asUpdateFailure() }
+                isComplete = true
+                log.i { "release downloaded version=${release.version} bytes=${Files.size(target)}" }
+            } finally {
+                // A single unlink: it must run even when cancelled.
+                if (!isComplete) deleteQuietly(target)
             }
-            isComplete = true
-            log.i { "release downloaded version=${release.version} bytes=${Files.size(target)}" }
-        } finally {
-            // A single unlink: quick enough to run on any thread, and it must run even when cancelled.
-            if (!isComplete) deleteQuietly(target)
         }
     }
 
@@ -72,47 +73,43 @@ internal class UpdateDownloader(
         progress: suspend (Long, Long?) -> Unit,
     ) {
         if (!response.isTrusted(GitHubDownloadHosts)) {
-            log.w { "release download redirected outside GitHub host=${response.call.request.url.host}" }
-            updateFailure(AppUpdateFailure.InvalidRelease)
+            updateFailure(
+                AppUpdateFailure.InvalidRelease,
+                "release download redirected outside GitHub host=${response.call.request.url.host}",
+            )
         }
         val expected = expectedSize(release, response.contentLength())
-        withContext(io) { requireSpace(target.parent, expected) }
-        val channel = response.bodyAsChannel()
+        requireSpace(target.parent, expected)
         val digest = MessageDigest.getInstance("SHA-256")
-        var opened: OutputStream? = null
-        val total = try {
-            // Capture inside the dispatcher block: cancellation can discard its return value.
-            val output = withContext(io) {
-                storage { Files.newOutputStream(target, StandardOpenOption.CREATE_NEW) }.also { opened = it }
-            }
-            stream(channel, expected) { buffer, read, received ->
-                // Hashing and writing stay off the caller's (main) thread; progress is reported on it.
-                withContext(io) {
-                    digest.update(buffer, 0, read)
-                    storage { output.write(buffer, 0, read) }
-                }
+        val total = storage { Files.newOutputStream(target, StandardOpenOption.CREATE_NEW) }.use { output ->
+            stream(response.bodyAsChannel(), expected) { buffer, read, received ->
+                digest.update(buffer, 0, read)
+                storage { output.write(buffer, 0, read) }
                 progress(received, expected)
             }
-        } finally {
-            // A single close: quick on any thread, and it must run even when cancelled.
-            opened?.let { output -> storage { output.close() } }
         }
-        if (expected != null && total != expected) fail(AppUpdateFailure.Corrupted)
+        if (expected != null && total != expected) {
+            updateFailure(AppUpdateFailure.Corrupted, "release size differs expected=$expected actual=$total")
+        }
         if (HexFormat.of().formatHex(digest.digest()) != release.sha256) {
-            log.w { "release checksum mismatch version=${release.version}" }
-            fail(AppUpdateFailure.Corrupted)
+            updateFailure(AppUpdateFailure.Corrupted, "release checksum mismatch version=${release.version}")
         }
     }
 
     /** The size the download must have: the published one, which the announced length must not contradict. */
     private fun expectedSize(release: AppRelease, announced: Long?): Long? {
-        if (announced != null && release.size != null && announced != release.size) fail(AppUpdateFailure.Corrupted)
+        if (announced != null && release.size != null && announced != release.size) {
+            updateFailure(AppUpdateFailure.Corrupted, "announced size differs from the release")
+        }
         val expected = release.size ?: announced
-        if (expected != null && expected > maxBytes) fail(AppUpdateFailure.InvalidRelease)
+        if (expected != null && expected > MAX_DOWNLOAD_BYTES) {
+            updateFailure(AppUpdateFailure.InvalidRelease, "release exceeds the size limit bytes=$expected")
+        }
         return expected
     }
 
     /** Reads [channel] to its end within the size bounds and returns the bytes received. */
+    @HighFrequency
     private suspend fun stream(
         channel: ByteReadChannel,
         expected: Long?,
@@ -123,8 +120,12 @@ internal class UpdateDownloader(
         var read = channel.readAvailable(buffer, 0, buffer.size)
         while (read >= 0) {
             total += read
-            if (total > maxBytes) fail(AppUpdateFailure.InvalidRelease)
-            if (expected != null && total > expected) fail(AppUpdateFailure.Corrupted)
+            if (total > MAX_DOWNLOAD_BYTES) {
+                updateFailure(AppUpdateFailure.InvalidRelease, "release exceeds the size limit")
+            }
+            if (expected != null && total > expected) {
+                updateFailure(AppUpdateFailure.Corrupted, "release is larger than published")
+            }
             chunk(buffer, read, total)
             read = channel.readAvailable(buffer, 0, buffer.size)
         }
@@ -136,8 +137,7 @@ internal class UpdateDownloader(
         val usable = storage { Files.getFileStore(directory).usableSpace }
         // The download, its unpacked copy and the copy it replaces coexist until the update is applied.
         if (usable < expected * SPACE_FACTOR + SPACE_MARGIN_BYTES) {
-            log.w { "not enough disk space for the update bytes=$expected usable=$usable" }
-            fail(AppUpdateFailure.NotEnoughSpace)
+            updateFailure(AppUpdateFailure.NotEnoughSpace, "bytes=$expected usable=$usable")
         }
     }
 
@@ -146,8 +146,7 @@ internal class UpdateDownloader(
     private fun <T> storage(block: () -> T): T = try {
         block()
     } catch (e: IOException) {
-        log.w(e.withoutDetails()) { "update file could not be written" }
-        throw AppUpdateException(AppUpdateFailure.Storage, e.withoutDetails())
+        throw AppUpdateException(AppUpdateFailure.Storage, "update file could not be written", e.withoutDetails())
     }
 
     private fun deleteQuietly(path: Path) {
@@ -156,11 +155,6 @@ internal class UpdateDownloader(
         } catch (e: IOException) {
             log.w(e.withoutDetails()) { "partial update file could not be removed" }
         }
-    }
-
-    private fun fail(failure: AppUpdateFailure): Nothing {
-        log.w { "release download refused failure=$failure" }
-        updateFailure(failure)
     }
 
     private companion object {

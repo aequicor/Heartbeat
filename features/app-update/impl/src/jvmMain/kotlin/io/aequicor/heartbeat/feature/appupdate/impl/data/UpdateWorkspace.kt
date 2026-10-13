@@ -7,7 +7,6 @@ import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateFailure
 import io.aequicor.heartbeat.feature.appupdate.api.AppVersion
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.AppUpdateException
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.PreviousAttempt
-import io.aequicor.heartbeat.feature.appupdate.impl.domain.withoutDetails
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -24,7 +23,7 @@ import kotlin.io.path.name
  */
 @OptIn(ExperimentalPathApi::class)
 internal class UpdateWorkspace(private val root: Path) {
-    private val log = Log.tag("AppUpdate")
+    private val log = Log.tag("UpdateWorkspace")
     private val marker: Path get() = root.resolve(MARKER)
 
     /** The log the installer helper appends to; kept after a failed installation. */
@@ -103,8 +102,7 @@ internal class UpdateWorkspace(private val root: Path) {
     private fun <T> storage(block: () -> T): T = try {
         block()
     } catch (e: IOException) {
-        log.w(e.withoutDetails()) { "update files could not be written" }
-        throw AppUpdateException(AppUpdateFailure.Storage, e.withoutDetails())
+        throw AppUpdateException(AppUpdateFailure.Storage, "update files could not be written", e.withoutDetails())
     }
 
     private companion object {

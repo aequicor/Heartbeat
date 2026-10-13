@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.appupdate.impl.data
 
+import dev.zacsweers.metro.Inject
+import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.network.NetworkException
 import io.aequicor.heartbeat.core.network.networkResult
@@ -16,62 +18,55 @@ import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.HttpHeaders
 import io.ktor.http.URLProtocol
 import io.ktor.utils.io.readAvailable
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 
 /**
- * Reads the app's GitHub releases over the app's HTTP client: https only, the final URL after redirects stays on
- * GitHub, and a document is at most [maxBytes]. Requests are anonymous, so GitHub's rate limit for one address
- * applies; it surfaces as [AppUpdateFailure.RateLimited].
+ * Reads the app's GitHub releases over the app's HTTP client, on the IO dispatcher: https only, the final URL after
+ * redirects stays on GitHub, and a document is at most 1 MiB. Requests are anonymous, so GitHub's rate limit for
+ * one address applies; it surfaces as [AppUpdateFailure.RateLimited]. The transport logs every request; failures
+ * travel as [AppUpdateException] to the effect handler, which logs them.
  */
-internal class GitHubReleaseClient(private val client: HttpClient, private val maxBytes: Int = MAX_DOCUMENT_BYTES) {
-    private val log = Log.tag("AppUpdateReleases")
+@Inject
+internal class GitHubReleaseClient(private val client: HttpClient, dispatchers: DispatcherProvider) {
+    private val io = dispatchers.io
+
+    private val log = Log.tag("GitHubReleaseClient")
 
     /** The latest published release of [repository], or null while it has none. */
-    suspend fun latest(repository: GitHubRepository): GitHubRelease? {
-        log.i { "latest release repository=$repository" }
-        val url = "https://$GITHUB_API_HOST/repos/$repository/releases/latest"
-        val response = request(url, setOf(GITHUB_API_HOST))
+    suspend fun latest(repository: GitHubRepository): GitHubRelease? = withContext(io) {
+        val response = request("https://$GITHUB_API_HOST/repos/$repository/releases/latest", setOf(GITHUB_API_HOST))
         val error = response.exceptionOrNull()
         // A repository without a published release answers 404: no update rather than a failure.
         if ((error as? NetworkException.Http)?.status?.value == HTTP_NOT_FOUND) {
             log.i { "no published release repository=$repository" }
-            return null
+            return@withContext null
         }
-        if (error != null) {
-            log.w(error) { "latest release request failed repository=$repository" }
-            throw error.asUpdateFailure()
-        }
-        val body = response.getOrThrow()
+        if (error != null) throw error.asUpdateFailure()
         val release = try {
-            ReleaseJson.decodeFromString<GitHubRelease>(body)
+            ReleaseJson.decodeFromString<GitHubRelease>(response.getOrThrow())
         } catch (e: SerializationException) {
-            log.w(e) { "latest release metadata is malformed" }
-            updateFailure(AppUpdateFailure.InvalidRelease, e)
+            throw AppUpdateException(AppUpdateFailure.InvalidRelease, "latest release metadata is malformed", e)
         } catch (e: IllegalArgumentException) {
-            log.w(e) { "latest release metadata is malformed" }
-            updateFailure(AppUpdateFailure.InvalidRelease, e)
+            throw AppUpdateException(AppUpdateFailure.InvalidRelease, "latest release metadata is malformed", e)
         }
-        return release.takeUnless { it.isDraft || it.isPrerelease }
+        release.takeUnless { it.isDraft || it.isPrerelease }
     }
 
     /** A small text file of a release, such as its `SHA256SUMS`, at the https [url] on GitHub's download hosts. */
-    suspend fun document(url: String): String {
+    suspend fun document(url: String): String = withContext(io) {
+        log.d { "release document host=${hostOf(url)}" }
         val response = request(url, GitHubDownloadHosts)
-        val error = response.exceptionOrNull()
-        if (error != null) {
-            log.w(error) { "release document request failed host=${hostOf(url)}" }
-            throw error.asUpdateFailure()
-        }
-        return response.getOrThrow()
+        response.exceptionOrNull()?.let { error -> throw error.asUpdateFailure() }
+        response.getOrThrow()
     }
 
     private suspend fun request(url: String, allowedHosts: Set<String>): Result<String> {
         if (!isTrustedUrl(url, allowedHosts)) {
-            log.w { "release metadata outside GitHub host=${hostOf(url)}" }
-            updateFailure(AppUpdateFailure.InvalidRelease)
+            updateFailure(AppUpdateFailure.InvalidRelease, "release metadata outside GitHub host=${hostOf(url)}")
         }
         return networkResult {
             client.prepareGet(url) {
@@ -83,20 +78,21 @@ internal class GitHubReleaseClient(private val client: HttpClient, private val m
 
     private suspend fun read(response: HttpResponse, allowedHosts: Set<String>): String {
         if (!response.isTrusted(allowedHosts)) {
-            log.w { "release metadata redirected outside GitHub host=${response.call.request.url.host}" }
-            updateFailure(AppUpdateFailure.InvalidRelease)
+            updateFailure(
+                AppUpdateFailure.InvalidRelease,
+                "release metadata redirected outside GitHub host=${response.call.request.url.host}",
+            )
         }
         val channel = response.bodyAsChannel()
-        val buffer = ByteArray(maxBytes + 1)
+        val buffer = ByteArray(MAX_DOCUMENT_BYTES + 1)
         var size = 0
         while (size < buffer.size) {
             val read = channel.readAvailable(buffer, size, buffer.size - size)
             if (read < 0) break
             size += read
         }
-        if (size > maxBytes) {
-            log.w { "release metadata exceeds the size limit" }
-            updateFailure(AppUpdateFailure.InvalidRelease)
+        if (size > MAX_DOCUMENT_BYTES) {
+            updateFailure(AppUpdateFailure.InvalidRelease, "release metadata exceeds the size limit")
         }
         return buffer.decodeToString(0, size)
     }
@@ -157,11 +153,11 @@ internal fun Throwable.asUpdateFailure(): AppUpdateException = when (this) {
     is AppUpdateException -> this
 
     is NetworkException.Http -> when (status.value) {
-        HTTP_FORBIDDEN, HTTP_TOO_MANY_REQUESTS -> AppUpdateException(AppUpdateFailure.RateLimited, this)
-        else -> AppUpdateException(AppUpdateFailure.Network, this)
+        HTTP_FORBIDDEN, HTTP_TOO_MANY_REQUESTS -> AppUpdateException(AppUpdateFailure.RateLimited, cause = this)
+        else -> AppUpdateException(AppUpdateFailure.Network, "status=${status.value}", this)
     }
 
-    else -> AppUpdateException(AppUpdateFailure.Network, this)
+    else -> AppUpdateException(AppUpdateFailure.Network, cause = this)
 }
 
 private val Authority = Regex("([A-Za-z0-9.-]+)(?::[0-9]{1,5})?")

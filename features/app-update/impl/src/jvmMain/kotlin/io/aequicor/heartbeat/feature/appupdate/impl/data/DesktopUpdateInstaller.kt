@@ -10,8 +10,9 @@ import io.aequicor.heartbeat.feature.appupdate.impl.domain.InstallProgressSink
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.PreviousAttempt
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.UpdateInstaller
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.updateFailure
-import io.aequicor.heartbeat.feature.appupdate.impl.domain.withoutDetails
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.nio.file.Files
@@ -27,27 +28,27 @@ import java.nio.file.StandardCopyOption
 internal class DesktopUpdateInstaller(
     private val workspace: UpdateWorkspace,
     private val downloader: UpdateDownloader,
-    private val commands: CommandRunner,
+    private val mac: MacBundleUpdate,
     private val launch: LaunchProperties,
     private val io: CoroutineDispatcher,
     private val processId: () -> Long = { ProcessHandle.current().pid() },
-    private val startHelper: (command: List<String>, output: Path) -> Unit = commands::startDetached,
+    private val startHelper: (command: List<String>, output: Path) -> Unit,
 ) : UpdateInstaller {
-    private val log = Log.tag("AppUpdate")
-    private val mac = MacBundleUpdate(commands)
+    private val log = Log.tag("DesktopUpdateInstaller")
+    private val outcome = Mutex()
+    private var previous: PreviousAttempt? = null
 
-    override suspend fun previousAttempt(installed: AppVersion): PreviousAttempt =
-        withContext(io) { workspace.takeOutcome(installed) }
+    // Read once per process: the mark and the files of an earlier attempt are cleared before anything is downloaded.
+    override suspend fun previousAttempt(installed: AppVersion): PreviousAttempt = outcome.withLock {
+        previous ?: withContext(io) { workspace.takeOutcome(installed) }.also { previous = it }
+    }
 
     override suspend fun install(installation: AppInstallation, release: AppRelease, progress: InstallProgressSink) {
-        val launcher = launch.launcher ?: updateFailure(AppUpdateFailure.InstallFailed)
-        val isMac = installation.platform.os == MAC_OS
-        val bundle = if (isMac) {
+        previousAttempt(installation.version)
+        val launcher = launch.launcher ?: updateFailure(AppUpdateFailure.InstallFailed, "the launcher is unknown")
+        val bundle = if (installation.platform.os == MAC_OS) {
             val bundle = mac.bundleOf(launcher)
-            if (bundle == null) {
-                log.w { "the launcher is outside an app bundle" }
-                updateFailure(AppUpdateFailure.ManualInstallRequired)
-            }
+                ?: updateFailure(AppUpdateFailure.ManualInstallRequired, "the launcher is outside an app bundle")
             withContext(io) { mac.requireReplaceable(bundle) }
             bundle
         } else {
@@ -76,25 +77,27 @@ internal class DesktopUpdateInstaller(
 
     private fun start(release: AppRelease, command: List<String>) {
         workspace.markStarted(release.version)
+        var isStarted = false
         try {
             startHelper(command, workspace.helperLog)
-        } catch (e: AppUpdateException) {
-            workspace.clearStarted()
-            throw e
+            isStarted = true
+        } finally {
+            // Without a running helper nothing is installed: the next launch must not report a failed attempt.
+            if (!isStarted) workspace.clearStarted()
         }
         log.i { "update helper waits for the app to quit version=${release.version}" }
     }
 
     /** Copies the helper [name] from the app's resources into [directory]. */
-    @Suppress("SwallowedException") // The file system message names the user's paths; only the kind travels on.
+    // The file system message names the user's paths: only the kind of failure travels on, so it is not the cause.
+    @Suppress("SwallowedException")
     private fun script(directory: Path, name: String): Path = try {
         val target = directory.resolve(name)
         val resource = checkNotNull(javaClass.getResourceAsStream("/app-update/$name")) { "Missing update helper" }
         resource.use { Files.copy(it, target, StandardCopyOption.REPLACE_EXISTING) }
         target
     } catch (e: IOException) {
-        log.w(e.withoutDetails()) { "update helper could not be written" }
-        throw AppUpdateException(AppUpdateFailure.Storage, e.withoutDetails())
+        throw AppUpdateException(AppUpdateFailure.Storage, "update helper could not be written", e.withoutDetails())
     }
 
     private companion object {
