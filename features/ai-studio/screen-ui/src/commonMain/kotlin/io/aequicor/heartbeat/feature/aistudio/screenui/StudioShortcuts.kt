@@ -25,12 +25,12 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import io.aequicor.heartbeat.core.logging.Log
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.shortcut_command
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.shortcut_control
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import org.jetbrains.compose.resources.stringResource
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 private val shortcutLog = Log.tag("Studio/Shortcuts")
 
@@ -53,10 +53,10 @@ internal class StudioFocusState {
     var isSidebarFocused by mutableStateOf(false)
 
     /** Keep the shortcut receiver alive when its focused sidebar child is about to leave composition. */
-    fun beforeIntent(intent: AiStudioScreenIntent, state: AiStudioScreenState) {
-        val isClosing = (intent == AiStudioScreenIntent.ToggleSidebar && state.sidebar.isVisible) ||
-            (intent is AiStudioScreenIntent.SetDrawerOpen && !intent.isOpen) ||
-            (intent == AiStudioScreenIntent.ToggleSearch && state.sidebar.isSearchVisible)
+    fun beforeIntent(intent: StudioIntent, state: AiStudioScreenState) {
+        val isClosing = (intent == StudioIntent.ToggleSidebar && state.sidebar.isVisible) ||
+            (intent is StudioIntent.SetDrawerOpen && !intent.isOpen) ||
+            (intent == StudioIntent.ToggleSearch && state.sidebar.isSearchVisible)
         if (isClosing && isSidebarFocused) workspace.requestFocus()
     }
 }
@@ -71,7 +71,7 @@ internal fun Modifier.studioShortcuts(
     state: AiStudioScreenState,
     isCompact: Boolean,
     focus: StudioFocusState,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
 ): Modifier {
     val pressed = remember { mutableSetOf<Key>() }
     SideEffect(focus) { focus.workspace.requestFocus() }
@@ -103,18 +103,18 @@ private fun dispatchStudioShortcut(
     state: AiStudioScreenState,
     isCompact: Boolean,
     focus: StudioFocusState,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
 ) {
     when (key) {
-        Key.N -> onIntent(AiStudioScreenIntent.NewSession(state.sidebarInput().newSessionProjectId))
+        Key.N -> onIntent(StudioIntent.NewSession(state.sidebarInput().newSessionProjectId))
 
         Key.K -> focusSearch(state, isCompact, focus, onIntent)
 
         Key.Backslash -> onIntent(
             if (isCompact) {
-                AiStudioScreenIntent.SetDrawerOpen(!state.sidebar.isDrawerOpen)
+                StudioIntent.SetDrawerOpen(!state.sidebar.isDrawerOpen)
             } else {
-                AiStudioScreenIntent.ToggleSidebar
+                StudioIntent.ToggleSidebar
             },
         )
     }
@@ -124,14 +124,14 @@ private fun focusSearch(
     state: AiStudioScreenState,
     isCompact: Boolean,
     focus: StudioFocusState,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
 ) {
     val isAttached = if (isCompact) state.sidebar.isDrawerOpen else state.sidebar.isVisible
-    if (isCompact && !state.sidebar.isDrawerOpen) onIntent(AiStudioScreenIntent.SetDrawerOpen(true))
+    if (isCompact && !state.sidebar.isDrawerOpen) onIntent(StudioIntent.SetDrawerOpen(true))
     if (!state.sidebar.isSearchVisible) {
-        onIntent(AiStudioScreenIntent.ToggleSearch)
+        onIntent(StudioIntent.ToggleSearch)
     } else if (!isAttached) {
-        if (!isCompact) onIntent(AiStudioScreenIntent.ToggleSidebar)
+        if (!isCompact) onIntent(StudioIntent.ToggleSidebar)
     }
     focus.searchRequest++
 }

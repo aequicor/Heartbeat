@@ -34,7 +34,6 @@ import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.ds.tokens.HbMotion
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.action_rename
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_running
@@ -45,6 +44,7 @@ import javax.imageio.ImageIO
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.time.Instant
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 /** Running state remains visible beside actions throughout desktop row interaction. */
 @OptIn(ExperimentalTestApi::class)
@@ -129,7 +129,7 @@ private fun SessionRowTestHost(
                 openMenu = openMenu,
                 onMenu = onMenu,
                 isOpenBesideAllowed = false,
-                onIntent = { if (it is AiStudioScreenIntent.OpenSession) onOpenSession(it.sessionId) },
+                onIntent = { if (it is StudioIntent.OpenSession) onOpenSession(it.sessionId) },
             ).SessionRow(
                 SessionUi(
                     id = "running",

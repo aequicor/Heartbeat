@@ -18,7 +18,6 @@ import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbProgressBar
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_all_models
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_compact
@@ -44,10 +43,11 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.UsageCreditsUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.UsageWindowUi
 import org.jetbrains.compose.resources.stringResource
 import kotlin.time.Instant
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 /** Context is per conversation; a quota-only connection still offers the same details panel. */
 @Composable
-internal fun StudioUsage(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit) {
+internal fun StudioUsage(content: PaneContent, onIntent: (StudioIntent) -> Unit) {
     val context = content.contextUsage
     val provider = content.providerUsage?.takeIf { it.isVisible }
     if (context == null && provider == null) return
@@ -61,14 +61,14 @@ internal fun StudioUsage(content: PaneContent, onIntent: (AiStudioScreenIntent) 
         isExpanded = isOpen,
         onExpandedChange = {
             isOpen = it
-            if (it) onIntent(AiStudioScreenIntent.RefreshUsage(modelId))
+            if (it) onIntent(StudioIntent.RefreshUsage(modelId))
         },
         modifier = Modifier.testTag("usage-${content.pane.id}"),
         accessibleLabel = accessible,
     ) {
         UsageDetails(content, context, provider) {
             isOpen = false
-            onIntent(AiStudioScreenIntent.CompactContext(content.pane.id))
+            onIntent(StudioIntent.CompactContext(content.pane.id))
         }
     }
 }

@@ -17,9 +17,9 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.reduce
 import kotlin.test.Test
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 /** Research replaces only the chat area: the studio sidebar, its toggle and the header stay with the studio. */
 @OptIn(ExperimentalTestApi::class)
@@ -44,7 +44,7 @@ class AiStudioChatAreaUiTest {
                 AiStudioContent(
                     state,
                     { intent ->
-                        if (intent is AiStudioScreenIntent.Sidebar) {
+                        if (intent is StudioIntent.Sidebar) {
                             state = state.copy(sidebar = state.sidebar.reduce(intent))
                         }
                     },
@@ -128,7 +128,7 @@ class AiStudioChatAreaUiTest {
             setContent {
                 HbTheme(darkTheme = false) {
                     AiStudioContent(state, { intent ->
-                        if (intent is AiStudioScreenIntent.Sidebar) {
+                        if (intent is StudioIntent.Sidebar) {
                             state = state.copy(sidebar = state.sidebar.reduce(intent))
                         }
                     }, StudioExits(onBack = {}, onOpenToggles = {}), chatArea = FakeResearch)

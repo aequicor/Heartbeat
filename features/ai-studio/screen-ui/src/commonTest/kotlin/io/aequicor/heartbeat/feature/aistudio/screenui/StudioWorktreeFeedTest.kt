@@ -8,7 +8,6 @@ import io.aequicor.heartbeat.ds.components.HbToolBlock
 import io.aequicor.heartbeat.ds.components.HbToolCall
 import io.aequicor.heartbeat.ds.components.HbToolKind
 import io.aequicor.heartbeat.ds.components.HbToolStatus
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.BuildPhaseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.BuildUi
@@ -25,6 +24,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Instant
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 class StudioWorktreeFeedTest {
     @Test
@@ -64,7 +64,7 @@ class StudioWorktreeFeedTest {
         assertEquals(HbButtonStyle.Primary, call.actions.first().style)
         WorktreeActionUi.entries.forEach { action ->
             assertEquals(
-                AiStudioScreenIntent.DecideWorktree("chat", action),
+                StudioIntent.DecideWorktree("chat", action),
                 result.press("worktree:chat", "worktree-action-${action.name}"),
             )
         }
@@ -78,7 +78,7 @@ class StudioWorktreeFeedTest {
     fun `failures explain known codes without exposing raw ones and offer a recheck`() {
         val dirty = timeline(task(WorktreePhaseUi.RecoveryRequired, failure = "OriginalCheckoutDirty"))
         assertEquals("Checkout is dirty", dirty.card("worktree:chat").summary)
-        assertEquals(AiStudioScreenIntent.RecheckWorktree("chat"), dirty.press("worktree:chat", RECHECK_ID))
+        assertEquals(StudioIntent.RecheckWorktree("chat"), dirty.press("worktree:chat", RECHECK_ID))
         val unknown = timeline(task(WorktreePhaseUi.Failed, failure = "UnexpectedInternalFailure"))
         assertEquals("Unknown failure", unknown.card("worktree:chat").summary)
         assertTrue(unknown.card("worktree:chat").actions.none { it.id.startsWith("worktree-action-") })
@@ -128,7 +128,7 @@ class StudioWorktreeFeedTest {
         assertTrue(log.actions.isEmpty())
         assertEquals("Queued · Position 2", result.card("build:queued").summary)
         assertEquals(
-            AiStudioScreenIntent.CancelWorktreeBuild("chat", "queued"),
+            StudioIntent.CancelWorktreeBuild("chat", "queued"),
             result.press("build:queued", "cancel-build-queued"),
         )
         assertNull(result.press("build:failed", "cancel-build-queued"))
@@ -189,7 +189,7 @@ class StudioWorktreeFeedTest {
             placement.cards.keys,
         )
         assertEquals(
-            AiStudioScreenIntent.CancelWorktreeBuild("chat", "first"),
+            StudioIntent.CancelWorktreeBuild("chat", "first"),
             stillRunning.press("build:first", "cancel-build-first"),
         )
     }
@@ -206,7 +206,7 @@ class StudioWorktreeFeedTest {
         val error = timeline(withPr.copy(builds = persistentListOf(build)), WorktreeJournalUi.Error)
         assertEquals(listOf(JOURNAL_ERROR_ID, "worktree:chat", "build:running"), error.messages.map { it.id })
         assertEquals(HbToolStatus.Error, error.card(JOURNAL_ERROR_ID).status)
-        assertEquals(AiStudioScreenIntent.RetryWorktreeJournal, error.press(JOURNAL_ERROR_ID, JOURNAL_RETRY_ID))
+        assertEquals(StudioIntent.RetryWorktreeJournal, error.press(JOURNAL_ERROR_ID, JOURNAL_RETRY_ID))
         val linked = error.card("worktree:chat")
         assertEquals(listOf(OPEN_PR_ID), linked.actions.map { it.id })
         assertEquals(HbToolStatus.Pending, linked.status)
@@ -302,13 +302,13 @@ class StudioWorktreeFeedTest {
     @Test
     fun `dispatch sends store intents and opens verified links`() {
         val result = timeline(task(WorktreePhaseUi.Failed, pullRequestUrl = "https://example.test/pr/3"))
-        val intents = mutableListOf<AiStudioScreenIntent>()
+        val intents = mutableListOf<StudioIntent>()
         val links = mutableListOf<String>()
         listOf(RECHECK_ID, OPEN_PR_ID, "agent-tool-action").forEach {
             result.dispatch("worktree:chat", it, intents::add, links::add)
         }
         result.dispatch("build:other", RECHECK_ID, intents::add, links::add)
-        assertEquals(listOf<AiStudioScreenIntent>(AiStudioScreenIntent.RecheckWorktree("chat")), intents)
+        assertEquals(listOf<StudioIntent>(StudioIntent.RecheckWorktree("chat")), intents)
         assertEquals(listOf("https://example.test/pr/3"), links)
     }
 

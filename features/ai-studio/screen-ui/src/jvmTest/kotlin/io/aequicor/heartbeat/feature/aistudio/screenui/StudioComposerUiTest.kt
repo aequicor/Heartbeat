@@ -22,7 +22,6 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_auto
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_edits
@@ -49,13 +48,14 @@ import kotlinx.collections.immutable.persistentSetOf
 import org.jetbrains.compose.resources.stringResource
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 @OptIn(ExperimentalTestApi::class)
 class StudioComposerUiTest {
     @Test
     fun `native composer uses compact name and only advertised reasoning options`() =
         runSkikoComposeUiTest(size = Size(900f, 700f)) {
-            val events = mutableListOf<AiStudioScreenIntent>()
+            val events = mutableListOf<StudioIntent>()
             val pane = PaneUi(0)
             val model = ModelUi(
                 "native-route",
@@ -80,7 +80,7 @@ class StudioComposerUiTest {
             onNodeWithText("future-effort").performClick()
             runOnIdle {
                 assertEquals(
-                    listOf<AiStudioScreenIntent>(AiStudioScreenIntent.SelectEngineEffort(model.id, "future-effort", 0)),
+                    listOf<StudioIntent>(StudioIntent.SelectEngineEffort(model.id, "future-effort", 0)),
                     events,
                 )
             }
@@ -89,7 +89,7 @@ class StudioComposerUiTest {
     @Test
     fun `panel exposes working demo preferences and prompt templates`() =
         runSkikoComposeUiTest(size = Size(900f, 700f)) {
-            val events = mutableListOf<AiStudioScreenIntent>()
+            val events = mutableListOf<StudioIntent>()
             val pane = PaneUi(0)
             val state = AiStudioScreenState(panes = persistentListOf(pane), models = StudioModelOptions)
             var autoLabel = ""
@@ -124,11 +124,11 @@ class StudioComposerUiTest {
             onNodeWithText(planLabel).performClick()
             runOnIdle {
                 assertEquals(
-                    listOf<AiStudioScreenIntent>(
-                        AiStudioScreenIntent.SelectApproval(ApprovalUi.AutoApprove, 0),
-                        AiStudioScreenIntent.SelectEffort(EffortUi.Low, 0),
-                        AiStudioScreenIntent.SelectModel("pulse-mini", 0),
-                        AiStudioScreenIntent.Suggestions.DraftChanged(0, planPrompt),
+                    listOf<StudioIntent>(
+                        StudioIntent.SelectApproval(ApprovalUi.AutoApprove, 0),
+                        StudioIntent.SelectEffort(EffortUi.Low, 0),
+                        StudioIntent.SelectModel("pulse-mini", 0),
+                        StudioIntent.Suggestions.DraftChanged(0, planPrompt),
                     ),
                     events,
                 )
@@ -156,7 +156,7 @@ class StudioComposerUiTest {
                         StudioComposer(
                             state.paneContent(pane),
                             { intent ->
-                                if (intent is AiStudioScreenIntent.Suggestions.DraftChanged) {
+                                if (intent is StudioIntent.Suggestions.DraftChanged) {
                                     state = state.withDraft(intent.paneId, intent.text)
                                 }
                             },
@@ -206,7 +206,7 @@ class StudioComposerUiTest {
 
     @Test
     fun `native model with trust levels offers the approval modes`() = runSkikoComposeUiTest(size = Size(900f, 700f)) {
-        val events = mutableListOf<AiStudioScreenIntent>()
+        val events = mutableListOf<StudioIntent>()
         val pane = PaneUi(0)
         val native = ModelUi("native-route", "Native model", isTrustSupported = true)
         val initial = AiStudioScreenState(panes = persistentListOf(pane))
@@ -225,7 +225,7 @@ class StudioComposerUiTest {
         onNodeWithText(editsLabel).performClick()
         runOnIdle {
             assertEquals(
-                listOf<AiStudioScreenIntent>(AiStudioScreenIntent.SelectApproval(ApprovalUi.AutoEdits, 0)),
+                listOf<StudioIntent>(StudioIntent.SelectApproval(ApprovalUi.AutoEdits, 0)),
                 events,
             )
         }
@@ -234,7 +234,7 @@ class StudioComposerUiTest {
     @Test
     fun `running native session offers model changes and a default effort is not replaced by its preference`() =
         runSkikoComposeUiTest(size = Size(900f, 700f)) {
-            val events = mutableListOf<AiStudioScreenIntent>()
+            val events = mutableListOf<StudioIntent>()
             val pane = PaneUi(3, sessionId = "session")
             val native = ModelUi(
                 "native-route",
@@ -260,7 +260,7 @@ class StudioComposerUiTest {
             onNodeWithTag("model-chip").performClick()
             onNodeWithText(next.name).performClick()
             runOnIdle {
-                assertEquals(listOf<AiStudioScreenIntent>(AiStudioScreenIntent.SelectModel(next.id, 3)), events)
+                assertEquals(listOf<StudioIntent>(StudioIntent.SelectModel(next.id, 3)), events)
             }
         }
 
@@ -302,7 +302,7 @@ class StudioComposerUiTest {
     @Test
     fun `a chat without a project shows its connected harness and unchecking disconnects it`() =
         runSkikoComposeUiTest(size = Size(900f, 700f)) {
-            val events = mutableListOf<AiStudioScreenIntent>()
+            val events = mutableListOf<StudioIntent>()
             val pane = PaneUi(0, sessionId = "chat")
             val state = AiStudioScreenState(
                 panes = persistentListOf(pane),
@@ -321,7 +321,7 @@ class StudioComposerUiTest {
             onNodeWithText("Compose UI").performClick()
             runOnIdle {
                 assertEquals(
-                    listOf<AiStudioScreenIntent>(AiStudioScreenIntent.SelectHarness(0, "compose", false)),
+                    listOf<StudioIntent>(StudioIntent.SelectHarness(0, "compose", false)),
                     events,
                 )
             }
@@ -330,7 +330,7 @@ class StudioComposerUiTest {
     @Test
     fun `a harness is unselected until the user picks it from the context toolbar`() =
         runSkikoComposeUiTest(size = Size(900f, 700f)) {
-            val events = mutableListOf<AiStudioScreenIntent>()
+            val events = mutableListOf<StudioIntent>()
             val pane = PaneUi(0, sessionId = "chat")
             val state = AiStudioScreenState(
                 panes = persistentListOf(pane),
@@ -346,7 +346,7 @@ class StudioComposerUiTest {
             onNodeWithText("Compose UI").performClick()
             runOnIdle {
                 assertEquals(
-                    listOf<AiStudioScreenIntent>(AiStudioScreenIntent.SelectHarness(0, "compose", true)),
+                    listOf<StudioIntent>(StudioIntent.SelectHarness(0, "compose", true)),
                     events,
                 )
             }
@@ -354,7 +354,7 @@ class StudioComposerUiTest {
 }
 
 @Composable
-private fun NativeComposerFixture(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit) {
+private fun NativeComposerFixture(content: PaneContent, onIntent: (StudioIntent) -> Unit) {
     HbTheme(darkTheme = false) {
         Box(Modifier.fillMaxSize().padding(HbTheme.spacing.xl), contentAlignment = Alignment.BottomCenter) {
             StudioComposer(content, onIntent, isCompact = false)

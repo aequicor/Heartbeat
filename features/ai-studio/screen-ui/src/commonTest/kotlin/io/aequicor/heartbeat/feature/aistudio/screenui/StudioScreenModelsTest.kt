@@ -1,6 +1,5 @@
 package io.aequicor.heartbeat.feature.aistudio.screenui
 
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ApprovalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextUsageUi
@@ -28,6 +27,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 class StudioScreenModelsTest {
     private val heartbeat = ProjectUi("p", "heartbeat", EnvironmentUi.Local, "master")
@@ -117,11 +117,11 @@ class StudioScreenModelsTest {
     @Test
     fun `every session menu item maps to its intent and unknown ids are ignored`() {
         val pinned = session.copy(isPinned = true, isUnread = true)
-        assertEquals(AiStudioScreenIntent.StartRename("s", "recent:s"), sessionAction(pinned, "rename", "recent:s"))
-        assertEquals(AiStudioScreenIntent.SetPinned("s", false), sessionAction(pinned, "pin", "recent:s"))
-        assertEquals(AiStudioScreenIntent.SetUnread("s", false), sessionAction(pinned, "unread", "recent:s"))
-        assertEquals(AiStudioScreenIntent.OpenBeside("s"), sessionAction(pinned, "beside", "recent:s"))
-        assertEquals(AiStudioScreenIntent.SetArchived("s", true), sessionAction(pinned, "archive", "recent:s"))
+        assertEquals(StudioIntent.StartRename("s", "recent:s"), sessionAction(pinned, "rename", "recent:s"))
+        assertEquals(StudioIntent.SetPinned("s", false), sessionAction(pinned, "pin", "recent:s"))
+        assertEquals(StudioIntent.SetUnread("s", false), sessionAction(pinned, "unread", "recent:s"))
+        assertEquals(StudioIntent.OpenBeside("s"), sessionAction(pinned, "beside", "recent:s"))
+        assertEquals(StudioIntent.SetArchived("s", true), sessionAction(pinned, "archive", "recent:s"))
         assertNull(sessionAction(pinned, "delete", "recent:s"))
     }
 

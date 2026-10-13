@@ -15,7 +15,6 @@ import io.aequicor.heartbeat.ds.components.HbToolBlock
 import io.aequicor.heartbeat.ds.components.HbToolCall
 import io.aequicor.heartbeat.ds.components.HbToolKind
 import io.aequicor.heartbeat.ds.components.HbToolStatus
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.author_studio
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_action_working
@@ -67,6 +66,7 @@ import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toPersistentSet
 import kotlinx.coroutines.CancellationException
 import org.jetbrains.compose.resources.stringResource
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 /**
  * Localized copy of the worktree cards of a transcript. Templates keep their `%1$s` / `%1$d` placeholders for
@@ -138,7 +138,7 @@ internal data class WorktreeFailureLabels(
 /** What a worktree card action does: one of the store intents, or opening the verified pull request. */
 internal sealed interface WorktreeCommand {
     /** Sends [intent] to the screen store. */
-    data class Send(val intent: AiStudioScreenIntent) : WorktreeCommand
+    data class Send(val intent: StudioIntent) : WorktreeCommand
 
     /** Opens the verified pull request [url] in the browser. */
     data class OpenLink(val url: String) : WorktreeCommand
@@ -169,12 +169,7 @@ internal data class WorktreeTimeline(
     val commands: ImmutableMap<String, WorktreeCommand> = persistentMapOf(),
 ) {
     /** Runs the command of action [actionId] pressed on card [callId]; other tools have no host command. */
-    fun dispatch(
-        callId: String,
-        actionId: String,
-        onIntent: (AiStudioScreenIntent) -> Unit,
-        openLink: (String) -> Unit,
-    ) {
+    fun dispatch(callId: String, actionId: String, onIntent: (StudioIntent) -> Unit, openLink: (String) -> Unit) {
         when (val command = commands[commandKey(callId, actionId)]) {
             is WorktreeCommand.Send -> onIntent(command.intent)
             is WorktreeCommand.OpenLink -> openLink(command.url)
@@ -328,7 +323,7 @@ private fun WorktreeFeed.journalCard(labels: WorktreeLabels): WorktreeCard? = wh
         commands = listOf(
             CardCommand(
                 HbToolAction(JOURNAL_RETRY_ID, labels.journalRetry),
-                WorktreeCommand.Send(AiStudioScreenIntent.RetryWorktreeJournal),
+                WorktreeCommand.Send(StudioIntent.RetryWorktreeJournal),
             ),
         ),
     )
@@ -395,7 +390,7 @@ private fun WorktreeUi.phaseCard(
             commands = listOfNotNull(
                 CardCommand(
                     HbToolAction(RECHECK_ID, labels.recheck),
-                    WorktreeCommand.Send(AiStudioScreenIntent.RecheckWorktree(session)),
+                    WorktreeCommand.Send(StudioIntent.RecheckWorktree(session)),
                 ),
                 openPr,
             ),
@@ -421,7 +416,7 @@ private fun decisions(session: String, task: WorktreeUi, labels: WorktreeLabels)
         }
         CardCommand(
             HbToolAction("worktree-action-${action.name}", label, style),
-            WorktreeCommand.Send(AiStudioScreenIntent.DecideWorktree(session, action)),
+            WorktreeCommand.Send(StudioIntent.DecideWorktree(session, action)),
         )
     }
 
@@ -449,7 +444,7 @@ private fun WorktreeFeed.buildCards(labels: BuildLabels, shownCards: Set<String>
             commands = listOfNotNull(
                 CardCommand(
                     HbToolAction("cancel-build-${build.id}", labels.cancel),
-                    WorktreeCommand.Send(AiStudioScreenIntent.CancelWorktreeBuild(session, build.id)),
+                    WorktreeCommand.Send(StudioIntent.CancelWorktreeBuild(session, build.id)),
                 ).takeIf { isOperational && build.phase in CancellablePhases },
             ),
         )

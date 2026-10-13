@@ -12,7 +12,6 @@ import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbHorizontalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.browser_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_archive
@@ -25,12 +24,13 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_connections
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarMode
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarUi
 import org.jetbrains.compose.resources.stringResource
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 /** Existing destinations grouped in the unified sidebar footer; each retains its original callback and label. */
 @Composable
 internal fun StudioRail(
     sidebar: SidebarUi,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
     exits: StudioExits,
     modifier: Modifier = Modifier,
 ) {
@@ -43,14 +43,14 @@ internal fun StudioRail(
             FooterAction(
                 HbIcons.Chats,
                 stringResource(Res.string.rail_sessions),
-                { onIntent(AiStudioScreenIntent.ShowSidebarMode(SidebarMode.Workspace)) },
+                { onIntent(StudioIntent.ShowSidebarMode(SidebarMode.Workspace)) },
                 "rail-sessions",
                 isSelected = sidebar.mode == SidebarMode.Workspace,
             )
             FooterAction(
                 HbIcons.Archive,
                 stringResource(Res.string.rail_archive),
-                { onIntent(AiStudioScreenIntent.ShowSidebarMode(SidebarMode.Archive)) },
+                { onIntent(StudioIntent.ShowSidebarMode(SidebarMode.Archive)) },
                 "rail-archive",
                 isSelected = sidebar.mode == SidebarMode.Archive,
             )
@@ -60,7 +60,7 @@ internal fun StudioRail(
                 HbIcons.Globe,
                 stringResource(Res.string.browser_mode),
                 {
-                    onIntent(AiStudioScreenIntent.SetDrawerOpen(false))
+                    onIntent(StudioIntent.SetDrawerOpen(false))
                     open()
                 },
                 "rail-browser",

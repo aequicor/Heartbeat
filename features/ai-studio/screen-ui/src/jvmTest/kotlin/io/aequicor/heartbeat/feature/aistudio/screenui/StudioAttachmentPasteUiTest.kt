@@ -20,7 +20,6 @@ import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.test.withKeyDown
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.InputSupportUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
@@ -35,6 +34,7 @@ import java.awt.image.BufferedImage
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 /**
  * Native capture of the studio screen. Each case replaces the system clipboard for its own duration and restores the
@@ -45,14 +45,14 @@ class StudioAttachmentPasteUiTest {
     @Test
     fun `a clipboard screenshot follows keyboard focus into another pane without a click`() =
         runSkikoComposeUiTest(size = Size(1800f, 900f)) {
-            val intents = mutableListOf<AiStudioScreenIntent>()
+            val intents = mutableListOf<StudioIntent>()
             var state by mutableStateOf(attachmentState().copy(panes = persistentListOf(PaneUi(0), PaneUi(1))))
             withClipboard(clipboardImage()) {
                 setContent {
                     HbTheme(darkTheme = false) {
                         AiStudioContent(state, { intent ->
                             intents.add(intent)
-                            if (intent is AiStudioScreenIntent.FocusPane) {
+                            if (intent is StudioIntent.FocusPane) {
                                 state = state.copy(focusedPaneId = intent.paneId)
                             }
                         }, exits)
@@ -71,7 +71,7 @@ class StudioAttachmentPasteUiTest {
     @Test
     fun `a clipboard screenshot reaches the focused pane while focus rests on the workspace`() =
         runSkikoComposeUiTest(size = Size(1280f, 800f)) {
-            val intents = mutableListOf<AiStudioScreenIntent>()
+            val intents = mutableListOf<StudioIntent>()
             withClipboard(clipboardImage()) {
                 setContent { HbTheme(darkTheme = false) { AiStudioContent(attachmentState(), intents::add, exits) } }
                 settleAudit()
@@ -87,7 +87,7 @@ class StudioAttachmentPasteUiTest {
     @Test
     fun `a text clipboard keeps the native editor paste and imports nothing`() =
         runSkikoComposeUiTest(size = Size(1280f, 800f)) {
-            val intents = mutableListOf<AiStudioScreenIntent>()
+            val intents = mutableListOf<StudioIntent>()
             withClipboard(StringSelection("Черновик исследования")) {
                 setContent { HbTheme(darkTheme = false) { AiStudioContent(attachmentState(), intents::add, exits) } }
                 settleAudit()
@@ -99,7 +99,7 @@ class StudioAttachmentPasteUiTest {
 
     @Test
     fun `a model without confirmed input support captures nothing`() = runSkikoComposeUiTest(size = Size(1280f, 800f)) {
-        val intents = mutableListOf<AiStudioScreenIntent>()
+        val intents = mutableListOf<StudioIntent>()
         val state = desktopAuditWorkspace(isEmpty = true).copy(isAttachmentsEnabled = true)
         withClipboard(clipboardImage()) {
             setContent { HbTheme(darkTheme = false) { AiStudioContent(state, intents::add, exits) } }
@@ -136,8 +136,8 @@ private fun attachmentState(): AiStudioScreenState {
     )
 }
 
-private fun List<AiStudioScreenIntent>.imports(): List<AiStudioScreenIntent.ImportAttachments> =
-    filterIsInstance<AiStudioScreenIntent.ImportAttachments>()
+private fun List<StudioIntent>.imports(): List<StudioIntent.ImportAttachments> =
+    filterIsInstance<StudioIntent.ImportAttachments>()
 
 @OptIn(ExperimentalTestApi::class)
 private fun SemanticsNodeInteraction.performPasteShortcut() =

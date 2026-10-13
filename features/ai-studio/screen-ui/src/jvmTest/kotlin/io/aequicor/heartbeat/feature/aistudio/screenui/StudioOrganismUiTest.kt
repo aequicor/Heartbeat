@@ -41,7 +41,6 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbColors
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.ds.tokens.HbMotion
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_send
@@ -74,12 +73,13 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.time.Instant
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 @OptIn(ExperimentalTestApi::class)
 class StudioOrganismUiTest {
     @Test
     fun `the plus menu of a new chat offers the organism mode`() = runSkikoComposeUiTest(size = Size(900f, 700f)) {
-        val events = mutableListOf<AiStudioScreenIntent>()
+        val events = mutableListOf<StudioIntent>()
         val pane = PaneUi(0)
         val state = AiStudioScreenState(panes = persistentListOf(pane), models = StudioModelOptions)
         var addLabel = ""
@@ -100,7 +100,7 @@ class StudioOrganismUiTest {
         }
         onNodeWithContentDescription(addLabel).performClick()
         onNodeWithText(modeLabel).performClick()
-        runOnIdle { assertEquals(listOf<AiStudioScreenIntent>(AiStudioScreenIntent.SelectOrganism(0, true)), events) }
+        runOnIdle { assertEquals(listOf<StudioIntent>(StudioIntent.SelectOrganism(0, true)), events) }
         isOffered = false
         waitForIdle()
         onNodeWithContentDescription(addLabel).performClick()
@@ -110,7 +110,7 @@ class StudioOrganismUiTest {
     @Test
     fun `a chosen organism mode is shown and can be switched off before the first message`() =
         runSkikoComposeUiTest(size = Size(900f, 700f)) {
-            val events = mutableListOf<AiStudioScreenIntent>()
+            val events = mutableListOf<StudioIntent>()
             val pane = PaneUi(0, isOrganism = true)
             val state = AiStudioScreenState(
                 panes = persistentListOf(pane),
@@ -126,14 +126,14 @@ class StudioOrganismUiTest {
             }
             onNodeWithTag("organism-mode-0").performClick()
             runOnIdle {
-                assertEquals(listOf<AiStudioScreenIntent>(AiStudioScreenIntent.SelectOrganism(0, false)), events)
+                assertEquals(listOf<StudioIntent>(StudioIntent.SelectOrganism(0, false)), events)
             }
         }
 
     @Test
     fun `an organism chat switches sub-sessions and stops its organism from the header`() =
         runSkikoComposeUiTest(size = Size(900f, 700f)) {
-            val events = mutableListOf<AiStudioScreenIntent>()
+            val events = mutableListOf<StudioIntent>()
             var zygote = ""
             var abort = ""
             setContent {
@@ -151,9 +151,9 @@ class StudioOrganismUiTest {
             onNodeWithText(abort).performClick()
             runOnIdle {
                 assertEquals(
-                    listOf<AiStudioScreenIntent>(
-                        AiStudioScreenIntent.SelectSubSession("chat", "c1"),
-                        AiStudioScreenIntent.ControlOrganism("chat", OrganismActionUi.Abort),
+                    listOf<StudioIntent>(
+                        StudioIntent.SelectSubSession("chat", "c1"),
+                        StudioIntent.ControlOrganism("chat", OrganismActionUi.Abort),
                     ),
                     events,
                 )
@@ -164,7 +164,7 @@ class StudioOrganismUiTest {
     @Test
     fun `a completed organism shows a header indicator and offers continuation in its menu`() =
         runSkikoComposeUiTest(size = Size(900f, 700f)) {
-            val events = mutableListOf<AiStudioScreenIntent>()
+            val events = mutableListOf<StudioIntent>()
             var resume = ""
             val initial = organismState()
             var status by mutableStateOf(OrganismStatusUi.Completed)
@@ -196,8 +196,8 @@ class StudioOrganismUiTest {
             onNodeWithText(resume).performClick()
             runOnIdle {
                 assertEquals(
-                    List<AiStudioScreenIntent>(1) {
-                        AiStudioScreenIntent.ControlOrganism("chat", OrganismActionUi.Resume)
+                    List<StudioIntent>(1) {
+                        StudioIntent.ControlOrganism("chat", OrganismActionUi.Resume)
                     },
                     events,
                 )
@@ -222,7 +222,7 @@ class StudioOrganismUiTest {
     private fun verifyCompletedChat(isDark: Boolean, width: Int) = runSkikoComposeUiTest(
         size = Size(width.toFloat(), 700f),
     ) {
-        val events = mutableListOf<AiStudioScreenIntent>()
+        val events = mutableListOf<StudioIntent>()
         val initial = organismState()
         val state = initial.copy(
             isOrganismEnabled = true,
@@ -259,8 +259,8 @@ class StudioOrganismUiTest {
         editor.performSemanticsAction(SemanticsActions.RequestFocus)
         editor.assertIsFocused().performKeyInput { pressKey(Key.Enter) }
         runOnIdle {
-            assertTrue(events.any { it is AiStudioScreenIntent.Suggestions.DraftChanged })
-            assertEquals(listOf(AiStudioScreenIntent.Submit(0)), events.filterIsInstance<AiStudioScreenIntent.Submit>())
+            assertTrue(events.any { it is StudioIntent.Suggestions.DraftChanged })
+            assertEquals(listOf(StudioIntent.Submit(0)), events.filterIsInstance<StudioIntent.Submit>())
         }
     }
 
@@ -309,7 +309,7 @@ class StudioOrganismUiTest {
 
     @Test
     fun `a cell's permission request is answered from the pane`() = runSkikoComposeUiTest(size = Size(900f, 700f)) {
-        val events = mutableListOf<AiStudioScreenIntent>()
+        val events = mutableListOf<StudioIntent>()
         setContent {
             HbTheme(darkTheme = false) {
                 Column {
@@ -328,7 +328,7 @@ class StudioOrganismUiTest {
         onNodeWithTag("organism-permission-c1-p1-allow").performClick()
         runOnIdle {
             assertEquals(
-                listOf<AiStudioScreenIntent>(AiStudioScreenIntent.DecideOrganism("chat", "c1", "t1", "p1", "allow")),
+                listOf<StudioIntent>(StudioIntent.DecideOrganism("chat", "c1", "t1", "p1", "allow")),
                 events,
             )
         }
@@ -446,7 +446,7 @@ class StudioOrganismUiTest {
     private fun verifyPermissionCard(isDark: Boolean, width: Int, height: Int = 600) = runSkikoComposeUiTest(
         size = Size(width.toFloat(), height.toFloat()),
     ) {
-        val events = mutableListOf<AiStudioScreenIntent>()
+        val events = mutableListOf<StudioIntent>()
         val description = (1..500).joinToString("\n") { "Строка $it: полный текст новой инструкции для проекта." }
         setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f)) {
@@ -498,8 +498,8 @@ class StudioOrganismUiTest {
         deny.assertIsFocused().performKeyInput { pressKey(Key.Enter) }
         runOnIdle {
             assertEquals(
-                listOf(AiStudioScreenIntent.DecideOrganism("chat", "c1", "t1", "p1", "deny")),
-                events.filterIsInstance<AiStudioScreenIntent.DecideOrganism>(),
+                listOf(StudioIntent.DecideOrganism("chat", "c1", "t1", "p1", "deny")),
+                events.filterIsInstance<StudioIntent.DecideOrganism>(),
             )
         }
     }
@@ -519,7 +519,7 @@ class StudioOrganismUiTest {
     private fun verifyMultiplePermissions(width: Int, height: Int, isDark: Boolean) = runSkikoComposeUiTest(
         size = Size(width.toFloat(), height.toFloat()),
     ) {
-        val events = mutableListOf<AiStudioScreenIntent>()
+        val events = mutableListOf<StudioIntent>()
         val initial = organismState()
         val organism = initial.organisms.getValue("chat")
         val template = organism.permissions.single().copy(
@@ -567,8 +567,8 @@ class StudioOrganismUiTest {
         check(ImageIO.write(captureToImage().toAwtImage(), "png", screenshot))
         runOnIdle {
             assertEquals(
-                (1..3).map { AiStudioScreenIntent.DecideOrganism("chat", "c$it", "t1", "p1", "allow") },
-                events.filterIsInstance<AiStudioScreenIntent.DecideOrganism>(),
+                (1..3).map { StudioIntent.DecideOrganism("chat", "c$it", "t1", "p1", "allow") },
+                events.filterIsInstance<StudioIntent.DecideOrganism>(),
             )
         }
     }

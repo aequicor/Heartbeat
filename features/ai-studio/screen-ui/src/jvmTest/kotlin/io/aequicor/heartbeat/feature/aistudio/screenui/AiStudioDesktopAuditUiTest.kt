@@ -39,7 +39,6 @@ import androidx.compose.ui.test.withKeyDown
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.Density
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_send
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.jump_latest
@@ -61,6 +60,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 /** Repeatable desktop baseline: actual screen, fixed density, 50 chats and no production behavior changes. */
 @OptIn(ExperimentalTestApi::class)
@@ -116,16 +116,16 @@ class AiStudioDesktopAuditUiTest {
     fun `new chat shortcut preserves editor focus and subsequent typing`() =
         runSkikoComposeUiTest(size = Size(1280f, 800f)) {
             var state by mutableStateOf(desktopAuditWorkspace(isEmpty = false))
-            val events = mutableListOf<AiStudioScreenIntent>()
+            val events = mutableListOf<StudioIntent>()
             setContent {
                 HbTheme(darkTheme = false) {
                     AiStudioContent(state, { intent ->
                         events += intent
                         when (intent) {
-                            is AiStudioScreenIntent.NewSession ->
+                            is StudioIntent.NewSession ->
                                 state = state.copy(panes = persistentListOf(PaneUi(0)))
 
-                            is AiStudioScreenIntent.Suggestions.DraftChanged ->
+                            is StudioIntent.Suggestions.DraftChanged ->
                                 state = state.withDraft(intent.paneId, intent.text)
 
                             else -> Unit
@@ -138,7 +138,7 @@ class AiStudioDesktopAuditUiTest {
                 withKeyDown(if (isStudioMetaShortcut()) Key.MetaLeft else Key.CtrlLeft) { pressKey(Key.N) }
             }
             settleAudit()
-            assertEquals(1, events.filterIsInstance<AiStudioScreenIntent.NewSession>().size)
+            assertEquals(1, events.filterIsInstance<StudioIntent.NewSession>().size)
             onNodeWithTag("new-session-hero").assertIsDisplayed()
             editor.assertIsFocused().performTextInput("a")
             editor.assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("a")))
@@ -307,21 +307,21 @@ private fun SkikoComposeUiTest.focusedAuditNodes(): List<String> =
     }
 
 /** Only presentation reducers are exercised; navigation in this fixture has no runtime side effects. */
-private fun AiStudioScreenState.auditIntent(intent: AiStudioScreenIntent): AiStudioScreenState = when (intent) {
-    is AiStudioScreenIntent.Sidebar -> copy(sidebar = sidebar.reduce(intent))
+private fun AiStudioScreenState.auditIntent(intent: StudioIntent): AiStudioScreenState = when (intent) {
+    is StudioIntent.Sidebar -> copy(sidebar = sidebar.reduce(intent))
 
-    is AiStudioScreenIntent.Suggestions.DraftChanged -> withDraft(intent.paneId, intent.text)
+    is StudioIntent.Suggestions.DraftChanged -> withDraft(intent.paneId, intent.text)
 
-    is AiStudioScreenIntent.OpenSession -> copy(panes = persistentListOf(PaneUi(0, sessionId = intent.sessionId)))
+    is StudioIntent.OpenSession -> copy(panes = persistentListOf(PaneUi(0, sessionId = intent.sessionId)))
 
-    is AiStudioScreenIntent.Navigation,
-    is AiStudioScreenIntent.Composer,
-    is AiStudioScreenIntent.DiagramAction,
-    is AiStudioScreenIntent.SessionAction,
-    is AiStudioScreenIntent.Organism,
-    is AiStudioScreenIntent.SelectHarness,
-    is AiStudioScreenIntent.RemoteApplied,
-    is AiStudioScreenIntent.Embed,
+    is StudioIntent.Navigation,
+    is StudioIntent.Composer,
+    is StudioIntent.DiagramAction,
+    is StudioIntent.SessionAction,
+    is StudioIntent.Organism,
+    is StudioIntent.SelectHarness,
+    is StudioIntent.RemoteApplied,
+    is StudioIntent.Embed,
     -> this
 }
 

@@ -16,7 +16,6 @@ import androidx.compose.ui.unit.Density
 import io.aequicor.heartbeat.ds.adaptive.PlatformUi
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
 import org.jetbrains.compose.resources.stringResource
@@ -24,6 +23,7 @@ import java.io.File
 import javax.imageio.ImageIO
 import kotlin.test.Test
 import kotlin.test.assertTrue
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 /** Material touch-density previews exercise the real screen without claiming device/emulator coverage. */
 @OptIn(ExperimentalTestApi::class)
@@ -45,7 +45,7 @@ class AiStudioMobilePreviewUiTest {
                             AiStudioContent(
                                 state,
                                 { intent ->
-                                    if (intent is AiStudioScreenIntent.SetDrawerOpen) {
+                                    if (intent is StudioIntent.SetDrawerOpen) {
                                         state = state.copy(sidebar = state.sidebar.copy(isDrawerOpen = intent.isOpen))
                                     }
                                 },

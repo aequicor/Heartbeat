@@ -21,7 +21,6 @@ import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.action_pin
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.action_unpin
@@ -35,6 +34,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Instant
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 @OptIn(ExperimentalTestApi::class)
 class HelperSessionRowsUiTest {
@@ -87,7 +87,7 @@ class HelperSessionRowsUiTest {
                         HbTheme(darkTheme = isDark, dimensions = HbDimensions.Desktop) {
                             HbColumn(Modifier.background(HbTheme.surfaces.sidebar)) {
                                 val rows = SessionRows(null, null, null, {}, false) {
-                                    if (it is AiStudioScreenIntent.OpenSession) selected = it.sessionId
+                                    if (it is StudioIntent.OpenSession) selected = it.sessionId
                                 }
                                 rows.SessionRow(SessionUi("parent", "Parent", null, Instant.DISTANT_PAST), "recent")
                                 rows.SessionRow(

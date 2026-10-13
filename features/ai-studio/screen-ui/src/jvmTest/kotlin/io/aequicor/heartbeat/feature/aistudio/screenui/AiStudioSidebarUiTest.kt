@@ -22,7 +22,6 @@ import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.test.withKeyDown
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.action_unpin
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.reduce
@@ -30,6 +29,7 @@ import org.jetbrains.compose.resources.stringResource
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 /** Desktop accelerators and pointer menus use the same existing intents as their visible controls. */
 @OptIn(ExperimentalTestApi::class)
@@ -38,12 +38,12 @@ class AiStudioSidebarUiTest {
     fun `shortcuts from editor open search hide sidebar and create one chat`() =
         runSkikoComposeUiTest(size = Size(1280f, 800f)) {
             var state by mutableStateOf(desktopAuditWorkspace(isEmpty = true))
-            val events = mutableListOf<AiStudioScreenIntent>()
+            val events = mutableListOf<StudioIntent>()
             setContent {
                 HbTheme(darkTheme = false) {
                     AiStudioContent(state, { intent ->
                         events += intent
-                        if (intent is AiStudioScreenIntent.Sidebar) {
+                        if (intent is StudioIntent.Sidebar) {
                             state = state.copy(sidebar = state.sidebar.reduce(intent))
                         }
                     }, sidebarExits)
@@ -53,11 +53,11 @@ class AiStudioSidebarUiTest {
             editor.performClick().performKeyInput {
                 withKeyDown(if (isStudioMetaShortcut()) Key.CtrlLeft else Key.MetaLeft) { pressKey(Key.N) }
             }
-            assertTrue(events.filterIsInstance<AiStudioScreenIntent.NewSession>().isEmpty())
+            assertTrue(events.filterIsInstance<StudioIntent.NewSession>().isEmpty())
             editor.shortcut(Key.K)
             onNodeWithTag("sidebar-search").assertIsFocused().shortcut(Key.K)
             assertTrue(state.sidebar.isSearchVisible, "Repeated search shortcut must retain the open search")
-            assertEquals(1, events.count { it == AiStudioScreenIntent.ToggleSearch })
+            assertEquals(1, events.count { it == StudioIntent.ToggleSearch })
             onNodeWithTag("sidebar-search").performKeyInput { pressKey(Key.Escape) }
             onNodeWithTag("sidebar-search-open").assertIsDisplayed()
 
@@ -68,7 +68,7 @@ class AiStudioSidebarUiTest {
             mainClock.advanceTimeBy(1000)
             onNodeWithTag("sidebar-search").assertIsFocused()
             onNodeWithTag("sidebar-search").shortcut(Key.N)
-            assertEquals(1, events.filterIsInstance<AiStudioScreenIntent.NewSession>().size)
+            assertEquals(1, events.filterIsInstance<StudioIntent.NewSession>().size)
             onNodeWithTag("sidebar-search").shortcut(Key.Backslash)
             mainClock.advanceTimeBy(1000)
             onNodeWithTag("studio-workspace").shortcut(Key.K)
@@ -83,7 +83,7 @@ class AiStudioSidebarUiTest {
             setContent {
                 HbTheme(darkTheme = false) {
                     AiStudioContent(state, { intent ->
-                        if (intent is AiStudioScreenIntent.Sidebar) {
+                        if (intent is StudioIntent.Sidebar) {
                             state = state.copy(sidebar = state.sidebar.reduce(intent))
                         }
                     }, sidebarExits)
@@ -100,7 +100,7 @@ class AiStudioSidebarUiTest {
     @Test
     fun `secondary click opens existing session menu without opening the chat`() =
         runSkikoComposeUiTest(size = Size(1280f, 800f)) {
-            val events = mutableListOf<AiStudioScreenIntent>()
+            val events = mutableListOf<StudioIntent>()
             var unpin = ""
             setContent {
                 unpin = stringResource(Res.string.action_unpin)
@@ -120,7 +120,7 @@ class AiStudioSidebarUiTest {
                 release(MouseButton.Secondary)
             }
             onNodeWithText(unpin).assertIsDisplayed().performClick()
-            assertEquals(listOf<AiStudioScreenIntent>(AiStudioScreenIntent.SetPinned("audit-0", false)), events)
+            assertEquals(listOf<StudioIntent>(StudioIntent.SetPinned("audit-0", false)), events)
         }
 }
 

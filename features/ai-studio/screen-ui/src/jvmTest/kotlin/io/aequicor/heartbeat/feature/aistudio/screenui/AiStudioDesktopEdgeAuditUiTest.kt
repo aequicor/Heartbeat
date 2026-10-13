@@ -20,7 +20,6 @@ import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_stop
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
@@ -40,6 +39,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 /** Explicit density and layout budgets, including empty data, narrow desktop and an active streamed reply. */
 @OptIn(ExperimentalTestApi::class)
@@ -94,7 +94,7 @@ private fun renderEdge(
     name: String,
     hasProse: Boolean = true,
 ) = runSkikoComposeUiTest(size = Size(width.toFloat(), 800f)) {
-    val events = mutableListOf<AiStudioScreenIntent>()
+    val events = mutableListOf<StudioIntent>()
     var stopLabel = ""
     val isNewSession = state.panes.first().sessionId == null
     var contextRowAllowance = 0f
@@ -125,7 +125,7 @@ private fun renderEdge(
     assertDesktopProseLines(width, hasProse, state.running.isEmpty(), lineCount)
     if (state.running.isNotEmpty()) {
         onNodeWithContentDescription(stopLabel).assertIsDisplayed().performClick()
-        assertEquals(listOf<AiStudioScreenIntent>(AiStudioScreenIntent.Stop("audit-0")), events)
+        assertEquals(listOf<StudioIntent>(StudioIntent.Stop("audit-0")), events)
     }
 }
 

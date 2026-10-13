@@ -20,7 +20,6 @@ import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_save
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_send
@@ -38,6 +37,7 @@ import java.io.File
 import javax.imageio.ImageIO
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 @OptIn(ExperimentalTestApi::class)
 class StudioAttachmentsUiTest {
@@ -46,7 +46,7 @@ class StudioAttachmentsUiTest {
 
     @Test
     fun `attachment-only composer sends supported files`() = runSkikoComposeUiTest(size = Size(800f, 500f)) {
-        val events = mutableListOf<AiStudioScreenIntent>()
+        val events = mutableListOf<StudioIntent>()
         val support = InputSupportUi(mediaTypes = persistentListOf(file.mediaType))
         val state = attachmentState(support)
         var send = ""
@@ -55,7 +55,7 @@ class StudioAttachmentsUiTest {
             AttachmentComposer(state, events::add)
         }
         onNodeWithContentDescription(send).assertIsEnabled().performClick()
-        runOnIdle { assertEquals(listOf<AiStudioScreenIntent>(AiStudioScreenIntent.Submit(0)), events.userActions()) }
+        runOnIdle { assertEquals(listOf<StudioIntent>(StudioIntent.Submit(0)), events.userActions()) }
     }
 
     @Test
@@ -72,7 +72,7 @@ class StudioAttachmentsUiTest {
 
     @Test
     fun `saved file offers preview and native export`() = runSkikoComposeUiTest(size = Size(800f, 500f)) {
-        val events = mutableListOf<AiStudioScreenIntent>()
+        val events = mutableListOf<StudioIntent>()
         var save = ""
         setContent {
             save = stringResource(Res.string.attachments_save)
@@ -84,9 +84,9 @@ class StudioAttachmentsUiTest {
         onNodeWithContentDescription(save).performClick()
         runOnIdle {
             assertEquals(
-                listOf<AiStudioScreenIntent>(
-                    AiStudioScreenIntent.OpenAttachment("doc"),
-                    AiStudioScreenIntent.ExportAttachment("doc"),
+                listOf<StudioIntent>(
+                    StudioIntent.OpenAttachment("doc"),
+                    StudioIntent.ExportAttachment("doc"),
                 ),
                 events.userActions(),
             )
@@ -116,7 +116,7 @@ class StudioAttachmentsUiTest {
         val folder = File("build/screenshots/attachments").apply { mkdirs() }
         listOf(false, true).forEach { dark ->
             runSkikoComposeUiTest(size = Size(420f, 640f)) {
-                val events = mutableListOf<AiStudioScreenIntent>()
+                val events = mutableListOf<StudioIntent>()
                 var send = ""
                 val files = (0..9).map { file.copy(id = "doc-$it", name = "Исследовательские заметки $it.md") }
                 val state = attachmentState(InputSupportUi(mediaTypes = persistentListOf(file.mediaType))).copy(
@@ -134,7 +134,7 @@ class StudioAttachmentsUiTest {
                 onNodeWithTag("attachment-remove-doc-9").assertIsDisplayed().performClick()
                 runOnIdle {
                     assertEquals(
-                        listOf<AiStudioScreenIntent>(AiStudioScreenIntent.RemoveAttachment(0, "doc-9")),
+                        listOf<StudioIntent>(StudioIntent.RemoveAttachment(0, "doc-9")),
                         events.userActions(),
                     )
                 }
@@ -194,7 +194,7 @@ class StudioAttachmentsUiTest {
 @Composable
 private fun AttachmentComposer(
     state: AiStudioScreenState,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
     darkTheme: Boolean = false,
     isMobile: Boolean = false,
 ) {
@@ -213,6 +213,6 @@ private fun AttachmentComposer(
     }
 }
 
-private fun List<AiStudioScreenIntent>.userActions() = filterNot {
-    it is AiStudioScreenIntent.AttachmentPreviewVisible
+private fun List<StudioIntent>.userActions() = filterNot {
+    it is StudioIntent.AttachmentPreviewVisible
 }

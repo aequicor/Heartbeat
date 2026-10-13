@@ -59,7 +59,6 @@ import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_failed
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.connect_model_hint
@@ -107,6 +106,7 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import org.jetbrains.compose.resources.stringResource
 import kotlin.time.Duration
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 /**
  * One workspace column: a session transcript or the new-session page, with its composer.
@@ -118,7 +118,7 @@ import kotlin.time.Duration
 @Composable
 internal fun StudioPaneView(
     content: PaneContent,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
     layout: PaneLayout,
     modifier: Modifier = Modifier,
     onOpenResearch: ((String) -> Unit)? = null,
@@ -135,8 +135,8 @@ internal fun StudioPaneView(
     val bottomInset = with(density) { footerHeight.toDp() }
     Box(
         modifier.onFocusChanged {
-            if (it.hasFocus && !content.isFocused) onIntent(AiStudioScreenIntent.FocusPane(pane.id))
-        }.focusGroup().focusOnPress(content.isFocused, pane.id) { onIntent(AiStudioScreenIntent.FocusPane(pane.id)) }
+            if (it.hasFocus && !content.isFocused) onIntent(StudioIntent.FocusPane(pane.id))
+        }.focusGroup().focusOnPress(content.isFocused, pane.id) { onIntent(StudioIntent.FocusPane(pane.id)) }
             .background(HbTheme.surfaces.assistant).testTag("pane-${pane.id}"),
     ) {
         val worktreeFeed = content.worktreeFeed()
@@ -156,7 +156,7 @@ internal fun StudioPaneView(
             ) {
                 NewSessionHero(
                     content.project,
-                    onDraft = { onIntent(AiStudioScreenIntent.Suggestions.DraftChanged(pane.id, it)) },
+                    onDraft = { onIntent(StudioIntent.Suggestions.DraftChanged(pane.id, it)) },
                     modifier = Modifier.align(BiasAlignment(0f, HbTheme.dimensions.emptyStateVerticalBias))
                         .padding(HbTheme.spacing.xl),
                 )
@@ -220,7 +220,7 @@ private fun composerRegionAlignment(isCentered: Boolean): Alignment =
 @Composable
 private fun PaneComposerRegion(
     content: PaneContent,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
     questions: ImmutableMap<String, StudioEmbed>,
     isCompact: Boolean,
     onOpenResearch: ((String) -> Unit)?,
@@ -263,7 +263,7 @@ private fun PaneComposerRegion(
             }
             if (isCentered) {
                 Box(Modifier.padding(top = HbTheme.spacing.l)) {
-                    NewSessionStarters { onIntent(AiStudioScreenIntent.Suggestions.DraftChanged(content.pane.id, it)) }
+                    NewSessionStarters { onIntent(StudioIntent.Suggestions.DraftChanged(content.pane.id, it)) }
                 }
             }
         }
@@ -273,7 +273,7 @@ private fun PaneComposerRegion(
 @Composable
 private fun PaneNotices(
     content: PaneContent,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
     questions: ImmutableMap<String, StudioEmbed>,
     modifier: Modifier = Modifier,
 ) = HbBoxWithConstraints(modifier.fillMaxWidth()) {
@@ -321,7 +321,7 @@ private fun PaneNotices(
                             text = option.title,
                             onClick = {
                                 onIntent(
-                                    AiStudioScreenIntent.RespondPermission(
+                                    StudioIntent.RespondPermission(
                                         request.sessionId,
                                         request.requestId,
                                         option.id,
@@ -375,7 +375,7 @@ internal fun PermissionDescription(description: String, requestId: String, maxHe
 private fun PaneHeader(
     content: PaneContent,
     layout: PaneLayout,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
     isAtWindowLeadingEdge: Boolean,
 ) {
     val pane = content.pane
@@ -401,9 +401,9 @@ private fun PaneHeader(
                     onClick = {
                         onIntent(
                             if (layout.isCompact) {
-                                AiStudioScreenIntent.SetDrawerOpen(true)
+                                StudioIntent.SetDrawerOpen(true)
                             } else {
-                                AiStudioScreenIntent.ToggleSidebar
+                                StudioIntent.ToggleSidebar
                             },
                         )
                     },
@@ -468,7 +468,7 @@ internal fun ChatAreaHeader(
 }
 
 @Composable
-private fun PaneTitle(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit, modifier: Modifier = Modifier) {
+private fun PaneTitle(content: PaneContent, onIntent: (StudioIntent) -> Unit, modifier: Modifier = Modifier) {
     val renaming = content.renaming
     if (renaming != null) {
         RenameField(renaming.title, onIntent, modifier)
@@ -489,7 +489,7 @@ private fun PaneTitle(content: PaneContent, onIntent: (AiStudioScreenIntent) -> 
 }
 
 @Composable
-private fun PaneSessionMenu(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit) {
+private fun PaneSessionMenu(content: PaneContent, onIntent: (StudioIntent) -> Unit) {
     val session = content.session ?: return
     var isMenuOpen by remember { mutableStateOf(false) }
     HbMenuButton(
@@ -507,7 +507,7 @@ private fun PaneSessionMenu(content: PaneContent, onIntent: (AiStudioScreenInten
 private fun PaneLayoutActions(
     paneId: Int,
     layout: PaneLayout,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     HbRow(modifier, gap = HbTheme.spacing.xs) {
@@ -515,7 +515,7 @@ private fun PaneLayoutActions(
             HbIconButton(
                 icon = HbIcons.Grid,
                 contentDescription = stringResource(Res.string.pane_split),
-                onClick = { onIntent(AiStudioScreenIntent.OpenBeside(null)) },
+                onClick = { onIntent(StudioIntent.OpenBeside(null)) },
                 modifier = Modifier.testTag("pane-split"),
             )
         }
@@ -523,7 +523,7 @@ private fun PaneLayoutActions(
             HbIconButton(
                 icon = HbIcons.Close,
                 contentDescription = stringResource(Res.string.pane_close),
-                onClick = { onIntent(AiStudioScreenIntent.ClosePane(paneId)) },
+                onClick = { onIntent(StudioIntent.ClosePane(paneId)) },
                 modifier = Modifier.testTag("pane-close-$paneId"),
             )
         }
@@ -592,7 +592,7 @@ private fun SessionTranscript(
     calendar: StudioCalendar,
     attachmentPreviews: ImmutableMap<String, AttachmentPreviewUi>,
     isAttachmentOpeningAvailable: Boolean,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val timeline = rememberStudioTimeline(
@@ -641,7 +641,7 @@ private fun SessionTranscript(
 @Composable
 private fun PaneFooter(
     content: PaneContent,
-    onIntent: (AiStudioScreenIntent) -> Unit,
+    onIntent: (StudioIntent) -> Unit,
     isCompact: Boolean,
     onOpenResearch: ((String) -> Unit)?,
 ) {
@@ -751,11 +751,11 @@ private fun Modifier.focusOnPress(isFocused: Boolean, key: Any, onFocus: () -> U
     }
 }
 
-private fun PaneContent.diagramActionHandler(onIntent: (AiStudioScreenIntent) -> Unit): ((HbDiagramAction) -> Unit)? =
+private fun PaneContent.diagramActionHandler(onIntent: (StudioIntent) -> Unit): ((HbDiagramAction) -> Unit)? =
     session?.takeIf { it.isContinuable && subSession == PRIMARY_SUB_SESSION && !diagram.isPending }?.let { source ->
         { action ->
             onIntent(
-                AiStudioScreenIntent.DiagramAction(source.id, action.text, action.kind == HbDiagramActionKind.Send),
+                StudioIntent.DiagramAction(source.id, action.text, action.kind == HbDiagramActionKind.Send),
             )
         }
     }

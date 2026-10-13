@@ -32,7 +32,6 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_placeholder
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_send
@@ -57,6 +56,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.time.Instant
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 @OptIn(ExperimentalTestApi::class)
 class AiStudioInteractionUiTest {
@@ -75,7 +75,7 @@ class AiStudioInteractionUiTest {
     @Test
     fun `floating header and composer block hidden tools while their own controls remain clickable`() =
         runSkikoComposeUiTest(size = Size(400f, 820f)) {
-            val events = mutableListOf<AiStudioScreenIntent>()
+            val events = mutableListOf<StudioIntent>()
             val state = workspace.copy(
                 running = persistentSetOf("active"),
                 transcripts = persistentMapOf("active" to overlayToolMessages()),
@@ -129,7 +129,7 @@ class AiStudioInteractionUiTest {
             onNodeWithContentDescription(stopLabel).performMouseInput { click(center) }
             runOnIdle {
                 assertEquals(
-                    listOf(AiStudioScreenIntent.SetDrawerOpen(true), AiStudioScreenIntent.Stop("active")),
+                    listOf(StudioIntent.SetDrawerOpen(true), StudioIntent.Stop("active")),
                     events,
                 )
             }
@@ -138,7 +138,7 @@ class AiStudioInteractionUiTest {
     @Test
     fun `search keeps active and archived chats separate and opens its matching result`() =
         runSkikoComposeUiTest(size = Size(1280f, 900f)) {
-            val events = mutableListOf<AiStudioScreenIntent>()
+            val events = mutableListOf<StudioIntent>()
             var state by mutableStateOf(workspace)
             var noResultsLabel = ""
             setContent {
@@ -146,7 +146,7 @@ class AiStudioInteractionUiTest {
                 HbTheme(darkTheme = false) {
                     AiStudioContent(state, { intent ->
                         events += intent
-                        if (intent is AiStudioScreenIntent.Sidebar) {
+                        if (intent is StudioIntent.Sidebar) {
                             state = state.copy(sidebar = state.sidebar.reduce(intent))
                         }
                     }, exits)
@@ -169,7 +169,7 @@ class AiStudioInteractionUiTest {
             onNodeWithTag("sidebar-search").performTextReplacement("Studio")
             onNodeWithTag("session-active").assertIsDisplayed()
             runOnIdle {
-                assertTrue(AiStudioScreenIntent.OpenSession("active") in events)
+                assertTrue(StudioIntent.OpenSession("active") in events)
                 assertEquals(SidebarMode.Workspace, state.sidebar.mode)
             }
         }
@@ -177,7 +177,7 @@ class AiStudioInteractionUiTest {
     @Test
     fun `typing and sending in the second pane keeps the first pane draft intact`() =
         runSkikoComposeUiTest(size = Size(1440f, 900f)) {
-            val events = mutableListOf<AiStudioScreenIntent>()
+            val events = mutableListOf<StudioIntent>()
             var sendLabel = ""
             var state by mutableStateOf(
                 workspace.copy(
@@ -190,7 +190,7 @@ class AiStudioInteractionUiTest {
                 HbTheme(darkTheme = false) {
                     AiStudioContent(state, { intent ->
                         events += intent
-                        if (intent is AiStudioScreenIntent.Suggestions.DraftChanged) {
+                        if (intent is StudioIntent.Suggestions.DraftChanged) {
                             state = state.withDraft(intent.paneId, intent.text)
                         }
                     }, exits)
@@ -202,11 +202,11 @@ class AiStudioInteractionUiTest {
             onNode(composer and hasContentDescription(sendLabel)).assertIsEnabled().performClick()
             runOnIdle {
                 assertEquals(
-                    listOf<AiStudioScreenIntent>(
-                        AiStudioScreenIntent.Suggestions.DraftChanged(1, "Test the redesigned studio"),
+                    listOf<StudioIntent>(
+                        StudioIntent.Suggestions.DraftChanged(1, "Test the redesigned studio"),
                         // The editor reports the caret after its own text change; mid-text typing needs it.
-                        AiStudioScreenIntent.Suggestions.CaretMoved(1, "Test the redesigned studio".length),
-                        AiStudioScreenIntent.Submit(1),
+                        StudioIntent.Suggestions.CaretMoved(1, "Test the redesigned studio".length),
+                        StudioIntent.Submit(1),
                     ),
                     events,
                 )
@@ -218,7 +218,7 @@ class AiStudioInteractionUiTest {
     @Test
     fun `running chat stops its session and disables the composer while stopping`() =
         runSkikoComposeUiTest(size = Size(1280f, 900f)) {
-            val events = mutableListOf<AiStudioScreenIntent>()
+            val events = mutableListOf<StudioIntent>()
             var sendLabel = ""
             var stopLabel = ""
             var inputLabel = ""
@@ -232,7 +232,7 @@ class AiStudioInteractionUiTest {
                 HbTheme(darkTheme = false) {
                     AiStudioContent(state, { intent ->
                         events += intent
-                        if (intent is AiStudioScreenIntent.Stop) {
+                        if (intent is StudioIntent.Stop) {
                             state = state.copy(stopping = persistentSetOf(intent.sessionId))
                         }
                     }, exits)
@@ -244,7 +244,7 @@ class AiStudioInteractionUiTest {
             onNode(hasAnyAncestor(hasTestTag("composer-0")) and hasContentDescription(inputLabel))
                 .assertIsNotEnabled()
             runOnIdle {
-                assertEquals(listOf<AiStudioScreenIntent>(AiStudioScreenIntent.Stop("active")), events)
+                assertEquals(listOf<StudioIntent>(StudioIntent.Stop("active")), events)
                 assertEquals("Keep this follow-up", state.draft(0))
             }
         }
