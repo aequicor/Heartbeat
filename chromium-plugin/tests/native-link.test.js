@@ -162,3 +162,43 @@ test('a reconnect after the port closes performs a fresh handshake', async () =>
   assert.equal(port.last().method, 'hello');
   assert.equal(context.link.status, 'handshaking');
 });
+
+
+test('app socket reconnect drops old asynchronous replies on the retained native port', async () => {
+  let finish;
+  const context = setup({ onRequest: () => new Promise((resolve) => { finish = resolve; }) });
+  const port = await ready(context);
+  port.deliver({ kind: 'req', id: 'a:1', method: 'tabs.open' });
+  await flush();
+  port.deliver({ kind: 'host', state: 'waiting' });
+  await ready(context);
+  finish({ tab: { id: 'old' } });
+  await flush();
+  assert.equal(port.posted.filter((message) => message.kind === 'res').length, 0);
+});
+
+test('completed old handshake cannot restore ready after the app disconnects', async () => {
+  const context = setup();
+  context.link.connect();
+  const port = context.fake.ports[0];
+  port.deliver({ kind: 'host', state: 'connected' });
+  port.deliver({ ...fixture('hello-result'), id: port.last().id });
+  port.deliver({ kind: 'host', state: 'waiting' });
+  await flush();
+  assert.equal(context.link.status, 'waiting_for_app');
+  assert.equal(context.link.hello, null);
+});
+
+test('app reconnect clears partial chunks before the new app reuses chunk ids', async () => {
+  const context = setup();
+  const port = await ready(context);
+  const event = { kind: 'evt', event: 'chat.changed', params: { text: 'fresh' } };
+  const bytes = Buffer.from(JSON.stringify(event));
+  const first = { kind: 'chunk', of: 'c:1', seq: 0, count: 2, data: bytes.subarray(0, 5).toString('base64') };
+  port.deliver(first);
+  port.deliver({ kind: 'host', state: 'waiting' });
+  await ready(context);
+  port.deliver(first);
+  port.deliver({ ...first, seq: 1, data: bytes.subarray(5).toString('base64') });
+  assert.deepEqual(context.events, [['chat.changed', { text: 'fresh' }]]);
+});

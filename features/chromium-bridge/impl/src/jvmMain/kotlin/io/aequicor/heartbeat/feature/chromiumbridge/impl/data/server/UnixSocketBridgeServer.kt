@@ -40,6 +40,7 @@ internal class UnixSocketBridgeServer(
     private val socket: Path,
     private val io: CoroutineDispatcher,
     private val maxConnections: Int = MAX_CONNECTIONS,
+    private val openChannel: () -> ServerSocketChannel = { ServerSocketChannel.open(StandardProtocolFamily.UNIX) },
 ) {
     private val log = Log.tag("BridgeServer")
 
@@ -122,7 +123,15 @@ internal class UnixSocketBridgeServer(
             log.i { "Replacing a stale bridge socket" }
             Files.deleteIfExists(socket)
         }
-        return ServerSocketChannel.open(StandardProtocolFamily.UNIX).bind(UnixDomainSocketAddress.of(socket))
+        val channel = openChannel()
+        var isBound = false
+        try {
+            channel.bind(UnixDomainSocketAddress.of(socket))
+            isBound = true
+            return channel
+        } finally {
+            if (!isBound) channel.close()
+        }
     }
 
     private fun isAlive(): Boolean = try {

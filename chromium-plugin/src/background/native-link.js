@@ -53,7 +53,8 @@ export function createNativeLink(options) {
   });
   const timers = options.timers ?? globalThis;
   const ids = createIds('e');
-  const assembler = new ChunkAssembler({ now: options.now });
+  let assembler = new ChunkAssembler({ now: options.now });
+  let generation = 0;
   /** @type {Map<string, { resolve: (value: any) => void, reject: (error: Error) => void, timer: any }>} */
   const pending = new Map();
   /** @type {any} */
@@ -101,8 +102,7 @@ export function createNativeLink(options) {
    */
   function closed(reason) {
     port = null;
-    hello = null;
-    failPending(ErrorCode.UNAVAILABLE, 'Heartbeat is not available');
+    invalidateApp();
     setStatus(classify(reason));
     scheduleReconnect();
   }
@@ -163,13 +163,22 @@ export function createNativeLink(options) {
     }
   }
 
-  function appGone() {
+  /** Ends one app socket lifetime even when the native host port stays open. */
+  function invalidateApp() {
+    generation++;
     hello = null;
+    assembler = new ChunkAssembler({ now: options.now });
     failPending(ErrorCode.UNAVAILABLE, 'Heartbeat is not available');
+  }
+
+  function appGone() {
+    invalidateApp();
     setStatus('waiting_for_app');
   }
 
   function handshake() {
+    invalidateApp();
+    const current = generation;
     setStatus('handshaking');
     send('hello', {
       protocol: [PROTOCOL_VERSION],
@@ -178,11 +187,13 @@ export function createNativeLink(options) {
       capabilities: capabilities(),
     }).then(
       (result) => {
+        if (generation !== current) return;
         hello = isObject(result) ? result : {};
         attempt = 0;
         setStatus('ready');
       },
       (error) => {
+        if (generation !== current) return;
         if (error instanceof BridgeError && error.code === ErrorCode.UNSUPPORTED_PROTOCOL) {
           setStatus('incompatible');
         } else if (status === 'handshaking') {
@@ -250,14 +261,18 @@ export function createNativeLink(options) {
    */
   function answer(request) {
     const opened = port;
+    const current = generation;
     Promise.resolve()
-      .then(() => onRequest(String(request.method), isObject(request.params) ? request.params : {}))
+      .then(() => {
+        if (generation !== current || port !== opened) return;
+        return onRequest(String(request.method), isObject(request.params) ? request.params : {});
+      })
       .then(
         (result) => ({ kind: 'res', id: request.id, result: result ?? {} }),
         (error) => ({ kind: 'res', id: request.id, error: toWireError(error) }),
       )
       .then((response) => {
-        if (port === opened && opened) opened.postMessage(response);
+        if (generation === current && port === opened && opened) opened.postMessage(response);
       });
   }
 

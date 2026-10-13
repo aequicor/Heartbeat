@@ -29,8 +29,8 @@ public interface ExternalBrowser {
      */
     public suspend fun openTab(): ExternalTab
 
-    /** Starts controlling an existing tab the user handed over. */
-    public suspend fun control(tabId: String): ExternalTab
+    /** Starts controlling an existing tab only while it still shows the approved [expectedUrl]. */
+    public suspend fun control(tabId: String, expectedUrl: String): ExternalTab
 
     /** Loads [url] in a controlled tab and waits until the navigation committed. */
     public suspend fun navigate(tabId: String, url: String): ExternalTab
@@ -60,7 +60,7 @@ public sealed interface ExternalBrowserState {
     public data class Connected(public val brand: String, public val version: String) : ExternalBrowserState
 }
 
-/** A tab of the external browser; [id] is the browser's own tab id. */
+/** A tab of the external browser; [id] is an opaque handle bound to its original browser connection. */
 public data class ExternalTab(public val id: String, public val url: String, public val title: String)
 
 /** Something happened to a controlled tab. */

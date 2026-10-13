@@ -179,7 +179,7 @@ class ExternalBrowserToolsTest {
 
         override suspend fun openTab(): ExternalTab = error("Unused")
 
-        override suspend fun control(tabId: String): ExternalTab = error("Unused")
+        override suspend fun control(tabId: String, expectedUrl: String): ExternalTab = error("Unused")
 
         override suspend fun navigate(tabId: String, url: String): ExternalTab = error("Unused")
 

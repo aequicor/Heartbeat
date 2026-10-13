@@ -10,10 +10,13 @@ import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalBrowserFailure
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalBrowserState
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalTab
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalTabEvent
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -144,13 +147,137 @@ class ExternalBrowserSessionTest {
         assertEquals("No browser allows agent control", result.error)
     }
 
-    private fun session(test: TestScope) = ExternalBrowserSession(
+    @Test
+    fun `handover rejects a URL changed during acquisition and releases the tab`() = runTest {
+        val session = session(this)
+        browser.active = ExternalTab("u5", "https://approved.example/", "Approved")
+        browser.beforeControl = { browser.active = ExternalTab("u5", "http://private.local/", "Private") }
+        val result = session.execute(OWNER, ExternalOperation.RequestTab, approval())
+        assertEquals("The active tab changed since the approval; ask again", result.error)
+        assertEquals(listOf("control u5", "release u5"), browser.calls)
+        assertNull(session.address(OWNER, "u5"))
+    }
+
+    @Test
+    fun `concurrent handovers cannot replace the first owner`() = runTest {
+        val session = session(this)
+        browser.active = ExternalTab("u5", "https://approved.example/", "Approved")
+        val reply = CompletableDeferred<Unit>()
+        browser.beforeControl = { reply.await() }
+        val first = async { session.execute(OWNER, ExternalOperation.RequestTab, approval()) }
+        runCurrent()
+        val second = session.execute(OTHER, ExternalOperation.RequestTab, approval())
+        assertEquals("Tab handover already in progress", second.error)
+        reply.complete(Unit)
+        assertNull(first.await().error)
+        assertEquals("https://approved.example/", session.address(OWNER, "u5"))
+        assertNull(session.address(OTHER, "u5"))
+        assertEquals(listOf("control u5"), browser.calls)
+    }
+
+    @Test
+    fun `disabling control during open releases its eventual tab`() = runTest {
+        val session = session(this)
+        val reply = CompletableDeferred<Unit>()
+        browser.beforeOpen = { reply.await() }
+        val opening = async { session.execute(OWNER, ExternalOperation.NewTab, JsonObject(emptyMap())) }
+        runCurrent()
+        policy.value = false
+        runCurrent()
+        reply.complete(Unit)
+        assertEquals("Agent control is disabled", opening.await().error)
+        assertNull(session.address(OWNER, "t1"))
+        assertEquals(listOf("openTab", "release t1"), browser.calls)
+    }
+
+    @Test
+    fun `cancelled open releases the acquired tab before completing`() = runTest {
+        val session = session(this)
+        val reply = CompletableDeferred<Unit>()
+        browser.beforeOpen = { reply.await() }
+        val opening = launch { session.execute(OWNER, ExternalOperation.NewTab, JsonObject(emptyMap())) }
+        runCurrent()
+        opening.cancel()
+        reply.complete(Unit)
+        opening.join()
+        assertNull(session.address(OWNER, "t1"))
+        assertEquals(listOf("openTab", "release t1"), browser.calls)
+    }
+
+    @Test
+    fun `revocation during handover prevents ownership registration`() = runTest {
+        val session = session(this)
+        browser.active = ExternalTab("u5", "https://approved.example/", "Approved")
+        val reply = CompletableDeferred<Unit>()
+        browser.beforeControl = { reply.await() }
+        val handover = async { session.execute(OWNER, ExternalOperation.RequestTab, approval()) }
+        runCurrent()
+        browser.events.emit(ExternalTabEvent.Revoked("u5"))
+        runCurrent()
+        reply.complete(Unit)
+        assertEquals("Tab control ended during acquisition", handover.await().error)
+        assertNull(session.address(OWNER, "u5"))
+        assertEquals(listOf("control u5", "release u5"), browser.calls)
+    }
+
+    @Test
+    fun `pending new tabs count toward the limit`() = runTest {
+        val session = session(this)
+        val reply = CompletableDeferred<Unit>()
+        browser.beforeOpen = { reply.await() }
+        val opening = List(20) { async { session.execute(OWNER, ExternalOperation.NewTab, JsonObject(emptyMap())) } }
+        runCurrent()
+        val extra = session.execute(OWNER, ExternalOperation.NewTab, JsonObject(emptyMap()))
+        assertEquals("Release or close a tab before opening another", extra.error)
+        assertEquals(20, browser.calls.size)
+        reply.complete(Unit)
+        opening.forEach { assertNull(it.await().error) }
+    }
+
+    @Test
+    fun `the first operation waits for the initial policy observation`() = runTest {
+        val session = session(this, ready = false)
+        val opened = session.execute(OWNER, ExternalOperation.NewTab, JsonObject(emptyMap()))
+        assertNull(opened.error)
+        assertEquals("t1", opened.data["tabId"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `handover waits until the previous owner release finishes`() = runTest {
+        val session = session(this)
+        session.execute(OWNER, ExternalOperation.NewTab, JsonObject(emptyMap()))
+        browser.active = ExternalTab("t1", "https://approved.example/", "Approved")
+        val approval = args {
+            put("approvedTabId", "t1")
+            put("approvedUrl", "https://approved.example/")
+        }
+        val reply = CompletableDeferred<Unit>()
+        browser.beforeRelease = { reply.await() }
+        val releasing = async {
+            session.execute(OWNER, ExternalOperation.Release, args { put("tabId", "t1") })
+        }
+        runCurrent()
+        val racing = session.execute(OTHER, ExternalOperation.RequestTab, approval)
+        assertEquals("Tab handover already in progress", racing.error)
+        reply.complete(Unit)
+        assertNull(releasing.await().error)
+        assertNull(session.execute(OTHER, ExternalOperation.RequestTab, approval).error)
+        assertEquals("https://approved.example/", session.address(OTHER, "t1"))
+        assertEquals(listOf("openTab", "release t1", "control t1"), browser.calls)
+    }
+
+    private fun approval() = args {
+        put("approvedTabId", "u5")
+        put("approvedUrl", "https://approved.example/")
+    }
+
+    private fun session(test: TestScope, ready: Boolean = true) = ExternalBrowserSession(
         browser,
         object : ExternalBrowserAgentPolicy {
             override val availability = policy
         },
         Profile(test.backgroundScope),
-    ).also { test.runCurrent() }
+    ).also { if (ready) test.runCurrent() }
 
     private fun args(block: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit) = buildJsonObject(block)
 
@@ -160,6 +287,9 @@ class ExternalBrowserSessionTest {
         val resolved = mutableListOf<Pair<String, Boolean>>()
         var active: ExternalTab? = null
         var refusal: ExternalBrowserException? = null
+        var beforeOpen: suspend () -> Unit = {}
+        var beforeControl: suspend () -> Unit = {}
+        var beforeRelease: suspend () -> Unit = {}
         private var next = 0
         override val state = MutableStateFlow<ExternalBrowserState>(ExternalBrowserState.Connected("Chrome", "140"))
         override val events = MutableSharedFlow<ExternalTabEvent>(extraBufferCapacity = 16)
@@ -169,11 +299,13 @@ class ExternalBrowserSessionTest {
         override suspend fun openTab(): ExternalTab {
             refusal?.let { throw it }
             calls += "openTab"
+            beforeOpen()
             return ExternalTab("t${++next}", "", "")
         }
 
-        override suspend fun control(tabId: String): ExternalTab {
+        override suspend fun control(tabId: String, expectedUrl: String): ExternalTab {
             calls += "control $tabId"
+            beforeControl()
             return checkNotNull(active)
         }
 
@@ -188,6 +320,7 @@ class ExternalBrowserSessionTest {
 
         override suspend fun release(tabId: String) {
             calls += "release $tabId"
+            beforeRelease()
         }
 
         override suspend fun close(tabId: String) {

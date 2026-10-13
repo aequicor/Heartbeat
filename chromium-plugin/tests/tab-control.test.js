@@ -66,7 +66,7 @@ function setup(isAllowed = true) {
     notify: (event, params) => events.push([event, params]),
     timers,
   });
-  return { ...browser, timers, events, control };
+  return { ...browser, timers, events, control, setAllowed: (value) => { isAllowed = value; } };
 }
 
 test('only web pages outside the stores can be controlled', () => {
@@ -105,7 +105,7 @@ test('nothing is controlled without consent and other tabs are refused', async (
 
 test('DevTools calls are limited to the driver methods and its own isolated worlds', async () => {
   const { control } = setup();
-  await control.handle('tabs.control', { tabId: '1' });
+  await control.handle('tabs.control', { tabId: '1', expectedUrl: 'https://user.example/' });
 
   const world = await control.handle('cdp.send', {
     tabId: '1',
@@ -131,7 +131,7 @@ test('DevTools calls are limited to the driver methods and its own isolated worl
 
 test('guarded loads wait for the app and fail closed', async () => {
   const { control, chrome, commands, events, timers } = setup();
-  await control.handle('tabs.control', { tabId: '1' });
+  await control.handle('tabs.control', { tabId: '1', expectedUrl: 'https://user.example/' });
 
   chrome.debugger.onEvent.emit({ tabId: 1 }, 'Fetch.requestPaused', { requestId: 'r1', frameId: 'frame-1', request: { url: 'https://ok.example/' } });
   chrome.debugger.onEvent.emit({ tabId: 1 }, 'Fetch.requestPaused', { requestId: 'r2', frameId: 'child', request: { url: 'https://slow.example/' } });
@@ -154,7 +154,7 @@ test('guarded loads wait for the app and fail closed', async () => {
 
 test('cancelling the debugger infobar revokes and closing the tab removes it', async () => {
   const { control, chrome, events } = setup();
-  await control.handle('tabs.control', { tabId: '1' });
+  await control.handle('tabs.control', { tabId: '1', expectedUrl: 'https://user.example/' });
   const opened = await control.handle('tabs.open', {});
 
   chrome.debugger.onDetach.emit({ tabId: 1 }, 'canceled_by_user');
@@ -169,7 +169,7 @@ test('cancelling the debugger infobar revokes and closing the tab removes it', a
 
 test('revoking all detaches every tab and tells the app', async () => {
   const { control, chrome, events } = setup();
-  await control.handle('tabs.control', { tabId: '1' });
+  await control.handle('tabs.control', { tabId: '1', expectedUrl: 'https://user.example/' });
   await control.handle('tabs.open', {});
 
   const result = await control.handle('tabs.revokeAll', {});
@@ -177,4 +177,188 @@ test('revoking all detaches every tab and tells the app', async () => {
   assert.deepEqual(result, { released: 2 });
   assert.equal(chrome.debugger.attached.size, 0);
   assert.deepEqual(events.at(-1), ['tabs.summary', { controlled: 0 }]);
+});
+
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => { resolve = done; });
+  return { promise, resolve: () => resolve() };
+}
+
+test('revoke and disconnect invalidate an attachment that is still pending', async () => {
+  for (const revoke of ['revokeAll', 'releaseAll']) {
+    const { control, chrome, setAllowed } = setup();
+    const entered = deferred();
+    const pending = deferred();
+    chrome.debugger.attach = async ({ tabId }) => {
+      entered.resolve();
+      await pending.promise;
+      chrome.debugger.attached.add(tabId);
+    };
+    const acquired = control.handle('tabs.control', { tabId: '1', expectedUrl: 'https://user.example/' });
+    await entered.promise;
+    if (revoke === 'revokeAll') setAllowed(false);
+    await control[revoke]();
+    pending.resolve();
+    await assert.rejects(acquired, (error) => error.code === 'forbidden');
+    assert.equal(control.size, 0);
+    assert.equal(chrome.debugger.attached.size, 0);
+  }
+});
+
+test('cancelling debugger while initialization waits never restores control', async () => {
+  const { control, chrome } = setup();
+  const entered = deferred();
+  const pending = deferred();
+  const send = chrome.debugger.sendCommand;
+  chrome.debugger.sendCommand = async (...args) => {
+    if (args[1] === 'Page.getFrameTree') { entered.resolve(); await pending.promise; }
+    return send(...args);
+  };
+  const acquired = control.handle('tabs.control', { tabId: '1', expectedUrl: 'https://user.example/' });
+  await entered.promise;
+  chrome.debugger.onDetach.emit({ tabId: 1 }, 'canceled_by_user');
+  pending.resolve();
+  await assert.rejects(acquired, (error) => error.code === 'forbidden');
+  assert.equal(control.size, 0);
+  assert.equal(chrome.debugger.attached.size, 0);
+});
+
+test('failed creation removes the newly opened tab for grouping and attach failures', async () => {
+  for (const stage of ['group', 'attach']) {
+    const { control, chrome, tabs } = setup();
+    const fail = async () => { throw new Error('Cannot acquire'); };
+    if (stage === 'group') chrome.tabs.group = fail;
+    else chrome.debugger.attach = fail;
+    await assert.rejects(control.handle('tabs.open', {}));
+    assert.deepEqual([...tabs.keys()], [1]);
+    assert.equal(control.size, 0);
+    assert.equal(chrome.debugger.attached.size, 0);
+  }
+});
+
+test('new tab returned after revocation is removed before it can attach', async () => {
+  const { control, chrome, tabs } = setup();
+  const entered = deferred();
+  const pending = deferred();
+  const create = chrome.tabs.create;
+  chrome.tabs.create = async () => { entered.resolve(); await pending.promise; return create(); };
+  const acquired = control.handle('tabs.open', {});
+  await entered.promise;
+  await control.revokeAll();
+  pending.resolve();
+  await assert.rejects(acquired, (error) => error.code === 'forbidden');
+  assert.deepEqual([...tabs.keys()], [1]);
+  assert.equal(control.size, 0);
+});
+
+test('handover rechecks approved URL and rolls back only newly acquired debugger', async () => {
+  const { control, chrome, tabs } = setup();
+  const attach = chrome.debugger.attach;
+  chrome.debugger.attach = async (target) => {
+    await attach(target);
+    tabs.get(1).url = 'https://other.example/';
+  };
+  await assert.rejects(
+    control.handle('tabs.control', { tabId: '1', expectedUrl: 'https://user.example/' }),
+    (error) => error.code === 'forbidden',
+  );
+  assert.equal(chrome.debugger.attached.size, 0);
+  assert.equal(control.size, 0);
+  chrome.debugger.attach = attach;
+  await control.handle('tabs.control', { tabId: '1', expectedUrl: 'https://other.example/' });
+  await assert.rejects(control.handle('tabs.control', { tabId: '1', expectedUrl: 'https://old.example/' }));
+  assert.equal(control.size, 1);
+  assert.equal(chrome.debugger.attached.size, 1);
+});
+
+test('concurrent handovers share finished acquisition without double attaching', async () => {
+  const { control, chrome } = setup();
+  let attachments = 0;
+  const attach = chrome.debugger.attach;
+  chrome.debugger.attach = async (target) => { attachments++; await attach(target); };
+  await Promise.all([
+    control.handle('tabs.control', { tabId: '1', expectedUrl: 'https://user.example/' }),
+    control.handle('tabs.control', { tabId: '1', expectedUrl: 'https://user.example/' }),
+  ]);
+  assert.equal(attachments, 1);
+  assert.equal(control.size, 1);
+});
+
+test('navigation failure and release dispose their completion listeners and timers', async () => {
+  const { control, chrome, timers } = setup();
+  await control.handle('tabs.control', { tabId: '1', expectedUrl: 'https://user.example/' });
+  const listeners = chrome.tabs.onUpdated.listeners.length;
+  const send = chrome.debugger.sendCommand;
+  chrome.debugger.sendCommand = async (...args) => args[1] === 'Page.navigate' ? { errorText: 'blocked' } : send(...args);
+  await assert.rejects(control.handle('tabs.navigate', { tabId: '1', url: 'https://example.com/' }));
+  assert.equal(chrome.tabs.onUpdated.listeners.length, listeners);
+  assert.equal(timers.tasks.size, 0);
+  const entered = deferred();
+  chrome.debugger.sendCommand = async (...args) => {
+    if (args[1] === 'Page.navigate') { entered.resolve(); return {}; }
+    return send(...args);
+  };
+  const navigation = control.handle('tabs.navigate', { tabId: '1', url: 'https://example.com/' });
+  await entered.promise;
+  await control.revokeAll();
+  await assert.rejects(navigation, (error) => error.code === 'no_such_tab');
+  assert.equal(chrome.tabs.onUpdated.listeners.length, listeners);
+  assert.equal(timers.tasks.size, 0);
+});
+
+
+test('late URL mismatch of an already held tab does not detach its earlier claim', async () => {
+  const { control, chrome, tabs } = setup();
+  const params = { tabId: '1', expectedUrl: 'https://user.example/' };
+  await control.handle('tabs.control', params);
+  const get = chrome.tabs.get;
+  let reads = 0;
+  chrome.tabs.get = async (id) => {
+    if (++reads === 2) tabs.get(id).url = 'https://changed.example/';
+    return get(id);
+  };
+  await assert.rejects(control.handle('tabs.control', params), (error) => error.code === 'forbidden');
+  assert.equal(control.size, 1);
+  assert.equal(chrome.debugger.attached.has(1), true);
+});
+
+test('closing a tab during initialization rejects acquisition', async () => {
+  const { control, chrome } = setup();
+  const entered = deferred();
+  const pending = deferred();
+  const send = chrome.debugger.sendCommand;
+  chrome.debugger.sendCommand = async (...args) => {
+    if (args[1] === 'Fetch.enable') { entered.resolve(); await pending.promise; }
+    return send(...args);
+  };
+  const acquisition = control.handle('tabs.control', { tabId: '1', expectedUrl: 'https://user.example/' });
+  await entered.promise;
+  chrome.tabs.onRemoved.emit(1);
+  pending.resolve();
+  await assert.rejects(acquisition, (error) => error.code === 'forbidden');
+  assert.equal(control.size, 0);
+  assert.equal(chrome.debugger.attached.size, 0);
+});
+
+
+test('handover refuses pending navigation even while the committed URL still matches approval', async () => {
+  for (const stage of ['before', 'after']) {
+    const { control, chrome, tabs } = setup();
+    if (stage === 'before') tabs.get(1).pendingUrl = 'https://changed.example/';
+    else {
+      const attach = chrome.debugger.attach;
+      chrome.debugger.attach = async (target) => {
+        await attach(target);
+        tabs.get(1).pendingUrl = 'https://changed.example/';
+      };
+    }
+    await assert.rejects(
+      control.handle('tabs.control', { tabId: '1', expectedUrl: 'https://user.example/' }),
+      (error) => error.code === 'forbidden',
+    );
+    assert.equal(control.size, 0);
+    assert.equal(chrome.debugger.attached.size, 0);
+  }
 });

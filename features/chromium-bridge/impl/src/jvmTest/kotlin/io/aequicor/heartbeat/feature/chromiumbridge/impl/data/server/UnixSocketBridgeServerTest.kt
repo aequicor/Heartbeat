@@ -129,6 +129,21 @@ class UnixSocketBridgeServerTest {
         assertIs<ServeResult.Failed>(result)
     }
 
+    @Test
+    fun `bind failure closes the allocated channel`() = runBlocking {
+        val channel = ServerSocketChannel.open(StandardProtocolFamily.UNIX)
+        val tooLong = directory.resolve("x".repeat(200))
+        try {
+            val result = UnixSocketBridgeServer(tooLong, Dispatchers.IO, openChannel = { channel })
+                .serve(onListening = {}) {}
+
+            assertIs<ServeResult.Failed>(result)
+            assertFalse(channel.isOpen)
+        } finally {
+            channel.close()
+        }
+    }
+
     private suspend fun echo(link: FrameLink, received: Channel<String>) = runInterruptible(Dispatchers.IO) {
         val frame = checkNotNull(NativeFraming.read(link.input, Int.MAX_VALUE))
         received.trySend(frame.decodeToString())

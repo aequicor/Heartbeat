@@ -10,7 +10,9 @@ import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeClien
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeException
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeIncomingEvent
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeSession
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.toList
@@ -66,9 +68,9 @@ class ChromiumExternalBrowserTest {
         agent.answers["cdp.send"] = buildJsonObject { putJsonObject("result") { put("data", "png") } }
 
         val tab = browser.openTab()
-        val result = browser.devTools("17", "Page.captureScreenshot", buildJsonObject { put("format", "png") })
+        val result = browser.devTools("2:17", "Page.captureScreenshot", buildJsonObject { put("format", "png") })
 
-        assertEquals(ExternalTab("17", "https://example.com/", "Example"), tab)
+        assertEquals(ExternalTab("2:17", "https://example.com/", "Example"), tab)
         assertEquals("""{"data":"png"}""", result)
         assertEquals(listOf("tabs.open", "cdp.send"), agent.calls.map { it.first })
         assertEquals("17", (agent.calls[1].second["tabId"] as kotlinx.serialization.json.JsonPrimitive).content)
@@ -82,7 +84,7 @@ class ChromiumExternalBrowserTest {
         runCurrent()
         agent.refusal = BridgeException(BridgeErrorCode.NO_SUCH_TAB, "Gone")
 
-        val error = assertFailsWith<ExternalBrowserException> { browser.release("5") }
+        val error = assertFailsWith<ExternalBrowserException> { browser.release("2:5") }
 
         assertEquals(ExternalBrowserFailure.NoSuchTab, error.failure)
     }
@@ -117,12 +119,121 @@ class ChromiumExternalBrowserTest {
 
         assertEquals(
             listOf(
-                ExternalTabEvent.Changed("9", "https://a/", "A", isLoading = true),
-                ExternalTabEvent.DocumentRequested("9", "r1", "http://10.0.0.1/", isMainFrame = false),
-                ExternalTabEvent.Revoked("9"),
+                ExternalTabEvent.Changed("2:9", "https://a/", "A", isLoading = true),
+                ExternalTabEvent.DocumentRequested("2:9", "r1", "http://10.0.0.1/", isMainFrame = false),
+                ExternalTabEvent.Revoked("2:9"),
             ),
             received,
         )
+    }
+
+    @Test
+    fun `handles stay on their original browser and lost connections revoke them`() = runTest {
+        val browser = ChromiumExternalBrowser(sessions, backgroundScope)
+        val first = FakeSession(this, 1, setOf("agentControl"))
+        val second = FakeSession(this, 2, setOf("agentControl"))
+        first.answers["tabs.open"] = tabAnswer("9")
+        second.answers["tabs.open"] = tabAnswer("9")
+        sessions.value = listOf(first)
+        runCurrent()
+        val firstTab = browser.openTab()
+        sessions.value = listOf(first, second)
+        runCurrent()
+        val secondTab = browser.openTab()
+        browser.activate(firstTab.id)
+        browser.activate(secondTab.id)
+        assertEquals("1:9", firstTab.id)
+        assertEquals("2:9", secondTab.id)
+        assertEquals(listOf("tabs.open", "tabs.activate"), first.calls.map { it.first })
+        assertEquals(listOf("tabs.open", "tabs.activate"), second.calls.map { it.first })
+
+        val received = mutableListOf<ExternalTabEvent>()
+        backgroundScope.launch { browser.events.toList(received) }
+        runCurrent()
+        first.incoming.emit(event("guard.paused") { put("requestId", "r1") })
+        runCurrent()
+        assertEquals("1:9", received.single().tabId)
+        sessions.value = listOf(second)
+        runCurrent()
+        assertEquals(ExternalTabEvent.Revoked("1:9"), received.last())
+        assertFailsWith<ExternalBrowserException> { browser.activate(firstTab.id) }
+        assertEquals(2, second.calls.size)
+    }
+
+    @Test
+    fun `control transmits the approved URL to the original connection`() = runTest {
+        val browser = ChromiumExternalBrowser(sessions, backgroundScope)
+        val first = FakeSession(this, 1, setOf("agentControl"))
+        val second = FakeSession(this, 2, setOf("agentControl"))
+        first.answers["tabs.control"] = tabAnswer("9")
+        sessions.value = listOf(first, second)
+        runCurrent()
+        browser.control("1:9", "https://example.com/")
+        assertEquals("https://example.com/", first.calls.single().second["expectedUrl"]?.toString()?.trim('"'))
+        assertEquals(emptyList(), second.calls)
+    }
+
+    @Test
+    fun `revocation before an acquisition reply cannot restore the handle`() = runTest {
+        val browser = ChromiumExternalBrowser(sessions, backgroundScope)
+        val agent = FakeSession(this, 1, setOf("agentControl"))
+        val reply = CompletableDeferred<Unit>()
+        agent.beforeReply = { reply.await() }
+        agent.answers["tabs.open"] = tabAnswer("9")
+        sessions.value = listOf(agent)
+        runCurrent()
+        val opening = async { assertFailsWith<ExternalBrowserException> { browser.openTab() } }
+        runCurrent()
+        agent.incoming.emit(event("tab.revoked") {})
+        runCurrent()
+        reply.complete(Unit)
+        assertEquals(ExternalBrowserFailure.NoSuchTab, opening.await().failure)
+    }
+
+    @Test
+    fun `capability loss invalidates pending acquisition even after reenable`() = runTest {
+        val browser = ChromiumExternalBrowser(sessions, backgroundScope)
+        val agent = FakeSession(this, 1, setOf("agentControl"))
+        val reply = CompletableDeferred<Unit>()
+        agent.beforeReply = { reply.await() }
+        agent.answers["tabs.open"] = tabAnswer("9")
+        sessions.value = listOf(agent)
+        runCurrent()
+        val opening = async { assertFailsWith<ExternalBrowserException> { browser.openTab() } }
+        runCurrent()
+        agent.client.value = agent.client.value?.copy(capabilities = emptySet())
+        runCurrent()
+        agent.client.value = agent.client.value?.copy(capabilities = setOf("agentControl"))
+        runCurrent()
+        reply.complete(Unit)
+        assertEquals(ExternalBrowserFailure.NoSuchTab, opening.await().failure)
+    }
+
+    @Test
+    fun `explicit release invalidates an outstanding navigation reply`() = runTest {
+        val browser = ChromiumExternalBrowser(sessions, backgroundScope)
+        val agent = FakeSession(this, 1, setOf("agentControl"))
+        val reply = CompletableDeferred<Unit>()
+        agent.beforeReply = { reply.await() }
+        agent.answers["tabs.navigate"] = tabAnswer("9")
+        sessions.value = listOf(agent)
+        runCurrent()
+        val navigating = async {
+            assertFailsWith<ExternalBrowserException> { browser.navigate("1:9", "https://example.com/") }
+        }
+        runCurrent()
+        agent.beforeReply = {}
+        browser.release("1:9")
+        reply.complete(Unit)
+        assertEquals(ExternalBrowserFailure.NoSuchTab, navigating.await().failure)
+    }
+
+    private fun tabAnswer(id: String): JsonObject = buildJsonObject {
+        putJsonObject("tab") {
+            put("id", id)
+            put("url", "https://example.com/")
+            put("title", "Example")
+        }
     }
 
     private fun event(name: String, params: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit) =
@@ -139,6 +250,7 @@ class ChromiumExternalBrowserTest {
         val answers = mutableMapOf<String, JsonObject>()
         val incoming = MutableSharedFlow<BridgeIncomingEvent>()
         var refusal: BridgeException? = null
+        var beforeReply: suspend () -> Unit = {}
         override val origin: String = "chrome-extension://test/"
         override val client = MutableStateFlow<BridgeClient?>(
             BridgeClient(origin, "0.1.0", "Google Chrome", "140", capabilities),
@@ -153,6 +265,7 @@ class ChromiumExternalBrowserTest {
         override suspend fun call(method: String, params: JsonObject, timeoutMillis: Long): JsonElement {
             calls += method to params
             refusal?.let { throw it }
+            beforeReply()
             return answers[method] ?: JsonObject(emptyMap())
         }
     }
