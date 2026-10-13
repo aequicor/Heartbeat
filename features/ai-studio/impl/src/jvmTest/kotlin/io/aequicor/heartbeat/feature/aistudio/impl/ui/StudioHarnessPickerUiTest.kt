@@ -34,6 +34,7 @@ import java.io.File
 import javax.imageio.ImageIO
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class StudioHarnessPickerUiTest {
@@ -56,7 +57,7 @@ class StudioHarnessPickerUiTest {
 
     @Test
     fun `context wraps with reachable project harness and worktree controls at phone tablet and desktop widths`() {
-        for (width in listOf(420f, 1024f, 1280f)) {
+        for (width in listOf(320f, 420f, 1024f, 1280f)) {
             for (dark in listOf(false, true)) renderComposer(width, dark)
         }
     }
@@ -80,11 +81,22 @@ class StudioHarnessPickerUiTest {
         onNodeWithTag("project-chip-0").assertIsDisplayed()
         onNodeWithTag("harness-picker-0").assertIsDisplayed()
         onNodeWithTag("worktree-mode-0").assertIsDisplayed()
-        val projectHeight = onNodeWithTag("project-chip-0").fetchSemanticsNode().boundsInRoot.height
-        val harnessHeight = onNodeWithTag("harness-picker-0").fetchSemanticsNode().boundsInRoot.height
-        val worktreeHeight = onNodeWithTag("worktree-mode-0").fetchSemanticsNode().boundsInRoot.height
-        assertEquals(projectHeight, harnessHeight, "Project and harness controls must have equal height")
-        assertEquals(projectHeight, worktreeHeight, "Project and worktree controls must have equal height")
+        val project = onNodeWithTag("project-chip-0").fetchSemanticsNode().boundsInRoot
+        val harness = onNodeWithTag("harness-picker-0").fetchSemanticsNode().boundsInRoot
+        val worktree = onNodeWithTag("worktree-mode-0").fetchSemanticsNode().boundsInRoot
+        val composer = onNodeWithTag("composer-0").fetchSemanticsNode().boundsInRoot
+        assertEquals(project.height, harness.height, "Project and harness controls must have equal height")
+        assertEquals(project.height, worktree.height, "Project and worktree controls must have equal height")
+        assertEquals(project.center.y, harness.center.y, 1f, "Identity controls must share a row")
+        if (width >= 420f) {
+            assertEquals(project.center.y, worktree.center.y, 1f, "Worktree must use available space in the row")
+            assertTrue(worktree.left >= harness.right, "Context controls must not overlap")
+        } else {
+            assertTrue(worktree.top >= project.bottom, "Worktree must wrap when the row is full")
+        }
+        for (bounds in listOf(project, harness, worktree)) {
+            assertTrue(bounds.left >= composer.left && bounds.right <= composer.right, "Context must fit the pane")
+        }
         val directory = File("build/reports/harness-picker").apply { mkdirs() }
         check(ImageIO.write(captureToImage().toAwtImage(), "png", File(directory, "composer-$width-$dark.png")))
         onNodeWithContentDescription(harnessLabel).performClick()

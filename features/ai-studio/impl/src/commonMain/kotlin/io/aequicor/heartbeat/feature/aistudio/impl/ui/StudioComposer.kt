@@ -335,7 +335,7 @@ private fun StudioComposerContext(
     }
 }
 
-/** Session identity stays on one line; long names fade without stealing the harness touch target. */
+/** Identity wraps its controls so modes can share the line; long names yield space to the harness touch target. */
 @Composable
 private fun StudioComposerIdentity(
     content: PaneContent,
@@ -343,7 +343,7 @@ private fun StudioComposerIdentity(
     presentation: ComposerPresentation,
 ) {
     val pane = content.pane
-    HbRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.m) {
+    HbRow(gap = HbTheme.spacing.m) {
         if (pane.sessionId == null) {
             ContextTray(
                 pane,
