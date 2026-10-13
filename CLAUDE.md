@@ -122,13 +122,19 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > только локальные задачи `browserNativeTest`, `browserComposeNativeTest`, `browserRecoveryNativeTest` (нужен рабочий стол, вне `check`). Восстановление источника запускается только кнопкой пользователя и использует тот же профиль.
 > iOS — WKWebView с непостоянным хранилищем, Android — WebView без cookies и DOM storage; автоматизация только Desktop.
 > `features:chromium-bridge:{api,impl}` + `chromium-plugin/` — расширение для Chrome и других Chromium-браузеров
-> (MV3, чистый JS без сборки, `node --test chromium-plugin/tests/`) и мост к нему (тогл `chromium_bridge.enabled`, по умолчанию false;
+> (MV3, Compose/Wasm-панель и JS service worker, `node --test chromium-plugin/tests/`) и мост к нему (тогл `chromium_bridge.enabled`, по умолчанию false;
 > только Desktop Windows/macOS). Транспорт — Native Messaging: браузер запускает лаунчер Heartbeat с `--heartbeat-chromium-host`,
 > хост ретранслирует кадры (JSON с 4-байтовым LE-префиксом, протокол v1) в Unix-сокет профиля; приложение принимает только
 > origin своего расширения (ID закреплён ключом в `manifest.json`). Раздел настроек «Браузер Chrome» регистрирует хост
 > в Chrome/Edge/Brave/Chromium/Vivaldi и показывает папку расширения (входит в ресурсы дистрибутива, `collectAppResources`).
-> Side panel — полный чат студии через `StudioChats` (`ai-studio:api`; нужны чаты профиля `ai_studio.engine_runtime`):
-> все чаты, новый чат, стриминг, «Стоп», разрешения, вложение страницы или выделения. `chromium_bridge.agent_control`
+> Side panel — общий Compose-экран студии через `StudioRemoteScreens` (`ai-studio:api`, `studio.watch/intent/attachPage`).
+> `features:{ai-studio,questionnaire,checklist}:{screen-model,screen-ui}` содержат общие модели и UI для desktop/Wasm;
+> native хранит отдельный безголовый стор и машину, панель зеркалит кадры и нумерует интенты. Новая generation
+> отбрасывает старые команды; reconnect ждёт snapshot, прежний черновик восстанавливается только вручную.
+> Страницы и выделения импортируются Markdown-вложениями с model support; native file/folder/open/export/split
+> недоступны. Анкеты/чек-листы полноценные, профиль доставляет ответы без открытого окна. Tool output в панели —
+> хвост 256 КиБ. `./gradlew :chromium-plugin:panel:syncChromiumPanel` собирает игнорируемый `chromium-plugin/app/`;
+> упаковка ресурсов desktop зависит от этой задачи. `chromium_bridge.agent_control`
 > (по умолчанию false) плюс переключатель согласия в расширении дают агентам инструменты `ex_control_*` (`browser:impl`,
 > группа `external_browser`) поверх `ExternalBrowser` (`chromium-bridge:api`): вкладки агента — в группе «Heartbeat»
 > текущего окна, вкладка пользователя — только после подтверждения, CDP через `chrome.debugger` по allowlist,
