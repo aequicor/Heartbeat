@@ -104,6 +104,7 @@ preparePiRuntime?.let { task -> tasks.named("processResources") { dependsOn(task
 // App resources of the distribution: the Pi runtime and the Chromium extension folder that settings offer for
 // "Load unpacked". Runs from a checkout use the repository's extension folder instead (DesktopExtensionFolder).
 val collectAppResources = tasks.register<Sync>("collectAppResources") {
+    dependsOn(":chromium-plugin:panel:syncChromiumPanel")
     preparePiRuntime?.let { task -> from(task.flatMap { it.outputDirectory }) }
     from(layout.settingsDirectory.dir("chromium-plugin")) {
         into("common/chromium-plugin")

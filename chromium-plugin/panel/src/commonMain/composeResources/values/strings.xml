@@ -6,7 +6,7 @@
     <string name="status_waiting">Heartbeat is not running, or its browser bridge is off.</string>
     <string name="status_incompatible">Heartbeat and the extension are incompatible. Update the extension or the app.</string>
     <string name="status_disconnected">Lost connection to Heartbeat. Reconnecting…</string>
-    <string name="chats_off">Profile chats are off in Heartbeat.</string>
+    <string name="studio_off">Studio is unavailable in Heartbeat.</string>
     <string name="agent_consent">Let Heartbeat agents control this browser</string>
     <string name="agent_consent_hint">Agents open their tabs in the Heartbeat group and use your tabs only when you approve it in Heartbeat.</string>
     <string name="agent_controlling">Agents control tabs: %1$d</string>

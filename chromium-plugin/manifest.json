@@ -28,7 +28,7 @@
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },
   "side_panel": {
-    "default_path": "src/sidepanel/sidepanel.html"
+    "default_path": "src/sidepanel/panel.html"
   },
   "permissions": [
     "activeTab",

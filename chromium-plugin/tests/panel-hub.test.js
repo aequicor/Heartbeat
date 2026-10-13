@@ -14,7 +14,7 @@ function fakeLink() {
   return {
     calls,
     status: 'ready',
-    hello: { features: { chat: true } },
+    hello: { features: { studio: true } },
     /** @param {string} method @param {any} params */
     request(method, params = {}) {
       return new Promise((resolve, reject) => {
@@ -26,7 +26,7 @@ function fakeLink() {
   };
 }
 
-function panelPort(url = `${ORIGIN}src/sidepanel/sidepanel.html`) {
+function panelPort(url = `${ORIGIN}src/sidepanel/panel.html`) {
   const port = new FakePort(PANEL_PORT);
   /** @type {any} */ (port).sender = { url };
   return port;
@@ -38,15 +38,15 @@ test('a panel receives the link status and its watch events', async () => {
   const port = panelPort();
 
   hub.attach(port);
-  port.deliver({ type: 'watch', key: 'chats', method: 'chats.watch', params: {} });
+  port.deliver({ type: 'watch', key: 'chats', method: 'studio.watch', params: {} });
   await flush();
-  hub.onEvent('chats.changed', { watch: 'w:1', chats: [] });
-  hub.onEvent('chats.changed', { watch: 'w:9', chats: [] });
+  hub.onEvent('studio.changed', { watch: 'w:1', chats: [] });
+  hub.onEvent('studio.changed', { watch: 'w:9', chats: [] });
 
-  assert.deepEqual(port.posted[0], { type: 'status', status: 'ready', features: { chat: true } });
+  assert.deepEqual(port.posted[0], { type: 'status', status: 'ready', features: { studio: true } });
   assert.deepEqual(port.posted[1], { type: 'agent', isAllowed: false, controlled: 0 });
   assert.deepEqual(port.posted.slice(2), [
-    { type: 'event', key: 'chats', event: 'chats.changed', params: { watch: 'w:1', chats: [] } },
+    { type: 'event', key: 'chats', event: 'studio.changed', params: { watch: 'w:1', chats: [] } },
   ]);
 });
 
@@ -60,22 +60,22 @@ test('ports from other pages are refused', () => {
   assert.equal(hub.size, 0);
 });
 
-test('switching the chat watch cancels the previous one in the app', async () => {
+test('switching the studio watch cancels the previous one in the app', async () => {
   const link = fakeLink();
   const hub = createPanelHub({ link, extensionOrigin: ORIGIN });
   const port = panelPort();
   hub.attach(port);
 
-  port.deliver({ type: 'watch', key: 'chat', method: 'chat.watch', params: { chatId: 'a' } });
+  port.deliver({ type: 'watch', key: 'chat', method: 'studio.watch', params: { chatId: 'a' } });
   await flush();
-  port.deliver({ type: 'watch', key: 'chat', method: 'chat.watch', params: { chatId: 'b' } });
+  port.deliver({ type: 'watch', key: 'chat', method: 'studio.watch', params: { chatId: 'b' } });
   await flush();
-  hub.onEvent('chat.changed', { watch: 'w:1' });
+  hub.onEvent('studio.changed', { watch: 'w:1' });
 
   assert.deepEqual(link.calls.map((it) => [it.method, it.params]), [
-    ['chat.watch', { chatId: 'a' }],
+    ['studio.watch', { chatId: 'a' }],
     ['watch.cancel', { watch: 'w:1' }],
-    ['chat.watch', { chatId: 'b' }],
+    ['studio.watch', { chatId: 'b' }],
   ]);
   assert.equal(port.posted.filter((it) => it.type === 'event').length, 0);
 });
@@ -85,18 +85,18 @@ test('watches are opened again after the app comes back', async () => {
   const hub = createPanelHub({ link, extensionOrigin: ORIGIN });
   const port = panelPort();
   hub.attach(port);
-  port.deliver({ type: 'watch', key: 'chats', method: 'chats.watch', params: {} });
+  port.deliver({ type: 'watch', key: 'chats', method: 'studio.watch', params: {} });
   await flush();
 
   link.status = 'waiting_for_app';
   hub.onLinkStatus('waiting_for_app', null);
   link.status = 'ready';
-  hub.onLinkStatus('ready', { features: { chat: true } });
+  hub.onLinkStatus('ready', { features: { studio: true } });
   await flush();
-  hub.onEvent('chats.changed', { watch: 'w:2' });
+  hub.onEvent('studio.changed', { watch: 'w:2' });
 
-  assert.equal(link.calls.filter((it) => it.method === 'chats.watch').length, 2);
-  assert.deepEqual(port.posted.at(-1), { type: 'event', key: 'chats', event: 'chats.changed', params: { watch: 'w:2' } });
+  assert.equal(link.calls.filter((it) => it.method === 'studio.watch').length, 2);
+  assert.deepEqual(port.posted.at(-1), { type: 'event', key: 'chats', event: 'studio.changed', params: { watch: 'w:2' } });
 });
 
 test('closing a panel cancels its watches', async () => {
@@ -104,7 +104,7 @@ test('closing a panel cancels its watches', async () => {
   const hub = createPanelHub({ link, extensionOrigin: ORIGIN });
   const port = panelPort();
   hub.attach(port);
-  port.deliver({ type: 'watch', key: 'chats', method: 'chats.watch', params: {} });
+  port.deliver({ type: 'watch', key: 'chats', method: 'studio.watch', params: {} });
   await flush();
 
   port.onDisconnect.emit();
@@ -113,15 +113,15 @@ test('closing a panel cancels its watches', async () => {
   assert.deepEqual(link.calls.at(-1)?.params, { watch: 'w:1' });
 });
 
-test('panel calls are limited to chat methods and answered by id', async () => {
+test('panel calls are limited to studio methods and answered by id', async () => {
   const link = fakeLink();
   const hub = createPanelHub({ link, extensionOrigin: ORIGIN });
   const port = panelPort();
   hub.attach(port);
 
-  port.deliver({ type: 'call', id: 1, method: 'chat.send', params: { text: 'Hi' } });
+  port.deliver({ type: 'call', id: 1, method: 'studio.intent', params: { text: 'Hi' } });
   port.deliver({ type: 'call', id: 2, method: 'cdp.send', params: {} });
-  port.deliver({ type: 'call', id: 3, method: 'chat.stop', params: { chatId: 'a' } });
+  port.deliver({ type: 'call', id: 3, method: 'studio.attachPage', params: { chatId: 'a' } });
   link.calls[0].resolve({ chatId: 'c1' });
   link.calls[1].reject(new BridgeError('busy', 'Running'));
   await flush();
@@ -172,11 +172,11 @@ test('early reset and deltas are delivered in order only to their watch owner', 
   const { hub, link, port } = delayedHub();
   const other = panelPort();
   hub.attach(other);
-  port.deliver({ type: 'watch', key: 'chat', method: 'chat.watch', params: { chatId: 'a' } });
-  other.deliver({ type: 'watch', key: 'chat', method: 'chat.watch', params: { chatId: 'b' } });
-  hub.onEvent('chat.changed', { watch: 'w:1', chatId: 'a', reset: true, upserts: [{ id: 'history' }] });
-  hub.onEvent('chat.changed', { watch: 'w:1', chatId: 'a', reset: false, upserts: [{ id: 'latest' }] });
-  hub.onEvent('chat.changed', { watch: 'w:2', chatId: 'b', reset: true, upserts: [] });
+  port.deliver({ type: 'watch', key: 'chat', method: 'studio.watch', params: { chatId: 'a' } });
+  other.deliver({ type: 'watch', key: 'chat', method: 'studio.watch', params: { chatId: 'b' } });
+  hub.onEvent('studio.changed', { watch: 'w:1', chatId: 'a', reset: true, upserts: [{ id: 'history' }] });
+  hub.onEvent('studio.changed', { watch: 'w:1', chatId: 'a', reset: false, upserts: [{ id: 'latest' }] });
+  hub.onEvent('studio.changed', { watch: 'w:2', chatId: 'b', reset: true, upserts: [] });
   link.calls[1].resolve({ watch: 'w:2' });
   link.calls[0].resolve({ watch: 'w:1' });
   await flush();
@@ -186,9 +186,9 @@ test('early reset and deltas are delivered in order only to their watch owner', 
 
 test('replacing pending watches suppresses stale errors and cancels stale successes', async () => {
   const { hub, link, port } = delayedHub();
-  const open = (/** @type {string} */ chatId) => port.deliver({ type: 'watch', key: 'chat', method: 'chat.watch', params: { chatId } });
+  const open = (/** @type {string} */ chatId) => port.deliver({ type: 'watch', key: 'chat', method: 'studio.watch', params: { chatId } });
   open('a');
-  hub.onEvent('chat.changed', { watch: 'w:1', reset: true });
+  hub.onEvent('studio.changed', { watch: 'w:1', reset: true });
   open('b');
   open('c');
   link.calls[0].resolve({ watch: 'w:1' });
@@ -201,13 +201,13 @@ test('replacing pending watches suppresses stale errors and cancels stale succes
 
 test('reconnect discards early events and does not cancel reused ids in the new connection', async () => {
   const { hub, link, port } = delayedHub();
-  port.deliver({ type: 'watch', key: 'chat', method: 'chat.watch', params: { chatId: 'a' } });
-  hub.onEvent('chat.changed', { watch: 'w:1', reset: true, upserts: ['old'] });
+  port.deliver({ type: 'watch', key: 'chat', method: 'studio.watch', params: { chatId: 'a' } });
+  hub.onEvent('studio.changed', { watch: 'w:1', reset: true, upserts: ['old'] });
   hub.onLinkStatus('disconnected', null);
-  hub.onLinkStatus('ready', { features: { chat: true } });
-  hub.onLinkStatus('ready', { features: { chat: true } });
+  hub.onLinkStatus('ready', { features: { studio: true } });
+  hub.onLinkStatus('ready', { features: { studio: true } });
   assert.equal(link.calls.length, 2, 'features/status refresh must not duplicate pending watches');
-  hub.onEvent('chat.changed', { watch: 'w:1', reset: true, upserts: ['new'] });
+  hub.onEvent('studio.changed', { watch: 'w:1', reset: true, upserts: ['new'] });
   link.calls[0].resolve({ watch: 'w:1' });
   link.calls[1].resolve({ watch: 'w:1' });
   await flush();
@@ -217,8 +217,8 @@ test('reconnect discards early events and does not cancel reused ids in the new 
 
 test('early buffer overflow cancels the watch instead of showing incomplete history', async () => {
   const { hub, link, port } = delayedHub();
-  port.deliver({ type: 'watch', key: 'chat', method: 'chat.watch', params: { chatId: 'a' } });
-  for (let index = 0; index < 65; index++) hub.onEvent('chat.changed', { watch: 'w:1', reset: index === 0 });
+  port.deliver({ type: 'watch', key: 'chat', method: 'studio.watch', params: { chatId: 'a' } });
+  for (let index = 0; index < 65; index++) hub.onEvent('studio.changed', { watch: 'w:1', reset: index === 0 });
   link.calls[0].resolve({ watch: 'w:1' });
   await flush();
   assert.equal(port.posted.some((it) => it.type === 'event'), false);
@@ -228,14 +228,14 @@ test('early buffer overflow cancels the watch instead of showing incomplete hist
 
 test('a valid large reset is buffered and closing a pending panel releases its watch', async () => {
   const { hub, link, port } = delayedHub();
-  port.deliver({ type: 'watch', key: 'chat', method: 'chat.watch', params: { chatId: 'a' } });
-  hub.onEvent('chat.changed', { watch: 'w:1', reset: true, text: 'a'.repeat(7 * 1024 * 1024) });
+  port.deliver({ type: 'watch', key: 'chat', method: 'studio.watch', params: { chatId: 'a' } });
+  hub.onEvent('studio.changed', { watch: 'w:1', reset: true, text: 'a'.repeat(7 * 1024 * 1024) });
   link.calls[0].resolve({ watch: 'w:1' });
   await flush();
   assert.equal(port.posted.at(-1).type, 'event');
-  port.deliver({ type: 'watch', key: 'chat', method: 'chat.watch', params: { chatId: 'b' } });
+  port.deliver({ type: 'watch', key: 'chat', method: 'studio.watch', params: { chatId: 'b' } });
   port.onDisconnect.emit();
-  link.calls.find((it) => it.method === 'chat.watch' && it.params.chatId === 'b')?.resolve({ watch: 'w:2' });
+  link.calls.find((it) => it.method === 'studio.watch' && it.params.chatId === 'b')?.resolve({ watch: 'w:2' });
   await flush();
   assert.deepEqual(link.calls.at(-1)?.params, { watch: 'w:2' });
 });
@@ -287,4 +287,24 @@ test('a multipart studio snapshot overflowing a delayed watch is refused and a n
   for (let index = 0; index < 72; index++) part('w:2', index);
   assert.deepEqual(port.posted.filter((it) => it.type === 'event').map((it) => it.params.frame.index),
     Array.from({ length: 72 }, (_, index) => index));
+});
+
+test('captured pages retain their sequence and generation while legacy chat calls are refused', async () => {
+  const link = fakeLink();
+  const hub = createPanelHub({ link, extensionOrigin: ORIGIN });
+  const port = panelPort();
+  hub.attach(port);
+  const params = { view: 'v1', generation: 'g1', seq: 9, paneId: 0,
+    page: { kind: 'page', url: 'https://example.com', title: 'Example', text: 'Page' } };
+  port.deliver({ type: 'call', id: 1, method: 'studio.attachPage', params });
+  assert.deepEqual(link.calls[0], { method: 'studio.attachPage', params,
+    resolve: link.calls[0].resolve, reject: link.calls[0].reject });
+  link.calls[0].resolve({ ack: 9, refused: [] });
+  for (const method of ['chat.send', 'chat.stop', 'permission.respond']) {
+    port.deliver({ type: 'call', id: method, method, params: {} });
+  }
+  await flush();
+  assert.deepEqual(port.posted.find((item) => item.id === 1).result, { ack: 9, refused: [] });
+  assert.equal(link.calls.length, 1);
+  assert.equal(port.posted.filter((item) => item.error?.code === 'unknown_method').length, 3);
 });

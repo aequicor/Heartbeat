@@ -38,7 +38,7 @@ class PanelStoreTest {
             advanceUntilIdle()
             assertEquals(PanelNotice.WaitingForApp, states.value.notice)
 
-            host.deliver("""{"type":"status","status":"ready","features":{"chat":true,"agentControl":true}}""")
+            host.deliver("""{"type":"status","status":"ready","features":{"studio":true,"agentControl":true}}""")
             host.deliver("""{"type":"agent","isAllowed":true,"controlled":3}""")
             advanceUntilIdle()
 
@@ -66,10 +66,10 @@ class PanelStoreTest {
     }
 
     @Test
-    fun `connecting is quiet, a ready app without chats and unknown statuses are problems`() {
+    fun `connecting is quiet, a ready app without studio and unknown statuses are problems`() {
         assertFalse(checkNotNull(PanelState(status = LinkStatus.Handshaking).notice).isProblem)
-        assertEquals(PanelNotice.ChatsOff, PanelState(status = LinkStatus.Ready).notice)
-        assertNull(PanelState(status = LinkStatus.Ready, features = PanelFeatures(isChat = true)).notice)
+        assertEquals(PanelNotice.StudioOff, PanelState(status = LinkStatus.Ready).notice)
+        assertNull(PanelState(status = LinkStatus.Ready, features = PanelFeatures(isStudio = true)).notice)
         assertEquals(LinkStatus.Disconnected, LinkStatus.fromWire("from_a_newer_extension"))
     }
 }

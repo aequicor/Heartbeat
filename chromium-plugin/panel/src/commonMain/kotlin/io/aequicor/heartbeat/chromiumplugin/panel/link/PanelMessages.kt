@@ -61,7 +61,6 @@ internal sealed interface PanelInbound {
 /** Bridge features the app offers (`app.features`). */
 @Serializable
 internal data class PanelFeatures(
-    @SerialName("chat") val isChat: Boolean = false,
     @SerialName("agentControl") val isAgentControl: Boolean = false,
     @SerialName("studio") val isStudio: Boolean = false,
 )

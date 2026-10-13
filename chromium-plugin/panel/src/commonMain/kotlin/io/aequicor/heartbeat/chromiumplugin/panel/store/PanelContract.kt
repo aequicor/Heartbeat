@@ -53,7 +53,7 @@ internal enum class PanelNotice(val isProblem: Boolean) {
     WaitingForApp(isProblem = true),
     Incompatible(isProblem = true),
     Disconnected(isProblem = true),
-    ChatsOff(isProblem = true),
+    StudioOff(isProblem = true),
 }
 
 /** The notice for the link status, or `null` when the studio is usable. */
@@ -65,7 +65,7 @@ internal val PanelState.notice: PanelNotice?
         LinkStatus.WaitingForApp -> PanelNotice.WaitingForApp
         LinkStatus.Incompatible -> PanelNotice.Incompatible
         LinkStatus.Disconnected -> PanelNotice.Disconnected
-        LinkStatus.Ready -> PanelNotice.ChatsOff.takeIf { features?.isChat != true }
+        LinkStatus.Ready -> PanelNotice.StudioOff.takeIf { features?.isStudio != true }
     }
 
 /** The app lets agents drive this browser, so the consent is offered. */

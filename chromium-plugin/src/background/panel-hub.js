@@ -5,13 +5,13 @@ import { BridgeError, ErrorCode, toWireError } from '../shared/protocol.js';
 export const PANEL_PORT = 'heartbeat-panel';
 
 /** App methods a panel may call directly; watches go through `watch` / `unwatch` messages. */
-const PANEL_METHODS = new Set(['chat.send', 'chat.stop', 'permission.respond', 'studio.intent']);
+const PANEL_METHODS = new Set(['studio.intent', 'studio.attachPage']);
 
 /** Methods that open a watch and the events that carry its updates. */
-const WATCH_METHODS = new Set(['chats.watch', 'chat.watch', 'studio.watch']);
+const WATCH_METHODS = new Set(['studio.watch']);
 
 /** Events of the watches above, kept while their watch replies are in flight. */
-const WATCH_EVENTS = new Set(['chats.changed', 'chat.changed', 'studio.changed']);
+const WATCH_EVENTS = new Set(['studio.changed']);
 
 /** Bounds retained events while watch replies are in flight; overflow fails the watch instead of losing history. */
 const MAX_EARLY_EVENTS = 64;
@@ -30,9 +30,9 @@ const MAX_EARLY_CHARS = 64 * 1024 * 1024;
 const NO_AGENT = { state: () => ({ isAllowed: false, controlled: 0 }), setAllowed: () => {}, revokeAll: () => {} };
 
 /**
- * Connects side panels to the app. Each panel holds named watches (`chats`, `chat`); the hub opens them in the
+ * Connects side panels to the app. Each panel holds named studio watches; the hub opens them in the
  * app, routes their events to the owning panel and opens them again after every reconnect, so a panel only ever
- * sees a fresh `reset`. Watches of a closed panel are cancelled in the app.
+ * sees a fresh snapshot. Watches of a closed panel are cancelled in the app.
  * The hub also carries the agent-control consent and the number of controlled tabs to every panel.
  * @param {{ link: Link, extensionOrigin: string, agent?: Agent }} options
  */

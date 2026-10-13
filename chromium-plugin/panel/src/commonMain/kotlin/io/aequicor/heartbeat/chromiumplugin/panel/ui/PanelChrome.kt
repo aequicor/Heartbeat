@@ -8,7 +8,6 @@ import io.aequicor.heartbeat.chromiumplugin.panel.resources.Res
 import io.aequicor.heartbeat.chromiumplugin.panel.resources.agent_consent
 import io.aequicor.heartbeat.chromiumplugin.panel.resources.agent_consent_hint
 import io.aequicor.heartbeat.chromiumplugin.panel.resources.agent_controlling
-import io.aequicor.heartbeat.chromiumplugin.panel.resources.chats_off
 import io.aequicor.heartbeat.chromiumplugin.panel.resources.revoke_all
 import io.aequicor.heartbeat.chromiumplugin.panel.resources.status_connecting
 import io.aequicor.heartbeat.chromiumplugin.panel.resources.status_disconnected
@@ -16,6 +15,7 @@ import io.aequicor.heartbeat.chromiumplugin.panel.resources.status_forbidden
 import io.aequicor.heartbeat.chromiumplugin.panel.resources.status_host_missing
 import io.aequicor.heartbeat.chromiumplugin.panel.resources.status_incompatible
 import io.aequicor.heartbeat.chromiumplugin.panel.resources.status_waiting
+import io.aequicor.heartbeat.chromiumplugin.panel.resources.studio_off
 import io.aequicor.heartbeat.chromiumplugin.panel.store.AgentControl
 import io.aequicor.heartbeat.chromiumplugin.panel.store.PanelNotice
 import io.aequicor.heartbeat.ds.components.HbBanner
@@ -85,5 +85,5 @@ private val PanelNotice.text: StringResource
         PanelNotice.WaitingForApp -> Res.string.status_waiting
         PanelNotice.Incompatible -> Res.string.status_incompatible
         PanelNotice.Disconnected -> Res.string.status_disconnected
-        PanelNotice.ChatsOff -> Res.string.chats_off
+        PanelNotice.StudioOff -> Res.string.studio_off
     }

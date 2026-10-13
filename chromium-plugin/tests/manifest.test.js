@@ -48,3 +48,11 @@ test('permissions are exactly the reviewed set', () => {
   ]);
   assert.deepEqual(manifest.optional_host_permissions, ['http://*/*', 'https://*/*']);
 });
+
+test('the side panel starts only the bundled Compose application', () => {
+  assert.equal(manifest.side_panel.default_path, 'src/sidepanel/panel.html');
+  const html = readFileSync(new URL('../src/sidepanel/panel.html', import.meta.url), 'utf8');
+  assert.ok(html.includes('src="panel-boot.js"'));
+  assert.ok(html.includes('src="../../app/panel.js"'));
+  assert.ok(!html.includes('sidepanel.js'));
+});
