@@ -26,6 +26,7 @@ public const val SERVICE_UI_LOAD_ATTEMPTS: Int = 3
  * | Ready | OpenPanel | matching expected context, dock, enabled surface, args and panel limits | open in the dock |
  * | Ready | ClosePanel | open dock | close it |
  * | Ready | RequestPrompt | bound place, matching expected context, bounded text | PromptRequested with context |
+ * | Ready | RequestFocusCard | matching chat context, enabled surface of the requesting owner | CardFocusRequested |
  *
  * Writes are serialized; callers retry on Busy. A commit closes the panels of surfaces it deleted or disabled. Purges
  * of owners whose deletion a complete provider snapshot confirmed are the feature's own writes: they wait for the
@@ -102,6 +103,13 @@ private typealias ReadyBuilder =
     StateBuilder<ServiceUiState, ServiceUiState.Ready, ServiceUiIntent, ServiceUiEffect, ServiceUiOutput>
 
 private fun ReadyBuilder.ready() {
+    on<ServiceUiIntent.Internal.RequestFocusCard>(guard = {
+        intent.expectedContext.call.session != null && state.hosts[intent.host] == intent.expectedContext &&
+            intent.cardId.isNotBlank() &&
+            state.library[intent.surface]?.let { it.isEnabled && it.content.owner == intent.owner } == true
+    }) {
+        output { ServiceUiOutput.CardFocusRequested(intent.host, intent.cardId, intent.expectedContext) }
+    }
     on<ServiceUiIntent.Internal.Edit> {
         stay { state.edited(intent.write) }
         effect { persistOf(state, state.edited(intent.write)) }
@@ -218,8 +226,9 @@ private fun ServiceUiState.Ready.checkedOwners(kinds: Set<String>): ServiceUiSta
     return copy(purge = purge + deleted).purged()
 }
 
-private fun UiLibrary.canOpen(id: UiSurfaceId): Boolean =
-    this[id]?.let { it.isEnabled && !it.content.placement.isInline } == true
+private fun UiLibrary.canOpen(id: UiSurfaceId): Boolean = this[id]?.let {
+    it.isEnabled && (it.content.placement == UiPlacement.Panel || it.content.placement == UiPlacement.Modal)
+} == true
 
 private fun ServiceUiState.Ready.canOpen(intent: ServiceUiIntent.Public.OpenPanel): Boolean {
     val context = hosts[intent.host] ?: return false

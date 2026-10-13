@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodResult
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethods
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwner
 import io.aequicor.heartbeat.feature.serviceasui.api.UiPlacement
+import io.aequicor.heartbeat.feature.serviceasui.api.UiSurfaceId
 import io.aequicor.heartbeat.feature.serviceasui.impl.data.UnsupportedUiPlatform
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCard
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardAdded
@@ -188,6 +189,8 @@ class CardModelTest {
         private val storage = object : UiCardStorage {
             override suspend fun add(card: UiCard): UiCardAdded = error("unused")
             override fun observe(id: String): Flow<UiCard?> = cards.map { it[id] }
+
+            override suspend fun latest(chat: SessionRef, surface: UiSurfaceId): UiCard? = null
         }
         val model = CardModel(
             ServiceUiCardRoute(ID, place),

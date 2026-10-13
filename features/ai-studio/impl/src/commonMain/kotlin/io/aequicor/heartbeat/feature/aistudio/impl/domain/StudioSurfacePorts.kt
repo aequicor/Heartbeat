@@ -27,6 +27,9 @@ data class StudioSurfacePrompt(
     override fun toString(): String = "StudioSurfacePrompt(paneId=$paneId, isSubmitted=$isSubmitted)"
 }
 
+/** Reveals a stored interface card only in the pane still showing its original [place]. */
+data class StudioSurfaceCardFocus(val paneId: Int, val cardId: String, val place: StudioSurfacePlace)
+
 /** Interfaces the agent built, as the panes of one studio window use them. */
 interface StudioSurfaces {
     /** Whether interfaces are turned on. */
@@ -34,6 +37,9 @@ interface StudioSurfaces {
 
     /** Prompts surfaces in the panes of this window ask for. */
     val prompts: Flow<StudioSurfacePrompt>
+
+    /** Requests to reveal an existing card in its chat. */
+    val cardFocus: Flow<StudioSurfaceCardFocus>
 
     /** The place id of pane [paneId] for the slot routes of interfaces. */
     fun host(paneId: Int): String
@@ -54,6 +60,7 @@ interface StudioSurfaces {
     object None : StudioSurfaces {
         override val availability: Flow<Boolean> = flowOf(false)
         override val prompts: Flow<StudioSurfacePrompt> = emptyFlow()
+        override val cardFocus: Flow<StudioSurfaceCardFocus> = emptyFlow()
 
         override fun host(paneId: Int): String = "none.pane-$paneId"
 

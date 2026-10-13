@@ -12,11 +12,14 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarness
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessChoices
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaceCardFocus
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfacePlace
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfacePrompt
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaces
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioToolRun
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.TestClock
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModelTest.Fixture
@@ -117,6 +120,44 @@ class StudioSurfaceModelTest {
         assertTrue(fixture.machine.sent.none { it is AiStudioIntent.Public.Submit })
     }
 
+    @Test
+    fun `card output reaches the store and only its current acknowledgement clears it`() = runTest {
+        val clock = TestClock(this)
+        val workspace = StudioWorkspace(
+            emptyList(),
+            listOf(StudioSession("chat", null, "Chat", clock.now(), nativeSession = native)),
+        )
+        val repository = object : StudioRepository by InMemoryStudioRepository(clock) {
+            override fun observeWorkspace() = flowOf(workspace)
+
+            override fun observeMessages(sessionId: String) = flowOf(
+                listOf(
+                    StudioMessage.Reply(
+                        "reply",
+                        clock.now(),
+                        tools = listOf(StudioToolRun("tool", "UI", shownCardId = "card")),
+                    ),
+                ),
+            )
+        }
+        val surfaces = FakeStudioSurfaces()
+        val fixture = Fixture(this, ready(StudioPane(0, sessionId = "chat")), repository, surfaces = surfaces)
+        val screen = fixture.subscribe()
+        surfaces.cardFocus.emit(StudioSurfaceCardFocus(0, "card", StudioSurfacePlace(chat = native)))
+        runCurrent()
+        val first = screen.states.value.cardFocusRequests.getValue(0)
+        surfaces.cardFocus.emit(StudioSurfaceCardFocus(0, "card", StudioSurfacePlace(chat = native)))
+        runCurrent()
+        val second = screen.states.value.cardFocusRequests.getValue(0)
+        assertTrue(second.sequence > first.sequence)
+        screen.intent(AiStudioScreenIntent.CardFocusApplied(0, first.sequence))
+        runCurrent()
+        assertEquals(second, screen.states.value.cardFocusRequests[0])
+        screen.intent(AiStudioScreenIntent.CardFocusApplied(0, second.sequence))
+        runCurrent()
+        assertTrue(screen.states.value.cardFocusRequests.isEmpty())
+    }
+
     private fun ready(vararg panes: StudioPane) = AiStudioState.Ready(
         panes = panes.toList(),
         focusedPaneId = panes.first().id,
@@ -128,6 +169,7 @@ class StudioSurfaceModelTest {
         val places = mutableListOf<Map<Int, StudioSurfacePlace>>()
         override val availability: Flow<Boolean> = flowOf(true)
         override val prompts = MutableSharedFlow<StudioSurfacePrompt>(extraBufferCapacity = 4)
+        override val cardFocus = MutableSharedFlow<StudioSurfaceCardFocus>(extraBufferCapacity = 4)
 
         override fun host(paneId: Int): String = "test.pane-$paneId"
         override val dock: String = "test.side"

@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentPreviewUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.CardFocusRequestUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ComposerCaretRequestUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ContextUsageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.HarnessChoiceUi
@@ -85,6 +86,7 @@ internal data class PaneContent(
     val renaming: RenameUi?,
     val settings: SettingsUi,
     val models: ImmutableList<ModelUi> = persistentListOf(),
+    val cardFocus: CardFocusRequestUi? = null,
     val permissions: ImmutableList<PermissionUi> = persistentListOf(),
     val isStopFailed: Boolean = false,
     val isStoppable: Boolean = true,
@@ -169,6 +171,7 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
     val effectiveSettings = paneSettings(session, configuration).forOrganism(organism)
     return PaneContent(
         pane = pane,
+        cardFocus = cardFocusRequests[pane.id]?.takeIf { it.chatId == pane.sessionId },
         session = session,
         project = project(pane.projectId ?: session?.projectId),
         projects = projects,

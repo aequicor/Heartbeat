@@ -9,10 +9,13 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaceCardFocus
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfacePlace
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfacePrompt
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaces
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
+import kotlinx.collections.immutable.toImmutableMap
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -42,6 +45,7 @@ class StudioSurfaceBinding internal constructor(
     private val cards = MutableStateFlow<Map<Int, Set<String>>>(emptyMap())
 
     private var seen: SeenInputs? = null
+    private var focusSequence = 0L
     private val latestWorkspace = MutableStateFlow<StudioWorkspace?>(null)
 
     /** The open panes, for the slot hosts of the component. */
@@ -94,7 +98,14 @@ class StudioSurfaceBinding internal constructor(
      * command, so a surface cannot send the user's text, attachments or a `/compact` or `/remember` directive.
      */
     internal suspend fun observe(pipeline: SurfacePipeline, submit: suspend (paneId: Int) -> Unit) {
-        surfaces.prompts.collect { prompt -> applyPrompt(pipeline, prompt, submit) }
+        coroutineScope {
+            launch { surfaces.prompts.collect { prompt -> applyPrompt(pipeline, prompt, submit) } }
+            surfaces.cardFocus.collect { request ->
+                val workspace = latestWorkspace.value ?: return@collect
+                val sequence = ++focusSequence
+                pipeline.updateState { withCardFocus(request, workspace, sequence) }
+            }
+        }
     }
 
     private suspend fun applyPrompt(
@@ -130,6 +141,35 @@ class StudioSurfaceBinding internal constructor(
         val selected = if (pane.sessionId == null) harnessChoices.panes[pane.id].orEmpty() else emptySet()
         return PaneSurfaceUi(pane.sessionId, pane.projectId, selected).place(workspace) == prompt.place
     }
+}
+
+/** Revalidates delayed outputs against the pane and transcript that will actually scroll. */
+internal fun AiStudioScreenState.withCardFocus(
+    request: StudioSurfaceCardFocus,
+    workspace: StudioWorkspace,
+    sequence: Long,
+): AiStudioScreenState {
+    val pane = panes.firstOrNull { it.id == request.paneId } ?: return this
+    val chatId = pane.sessionId ?: return this
+    if (selectedNative(chatId) != PrimarySubSession ||
+        (subSessions[chatId] ?: PrimarySubSession) != PrimarySubSession
+    ) {
+        return this
+    }
+    if (PaneSurfaceUi(chatId, pane.projectId, emptySet()).place(workspace) != request.place) return this
+    val reply = transcripts[chatId]?.filterIsInstance<MessageUi.Reply>()
+        ?.lastOrNull { request.cardId in it.cardIds } ?: return this
+    val focus = CardFocusRequestUi(chatId, reply.id, request.cardId, sequence)
+    return copy(cardFocusRequests = (cardFocusRequests + (pane.id to focus)).toImmutableMap())
+}
+
+/** A late acknowledgement cannot consume a newer request for the same pane. */
+internal fun AiStudioScreenState.withCardFocusApplied(
+    intent: AiStudioScreenIntent.CardFocusApplied,
+): AiStudioScreenState = if (cardFocusRequests[intent.paneId]?.sequence != intent.sequence) {
+    this
+} else {
+    copy(cardFocusRequests = (cardFocusRequests - intent.paneId).toImmutableMap())
 }
 
 private fun PaneSurfaceUi.place(workspace: StudioWorkspace): StudioSurfacePlace {

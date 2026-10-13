@@ -62,6 +62,7 @@ private class TimelineChangeLog {
  * [overlapInsets] softly fades rows beneath floating controls without fading the scrollbar or jump action.
  * [onToolAction] receives the pressed action of a tool call together with that call.
  * [onLinkClick] opens web/mail links through the platform by default; pass null to disable links.
+ * [focusRequest] reveals a host-selected message; [onFocus] acknowledges it even when the target is absent.
  */
 @Composable
 public fun HbChatTranscript(
@@ -83,6 +84,8 @@ public fun HbChatTranscript(
     onToolAction: (HbToolCall, HbToolAction) -> Unit = { _, _ -> },
     messageFooterContent: (@Composable (HbChatMessage) -> Unit)? = null,
     messageEmbeddedContent: (@Composable (HbChatMessage) -> Unit)? = null,
+    focusRequest: HbTranscriptFocus? = null,
+    onFocus: (Long) -> Unit = {},
 ) {
     val expandedKeys = toolExpansionState.expandedKeys
     val sections = remember(timeline, expandedKeys) { expandedTranscriptSections(timeline, expandedKeys) }
@@ -123,6 +126,15 @@ public fun HbChatTranscript(
             }
         }
     }
+
+    TranscriptFocusEffect(
+        state,
+        sections,
+        focusRequest,
+        showSectionHeaders,
+        onReveal = { followStateHolder.value = followStateHolder.value.onUserScroll(isAtLatest = false) },
+        onFocus,
+    )
 
     Box(modifier = modifier) {
         HbStickyHeaderHost(

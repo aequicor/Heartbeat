@@ -164,6 +164,18 @@ public sealed interface ServiceUiIntent : MachineIntent {
         ) : Internal {
             override fun toString(): String = "RequestPrompt(host=${host.value}, text=***, isSubmitted=$isSubmitted)"
         }
+
+        /**
+         * Reveals [cardId], resolved from storage in [expectedContext]'s chat for [surface] of [owner].
+         * The host rechecks the context and that the card is still in its visible transcript.
+         */
+        public data class RequestFocusCard(
+            val host: UiHostId,
+            val surface: UiSurfaceId,
+            val owner: UiOwner,
+            val cardId: String,
+            val expectedContext: UiHostContext,
+        ) : Internal
     }
 }
 
@@ -203,6 +215,10 @@ public sealed interface ServiceUiOutput : MachineOutput {
     ) : ServiceUiOutput {
         override fun toString(): String = "PromptRequested(host=${host.value}, text=***, isSubmitted=$isSubmitted)"
     }
+
+    /** Reveals [cardId] in [host] only while the host still shows [context] and contains that card. */
+    public data class CardFocusRequested(val host: UiHostId, val cardId: String, val context: UiHostContext) :
+        ServiceUiOutput
 }
 
 /** Address of the profile machine of agent interfaces. */

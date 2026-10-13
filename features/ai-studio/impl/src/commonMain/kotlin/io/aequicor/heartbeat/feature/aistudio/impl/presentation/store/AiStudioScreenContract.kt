@@ -151,6 +151,8 @@ data class AiStudioScreenState(
     val projects: ImmutableList<ProjectUi> = persistentListOf(),
     val sessions: ImmutableList<SessionUi> = persistentListOf(),
     val transcripts: ImmutableMap<String, ImmutableList<MessageUi>> = persistentMapOf(),
+    /** Pending requests to reveal an existing interface card, acknowledged after the transcript scrolls. */
+    val cardFocusRequests: ImmutableMap<Int, CardFocusRequestUi> = persistentMapOf(),
     val drafts: ImmutableMap<String, String> = persistentMapOf(),
     /** Caret position of each composer draft; drives the active autocomplete token. */
     val draftCarets: ImmutableMap<String, Int> = persistentMapOf(),
@@ -229,6 +231,9 @@ data class ComposerCaretRequestUi(val id: Long, val text: String, val caret: Int
 
 /** User events of the studio screen. */
 sealed interface AiStudioScreenIntent : MVIIntent {
+    /** A rendered transcript handled its pending card focus request. */
+    data class CardFocusApplied(val paneId: Int, val sequence: Long) : AiStudioScreenIntent
+
     /** Changes what the panes show; forwarded to the machine. */
     sealed interface Navigation : AiStudioScreenIntent
 
@@ -440,6 +445,10 @@ sealed interface AiStudioScreenIntent : MVIIntent {
 
 /** No one-shot screen actions: every reaction is state. */
 sealed interface AiStudioScreenAction : MVIAction
+
+/** One request bound to its chat; [sequence] distinguishes repeated clicks on the same card. */
+@Immutable
+data class CardFocusRequestUi(val chatId: String, val messageId: String, val cardId: String, val sequence: Long)
 
 /** What a suggestion completes; the section label and icon derive from kind and origin. */
 enum class SuggestionKindUi { Command, Skill, File }

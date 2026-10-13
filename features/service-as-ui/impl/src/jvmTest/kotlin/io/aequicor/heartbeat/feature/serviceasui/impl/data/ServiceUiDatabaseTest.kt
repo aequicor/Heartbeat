@@ -70,6 +70,21 @@ class ServiceUiDatabaseTest {
         assertNull(cards.observe("c_broken").first())
     }
 
+    @Test
+    fun `latest card belongs to the exact chat and surface with insertion order for equal timestamps`() = runTest {
+        val surface = UiSurfaceId("harness:h_1:workout")
+        val source = UiCardSource.Surface(surface)
+        cards.add(card("old", One, source, at = 1))
+        cards.add(card("recent", One, source, at = 2))
+        cards.add(card("same-time", One, source, at = 2))
+        cards.add(card("other-chat", Two, source, at = 3))
+        cards.add(card("other-owner", One, UiCardSource.Surface(UiSurfaceId("harness:h_2:workout")), at = 4))
+        cards.add(card("anonymous", One, at = 5))
+        assertEquals("same-time", cards.latest(One, surface)?.id)
+        assertEquals("other-chat", cards.latest(Two, surface)?.id)
+        assertNull(cards.latest(One, UiSurfaceId("harness:h_1:missing")))
+    }
+
     private fun card(
         id: String,
         chat: SessionRef,

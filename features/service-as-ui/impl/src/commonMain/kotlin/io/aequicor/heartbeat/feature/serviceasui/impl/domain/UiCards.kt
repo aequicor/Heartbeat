@@ -55,4 +55,7 @@ internal interface UiCardStorage {
 
     /** The card [id], or null once it was evicted, never stored or cannot be read. */
     fun observe(id: String): Flow<UiCard?>
+
+    /** Latest card of [surface] in [chat], or null when none was stored or it can no longer be read. */
+    suspend fun latest(chat: SessionRef, surface: UiSurfaceId): UiCard?
 }

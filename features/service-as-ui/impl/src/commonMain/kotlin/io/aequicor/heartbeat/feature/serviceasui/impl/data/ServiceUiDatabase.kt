@@ -39,6 +39,12 @@ internal abstract class CardDao {
     @Query("SELECT * FROM ui_cards WHERE id = :id")
     abstract fun observe(id: String): Flow<CardEntity?>
 
+    @Query(
+        "SELECT * FROM ui_cards WHERE chat = :chat AND surface = :surface " +
+            "ORDER BY createdAt DESC, rowid DESC LIMIT 1",
+    )
+    abstract suspend fun latest(chat: String, surface: String): CardEntity?
+
     @Query("SELECT COUNT(*) FROM ui_cards WHERE chat = :chat")
     protected abstract suspend fun count(chat: String): Int
 

@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineRef
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaceCardFocus
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfacePlace
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfacePrompt
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaces
@@ -84,6 +85,25 @@ internal class MachineStudioSurfaces(private val machines: MachineRegistry, togg
         }
 
     override fun host(paneId: Int): String = "$prefix.pane-$paneId"
+
+    override val cardFocus: Flow<StudioSurfaceCardFocus> = machines.observe(ServiceUiMachineKey)
+        .flatMapLatest { machine ->
+            machine?.outputs?.filterIsInstance<ServiceUiOutput.CardFocusRequested>()?.mapNotNull { output ->
+                val current = machine.state.value as? ServiceUiState.Ready
+                if (current?.hosts?.get(output.host) != output.context) return@mapNotNull null
+                paneOf(output.host)?.let { pane ->
+                    StudioSurfaceCardFocus(
+                        pane,
+                        output.cardId,
+                        StudioSurfacePlace(
+                            chat = output.context.call.session,
+                            workspace = output.context.call.workspace,
+                            harnesses = output.context.call.preselected[HarnessTools.GROUP].orEmpty(),
+                        ),
+                    )
+                }
+            } ?: emptyFlow()
+        }
 
     override suspend fun closePanel() {
         log.i { "Close the interface panel of the studio" }

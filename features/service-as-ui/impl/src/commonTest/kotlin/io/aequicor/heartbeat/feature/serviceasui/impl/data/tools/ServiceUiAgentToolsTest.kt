@@ -24,10 +24,12 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiMethods
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwner
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwnerInfo
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwners
+import io.aequicor.heartbeat.feature.serviceasui.api.UiSurfaceId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiWriteResult
 import io.aequicor.heartbeat.feature.serviceasui.api.apply
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCard
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardAdded
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardSource
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardStorage
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiMethodCalls
 import kotlinx.coroutines.flow.Flow
@@ -309,6 +311,9 @@ class ServiceUiAgentToolsTest {
         }
 
         override fun observe(id: String): Flow<UiCard?> = flowOf(added.firstOrNull { it.id == id })
+
+        override suspend fun latest(chat: SessionRef, surface: UiSurfaceId): UiCard? =
+            added.lastOrNull { it.chat == chat && (it.source as? UiCardSource.Surface)?.surface == surface }
     }
 
     private object Calls : UiMethodCalls {

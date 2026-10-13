@@ -379,6 +379,7 @@ class AiStudioModel(
 
     private suspend fun handle(pipeline: StudioPipeline, intent: AiStudioScreenIntent) = with(pipeline) {
         when (intent) {
+            is AiStudioScreenIntent.CardFocusApplied -> updateState { withCardFocusApplied(intent) }
             is AiStudioScreenIntent.Navigation -> navigate(pipeline, intent)
             is AiStudioScreenIntent.Composer -> compose(pipeline, intent)
             is AiStudioScreenIntent.DiagramAction -> handleStudioDiagramAction(pipeline, machine, intent)
