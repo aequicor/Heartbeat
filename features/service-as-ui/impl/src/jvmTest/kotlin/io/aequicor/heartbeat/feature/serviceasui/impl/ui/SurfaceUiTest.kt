@@ -156,7 +156,7 @@ class SurfaceUiTest {
     }
 
     @Test
-    fun `web nodes draw their embedded document at a fixed height, or a note without one`() =
+    fun `web nodes draw their embedded document at a fixed height, a loading state before it, or a note`() =
         runSkikoComposeUiTest(size = Size(720f, 1200f)) {
             val values = UiValues()
             val root = assertIs<UiNodeUi.Column>(
@@ -165,6 +165,9 @@ class SurfaceUiTest {
             var webs by mutableStateOf(persistentMapOf<String, ComposableComponent>())
             setContent { Themed { SurfaceContent(SurfaceState(values = values, root = root), {}, webs = webs) } }
             onNodeWithText("Web content is not available here").assertIsDisplayed()
+
+            webs = persistentMapOf(root.children.single().key to OpeningDocument)
+            onNodeWithText("Opening the page…").assertIsDisplayed()
 
             webs = persistentMapOf(root.children.single().key to TestDocument)
             onNodeWithTag("document").assertIsDisplayed().assertHeightIsEqualTo(HbDimensions.Desktop.webDocumentHeight)

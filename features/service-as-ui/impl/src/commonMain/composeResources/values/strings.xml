@@ -76,4 +76,5 @@
     <string name="service_ui_editor_keys">Tab indents. Ctrl+Tab moves to the next field, Ctrl+Shift+Tab to the previous one.</string>
     <string name="service_ui_editor_saving">Saving…</string>
     <string name="service_ui_panel_title">Interface</string>
+    <string name="service_ui_web_loading">Opening the page…</string>
 </resources>

@@ -62,17 +62,18 @@ private val log = Log.tag("ServiceUiScreen")
 
 /**
  * The surface of [model] with the browser documents its `web` nodes show: [documents] are the documents its host
- * embeds, by route id.
+ * embeds, by route id. A document the store opened before its host exists draws a loading state at its size, so the
+ * node neither flashes a note nor jumps in height.
  */
 @Composable
 internal fun SurfaceScreen(
     model: SurfaceModel,
-    documents: ImmutableMap<String, ComposableComponent>,
     modifier: Modifier = Modifier,
+    documents: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
 ) {
     val shown by model.webDocuments.collectAsState()
     val webs = remember(shown, documents) {
-        shown.mapNotNull { (node, id) -> documents[id]?.let { node to it } }.toMap().toImmutableMap()
+        shown.mapValues { (_, id) -> documents[id] ?: OpeningDocument }.toImmutableMap()
     }
     SurfaceScreen(model.store, modifier, webs)
 }

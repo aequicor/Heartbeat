@@ -68,7 +68,7 @@ internal fun CardView(
             if (placeholder != null) {
                 HbText(placeholder, style = HbTheme.typography.caption, color = HbTheme.colors.textSecondary)
             } else {
-                state.key?.let { surfaces[it] }?.let { SurfaceScreen(it, documents) }
+                state.key?.let { surfaces[it] }?.let { SurfaceScreen(it, documents = documents) }
             }
         }
     }

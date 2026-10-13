@@ -76,4 +76,5 @@
     <string name="service_ui_editor_keys">Tab — отступ. Ctrl+Tab — к следующему полю, Ctrl+Shift+Tab — к предыдущему.</string>
     <string name="service_ui_editor_saving">Сохранение…</string>
     <string name="service_ui_panel_title">Интерфейс</string>
+    <string name="service_ui_web_loading">Открываю страницу…</string>
 </resources>

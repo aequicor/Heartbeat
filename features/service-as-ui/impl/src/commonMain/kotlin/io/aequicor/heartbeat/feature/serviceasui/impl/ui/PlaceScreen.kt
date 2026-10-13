@@ -136,5 +136,5 @@ private fun PlacedSurfaceView(
     surfaces: ImmutableMap<String, SurfaceModel>,
     documents: ImmutableMap<String, ComposableComponent>,
 ) {
-    surfaces[surface.key]?.let { SurfaceScreen(it, documents) }
+    surfaces[surface.key]?.let { SurfaceScreen(it, documents = documents) }
 }

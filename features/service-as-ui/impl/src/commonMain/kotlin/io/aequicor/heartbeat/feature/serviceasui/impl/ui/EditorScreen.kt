@@ -353,8 +353,12 @@ private fun PreviewSection(
                     color = HbTheme.colors.textSecondary,
                 )
             }
-            // A surface draws without a scroll of its own, so it fits the lazy list of the pane.
-            HbCard(Modifier.fillMaxWidth(), contentPadding = HbTheme.spacing.l) { SurfaceScreen(preview, documents) }
+            // A surface draws without a scroll of its own, so it fits the lazy list of the pane. A web document in the
+            // preview reloads when the preview scrolls back in: the list disposes items that leave the screen.
+            HbCard(
+                Modifier.fillMaxWidth(),
+                contentPadding = HbTheme.spacing.l,
+            ) { SurfaceScreen(preview, documents = documents) }
         }
     }
 }
