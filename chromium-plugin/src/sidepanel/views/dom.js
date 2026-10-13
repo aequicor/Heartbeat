@@ -38,3 +38,16 @@ export function relativeTime(at, now, locale) {
   }
   return format.format(0, 'minute');
 }
+
+/**
+ * Reconciles keyed children without detaching nodes that already occupy their place (preserving input focus).
+ * @param {HTMLElement} parent
+ * @param {HTMLElement[]} children
+ */
+export function reconcileChildren(parent, children) {
+  const keep = new Set(children);
+  for (const child of [...parent.children]) if (!keep.has(/** @type {HTMLElement} */ (child))) child.remove();
+  children.forEach((child, index) => {
+    if (parent.children[index] !== child) parent.insertBefore(child, parent.children[index] ?? null);
+  });
+}

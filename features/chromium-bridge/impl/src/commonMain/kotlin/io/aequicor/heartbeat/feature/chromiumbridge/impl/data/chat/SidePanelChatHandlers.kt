@@ -23,10 +23,12 @@ import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.Permissio
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.WatchRef
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.WireEntry
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.toWire
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.wireWindow
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeCall
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeReply
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeRequestHandler
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeSession
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.TranscriptChange
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.TranscriptDiff
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -71,16 +73,23 @@ internal class SidePanelChatHandlers(private val chats: StudioChats, private val
     private suspend fun watchChat(session: BridgeSession, chatId: String): BridgeReply = opened(
         watches.open(session) { watch ->
             val diff = TranscriptDiff(WireEntry::id)
+            var previousOmitted = -1
             chats.observeTranscript(chatId).throttled(CHAT_PERIOD_MILLIS).collect { entries ->
-                val window = entries.takeLast(ChatWireLimits.MAX_ENTRIES)
-                val change = diff.next(window.map { it.toWire() }) ?: return@collect
+                val window = entries.wireWindow()
+                val omitted = entries.size - window.size
+                val change = diff.next(window) ?: if (omitted != previousOmitted) {
+                    TranscriptChange(false, emptyList(), emptyList())
+                } else {
+                    return@collect
+                }
+                previousOmitted = omitted
                 val event = ChatChanged(
                     watch = watch,
                     chatId = chatId,
                     isReset = change.isReset,
                     upserts = change.upserts,
                     removed = change.removed,
-                    olderOmitted = entries.size - window.size,
+                    olderOmitted = omitted,
                 )
                 emitChange(session, event)
             }

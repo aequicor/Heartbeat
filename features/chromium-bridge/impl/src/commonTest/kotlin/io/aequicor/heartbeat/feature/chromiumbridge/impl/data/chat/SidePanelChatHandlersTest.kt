@@ -12,7 +12,11 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioChatSummary
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChats
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeErrorCode
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeFrame
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeProtocol
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.ChatWireLimits
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.WirePage
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.encodeFrame
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeCall
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeClient
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeIncomingEvent
@@ -43,6 +47,7 @@ import kotlinx.serialization.json.putJsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 import kotlin.time.Instant
 
 class SidePanelChatHandlersTest {
@@ -106,6 +111,32 @@ class SidePanelChatHandlersTest {
         val upsert = change["upserts"]!!.jsonArray.single().jsonObject
         assertEquals("m2", upsert["id"]?.jsonPrimitive?.content)
         assertEquals("Hello", upsert["parts"]!!.jsonArray.single().jsonObject["text"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `oversized history reset and replacement delta stay within receiver cap`() = runTest {
+        val session = FakeSession(this)
+        val text = "Я".repeat(ChatWireLimits.MAX_TEXT_CHARS)
+        fun entries(prefix: String): List<StudioChatEntry> = (1..ChatWireLimits.MAX_ENTRIES).map {
+            StudioChatEntry.Prompt("$prefix-$it", at, text, 0)
+        }
+        val transcript = MutableStateFlow(entries("old"))
+        chats.transcripts["c1"] = transcript
+
+        call(session, "chat.watch", buildJsonObject { put("chatId", "c1") })
+        runCurrent()
+        transcript.value = entries("new")
+        advanceTimeBy(200)
+        runCurrent()
+
+        assertEquals(2, session.emitted.size)
+        session.emitted.forEach { (event, params) ->
+            assertTrue(encodeFrame(BridgeFrame.Event(event, params)).size < BridgeProtocol.MAX_FROM_BROWSER_BYTES)
+            assertTrue(params["olderOmitted"]!!.jsonPrimitive.content.toInt() > 0)
+        }
+        val latest = session.emitted.last().second
+        assertTrue(latest["removed"]!!.jsonArray.isNotEmpty())
+        assertEquals("new-200", latest["upserts"]!!.jsonArray.last().jsonObject["id"]!!.jsonPrimitive.content)
     }
 
     @Test

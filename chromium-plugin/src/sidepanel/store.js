@@ -54,7 +54,11 @@ export function reduce(state, action) {
     case 'status':
       return { ...state, status: action.status, features: action.features ?? null };
     case 'chats':
-      return { ...state, projects: action.projects ?? [], chats: action.chats ?? [], permissions: action.permissions ?? [] };
+      return {
+        ...state, projects: action.projects ?? [], chats: action.chats ?? [], permissions: action.permissions ?? [],
+        newChatProject: (action.projects ?? []).some((/** @type {Project} */ it) => it.id === state.newChatProject)
+          ? state.newChatProject : null,
+      };
     case 'transcript':
       if (action.chatId !== state.selected) return state;
       return {

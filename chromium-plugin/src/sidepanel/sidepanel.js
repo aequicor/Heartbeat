@@ -1,13 +1,13 @@
 // @ts-check
-import { PENDING_ATTACHMENT } from '../background/context-menu.js';
+import { pendingAttachmentKey, takeSelection } from '../background/context-menu.js';
 import { capturePage } from '../shared/page-capture.js';
 import { CALL_TIMEOUT_MS, ErrorCode } from '../shared/protocol.js';
 import { createTranslator, errorMessage } from '../shared/strings.js';
 import { canSend, initialState, reduce, selectedChat, selectedPermissions } from './store.js';
 import { renderChatList } from './views/chat-list.js';
-import { renderTranscript } from './views/chat-view.js';
+import { createTranscriptRenderer } from './views/chat-view.js';
 import { h } from './views/dom.js';
-import { renderPermissions } from './views/permission-card.js';
+import { createPermissionRenderer } from './views/permission-card.js';
 import { statusNotice } from './views/status.js';
 
 /** Pages a prompt can carry (`ChatWireLimits.MAX_PAGES`). */
@@ -16,6 +16,7 @@ const MAX_PAGES = 4;
 const t = createTranslator(chrome.i18n);
 const locale = chrome.i18n.getUILanguage();
 const port = chrome.runtime.connect({ name: 'heartbeat-panel' });
+const panelWindow = chrome.windows.getCurrent();
 
 /** @type {import('./store.js').PanelState} */
 let state = initialState;
@@ -29,6 +30,10 @@ const byId = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
 const prompt = /** @type {HTMLTextAreaElement} */ (byId('prompt'));
 const project = /** @type {HTMLSelectElement} */ (byId('project'));
 const filterInput = /** @type {HTMLInputElement} */ (byId('filter'));
+const transcriptView = h(document, 'div');
+const updateTranscript = createTranscriptRenderer(document, transcriptView, t);
+const updatePermissions = createPermissionRenderer(document, byId('permissions'), t, respond);
+let renderedProjects = '';
 
 /** @param {{ type: string, [key: string]: any }} action */
 function dispatch(action) {
@@ -149,10 +154,10 @@ async function attachPage() {
 
 /** Picks up a selection sent from the context menu; a listing panel starts a new chat with it. */
 async function takePendingAttachment() {
-  const stored = await chrome.storage.session.get(PENDING_ATTACHMENT);
-  const page = stored?.[PENDING_ATTACHMENT];
+  const { id } = await panelWindow;
+  if (id === undefined) return;
+  const page = await takeSelection(chrome, id);
   if (!page) return;
-  await chrome.storage.session.remove(PENDING_ATTACHMENT);
   if (!state.selected && !state.isComposingNew) dispatch({ type: 'compose', projectId: null });
   dispatch({ type: 'attach', attachment: page });
   prompt.focus();
@@ -186,12 +191,11 @@ function render(previous) {
   if (isListing) {
     content.replaceChildren(renderChatList(document, state, { t, filter, now: Date.now(), locale, onOpen: open }));
   } else if (state.transcript !== previous.transcript || state.selected !== previous.selected) {
-    content.replaceChildren(renderTranscript(document, state, t));
+    updateTranscript(state);
+    if (content.firstElementChild !== transcriptView) content.replaceChildren(transcriptView);
     if (wasAtBottom || state.selected !== previous.selected) content.scrollTop = content.scrollHeight;
   }
-  byId('permissions').replaceChildren(
-    state.selected ? renderPermissions(document, selectedPermissions(state), t, respond) : '',
-  );
+  updatePermissions(state.selected ? selectedPermissions(state) : []);
   renderComposer(chat, isListing);
 }
 
@@ -202,13 +206,15 @@ function render(previous) {
 function renderComposer(chat, isListing) {
   byId('composer').hidden = isListing;
   project.hidden = !state.isComposingNew;
-  if (state.isComposingNew && project.options.length !== state.projects.length + 1) {
+  const projectsSignature = JSON.stringify(state.projects);
+  if (state.isComposingNew && projectsSignature !== renderedProjects) {
+    renderedProjects = projectsSignature;
     project.replaceChildren(
       h(document, 'option', { text: t('withoutProject'), attrs: { value: '' } }),
       ...state.projects.map((it) => h(document, 'option', { text: it.name, attrs: { value: it.id } })),
     );
-    project.value = state.newChatProject ?? '';
   }
+  if (state.isComposingNew) project.value = state.newChatProject ?? '';
   project.setAttribute('aria-label', t('project'));
   prompt.placeholder = t(state.isComposingNew ? 'placeholderNew' : 'placeholderChat');
   const isClosed = Boolean(chat && !chat.continuable);
@@ -287,8 +293,9 @@ prompt.addEventListener('keydown', (event) => {
   }
 });
 
-chrome.storage.session.onChanged.addListener((/** @type {Record<string, unknown>} */ changes) => {
-  if (PENDING_ATTACHMENT in changes) takePendingAttachment();
+chrome.storage.session.onChanged.addListener(async (/** @type {Record<string, unknown>} */ changes) => {
+  const { id } = await panelWindow;
+  if (id !== undefined && pendingAttachmentKey(id) in changes) await takePendingAttachment();
 });
 
 port.postMessage({ type: 'watch', key: 'chats', method: 'chats.watch', params: {} });

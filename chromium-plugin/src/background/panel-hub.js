@@ -10,8 +10,12 @@ const PANEL_METHODS = new Set(['chat.send', 'chat.stop', 'permission.respond']);
 /** Methods that open a watch and the events that carry its updates. */
 const WATCH_METHODS = new Set(['chats.watch', 'chat.watch']);
 
+/** Bounds retained events while watch replies are in flight; overflow fails the watch instead of losing history. */
+const MAX_EARLY_EVENTS = 64;
+const MAX_EARLY_CHARS = 64 * 1024 * 1024;
+
 /**
- * @typedef {{ method: string, params: Record<string, any>, appWatch: string | null, generation: number }} Watch
+ * @typedef {{ method: string, params: Record<string, any>, appWatch: string | null, generation: number, opening: boolean }} Watch
  * @typedef {{ port: any, watches: Map<string, Watch> }} Panel
  * @typedef {{ status: string, hello: Record<string, any> | null,
  *   request: (method: string, params?: Record<string, any>) => Promise<any> }} Link
@@ -34,6 +38,14 @@ export function createPanelHub({ link, extensionOrigin, agent = NO_AGENT }) {
   const panels = new Set();
   /** @type {Map<string, { panel: Panel, key: string }>} */
   const byAppWatch = new Map();
+  let connection = earlyEvents();
+
+  /** Each connection owns its pending replies and early events; old replies cannot affect a new connection. */
+  function earlyEvents() {
+    return { pending: 0, chars: 0, overflow: false,
+      events: /** @type {{ event: string, params: Record<string, any> }[]} */ ([]) };
+  }
+
 
   /**
    * Accepts a panel port opened by this extension's side panel page.
@@ -90,7 +102,7 @@ export function createPanelHub({ link, extensionOrigin, agent = NO_AGENT }) {
   function watch(panel, key, method, params) {
     if (!WATCH_METHODS.has(method)) return;
     unwatch(panel, key);
-    const entry = { method, params, appWatch: null, generation: 0 };
+    const entry = { method, params, appWatch: null, generation: 0, opening: false };
     panel.watches.set(key, entry);
     if (link.status === 'ready') open(panel, key, entry);
   }
@@ -101,20 +113,43 @@ export function createPanelHub({ link, extensionOrigin, agent = NO_AGENT }) {
    * @param {Watch} entry
    */
   function open(panel, key, entry) {
+    if (entry.opening) return;
+    entry.opening = true;
     const generation = ++entry.generation;
+    const epoch = connection;
+    epoch.pending++;
+    const isCurrent = () => connection === epoch && panel.watches.get(key) === entry &&
+      entry.generation === generation && panels.has(panel);
     link.request(entry.method, entry.params).then(
       (result) => {
         const appWatch = String(result?.watch ?? '');
-        // A newer watch replaced this one, or the panel closed meanwhile: release the app side at once.
-        if (panel.watches.get(key) !== entry || entry.generation !== generation || !panels.has(panel)) {
+        if (!isCurrent()) {
+          // A watch id from an old connection may identify a new watch after app restart.
+          if (connection === epoch) cancelInApp(appWatch);
+          return;
+        }
+        if (epoch.overflow) {
           cancelInApp(appWatch);
+          post(panel, { type: 'watchFailed', key, error: { code: ErrorCode.BUSY, message: 'Watch buffer full' } });
           return;
         }
         entry.appWatch = appWatch;
         byAppWatch.set(appWatch, { panel, key });
+        for (const message of epoch.events) {
+          if (message.params.watch === appWatch) post(panel, { type: 'event', key, ...message });
+        }
       },
-      (error) => post(panel, { type: 'watchFailed', key, error: toWireError(error) }),
-    );
+      (error) => {
+        if (isCurrent()) post(panel, { type: 'watchFailed', key, error: toWireError(error) });
+      },
+    ).finally(() => {
+      if (isCurrent()) entry.opening = false;
+      if (--epoch.pending === 0) {
+        epoch.events = [];
+        epoch.chars = 0;
+        epoch.overflow = false;
+      }
+    });
   }
 
   /**
@@ -183,7 +218,14 @@ export function createPanelHub({ link, extensionOrigin, agent = NO_AGENT }) {
     onLinkStatus(status, hello) {
       if (status !== 'ready') {
         byAppWatch.clear();
-        for (const panel of panels) for (const entry of panel.watches.values()) entry.appWatch = null;
+        connection.events = [];
+        connection.chars = 0;
+        connection = earlyEvents();
+        for (const panel of panels) for (const entry of panel.watches.values()) {
+          entry.appWatch = null;
+          entry.opening = false;
+          entry.generation++;
+        }
       }
       for (const panel of [...panels]) {
         post(panel, { type: 'status', status, features: hello?.features ?? null });
@@ -199,7 +241,18 @@ export function createPanelHub({ link, extensionOrigin, agent = NO_AGENT }) {
      */
     onEvent(event, params) {
       const target = byAppWatch.get(String(params.watch ?? ''));
-      if (target) post(target.panel, { type: 'event', key: target.key, event, params });
+      if (target) {
+        post(target.panel, { type: 'event', key: target.key, event, params });
+      } else if (connection.pending && !connection.overflow && ['chats.changed', 'chat.changed'].includes(event)) {
+        const chars = JSON.stringify(params).length;
+        if (connection.events.length >= MAX_EARLY_EVENTS || connection.chars + chars > MAX_EARLY_CHARS) {
+          connection.overflow = true;
+          connection.events = [];
+        } else {
+          connection.events.push({ event, params });
+          connection.chars += chars;
+        }
+      }
     },
 
     /** Tells every panel the current consent and number of controlled tabs. */

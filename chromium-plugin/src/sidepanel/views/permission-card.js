@@ -1,5 +1,5 @@
 // @ts-check
-import { h } from './dom.js';
+import { h, reconcileChildren } from './dom.js';
 
 /**
  * Permission requests of the open chat; answering sends the chosen option with the structured input.
@@ -10,8 +10,36 @@ import { h } from './dom.js';
  */
 export function renderPermissions(document, permissions, t, onRespond) {
   const container = h(document, 'div', { className: 'permissions' });
-  for (const permission of permissions) container.append(renderPermission(document, permission, t, onRespond));
+  createPermissionRenderer(document, container, t, onRespond)(permissions);
   return container;
+}
+
+/**
+ * Keeps a live request's fields and focus across unrelated updates; removed or changed requests discard drafts.
+ * @param {Document} document
+ * @param {HTMLElement} container
+ * @param {(key: string, ...args: any[]) => string} t
+ * @param {(permission: import('../store.js').Permission, optionId: string, answer?: Record<string, any>) => void} onRespond
+ */
+export function createPermissionRenderer(document, container, t, onRespond) {
+  container.className = 'permissions';
+  /** @type {Map<string, { signature: string, node: HTMLElement }>} */
+  const cards = new Map();
+  return (/** @type {import('../store.js').Permission[]} */ permissions) => {
+    const keep = new Set(permissions.map((it) => JSON.stringify([it.chatId, it.requestId])));
+    for (const key of cards.keys()) if (!keep.has(key)) cards.delete(key);
+    const children = permissions.map((permission) => {
+      const key = JSON.stringify([permission.chatId, permission.requestId]);
+      const signature = JSON.stringify(permission);
+      let card = cards.get(key);
+      if (card?.signature !== signature) {
+        card = { signature, node: renderPermission(document, permission, t, onRespond) };
+        cards.set(key, card);
+      }
+      return card.node;
+    });
+    reconcileChildren(container, children);
+  };
 }
 
 /**

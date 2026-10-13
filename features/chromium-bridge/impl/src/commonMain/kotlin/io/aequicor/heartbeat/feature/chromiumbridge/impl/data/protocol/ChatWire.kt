@@ -175,6 +175,12 @@ internal data class WirePart(
 internal object ChatWireLimits {
     const val MAX_CHATS = 300
     const val MAX_ENTRIES = 200
+
+    /** Leave room for a delta's removed ids plus its upserts inside the receiver's 16 MiB frame cap. */
+    const val MAX_TRANSCRIPT_BYTES = 7 * 1024 * 1024
+
+    /** A single reply remains readable even when it contains thousands of tool/reasoning parts. */
+    const val MAX_REPLY_PARTS_BYTES = 512 * 1024
     const val MAX_TEXT_CHARS = 64 * 1024
     const val MAX_OUTPUT_CHARS = 4 * 1024
     const val MAX_TITLE_CHARS = 512
@@ -243,13 +249,7 @@ internal fun StudioChatEntry.toWire(): WireEntry = when (this) {
         isTruncated = (text.length > ChatWireLimits.MAX_TEXT_CHARS).takeIf { it },
     )
 
-    is StudioChatEntry.Reply -> WireEntry(
-        id = id,
-        type = "reply",
-        createdAt = createdAt.toEpochMilliseconds(),
-        parts = parts.map { it.toWire() },
-        isStreaming = isStreaming,
-    )
+    is StudioChatEntry.Reply -> toBoundedReply()
 
     is StudioChatEntry.Notice -> WireEntry(
         id = id,
@@ -291,4 +291,42 @@ private fun StudioChatPart.toWire(): WirePart = when (this) {
         output = output.takeLast(ChatWireLimits.MAX_OUTPUT_CHARS),
         isTruncated = (output.length > ChatWireLimits.MAX_OUTPUT_CHARS).takeIf { it },
     )
+}
+
+/** Keeps the recent parts of a reply within a byte budget, counting JSON escaping and UTF-8. */
+private fun StudioChatEntry.Reply.toBoundedReply(): WireEntry {
+    val recent = mutableListOf<WirePart>()
+    var bytes = 0
+    for (part in parts.asReversed()) {
+        val wire = part.toWire()
+        val size = BridgeProtocol.json.encodeToString(WirePart.serializer(), wire).encodeToByteArray().size + 1
+        if (bytes + size > ChatWireLimits.MAX_REPLY_PARTS_BYTES) break
+        recent += wire
+        bytes += size
+    }
+    return WireEntry(
+        id = id,
+        type = "reply",
+        createdAt = createdAt.toEpochMilliseconds(),
+        parts = recent.asReversed(),
+        isStreaming = isStreaming,
+        isTruncated = (recent.size < parts.size).takeIf { it },
+    )
+}
+
+/**
+ * Recent transcript entries fitting both the count and serialized byte caps. Windowing happens before diffing,
+ * so resets and deltas describe the same bounded history; omitted older entries are reported to the panel.
+ */
+internal fun List<StudioChatEntry>.wireWindow(): List<WireEntry> {
+    val recent = mutableListOf<WireEntry>()
+    var bytes = 0
+    for (entry in asReversed().take(ChatWireLimits.MAX_ENTRIES)) {
+        val wire = entry.toWire()
+        val size = BridgeProtocol.json.encodeToString(WireEntry.serializer(), wire).encodeToByteArray().size + 1
+        if (bytes + size > ChatWireLimits.MAX_TRANSCRIPT_BYTES) break
+        recent += wire
+        bytes += size
+    }
+    return recent.asReversed()
 }

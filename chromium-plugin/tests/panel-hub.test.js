@@ -158,3 +158,84 @@ test('consent and revocation from a panel reach the agent and every panel hears 
   assert.deepEqual(calls, [['consent', true], ['revoke']]);
   assert.deepEqual(port.last(), { type: 'agent', isAllowed: true, controlled: 2 });
 });
+
+function delayedHub() {
+  const link = fakeLink();
+  link.request = (method, params = {}) => new Promise((resolve, reject) => link.calls.push({ method, params, resolve, reject }));
+  const hub = createPanelHub({ link, extensionOrigin: ORIGIN });
+  const port = panelPort();
+  hub.attach(port);
+  return { hub, link, port };
+}
+
+test('early reset and deltas are delivered in order only to their watch owner', async () => {
+  const { hub, link, port } = delayedHub();
+  const other = panelPort();
+  hub.attach(other);
+  port.deliver({ type: 'watch', key: 'chat', method: 'chat.watch', params: { chatId: 'a' } });
+  other.deliver({ type: 'watch', key: 'chat', method: 'chat.watch', params: { chatId: 'b' } });
+  hub.onEvent('chat.changed', { watch: 'w:1', chatId: 'a', reset: true, upserts: [{ id: 'history' }] });
+  hub.onEvent('chat.changed', { watch: 'w:1', chatId: 'a', reset: false, upserts: [{ id: 'latest' }] });
+  hub.onEvent('chat.changed', { watch: 'w:2', chatId: 'b', reset: true, upserts: [] });
+  link.calls[1].resolve({ watch: 'w:2' });
+  link.calls[0].resolve({ watch: 'w:1' });
+  await flush();
+  assert.deepEqual(port.posted.filter((it) => it.type === 'event').map((it) => it.params.upserts[0].id), ['history', 'latest']);
+  assert.deepEqual(other.posted.filter((it) => it.type === 'event').map((it) => it.params.chatId), ['b']);
+});
+
+test('replacing pending watches suppresses stale errors and cancels stale successes', async () => {
+  const { hub, link, port } = delayedHub();
+  const open = (/** @type {string} */ chatId) => port.deliver({ type: 'watch', key: 'chat', method: 'chat.watch', params: { chatId } });
+  open('a');
+  hub.onEvent('chat.changed', { watch: 'w:1', reset: true });
+  open('b');
+  open('c');
+  link.calls[0].resolve({ watch: 'w:1' });
+  link.calls[1].reject(new BridgeError('unavailable', 'Old request'));
+  link.calls[2].resolve({ watch: 'w:3' });
+  await flush();
+  assert.equal(port.posted.some((it) => ['event', 'watchFailed'].includes(it.type)), false);
+  assert.deepEqual(link.calls.at(-1)?.params, { watch: 'w:1' });
+});
+
+test('reconnect discards early events and does not cancel reused ids in the new connection', async () => {
+  const { hub, link, port } = delayedHub();
+  port.deliver({ type: 'watch', key: 'chat', method: 'chat.watch', params: { chatId: 'a' } });
+  hub.onEvent('chat.changed', { watch: 'w:1', reset: true, upserts: ['old'] });
+  hub.onLinkStatus('disconnected', null);
+  hub.onLinkStatus('ready', { features: { chat: true } });
+  hub.onLinkStatus('ready', { features: { chat: true } });
+  assert.equal(link.calls.length, 2, 'features/status refresh must not duplicate pending watches');
+  hub.onEvent('chat.changed', { watch: 'w:1', reset: true, upserts: ['new'] });
+  link.calls[0].resolve({ watch: 'w:1' });
+  link.calls[1].resolve({ watch: 'w:1' });
+  await flush();
+  assert.equal(link.calls.some((it) => it.method === 'watch.cancel'), false);
+  assert.deepEqual(port.posted.filter((it) => it.type === 'event').map((it) => it.params.upserts), [['new']]);
+});
+
+test('early buffer overflow cancels the watch instead of showing incomplete history', async () => {
+  const { hub, link, port } = delayedHub();
+  port.deliver({ type: 'watch', key: 'chat', method: 'chat.watch', params: { chatId: 'a' } });
+  for (let index = 0; index < 65; index++) hub.onEvent('chat.changed', { watch: 'w:1', reset: index === 0 });
+  link.calls[0].resolve({ watch: 'w:1' });
+  await flush();
+  assert.equal(port.posted.some((it) => it.type === 'event'), false);
+  assert.equal(port.posted.at(-1).type, 'watchFailed');
+  assert.equal(link.calls.at(-1)?.method, 'watch.cancel');
+});
+
+test('a valid large reset is buffered and closing a pending panel releases its watch', async () => {
+  const { hub, link, port } = delayedHub();
+  port.deliver({ type: 'watch', key: 'chat', method: 'chat.watch', params: { chatId: 'a' } });
+  hub.onEvent('chat.changed', { watch: 'w:1', reset: true, text: 'a'.repeat(7 * 1024 * 1024) });
+  link.calls[0].resolve({ watch: 'w:1' });
+  await flush();
+  assert.equal(port.posted.at(-1).type, 'event');
+  port.deliver({ type: 'watch', key: 'chat', method: 'chat.watch', params: { chatId: 'b' } });
+  port.onDisconnect.emit();
+  link.calls.find((it) => it.method === 'chat.watch' && it.params.chatId === 'b')?.resolve({ watch: 'w:2' });
+  await flush();
+  assert.deepEqual(link.calls.at(-1)?.params, { watch: 'w:2' });
+});

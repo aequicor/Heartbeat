@@ -1,7 +1,8 @@
 // @ts-check
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { onSelectionMenu, PENDING_ATTACHMENT, SELECTION_MENU } from '../src/background/context-menu.js';
+import { onSelectionMenu, pendingAttachmentKey, takeSelection, SELECTION_MENU } from '../src/background/context-menu.js';
+import { fakeLocks } from './fakes/locks.js';
 import { capturePage, normalizePage, originPattern } from '../src/shared/page-capture.js';
 
 test('captured pages are bounded and tidied', () => {
@@ -56,13 +57,35 @@ test('the selection menu opens the panel on the tab and leaves the selection for
 
   await onSelectionMenu(chrome, { menuItemId: SELECTION_MENU, selectionText: 'Quote' }, {
     id: 3,
+    windowId: 10,
     title: 'Article',
     url: 'https://example.com/post',
-  });
-  await onSelectionMenu(chrome, { menuItemId: SELECTION_MENU, selectionText: 'x' }, { id: 4, url: 'chrome://newtab' });
+  }, fakeLocks());
+  await onSelectionMenu(chrome, { menuItemId: SELECTION_MENU, selectionText: 'x' }, { id: 4, windowId: 10, url: 'chrome://newtab' }, fakeLocks());
 
   assert.deepEqual(calls, [
     ['open', { tabId: 3 }],
-    ['set', { [PENDING_ATTACHMENT]: { kind: 'page', url: 'https://example.com/post', title: 'Article', text: '', selection: 'Quote' } }],
+    ['set', { [pendingAttachmentKey(10)]: { kind: 'page', url: 'https://example.com/post', title: 'Article', text: '', selection: 'Quote' } }],
   ]);
+});
+
+
+test('selection goes only to its window and is consumed once by concurrent panels', async () => {
+  const locks = fakeLocks();
+  const values = /** @type {Record<string, any>} */ ({});
+  const chrome = {
+    sidePanel: { open: async () => {} },
+    storage: { session: {
+      get: async (/** @type {string} */ key) => ({ [key]: values[key] }),
+      set: async (/** @type {Record<string, any>} */ next) => Object.assign(values, next),
+      remove: async (/** @type {string} */ key) => { delete values[key]; },
+    } },
+  };
+  await onSelectionMenu(chrome, { menuItemId: SELECTION_MENU, selectionText: 'Private quote' },
+    { id: 3, windowId: 10, url: 'https://example.com/' }, locks);
+  assert.equal(await takeSelection(chrome, 20, locks), undefined);
+  const consumed = await Promise.all([takeSelection(chrome, 10, locks), takeSelection(chrome, 10, locks)]);
+  assert.equal(consumed.filter(Boolean).length, 1);
+  assert.equal(consumed.find(Boolean).selection, 'Private quote');
+  assert.deepEqual(values, {});
 });
