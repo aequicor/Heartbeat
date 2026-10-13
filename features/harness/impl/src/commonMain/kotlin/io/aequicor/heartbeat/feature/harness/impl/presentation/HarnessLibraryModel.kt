@@ -25,11 +25,10 @@ import pro.respawn.flowmvi.plugins.reduce
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
-/** The library screen: approval level and harnesses in name order. */
+/** The library screen: safety information and harnesses in name order. */
 @Immutable
 internal data class HarnessLibraryState(
     val phase: PhaseUi = PhaseUi.Loading,
-    val approval: ApprovalUi = ApprovalUi.Ask,
     val harnesses: ImmutableList<HarnessRowUi> = persistentListOf(),
     val isCodeSupported: Boolean = false,
     val isSaveFailed: Boolean = false,
@@ -37,9 +36,6 @@ internal data class HarnessLibraryState(
 
 /** Controls of the library screen. */
 internal sealed interface HarnessLibraryIntent : MVIIntent {
-    /** Changes how agent edits are accepted. */
-    data class SelectApproval(val approval: ApprovalUi) : HarnessLibraryIntent
-
     /** Turns a whole harness on or off. */
     data class SetEnabled(val id: String, val isEnabled: Boolean) : HarnessLibraryIntent
 
@@ -98,11 +94,6 @@ internal class HarnessLibraryModel(
     private suspend fun LibraryPipeline.handle(intent: HarnessLibraryIntent) {
         val ready = machine.state.value as? HarnessState.Ready
         when (intent) {
-            is HarnessLibraryIntent.SelectApproval -> if (ready != null) {
-                val level = intent.approval.toDomain()
-                sendTo(machine, HarnessIntent.Internal.SetApproval(issue(), level, ready.approvalRevision))
-            }
-
             is HarnessLibraryIntent.SetEnabled -> ready?.harnesses?.firstOrNull { it.harness.id.value == intent.id }
                 ?.let { entry ->
                     val revision = entry.harness.revision
@@ -133,7 +124,6 @@ private fun HarnessLibraryState.reflectLibrary(state: HarnessState): HarnessLibr
     val ready = state as? HarnessState.Ready ?: return copy(phase = state.phase())
     return copy(
         phase = PhaseUi.Ready,
-        approval = (ready.approvalWrite?.level ?: ready.approval).toUi(),
         harnesses = ready.harnesses.sortedBy { it.harness.name.value }.map { it.toRow() }.toImmutableList(),
         isCodeSupported = ready.isRuntimeAvailable,
     )

@@ -60,17 +60,13 @@ class HarnessScreenModelsTest {
         val library = RecordingLibrary(ready)
         val model = HarnessLibraryModel(library, storeFactory(), backgroundScope)
         val screen = subscribe(model.store)
-        assertEquals(ApprovalUi.ByTrust, screen.states.value.approval)
         assertEquals(listOf(harness.id.value), screen.states.value.harnesses.map { it.id })
 
-        screen.intent(HarnessLibraryIntent.SelectApproval(ApprovalUi.AcceptAll))
         screen.intent(HarnessLibraryIntent.SetEnabled(harness.id.value, false))
         val opened = backgroundScope.async { screen.actions.first() }
         screen.intent(HarnessLibraryIntent.Open(harness.id.value))
         runCurrent()
-        val approval = assertIs<HarnessIntent.Internal.SetApproval>(library.sent[0])
-        assertEquals(HarnessApproval.AcceptAll to 2L, approval.level to approval.expectedRevision)
-        val enabled = assertIs<HarnessIntent.Internal.SetEnabled>(library.sent[1])
+        val enabled = assertIs<HarnessIntent.Internal.SetEnabled>(library.sent.single())
         assertEquals(false to 4L, enabled.isEnabled to enabled.expectedRevision)
         assertEquals(HarnessLibraryAction.OpenDetail(harness.id.value), opened.await())
     }

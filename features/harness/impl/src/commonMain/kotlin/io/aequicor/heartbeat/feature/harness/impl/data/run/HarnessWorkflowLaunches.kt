@@ -83,8 +83,11 @@ internal data class WorkflowLaunch(
 
 internal data class WorkflowLaunchResult(val run: RunId, val hasWake: Boolean, val isConfirmed: Boolean)
 
-/** The exact harness revision and workflow item a user decision covered; anything else is refused at launch. */
-internal data class ApprovedWorkflow(val revision: Long, val item: ItemId)
+/** Exact revision, workflow and optional full reviewed snapshot; mismatches refuse launch. */
+internal data class ApprovedWorkflow(val revision: Long, val item: ItemId, val snapshot: Harness? = null) {
+    fun matches(harness: Harness, workflow: HarnessItem.Workflow): Boolean =
+        revision == harness.revision && item == workflow.id && (snapshot == null || snapshot == harness)
+}
 
 /** Admission and wake preparation belong to a profile job, independently of the calling script/tool wait. */
 @SingleIn(ProfileScope::class)
@@ -126,7 +129,7 @@ internal class HarnessWorkflowLaunches(
             ?.takeIf { it.isEnabled } ?: error("Harness is unavailable")
         val item = current.items.singleOrNull { it.name == workflow && it.isEnabled } as? HarnessItem.Workflow
             ?: error("Workflow is unavailable")
-        check(approved == null || approved == ApprovedWorkflow(current.revision, item.id)) {
+        check(approved == null || approved.matches(current, item)) {
             "Workflow admission changed"
         }
         require(isWorkflowInput(item.input, input)) { "Workflow input does not match its schema" }
@@ -144,7 +147,7 @@ internal class HarnessWorkflowLaunches(
         val state = library.value.state.value as? HarnessState.Ready ?: return true
         val current = state.harnesses.singleOrNull { it.harness.id == harness }?.harness ?: return true
         val item = current.items.singleOrNull { it.name == workflow }
-        return current.revision == approved.revision && item?.id == approved.item
+        return item is HarnessItem.Workflow && approved.matches(current, item)
     }
 
     suspend fun start(launch: WorkflowLaunch, isCallerCurrent: () -> Boolean = { true }): WorkflowLaunchResult {

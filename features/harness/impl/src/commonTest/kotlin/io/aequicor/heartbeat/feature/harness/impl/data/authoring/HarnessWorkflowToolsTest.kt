@@ -3,8 +3,12 @@ package io.aequicor.heartbeat.feature.harness.impl.data.authoring
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
@@ -19,6 +23,8 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowOrigin
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStatus
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowViewer
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.CodeReview
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeReviews
 import io.aequicor.heartbeat.feature.harness.impl.domain.harness
 import io.aequicor.heartbeat.feature.harness.impl.domain.now
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.dispatchSession
@@ -35,6 +41,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.hours
 
@@ -51,8 +58,15 @@ class HarnessWorkflowToolsTest {
         lazy { error("library is not used") },
         lazy { error("launches are not used") },
         lazyOf(runs),
-        lazy { error("helpers are not used") },
-        lazy { error("origins are not used") },
+        HarnessWorkflowToolServices(
+            lazy { error("helpers are not used") },
+            lazy { error("origins are not used") },
+            lazyOf(
+                HarnessCodeReviews { _, _ ->
+                    CodeReview("safe", "Cancel owned work")
+                },
+            ),
+        ),
     )
 
     @Test
@@ -72,13 +86,30 @@ class HarnessWorkflowToolsTest {
         runs.state.value = HarnessRunsState.Ready(
             listOf(run.copy(status = WorkflowStatus.Running, finishedAt = null)),
         )
-        tools.execute(context(dispatchSession), HarnessTools.WORKFLOW_CANCEL, runArgument("wf_1"))
+        val context = context(dispatchSession)
+        val approval = assertIs<AgentToolAutomaticAuthorization.Allowed>(
+            tools.automaticAuthorization(
+                context,
+                HARNESS_WORKFLOW_SPECS.single { it.name == HarnessTools.WORKFLOW_CANCEL },
+                runArgument("wf_1"),
+            ),
+        ).approval
+        tools.execute(context.copy(authorization = approval), HarnessTools.WORKFLOW_CANCEL, runArgument("wf_1"))
         val cancel = runs.sent.single() as HarnessRunsIntent.Internal.CancelRun
         assertEquals(WorkflowViewer.Agent(dispatchSession), cancel.by)
         assertEquals(run.id, cancel.run)
     }
 
-    private fun context(session: SessionRef) = AgentToolContext(session, null, TurnId("turn"))
+    private fun context(session: SessionRef) = AgentToolContext(
+        session,
+        null,
+        TurnId("turn"),
+        target = EngineTarget(
+            session.engine,
+            EngineBindingId("binding"),
+            ModelId("model"),
+        ),
+    )
 
     private fun runArgument(id: String) = buildJsonObject { put("run", id) }
 }

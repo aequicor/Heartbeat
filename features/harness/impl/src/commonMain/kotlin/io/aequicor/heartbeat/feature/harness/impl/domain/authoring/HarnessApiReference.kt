@@ -41,12 +41,10 @@ private val GUIDE = """
        better than a Deny hook. Enabled native tools still go through the trust level of the chat.
     5. Check with harness_get, then tell the user what was set up.
 
-    Approval: code is compiled and independently reviewed; only a safe verdict saves automatically. Risk,
-    uncertainty or unavailable review asks the user with a reason. Texts follow the profile approval level;
-    switching a tool on and giving a turned-off tool
-    back (removing an off switch, disconnecting or deleting a harness that turns tools off, connecting one that
-    switches native tools on) always ask the user. A harness with an enabled script asks for every
-    connection, disconnection and deletion, and deleting an enabled script asks too.
+    Safety: every agent mutation passes independent automatic review of the exact caller, content, previous
+    source and affected chats. Code also compiles before review. Only a safe verdict permits execution;
+    risk, uncertainty or unavailable review returns a tool error with a reason, without asking the user.
+    Fix the concrete issue before retrying; profile approval levels and full trust never bypass this gate.
     Off switches and Deny/Ask hooks apply in every chat a harness is connected to; everything else comes from the
     first ${HarnessLimits.ACTIVE_PER_SESSION} connected harnesses of a chat by name.
     Never put secrets, tokens or personal data in harness source, instructions or templates. Runtime mini-app

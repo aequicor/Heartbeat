@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
@@ -32,6 +33,7 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowViewer
 import io.aequicor.heartbeat.feature.harness.api.workflow.isVisibleTo
 import io.aequicor.heartbeat.feature.harness.impl.data.run.ApprovedWorkflow
 import io.aequicor.heartbeat.feature.harness.impl.data.run.HarnessWorkflowLaunches
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeReviews
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRequestOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.HarnessRunsMachine
@@ -44,14 +46,18 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.put
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 /**
- * Agent-started workflow runs. Starting is a Command in the trust table and binds the approval to the harness
- * revision and workflow item; status and cancellation are limited to runs this exact session started.
+ * Agent-started workflow mutations require an automatic safety verdict for the exact source, input and caller.
+ * Execution only reuses that verdict. Status and cancellation remain limited to runs this exact session started.
  * Inputs and results are never logged.
  */
 @ContributesIntoSet(ProfileScope::class)
@@ -61,8 +67,7 @@ internal class HarnessWorkflowTools(
     private val library: Lazy<HarnessLibraryClient>,
     private val launches: Lazy<HarnessWorkflowLaunches>,
     private val runs: Lazy<HarnessRunsMachine>,
-    private val helpers: Lazy<HelperAgents>,
-    private val origins: Lazy<HarnessRequestOrigins>,
+    private val services: HarnessWorkflowToolServices,
 ) : AgentToolContribution {
     private val log = Log.tag("HarnessTools")
     override val group: String = HarnessTools.GROUP
@@ -77,28 +82,94 @@ internal class HarnessWorkflowTools(
         context: AgentToolContext,
         spec: AgentToolSpec,
         arguments: JsonObject,
-    ): AgentToolApproval {
-        if (spec.name != HarnessTools.WORKFLOW_START) return AgentToolApproval(spec.name, spec.description)
-        val target = target(arguments) ?: return AgentToolApproval(spec.name, spec.description, binding = "invalid")
-        val (harness, workflow) = target
-        val isHostable = helpers.value.canHost(context.session)
-        val text = buildString {
-            if (!isHostable) append("Helper chats cannot be hosted for this chat; the start will fail.\n\n")
-            append("Workflow ").append(harness.name.value).append('/').append(workflow.name.value)
-            if (workflow.description.isNotEmpty()) append(" — ").append(workflow.description)
-            append("\nIt starts helper chats with Ask trust and wakes this chat with the result.")
-            append("\n\nInput: ").append(input(arguments).toString())
-        }
-        return AgentToolApproval(
+    ): AgentToolApproval = when (val planned = snapshot(context, spec.name, arguments)) {
+        is ReviewPlan.Ready -> planned.change?.let {
+            harnessSafetySnapshot(context, planned.approval, it).approval
+        } ?: planned.approval
+
+        is ReviewPlan.Invalid -> AgentToolApproval(
             spec.name,
-            "Start workflow ${harness.name.value}/${workflow.name.value}",
-            text,
-            "harness=${harness.id.value}@${harness.revision};workflow=${workflow.id.value}",
+            spec.description,
+            planned.reason,
+            binding = "safety-refused",
         )
+    }
+
+    override suspend fun automaticAuthorization(
+        context: AgentToolContext,
+        spec: AgentToolSpec,
+        arguments: JsonObject,
+    ): AgentToolAutomaticAuthorization = authorization(context, spec.name, arguments, canStart = true)
+
+    private suspend fun authorization(
+        context: AgentToolContext,
+        name: String,
+        arguments: JsonObject,
+        canStart: Boolean,
+        selected: Pair<Harness, HarnessItem.Workflow>? = null,
+    ): AgentToolAutomaticAuthorization = when (val planned = snapshot(context, name, arguments, selected)) {
+        is ReviewPlan.Invalid -> denied(planned.reason)
+
+        is ReviewPlan.Ready -> planned.change?.let {
+            reviewHarnessChange(services.reviews.value, context, planned.approval, it, canStart)
+        } ?: AgentToolAutomaticAuthorization.Allowed(planned.approval)
+    }
+
+    private suspend fun snapshot(
+        context: AgentToolContext,
+        name: String,
+        arguments: JsonObject,
+        selected: Pair<Harness, HarnessItem.Workflow>? = null,
+    ): ReviewPlan {
+        if (!toggles.get(HarnessEnabled)) return ReviewPlan.Invalid("Harnesses are turned off")
+        val approval = AgentToolApproval(name, name)
+        val change = when (name) {
+            HarnessTools.WORKFLOW_START -> {
+                val (harness, workflow) = selected ?: target(arguments)
+                    ?: return ReviewPlan.Invalid("No such enabled workflow; see harness_get")
+                if (!isWorkflowInput(workflow.input, input(arguments))) return ReviewPlan.Invalid(INPUT_MISMATCH)
+                buildJsonObject {
+                    put("operation", name)
+                    put("harness", Json.encodeToJsonElement(harness))
+                    put("workflow", Json.encodeToJsonElement(workflow))
+                    put("arguments", arguments)
+                }.toString()
+            }
+
+            HarnessTools.WORKFLOW_CANCEL -> {
+                val run = visible(context, arguments)
+                    ?: return ReviewPlan.Invalid("No run with this id was started by this chat")
+                if (run.status != WorkflowStatus.Running) return ReviewPlan.Invalid("The run has already finished")
+                // Progress can advance while review runs. Identity, source, input and ownership never change.
+                buildJsonObject {
+                    put("operation", name)
+                    put("run", run.id.value)
+                    put("harness", run.harness.value)
+                    put("workflow", run.workflow.value)
+                    put("pinned", Json.encodeToJsonElement(run.pinned))
+                    put("input", run.input)
+                    put("caller", Json.encodeToJsonElement(run.caller))
+                    put("startedAt", run.startedAt.toString())
+                    put("deadline", run.deadline.toString())
+                }.toString()
+            }
+
+            HarnessTools.WORKFLOW_STATUS -> return ReviewPlan.Ready(
+                approval.copy(binding = "workflow-status"),
+            )
+
+            else -> return ReviewPlan.Invalid("Unknown tool")
+        }
+        return ReviewPlan.Ready(approval, change)
     }
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
         if (!toggles.get(HarnessEnabled)) return failure("Harnesses are turned off")
+        if (name == HarnessTools.WORKFLOW_CANCEL) {
+            authorization(context, name, arguments, canStart = false).failureReason(context)?.let {
+                return failure(it)
+            }
+        }
         return when (name) {
             HarnessTools.WORKFLOW_START -> start(context, arguments)
             HarnessTools.WORKFLOW_STATUS -> status(context, arguments)
@@ -108,25 +179,11 @@ internal class HarnessWorkflowTools(
     }
 
     private suspend fun start(context: AgentToolContext, arguments: JsonObject): AgentToolResult {
-        val (harness, workflow) = target(arguments) ?: return failure("No such enabled workflow; see harness_get")
-        val expected = "harness=${harness.id.value}@${harness.revision};workflow=${workflow.id.value}"
-        if (context.authorization?.binding != expected) {
-            log.d { "Workflow start approval is stale" }
-            return failure(APPROVAL_CHANGED)
-        }
-        val request = context.request ?: return failure("Workflows can only be started from an accepted turn")
-        if (!helpers.value.canHost(context.session)) return failure("Helper chats cannot be hosted for this chat")
-        // The library is read again at launch; an edit after the question is an expected race, not a fault.
-        val approved = ApprovedWorkflow(harness.revision, workflow.id)
-        if (!launches.value.isApproved(harness.id, workflow.name, approved)) {
-            log.i { "Workflow start refused: changed while awaiting approval" }
-            return failure(APPROVAL_CHANGED)
-        }
-        // A model input that misses the schema is an answer for the model, not a host fault.
-        if (!isWorkflowInput(workflow.input, input(arguments))) {
-            log.d { "Workflow input rejected" }
-            return failure(INPUT_MISMATCH)
-        }
+        val selected = target(arguments) ?: return failure("No such enabled workflow; see harness_get")
+        val (harness, workflow) = selected
+        val approved = ApprovedWorkflow(harness.revision, workflow.id, harness)
+        startRejection(context, arguments, selected, approved)?.let { return failure(it) }
+        val request = checkNotNull(context.request)
         return try {
             val launch = launches.value.prepare(
                 harness.id,
@@ -135,9 +192,9 @@ internal class HarnessWorkflowTools(
                 context.session,
                 context.workspace,
                 RequestInitiator(context.session, request),
-                origins.value.origin(context.session, request),
+                services.origins.value.origin(context.session, request),
                 WorkflowOrigin.Agent,
-                // Only the snapshot the user approved may start, even after the check above.
+                // Only the snapshot the safety reviewer approved may start, even after the check above.
                 approved,
             )
             val result = launches.value.start(launch)
@@ -156,6 +213,45 @@ internal class HarnessWorkflowTools(
         } catch (error: IllegalStateException) {
             log.w(IllegalStateException(error::class.simpleName)) { "Workflow start refused" }
             failure("The workflow cannot start now: it is disabled, at capacity or no longer active here")
+        }
+    }
+
+    /** Checks the captured candidate; later prepare/start retain the same exact reviewed snapshot. */
+    private suspend fun startRejection(
+        context: AgentToolContext,
+        arguments: JsonObject,
+        selected: Pair<Harness, HarnessItem.Workflow>,
+        approved: ApprovedWorkflow,
+    ): String? {
+        val (harness, workflow) = selected
+        val assessed = authorization(context, HarnessTools.WORKFLOW_START, arguments, false, selected)
+        val denied = assessed.failureReason(context)
+        return when {
+            denied != null -> denied
+
+            context.request == null -> "Workflows can only be started from an accepted turn"
+
+            !services.helpers.value.canHost(context.session) -> "Helper chats cannot be hosted for this chat"
+
+            !launches.value.isApproved(harness.id, workflow.name, approved) -> {
+                log.i { "Workflow start refused: changed after safety review" }
+                APPROVAL_CHANGED
+            }
+
+            !isWorkflowInput(workflow.input, input(arguments)) -> {
+                log.d { "Workflow input rejected" }
+                INPUT_MISMATCH
+            }
+
+            else -> null
+        }
+    }
+
+    private fun AgentToolAutomaticAuthorization.failureReason(context: AgentToolContext): String? = when (this) {
+        is AgentToolAutomaticAuthorization.Denied -> reason
+
+        is AgentToolAutomaticAuthorization.Allowed -> APPROVAL_CHANGED.takeIf {
+            context.authorization?.binding != approval.binding
         }
     }
 
@@ -241,7 +337,24 @@ internal class HarnessWorkflowTools(
     private fun input(arguments: JsonObject): JsonObject = arguments["input"] as? JsonObject ?: JsonObject(emptyMap())
 
     private fun failure(message: String) = AgentToolResult(message, isError = true)
+
+    private fun denied(reason: String) = AgentToolAutomaticAuthorization.Denied(reason)
+
+    private sealed interface ReviewPlan {
+        data class Invalid(val reason: String) : ReviewPlan
+        data class Ready(val approval: AgentToolApproval, val change: String? = null) : ReviewPlan {
+            override fun toString(): String = "ReviewPlan.Ready(***)"
+        }
+    }
 }
+
+/** Workflow side-effect services are lazy; status queries do not start helpers, reviews or request routing. */
+@Inject
+internal data class HarnessWorkflowToolServices(
+    val helpers: Lazy<HelperAgents>,
+    val origins: Lazy<HarnessRequestOrigins>,
+    val reviews: Lazy<HarnessCodeReviews>,
+)
 
 /** Model text is never trusted as a run identity beyond its syntax; visibility is checked separately. */
 private fun parseRunId(value: String): RunId? = if (value.matches(RUN_ID)) RunId(value) else null
@@ -250,7 +363,7 @@ private fun JsonObject.text(key: String): String? =
     (get(key) as? JsonPrimitive)?.takeIf { it.isString }?.content?.trim()?.takeIf { it.isNotEmpty() }
 
 private const val INPUT_MISMATCH = "The input does not match the workflow schema"
-private const val APPROVAL_CHANGED = "The workflow changed while awaiting approval; request it again"
+private const val APPROVAL_CHANGED = "The workflow changed after safety review; request it again"
 private val OUTCOME_TIMEOUT = 5.seconds
 private val ITEM_NAME = Regex("[a-z][a-z0-9_]{0,31}")
 private val RUN_ID = Regex("wf_[a-zA-Z0-9_]{1,64}")

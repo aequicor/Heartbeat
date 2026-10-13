@@ -10,15 +10,8 @@
     <string name="harness_conflict">Харнесс изменился за это время; изменение не применено.</string>
     <string name="harness_busy">Другое изменение этого харнесса ещё сохраняется. Повторите попытку.</string>
     <string name="harness_limit">Изменение превышает ограничения библиотеки харнессов.</string>
-    <string name="harness_approval_section">Подтверждение правок агента</string>
-    <string name="harness_approval_section_hint">Как принимаются харнессы, тексты и переключатели инструментов, которые пишет агент. Код проходит автоматическое ревью: риск и неопределённость требуют вашего решения. Включение нативных инструментов подтверждается всегда.</string>
-    <string name="harness_approval_ask">Спрашивать подтверждение</string>
-    <string name="harness_approval_ask_hint">Правки агента ждут вашего решения, кроме режима «Подтверждать за меня» в чате. Для кода решение принимает автоматическое ревью; при риске или неопределённости оно спрашивает вас. Снятие ограничений инструментов подтверждается всегда.</string>
-    <string name="harness_approval_by_trust">По доверию чата</string>
-    <string name="harness_approval_by_trust_hint">При полном доверии правки сохраняются без вопроса, при остальных — с вопросом.</string>
-    <string name="harness_approval_accept_all">Принимать любые</string>
-    <string name="harness_approval_accept_all_hint">Тексты, метаданные и выключение инструментов сохраняются без вопроса.</string>
-    <string name="harness_approval_warning">Агент сможет без вашего ведома менять инструкции всех чатов, где активен харнесс.</string>
+    <string name="harness_approval_section">Автоматическая проверка безопасности</string>
+    <string name="harness_approval_section_hint">Система безопасности автоматически проверяет изменения агента. При отказе агент получает причину.</string>
     <string name="harness_no_code">Скрипты и workflow работают только на Desktop; скиллы, инструкции, шаблоны и политика инструментов работают здесь.</string>
     <string name="harness_list_section">Харнессы</string>
     <string name="harness_empty">Харнессов пока нет</string>
