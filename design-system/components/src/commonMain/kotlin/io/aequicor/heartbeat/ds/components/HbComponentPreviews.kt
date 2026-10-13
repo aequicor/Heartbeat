@@ -81,7 +81,7 @@ private fun ComponentPreviewContent() {
             sendLabel = "Send",
             stopLabel = "Stop",
             modifier = Modifier.fillMaxWidth(),
-            layout = HbComposerLayout.Panel,
+            layout = HbComposerLayout.CompactPanel,
             inputMaxHeight = HbTheme.dimensions.editorMaxHeight,
             placeholder = "Message the agent",
             leadingContent = {

@@ -169,6 +169,43 @@ class HbComposerUiTest {
         }
 
     @Test
+    fun `removed or disabled focused commands fall back to an enabled action`() {
+        for (remove in listOf(false, true)) {
+            runSkikoComposeUiTest(size = Size(620f, 700f)) {
+                var actions by mutableStateOf(
+                    persistentListOf(
+                        HbComposerAction("disabled", "Unavailable", isEnabled = false),
+                        HbComposerAction("selected", "Selected"),
+                        HbComposerAction("fallback", "Fallback"),
+                    ),
+                )
+                var isExpanded by mutableStateOf(false)
+                val chosen = mutableListOf<String>()
+                setContent {
+                    ComposerTestHost {
+                        HbChatComposer("", {}, {}, {}, "Send", "Stop", leadingContent = {
+                            HbComposerMenuButton(
+                                label = "Add",
+                                actions = actions,
+                                isExpanded = isExpanded,
+                                onExpandedChange = { isExpanded = it },
+                                onAction = { chosen += it },
+                            )
+                        })
+                    }
+                }
+                onNodeWithContentDescription("Add").performClick()
+                onNodeWithText("Selected").assertIsFocused()
+                runOnIdle {
+                    actions = if (remove) actions.removeAt(1) else actions.set(1, actions[1].copy(isEnabled = false))
+                }
+                onNodeWithText("Fallback").assertIsFocused().performKeyInput { pressKey(Key.Enter) }
+                runOnIdle { assertEquals(listOf("fallback"), chosen) }
+            }
+        }
+    }
+
+    @Test
     fun `choosing a command fires once and dismisses and outside click dismisses without activating background`() =
         runSkikoComposeUiTest(size = Size(620f, 700f)) {
             var isExpanded by mutableStateOf(false)

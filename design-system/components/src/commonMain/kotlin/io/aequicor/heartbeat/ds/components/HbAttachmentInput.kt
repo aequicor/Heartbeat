@@ -1,6 +1,8 @@
 package io.aequicor.heartbeat.ds.components
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 
 /**
@@ -23,15 +25,31 @@ public fun HbPasteImageButton(
     onImage: (ByteArray) -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    isIconOnly: Boolean = false,
 ) {
-    val read = rememberClipboardImageReader()
+    val paste = rememberHbPasteImageAction(onImage)
+    if (isIconOnly) {
+        HbIconButton(HbIcons.Image, label, paste, modifier, enabled = enabled)
+        return
+    }
     HbButton(
         label,
-        onClick = { read()?.let(onImage) },
+        onClick = paste,
         modifier = modifier,
         style = HbButtonStyle.Ghost,
         enabled = enabled,
     )
+}
+
+/**
+ * A user-initiated image-paste action for an explicit button or menu item. The clipboard is read only
+ * when the returned callback is invoked; the latest [onImage] receives the platform-encoded image.
+ */
+@Composable
+public fun rememberHbPasteImageAction(onImage: (ByteArray) -> Unit): () -> Unit {
+    val read = rememberClipboardImageReader()
+    val latest = rememberUpdatedState(onImage)
+    return remember(read) { { read()?.let(latest.value) } }
 }
 
 @Composable

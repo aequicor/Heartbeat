@@ -27,13 +27,24 @@ import org.jetbrains.compose.resources.stringResource
 
 /** Project-aware choices replace the computer label; an empty library occupies no space in the context toolbar. */
 @Composable
-internal fun StudioHarnessPicker(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit) {
+internal fun StudioHarnessPicker(
+    content: PaneContent,
+    onIntent: (AiStudioScreenIntent) -> Unit,
+    modifier: Modifier = Modifier,
+    isCompact: Boolean = false,
+) {
     if (content.harnesses.isEmpty()) return
     var isExpanded by remember(content.pane.id, content.pane.sessionId, content.project?.id) { mutableStateOf(false) }
     val selected = content.harnesses.filter { it.isSelected }
     val label = when (selected.size) {
         0 -> stringResource(Res.string.harness_menu_section)
-        1 -> stringResource(Res.string.harness_picker_one, selected.single().title)
+
+        1 -> if (isCompact) {
+            selected.single().title
+        } else {
+            stringResource(Res.string.harness_picker_one, selected.single().title)
+        }
+
         else -> stringResource(Res.string.harness_picker_many, selected.size)
     }
     val actions = content.harnesses.map {
@@ -60,7 +71,7 @@ internal fun StudioHarnessPicker(content: PaneContent, onIntent: (AiStudioScreen
         onClear = {
             selected.forEach { onIntent(AiStudioScreenIntent.SelectHarness(content.pane.id, it.id, false)) }
         },
-        modifier = Modifier.testTag("harness-picker-${content.pane.id}"),
+        modifier = modifier.testTag("harness-picker-${content.pane.id}"),
         enabled = !content.pane.isCreating,
         icon = HbIcons.Layers,
     )

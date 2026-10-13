@@ -11,7 +11,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -80,7 +81,10 @@ private fun ComposerMenuSheet(
 ) {
     val focusRequests = remember(actions) { List(actions.size) { FocusRequester() } }
     val enabledIndices = remember(actions) { actions.indices.filter { actions[it].isEnabled } }
-    var focusedIndex by remember(actions) { mutableIntStateOf(enabledIndices.firstOrNull() ?: -1) }
+    // Responsive menus insert or remove actions without changing the user's selected command.
+    var focusedId by remember { mutableStateOf<String?>(null) }
+    val focusedIndex = enabledIndices.firstOrNull { actions[it].id == focusedId }
+        ?: enabledIndices.firstOrNull() ?: -1
     val emptyFocus = remember { FocusRequester() }
     SideEffect(actions) {
         if (focusedIndex >= 0) focusRequests[focusedIndex].requestFocus() else emptyFocus.requestFocus()
@@ -91,7 +95,7 @@ private fun ComposerMenuSheet(
             .heightIn(max = menuHeight)
             .onPreviewKeyEvent { event ->
                 handleMenuKey(event, focusedIndex, enabledIndices, onDismiss) { nextIndex ->
-                    focusedIndex = nextIndex
+                    focusedId = actions[nextIndex].id
                     focusRequests[nextIndex].requestFocus()
                 }
             }
@@ -107,13 +111,15 @@ private fun ComposerMenuSheet(
     ) {
         if (headerLabel != null) ComposerSectionLabel(headerLabel)
         actions.forEachIndexed { index, action ->
-            if (action.sectionLabel != null) ComposerSectionLabel(action.sectionLabel)
-            ComposerMenuItem(
-                action = action,
-                onClick = { onAction(action.id) },
-                onFocus = { focusedIndex = index },
-                modifier = Modifier.fillMaxWidth().focusRequester(focusRequests[index]),
-            )
+            key(action.id) {
+                if (action.sectionLabel != null) ComposerSectionLabel(action.sectionLabel)
+                ComposerMenuItem(
+                    action = action,
+                    onClick = { onAction(action.id) },
+                    onFocus = { focusedId = action.id },
+                    modifier = Modifier.fillMaxWidth().focusRequester(focusRequests[index]),
+                )
+            }
         }
     }
 }
