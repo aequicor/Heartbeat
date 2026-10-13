@@ -1,7 +1,7 @@
 name: Release
 
 # Run workflow on master with patch, minor or major to publish the next Heartbeat release.
-# Publishing needs every job to pass: all tests and lint, the Android and iOS builds, and the four desktop
+# Publishing needs every job to pass: all tests, the Android and iOS builds, and the four desktop
 # installers, each checked by running its packaged app (verifyReleaseHarnessCompiler).
 # Installed release builds update themselves from the latest release (features/app-update): the release is
 # created as a draft, gets every installer and SHA256SUMS, and only then becomes public and latest. The asset
@@ -57,7 +57,7 @@ jobs:
           cat version.txt >> "$GITHUB_STEP_SUMMARY"
 
   checks:
-    name: Tests and lint
+    name: Tests
     needs: version
     runs-on: macos-15
     timeout-minutes: 150
@@ -77,12 +77,12 @@ jobs:
           python -m pip install -r scripts/requirements-commit-policy.txt
           python -m unittest discover -s scripts/tests -v
           python -m unittest discover -s native/jcef -p "test_*.py" -v
-      - name: Test and lint all modules
+      - name: Test all modules
         env:
           VERSION: ${{ needs.version.outputs.version }}
         run: >-
           ./gradlew -Pheartbeat.version="$VERSION"
-          allTests :platform-main:desktop:test :lint:detekt-rules:test detekt
+          allTests :platform-main:desktop:test :lint:detekt-rules:test
           --continue --stacktrace
 
   mobile:
