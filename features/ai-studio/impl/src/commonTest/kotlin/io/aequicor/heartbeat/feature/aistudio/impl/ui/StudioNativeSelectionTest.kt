@@ -14,7 +14,6 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.mergeSessionTrees
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.nativeKey
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.selectedNative
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.toUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismStatusUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismUi
@@ -22,6 +21,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionKindUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionStateUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.selectedNative
 import io.aequicor.heartbeat.feature.aistudio.screenui.paneContent
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf

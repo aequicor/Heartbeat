@@ -7,9 +7,9 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.NativeAttachmentUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.attachmentSupport
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.isAttachmentPending
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.attachmentSupport
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.isAttachmentPending
 import io.aequicor.heartbeat.feature.chromiumbridge.protocol.WirePage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job

@@ -23,9 +23,6 @@ import io.aequicor.heartbeat.ds.layouts.HbLazyColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentPreviewUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.InputSupportUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_file
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_incompatible
@@ -33,6 +30,9 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_limit_e
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_limits
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_remove
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_save
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentPreviewUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.InputSupportUi
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentMapOf

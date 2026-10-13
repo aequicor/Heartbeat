@@ -13,6 +13,13 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioCompactionPort
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.compactCommand
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.acceptSubmission
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.compactedChat
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.pendingSubmission
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.prepareSubmission
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.queueSubmission
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.rejectSubmission
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.selectedNative
 import kotlinx.collections.immutable.toImmutableSet
 import pro.respawn.flowmvi.api.PipelineContext
 import kotlin.uuid.Uuid

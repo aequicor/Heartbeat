@@ -5,6 +5,14 @@ import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPane
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.InputSupportUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubmissionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.acceptSubmission
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.pendingSubmission
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.prepareSubmission
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.queueSubmission
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.rejectSubmission
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlin.test.Test

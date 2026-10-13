@@ -2,8 +2,6 @@ package io.aequicor.heartbeat.feature.aistudio.screenui
 
 import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentPreviewUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ComposerCaretRequestUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.HarnessChoiceUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.HarnessChoicesUi
@@ -18,17 +16,19 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionTre
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SettingsUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.attachmentSupport
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.availableHarnesses
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.collapsed
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.isAttachmentPending
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.selectedNative
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentPreviewUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextUsageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProviderUsageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.attachmentSupport
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.isAttachmentPending
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.selectedNative
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet

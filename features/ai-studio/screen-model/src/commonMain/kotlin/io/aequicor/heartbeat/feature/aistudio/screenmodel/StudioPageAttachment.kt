@@ -1,4 +1,4 @@
-package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
+package io.aequicor.heartbeat.feature.aistudio.screenmodel
 
 /** Bounds of a page captured by the extension; native file URLs are never page attachments. */
 fun NativeAttachmentUi.Page.isValid(): Boolean =

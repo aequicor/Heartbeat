@@ -2,7 +2,7 @@ package io.aequicor.heartbeat.chromiumplugin.panel.store
 
 import io.aequicor.heartbeat.chromiumplugin.panel.link.panelJson
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.NativeAttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioViewJson
 import io.aequicor.heartbeat.feature.chromiumbridge.protocol.WirePage
 import kotlinx.serialization.Serializable

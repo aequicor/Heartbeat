@@ -1,6 +1,11 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioViewJson
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.document
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.fileName
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.isAttachmentPending
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.isValid
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.predict
 import kotlin.test.Test
 import kotlin.test.assertEquals

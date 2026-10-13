@@ -3,15 +3,20 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentPreviewUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextUsageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableListSerializer
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableMapSerializer
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableSetSerializer
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismActionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PreviewVisibilityUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProviderUsageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioEmbedViews
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionObservationUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubmissionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeActionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeUi

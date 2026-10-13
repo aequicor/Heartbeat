@@ -1,8 +1,8 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote
 
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.NativeAttachmentUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.isValid
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.isValid
 
 /**
  * Whether a remote view may send [intent]. Refused: native desktop surfaces the browser cannot show (folder and file

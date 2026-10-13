@@ -3,10 +3,12 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedbackUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableListSerializer
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableMapSerializer
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableSetSerializer
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.InputSupportUi
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
