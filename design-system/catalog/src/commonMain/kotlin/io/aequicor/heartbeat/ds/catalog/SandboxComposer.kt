@@ -42,7 +42,7 @@ internal fun SandboxComposer(
         sendLabel = hbString(HbString.Send),
         stopLabel = hbString(HbString.Stop),
         modifier = modifier.fillMaxWidth(),
-        layout = HbComposerLayout.Panel,
+        layout = HbComposerLayout.CompactPanel,
         inputMaxHeight = if (isCompact && !HbTheme.dimensions.isDesktop) {
             HbTheme.dimensions.composerMinHeight
         } else {
@@ -54,12 +54,14 @@ internal fun SandboxComposer(
         leadingContent = {
             AddContextMenu(state, copy, menus, isCompact)
             var isResearch by remember { mutableStateOf(false) }
-            HbComposerToggle(
-                label = hbString(HbString.ResearchMode),
-                isChecked = isResearch,
-                onCheckedChange = { isResearch = it },
-                icon = HbIcons.Library,
-            )
+            if (!isCompact) {
+                HbComposerToggle(
+                    label = hbString(HbString.ResearchMode),
+                    isChecked = isResearch,
+                    onCheckedChange = { isResearch = it },
+                    icon = HbIcons.Library,
+                )
+            }
         },
         trailingContent = { ResponseMenus(state, menus, isCompact) },
     )
@@ -127,7 +129,7 @@ private fun RowScope.ResponseMenus(state: DemoChatState, menus: ComposerMenus, i
         isExpanded = menus.expanded == "model",
         onExpandedChange = { menus.setExpanded("model", it) },
         onAction = { state.selectConcise(it == "brief") },
-        modifier = Modifier.semantics { stateDescription = modelLabel },
+        modifier = Modifier.weight(1f, fill = false).semantics { stateDescription = modelLabel },
         headerLabel = if (isCompact) hbString(HbString.ModelMenu) else null,
         accessibleLabel = hbString(HbString.ModelMenu),
         icon = if (isCompact) HbIcons.Sparkles else null,

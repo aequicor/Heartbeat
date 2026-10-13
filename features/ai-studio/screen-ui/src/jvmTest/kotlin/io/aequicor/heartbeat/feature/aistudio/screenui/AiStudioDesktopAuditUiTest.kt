@@ -335,7 +335,7 @@ internal fun desktopAuditDirectory(): File {
 private val auditTags = listOf(
     "studio-rail", "studio-sidebar", "sidebar-footer", "sidebar-search-open", "pane-0", "pane-header-0",
     "pane-footer-0", "composer-0",
-    "transcript-audit-0", "new-session-hero", "session-audit-0", "sidebar-search", "research-mode",
+    "transcript-audit-0", "new-session-hero", "session-audit-0", "sidebar-search",
     "message-header:audit-answer-5", "message-footer:audit-answer-5",
 )
 private val auditExits = StudioExits(

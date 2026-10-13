@@ -1,5 +1,8 @@
 package io.aequicor.heartbeat.feature.aistudio.screenui
 
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -22,11 +25,14 @@ import io.aequicor.heartbeat.ds.components.HbComposerMenuStyle
 import io.aequicor.heartbeat.ds.components.HbComposerSuggestion
 import io.aequicor.heartbeat.ds.components.HbComposerSuggestions
 import io.aequicor.heartbeat.ds.components.HbComposerToggle
-import io.aequicor.heartbeat.ds.components.HbIconButton
+import io.aequicor.heartbeat.ds.components.HbIcon
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbPasteImageButton
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTooltip
+import io.aequicor.heartbeat.ds.components.rememberHbPasteImageAction
+import io.aequicor.heartbeat.ds.layouts.HbBoxWithConstraints
+import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
@@ -106,6 +112,30 @@ internal fun StudioComposer(
     modifier: Modifier = Modifier,
     onOpenResearch: ((String) -> Unit)? = null,
 ) {
+    HbBoxWithConstraints(modifier) {
+        val presentation = when {
+            maxWidth < HbTheme.dimensions.composerToolbarBreakpoint -> ComposerPresentation.Compact
+
+            maxWidth < HbTheme.dimensions.compactBreakpoint || !HbTheme.dimensions.isDesktop ->
+                ComposerPresentation.Medium
+
+            else -> ComposerPresentation.Wide
+        }
+        StudioComposerInput(content, onIntent, isCompact, presentation, onOpenResearch)
+    }
+}
+
+/** Density follows the pane width, independently of the host's touch target preset. */
+private enum class ComposerPresentation { Compact, Medium, Wide }
+
+@Composable
+private fun StudioComposerInput(
+    content: PaneContent,
+    onIntent: (StudioIntent) -> Unit,
+    isCompact: Boolean,
+    presentation: ComposerPresentation,
+    onOpenResearch: ((String) -> Unit)?,
+) {
     val pane = content.pane
     val session = content.session
     val draft = content.draft
@@ -113,27 +143,7 @@ internal fun StudioComposer(
     val hasRunPreferences = content.supportsRunPreferences()
     val support = content.models.firstOrNull { it.id == settings.modelId }?.inputSupport
     val isAddingEnabled = content.canAddAttachments()
-    val focus = remember { FocusRequester() }
-    var inputFocusRequests by remember { mutableIntStateOf(0) }
-    LaunchedEffect(inputFocusRequests) {
-        if (inputFocusRequests == 0) return@LaunchedEffect
-        // The menu returns focus to its button when it closes; the input takes it back on the next frame.
-        withFrameNanos { }
-        focus.requestFocus()
-    }
-    LaunchedEffect(content.diagram.focusRequest) {
-        if (content.diagram.focusRequest > 0L) {
-            withFrameNanos { }
-            focus.requestFocus()
-        }
-    }
-    var previousPhase by remember(session?.id) { mutableStateOf(content.worktree?.phase) }
-    SideEffect {
-        if (previousPhase == WorktreePhaseUi.AwaitingDecision && content.worktree?.phase == WorktreePhaseUi.Idle) {
-            focus.requestFocus()
-        }
-        previousPhase = content.worktree?.phase
-    }
+    val (focus, requestInputFocus) = rememberComposerFocus(content)
     HbChatComposer(
         value = draft,
         onValueChange = { onIntent(StudioIntent.Suggestions.DraftChanged(pane.id, it)) },
@@ -141,14 +151,14 @@ internal fun StudioComposer(
         onStop = { session?.let { onIntent(StudioIntent.Stop(it.id)) } },
         sendLabel = stringResource(Res.string.composer_send),
         stopLabel = stringResource(Res.string.composer_stop),
-        modifier = modifier.testTag("composer-${pane.id}"),
+        modifier = Modifier.testTag("composer-${pane.id}"),
         hasAttachments = content.attachments.isNotEmpty(),
         canSend = !content.isAttachmentPending && (
             support?.accepts(
                 content.attachments,
             ) ?: content.attachments.isEmpty()
         ),
-        layout = HbComposerLayout.Panel,
+        layout = HbComposerLayout.CompactPanel,
         inputMaxHeight = if (isCompact && !HbTheme.dimensions.isDesktop) {
             HbTheme.dimensions.composerMaxHeight
         } else {
@@ -168,32 +178,73 @@ internal fun StudioComposer(
         caretRequest = content.caretRequest?.let { HbComposerCaretRequest(it.id, it.text, it.caret) },
         onCaretRequestApply = { id -> onIntent(StudioIntent.Suggestions.CaretRequestApplied(pane.id, id)) },
         contextContent = if (content.hasComposerContext()) {
-            { StudioComposerContext(content, onIntent) }
+            { StudioComposerContext(content, onIntent, presentation) }
         } else {
             null
         },
         leadingContent = {
-            AttachmentActions(isAddingEnabled, content, onIntent)
-            StudioComposerLeading(content, hasRunPreferences, onIntent, onOpenResearch) { inputFocusRequests++ }
+            StudioComposerLeading(content, hasRunPreferences, presentation, onIntent, onOpenResearch) {
+                requestInputFocus()
+            }
+            if (isAddingEnabled && presentation != ComposerPresentation.Compact) {
+                AttachmentActions(content, onIntent, presentation)
+            }
         },
         trailingContent = {
-            ComposerEffort(content, hasRunPreferences, onIntent)
-            StudioUsage(content, onIntent)
             ModelMenu(
                 settings.modelId,
                 content.models,
                 onIntent,
                 canSelect = !content.isSettingPending && content.organism == null,
                 paneId = pane.id,
+                modifier = Modifier.weight(1f, fill = false),
+                isCompact = presentation == ComposerPresentation.Compact,
+            )
+            ComposerEffort(
+                content,
+                hasRunPreferences,
+                onIntent,
+                Modifier.widthIn(
+                    max = HbTheme.dimensions.composerLabelMaxWidth *
+                        if (presentation == ComposerPresentation.Compact) 0.7f else 1f,
+                ),
             )
         },
     )
 }
 
+/** Menus and inserted diagram prompts restore focus after their transient surface has closed. */
+@Composable
+private fun rememberComposerFocus(content: PaneContent): Pair<FocusRequester, () -> Unit> {
+    val focus = remember { FocusRequester() }
+    var inputFocusRequests by remember { mutableIntStateOf(0) }
+    LaunchedEffect(inputFocusRequests) {
+        if (inputFocusRequests == 0) return@LaunchedEffect
+        // The menu returns focus to its button when it closes; the input takes it back on the next frame.
+        withFrameNanos { }
+        focus.requestFocus()
+    }
+    LaunchedEffect(content.diagram.focusRequest) {
+        if (content.diagram.focusRequest > 0L) {
+            withFrameNanos { }
+            focus.requestFocus()
+        }
+    }
+    var previousPhase by remember(content.session?.id) { mutableStateOf(content.worktree?.phase) }
+    SideEffect {
+        if (previousPhase == WorktreePhaseUi.AwaitingDecision && content.worktree?.phase == WorktreePhaseUi.Idle) {
+            focus.requestFocus()
+        }
+        previousPhase = content.worktree?.phase
+    }
+    return focus to { inputFocusRequests++ }
+}
+
 /** Available harnesses also need the context row in chats without a project. */
 private fun PaneContent.hasComposerContext(): Boolean {
     val hasWorktree = worktree != null || session?.isWorktree == true
-    return pane.sessionId == null || project != null || hasWorktree || harnesses.isNotEmpty()
+    return pane.sessionId == null || project != null || hasWorktree || harnesses.isNotEmpty() ||
+        contextUsage != null || providerUsage?.isVisible == true
 }
 
 /** Suggestions of the pane's active token with section labels and icons for their kinds and origins. */
@@ -241,10 +292,15 @@ private fun sectionLabel(suggestion: SuggestionUi): String = when (suggestion.ki
 private fun StudioComposerLeading(
     content: PaneContent,
     hasRunPreferences: Boolean,
+    presentation: ComposerPresentation,
     onIntent: (StudioIntent) -> Unit,
     onOpenResearch: ((String) -> Unit)?,
     onFocusInput: () -> Unit,
 ) {
+    val pasteImage = rememberHbPasteImageAction {
+        onIntent(StudioIntent.ImportAttachments(content.pane.id, listOf(NativeAttachmentUi.Image(it))))
+    }
+    val support = content.models.firstOrNull { it.id == content.settings.modelId }?.inputSupport
     TemplatesMenu(
         draft = content.draft,
         isRememberEnabled = content.isRememberEnabled,
@@ -259,33 +315,88 @@ private fun StudioComposerLeading(
         approvalEnabled = !content.isSettingPending && content.organism == null,
         organism = content.pane.isOrganism.takeIf { content.isOrganismOffered() },
         onOrganism = { onIntent(StudioIntent.SelectOrganism(content.pane.id, it)) },
+        onAttach = { onIntent(StudioIntent.PickAttachments(content.pane.id)) }.takeIf {
+            content.canAddAttachments() && content.host.isNativeAttachmentInputAvailable &&
+                !content.isAttachmentPending
+        },
+        onPasteImage = pasteImage.takeIf {
+            content.canAddAttachments() && content.host.isNativeAttachmentInputAvailable &&
+                !content.isAttachmentPending && presentation == ComposerPresentation.Compact &&
+                !support?.imageMediaTypes.isNullOrEmpty()
+        },
+        onAttachPage = content.host.onAttachPage?.let { attach -> { attach(content.pane.id) } }?.takeIf {
+            content.canAddAttachments() && !content.isAttachmentPending &&
+                "text/markdown" in support?.mediaTypes.orEmpty()
+        },
+        onResearch = onOpenResearch?.let { open -> { open(content.settings.modelId) } }
+            ?.takeIf { content.isResearchAvailable },
     )
-    if (content.isResearchAvailable && onOpenResearch != null) {
-        HbComposerToggle(
-            label = stringResource(Res.string.research_mode),
-            isChecked = false,
-            onCheckedChange = { if (it) onOpenResearch(content.settings.modelId) },
-            modifier = Modifier.testTag("research-mode"),
-            icon = HbIcons.Library,
+}
+
+@Composable
+private fun StudioComposerContext(
+    content: PaneContent,
+    onIntent: (StudioIntent) -> Unit,
+    presentation: ComposerPresentation,
+) {
+    HbFlowRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
+        StudioComposerIdentity(content, onIntent, presentation)
+        StudioComposerModes(content, onIntent)
+    }
+}
+
+/** Session identity stays on one line; long names fade without stealing the harness touch target. */
+@Composable
+private fun StudioComposerIdentity(
+    content: PaneContent,
+    onIntent: (StudioIntent) -> Unit,
+    presentation: ComposerPresentation,
+) {
+    val pane = content.pane
+    HbRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.m) {
+        if (pane.sessionId == null) {
+            ContextTray(
+                pane,
+                content.project,
+                content.projects,
+                onIntent,
+                modifier = Modifier.weight(1f, fill = false),
+                isProjectAddingAvailable = content.isProjectAddingAvailable,
+            )
+        } else {
+            content.project?.let {
+                HbRow(
+                    Modifier.weight(1f, fill = false)
+                        .widthIn(max = HbTheme.dimensions.composerLabelMaxWidth)
+                        .testTag("session-project-${pane.id}"),
+                    gap = HbTheme.spacing.xs,
+                ) {
+                    if (presentation != ComposerPresentation.Compact) {
+                        HbIcon(HbIcons.Folder, null, tint = HbTheme.colors.textSecondary)
+                    }
+                    HbText(
+                        it.name,
+                        Modifier.weight(1f, fill = false),
+                        maxLines = 1,
+                        style = HbTheme.typography.caption,
+                        color = HbTheme.colors.textSecondary,
+                    )
+                }
+            }
+        }
+        StudioHarnessPicker(
+            content,
+            onIntent,
+            modifier = Modifier.weight(1f, fill = false),
+            isCompact = presentation == ComposerPresentation.Compact,
         )
+        StudioUsage(content, onIntent)
     }
 }
 
 @Composable
-private fun StudioComposerContext(content: PaneContent, onIntent: (StudioIntent) -> Unit) {
+private fun StudioComposerModes(content: PaneContent, onIntent: (StudioIntent) -> Unit) {
     val pane = content.pane
-    if (pane.sessionId == null) {
-        ContextTray(
-            pane,
-            content.project,
-            content.projects,
-            onIntent,
-            isProjectAddingAvailable = content.isProjectAddingAvailable,
-        )
-    } else {
-        content.project?.let { HbText(it.name, maxLines = 1, style = HbTheme.typography.caption) }
-    }
-    StudioHarnessPicker(content, onIntent)
     OrganismModeToggle(content, onIntent)
     if (content.worktree != null || content.session?.isWorktree == true) {
         HbComposerToggle(
@@ -318,51 +429,32 @@ private fun StudioComposerContext(content: PaneContent, onIntent: (StudioIntent)
 
 @Composable
 private fun AttachmentActions(
-    isAddingEnabled: Boolean,
     content: PaneContent,
     onIntent: (StudioIntent) -> Unit,
-    modifier: Modifier = Modifier,
+    presentation: ComposerPresentation,
 ) {
-    val pane = content.pane
     val support = content.models.firstOrNull { it.id == content.settings.modelId }?.inputSupport
-    val host = content.host
-    HbRow(modifier, gap = HbTheme.spacing.s) {
-        if (isAddingEnabled && !content.isAttachmentPending) {
-            host.onAttachPage?.takeIf { "text/markdown" in support?.mediaTypes.orEmpty() }?.let { attach ->
-                HbIconButton(
-                    HbIcons.Globe,
-                    stringResource(Res.string.attachments_page),
-                    onClick = { attach(pane.id) },
-                    modifier = Modifier.testTag("attachment-page-${pane.id}"),
-                )
-            }
-            if (host.isNativeAttachmentInputAvailable) {
-                HbIconButton(
-                    HbIcons.FilePlus,
-                    stringResource(Res.string.attachments_add),
-                    onClick = { onIntent(StudioIntent.PickAttachments(pane.id)) },
-                    modifier = Modifier.testTag("attachment-add-${pane.id}"),
-                )
-                if (!support?.imageMediaTypes.isNullOrEmpty()) {
-                    HbPasteImageButton(
-                        stringResource(Res.string.attachments_paste),
-                        onImage = {
-                            onIntent(
-                                StudioIntent.ImportAttachments(
-                                    pane.id,
-                                    listOf(NativeAttachmentUi.Image(it)),
-                                ),
-                            )
-                        },
-                    )
-                }
-            }
-        }
+    if (content.host.isNativeAttachmentInputAvailable && !content.isAttachmentPending &&
+        !support?.imageMediaTypes.isNullOrEmpty()
+    ) {
+        HbPasteImageButton(
+            stringResource(Res.string.attachments_paste),
+            onImage = {
+                onIntent(StudioIntent.ImportAttachments(content.pane.id, listOf(NativeAttachmentUi.Image(it))))
+            },
+            modifier = Modifier.testTag("attachment-paste-${content.pane.id}"),
+            isIconOnly = presentation == ComposerPresentation.Medium,
+        )
     }
 }
 
 @Composable
-private fun ComposerEffort(content: PaneContent, hasDemoPreferences: Boolean, onIntent: (StudioIntent) -> Unit) {
+private fun ComposerEffort(
+    content: PaneContent,
+    hasDemoPreferences: Boolean,
+    onIntent: (StudioIntent) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     // Organism turns keep their own session configuration; new-chat effort choices would not apply.
     if (content.organism != null) return
     val model = content.models.firstOrNull { it.id == content.settings.modelId }
@@ -372,9 +464,9 @@ private fun ComposerEffort(content: PaneContent, hasDemoPreferences: Boolean, on
         } else {
             content.settings.engineEfforts[model.id]?.takeIf { it in model.reasoningEfforts }
         }
-        EngineEffortMenu(model, selected, onIntent, content.pane.id, enabled = !content.isSettingPending)
+        EngineEffortMenu(model, selected, onIntent, modifier, content.pane.id, enabled = !content.isSettingPending)
     } else if (hasDemoPreferences) {
-        EffortMenu(content.settings.effort, onIntent, content.pane.id, enabled = !content.isSettingPending)
+        EffortMenu(content.settings.effort, onIntent, content.pane.id, !content.isSettingPending, modifier)
     }
 }
 
@@ -464,6 +556,10 @@ private fun TemplatesMenu(
     approvalEnabled: Boolean,
     organism: Boolean?,
     onOrganism: (Boolean) -> Unit,
+    onAttach: (() -> Unit)?,
+    onPasteImage: (() -> Unit)?,
+    onAttachPage: (() -> Unit)?,
+    onResearch: (() -> Unit)?,
 ) {
     var isOpen by remember { mutableStateOf(false) }
     val templates = listOf(
@@ -488,7 +584,13 @@ private fun TemplatesMenu(
             isSelected = it,
         )
     }
-    val actions = templates.map { HbComposerAction(it.id, stringResource(it.label)) } +
+    val attachments = listOfNotNull(
+        onAttachPage?.let { HbComposerAction(PAGE_ACTION, stringResource(Res.string.attachments_page)) },
+        onAttach?.let { HbComposerAction(ATTACH_ACTION, stringResource(Res.string.attachments_add)) },
+        onPasteImage?.let { HbComposerAction(PASTE_ACTION, stringResource(Res.string.attachments_paste)) },
+        onResearch?.let { HbComposerAction(RESEARCH_ACTION, stringResource(Res.string.research_mode)) },
+    )
+    val actions = attachments + templates.map { HbComposerAction(it.id, stringResource(it.label)) } +
         listOfNotNull(rememberAction.takeIf { isRememberEnabled }, organismAction) +
         approvalActions(approval, approvalEnabled)
     HbComposerMenuButton(
@@ -497,7 +599,15 @@ private fun TemplatesMenu(
         isExpanded = isOpen,
         onExpandedChange = { isOpen = it },
         onAction = { id ->
-            if (id.startsWith(APPROVAL_PREFIX)) {
+            if (id == PAGE_ACTION) {
+                onAttachPage?.invoke()
+            } else if (id == ATTACH_ACTION) {
+                onAttach?.invoke()
+            } else if (id == PASTE_ACTION) {
+                onPasteImage?.invoke()
+            } else if (id == RESEARCH_ACTION) {
+                onResearch?.invoke()
+            } else if (id.startsWith(APPROVAL_PREFIX)) {
                 onApproval(ApprovalUi.valueOf(id.removePrefix(APPROVAL_PREFIX)))
             } else if (id == ORGANISM_ACTION) {
                 onOrganism(organism != true)
@@ -510,6 +620,7 @@ private fun TemplatesMenu(
                 onDraft(if (draft.isBlank()) prompt else "${draft.trimEnd()}\n$prompt")
             }
         },
+        modifier = Modifier.size(HbTheme.dimensions.touchTarget),
         accessibleLabel = stringResource(Res.string.composer_add),
         icon = HbIcons.Plus,
         style = HbComposerMenuStyle.Circle,
@@ -523,6 +634,8 @@ private fun ModelMenu(
     onIntent: (StudioIntent) -> Unit,
     canSelect: Boolean,
     paneId: Int,
+    modifier: Modifier = Modifier,
+    isCompact: Boolean = false,
 ) {
     var isOpen by remember { mutableStateOf(false) }
     val model = models.firstOrNull { it.id == modelId }
@@ -536,17 +649,23 @@ private fun ModelMenu(
         isExpanded = isOpen,
         onExpandedChange = { isOpen = it },
         onAction = { onIntent(StudioIntent.SelectModel(it, paneId)) },
-        modifier = Modifier.testTag("model-chip"),
+        modifier = modifier.testTag("model-chip"),
         accessibleLabel = model?.name ?: stringResource(Res.string.connect_model_hint),
         headerLabel = stringResource(Res.string.model_menu),
-        icon = HbIcons.Layers,
+        icon = if (isCompact) null else HbIcons.Layers,
         style = HbComposerMenuStyle.Pill,
         enabled = canSelect && models.isNotEmpty(),
     )
 }
 
 @Composable
-private fun EffortMenu(effort: EffortUi, onIntent: (StudioIntent) -> Unit, paneId: Int, enabled: Boolean) {
+private fun EffortMenu(
+    effort: EffortUi,
+    onIntent: (StudioIntent) -> Unit,
+    paneId: Int,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+) {
     var isOpen by remember { mutableStateOf(false) }
     val actions = EffortUi.entries.map {
         HbComposerAction(it.name, effortLabel(it), isSelected = it == effort)
@@ -557,7 +676,7 @@ private fun EffortMenu(effort: EffortUi, onIntent: (StudioIntent) -> Unit, paneI
         isExpanded = isOpen,
         onExpandedChange = { isOpen = it },
         onAction = { onIntent(StudioIntent.SelectEffort(EffortUi.valueOf(it), paneId)) },
-        modifier = Modifier.testTag("effort-chip"),
+        modifier = modifier.testTag("effort-chip"),
         accessibleLabel = stringResource(Res.string.composer_effort_menu),
         headerLabel = stringResource(Res.string.composer_effort_menu),
         icon = HbIcons.Sparkles,
@@ -601,6 +720,9 @@ private fun effortLabel(effort: EffortUi): String = stringResource(
 
 private data class Template(val id: String, val label: StringResource, val prompt: StringResource)
 
+private const val ATTACH_ACTION = "attach-file"
+private const val PASTE_ACTION = "paste-image"
+private const val RESEARCH_ACTION = "research"
 private const val REMEMBER_ACTION = "remember"
 private const val ORGANISM_ACTION = "organism"
 
@@ -613,3 +735,5 @@ private fun PaneContent.canAddAttachments(): Boolean {
     return isAttachmentsEnabled && !pane.isCreating && takesPrompts() && session?.isRunning != true &&
         !support?.mediaTypes.isNullOrEmpty()
 }
+
+private const val PAGE_ACTION = "attach-page"
