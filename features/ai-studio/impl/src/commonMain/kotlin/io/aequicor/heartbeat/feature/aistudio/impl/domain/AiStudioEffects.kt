@@ -3,11 +3,13 @@ package io.aequicor.heartbeat.feature.aistudio.impl.domain
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.EffectScope
+import io.aequicor.heartbeat.feature.aiengine.facade.api.hostedToolName
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioEffect
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.StudioDefaults
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
+import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiTools
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -227,6 +229,11 @@ internal fun StudioMessage.Reply.apply(event: AgentEvent): StudioMessage.Reply {
                 title = event.title,
                 status = if (event.isSuccess) ToolRunStatus.Done else ToolRunStatus.Failed,
                 diff = event.diff ?: diff,
+                // A live tool streams only its result as output, never the agent's arguments.
+                shownCardId = ServiceUiTools.shownCardId(
+                    hostedToolName(event.title),
+                    output,
+                ).takeIf { event.isSuccess },
             )
         }
 

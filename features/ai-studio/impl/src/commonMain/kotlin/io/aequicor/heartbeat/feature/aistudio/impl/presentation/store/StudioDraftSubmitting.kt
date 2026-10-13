@@ -42,12 +42,11 @@ internal suspend fun submitStudioDraft(
     harnesses: StudioHarnesses,
     paneId: Int,
     environment: StudioChatEnvironment? = null,
+    isCurrent: (AiStudioScreenState) -> Boolean = { true },
 ) = with(pipeline) {
     withState {
-        val chat = panes.firstOrNull { it.id == paneId }?.sessionId
-        if (selectedNative(chat) != PRIMARY_SUB_SESSION) return@withState
-        val isOrganism = sessions.any { it.id == chat && it.isOrganism }
-        if (isOrganism && (subSessions[chat] ?: PRIMARY_SUB_SESSION) != PRIMARY_SUB_SESSION) return@withState
+        if (!isCurrent(this)) return@withState
+        if (!canSubmitDraft(paneId)) return@withState
         val submissionId = Uuid.random().toString()
         val pending = pendingSubmission(paneId, submissionId)
         log.i { "Submit pane draft with attachments count=${pending.attachments.size}" }
@@ -70,6 +69,14 @@ internal suspend fun submitStudioDraft(
             updateState { rejectSubmission(submissionId) }
         }
     }
+}
+
+/** Only the selected primary chat accepts composer submissions. */
+private fun AiStudioScreenState.canSubmitDraft(paneId: Int): Boolean {
+    val chat = panes.firstOrNull { it.id == paneId }?.sessionId
+    if (selectedNative(chat) != PRIMARY_SUB_SESSION) return false
+    val isOrganism = sessions.any { it.id == chat && it.isOrganism }
+    return !isOrganism || (subSessions[chat] ?: PRIMARY_SUB_SESSION) == PRIMARY_SUB_SESSION
 }
 
 /**

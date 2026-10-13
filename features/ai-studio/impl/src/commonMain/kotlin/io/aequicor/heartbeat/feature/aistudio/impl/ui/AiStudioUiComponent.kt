@@ -1,19 +1,32 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.core.navigation.compose.NavStack
+import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.AiStudioComponent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.BrowserPaneMode
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.SidePanelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.StudioNoDialog
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.interface_panel
 import io.aequicor.heartbeat.feature.aistudio.screenui.StudioEmbed
 import io.aequicor.heartbeat.feature.aistudio.screenui.StudioExits
 import kotlinx.collections.immutable.toImmutableMap
+import org.jetbrains.compose.resources.stringResource
 
 /** Rendering adapter assembled by the route entry; presentation never imports Compose screens. */
 internal class AiStudioUiComponent(private val component: AiStudioComponent) : ComposableComponent {
@@ -29,6 +42,18 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
                 (host.stack.value.active.instance as? ComposableComponent)?.let { id to it.asStudioEmbed() }
             }.toMap().toImmutableMap()
         }
+        val slotHosts by component.slots.collectAsState()
+        val slots = remember(slotHosts) {
+            slotHosts.mapNotNull { (key, host) ->
+                (host.stack.value.active.instance as? ComposableComponent)?.let { key to it.asStudioEmbed() }
+            }.toMap().toImmutableMap()
+        }
+        val cardHosts by component.cards.collectAsState()
+        val cards = remember(cardHosts) {
+            cardHosts.mapNotNull { (id, host) ->
+                (host.stack.value.active.instance as? ComposableComponent)?.let { id to it.asStudioEmbed() }
+            }.toMap().toImmutableMap()
+        }
         val hosts by component.questions.collectAsState()
         // Each host has one fixed entry, so its component never changes.
         val questions = remember(hosts) {
@@ -38,7 +63,9 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
         }
         val isUnifiedSettingsShown by component.showsUnifiedSettings.collectAsState(false)
         val browserMode by component.browserMode.collectAsState()
-        val isBrowserOpen = browserMode != BrowserPaneMode.Hidden
+        val side by component.sidePanel.collectAsState()
+        // The rail marks the browser only while it is the panel in front.
+        val isBrowserOpen = browserMode != BrowserPaneMode.Hidden && side == SidePanelUi.Browser
         val exits = remember(
             component,
             isConnectionsShown,
@@ -48,6 +75,8 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
             isBrowserOpen,
             questions,
             checklists,
+            slots,
+            cards,
         ) {
             StudioExits(
                 onBack = component::close,
@@ -60,6 +89,8 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
                 onCloseChatArea = component::closeChatArea,
                 questions = questions,
                 checklists = checklists,
+                slots = slots,
+                cards = cards,
                 onOpenSettings = if (isUnifiedSettingsShown) component::openSettings else null,
             )
         }
@@ -67,7 +98,12 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
         // stays.
         val chatAreaComponent = workspace.active.instance as? ComposableComponent
         val chatArea = remember(chatAreaComponent) { chatAreaComponent?.asStudioEmbed() }
-        StudioBrowserLayout(browserMode, modifier, browser = { NavStack(component.browser) }) {
+        val sideMode = when (side) {
+            SidePanelUi.Browser -> browserMode
+            SidePanelUi.Interface -> BrowserPaneMode.Panel
+            SidePanelUi.None -> BrowserPaneMode.Hidden
+        }
+        StudioBrowserLayout(sideMode, modifier, browser = { SidePanel(component, side) }) {
             AiStudioScreen(component.model, exits, Modifier, chatArea = chatArea)
         }
         val dialogs by component.dialogs.stack.subscribeAsState()
@@ -79,4 +115,19 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
 private fun ComposableComponent.asStudioEmbed(): StudioEmbed = object : StudioEmbed {
     @Composable
     override fun Content(modifier: Modifier) = this@asStudioEmbed.Content(modifier)
+}
+
+/** The browser, or the interface panel of the window drawn like the browser panel, within the window insets. */
+@Composable
+private fun SidePanel(component: AiStudioComponent, side: SidePanelUi) {
+    if (side == SidePanelUi.Interface) {
+        val panel by component.interfacePanel.collectAsState()
+        val title = stringResource(Res.string.interface_panel)
+        Box(
+            Modifier.fillMaxSize().background(HbTheme.surfaces.backdrop).safeDrawingPadding().imePadding()
+                .semantics { paneTitle = title }.testTag("studio-interface-panel"),
+        ) { panel?.let { NavStack(it) } }
+    } else {
+        NavStack(component.browser)
+    }
 }

@@ -23,7 +23,8 @@ dependencyResolutionManagement {
                 ivy {
                     name = "HeartbeatJcef"
                     url = uri("https://github.com/aequicor/Heartbeat/releases/download")
-                    patternLayout { artifact("[revision]/[artifact]-[revision].[ext]") }
+                    // Keep IDE sources/javadoc requests separate from the verified binary JARs.
+                    patternLayout { artifact("[revision]/[artifact]-[revision](-[classifier]).[ext]") }
                     metadataSources { artifact() }
                 }
             }
@@ -136,3 +137,4 @@ include(
 include(":features:harness:api", ":features:harness:impl")
 include(":features:browser:api", ":features:browser:impl")
 include(":features:chromium-bridge:api", ":features:chromium-bridge:impl", ":features:chromium-bridge:protocol")
+include(":features:service-as-ui:api", ":features:service-as-ui:impl")

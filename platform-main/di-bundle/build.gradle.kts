@@ -69,6 +69,8 @@ kotlin {
             implementation(projects.features.plantUmlSupport.impl)
             implementation(projects.features.scheduler.api)
             implementation(projects.features.scheduler.impl)
+            implementation(projects.features.serviceAsUi.api)
+            implementation(projects.features.serviceAsUi.impl)
             api(projects.core.di.api)
             api(projects.core.profileFacade.api)
             api(projects.core.navigation.api)

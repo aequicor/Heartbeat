@@ -127,6 +127,7 @@ internal fun StudioMessage.toUi(): MessageUi = when (this) {
         }.toImmutableList(),
         isTimestampKnown,
         checklistIds.toImmutableList(),
+        tools.mapNotNull { it.shownCardId }.distinct().toImmutableList(),
     )
 
     is StudioMessage.Stopped -> MessageUi.Stopped(id, createdAt, elapsed)

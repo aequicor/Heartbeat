@@ -72,6 +72,8 @@ data class StudioToolRun(
     val learning: StudioLearningCall? = null,
     /** Stable attachment identity decoded only from a successful hosted checklist creation result. */
     val createdChecklistId: String? = null,
+    /** Card the agent showed in its reply, decoded only from a successful hosted `ui_show` result. */
+    val shownCardId: String? = null,
 )
 
 /** What a self-learning tool call does: saving an instruction or loading a learned skill. */

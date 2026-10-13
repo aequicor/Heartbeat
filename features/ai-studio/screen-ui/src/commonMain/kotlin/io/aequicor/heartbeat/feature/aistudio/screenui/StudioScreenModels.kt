@@ -55,6 +55,10 @@ data class StudioExits(
     val onCloseChatArea: (() -> Unit)? = null,
     val questions: ImmutableMap<String, StudioEmbed> = persistentMapOf(),
     val checklists: ImmutableMap<String, StudioEmbed> = persistentMapOf(),
+    /** Interface slots keyed by the shared composer/start slot helpers. */
+    val slots: ImmutableMap<String, StudioEmbed> = persistentMapOf(),
+    /** Cards of interfaces shown in replies, keyed by `studioCardKey(pane, cardId)`. */
+    val cards: ImmutableMap<String, StudioEmbed> = persistentMapOf(),
     val onOpenSettings: (() -> Unit)? = null,
 )
 

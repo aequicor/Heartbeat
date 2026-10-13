@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioToolRun
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolRunStatus
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackOutcome
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackRecord
+import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiTools
 import kotlin.time.Instant
 
 /**
@@ -237,6 +238,7 @@ private class NativeAnswer(val id: String, initialTurn: String?) {
                 .filter(String::isNotBlank).joinToString("\n"),
             learning = previous?.learning,
             createdChecklistId = item.createdChecklistId(previous) ?: previous?.createdChecklistId,
+            shownCardId = item.shownCardId(previous) ?: previous?.shownCardId,
         )
         if (index >= 0) parts[index] = StudioReplyPart.Tool(updated) else parts += StudioReplyPart.Tool(updated)
     }
@@ -274,6 +276,13 @@ private fun SessionItem.ToolResult.createdChecklistId(invocation: StudioToolRun?
     if (failure != null || invocation == null || hostedToolName(invocation.title) != "checklist_create") return null
     val result = (parts.singleOrNull() as? ContentPart.Text)?.text ?: return null
     return CHECKLIST_CREATED.matchEntire(result)?.groupValues?.get(1)
+}
+
+/** Only the result of the host's own `ui_show` names a card; the agent's arguments never do. */
+private fun SessionItem.ToolResult.shownCardId(invocation: StudioToolRun?): String? {
+    if (failure != null || invocation == null) return null
+    val result = (parts.singleOrNull() as? ContentPart.Text)?.text ?: return null
+    return ServiceUiTools.shownCardId(hostedToolName(invocation.title), result)
 }
 
 private val CHECKLIST_CREATED = Regex("Checklist ([a-z0-9_-]{1,32}) created\\. End your turn and wait for the user\\.")

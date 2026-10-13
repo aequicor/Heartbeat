@@ -115,6 +115,8 @@ sealed interface MessageUi {
         val parts: ImmutableList<ReplyPartUi> = persistentListOf(),
         override val isTimestampKnown: Boolean = true,
         val checklistIds: ImmutableList<String> = persistentListOf(),
+        /** Cards of interfaces shown in this reply, in order. */
+        val cardIds: ImmutableList<String> = persistentListOf(),
     ) : MessageUi {
         /** How this instance looks in a collapsed feed, computed once per settings; not part of equality. */
         @Transient

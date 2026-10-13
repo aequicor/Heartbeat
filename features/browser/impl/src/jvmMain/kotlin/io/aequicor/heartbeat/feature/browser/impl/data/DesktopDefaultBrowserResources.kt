@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.browser.impl.domain.DesktopBrowserResources
+import io.aequicor.heartbeat.feature.browser.impl.domain.DesktopDocumentTeardown
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -45,6 +46,7 @@ internal class DesktopDefaultBrowserResources(
     private val dispatchers: DispatcherProvider,
     private val profiles: DesktopBrowserProfiles,
     @ForScope(AppScope::class) private val scope: ScopeHandle,
+    private val documents: DesktopDocumentTeardown = DesktopDocumentTeardown.None,
 ) : DesktopBrowserResources {
     private val log = Log.tag("DesktopBrowserResources")
     private val mutex = Mutex()
@@ -88,12 +90,26 @@ internal class DesktopDefaultBrowserResources(
         awaitBrowserTeardown(request)
     }
 
-    /** Disposes the runtime even when a profile fails to close, then reports both failures together. */
+    /** Disposes the runtime even when documents or a profile fail to close, then reports all failures together. */
     private suspend fun teardown() {
+        val documentFailure = closeDocuments()
         val profileFailure = closeProfiles()
-        val runtimeFailure = disposeRuntime()
-        if (runtimeFailure != null && profileFailure != null) runtimeFailure.addSuppressed(profileFailure)
-        (runtimeFailure ?: profileFailure)?.let { throw it }
+        // The runtime's own failure leads; the earlier ones are attached to it.
+        val failures = listOfNotNull(disposeRuntime(), profileFailure, documentFailure)
+        failures.firstOrNull()?.let { first ->
+            failures.drop(1).forEach(first::addSuppressed)
+            throw first
+        }
+    }
+
+    private suspend fun closeDocuments(): Exception? = try {
+        documents.closeDocuments()
+        null
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        log.e(error.redactedFailure()) { "Document browsers failed to close; disposing the runtime anyway" }
+        error
     }
 
     private suspend fun closeProfiles(): Exception? = try {

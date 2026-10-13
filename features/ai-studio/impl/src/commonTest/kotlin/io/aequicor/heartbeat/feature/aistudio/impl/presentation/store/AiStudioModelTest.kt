@@ -45,6 +45,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaces
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.TestClock
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
@@ -813,6 +814,7 @@ class AiStudioModelTest {
         host: io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost =
             io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost.Window,
         attachments: Machine<AttachmentsState, AttachmentsIntent, AttachmentsOutput>? = null,
+        surfaces: StudioSurfaces = StudioSurfaces.None,
         assists: io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists =
             object : io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists {
                 override suspend fun suggest(
@@ -826,13 +828,14 @@ class AiStudioModelTest {
         val efforts = FakeEfforts(attachments)
         val researchEnabled = MutableStateFlow(false)
         val catalog = FakeCatalog()
+        private val backend = object : StudioBackend {
+            override suspend fun repository(): StudioRepository = repository
+
+            override suspend fun effects(): EffectHandler<AiStudioEffect, AiStudioIntent> = EffectHandler.None
+        }
         val model = AiStudioModel(
             machine = machine,
-            backend = object : StudioBackend {
-                override suspend fun repository(): StudioRepository = repository
-
-                override suspend fun effects(): EffectHandler<AiStudioEffect, AiStudioIntent> = EffectHandler.None
-            },
+            backend = backend,
             clock = TestClock(scope),
             scope = TestScopeHandle(scope.backgroundScope),
             factory = HeartbeatStoreFactory(TestDispatchers(StandardTestDispatcher(scope.testScheduler))),
@@ -853,6 +856,7 @@ class AiStudioModelTest {
             compactions = compactions,
             embeddedScreens = embeds,
             host = host,
+            surfaceBinding = StudioSurfaceBinding(surfaces, backend, TestScopeHandle(scope.backgroundScope)),
         )
 
         suspend fun subscribe(): Provider<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction> {
@@ -967,7 +971,7 @@ private class TestDispatchers(dispatcher: kotlinx.coroutines.CoroutineDispatcher
     override val io = dispatcher
 }
 
-private class TestScopeHandle(override val coroutineScope: CoroutineScope) : ScopeHandle {
+internal class TestScopeHandle(override val coroutineScope: CoroutineScope) : ScopeHandle {
     override val name = "test/aistudio"
     override val isClosed = false
     override val savedState = object : ScopeSavedState {

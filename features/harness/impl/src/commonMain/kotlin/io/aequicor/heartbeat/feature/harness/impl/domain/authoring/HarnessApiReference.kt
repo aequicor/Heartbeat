@@ -59,8 +59,9 @@ private val GUIDE = """
 
 private val API = """
     Kotlin API (scripts: base class HarnessScriptBase; workflows: HarnessWorkflowBase). Imported by default:
-    ItemName, events.on<…>, AgentOptions, launch, JsonElement/JsonObject/JsonPrimitive/JsonNull, buildJsonObject, put,
-    seconds/minutes/hours. Import other types explicitly (package io.aequicor.heartbeat.feature.harness.api.*
+    ItemName, events.on<…>, AgentOptions, ScriptUiResult, launch, JsonElement/JsonObject/JsonArray/JsonPrimitive/
+    JsonNull, buildJsonObject/buildJsonArray, put/add/addJsonObject/putJsonArray/putJsonObject, seconds/minutes/hours.
+    Import other types explicitly (package io.aequicor.heartbeat.feature.harness.api.*
     and io.aequicor.heartbeat.feature.aiengine.facade.api.*).
 
     Script top level runs once per activation (≤ ${HarnessInvocationBudget.Evaluation}) and only registers handlers:
@@ -74,6 +75,13 @@ private val API = """
     - agent.tool(ItemName("check"), description, schema, action = AgentToolAction.Command) { call ->
         ScriptToolResult(text, isError) } — published as hs_<harness>_<name>; the schema is frozen once published.
     - agent.instructions { scope -> String } — dynamic guidance (≤ ${HarnessInvocationBudget.Instructions}).
+    - ui.method(ItemName("prs"), description) { call -> ScriptUiResult.Value(json) or ScriptUiResult.Error(text) } —
+      a method the harness's interfaces (ui_put surfaces, see ui_reference) call when the user presses a button,
+      without an agent turn. call.arguments is untrusted JSON; call.session and call.workspace are null outside a
+      chat. Runs ≤ ${HarnessInvocationBudget.UiMethod} and is cancelled when the user leaves; the JSON value is at most
+      ${HarnessLimits.UI_RESULT_BYTES} bytes; at most ${HarnessLimits.UI_METHODS} methods. Return ScriptUiResult.Error
+      for expected problems (missing login, bad input): thrown exceptions count as failures. Put UI methods in their
+      own script item: an activation runs its callbacks one at a time, so a slow method delays hooks of its item.
     - sessions.list(), sessions.history(session) — only chats where this harness is active.
     - sessions.send(session, text) — a visible message to that chat (quota ${HarnessLimits.SENDS_PER_MINUTE}/min).
     - sessions.spawn(parent, title, prompt) — a helper chat with Ask trust.
@@ -152,6 +160,67 @@ internal val EXAMPLE_VERIFY_SCRIPT = """
     events.on<SessionEvent.TurnFinished> { _ -> }
 """.trimIndent()
 
+/** Desktop script of a pull request map: a UI method lists PRs of a repository with dependencies and a diagram. */
+internal val EXAMPLE_UI_SCRIPT = """
+    import io.aequicor.heartbeat.feature.harness.api.script.ScriptUiCall
+    import kotlinx.coroutines.Dispatchers
+    import kotlinx.coroutines.withContext
+    import kotlinx.serialization.json.Json
+    import kotlinx.serialization.json.jsonArray
+    import kotlinx.serialization.json.jsonObject
+    import kotlinx.serialization.json.jsonPrimitive
+
+    val repository = Regex("[\\w.-]+/[\\w.-]+")
+
+    fun field(pr: JsonObject, name: String): String = pr[name]?.jsonPrimitive?.content.orEmpty()
+
+    fun pullRequests(call: ScriptUiCall): ScriptUiResult {
+        val repo = call.arguments["repo"]?.jsonPrimitive?.content.orEmpty()
+        if (!repository.matches(repo)) return ScriptUiResult.Error("Enter the repository as owner/name")
+        val process = ProcessBuilder(
+            "gh", "pr", "list", "--repo", repo, "--limit", "50", "--json", "number,title,url,headRefName,baseRefName",
+        ).redirectErrorStream(true).start()
+        val output = process.inputStream.bufferedReader().readText()
+        if (process.waitFor() != 0) return ScriptUiResult.Error("gh failed; sign in with: gh auth login")
+        val prs = Json.parseToJsonElement(output).jsonArray.map { it.jsonObject }
+        val byBranch = prs.associateBy { field(it, "headRefName") }
+        val items = buildJsonArray {
+            prs.forEach { pr ->
+                addJsonObject {
+                    put("number", field(pr, "number"))
+                    put("title", field(pr, "title"))
+                    put("url", field(pr, "url"))
+                    put("dependsOn", byBranch[field(pr, "baseRefName")]?.let { field(it, "number") }.orEmpty())
+                }
+            }
+        }
+        val diagram = buildString {
+            appendLine("@startuml")
+            prs.forEach { pr ->
+                val title = field(pr, "title").replace('"', '\'')
+                appendLine("rectangle \"#" + field(pr, "number") + " " + title + "\" as PR_" + field(pr, "number"))
+            }
+            prs.forEach { pr ->
+                byBranch[field(pr, "baseRefName")]?.let { base ->
+                    appendLine("PR_" + field(base, "number") + " <-- PR_" + field(pr, "number"))
+                }
+            }
+            append("@enduml")
+        }
+        return ScriptUiResult.Value(
+            buildJsonObject {
+                put("items", items)
+                put("plantuml", diagram)
+                put("count", prs.size)
+            },
+        )
+    }
+
+    ui.method(ItemName("prs"), "Open PRs of {repo: owner/name} with dependencies and a PlantUML map") { call ->
+        withContext(Dispatchers.IO) { pullRequests(call) }
+    }
+""".trimIndent()
+
 /** Desktop workflow of the example harness: a design pass and an implementation pass by helper chats. */
 internal val EXAMPLE_SCREEN_WORKFLOW = """
     workflow { input ->
@@ -198,6 +267,11 @@ ${EXAMPLE_SCREEN_WORKFLOW.prependIndent("    ")}
 ${EXAMPLE_VERIFY_SCRIPT.prependIndent("    ")}
 
     harness_tools_set(harness="compose_ui", hosted_off=["web_search"], native={"claude": {"WebFetch": "off"}})
+
+    Interfaces: harness pr_map gets script "methods" with a UI method, then a surface built with ui_put calls it from
+    a button; next time the user selects the harness and presses the button without asking the agent:
+
+${EXAMPLE_UI_SCRIPT.prependIndent("    ")}
 
     Why: the instruction keeps every chat on tokens; the skill carries detail without filling the prompt; the
     workflow splits design and implementation into helper chats; the script tightens destructive commands and

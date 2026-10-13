@@ -123,8 +123,9 @@ public fun HbSettingsRow(
     }
 }
 
+/** Animated quiet fill of a row button: selection, then pressed and hovered overlays; shared with [HbPressableRow]. */
 @Composable
-private fun settingsRowBackground(
+internal fun settingsRowBackground(
     interactions: MutableInteractionSource,
     isInteractive: Boolean,
     isSelected: Boolean,

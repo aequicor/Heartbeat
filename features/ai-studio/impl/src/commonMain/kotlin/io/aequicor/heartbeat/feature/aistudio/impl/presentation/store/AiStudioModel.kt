@@ -27,6 +27,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioCompactionPort
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaces
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote.StudioEmbeds
@@ -90,7 +91,7 @@ import kotlin.time.Clock
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
-private typealias StudioPipeline = PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>
+internal typealias StudioPipeline = PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>
 
 /**
  * Feature-scoped screen store. Mirrors the machine (panes, runs, preferences), the repository (projects,
@@ -116,6 +117,7 @@ class AiStudioModel(
     private val compactions: StudioCompactionPort = StudioCompactionPort.None,
     host: StudioScreenHost = StudioScreenHost.Window,
     private val embeddedScreens: StudioEmbeds = StudioEmbeds.None,
+    surfaceBinding: StudioSurfaceBinding = StudioSurfaceBinding(StudioSurfaces.None, backend, scope),
 ) {
     private val log = Log.tag("AiStudioModel")
     private val inputContexts = StudioInputContexts()
@@ -159,6 +161,7 @@ class AiStudioModel(
                     log.d { "attachment preview visibility: ${previewRequests.value.size} -> ${requests.size}" }
                     previewRequests.value = requests
                 }
+                surfaceBinding.onState(next)
                 suggestions.onState(next)
             }
         }
@@ -195,6 +198,11 @@ class AiStudioModel(
                     }
                 }
                 launch { harnessSelection.observe(pipeline) }
+                launch {
+                    surfaceBinding.observe(pipeline) { paneId, isCurrent ->
+                        submitStudioDraft(pipeline, machine, harnesses, paneId, isCurrent = isCurrent)
+                    }
+                }
                 launch { organisms.observe(pipeline) }
                 launch { observeResearch(pipeline) }
                 launch { observeComputerUse(pipeline) }

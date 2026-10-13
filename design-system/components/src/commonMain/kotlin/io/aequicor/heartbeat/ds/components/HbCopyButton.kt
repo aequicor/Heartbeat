@@ -78,6 +78,9 @@ public fun HbCopyButton(
 
 private enum class CopyStatus { Idle, Copied, Failed }
 
+/** Puts [text] on [clipboard] as plain text, for copy commands outside [HbCopyButton]; false when it was refused. */
+public suspend fun hbCopyText(clipboard: Clipboard, text: String): Boolean = copyPlainText(clipboard, text)
+
 /** Puts [text] on the clipboard; false when the platform refused it. */
 internal suspend fun copyPlainText(clipboard: Clipboard, text: String): Boolean = try {
     clipboard.setClipEntry(hbPlainTextClipEntry(text))

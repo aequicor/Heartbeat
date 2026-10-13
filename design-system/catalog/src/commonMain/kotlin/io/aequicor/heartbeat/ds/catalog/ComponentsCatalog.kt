@@ -20,12 +20,14 @@ import io.aequicor.heartbeat.ds.components.HbChatRole
 import io.aequicor.heartbeat.ds.components.HbChoiceRow
 import io.aequicor.heartbeat.ds.components.HbCodeEditor
 import io.aequicor.heartbeat.ds.components.HbCopyButton
+import io.aequicor.heartbeat.ds.components.HbDateField
 import io.aequicor.heartbeat.ds.components.HbDiffView
 import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbMessageAppearance
 import io.aequicor.heartbeat.ds.components.HbMessageKind
 import io.aequicor.heartbeat.ds.components.HbMessageStatus
 import io.aequicor.heartbeat.ds.components.HbPanel
+import io.aequicor.heartbeat.ds.components.HbPressableRow
 import io.aequicor.heartbeat.ds.components.HbQuestionnaireCard
 import io.aequicor.heartbeat.ds.components.HbSearchField
 import io.aequicor.heartbeat.ds.components.HbText
@@ -54,6 +56,46 @@ internal fun ComponentsCatalog(state: SandboxState, modifier: Modifier = Modifie
                 HbChoiceRow(hbString(HbString.Ready), isChecked, true, { isChecked = !isChecked })
                 HbChoiceRow(hbString(HbString.Working), !isChecked, false, { isChecked = false })
                 HbChoiceRow(hbString(HbString.Disabled), true, true, {}, enabled = false)
+            }
+        }
+        item {
+            HbColumn(gap = HbTheme.spacing.none) {
+                HbPressableRow(state::showActionFeedback) {
+                    HbText(hbString(HbString.Ready), Modifier.weight(1f), maxLines = 1)
+                    HbBadge(hbString(HbString.Ready), tone = HbTone.Success)
+                }
+                HbPressableRow(null) { HbText(hbString(HbString.Working), Modifier.weight(1f), maxLines = 1) }
+                HbPressableRow(state::showActionFeedback) {
+                    HbText(hbString(HbString.LongSession), Modifier.weight(1f), maxLines = 1)
+                    HbText(hbString(HbString.LongSessionHint), Modifier.weight(2f), maxLines = 1)
+                }
+                HbPressableRow({}, enabled = false) {
+                    HbText(hbString(HbString.Disabled), color = HbTheme.colors.textSecondary)
+                }
+            }
+        }
+        item {
+            var date by remember { mutableStateOf("") }
+            HbColumn {
+                HbDateField(
+                    date,
+                    { date = it },
+                    label = hbString(HbString.DateDue),
+                    placeholder = hbString(HbString.DateFormat),
+                    invalidText = hbString(HbString.DateInvalid),
+                    cancelText = hbString(HbString.CancelAction),
+                    confirmText = hbString(HbString.DateConfirm),
+                )
+                HbDateField(
+                    "2026-10-12",
+                    {},
+                    label = hbString(HbString.Disabled),
+                    placeholder = hbString(HbString.DateFormat),
+                    invalidText = hbString(HbString.DateInvalid),
+                    cancelText = hbString(HbString.CancelAction),
+                    confirmText = hbString(HbString.DateConfirm),
+                    enabled = false,
+                )
             }
         }
         item { UsageCatalog() }

@@ -4,11 +4,17 @@ import com.arkivanov.decompose.DefaultComponentContext
 import com.arkivanov.essenty.lifecycle.LifecycleRegistry
 import com.arkivanov.essenty.lifecycle.destroy
 import com.arkivanov.essenty.lifecycle.resume
+import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.createGraphFactory
 import io.aequicor.heartbeat.core.di.OwnedScope
+import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.feature.aistudio.impl.di.AiStudioGraph
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocument
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentRoute
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocuments
 import io.aequicor.heartbeat.feature.browser.api.BrowserEnabled
 import io.aequicor.heartbeat.feature.browser.api.BrowserIntent
 import io.aequicor.heartbeat.feature.browser.api.BrowserMachineKey
@@ -27,6 +33,8 @@ import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /** Real Metro registration, live gating and route lifetime, without starting a native browser. */
@@ -98,4 +106,39 @@ class BrowserIntegrationTest {
             File(persisted.storageRoot).deleteRecursively()
         }
     }
+
+    @Test
+    fun `documents open in the profile graph and their routes draw without the browser flag`() = runTest {
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        val persisted = PersistedProfile()
+        val app = createGraphFactory<TestAppGraph.Factory>().create(persisted)
+        val lifecycle = LifecycleRegistry().apply { resume() }
+        try {
+            val profile = app.profileSessions.open(ProfileId("browser-documents"))
+            val documents = (profile.graph as TestBrowserDocumentAccessors).browserDocuments
+            val handle = assertNotNull(documents.open(BrowserDocument("<p>Map</p>", "Map")))
+            val root = (profile.graph as ProfileNavigation).navigation.create(
+                DefaultComponentContext(lifecycle),
+                listOf(handle.route),
+                name = "browser-document",
+            )
+            assertEquals(handle.route, root.stack.value.active.configuration.route)
+            assertIs<ComposableComponent>(root.stack.value.active.instance)
+            handle.close()
+            val closed = BrowserDocumentRoute("0123456789abcdef0123456789abcdef")
+            root.navigator.navigate(closed)
+            assertEquals(closed, root.stack.value.active.configuration.route)
+        } finally {
+            lifecycle.destroy()
+            (app.appScope as OwnedScope).close()
+            app.appScope.coroutineScope.coroutineContext[Job]?.join()
+            Dispatchers.resetMain()
+            File(persisted.storageRoot).deleteRecursively()
+        }
+    }
+}
+
+@ContributesTo(ProfileScope::class)
+interface TestBrowserDocumentAccessors {
+    val browserDocuments: BrowserDocuments
 }

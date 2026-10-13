@@ -16,6 +16,7 @@ kotlin {
             implementation(projects.features.agentLearning.api)
             implementation(projects.features.contextWindowOptimization.api)
             implementation(projects.features.harness.api)
+            implementation(projects.features.serviceAsUi.api)
             implementation(projects.core.profileFacade.api)
             implementation(projects.core.di.ext)
             implementation(projects.core.mvi)

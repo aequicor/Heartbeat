@@ -28,6 +28,7 @@ enum class SettingsSectionUi {
     AgentLearning,
     Context,
     Harness,
+    Interfaces,
     FeatureFlags,
 }
 
@@ -40,6 +41,7 @@ fun SettingsSection.toUi(): SettingsSectionUi = when (this) {
     SettingsSection.AgentLearning -> SettingsSectionUi.AgentLearning
     SettingsSection.Context -> SettingsSectionUi.Context
     SettingsSection.Harness -> SettingsSectionUi.Harness
+    SettingsSection.Interfaces -> SettingsSectionUi.Interfaces
     SettingsSection.FeatureFlags -> SettingsSectionUi.FeatureFlags
 }
 
@@ -52,6 +54,7 @@ fun SettingsSectionUi.toSection(): SettingsSection = when (this) {
     SettingsSectionUi.AgentLearning -> SettingsSection.AgentLearning
     SettingsSectionUi.Context -> SettingsSection.Context
     SettingsSectionUi.Harness -> SettingsSection.Harness
+    SettingsSectionUi.Interfaces -> SettingsSection.Interfaces
     SettingsSectionUi.FeatureFlags -> SettingsSection.FeatureFlags
 }
 

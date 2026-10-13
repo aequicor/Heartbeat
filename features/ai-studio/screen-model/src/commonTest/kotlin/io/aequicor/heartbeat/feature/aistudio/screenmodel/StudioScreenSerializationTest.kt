@@ -39,6 +39,7 @@ class StudioScreenSerializationTest {
                     "Итог",
                     persistentListOf(tool),
                     isStreaming = true,
+                    cardIds = persistentListOf("card-1", "card-2"),
                     parts = persistentListOf(
                         ReplyPartUi.Reasoning("r1", "думаю"),
                         ReplyPartUi.Tool(tool),

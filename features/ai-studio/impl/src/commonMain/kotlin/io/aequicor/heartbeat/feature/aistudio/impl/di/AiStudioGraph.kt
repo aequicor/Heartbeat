@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.core.di.ScopeFactory
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.di.ext.retainedGraph
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.navigation.NavComponent
 import io.aequicor.heartbeat.core.navigation.Navigator
 import io.aequicor.heartbeat.core.navigation.ProfileRouteBinding
@@ -24,6 +25,7 @@ import io.aequicor.heartbeat.core.navigation.RouteEntry
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
+import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioMachineSpec
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
@@ -31,10 +33,12 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.aistudio.api.StudioLocalProjects
+import io.aequicor.heartbeat.feature.aistudio.impl.data.MachineStudioSurfaces
 import io.aequicor.heartbeat.feature.aistudio.impl.data.StudioWorkspaceToggle
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaces
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.AiStudioComponent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.ui.AiStudioUiComponent
@@ -63,6 +67,12 @@ interface AiStudioGraph {
 @ContributesTo(AiStudioScope::class)
 @BindingContainer
 object AiStudioBindings {
+    /** Only a native window renders and registers interface surfaces. */
+    @Provides
+    @SingleIn(AiStudioScope::class)
+    fun surfaces(host: StudioScreenHost, machines: MachineRegistry, toggles: FeatureToggles): StudioSurfaces =
+        if (host == StudioScreenHost.Window) MachineStudioSurfaces(machines, toggles) else StudioSurfaces.None
+
     /** Launches the machine for the lifetime of this feature scope. */
     @Provides
     @SingleIn(AiStudioScope::class)

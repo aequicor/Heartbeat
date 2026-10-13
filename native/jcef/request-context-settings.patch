@@ -760,6 +760,44 @@ index cb43cbc..99f21d4 100644
  /*
   * Class:     org_cef_network_CefURLRequest_N
   * Method:    N_Dispose
+diff --git a/native/jni_util.cpp b/native/jni_util.cpp
+index 03499c7..b57be7b 100644
+--- a/native/jni_util.cpp
++++ b/native/jni_util.cpp
+@@ -401,12 +401,20 @@ CefRefPtr<CefValue> GetCefValueFromJNIMap(JNIEnv* env, const jobject& obj) {
+                     entryValue);
+     jobject jvalue = entryValue.get();
+     CefRefPtr<CefValue> cef_value = GetCefValueFromJNIObject(env, jvalue);
+-    dict->SetValue(key, cef_value);
++    // Unsupported or null entries become explicit nulls rather than a null
++    // CefValue, which CefDictionaryValue::SetValue does not accept.
++    if (cef_value)
++      dict->SetValue(key, cef_value);
++    else
++      dict->SetNull(key);
+ 
+     JNI_CALL_METHOD(env, iterator, "hasNext", "()Z", Boolean, hasNext);
+   }
+ 
+   CefRefPtr<CefValue> value = CefValue::Create();
++  // Upstream returned an empty (null-typed) value here, so dictionary
++  // preferences such as "proxy" could not be set from Java.
++  value->SetDictionary(dict);
+   return value;
+ }
+ 
+@@ -427,7 +435,10 @@ CefRefPtr<CefValue> GetCefValueFromJNIList(JNIEnv* env, const jobject& obj) {
+                     next);
+     jobject jvalue = next.get();
+     CefRefPtr<CefValue> cef_value = GetCefValueFromJNIObject(env, jvalue);
+-    list->SetValue(index, cef_value);
++    if (cef_value)
++      list->SetValue(index, cef_value);
++    else
++      list->SetNull(index);
+     index++;
+     JNI_CALL_METHOD(env, iterator, "hasNext", "()Z", Boolean, hasNext);
+   }
 diff --git a/native/url_request_client.cpp b/native/url_request_client.cpp
 index 2acc9ca..6248d81 100644
 --- a/native/url_request_client.cpp
