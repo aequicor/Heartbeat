@@ -27,4 +27,26 @@
     <string name="service_ui_close_panel">Закрыть панель</string>
     <string name="service_ui_card_missing">Эта карточка больше не хранится</string>
     <string name="service_ui_card_unavailable">Интерфейс этой карточки недоступен</string>
+    <string name="service_ui_back">Назад</string>
+    <string name="service_ui_retry">Повторить</string>
+    <string name="service_ui_loading">Загрузка интерфейсов…</string>
+    <string name="service_ui_library_title">Интерфейсы</string>
+    <string name="service_ui_library_disabled">Интерфейсы агента выключены</string>
+    <string name="service_ui_library_failed">Не удалось прочитать интерфейсы</string>
+    <string name="service_ui_library_empty">Интерфейсов пока нет</string>
+    <string name="service_ui_library_empty_hint">Попросите агента сделать интерфейс для харнесса, например карту pull request. Он появится здесь: его можно включить, выключить и отредактировать.</string>
+    <string name="service_ui_owner_unknown">Владелец недоступен, его интерфейсы скрыты</string>
+    <string name="service_ui_owner_off">Владелец выключен, его интерфейсы скрыты</string>
+    <string name="service_ui_show_surface">Показывать «%1$s»</string>
+    <string name="service_ui_placement_composer">Над полем ввода</string>
+    <string name="service_ui_placement_start">Новый чат</string>
+    <string name="service_ui_placement_panel">Боковая панель</string>
+    <string name="service_ui_placement_modal">Диалог</string>
+    <string name="service_ui_write_changed">Интерфейс тем временем изменился: проверьте его и повторите</string>
+    <string name="service_ui_write_missing">Интерфейса больше нет</string>
+    <string name="service_ui_write_full">Библиотека интерфейсов заполнена</string>
+    <string name="service_ui_write_busy">Сохраняется другое изменение, повторите</string>
+    <string name="service_ui_write_failed">Не удалось сохранить изменение</string>
+    <string name="service_ui_write_unavailable">Интерфейсы сейчас недоступны</string>
+    <string name="service_ui_write_unconfirmed">Изменение ещё сохраняется, проверьте чуть позже</string>
 </resources>

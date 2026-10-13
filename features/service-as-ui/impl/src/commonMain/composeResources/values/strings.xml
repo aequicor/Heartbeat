@@ -27,4 +27,26 @@
     <string name="service_ui_close_panel">Close the panel</string>
     <string name="service_ui_card_missing">This card is no longer stored</string>
     <string name="service_ui_card_unavailable">The interface of this card is not available</string>
+    <string name="service_ui_back">Back</string>
+    <string name="service_ui_retry">Retry</string>
+    <string name="service_ui_loading">Loading interfaces…</string>
+    <string name="service_ui_library_title">Interfaces</string>
+    <string name="service_ui_library_disabled">Agent interfaces are turned off</string>
+    <string name="service_ui_library_failed">The interfaces could not be read</string>
+    <string name="service_ui_library_empty">No interfaces yet</string>
+    <string name="service_ui_library_empty_hint">Ask the agent to build an interface for a harness, such as a map of pull requests. It appears here: you can turn it on or off and edit it.</string>
+    <string name="service_ui_owner_unknown">The owner is not available; its interfaces are hidden</string>
+    <string name="service_ui_owner_off">The owner is turned off; its interfaces are hidden</string>
+    <string name="service_ui_show_surface">Show “%1$s”</string>
+    <string name="service_ui_placement_composer">Above the input</string>
+    <string name="service_ui_placement_start">New chat</string>
+    <string name="service_ui_placement_panel">Side panel</string>
+    <string name="service_ui_placement_modal">Dialog</string>
+    <string name="service_ui_write_changed">The interface changed meanwhile; check it and try again</string>
+    <string name="service_ui_write_missing">The interface no longer exists</string>
+    <string name="service_ui_write_full">The interface library is full</string>
+    <string name="service_ui_write_busy">Another change is being saved; try again</string>
+    <string name="service_ui_write_failed">The change could not be saved</string>
+    <string name="service_ui_write_unavailable">Interfaces are not available now</string>
+    <string name="service_ui_write_unconfirmed">The change is still being saved; check it in a moment</string>
 </resources>
