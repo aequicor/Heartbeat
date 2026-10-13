@@ -27,6 +27,9 @@ class EngineStudioEffects(
 ) : EffectHandler<AiStudioEffect, AiStudioIntent> {
     private val log = Log.tag("EngineStudioEffects")
 
+    /** Identity of this screen's usage targets; another screen of the profile keeps its own. */
+    private val usageOwner = Any()
+
     override suspend fun handle(effect: AiStudioEffect, machine: EffectScope<AiStudioIntent>) {
         when (effect) {
             AiStudioEffect.Load -> machine.send(
@@ -140,13 +143,13 @@ class EngineStudioEffects(
             runtime.state.collect { machine.send(AiStudioIntent.Internal.RuntimeChanged(it)) }
         } finally {
             // Scope destruction may stop the machine before the store can send its detach intent.
-            withContext(NonCancellable) { runtime.observeUsageTargets(emptySet()) }
+            withContext(NonCancellable) { runtime.observeUsageTargets(usageOwner, emptySet()) }
         }
     }
 
     private suspend fun usage(effect: AiStudioEffect.Usage) {
         when (effect) {
-            is AiStudioEffect.ObserveUsageTargets -> runtime.observeUsageTargets(effect.modelIds)
+            is AiStudioEffect.ObserveUsageTargets -> runtime.observeUsageTargets(usageOwner, effect.modelIds)
             is AiStudioEffect.RefreshUsage -> runtime.refreshUsage(effect.modelId)
         }
     }

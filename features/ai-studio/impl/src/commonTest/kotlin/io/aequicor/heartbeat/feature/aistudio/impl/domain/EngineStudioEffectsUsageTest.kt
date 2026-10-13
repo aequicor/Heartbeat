@@ -66,7 +66,7 @@ private class UsageRuntime : StudioRuntime {
     override val state = MutableStateFlow(StudioRuntimeState(running = setOf("running-chat")))
     var targets = emptySet<String>()
 
-    override suspend fun observeUsageTargets(modelIds: Set<String>) {
+    override suspend fun observeUsageTargets(owner: Any, modelIds: Set<String>) {
         currentCoroutineContext().ensureActive()
         targets = modelIds
     }

@@ -13,8 +13,11 @@ import kotlinx.coroutines.flow.StateFlow
 interface StudioRuntime {
     val state: StateFlow<StudioRuntimeState>
 
-    /** Observes provider quotas for the composer model routes; empty set detaches the screen. */
-    suspend fun observeUsageTargets(modelIds: Set<String>) = Unit
+    /**
+     * Observes provider quotas for the composer model routes of one studio screen, identified by [owner];
+     * screens observe independently and an empty set detaches only [owner].
+     */
+    suspend fun observeUsageTargets(owner: Any, modelIds: Set<String>) = Unit
 
     /** Explicit panel-open refresh; telemetry failure never fails a turn. */
     suspend fun refreshUsage(modelId: String) = Unit

@@ -269,9 +269,9 @@ internal class EngineStudioRepository(
         }
     }
 
-    override suspend fun observeUsageTargets(modelIds: Set<String>) {
+    override suspend fun observeUsageTargets(owner: Any, modelIds: Set<String>) {
         log.d { "Observe composer usage routes" }
-        usage.observe(modelIds)
+        usage.observe(owner, modelIds)
     }
 
     override suspend fun refreshUsage(modelId: String) {
