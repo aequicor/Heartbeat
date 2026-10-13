@@ -5,12 +5,16 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodResult
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethods
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwner
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.serialization.json.JsonObject
 
 /** Methods and activity of surface owners, reached through their providers. */
 internal interface UiMethodCalls {
     /** Owners of every provider that are active in [context]; emits once every provider has reported its owners. */
     fun activeOwners(context: UiCallContext): Flow<Set<UiOwner>>
+
+    /** Replayable durable data revision; calls and reads do not invalidate sources by themselves. */
+    fun dataRevision(owner: UiOwner): Flow<Long> = flowOf(0L)
 
     /** Methods [owner] publishes now; unavailable when no provider knows its kind. */
     fun methods(owner: UiOwner): Flow<UiMethods>

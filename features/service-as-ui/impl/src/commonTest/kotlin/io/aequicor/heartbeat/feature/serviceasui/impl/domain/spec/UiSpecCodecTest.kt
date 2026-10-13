@@ -59,6 +59,27 @@ class UiSpecCodecTest {
     }
 
     @Test
+    fun `web height presets decode and unknown dimensions are rejected`() {
+        for (height in UiWebHeight.entries) {
+            val text = """{"version":1,"body":{"type":"web","html":"<p>App</p>",
+                "height":"${height.name.lowercase()}"}}"""
+            val spec = assertIs<UiSpecDecoding.Decoded>(decodeUiSpec(text)).spec
+            assertEquals(height, assertIs<UiNode.Web>(spec.body).height)
+        }
+        assertIs<UiSpecDecoding.Rejected>(
+            decodeUiSpec("""{"version":1,"body":{"type":"web","html":"<p>App</p>","height":"fullscreen"}}"""),
+        )
+    }
+
+    @Test
+    fun `focus card decodes with an owner local surface name`() {
+        val text = """{"version":1,"body":{"type":"button","label":"Continue",
+            "action":{"type":"focusCard","surface":"workout"}}}"""
+        val spec = assertIs<UiSpecDecoding.Decoded>(decodeUiSpec(text)).spec
+        assertEquals(UiAction.FocusCard("workout"), assertIs<UiNode.Button>(spec.body).action)
+    }
+
+    @Test
     fun `structure errors name the place and the cause`() {
         val unknownType = malformed("""{"version":1,"body":{"type":"colum","children":[]}}""")
         assertTrue("colum" in unknownType.detail.orEmpty(), unknownType.describe())

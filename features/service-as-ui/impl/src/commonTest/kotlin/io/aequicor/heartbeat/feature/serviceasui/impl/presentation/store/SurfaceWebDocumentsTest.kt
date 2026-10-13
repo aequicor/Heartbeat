@@ -142,12 +142,43 @@ class SurfaceWebDocumentsTest {
     }
 
     @Test
-    fun `cards and surfaces without an owner get no bridge`() = runTest {
-        listOf(Fixture(this, enabled = true, isCard = true), Fixture(this, enabled = true, hasOwner = false))
+    fun `previews and surfaces without an owner get no bridge`() = runTest {
+        listOf(Fixture(this, enabled = true, isPreview = true), Fixture(this, enabled = true, hasOwner = false))
             .forEach { fixture ->
                 subscribe(fixture.model.store)
                 assertNull(fixture.web.opened.single().document.bridge)
             }
+    }
+
+    @Test
+    fun `an owned response card gets the bridge without opening another interface`() = runTest {
+        val fixture = Fixture(this, enabled = true, isCard = true)
+        subscribe(fixture.model.store)
+        val document = fixture.web.opened.single()
+        val bridge = assertNotNull(document.document.bridge)
+        assertIs<BrowserBridgeResult.Value>(bridge.call("prs", JsonNull))
+        assertEquals(1, fixture.calls.made.size)
+        assertEquals(1, fixture.web.opened.size)
+    }
+
+    @Test
+    fun `durable data refresh updates the existing card page without replacing its document`() = runTest {
+        val fixture = Fixture(
+            this,
+            enabled = true,
+            isCard = true,
+            specText = """{"version":1,"data":{"snapshot":{"method":"prs"}},"body":{
+                "type":"web","html":"<p>App</p>","bridge":true,"data":"{{data.snapshot}}"}}""",
+        )
+        subscribe(fixture.model.store)
+        val document = fixture.web.opened.single()
+        assertEquals(buildJsonObject { put("count", 2) }, document.updates.last())
+        fixture.calls.next = UiMethodResult.Success(buildJsonObject { put("count", 7) })
+        fixture.calls.revision.value = 1L
+        runCurrent()
+        assertEquals(buildJsonObject { put("count", 7) }, document.updates.last())
+        assertEquals(1, fixture.web.opened.size)
+        assertTrue(!document.isClosed)
     }
 
     private fun column(screen: SurfaceProviderOf) = assertIs<UiNodeUi.Column>(screen.states.value.root)
@@ -162,20 +193,23 @@ class SurfaceWebDocumentsTest {
         enabled: Boolean = false,
         hasOwner: Boolean = true,
         isCard: Boolean = false,
+        isPreview: Boolean = false,
         refuse: Boolean = false,
+        specText: String = SPEC,
     ) {
         val web = FakeWeb(enabled).also { it.refuse = refuse }
         val calls = Calls()
         val surface = CoroutineScope(scope.backgroundScope.coroutineContext + Job())
         val model = SurfaceModel(
             SurfaceSession(
-                (decodeUiSpec(SPEC) as UiSpecDecoding.Decoded).spec,
+                (decodeUiSpec(specText) as UiSpecDecoding.Decoded).spec,
                 UiOwner("harness", "h_1").takeIf { hasOwner },
                 UiCallContext(),
                 JsonObject(emptyMap()),
                 UiFacts(),
                 NoHost,
                 isCard,
+                isPreview = isPreview,
             ),
             calls,
             UnsupportedUiPlatform,
@@ -214,8 +248,11 @@ class SurfaceWebDocumentsTest {
     }
 
     private class Calls : UiMethodCalls {
+        val revision = MutableStateFlow(0L)
         val made = mutableListOf<Pair<String, JsonObject>>()
         var next: UiMethodResult = UiMethodResult.Success(buildJsonObject { put("count", 2) })
+
+        override fun dataRevision(owner: UiOwner): Flow<Long> = revision
 
         override fun activeOwners(context: UiCallContext): Flow<Set<UiOwner>> = flowOf(emptySet())
 

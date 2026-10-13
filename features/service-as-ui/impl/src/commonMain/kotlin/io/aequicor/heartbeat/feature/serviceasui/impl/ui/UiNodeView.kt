@@ -31,6 +31,7 @@ import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.TextStyleUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiNodeUi
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.WebHeightUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceIntent
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.Res
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_more
@@ -125,7 +126,7 @@ private fun ContentView(
 
         is UiNodeUi.More -> Note(stringResource(Res.string.service_ui_more, node.count), modifier)
 
-        is UiNodeUi.Web -> WebView(webs[node.key], modifier)
+        is UiNodeUi.Web -> WebView(webs[node.key], node.height, modifier)
     }
 }
 
@@ -134,11 +135,16 @@ private fun ContentView(
  * while web documents are off or cannot be shown here.
  */
 @Composable
-private fun WebView(document: ComposableComponent?, modifier: Modifier = Modifier) {
+private fun WebView(document: ComposableComponent?, height: WebHeightUi, modifier: Modifier = Modifier) {
     if (document == null) {
         Note(stringResource(Res.string.service_ui_web_unavailable), modifier)
     } else {
-        document.Content(modifier.fillMaxWidth().height(HbTheme.dimensions.webDocumentHeight))
+        val viewport = when (height) {
+            WebHeightUi.Compact -> HbTheme.dimensions.webDocumentCompactHeight
+            WebHeightUi.Regular -> HbTheme.dimensions.webDocumentHeight
+            WebHeightUi.Tall -> HbTheme.dimensions.webDocumentTallHeight
+        }
+        document.Content(modifier.fillMaxWidth().height(viewport))
     }
 }
 

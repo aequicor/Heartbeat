@@ -39,6 +39,7 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_libra
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_loading
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_owner_off
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_owner_unknown
+import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_placement_card
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_placement_composer
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_placement_modal
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_placement_panel
@@ -184,6 +185,7 @@ private fun SurfaceRow(
 internal fun PlacementUi.title(): StringResource = when (this) {
     PlacementUi.Composer -> Res.string.service_ui_placement_composer
     PlacementUi.Start -> Res.string.service_ui_placement_start
+    PlacementUi.Card -> Res.string.service_ui_placement_card
     PlacementUi.Panel -> Res.string.service_ui_placement_panel
     PlacementUi.Modal -> Res.string.service_ui_placement_modal
 }

@@ -141,13 +141,19 @@ class UiSpecValidatorTest {
     }
 
     @Test
-    fun `web documents only in panels modals and dialogs once without bridges in cards`() {
+    fun `web documents work in library placements but anonymous cards cannot obtain a bridge`() {
         val web = """{"type":"web","html":"<p>x</p>","bridge":true}"""
         val inline = spec(web)
         val inModal = spec("""{"type":"divider"}""", modals = """{"view":{"title":"V","body":$web}}""")
         val twice = spec("""{"type":"column","children":[$web,$web]}""")
 
-        assertEquals(listOf("$.body" to UiSpecProblem.PlacementForbidden), problems(inline, library))
+        UiPlacement.entries.forEach { placement ->
+            assertEquals(emptyList(), problems(inline, library.copy(placement = placement)))
+        }
+        assertEquals(
+            listOf("$.body" to UiSpecProblem.PlacementForbidden, "$.body.bridge" to UiSpecProblem.OriginForbidden),
+            problems(inline, card),
+        )
         assertEquals(emptyList(), problems(inline, library.copy(placement = UiPlacement.Panel)))
         assertEquals(emptyList(), problems(inModal, library))
         assertEquals(
@@ -157,6 +163,19 @@ class UiSpecValidatorTest {
         assertEquals(
             listOf("$.body.children[1]" to UiSpecProblem.LimitExceeded),
             problems(twice, library.copy(placement = UiPlacement.Modal)),
+        )
+    }
+
+    @Test
+    fun `focusing a card requires a library owner and a known surface`() {
+        val focus = spec(
+            """{"type":"button","label":"Continue","action":{"type":"focusCard","surface":"details"}}""",
+        )
+        assertEquals(emptyList(), problems(focus, library))
+        assertEquals(listOf("$.body.action" to UiSpecProblem.OriginForbidden), problems(focus, card))
+        assertEquals(
+            listOf("$.body.action.surface" to UiSpecProblem.UnknownSurface),
+            problems(focus, library.copy(surfaces = emptySet())),
         )
     }
 

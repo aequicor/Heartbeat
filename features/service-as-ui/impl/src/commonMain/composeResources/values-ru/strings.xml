@@ -40,6 +40,7 @@
     <string name="service_ui_show_surface">Показывать «%1$s»</string>
     <string name="service_ui_placement_composer">Над полем ввода</string>
     <string name="service_ui_placement_start">Новый чат</string>
+    <string name="service_ui_placement_card">В ответе чата</string>
     <string name="service_ui_placement_panel">Боковая панель</string>
     <string name="service_ui_placement_modal">Диалог</string>
     <string name="service_ui_write_changed">Интерфейс тем временем изменился: проверьте его и повторите</string>
@@ -69,8 +70,7 @@
     <string name="service_ui_editor_delete_title">Удалить «%1$s»?</string>
     <string name="service_ui_editor_delete_text">Интерфейс исчезнет из студии и из карточек, которые его показывают. Отменить удаление нельзя.</string>
     <string name="service_ui_editor_preview">Предпросмотр</string>
-    <string name="service_ui_editor_preview_hint">Кнопки вызывают методы владельца как в новом чате. Промпты и другие интерфейсы здесь недоступны.</string>
-    <string name="service_ui_editor_preview_load">Загрузить данные</string>
+    <string name="service_ui_editor_preview_hint">Предпросмотр использует только локальное состояние. Методы владельца, актуальные данные и действия чата здесь недоступны.</string>
     <string name="service_ui_editor_preview_none">Предпросмотр появится, когда спецификация станет корректной</string>
     <string name="service_ui_editor_preview_behind">В предпросмотре последняя корректная версия</string>
     <string name="service_ui_editor_keys">Tab — отступ. Ctrl+Tab — к следующему полю, Ctrl+Shift+Tab — к предыдущему.</string>

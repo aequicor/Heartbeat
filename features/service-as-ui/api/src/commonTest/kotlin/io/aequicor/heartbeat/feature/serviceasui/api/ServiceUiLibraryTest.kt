@@ -129,6 +129,11 @@ class ServiceUiLibraryTest {
         assertFailsWith<IllegalArgumentException> { content("map").copy(launchers = setOf(UiSlot.Start)) }
         assertFailsWith<IllegalArgumentException> { content("map", spec = " ") }
         assertFailsWith<IllegalArgumentException> { content("map", spec = "x".repeat(ServiceUiLimits.SPEC_BYTES + 1)) }
+        assertFailsWith<IllegalArgumentException> {
+            content("map").copy(placement = UiPlacement.Card, launchers = setOf(UiSlot.Composer))
+        }
+        val card = content("workout").copy(placement = UiPlacement.Card)
+        assertEquals(card, Json.decodeFromString<UiSurfaceContent>(Json.encodeToString(card)))
         val launched = content("map").copy(placement = UiPlacement.Panel, launchers = setOf(UiSlot.Composer))
         assertEquals(setOf(UiSlot.Composer), launched.launchers)
     }

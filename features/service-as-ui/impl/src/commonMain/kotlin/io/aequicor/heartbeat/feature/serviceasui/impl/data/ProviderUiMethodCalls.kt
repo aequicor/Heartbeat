@@ -56,6 +56,14 @@ internal class ProviderUiMethodCalls(private val providers: Set<ServiceUiProvide
         null
     }
 
+    override fun dataRevision(owner: UiOwner): Flow<Long> {
+        val provider = providers.firstOrNull { it.kind == owner.kind } ?: return flowOf(0L)
+        return provider.dataRevision(owner.id).catch { e ->
+            log.w(e.redactedFailure()) { "Data revisions of ${owner.kind} owner stopped" }
+            emit(0L)
+        }
+    }
+
     override fun methods(owner: UiOwner): Flow<UiMethods> {
         val provider = providers.firstOrNull { it.kind == owner.kind } ?: return flowOf(UiMethods(isAvailable = false))
         return provider.methods(owner.id).catch { e ->

@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiDockId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwner
+import io.aequicor.heartbeat.feature.serviceasui.api.UiPlacement
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSlot
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSurface
 import kotlinx.serialization.json.JsonObject
@@ -90,7 +91,8 @@ internal fun PlaceTarget.modal(state: ServiceUiState, active: Set<UiOwner>, open
 
 /** Whether [surface] may open as a modal: enabled, not inline and of an owner that is [active]. */
 internal fun UiSurface.isShownOver(active: Set<UiOwner>): Boolean =
-    isEnabled && !content.placement.isInline && content.owner in active
+    isEnabled && (content.placement == UiPlacement.Panel || content.placement == UiPlacement.Modal) &&
+        content.owner in active
 
 private fun library(state: ServiceUiState) = when (state) {
     is ServiceUiState.Ready -> state.library

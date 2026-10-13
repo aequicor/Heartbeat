@@ -59,7 +59,6 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_edito
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_editor_preview
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_editor_preview_behind
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_editor_preview_hint
-import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_editor_preview_load
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_editor_preview_none
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_editor_problems
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_editor_revert
@@ -122,7 +121,7 @@ internal fun EditorContent(
         item(key = "editor") { SpecEditor(state, onIntent) }
         if (state.diagnostics.isNotEmpty()) item(key = "problems") { Problems(state.diagnostics) }
         item(key = "preview") {
-            PreviewSection(state.previewKey?.let { surfaces[it] }, state.isValid, onIntent, documents = documents)
+            PreviewSection(state.previewKey?.let { surfaces[it] }, state.isValid, documents = documents)
         }
         item(key = "delete") {
             HbButton(
@@ -320,7 +319,6 @@ private fun Problems(diagnostics: ImmutableList<DiagnosticUi>, modifier: Modifie
 private fun PreviewSection(
     preview: SurfaceModel?,
     isValid: Boolean,
-    onIntent: (EditorIntent) -> Unit,
     modifier: Modifier = Modifier,
     documents: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
 ) {
@@ -328,16 +326,6 @@ private fun PreviewSection(
         stringResource(Res.string.service_ui_editor_preview),
         modifier.testTag("service-ui-editor-preview"),
         description = stringResource(Res.string.service_ui_editor_preview_hint),
-        trailingContent = {
-            if (preview != null) {
-                HbButton(
-                    stringResource(Res.string.service_ui_editor_preview_load),
-                    { onIntent(EditorIntent.LoadPreview) },
-                    style = HbButtonStyle.Secondary,
-                    size = HbButtonSize.Small,
-                )
-            }
-        },
     ) {
         if (preview == null) {
             HbText(

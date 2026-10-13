@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.TestScopeHand
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.WriteNoticeUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.place.PrMap
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.place.surface
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceIntent
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceModel
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.subscribe
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.testDispatchers
@@ -113,7 +114,7 @@ class EditorModelTest {
     }
 
     @Test
-    fun `the preview draws the last valid draft and loads data only on request`() = runTest {
+    fun `the preview draws the last valid draft without executing owner methods`() = runTest {
         val fixture = Fixture(this)
         val editor = subscribe(fixture.model.store)
         settle()
@@ -125,11 +126,11 @@ class EditorModelTest {
         assertEquals(first, editor.states.value.previewKey)
 
         val preview = subscribe(fixture.model.surfaces.value.getValue(first).store)
-        editor.intent(EditorIntent.LoadPreview)
+        preview.intent(SurfaceIntent.Reload())
         settle()
-        assertEquals(listOf("list_prs"), fixture.calls.called)
-        assertEquals(UiCallContext(preselected = mapOf("harness" to setOf(PrMap.id))), fixture.calls.contexts.single())
-        assertTrue(preview.states.value.hasStarted)
+        assertEquals(emptyList(), fixture.calls.called)
+        assertEquals(emptyList(), fixture.calls.contexts)
+        assertEquals(false, preview.states.value.hasStarted)
 
         editor.intent(EditorIntent.ChangeText(HELLO))
         settle()

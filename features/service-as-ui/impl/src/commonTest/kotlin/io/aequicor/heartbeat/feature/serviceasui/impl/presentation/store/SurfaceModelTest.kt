@@ -205,15 +205,15 @@ class SurfaceModelTest {
     }
 
     @Test
-    fun `a card of a library surface loads nothing by itself and only inserts prompts`() = runTest {
+    fun `a card of a library surface loads owner data but only inserts prompts`() = runTest {
         val fixture = Fixture(this, available = true, isCard = true)
         val screen = fixture.subscribe()
         runCurrent()
-        assertEquals(emptyList(), fixture.calls.made)
+        assertEquals(1, fixture.calls.made.size)
 
         screen.intent(SurfaceIntent.Press(button(screen, 4).press))
         runCurrent()
-        assertEquals(listOf("Rank  PRs" to false), fixture.host.prompts)
+        assertEquals(listOf("Rank 2 PRs" to false), fixture.host.prompts)
     }
 
     @Test
@@ -309,6 +309,74 @@ class SurfaceModelTest {
         }
     }
 
+    @Test
+    fun `an editor preview cannot call or reload even when its owner is available`() = runTest {
+        val fixture = Fixture(this, available = true, isPreview = true)
+        val screen = fixture.subscribe()
+        screen.intent(SurfaceIntent.Press(button(screen, 2).press))
+        screen.intent(SurfaceIntent.Reload())
+        fixture.calls.revision.value = 1L
+        runCurrent()
+        assertTrue(fixture.calls.made.isEmpty())
+        assertFalse(screen.states.value.isMethodsAvailable)
+        assertEquals(NoticeUi.Unsupported, screen.states.value.notice)
+    }
+
+    @Test
+    fun `durable revisions refresh automatic data across surfaces without reloading on reads`() = runTest {
+        val fixture = Fixture(this, available = true, isCard = true)
+        val screen = fixture.subscribe()
+        val composer = Fixture(this, sharedCalls = fixture.calls).subscribe()
+        runCurrent()
+        assertEquals(2, fixture.calls.made.size)
+        fixture.calls.next = { UiMethodResult.Success(buildJsonObject { put("count", 3) }) }
+        fixture.calls.revision.value = 1L
+        runCurrent()
+        assertEquals("3 open PRs", assertIs<UiNodeUi.Text>(column(screen).children[0]).text)
+        assertEquals("3 open PRs", assertIs<UiNodeUi.Text>(column(composer).children[0]).text)
+        assertEquals(4, fixture.calls.made.size)
+        screen.intent(SurfaceIntent.Press(button(screen, 2).press))
+        runCurrent()
+        assertEquals(5, fixture.calls.made.size, "A read call does not invalidate its own source")
+        fixture.calls.revision.value = 1L
+        runCurrent()
+        assertEquals(5, fixture.calls.made.size)
+    }
+
+    @Test
+    fun `a write during an automatic load is read again after the older result completes`() = runTest {
+        val fixture = Fixture(this, available = true)
+        val gate = CompletableDeferred<UiMethodResult>()
+        fixture.calls.next = { gate.await() }
+        val screen = fixture.subscribe()
+        runCurrent()
+        fixture.calls.revision.value = 1L
+        runCurrent()
+        assertEquals(1, fixture.calls.made.size)
+        fixture.calls.next = { UiMethodResult.Success(buildJsonObject { put("count", 4) }) }
+        gate.complete(UiMethodResult.Success(buildJsonObject { put("count", 2) }))
+        runCurrent()
+        assertEquals(2, fixture.calls.made.size)
+        assertEquals("4 open PRs", assertIs<UiNodeUi.Text>(column(screen).children[0]).text)
+        assertEquals(1L, screen.states.value.loadedRevision)
+    }
+
+    @Test
+    fun `failed refresh preserves last data and a later durable revision recovers`() = runTest {
+        val fixture = Fixture(this, available = true)
+        val screen = fixture.subscribe()
+        fixture.calls.next = { UiMethodResult.Failure(UiMethodFailure.Failed) }
+        fixture.calls.revision.value = 1L
+        runCurrent()
+        assertIs<UiSourceStatus.Failed>(screen.states.value.values.status["prs"])
+        assertEquals("2 open PRs", assertIs<UiNodeUi.Text>(column(screen).children[0]).text)
+        fixture.calls.next = { UiMethodResult.Success(buildJsonObject { put("count", 5) }) }
+        fixture.calls.revision.value = 2L
+        runCurrent()
+        assertEquals(UiSourceStatus.Ready, screen.states.value.values.status["prs"])
+        assertEquals("5 open PRs", assertIs<UiNodeUi.Text>(column(screen).children[0]).text)
+    }
+
     private fun column(screen: SurfaceProvider) = assertIs<UiNodeUi.Column>(screen.states.value.root)
 
     private fun button(screen: SurfaceProvider, index: Int) = assertIs<UiNodeUi.Button>(column(screen).children[index])
@@ -318,10 +386,12 @@ class SurfaceModelTest {
         available: Boolean = false,
         hasOwner: Boolean = true,
         isCard: Boolean = false,
+        isPreview: Boolean = false,
         specText: String = SPEC,
         args: JsonObject = JsonObject(emptyMap()),
+        sharedCalls: FakeCalls? = null,
     ) {
-        val calls = FakeCalls(available)
+        val calls = sharedCalls ?: FakeCalls(available)
         val host = FakeHost()
         val platform = FakePlatform()
         private val spec = (decodeUiSpec(specText) as UiSpecDecoding.Decoded).spec
@@ -334,6 +404,7 @@ class SurfaceModelTest {
                 UiFacts(),
                 host,
                 isCard,
+                isPreview = isPreview,
             ),
             calls,
             platform,
@@ -357,6 +428,7 @@ class SurfaceModelTest {
 
     private class FakeCalls(available: Boolean) : UiMethodCalls {
         private val methods = MutableStateFlow(UiMethods(available, listOf(UiMethodInfo("prs", "PRs"))))
+        val revision = MutableStateFlow(0L)
         val made = mutableListOf<Pair<String, JsonObject>>()
         var next: suspend () -> UiMethodResult = {
             UiMethodResult.Success(
@@ -373,6 +445,8 @@ class SurfaceModelTest {
         override fun activeOwners(context: UiCallContext): Flow<Set<UiOwner>> = flowOf(emptySet())
 
         override fun methods(owner: UiOwner): Flow<UiMethods> = methods
+
+        override fun dataRevision(owner: UiOwner): Flow<Long> = revision
 
         override suspend fun call(
             owner: UiOwner,

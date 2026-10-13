@@ -32,7 +32,6 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.WriteNoticeUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.notice
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.platformFact
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceHost
-import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceIntent
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceModel
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceSession
 import kotlinx.collections.immutable.ImmutableMap
@@ -74,8 +73,8 @@ private typealias EditorPipeline = PipelineContext<EditorState, EditorIntent, Ed
 /**
  * Editor of one library surface: the draft of its spec, checked against the owner's methods and surfaces as the agent's
  * writes are, saved by the user over the revision it was made from (see [synced] for how drafts follow the library).
- * The last valid draft is previewed with the owner's methods, as for a new chat with the owner selected; the preview
- * loads data only when the user asks and cannot send prompts or open other surfaces.
+ * The last valid draft is previewed with local state only. Preview never executes owner methods, grants a page
+ * bridge, sends prompts or opens other surfaces.
  */
 @SingleIn(ServiceUiEditorScope::class)
 @Inject
@@ -205,8 +204,6 @@ internal class EditorModel(
 
                 EditorIntent.Delete -> delete()
 
-                EditorIntent.LoadPreview -> running?.model?.store?.intent(SurfaceIntent.Reload())
-
                 EditorIntent.Reload -> pipeline.sendTo(machine, ServiceUiIntent.Public.Reload)
 
                 EditorIntent.DismissNotice -> pipeline.updateState { copy(notice = null) }
@@ -322,7 +319,7 @@ internal class EditorModel(
             args = JsonObject(emptyMap()),
             facts = UiFacts(platform, hasSession = false),
             host = PreviewHost,
-            isCard = true,
+            isPreview = true,
         )
         return try {
             Running(previewed, surfaceModels.create(session, child), child, "preview-${++previews}")

@@ -173,6 +173,23 @@ class SurfaceUiTest {
             onNodeWithTag("document").assertIsDisplayed().assertHeightIsEqualTo(HbDimensions.Desktop.webDocumentHeight)
         }
 
+    @Test
+    fun `compact and tall web documents use the bounded host viewport presets`() =
+        runSkikoComposeUiTest(size = Size(720f, 1200f)) {
+            var height by mutableStateOf("compact")
+            setContent {
+                val text = """{"version":1,"body":{"type":"web","html":"<p>App</p>","height":"$height"}}"""
+                val spec = (decodeUiSpec(text) as UiSpecDecoding.Decoded).spec
+                val root = UiEvaluator(spec).body(UiValues())!!
+                Themed {
+                    SurfaceContent(SurfaceState(root = root), {}, webs = persistentMapOf(root.key to TestDocument))
+                }
+            }
+            onNodeWithTag("document").assertHeightIsEqualTo(HbDimensions.Desktop.webDocumentCompactHeight)
+            height = "tall"
+            onNodeWithTag("document").assertHeightIsEqualTo(HbDimensions.Desktop.webDocumentTallHeight)
+        }
+
     private object TestDocument : ComposableComponent {
         @Composable
         override fun Content(modifier: Modifier) {

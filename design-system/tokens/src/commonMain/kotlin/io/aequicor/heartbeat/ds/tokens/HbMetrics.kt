@@ -142,6 +142,10 @@ data class HbDimensions(
      * in every preset; a host shorter than it scrolls the surface around the document.
      */
     val webDocumentHeight: Dp = 480.dp,
+    /** Compact mini-app status strip above the composer, leaving space for the conversation and input. */
+    val webDocumentCompactHeight: Dp = 56.dp,
+    /** Expanded mini-app body in a transcript card, with its own bounded scroll viewport. */
+    val webDocumentTallHeight: Dp = 640.dp,
     /** One arrow-key step of a keyboard-scrolled viewport, such as the full-size diagram viewer. */
     val keyboardScrollStep: Dp = 40.dp,
     /** Height of a code editor holding a whole source file, such as a harness script. */

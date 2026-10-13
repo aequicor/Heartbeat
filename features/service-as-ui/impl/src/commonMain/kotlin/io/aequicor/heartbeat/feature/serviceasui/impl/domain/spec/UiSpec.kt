@@ -34,7 +34,7 @@ internal data class UiDataSource(
     val load: UiLoad = UiLoad.Auto,
 )
 
-/** When a data source runs: when the surface opens, or only through `reload` actions. */
+/** Automatic sources run on opening and durable owner revisions; manual sources only through `reload`. */
 @Serializable
 internal enum class UiLoad {
     @SerialName("auto")
@@ -143,4 +143,17 @@ internal enum class UiPresentation {
 
     @SerialName("panel")
     Panel,
+}
+
+/** Bounded viewport presets for an embedded page; the host maps them to its design-system dimensions. */
+@Serializable
+internal enum class UiWebHeight {
+    @SerialName("compact")
+    Compact,
+
+    @SerialName("regular")
+    Regular,
+
+    @SerialName("tall")
+    Tall,
 }

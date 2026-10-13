@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpecLimits
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiTemplate
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiTextStyle
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiTone
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiWebHeight
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.parseUiPath
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.ButtonStyleUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.ColumnUi
@@ -23,6 +24,7 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.ToneUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiModalUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiNodeUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiPress
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.WebHeightUi
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.serialization.json.JsonArray
@@ -135,6 +137,7 @@ internal class UiEvaluator(private val spec: UiSpec) {
                 node.html,
                 node.hasBridge,
                 node.data?.let { bindings.value(it, scope) },
+                node.height.ui(),
             )
         }
 
@@ -316,4 +319,10 @@ private fun UiNativeWidget.ui(): NativeWidgetUi = when (this) {
     UiNativeWidget.Date -> NativeWidgetUi.Date
     UiNativeWidget.File -> NativeWidgetUi.File
     UiNativeWidget.Folder -> NativeWidgetUi.Folder
+}
+
+private fun UiWebHeight.ui(): WebHeightUi = when (this) {
+    UiWebHeight.Compact -> WebHeightUi.Compact
+    UiWebHeight.Regular -> WebHeightUi.Regular
+    UiWebHeight.Tall -> WebHeightUi.Tall
 }

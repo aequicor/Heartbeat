@@ -40,6 +40,7 @@
     <string name="service_ui_show_surface">Show “%1$s”</string>
     <string name="service_ui_placement_composer">Above the input</string>
     <string name="service_ui_placement_start">New chat</string>
+    <string name="service_ui_placement_card">In a chat response</string>
     <string name="service_ui_placement_panel">Side panel</string>
     <string name="service_ui_placement_modal">Dialog</string>
     <string name="service_ui_write_changed">The interface changed meanwhile; check it and try again</string>
@@ -69,8 +70,7 @@
     <string name="service_ui_editor_delete_title">Delete “%1$s”?</string>
     <string name="service_ui_editor_delete_text">The interface disappears from the studio and from the cards that show it. This cannot be undone.</string>
     <string name="service_ui_editor_preview">Preview</string>
-    <string name="service_ui_editor_preview_hint">Buttons call the owner\'s methods as in a new chat. Prompts and other interfaces are not available here.</string>
-    <string name="service_ui_editor_preview_load">Load data</string>
+    <string name="service_ui_editor_preview_hint">Preview uses local state only. Owner methods, live data and chat actions are unavailable here.</string>
     <string name="service_ui_editor_preview_none">The preview appears once the spec is valid</string>
     <string name="service_ui_editor_preview_behind">The preview shows the last valid version</string>
     <string name="service_ui_editor_keys">Tab indents. Ctrl+Tab moves to the next field, Ctrl+Shift+Tab to the previous one.</string>

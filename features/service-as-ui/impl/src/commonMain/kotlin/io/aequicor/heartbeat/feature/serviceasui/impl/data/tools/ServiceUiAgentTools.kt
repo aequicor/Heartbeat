@@ -478,11 +478,13 @@ internal class ServiceUiAgentTools(
         val METHODS_TIMEOUT = 3.seconds
         val PrettyJson = Json { prettyPrint = true }
         const val INSTRUCTIONS =
-            "Interfaces: you can give a harness its own interface — buttons, tables, forms and diagrams in the row " +
-                "above the chat input, the new-chat window, the side panel or a dialog — that call the harness " +
-                "script's methods (`ui.method`) when the user presses them, without you. Read ui_reference before " +
-                "writing a spec; ui_list shows interfaces, owners and their methods; ui_put saves an interface and " +
-                "returns diagnostics to fix; ui_delete removes one."
+            "Interfaces: build mini-apps inside ordinary chat replies: ui_put placement=card, " +
+                "then ui_show(surface=id). " +
+                "Use web nodes for custom HTML/CSS/JS themes and ui.method for button actions without a model turn. " +
+                "Keep the existing chat and sidebar; optionally add a compact composer status and focusCard button. " +
+                "Persist app records with harness data; auto sources refresh on durable writes. Read ui_reference " +
+                "before writing a spec; ui_list shows owners/methods; ui_put saves and returns diagnostics; " +
+                "ui_delete removes a surface."
     }
 }
 

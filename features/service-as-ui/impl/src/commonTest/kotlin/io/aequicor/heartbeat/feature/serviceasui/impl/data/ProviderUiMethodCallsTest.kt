@@ -88,16 +88,27 @@ class ProviderUiMethodCallsTest {
         assertEquals(emptySet(), ProviderUiMethodCalls(emptySet()).activeOwners(UiCallContext()).first())
     }
 
+    @Test
+    fun `revision failures still allow a surface to perform its initial load`() = runTest {
+        val provider = FakeProvider(revision = flow { error("stream bug") }) { error("unused") }
+        val calls = ProviderUiMethodCalls(setOf(provider))
+        assertEquals(0L, calls.dataRevision(owner).first())
+        assertEquals(0L, calls.dataRevision(UiOwner("missing", "owner")).first())
+        assertEquals(0, provider.calls)
+    }
+
     private class FakeProvider(
         override val kind: String = "harness",
         private val methods: Flow<UiMethods> = flowOf(UiMethods(true)),
         private val active: Flow<Set<String>> = flowOf(emptySet()),
+        private val revision: Flow<Long> = flowOf(0L),
         private val handler: suspend (UiMethodCall) -> UiMethodResult,
     ) : ServiceUiProvider {
         var calls = 0
         override val owners: Flow<UiOwners> = flowOf(UiOwners(isComplete = true))
         override fun activeOwners(context: UiCallContext): Flow<Set<String>> = active
         override fun methods(owner: String): Flow<UiMethods> = methods
+        override fun dataRevision(owner: String): Flow<Long> = revision
 
         override suspend fun call(owner: String, call: UiMethodCall): UiMethodResult {
             calls++

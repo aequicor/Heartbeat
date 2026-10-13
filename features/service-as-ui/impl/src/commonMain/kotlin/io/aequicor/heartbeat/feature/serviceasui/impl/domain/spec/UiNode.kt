@@ -168,8 +168,8 @@ internal sealed interface UiNode {
     ) : Input
 
     /**
-     * An isolated web document without network access (desktop panels and modals). With [hasBridge] its script calls
-     * owner methods through `heartbeat.call`; [data] is a binding delivered to the page.
+     * An isolated web document without network access (desktop library surfaces and modals). With [hasBridge] its
+     * script calls owner methods through `heartbeat.call`; [data] is a binding delivered to the page.
      */
     @Serializable
     @SerialName("web")
@@ -177,6 +177,7 @@ internal sealed interface UiNode {
         val html: String,
         @SerialName("bridge") val hasBridge: Boolean = false,
         val data: String? = null,
+        val height: UiWebHeight = UiWebHeight.Regular,
     ) : Content
 }
 

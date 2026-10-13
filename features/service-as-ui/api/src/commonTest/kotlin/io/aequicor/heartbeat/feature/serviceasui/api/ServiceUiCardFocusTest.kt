@@ -16,7 +16,7 @@ class ServiceUiCardFocusTest {
         UiDockId("studio.side"),
     )
     private val surface = UiSurface(
-        UiSurfaceContent(owner, UiSurfaceName("workout"), UiPlacement.Composer, "Workout", spec = "{}"),
+        UiSurfaceContent(owner, UiSurfaceName("workout"), UiPlacement.Card, "Workout", spec = "{}"),
         createdAt = Instant.fromEpochMilliseconds(0),
         updatedAt = Instant.fromEpochMilliseconds(0),
     )
