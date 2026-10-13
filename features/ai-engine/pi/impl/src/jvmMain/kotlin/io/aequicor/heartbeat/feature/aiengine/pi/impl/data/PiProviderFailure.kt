@@ -16,37 +16,41 @@ private val log = Log.tag("PiProviderFailure")
 
 /**
  * Pi 0.87.1 puts SDK failures in assistant.errorMessage, including HTTP bodies. Only a leading HTTP status
- * (SDK `401 ...` or Pi `401: ...`) and exact SDK transport messages are recognized. Native text never leaves
+ * (SDK `401 ...` or Pi `401: ...`), known structured limit codes and exact SDK transport messages are recognized.
+ * A bare HTTP 413 proves only a rejected payload, not an exhausted model context. Native text never leaves
  * this boundary: it can contain credentials, request headers or the conversation. Unknown formats stay unknown.
  * This is a provisional attempt failure; the session still waits for agent_settled and may recover on retry.
  */
 @HighFrequency
 internal fun piProviderFailure(message: String?): EngineFailure {
     val status = message?.let { ProviderHttpStatus.find(it)?.groupValues?.get(1)?.toIntOrNull() }
-    val failure = when (status) {
-        HttpStatusCode.Unauthorized.value ->
-            EngineFailure.Authentication(AuthFailure(AuthFailureReason.CredentialsRejected))
-
-        HttpStatusCode.Forbidden.value -> EngineFailure.Access(AccessFailureReason.ModelAccessDenied)
-
-        HttpStatusCode.RequestTimeout.value, HttpStatusCode.GatewayTimeout.value ->
-            EngineFailure.Transport(TransportFailureReason.Timeout)
-
-        HttpStatusCode.PayloadTooLarge.value -> EngineFailure.ContextLimitExceeded()
-
-        HttpStatusCode.TooManyRequests.value -> EngineFailure.RateLimited(LimitScope.Unknown)
-
-        in ServerErrors -> EngineFailure.Transport(TransportFailureReason.ServiceUnavailable)
-
-        HttpStatusCode.BadRequest.value, HttpStatusCode.NotFound.value, HttpStatusCode.UnprocessableEntity.value ->
-            EngineFailure.Request(RequestFailureReason.Invalid)
-
-        else -> piTransportFailure(message)
-    }
+    val failure = piProviderLimit(status, message) ?: piHttpFailure(status, message)
     log.w(EngineException(failure)) {
         "Pi provider attempt failed code=${failure.code} status=${status ?: "none"}"
     }
     return failure
+}
+
+@HighFrequency
+private fun piHttpFailure(status: Int?, message: String?): EngineFailure = when (status) {
+    HttpStatusCode.Unauthorized.value ->
+        EngineFailure.Authentication(AuthFailure(AuthFailureReason.CredentialsRejected))
+
+    HttpStatusCode.Forbidden.value -> EngineFailure.Access(AccessFailureReason.ModelAccessDenied)
+
+    HttpStatusCode.RequestTimeout.value, HttpStatusCode.GatewayTimeout.value ->
+        EngineFailure.Transport(TransportFailureReason.Timeout)
+
+    HttpStatusCode.TooManyRequests.value -> EngineFailure.RateLimited(LimitScope.Unknown)
+
+    in ServerErrors -> EngineFailure.Transport(TransportFailureReason.ServiceUnavailable)
+
+    HttpStatusCode.BadRequest.value, HttpStatusCode.NotFound.value,
+    HttpStatusCode.PayloadTooLarge.value, HttpStatusCode.UnprocessableEntity.value,
+    ->
+        EngineFailure.Request(RequestFailureReason.Invalid)
+
+    else -> piTransportFailure(message)
 }
 
 @HighFrequency
