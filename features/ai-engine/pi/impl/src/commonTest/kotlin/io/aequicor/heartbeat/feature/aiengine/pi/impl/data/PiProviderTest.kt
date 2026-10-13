@@ -13,7 +13,9 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.scopeFor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
+import io.aequicor.heartbeat.feature.aiengine.pi.api.PiDescriptor
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngineId
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -31,6 +33,22 @@ class PiProviderTest {
     @Test
     fun exactProviderAndOriginAcceptManagedKey() {
         assertTrue(acceptsPi(source, context))
+    }
+
+    @Test
+    fun codingPlanPresetAcceptsNativeModelsAndRejectsEndpointOverrides() {
+        val method = PiDescriptor.connectionMethods.single { it.id.value == "zai" }
+        val coding = source.copy(scope = method.scopeFor())
+        val model = context.copy(model = ModelId("zai/glm-5.3-flash"))
+        assertTrue(acceptsPi(coding, model))
+        assertEquals(PiProvider.ZaiCodingPlan, provider(coding))
+        assertFalse(method.isOriginEditable)
+        assertFalse(method.isPathEditable)
+        assertFalse(acceptsPi(coding.copy(scope = coding.scope.copy(basePath = "/api/paas/v4")), model))
+        assertFalse(
+            acceptsPi(coding.copy(scope = coding.scope.copy(origin = EndpointOrigin("https://example.com"))), model),
+        )
+        assertFalse(acceptsPi(coding, model.copy(model = ModelId("openai-compatible/glm-5.3-flash"))))
     }
 
     @Test

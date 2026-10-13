@@ -9,6 +9,19 @@
 -keep interface com.jetbrains.** { *; }
 -keepattributes RuntimeVisibleAnnotations,RuntimeInvisibleAnnotations,InnerClasses,EnclosingMethod
 
+# Enum.valueOf and EnumSet discover values() reflectively, including UI enum mappings and TLS enums.
+# Keep them public and unoptimized: privatizing values() also breaks Class.getEnumConstants().
+# Without these members a surviving enum can fail with "is not an enum class" in the release image.
+-keepclassmembers enum * {
+    public static **[] values();
+    public static ** valueOf(java.lang.String);
+}
+
+# Okio's Kotlin multifile parts use Okio__*Kt names, unlike the **Kt__* pattern in Compose's defaults.
+# Return-type specialization of buffer(Sink) produces invalid bytecode (BufferedSink vs RealBufferedSink):
+# OkHttp's dispatcher dies with VerifyError and Ktor waits until its request timeout.
+-keep,allowshrinking,allowobfuscation class okio.Okio__* { *; }
+
 # Kotlin compilation uses reflective services and serialized script configurations. Keep the compiler,
 # its shaded IntelliJ runtime and Kotlin metadata; scripts resolve the public API by its source names.
 -keep class org.jetbrains.kotlin.** { *; }

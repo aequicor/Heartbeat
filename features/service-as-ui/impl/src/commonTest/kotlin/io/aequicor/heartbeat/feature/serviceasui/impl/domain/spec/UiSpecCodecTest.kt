@@ -65,7 +65,7 @@ class UiSpecCodecTest {
 
         val unknownKey = malformed("""{"version":1,"body":{"type":"text","text":"x","colour":"red"}}""")
         assertTrue("colour" in unknownKey.detail.orEmpty(), unknownKey.describe())
-        assertTrue(unknownKey.path.startsWith("$"), unknownKey.describe())
+        assertEquals("$.body", unknownKey.path, unknownKey.describe())
 
         val missing = malformed("""{"version":1,"body":{"type":"button","label":"Go"}}""")
         assertTrue("action" in missing.detail.orEmpty(), missing.describe())
@@ -75,6 +75,45 @@ class UiSpecCodecTest {
 
         malformed("""{"version":1}""")
         malformed("""{"version":"one","body":{"type":"divider"}}""")
+    }
+
+    @Test
+    fun `gap errors identify the nested card regardless of discriminator position`() {
+        for (card in listOf(
+            """{"type":"card","gap":"small","children":[]}""",
+            """{"children":[],"gap":"small","type":"card"}""",
+        )) {
+            val error = malformed("""{"version":1,"body":{"children":[$card],"type":"column"}}""")
+            assertEquals("$.body.children[0]", error.path, error.describe())
+            assertTrue("gap" in error.detail.orEmpty(), error.describe())
+        }
+    }
+
+    @Test
+    fun `layout gaps are accepted and preserve arbitrary state and argument objects`() {
+        val spec = assertIs<UiSpecDecoding.Decoded>(
+            decodeUiSpec(
+                """{"version":1,"state":{"payload":{"gap":3,"type":"custom"}},
+                    "body":{"children":[{"gap":"small","children":[],"type":"row"}],
+                    "gap":"large","type":"column"},
+                    "data":{"source":{"method":"load","args":{"gap":7,"type":"request"}}}}""",
+            ),
+        ).spec
+        assertEquals(UiGap.Large, assertIs<UiNode.Column>(spec.body).gap)
+        assertEquals(UiGap.Small, assertIs<UiNode.Row>(spec.body.children.single()).gap)
+        assertEquals(args("""{"gap":3,"type":"custom"}"""), spec.state["payload"])
+        assertEquals(args("""{"gap":7,"type":"request"}"""), spec.data.getValue("source").args)
+    }
+
+    @Test
+    fun `nested action errors retain modal and sequence paths`() {
+        val error = malformed(
+            """{"version":1,"body":{"type":"divider"},"modals":{"details":{"title":"Details",
+                "body":{"label":"Copy","action":{"actions":[{"text":"x","extra":true,"type":"copy"}],
+                "type":"sequence"},"type":"button"}}}}""",
+        )
+        assertEquals("$.modals['details'].body.action.actions[0]", error.path, error.describe())
+        assertTrue("extra" in error.detail.orEmpty(), error.describe())
     }
 
     @Test

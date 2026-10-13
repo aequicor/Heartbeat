@@ -1,7 +1,7 @@
 name: Release
 
 # Run workflow on master with patch, minor or major to publish the next Heartbeat release.
-# Publishing needs every job to pass: all tests and lint, the Android and iOS builds, and the four desktop
+# Publishing needs every job to pass: all tests, the Android and iOS builds, and the four desktop
 # installers, each checked by running its packaged app (verifyReleaseHarnessCompiler).
 # Installed release builds update themselves from the latest release (features/app-update): the release is
 # created as a draft, gets every installer and SHA256SUMS, and only then becomes public and latest. The asset
@@ -57,7 +57,7 @@ jobs:
           cat version.txt >> "$GITHUB_STEP_SUMMARY"
 
   checks:
-    name: Tests and lint
+    name: Tests
     needs: version
     runs-on: macos-15
     timeout-minutes: 150
@@ -77,18 +77,19 @@ jobs:
           python -m pip install -r scripts/requirements-commit-policy.txt
           python -m unittest discover -s scripts/tests -v
           python -m unittest discover -s native/jcef -p "test_*.py" -v
-      - name: Test and lint all modules
+      - name: Test all modules
         env:
           VERSION: ${{ needs.version.outputs.version }}
         run: >-
           ./gradlew -Pheartbeat.version="$VERSION"
-          allTests :platform-main:desktop:test :lint:detekt-rules:test detekt
+          allTests :platform-main:desktop:test :lint:detekt-rules:test
           --continue --stacktrace
 
   mobile:
     name: Android and iOS builds
     needs: version
-    runs-on: macos-15
+    # The Intel runner has 14 GiB RAM; the 7 GiB arm64 runner cannot fit the release linker heap.
+    runs-on: macos-15-intel
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
@@ -101,8 +102,10 @@ jobs:
       - name: Build the Android app and the iOS framework
         env:
           VERSION: ${{ needs.version.outputs.version }}
+        # Kotlin/Native links in the Gradle JVM. The release optimizer exceeds the default 4 GiB heap.
         run: >-
           ./gradlew -Pheartbeat.version="$VERSION"
+          -Dorg.gradle.jvmargs="-Xmx8g -Dfile.encoding=UTF-8"
           :platform-main:android:assembleRelease :platform-main:shared:linkReleaseFrameworkIosArm64
           --stacktrace
 

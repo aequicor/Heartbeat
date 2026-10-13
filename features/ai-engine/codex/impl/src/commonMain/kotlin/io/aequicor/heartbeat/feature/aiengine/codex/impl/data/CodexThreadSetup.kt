@@ -72,8 +72,6 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
     }
 
     suspend fun prepare(request: CodexThreadRequest, connection: CodexConnection): CodexPreparedThread {
-        val nativeId = request.nativeId
-        val target = request.target
         val route = request.route
         val areDetachedToolsEnabled = request.areDetachedToolsEnabled
         val hosted = if (route.workspace == null && areDetachedToolsEnabled) {

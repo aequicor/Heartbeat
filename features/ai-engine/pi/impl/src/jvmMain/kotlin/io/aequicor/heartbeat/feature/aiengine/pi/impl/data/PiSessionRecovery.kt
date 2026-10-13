@@ -101,7 +101,7 @@ internal fun piMessageOutcome(record: JsonObject): TurnOutcome? {
     if (message.string("role") != "assistant") return null
     return when (message.string("stopReason")) {
         "aborted" -> TurnOutcome.Cancelled
-        "error" -> TurnOutcome.Failed(EngineFailure.Unknown())
+        "error" -> TurnOutcome.Failed(piProviderFailure(message.string("errorMessage")))
         else -> TurnOutcome.Completed
     }
 }

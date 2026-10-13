@@ -338,6 +338,7 @@ internal class FakeLauncher : MachineLauncher {
         spec: MachineSpec<S, I, E, O>,
         scope: ScopeHandle,
         effects: EffectHandler<E, I>,
+        isAddressable: Boolean,
     ): Machine<S, I, O> = object : Machine<S, I, O> {
         override val name = spec.name
         override val state = MutableStateFlow(spec.initial)

@@ -39,8 +39,9 @@ public val PiEnabled: FeatureToggle.Flag = FeatureToggle.Flag("ai.pi", "Встр
 
 /**
  * Static metadata; installation and credentials are checked separately.
- * Pi accepts only managed API keys with a known revision: for the exact Anthropic, OpenAI and Google public API
- * origins, or for OpenAI-/Anthropic-compatible servers ([CompatibleProtocol]);
+ * Pi accepts only managed API keys with a known revision: for the exact Anthropic, OpenAI, Google and Z.ai
+ * Coding Plan origins, or for OpenAI-/Anthropic-compatible servers ([CompatibleProtocol]);
+ * the native `zai` route uses `https://api.z.ai/api/coding/paas/v4`, not the pay-as-you-go API.
  * model ids are `provider/native-id`. Stored transcripts of the profile are resumed after a restart
  * ([AttachesSessions]). Desktop only (Windows, macOS).
  */
@@ -81,6 +82,11 @@ public val PiDescriptor: EngineDescriptor = EngineDescriptor(
             ConnectionMethodId("google"),
             ProviderInfo(ProviderId("google"), "Google"),
             EndpointOrigin("https://generativelanguage.googleapis.com"),
+        ),
+        ConnectionMethod.ApiKey(
+            ConnectionMethodId("zai"),
+            ProviderInfo(ProviderId("zai"), "Z.ai Coding Plan"),
+            EndpointOrigin("https://api.z.ai"),
         ),
         CompatibleProtocol.OpenAI.method,
         CompatibleProtocol.Anthropic.method,

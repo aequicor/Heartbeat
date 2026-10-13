@@ -58,6 +58,8 @@ private fun nodesAndActions(): String = """
 - Layout: `column` {children, gap?}, `row` {children, gap?, wrap?}, `card` {children, title?},
   `section` {title, children, description?}, `divider`, `spacer` {size?}. gap and size: none | small | medium | large.
   In a row, buttons, badges and spacers keep their width; other nodes share the rest.
+  `gap` belongs only to `column` and `row`, never to the document, `card` or `section`. To space a card's contents,
+  put a `column` with `gap` inside its `children`.
 - Content: `text` {text, style?: body | caption | title | heading | code, tone?}, `markdown` {text},
   `badge` {text, tone?: neutral | brand | success | warning | danger}, `progress` {value? (0..1, absent:
   indeterminate), label?}, `keyValue` {items: [{key, value}]}, `empty` {title, description?},
@@ -109,8 +111,9 @@ sent prompts or web bridge; the user confirms its links. A card of a library sur
 when the user presses its buttons.
 
 ## Workflow
-1. Publish the methods in a harness script item: `ui.method("prs", "Open pull requests") { call ->
+1. Publish the methods in a harness script item: `ui.method(ItemName("prs"), "Open pull requests") { call ->
    ScriptUiResult.Value(json) }`; report expected problems with `ScriptUiResult.Error(message)`.
+   For an early return from that lambda use `return@method`, never `return@ui.method`; or return an if/else expression.
 2. `ui_list` shows owners and their methods; `ui_call` checks what a method returns.
 3. `ui_put` creates or replaces the surface and returns diagnostics with JSON paths to fix.
     
