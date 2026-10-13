@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.domain
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
@@ -40,8 +41,10 @@ interface StudioRuntime {
         settings: RunSettings,
         attachments: List<ResourceRef>,
         submissionId: String = "",
+        environment: StudioChatEnvironment? = null,
         onAccepted: suspend () -> Unit,
     ): RunOutcome {
+        require(environment == null) { "Outside environments are unavailable for this runtime" }
         require(attachments.isEmpty()) { "Attachments are unavailable for this runtime" }
         onAccepted()
         return run(sessionId, prompt, settings)

@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEntry
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatList
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatRejection
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatSend
@@ -104,7 +105,7 @@ internal class ProfileStudioChats(
         val result = when (val target = target(request, prompt)) {
             is ChatTarget.Refused -> StudioChatSendResult.Rejected(target.reason)
 
-            is ChatTarget.Chat -> if (start(target.id, prompt, request.attachments)) {
+            is ChatTarget.Chat -> if (start(target.id, prompt, request.attachments, request.environment)) {
                 StudioChatSendResult.Accepted(target.id)
             } else {
                 StudioChatSendResult.Rejected(StudioChatRejection.Failed)
@@ -170,12 +171,23 @@ internal class ProfileStudioChats(
     }
 
     /** Runs the turn in the profile and waits only for the engine's acceptance. */
-    private suspend fun start(chatId: String, prompt: String, attachments: List<ResourceRef>): Boolean {
+    private suspend fun start(
+        chatId: String,
+        prompt: String,
+        attachments: List<ResourceRef>,
+        environment: StudioChatEnvironment?,
+    ): Boolean {
         val runSettings = settings.value.settings(chatId)
         val accepted = CompletableDeferred<Unit>()
         val run = profile.coroutineScope.async {
             try {
-                runtime.value.run(chatId, prompt, runSettings, attachments) { accepted.complete(Unit) }
+                runtime.value.run(
+                    chatId,
+                    prompt,
+                    runSettings,
+                    attachments,
+                    environment = environment,
+                ) { accepted.complete(Unit) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

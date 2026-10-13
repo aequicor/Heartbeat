@@ -54,10 +54,14 @@ class SidePanelChatHandlersTest {
     private val chats = FakeChats()
     private val imported = mutableListOf<List<WirePage>>()
     private var importResult: PageImport = PageImport.Imported(listOf(ResourceRef("attachment:1", "text/markdown")))
-    private val handlers = SidePanelChatHandlers(chats) { pages ->
-        imported += pages
-        importResult
-    }
+    private val handlers = SidePanelChatHandlers(
+        chats,
+        PageImporter { pages ->
+            imported += pages
+            importResult
+        },
+        lazy { error("Unused browser") },
+    )
     private val at = Instant.fromEpochSeconds(1_700_000_000)
 
     @Test
@@ -167,10 +171,14 @@ class SidePanelChatHandlersTest {
 
         assertEquals("c9", accepted.result.jsonObject["chatId"]?.jsonPrimitive?.content)
         assertEquals(BridgeErrorCode.BUSY, busy.code)
+        assertEquals(
+            mapOf("external_browser" to setOf(session.id.toString())),
+            chats.sent.first().environment?.preselected,
+        )
         val page = ResourceRef("attachment:1", "text/markdown")
         assertEquals(
             listOf(StudioChatSend(null, null, "Hi", listOf(page)), StudioChatSend("c9", null, "Again", listOf(page))),
-            chats.sent,
+            chats.sent.map { it.copy(environment = null) },
         )
         assertFailsWith<IllegalArgumentException> { call(session, "chat.send", buildJsonObject { put("text", " ") }) }
     }

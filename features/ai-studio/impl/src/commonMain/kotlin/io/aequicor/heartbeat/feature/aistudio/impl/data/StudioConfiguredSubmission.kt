@@ -156,6 +156,7 @@ internal class StudioConfiguredSubmission(
                     request.attachments,
                     request.request,
                     compaction,
+                    request.delivery,
                 )
             }
             // A helper receipt must not stay Submitting when the engine refused the request before acceptance.

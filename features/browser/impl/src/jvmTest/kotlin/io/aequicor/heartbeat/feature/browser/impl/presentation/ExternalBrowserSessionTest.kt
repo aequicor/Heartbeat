@@ -51,6 +51,53 @@ class ExternalBrowserSessionTest {
     }
 
     @Test
+    fun `listing restores agent tabs after reconnect and keeps them private to their owner`() = runTest {
+        val session = session(this)
+        session.execute(OWNER, ExternalOperation.NewTab, JsonObject(emptyMap()))
+        browser.events.emit(ExternalTabEvent.Revoked("t1"))
+        browser.state.value = ExternalBrowserState.Unavailable
+        runCurrent()
+        browser.state.value = ExternalBrowserState.Connected("Chrome", "140")
+        browser.recoverable = listOf(ExternalTab("restored", "https://example.com/", "Example"))
+        browser.active = browser.recoverable.single()
+        runCurrent()
+
+        val listed = session.execute(OWNER, ExternalOperation.Tabs, JsonObject(emptyMap()))
+
+        assertNull(listed.error)
+        assertTrue(listed.data.toString().contains("restored"))
+        assertTrue(listed.data.toString().contains("\"isUserTab\":false"))
+        assertTrue("control restored" in browser.calls)
+        val other = session.execute(OTHER, ExternalOperation.Tabs, JsonObject(emptyMap()))
+        assertEquals("[]", other.data["tabs"].toString())
+    }
+
+    @Test
+    fun `a browser-bound turn cannot list or act on its owners tabs in another browser`() = runTest {
+        val session = session(this)
+        session.execute(OWNER, ExternalOperation.NewTab, JsonObject(emptyMap()))
+        session.execute(OWNER, ExternalOperation.NewTab, JsonObject(emptyMap()))
+        browser.allowedTab = "t2"
+        val listed = session.execute(OWNER, ExternalOperation.Tabs, JsonObject(emptyMap()))
+        assertNull(listed.error)
+        assertTrue(listed.data.toString().contains("t2"))
+        assertTrue(!listed.data.toString().contains("t1"))
+        assertNotNull(session.execute(OWNER, ExternalOperation.Read, args { put("tabId", "t1") }).error)
+        assertNull(session.address(OWNER, "t1"))
+    }
+
+    @Test
+    fun `listing exposes the current user page without acquiring its control`() = runTest {
+        val session = session(this)
+        browser.active = ExternalTab("user", "https://example.com/", "Current page")
+        val result = session.execute(OWNER, ExternalOperation.Tabs, JsonObject(emptyMap()))
+        assertTrue(result.data["activeTab"].toString().contains("Current page"))
+        assertEquals("[]", result.data["tabs"].toString())
+        assertTrue(browser.calls.isEmpty())
+        assertNotNull(session.execute(OWNER, ExternalOperation.Click, args { put("tabId", "user") }).error)
+    }
+
+    @Test
     fun `page reading goes through the DevTools driver of the tab`() = runTest {
         val session = session(this)
         session.execute(OWNER, ExternalOperation.NewTab, JsonObject(emptyMap()))
@@ -128,8 +175,8 @@ class ExternalBrowserSessionTest {
         runCurrent()
 
         assertEquals(
-            """{"tabs":[]}""",
-            session.execute(OWNER, ExternalOperation.Tabs, JsonObject(emptyMap())).data.toString(),
+            "Agent control is disabled",
+            session.execute(OWNER, ExternalOperation.Tabs, JsonObject(emptyMap())).error,
         )
         assertEquals(listOf("release t2"), browser.calls.filter { it.startsWith("release") })
     }
@@ -286,6 +333,13 @@ class ExternalBrowserSessionTest {
         val devTools = mutableListOf<String>()
         val resolved = mutableListOf<Pair<String, Boolean>>()
         var active: ExternalTab? = null
+        var allowedTab: String? = null
+        override fun isTabInSession(owner: String, tabId: String): Boolean = allowedTab?.let { it == tabId } ?: true
+
+        var recoverable: List<ExternalTab> = emptyList()
+        override suspend fun ownedTabs(owner: String): List<ExternalTab> =
+            if (owner == OWNER) recoverable else emptyList()
+
         var refusal: ExternalBrowserException? = null
         var beforeOpen: suspend () -> Unit = {}
         var beforeControl: suspend () -> Unit = {}
@@ -294,9 +348,16 @@ class ExternalBrowserSessionTest {
         override val state = MutableStateFlow<ExternalBrowserState>(ExternalBrowserState.Connected("Chrome", "140"))
         override val events = MutableSharedFlow<ExternalTabEvent>(extraBufferCapacity = 16)
 
-        override suspend fun activeTab(): ExternalTab? = active
+        override fun bindSession(owner: String, connectionId: String): AutoCloseable = AutoCloseable { }
 
-        override suspend fun openTab(): ExternalTab {
+        override suspend fun readActiveTab(owner: String): JsonObject = JsonObject(emptyMap())
+
+        override suspend fun activeTab(owner: String?): ExternalTab? = active
+
+        override suspend fun recoverTab(owner: String, tabId: String, expectedUrl: String): ExternalTab =
+            control(tabId, expectedUrl)
+
+        override suspend fun openTab(owner: String): ExternalTab {
             refusal?.let { throw it }
             calls += "openTab"
             beforeOpen()

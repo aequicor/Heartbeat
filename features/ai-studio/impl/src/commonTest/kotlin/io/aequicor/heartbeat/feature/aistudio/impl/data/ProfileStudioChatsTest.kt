@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEntry
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatNotice
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatPart
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatRejection
@@ -263,6 +264,7 @@ class ProfileStudioChatsTest {
             settings: RunSettings,
             attachments: List<ResourceRef>,
             submissionId: String,
+            environment: StudioChatEnvironment?,
             onAccepted: suspend () -> Unit,
         ): RunOutcome {
             runs += Run(sessionId, prompt, attachments)

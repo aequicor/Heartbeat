@@ -19,11 +19,11 @@ import io.aequicor.heartbeat.feature.browser.impl.domain.ExternalBrowserControl
 import io.aequicor.heartbeat.feature.browser.impl.domain.ExternalOperation
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalBrowser
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalBrowserException
-import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalBrowserState
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalTab
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalTabEvent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -45,7 +45,9 @@ import kotlin.uuid.Uuid
  * web plus, at most, the origin the user approved (the address an approved `ex_control_open` loads, or the page a
  * handed-over tab shows). The extension pauses every document load of a controlled tab until [ExternalBrowser]
  * receives this guard's answer. Page reading and input reuse the embedded browser's DevTools driver over the
- * extension's debugger. Switching agent control off or losing the browser releases everything.
+ * extension's debugger. Switching agent control off releases everything. Connection revocations discard stale
+ * handles; listing can reacquire agent-created tabs whose owner and original group the extension still recognizes.
+ * Initial availability snapshots never revoke ownership: only authoritative tab events do.
  */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
@@ -66,10 +68,7 @@ internal class ExternalBrowserSession(
     private val policyReady = CompletableDeferred<Unit>()
 
     init {
-        profile.coroutineScope.launch { browser.events.collect(::onEvent) }
-        profile.coroutineScope.launch {
-            browser.state.collect { if (it is ExternalBrowserState.Unavailable) forgetAll("browser unavailable") }
-        }
+        profile.coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) { browser.events.collect(::onEvent) }
         profile.coroutineScope.launch {
             policy.availability.collect { enabled ->
                 lock.withLock { isEnabled = enabled }
@@ -108,6 +107,8 @@ internal class ExternalBrowserSession(
         when (operation) {
             ExternalOperation.Tabs -> tabs(owner)
 
+            ExternalOperation.ActiveTab -> browser.readActiveTab(owner)
+
             ExternalOperation.NewTab -> newTab(owner, args.text("url"))
 
             ExternalOperation.RequestTab -> requestTab(owner, args)
@@ -129,11 +130,30 @@ internal class ExternalBrowserSession(
         }
 
     override suspend fun address(owner: String, tabId: String): String? =
-        lock.withLock { entries[tabId]?.takeIf { it.owner == owner }?.url }
+        lock.withLock { entries[tabId]?.takeIf { it.owner == owner && browser.isTabInSession(owner, tabId) }?.url }
 
     private suspend fun tabs(owner: String): JsonObject {
-        val own = lock.withLock { entries.values.filter { it.owner == owner } }
+        policyReady.await()
+        lock.withLock { checkEnabled() }
+        // The extension proves ownership by tab id and original group, never by the visible group title.
+        for (tab in browser.ownedTabs(owner)) {
+            val isMissing = lock.withLock { tab.id !in entries }
+            if (isMissing) acquire(owner, tab, isUserTab = false)
+        }
+        val own = lock.withLock { entries.values.filter { it.owner == owner && browser.isTabInSession(owner, it.id) } }
+        val active = browser.activeTab(owner)
         return buildJsonObject {
+            active?.let {
+                put(
+                    "activeTab",
+                    buildJsonObject {
+                        put("tabId", it.id)
+                        put("url", it.url)
+                        put("title", it.title)
+                        put("isControlled", own.any { entry -> entry.id == it.id })
+                    },
+                )
+            }
             put(
                 "tabs",
                 buildJsonArray {
@@ -159,7 +179,7 @@ internal class ExternalBrowserSession(
     }
 
     private suspend fun requestTab(owner: String, args: JsonObject): JsonObject {
-        val active = browser.activeTab() ?: error("No web page is open in the external browser")
+        val active = browser.activeTab(owner) ?: error("No web page is open in the external browser")
         check(args.text(ApprovedTab.ID) == active.id && args.text(ApprovedTab.URL) == active.url) {
             "The active tab changed since the approval; ask again"
         }
@@ -168,7 +188,7 @@ internal class ExternalBrowserSession(
         return describe(entry)
     }
 
-    private suspend fun acquire(owner: String, expected: ExternalTab?): Entry {
+    private suspend fun acquire(owner: String, expected: ExternalTab?, isUserTab: Boolean = expected != null): Entry {
         policyReady.await()
         val reservation = reserve(owner, expected)
         try {
@@ -177,11 +197,15 @@ internal class ExternalBrowserSession(
             reservation.previous?.let { checkLive(it) }
             // Keep the bounded acquisition alive until its tab id is known, so cancellation can release it.
             withContext(NonCancellable) {
-                val tab = if (expected == null) browser.openTab() else browser.control(expected.id, expected.url)
+                val tab = when {
+                    expected == null -> browser.openTab(owner)
+                    isUserTab -> browser.control(expected.id, expected.url)
+                    else -> browser.recoverTab(owner, expected.id, expected.url)
+                }
                 reservation.recordTab(tab)
             }
             currentCoroutineContext().ensureActive()
-            return commitAcquisition(reservation)
+            return commitAcquisition(reservation, isUserTab)
         } finally {
             withContext(NonCancellable) { finishAcquisition(reservation) }
         }
@@ -201,13 +225,13 @@ internal class ExternalBrowserSession(
         Acquisition(owner, expected, generation, existing)
     }
 
-    private suspend fun commitAcquisition(reservation: Acquisition): Entry {
+    private suspend fun commitAcquisition(reservation: Acquisition, isUserTab: Boolean): Entry {
         val tab = checkNotNull(reservation.acquired)
         val expected = reservation.expected
         check(expected == null || (tab.id == expected.id && tab.url == expected.url)) {
             "The active tab changed since the approval; ask again"
         }
-        val entry = reservation.previous ?: createEntry(reservation.owner, tab, isUserTab = expected != null)
+        val entry = reservation.previous ?: createEntry(reservation.owner, tab, isUserTab = isUserTab)
         lock.withLock {
             checkEnabled()
             check(generation == reservation.generation && (expected == null || reservations[expected.id] == true)) {
@@ -345,13 +369,17 @@ internal class ExternalBrowserSession(
 
     private suspend fun checkLive(tabId: String, token: Any) = lock.withLock {
         checkEnabled()
-        check(entries[tabId]?.token === token) { "Tab control ended; use ex_control_tabs" }
+        val entry = entries[tabId]
+        check(entry == null || browser.isTabInSession(entry.owner, tabId)) { "Tab belongs to another browser" }
+        check(entry?.token === token) { "Tab control ended; use ex_control_tabs" }
     }
 
     private suspend fun owned(owner: String, args: JsonObject): Entry {
         val tabId = requireNotNull(args.text("tabId")) { "tabId required" }
         val entry = lock.withLock { entries[tabId] }
-        require(entry != null && entry.owner == owner) { "Unknown tab; use ex_control_tabs" }
+        require(entry != null && entry.owner == owner && browser.isTabInSession(owner, tabId)) {
+            "Unknown tab; use ex_control_tabs"
+        }
         return entry
     }
 
@@ -428,14 +456,6 @@ internal class ExternalBrowserSession(
             }
         }
         if (released.isNotEmpty()) log.i { "External agent tabs released count=${released.size}" }
-    }
-
-    private suspend fun forgetAll(reason: String) {
-        val count = lock.withLock {
-            generation++
-            entries.size.also { entries.clear() }
-        }
-        if (count > 0) log.i { "External agent tabs forgotten count=$count reason=$reason" }
     }
 
     /** Result data of an operation and the screenshot it took, if any. */
