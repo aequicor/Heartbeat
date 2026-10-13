@@ -10,10 +10,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserDocumentSurface
 import io.aequicor.heartbeat.feature.browser.impl.presentation.DesktopDocumentPanel
 import io.aequicor.heartbeat.feature.browser.impl.presentation.DesktopDocumentPanels
 import io.aequicor.heartbeat.feature.browser.impl.resources.Res
+import io.aequicor.heartbeat.feature.browser.impl.resources.browser_document_page
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_engine_unavailable
 import org.jetbrains.compose.resources.stringResource
 
@@ -40,9 +42,12 @@ private fun DocumentPanel(
         if (isUnavailable) {
             BrowserDocumentNote(stringResource(Res.string.browser_engine_unavailable), modifier)
         } else {
+            // The panel's own background shows until the page paints: the surface color, not Swing's white.
+            val name = surface.title.ifBlank { stringResource(Res.string.browser_document_page) }
             SwingPanel(
+                background = HbTheme.colors.surface,
                 factory = panel::createComponent,
-                modifier = modifier.semantics { contentDescription = surface.title },
+                modifier = modifier.semantics { contentDescription = name },
             )
         }
     }
