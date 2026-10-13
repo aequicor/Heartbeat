@@ -39,6 +39,8 @@ kotlin {
             implementation(projects.features.aiStudio.api)
             implementation(projects.features.researchChat.impl)
             implementation(projects.features.browser.impl)
+            implementation(projects.features.chromiumBridge.api)
+            implementation(projects.features.chromiumBridge.impl)
             implementation(projects.features.searchEngine.impl)
             implementation(projects.features.togglesPanel.impl)
             implementation(projects.features.settings.impl)

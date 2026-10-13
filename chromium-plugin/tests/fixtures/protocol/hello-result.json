@@ -1,0 +1,10 @@
+{
+  "kind": "res",
+  "id": "e:1",
+  "result": {
+    "protocol": 1,
+    "app": { "version": "1.0.0" },
+    "features": { "chat": true, "agentControl": false },
+    "limits": { "maxFrameBytes": 16777216, "maxWatches": 8 }
+  }
+}

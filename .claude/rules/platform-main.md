@@ -32,6 +32,9 @@ paths:
   `runPackagedPlantUmlWorker` (как `runPackagedBuildWorker`), а `compose-desktop.pro` сохраняет его `main`.
   Так же K2 харнесса компилирует в процессе-воркере: аргумент `--heartbeat-harness-compiler-worker` →
   `runPackagedHarnessCompilerWorker`, `main` воркера сохраняет `compose-desktop.pro`.
+  Так же Chromium-браузеры запускают хост Native Messaging моста `chromium-bridge`: обёртка, записанная регистрацией,
+  передаёт аргумент `--heartbeat-chromium-host <сокет>` и аргументы браузера → `runChromiumHost`; `main` хоста
+  сохраняет `compose-desktop.pro`. Хост только ретранслирует кадры между stdio браузера и сокетом приложения.
   Исключение для пробы компилятора харнесса: упакованный desktop с аргументом `--heartbeat-harness-probe`
   (`HarnessCompilerProbe`) до создания графа вызывает `HarnessHostProbe` из `harness:impl` по имени класса
   (`Class.forName`), без compile-зависимости на impl; `compose-desktop.pro` сохраняет этот класс. Проба проверяет
