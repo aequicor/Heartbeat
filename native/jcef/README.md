@@ -44,6 +44,35 @@ and explicitly follows accepted HTTP(S) locations within one transfer budget. A 
 context fails rather than falling back to the global profile. Keep the context
 alive until request completion, then dispose the request before its context.
 
+## Next release: hb3 (prepared, not published)
+
+`request-context-settings.hb3.patch` is the complete patch of the next release: the hb2 patch plus a fix of
+upstream `GetCefValueFromJNIMap`, which built a dictionary but returned an empty, null-typed `CefValue`. Java
+`Map` (and nested `List`) values of `CefRequestContext.setPreference` therefore never reached CEF; dictionary
+preferences such as `proxy` were rejected as "type NULL". Unsupported or null entries now become explicit nulls.
+Heartbeat needs this for isolated documents: their contexts route WebRTC through a closed local proxy
+(`"proxy": {"mode": "fixed_servers", "server": "127.0.0.1:1", "bypass_list": "<-loopback>"}`), so TURN over
+TCP cannot reach a peer. The change only affects `SetPreference`, the sole caller of the conversion.
+
+macOS ARM64 was built from it locally and checked: `build`, `package` and `verify` pass, and
+`browserDocumentNativeTest` and `browserNativeTest` pass on the resulting jars. The native probe crashed in its
+visibility/close phase (`CefClient.dispose` from `onAfterClose`, a focus handler on teardown); the published hb2
+jars crash the same way on that host, in an earlier phase, so the crash is not caused by this change.
+
+To release it, build every target with the hb3 patch and `source-lock.hb3.json` (the hb3 patch's SHA-256,
+`artifactVersion` `152.0.6-hb3`, no artifacts yet):
+
+```shell
+python native/jcef/build_runtime.py --patch native/jcef/request-context-settings.hb3.patch --source-lock native/jcef/source-lock.hb3.json --target <target> prepare
+```
+
+(and the same options for `build`, `package` and `verify`), then collect and publish as below. The release commit
+moves the hb3 patch over `request-context-settings.patch`, replaces `source-lock.json` with the completed lock and
+removes `source-lock.hb3.json`, sets `jcef-native` to
+`152.0.6-hb3` in `gradle/libs.versions.toml`, pins the five jars in `gradle/verification-metadata.xml`, adds the
+`proxy` preference to `DesktopDocumentEngine` and makes `browserDocumentNativeTest` assert that no TURN connection
+over TCP opens. Until then documents block STUN and TURN over UDP only.
+
 ## Build and verify
 
 There is no CI pipeline for this runtime: each release is built, probed and collected

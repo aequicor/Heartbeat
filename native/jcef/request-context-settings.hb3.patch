@@ -1,0 +1,1090 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 1fdda94..28f51c2 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -152,7 +152,9 @@ elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
+     set(CEF_PLATFORM "linux32")
+   endif()
+ elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
+-  if(CMAKE_SIZEOF_VOID_P MATCHES 8)
++  if(CMAKE_GENERATOR_PLATFORM STREQUAL "ARM64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "^(ARM64|arm64|aarch64)$")
++    set(CEF_PLATFORM "windowsarm64")
++  elseif(CMAKE_SIZEOF_VOID_P MATCHES 8)
+     set(CEF_PLATFORM "windows64")
+   else()
+     set(CEF_PLATFORM "windows32")
+diff --git a/build.xml b/build.xml
+index e7a7707..fbe33e7 100644
+--- a/build.xml
++++ b/build.xml
+@@ -25,7 +25,7 @@
+   <target name="compile">
+     <mkdir dir="${out.path}"/>
+     <javac encoding="UTF8" nowarn="on" deprecation="off" debug="on" includeantruntime="false" destdir="${out.path}"
+-           executable="/usr/bin/javac" fork="true" memoryinitialsize="32m" memorymaximumsize="128m" includeJavaRuntime="yes"
++           executable="${jdk7.path}/bin/javac" fork="true" memoryinitialsize="32m" memorymaximumsize="128m" includeJavaRuntime="no"
+            target="1.8" source="1.8">
+       <compilerarg value="-XDignore.symbol.file"/>
+       <classpath location="${jdk7.path}/jre/lib/rt.jar" />
+diff --git a/java/org/cef/CefClient.java b/java/org/cef/CefClient.java
+index 687be93..104e79f 100644
+--- a/java/org/cef/CefClient.java
++++ b/java/org/cef/CefClient.java
+@@ -577,11 +577,24 @@ public class CefClient extends CefClientHandler
+     @Override
+     public void onBeforeClose(CefBrowser browser) {
+         if (browser == null) return;
+-        if (lifeSpanHandler_ != null) lifeSpanHandler_.onBeforeClose(browser);
++        CefLifeSpanHandler handler = lifeSpanHandler_;
++        int identifier = browser.getIdentifier();
++        if (handler != null) handler.onBeforeClose(browser);
+         browser.onBeforeClose();
+ 
+-        // remove browser reference
+-        cleanupBrowser(browser.getIdentifier());
++        // Cleanup may clear lifeSpanHandler_; keep the original notification target.
++        cleanupBrowser(identifier);
++        if (handler != null) handler.onAfterClose(browser);
++    }
++
++    @Override
++    public void onCreationFailed(CefBrowser browser) {
++        if (browser == null) return;
++        CefLifeSpanHandler handler = lifeSpanHandler_;
++        // No browser was registered. Close its owned request-context wrapper and
++        // make paint/createImmediately retries terminal before notifying the owner.
++        browser.onBeforeClose();
++        if (handler != null) handler.onCreationFailed(browser);
+     }
+ 
+     private void cleanupBrowser(int identifier) {
+diff --git a/java/org/cef/browser/CefBrowser_N.java b/java/org/cef/browser/CefBrowser_N.java
+index c89e296..dc812ca 100644
+--- a/java/org/cef/browser/CefBrowser_N.java
++++ b/java/org/cef/browser/CefBrowser_N.java
+@@ -188,18 +188,31 @@ abstract class CefBrowser_N extends CefNativeAdapter implements CefBrowser {
+     /**
+      * Create a new browser.
+      */
+-    protected void createBrowser(CefClientHandler clientHandler, long windowHandle, String url,
++    protected synchronized void createBrowser(CefClientHandler clientHandler, long windowHandle, String url,
+             boolean osr, boolean transparent, Component canvas, CefRequestContext context) {
+         if (getNativeRef("CefBrowser") == 0 && !isPending_) {
++            // Reserve before JNI queues work to AppKit/CEF UI. Painting and
++            // createImmediately can otherwise create two browsers for this wrapper.
++            isPending_ = true;
+             try {
+                 N_CreateBrowser(clientHandler, windowHandle, url, osr, transparent, canvas, context,
+                         settings_);
+             } catch (UnsatisfiedLinkError err) {
++                notifyBrowserCreationFailed();
+                 err.printStackTrace();
++            } catch (RuntimeException | Error err) {
++                notifyBrowserCreationFailed();
++                throw err;
+             }
+         }
+     }
+ 
++    /** Called by JNI when queued creation could not be accepted. */
++    private synchronized void notifyBrowserCreationFailed() {
++        isPending_ = false;
++        client_.onCreationFailed(this);
++    }
++
+     /**
+      * Called async from the (native) main UI thread.
+      */
+diff --git a/java/org/cef/browser/CefDevToolsClient.java b/java/org/cef/browser/CefDevToolsClient.java
+index 3fed09f..14548be 100644
+--- a/java/org/cef/browser/CefDevToolsClient.java
++++ b/java/org/cef/browser/CefDevToolsClient.java
+@@ -4,9 +4,12 @@
+ 
+ package org.cef.browser;
+ 
++import java.util.ArrayList;
+ import java.util.Collections;
+ import java.util.HashMap;
++import java.util.HashSet;
+ import java.util.LinkedHashSet;
++import java.util.List;
+ import java.util.Map;
+ import java.util.Set;
+ import java.util.concurrent.CompletableFuture;
+@@ -16,7 +19,9 @@ public class CefDevToolsClient implements AutoCloseable {
+             Collections.synchronizedMap(new HashMap<>());
+     private final Set<EventListener> eventListeners_ =
+             Collections.synchronizedSet(new LinkedHashSet<>());
+-    private CefRegistration registration_;
++    private final Set<CompletableFuture<String>> pendingCalls_ = new HashSet<>();
++    private final Set<Integer> cancelledMessageIds_ = new HashSet<>();
++    private volatile CefRegistration registration_;
+     private final CefBrowser_N browser_;
+ 
+     /**
+@@ -29,19 +34,33 @@ public class CefDevToolsClient implements AutoCloseable {
+             @Override
+             public void onDevToolsMethodResult(
+                     CefBrowser browser, int messageId, boolean success, String result) {
+-                CompletableFuture<String> future = getQueuedCommand(messageId);
++                CompletableFuture<String> future;
++                synchronized (queuedCommands_) {
++                    if (isClosed()) return;
++                    if (cancelledMessageIds_.remove(messageId)) return;
++                    future = getQueuedCommand(messageId);
++                }
+                 if (success) {
+                     future.complete(result);
+                 } else {
+                     future.completeExceptionally(
+                             new DevToolsException("DevTools method failed", result));
+                 }
+-                removeQueuedCommand(messageId);
++                // The result can arrive before ExecuteDevToolsMethod returns its ID.
++                // Keep it until that caller has obtained this same future.
++                synchronized (queuedCommands_) {
++                    cancelledMessageIds_.remove(messageId);
++                }
+             }
+ 
+             @Override
+             public void onDevToolsEvent(CefBrowser browser, String method, String parameters) {
+-                for (EventListener eventListener : eventListeners_) {
++                EventListener[] listeners;
++                synchronized (eventListeners_) {
++                    listeners = eventListeners_.toArray(new EventListener[0]);
++                }
++                for (EventListener eventListener : listeners) {
++                    if (isClosed()) return;
+                     eventListener.onEvent(method, parameters);
+                 }
+             }
+@@ -50,9 +69,19 @@ public class CefDevToolsClient implements AutoCloseable {
+ 
+     @Override
+     public void close() {
+-        queuedCommands_.clear();
++        List<CompletableFuture<?>> pending = new ArrayList<>();
++        synchronized (queuedCommands_) {
++            registration_ = null;
++            pending.addAll(queuedCommands_.values());
++            pending.addAll(pendingCalls_);
++            queuedCommands_.clear();
++            pendingCalls_.clear();
++            cancelledMessageIds_.clear();
++        }
+         eventListeners_.clear();
+-        registration_ = null;
++        for (CompletableFuture<?> future : pending) {
++            future.completeExceptionally(new DevToolsException("Client is closed"));
++        }
+     }
+ 
+     public boolean isClosed() {
+@@ -63,8 +92,10 @@ public class CefDevToolsClient implements AutoCloseable {
+         return queuedCommands_.computeIfAbsent(messageId, key -> new CompletableFuture<>());
+     }
+ 
+-    private void removeQueuedCommand(Integer messageId) {
+-        queuedCommands_.remove(messageId);
++    // Called under queuedCommands_. A tombstone rejects a not-yet-delivered result.
++    private void discardCancelledCommand(Integer messageId) {
++        CompletableFuture<String> response = queuedCommands_.remove(messageId);
++        if (response == null || !response.isDone()) cancelledMessageIds_.add(messageId);
+     }
+ 
+     /**
+@@ -99,14 +130,62 @@ public class CefDevToolsClient implements AutoCloseable {
+      * @return return a future with the method result if the method was executed successfully
+      */
+     public CompletableFuture<String> executeDevToolsMethod(String method, String parametersAsJson) {
+-        if (isClosed()) {
+-            CompletableFuture<String> future = new CompletableFuture<>();
+-            future.completeExceptionally(new DevToolsException("Client is closed"));
+-            return future;
++        CompletableFuture<String> operation = new CompletableFuture<>();
++        Integer[] commandId = new Integer[1]; // guarded by queuedCommands_
++        synchronized (queuedCommands_) {
++            if (isClosed()) return closedFuture();
++            pendingCalls_.add(operation);
+         }
++        operation.whenComplete((value, error) -> {
++            synchronized (queuedCommands_) {
++                pendingCalls_.remove(operation);
++                if (operation.isCancelled() && commandId[0] != null && !isClosed()) {
++                    discardCancelledCommand(commandId[0]);
++                }
++            }
++        });
++        // JNI may synchronously deliver a result, or queue work on another thread.
++        // Never hold the rendezvous lock while entering native code.
++        try {
++            browser_.executeDevToolsMethod(method, parametersAsJson).whenComplete((id, error) -> {
++                if (error != null) {
++                    operation.completeExceptionally(error);
++                    return;
++                }
++                CompletableFuture<String> response;
++                synchronized (queuedCommands_) {
++                    if (isClosed()) return; // close already completed the operation.
++                    commandId[0] = id;
++                    if (operation.isCancelled()) {
++                        discardCancelledCommand(id);
++                        return;
++                    }
++                    response = getQueuedCommand(id);
++                }
++                response.whenComplete((value, failure) -> {
++                    synchronized (queuedCommands_) {
++                        queuedCommands_.remove(id, response);
++                    }
++                    if (failure != null)
++                        operation.completeExceptionally(failure);
++                    else
++                        operation.complete(value);
++                    synchronized (queuedCommands_) {
++                        // Cancellation may race between map removal and completion.
++                        cancelledMessageIds_.remove(id);
++                    }
++                });
++            });
++        } catch (RuntimeException | Error error) {
++            operation.completeExceptionally(error);
++        }
++        return operation;
++    }
+ 
+-        return browser_.executeDevToolsMethod(method, parametersAsJson)
+-                .thenCompose(this::getQueuedCommand);
++    private CompletableFuture<String> closedFuture() {
++        CompletableFuture<String> future = new CompletableFuture<>();
++        future.completeExceptionally(new DevToolsException("Client is closed"));
++        return future;
+     }
+ 
+     /**
+diff --git a/java/org/cef/browser/CefRequestContext.java b/java/org/cef/browser/CefRequestContext.java
+index 38ccef0..bde1b57 100644
+--- a/java/org/cef/browser/CefRequestContext.java
++++ b/java/org/cef/browser/CefRequestContext.java
+@@ -42,8 +42,29 @@ public abstract class CefRequestContext {
+         return CefRequestContext_N.createNative(handler);
+     }
+ 
++    /** Creates a persistent context. The settings are copied during this call. */
++    public static CefRequestContext createContext(
++            org.cef.CefRequestContextSettings settings, CefRequestContextHandler handler) {
++        if (settings == null) throw new IllegalArgumentException("settings required");
++        return CefRequestContext_N.createNative(settings, handler);
++    }
++
++    /** Creates an independently owned wrapper sharing another context's storage. */
++    public static CefRequestContext createContext(
++            CefRequestContext shared, CefRequestContextHandler handler) {
++        if (shared == null) throw new IllegalArgumentException("shared context required");
++        return CefRequestContext_N.createSharedNative(shared, handler);
++    }
++
+     public abstract void dispose();
+ 
++    /**
++     * Flushes this context's cookies, releases its native ownership on the CEF UI thread,
++     * then calls completion from a subsequent UI task. All sharing browser wrappers must
++     * already be closed. Completion does not guarantee that every OS file handle is closed.
++     */
++    public abstract void dispose(org.cef.callback.CefCompletionCallback callback);
++
+     /**
+      * Returns true if this object is the global context.
+      */
+diff --git a/java/org/cef/browser/CefRequestContext_N.java b/java/org/cef/browser/CefRequestContext_N.java
+index 6e26e7d..952de5c 100644
+--- a/java/org/cef/browser/CefRequestContext_N.java
++++ b/java/org/cef/browser/CefRequestContext_N.java
+@@ -58,6 +58,28 @@ class CefRequestContext_N extends CefRequestContext implements CefNative {
+         return result;
+     }
+ 
++    static CefRequestContext_N createNative(
++            org.cef.CefRequestContextSettings settings, CefRequestContextHandler handler) {
++        CefRequestContext_N result = N_CreatePersistentContext(settings.cache_path,
++                settings.persist_session_cookies, settings.accept_language_list,
++                settings.cookieable_schemes_list, settings.cookieable_schemes_exclude_defaults, handler);
++        if (result != null) result.handler = handler;
++        return result;
++    }
++
++    static CefRequestContext_N createSharedNative(
++            CefRequestContext shared, CefRequestContextHandler handler) {
++        CefRequestContext_N result = N_CreateSharedContext(shared, handler);
++        if (result != null) result.handler = handler;
++        return result;
++    }
++
++    private static native CefRequestContext_N N_CreatePersistentContext(String cachePath,
++            boolean persistSessionCookies, String languages, String cookieSchemes,
++            boolean excludeDefaultSchemes, CefRequestContextHandler handler);
++    private static native CefRequestContext_N N_CreateSharedContext(
++            CefRequestContext shared, CefRequestContextHandler handler);
++
+     @Override
+     public void dispose() {
+         try {
+@@ -77,6 +99,16 @@ class CefRequestContext_N extends CefRequestContext implements CefNative {
+         return false;
+     }
+ 
++    @Override
++    public void dispose(org.cef.callback.CefCompletionCallback callback) {
++        if (callback == null) throw new IllegalArgumentException("callback required");
++        if (!N_FlushAndDispose(callback)) {
++            throw new IllegalStateException("Request context flush was not accepted");
++        }
++    }
++
++    private native boolean N_FlushAndDispose(org.cef.callback.CefCompletionCallback callback);
++
+     @Override
+     public boolean hasPreference(String name) {
+         try {
+diff --git a/java/org/cef/handler/CefLifeSpanHandler.java b/java/org/cef/handler/CefLifeSpanHandler.java
+index cc132f3..5d7a819 100644
+--- a/java/org/cef/handler/CefLifeSpanHandler.java
++++ b/java/org/cef/handler/CefLifeSpanHandler.java
+@@ -62,4 +62,12 @@ public interface CefLifeSpanHandler {
+      * @param browser The browser generating the event.
+      */
+     void onBeforeClose(CefBrowser browser);
++
++    /** Called after Java browser/context cleanup and removal from the client registry.
++     * The native close callback is still unwinding; do not invoke browser methods. */
++    default void onAfterClose(CefBrowser browser) {}
++
++    /** Terminal creation failure, after the uncreated browser/context wrapper is closed.
++     * No onAfterCreated/onAfterClose follows. The client may be disposed in this callback. */
++    default void onCreationFailed(CefBrowser browser) {}
+ }
+diff --git a/java/org/cef/network/CefRequest.java b/java/org/cef/network/CefRequest.java
+index 5ce6445..5ba8b9f 100644
+--- a/java/org/cef/network/CefRequest.java
++++ b/java/org/cef/network/CefRequest.java
+@@ -175,33 +175,34 @@ public abstract class CefRequest {
+          */
+         public static final int UR_FLAG_SKIP_CACHE = 1 << 0;
+ 
+-        /**
+-         * If set user name, password, and cookies may be sent with the request, and
+-         * cookies may be saved from the response.
+-         */
+-        public static final int UR_FLAG_ALLOW_CACHED_CREDENTIALS = 1 << 1;
++        /** Require a cached response; incompatible with SKIP_CACHE and DISABLE_CACHE. */
++        public static final int UR_FLAG_ONLY_FROM_CACHE = 1 << 1;
+ 
+-        /**
+-         * If set upload progress events will be generated when a request has a body.
+-         */
+-        public static final int UR_FLAG_REPORT_UPLOAD_PROGRESS = 1 << 3;
++        /** Do not read from or write to the cache. */
++        public static final int UR_FLAG_DISABLE_CACHE = 1 << 2;
+ 
+-        /**
+-         * If set the headers sent and received for the request will be recorded.
+-         */
+-        public static final int UR_FLAG_REPORT_RAW_HEADERS = 1 << 5;
++        /** Allow stored credentials and cookies from the request context. */
++        public static final int UR_FLAG_ALLOW_STORED_CREDENTIALS = 1 << 3;
+ 
+-        /**
+-         *  If set the CefURLRequestClient.onDownloadData method will not be called.
+-         */
+-        public static final int UR_FLAG_NO_DOWNLOAD_DATA = 1 << 6;
++        /** @deprecated Use UR_FLAG_ALLOW_STORED_CREDENTIALS. */
++        @Deprecated
++        public static final int UR_FLAG_ALLOW_CACHED_CREDENTIALS = UR_FLAG_ALLOW_STORED_CREDENTIALS;
+ 
+-        /**
+-         * If set 5XX redirect errors will be propagated to the observer instead of
+-         * automatically re-tried. This currently only applies for requests
+-         * originated in the browser process.
+-         */
+-        public static final int UR_FLAG_NO_RETRY_ON_5XX = 1 << 7;
++        /** Generate upload progress events for requests with a body. */
++        public static final int UR_FLAG_REPORT_UPLOAD_PROGRESS = 1 << 4;
++
++        /** @deprecated Removed from CEF; retained as a no-op for source compatibility. */
++        @Deprecated
++        public static final int UR_FLAG_REPORT_RAW_HEADERS = 0;
++
++        /** Do not call CefURLRequestClient.onDownloadData. */
++        public static final int UR_FLAG_NO_DOWNLOAD_DATA = 1 << 5;
++
++        /** Do not automatically retry 5XX responses in the browser process. */
++        public static final int UR_FLAG_NO_RETRY_ON_5XX = 1 << 6;
++
++        /** Stop at a 3XX response instead of following its redirect. */
++        public static final int UR_FLAG_STOP_ON_REDIRECT = 1 << 7;
+     }
+ 
+     /**
+diff --git a/java/org/cef/network/CefURLRequest.java b/java/org/cef/network/CefURLRequest.java
+index 2327cd4..9b8986f 100644
+--- a/java/org/cef/network/CefURLRequest.java
++++ b/java/org/cef/network/CefURLRequest.java
+@@ -48,6 +48,15 @@ public abstract class CefURLRequest {
+         return CefURLRequest_N.createNative(request, client);
+     }
+ 
++    /** Creates a browser-process request using the specified profile context.
++     * Keep the context alive until request completion/cancellation. A disposed
++     * context is rejected instead of falling back to the global profile. */
++    public static final CefURLRequest create(CefRequest request, CefURLRequestClient client,
++            org.cef.browser.CefRequestContext context) {
++        if (context == null) throw new IllegalArgumentException("request context required");
++        return CefURLRequest_N.createNative(request, client, context);
++    }
++
+     /**
+      * Removes the native reference from an unused object.
+      */
+diff --git a/java/org/cef/network/CefURLRequest_N.java b/java/org/cef/network/CefURLRequest_N.java
+index e5a73ab..0c9eb00 100644
+--- a/java/org/cef/network/CefURLRequest_N.java
++++ b/java/org/cef/network/CefURLRequest_N.java
+@@ -42,6 +42,13 @@ class CefURLRequest_N extends CefURLRequest implements CefNative {
+         return result;
+     }
+ 
++    public static final CefURLRequest createNative(CefRequest request, CefURLRequestClient client,
++            org.cef.browser.CefRequestContext context) {
++        CefURLRequest_N result = new CefURLRequest_N(request, client);
++        result.N_CreateWithContext(request, client, context);
++        return result.N_CefHandle == 0 ? null : result;
++    }
++
+     @Override
+     public void dispose() {
+         try {
+@@ -101,6 +108,8 @@ class CefURLRequest_N extends CefURLRequest implements CefNative {
+     }
+ 
+     private final native void N_Create(CefRequest request, CefURLRequestClient client);
++    private final native void N_CreateWithContext(CefRequest request, CefURLRequestClient client,
++            org.cef.browser.CefRequestContext context);
+     private final native void N_Dispose(long self);
+     private final native Status N_GetRequestStatus(long self);
+     private final native ErrorCode N_GetRequestError(long self);
+diff --git a/native/CefBrowser_N.cpp b/native/CefBrowser_N.cpp
+index ceea3a6..99c54e4 100644
+--- a/native/CefBrowser_N.cpp
++++ b/native/CefBrowser_N.cpp
+@@ -932,13 +932,17 @@ void create(std::shared_ptr<JNIObjectsForCreate> objs,
+   ScopedJNIEnv env;
+   CefRefPtr<ClientHandler> clientHandler = GetCefFromJNIObject<ClientHandler>(
+       env, objs->jclientHandler, "CefClientHandler");
+-  if (!clientHandler.get())
++  if (!clientHandler.get()) {
++    JNI_CALL_VOID_METHOD(env, objs->jbrowser, "notifyBrowserCreationFailed", "()V");
+     return;
++  }
+ 
+   CefRefPtr<LifeSpanHandler> lifeSpanHandler =
+       (LifeSpanHandler*)clientHandler->GetLifeSpanHandler().get();
+-  if (!lifeSpanHandler.get())
++  if (!lifeSpanHandler.get()) {
++    JNI_CALL_VOID_METHOD(env, objs->jbrowser, "notifyBrowserCreationFailed", "()V");
+     return;
++  }
+ 
+   CefRefPtr<CefBrowser> parentBrowser =
+       GetCefFromJNIObject<CefBrowser>(env, objs->jparentBrowser, "CefBrowser");
+@@ -1039,6 +1043,7 @@ void create(std::shared_ptr<JNIObjectsForCreate> objs,
+   if (!result) {
+     lifeSpanHandler->unregisterJBrowser(globalRef);
+     env->DeleteGlobalRef(globalRef);
++    JNI_CALL_VOID_METHOD(env, objs->jbrowser, "notifyBrowserCreationFailed", "()V");
+     return;
+   }
+   JNI_CALL_VOID_METHOD(env, objs->jbrowser, "notifyBrowserCreated", "()V");
+@@ -1197,9 +1202,9 @@ Java_org_cef_browser_CefBrowser_1N_N_1CreateBrowser(JNIEnv* env,
+                               canvas, jcontext, nullptr, browserSettings));
+   if (CefCurrentlyOn(TID_UI)) {
+     create(objs, windowHandle, osr, transparent);
+-  } else {
+-    CefPostTask(TID_UI,
+-                base::BindOnce(&create, objs, windowHandle, osr, transparent));
++  } else if (!CefPostTask(TID_UI,
++                          base::BindOnce(&create, objs, windowHandle, osr, transparent))) {
++    JNI_CALL_VOID_METHOD(env, jbrowser, "notifyBrowserCreationFailed", "()V");
+   }
+   return JNI_FALSE;  // set asynchronously
+ }
+@@ -1525,10 +1530,8 @@ Java_org_cef_browser_CefBrowser_1N_N_1SetWindowVisibility(JNIEnv* env,
+   CefRefPtr<CefBrowser> browser = JNI_GET_BROWSER_OR_RETURN(env, obj);
+ 
+ #if defined(OS_MACOSX)
+-  if (!browser->GetHost()->IsWindowRenderingDisabled()) {
+-    util_mac::SetVisibility(browser->GetHost()->GetWindowHandle(),
+-                            visible != JNI_FALSE);
+-  }
++  // Resolve the NSView only on CEF UI after confirming this browser is live.
++  util_mac::SetVisibility(browser, visible != JNI_FALSE);
+ #endif
+ }
+ JNIEXPORT jdouble JNICALL
+@@ -2106,8 +2109,7 @@ Java_org_cef_browser_CefBrowser_1N_N_1UpdateUI(JNIEnv* env,
+   CefRect contentRect = GetJNIRect(env, jcontentRect);
+ #if defined(OS_MACOSX)
+   CefRect browserRect = GetJNIRect(env, jbrowserRect);
+-  util_mac::UpdateView(browser->GetHost()->GetWindowHandle(), contentRect,
+-                       browserRect);
++  util_mac::UpdateView(browser, contentRect, browserRect);
+ #else
+   CefWindowHandle windowHandle = browser->GetHost()->GetWindowHandle();
+   if (CefCurrentlyOn(TID_UI)) {
+diff --git a/native/CefRequestContext_N.cpp b/native/CefRequestContext_N.cpp
+index db6b2dd..987f503 100644
+--- a/native/CefRequestContext_N.cpp
++++ b/native/CefRequestContext_N.cpp
+@@ -4,9 +4,54 @@
+ 
+ #include "CefRequestContext_N.h"
+ #include "include/cef_request_context.h"
++#include "include/base/cef_callback.h"
++#include "include/cef_cookie.h"
++#include "include/cef_task.h"
++#include "include/wrapper/cef_closure_task.h"
++#include "completion_callback.h"
+ #include "jni_util.h"
+ #include "request_context_handler.h"
+ 
++namespace {
++
++// Keep the Java wrapper, not another native context reference. After FinishDispose,
++// the completion task retains only the callback; it cannot keep the profile alive.
++class FlushAndReleaseContext : public CefCompletionCallback {
++ public:
++  FlushAndReleaseContext(JNIEnv* env, jobject context, jobject callback)
++      : context_(env, context), callback_(new CompletionCallback(env, callback)) {}
++
++  void OnComplete() override {
++    CefPostTask(TID_UI, base::BindOnce(&FlushAndReleaseContext::FinishDispose,
++                                     CefRefPtr<FlushAndReleaseContext>(this)));
++  }
++
++ private:
++  void FinishDispose() {
++    ScopedJNIEnv env;
++    if (!env) return;
++    SetCefForJNIObject<CefRequestContext>(env, context_, nullptr, "CefRequestContext");
++    CefPostTask(TID_UI, base::BindOnce(&CefCompletionCallback::OnComplete, callback_));
++  }
++
++  ScopedJNIObjectGlobal context_;
++  CefRefPtr<CefCompletionCallback> callback_;
++  IMPLEMENT_REFCOUNTING(FlushAndReleaseContext);
++};
++
++}  // namespace
++
++JNIEXPORT jboolean JNICALL
++Java_org_cef_browser_CefRequestContext_1N_N_1FlushAndDispose(
++    JNIEnv* env, jobject obj, jobject callback) {
++  auto context = GetCefFromJNIObject<CefRequestContext>(env, obj, "CefRequestContext");
++  if (!context) return JNI_FALSE;
++  auto manager = context->GetCookieManager(nullptr);
++  if (!manager) return JNI_FALSE;
++  return manager->FlushStore(new FlushAndReleaseContext(env, obj, callback))
++      ? JNI_TRUE : JNI_FALSE;
++}
++
+ JNIEXPORT jobject JNICALL
+ Java_org_cef_browser_CefRequestContext_1N_N_1GetGlobalContext(JNIEnv* env,
+                                                               jclass cls) {
+@@ -46,6 +91,44 @@ Java_org_cef_browser_CefRequestContext_1N_N_1CreateContext(JNIEnv* env,
+   return jContext.Release();
+ }
+ 
++// Heartbeat extension: separate JNI wrappers own separate CEF references. Closing
++// a browser disposes only its wrapper, never the profile's anchor context.
++JNIEXPORT jobject JNICALL
++Java_org_cef_browser_CefRequestContext_1N_N_1CreatePersistentContext(
++    JNIEnv* env, jclass cls, jstring cache_path, jboolean persist_cookies,
++    jstring languages, jstring cookie_schemes, jboolean exclude_defaults,
++    jobject jhandler) {
++  CefRequestContextSettings settings;
++  CefString(&settings.cache_path) = GetJNIString(env, cache_path);
++  settings.persist_session_cookies = persist_cookies;
++  CefString(&settings.accept_language_list) = GetJNIString(env, languages);
++  CefString(&settings.cookieable_schemes_list) = GetJNIString(env, cookie_schemes);
++  settings.cookieable_schemes_exclude_defaults = exclude_defaults;
++  CefRefPtr<CefRequestContextHandler> handler;
++  if (jhandler) handler = new RequestContextHandler(env, jhandler);
++  auto context = CefRequestContext::CreateContext(settings, handler);
++  if (!context) return nullptr;
++  ScopedJNIObjectLocal result(env, NewJNIObject(env, cls));
++  if (!result) return nullptr;
++  SetCefForJNIObject(env, result, context.get(), "CefRequestContext");
++  return result.Release();
++}
++
++JNIEXPORT jobject JNICALL
++Java_org_cef_browser_CefRequestContext_1N_N_1CreateSharedContext(
++    JNIEnv* env, jclass cls, jobject shared, jobject jhandler) {
++  auto parent = GetCefFromJNIObject<CefRequestContext>(env, shared, "CefRequestContext");
++  if (!parent) return nullptr;
++  CefRefPtr<CefRequestContextHandler> handler;
++  if (jhandler) handler = new RequestContextHandler(env, jhandler);
++  auto context = CefRequestContext::CreateContext(parent, handler);
++  if (!context) return nullptr;
++  ScopedJNIObjectLocal result(env, NewJNIObject(env, cls));
++  if (!result) return nullptr;
++  SetCefForJNIObject(env, result, context.get(), "CefRequestContext");
++  return result.Release();
++}
++
+ JNIEXPORT jboolean JNICALL
+ Java_org_cef_browser_CefRequestContext_1N_N_1IsGlobal(JNIEnv* env,
+                                                       jobject obj) {
+diff --git a/native/CefRequestContext_N.h b/native/CefRequestContext_N.h
+index 407cc77..b25c7e9 100644
+--- a/native/CefRequestContext_N.h
++++ b/native/CefRequestContext_N.h
+@@ -1,5 +1,6 @@
+ /* DO NOT EDIT THIS FILE - it is machine generated */
+ #include <jni.h>
++
+ /* Header for class org_cef_browser_CefRequestContext_N */
+ 
+ #ifndef _Included_org_cef_browser_CefRequestContext_N
+@@ -7,6 +8,8 @@
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
++JNIEXPORT jboolean JNICALL
++Java_org_cef_browser_CefRequestContext_1N_N_1FlushAndDispose(JNIEnv*, jobject, jobject);
+ /*
+  * Class:     org_cef_browser_CefRequestContext_N
+  * Method:    N_GetGlobalContext
+@@ -26,6 +29,13 @@ Java_org_cef_browser_CefRequestContext_1N_N_1CreateContext(JNIEnv*,
+                                                            jclass,
+                                                            jobject);
+ 
++JNIEXPORT jobject JNICALL
++Java_org_cef_browser_CefRequestContext_1N_N_1CreatePersistentContext(
++    JNIEnv*, jclass, jstring, jboolean, jstring, jstring, jboolean, jobject);
++JNIEXPORT jobject JNICALL
++Java_org_cef_browser_CefRequestContext_1N_N_1CreateSharedContext(
++    JNIEnv*, jclass, jobject, jobject);
++
+ /*
+  * Class:     org_cef_browser_CefRequestContext_N
+  * Method:    N_IsGlobal
+diff --git a/native/CefURLRequest_N.cpp b/native/CefURLRequest_N.cpp
+index d453fbc..7dc4272 100644
+--- a/native/CefURLRequest_N.cpp
++++ b/native/CefURLRequest_N.cpp
+@@ -18,10 +18,12 @@ class URLRequest : public CefTask {
+  public:
+   URLRequest(CefThreadId threadId,
+              CefRefPtr<CefRequest> request,
+-             CefRefPtr<URLRequestClient> client)
++             CefRefPtr<URLRequestClient> client,
++             CefRefPtr<CefRequestContext> context = nullptr)
+       : threadId_(threadId),
+         request_(request),
+         client_(client),
++        context_(context),
+         waitCond_(&lock_) {}
+ 
+   bool Create() {
+@@ -69,6 +71,7 @@ class URLRequest : public CefTask {
+   CefThreadId threadId_;
+   CefRefPtr<CefRequest> request_;
+   CefRefPtr<URLRequestClient> client_;
++  CefRefPtr<CefRequestContext> context_;
+ 
+   // sync method calls
+   CriticalLock lock_;
+@@ -97,8 +100,7 @@ class URLRequest : public CefTask {
+     lock_.Lock();
+     switch (mode_) {
+       case REQ_CREATE:
+-        // TODO(JCEF): Add the ability to specify a CefRequestContext.
+-        urlRequest_ = CefURLRequest::Create(request_, client_.get(), nullptr);
++        urlRequest_ = CefURLRequest::Create(request_, client_.get(), context_);
+         break;
+       case REQ_STATUS:
+         status_ = urlRequest_->GetRequestStatus();
+@@ -143,8 +145,28 @@ Java_org_cef_network_CefURLRequest_1N_N_1Create(JNIEnv* env,
+       URLRequestClient::Create(env, jRequestClient, obj);
+ 
+   CefRefPtr<URLRequest> urlRequest = new URLRequest(TID_UI, request, client);
+-  if (!urlRequest->Create())
++  if (!urlRequest->Create()) {
++    client->ReleaseJavaReference();
+     return;
++  }
++  SetCefForJNIObject(env, obj, urlRequest.get(), kCefClassName);
++}
++
++JNIEXPORT void JNICALL
++Java_org_cef_network_CefURLRequest_1N_N_1CreateWithContext(
++    JNIEnv* env, jobject obj, jobject jrequest, jobject jRequestClient, jobject jcontext) {
++  auto context = GetCefFromJNIObject<CefRequestContext>(env, jcontext, "CefRequestContext");
++  if (!context) return;  // Never silently use the global context after disposal.
++  ScopedJNIRequest requestObj(env);
++  requestObj.SetHandle(jrequest, false /* should_delete */);
++  auto request = requestObj.GetCefObject();
++  if (!request) return;
++  auto client = URLRequestClient::Create(env, jRequestClient, obj);
++  CefRefPtr<URLRequest> urlRequest = new URLRequest(TID_UI, request, client, context);
++  if (!urlRequest->Create()) {
++    client->ReleaseJavaReference();
++    return;
++  }
+   SetCefForJNIObject(env, obj, urlRequest.get(), kCefClassName);
+ }
+ 
+diff --git a/native/CefURLRequest_N.h b/native/CefURLRequest_N.h
+index cb43cbc..99f21d4 100644
+--- a/native/CefURLRequest_N.h
++++ b/native/CefURLRequest_N.h
+@@ -18,6 +18,9 @@ JNIEXPORT void JNICALL Java_org_cef_network_CefURLRequest_1N_N_1Create(JNIEnv*,
+                                                                        jobject,
+                                                                        jobject);
+ 
++JNIEXPORT void JNICALL Java_org_cef_network_CefURLRequest_1N_N_1CreateWithContext(
++    JNIEnv*, jobject, jobject, jobject, jobject);
++
+ /*
+  * Class:     org_cef_network_CefURLRequest_N
+  * Method:    N_Dispose
+diff --git a/native/jni_util.cpp b/native/jni_util.cpp
+index 03499c7..b57be7b 100644
+--- a/native/jni_util.cpp
++++ b/native/jni_util.cpp
+@@ -401,12 +401,20 @@ CefRefPtr<CefValue> GetCefValueFromJNIMap(JNIEnv* env, const jobject& obj) {
+                     entryValue);
+     jobject jvalue = entryValue.get();
+     CefRefPtr<CefValue> cef_value = GetCefValueFromJNIObject(env, jvalue);
+-    dict->SetValue(key, cef_value);
++    // Unsupported or null entries become explicit nulls rather than a null
++    // CefValue, which CefDictionaryValue::SetValue does not accept.
++    if (cef_value)
++      dict->SetValue(key, cef_value);
++    else
++      dict->SetNull(key);
+ 
+     JNI_CALL_METHOD(env, iterator, "hasNext", "()Z", Boolean, hasNext);
+   }
+ 
+   CefRefPtr<CefValue> value = CefValue::Create();
++  // Upstream returned an empty (null-typed) value here, so dictionary
++  // preferences such as "proxy" could not be set from Java.
++  value->SetDictionary(dict);
+   return value;
+ }
+ 
+@@ -427,7 +435,10 @@ CefRefPtr<CefValue> GetCefValueFromJNIList(JNIEnv* env, const jobject& obj) {
+                     next);
+     jobject jvalue = next.get();
+     CefRefPtr<CefValue> cef_value = GetCefValueFromJNIObject(env, jvalue);
+-    list->SetValue(index, cef_value);
++    if (cef_value)
++      list->SetValue(index, cef_value);
++    else
++      list->SetNull(index);
+     index++;
+     JNI_CALL_METHOD(env, iterator, "hasNext", "()Z", Boolean, hasNext);
+   }
+diff --git a/native/url_request_client.cpp b/native/url_request_client.cpp
+index 2acc9ca..6248d81 100644
+--- a/native/url_request_client.cpp
++++ b/native/url_request_client.cpp
+@@ -31,13 +31,17 @@ CefRefPtr<URLRequestClient> URLRequestClient::Create(JNIEnv* env,
+   return client;
+ }
+ 
+-URLRequestClient::~URLRequestClient() {
+-  ScopedJNIEnv env;
+-  if (!env)
+-    return;
++URLRequestClient::~URLRequestClient() = default;
+ 
+-  SetCefForJNIObject<URLRequestClient>(env, client_handle_, nullptr,
+-                                       kCefClassName);
++void URLRequestClient::ReleaseJavaReference() {
++  ScopedJNIEnv env;
++  if (!env) return;
++  // Keep this alive while clearing the Java-owned AddRef. Do not clear a newer
++  // native client if the Java callback object has subsequently been reused.
++  CefRefPtr<URLRequestClient> current = GetCefFromJNIObject<URLRequestClient>(env, client_handle_, kCefClassName);
++  if (current.get() == this) {
++    SetCefForJNIObject<URLRequestClient>(env, client_handle_, nullptr, kCefClassName);
++  }
+ }
+ 
+ // TODO(jcef): Solve jurlReques instead of using nullptr
+@@ -49,6 +53,7 @@ void URLRequestClient::OnRequestComplete(CefRefPtr<CefURLRequest> request) {
+   JNI_CALL_VOID_METHOD(env, client_handle_, "onRequestComplete",
+                        "(Lorg/cef/network/CefURLRequest;)V",
+                        request_handle_.get());
++  ReleaseJavaReference();
+ }
+ 
+ void URLRequestClient::OnUploadProgress(CefRefPtr<CefURLRequest> request,
+diff --git a/native/url_request_client.h b/native/url_request_client.h
+index 5b9dfc1..df8cc9f 100644
+--- a/native/url_request_client.h
++++ b/native/url_request_client.h
+@@ -25,6 +25,9 @@ class URLRequestClient : public CefURLRequestClient {
+                                             jobject jURLRequest);
+   virtual ~URLRequestClient();
+ 
++  // Release the Java-owned native reference after completion or failed creation.
++  void ReleaseJavaReference();
++
+   // CefURLRequestClient methods
+   virtual void OnRequestComplete(CefRefPtr<CefURLRequest> request) override;
+ 
+diff --git a/native/util_mac.h b/native/util_mac.h
+index 6af234f..9cec326 100644
+--- a/native/util_mac.h
++++ b/native/util_mac.h
+@@ -10,6 +10,7 @@
+ 
+ #include "include/cef_app.h"
+ #include "include/cef_base.h"
++#include "include/cef_browser.h"
+ 
+ #include "client_app.h"
+ 
+@@ -40,9 +41,9 @@ void CefShutdownOnMainThread();
+ 
+ void CefDoMessageLoopWorkOnMainThread();
+ 
+-void SetVisibility(CefWindowHandle handle, bool isVisible);
++void SetVisibility(CefRefPtr<CefBrowser> browser, bool isVisible);
+ 
+-void UpdateView(CefWindowHandle handle,
++void UpdateView(CefRefPtr<CefBrowser> browser,
+                 CefRect contentRect,
+                 CefRect browserRect);
+ 
+diff --git a/native/util_mac.mm b/native/util_mac.mm
+index 55eac97..162aef1 100644
+--- a/native/util_mac.mm
++++ b/native/util_mac.mm
+@@ -10,11 +10,14 @@
+ #import <jni.h>
+ #include <objc/runtime.h>
+ 
++#include "include/base/cef_bind.h"
+ #include "include/base/cef_callback.h"
+ #include "include/cef_app.h"
+ #include "include/cef_application_mac.h"
+ #include "include/cef_browser.h"
+ #include "include/cef_path_util.h"
++#include "include/cef_task.h"
++#include "include/wrapper/cef_closure_task.h"
+ 
+ #include "client_app.h"
+ #include "client_handler.h"
+@@ -46,16 +49,6 @@ bool g_handling_send_event = false;
+ @implementation InitializeParams
+ @end
+ 
+-// Used for passing data to/from ClientHandler setVisiblity:.
+-@interface SetVisibilityParams : NSObject {
+- @public
+-  CefWindowHandle handle_;
+-  bool isVisible_;
+-}
+-@end
+-@implementation SetVisibilityParams
+-@end
+-
+ // Obj-C Wrapper Class to be called by "performSelectorOnMainThread".
+ @interface CefHandler : NSObject {
+ }
+@@ -63,7 +56,6 @@ bool g_handling_send_event = false;
+ + (void)initialize:(InitializeParams*)params;
+ + (void)shutdown;
+ + (void)doMessageLoopWork;
+-+ (void)setVisibility:(SetVisibilityParams*)params;
+ 
+ @end  // interface CefHandler
+ 
+@@ -235,19 +227,6 @@ bool g_handling_send_event = false;
+   CefDoMessageLoopWork();
+ }
+ 
+-+ (void)setVisibility:(SetVisibilityParams*)params {
+-  if (g_client_app_) {
+-    NSView* wh = CAST_CEF_WINDOW_HANDLE_TO_NSVIEW(params->handle_);
+-    bool isHidden = [wh isHidden];
+-    if (isHidden == params->isVisible_) {
+-      [wh setHidden:!params->isVisible_];
+-      [wh needsDisplay];
+-      [[wh superview] display];
+-    }
+-  }
+-  [params release];
+-}
+-
+ @end  // implementation CefHandler
+ 
+ // Instead of adding CefBrowser as child of the windows main view, a content
+@@ -349,11 +328,15 @@ bool g_handling_send_event = false;
+ - (void)destroyCefBrowser {
+   [[NSNotificationCenter defaultCenter] removeObserver:self];
+   cefBrowser = nullptr;
+-  [self removeFromSuperview];
+-  // Also remove all subviews so the CEF objects are released.
+-  for (NSView* view in [self subviews]) {
++  // Snapshot the children because removal mutates the live subview array.
++  NSArray* children = [[self subviews] copy];
++  for (NSView* view in children) {
+     [view removeFromSuperview];
+   }
++  [children release];
++  // The superview may be our last owner. Do not touch self after removing it,
++  // and do not retain self here: this path is also reached from dealloc.
++  [self removeFromSuperview];
+ }
+ 
+ - (void)windowWillStartLiveResize:(NSNotification*)notification {
+@@ -464,29 +447,74 @@ void CefDoMessageLoopWorkOnMainThread() {
+                 modes:@[ NSDefaultRunLoopMode, NSEventTrackingRunLoopMode ]];
+ }
+ 
+-void SetVisibility(CefWindowHandle handle, bool isVisible) {
+-  SetVisibilityParams* params = [[SetVisibilityParams alloc] init];
+-  params->handle_ = handle;
+-  params->isVisible_ = isVisible;
+-  [[CefHandler class] performSelectorOnMainThread:@selector(setVisibility:)
+-                                       withObject:params
+-                                    waitUntilDone:NO];
++namespace {
++
++// The caller retains the browser and must use the returned view on this task.
++NSView* GetLiveBrowserView(CefRefPtr<CefBrowser> browser) {
++  if (!CefCurrentlyOn(TID_UI) || !g_client_app_ || !browser ||
++      !browser->IsValid())
++    return nil;
++  CefRefPtr<CefBrowserHost> host = browser->GetHost();
++  if (!host || host->IsWindowRenderingDisabled())
++    return nil;
++  CefWindowHandle handle = host->GetWindowHandle();
++  if (!handle)
++    return nil;
++
++  // Forced close unregisters/removes the view before OnBeforeClose marks the
++  // browser invalid. This check and the dereference share the CEF/AppKit UI
++  // thread with DestroyCefBrowser, so no close can race between them.
++  g_browsers_lock_.Lock();
++  bool browser_exists = g_browsers_.count(handle) > 0;
++  g_browsers_lock_.Unlock();
++  if (!browser_exists)
++    return nil;
++
++  return CAST_CEF_WINDOW_HANDLE_TO_NSVIEW(handle);
+ }
+ 
+-void UpdateView(CefWindowHandle handle,
++}  // namespace
++
++void SetVisibility(CefRefPtr<CefBrowser> browser, bool isVisible) {
++  if (!CefCurrentlyOn(TID_UI)) {
++    // A queued NSView pointer can outlive its native browser. Own the CEF
++    // browser while queued and obtain its window only when this task runs.
++    CefPostTask(TID_UI, base::BindOnce(&SetVisibility, browser, isVisible));
++    return;
++  }
++  NSView* view = GetLiveBrowserView(browser);
++  if (!view)
++    return;
++  if ([view isHidden] == isVisible) {
++    [view setHidden:!isVisible];
++    [view needsDisplay];
++    [[view superview] display];
++  }
++}
++
++void UpdateView(CefRefPtr<CefBrowser> browser,
+                 CefRect contentRect,
+                 CefRect browserRect) {
+-  util_mac::TranslateRect(handle, contentRect);
+-  CefBrowserContentView* browser =
+-      (CefBrowserContentView*)[CAST_CEF_WINDOW_HANDLE_TO_NSVIEW(handle)
+-          superview];
++  if (!CefCurrentlyOn(TID_UI)) {
++    CefPostTask(TID_UI,
++                base::BindOnce(&UpdateView, browser, contentRect, browserRect));
++    return;
++  }
++  NSView* view = GetLiveBrowserView(browser);
++  if (!view)
++    return;
++  util_mac::TranslateRect(view, contentRect);
++  NSView* parent = [view superview];
++  if (![parent isKindOfClass:[CefBrowserContentView class]])
++    return;
++  CefBrowserContentView* browserView = (CefBrowserContentView*)parent;
+   browserRect.y = contentRect.height - browserRect.height - browserRect.y;
+ 
+   // Only update the view if nobody is currently resizing the main window.
+   // Otherwise the CefBrowser part may start flickering because there's a
+   // significant delay between the native window resize event and the java
+   // resize event
+-  if (![browser isLiveResizing]) {
++  if (![browserView isLiveResizing]) {
+     NSString* contentStr = [[NSString alloc]
+         initWithFormat:@"{{%d,%d},{%d,%d}", contentRect.x, contentRect.y,
+                        contentRect.width, contentRect.height];
+@@ -496,9 +524,10 @@ void UpdateView(CefWindowHandle handle,
+     NSDictionary* dict = [[NSDictionary alloc]
+         initWithObjectsAndKeys:contentStr, @"content", browserStr, @"browser",
+                                nil];
+-    [browser performSelectorOnMainThread:@selector(updateView:)
+-                              withObject:dict
+-                           waitUntilDone:NO];
++    [browserView updateView:dict];
++    [dict release];
++    [browserStr release];
++    [contentStr release];
+   }
+ }
+ 
+@@ -551,8 +580,11 @@ void SetParent(CefWindowHandle handle,
+     g_browsers_lock_.Lock();
+     bool browser_exists = g_browsers_.count(handle) > 0;
+     g_browsers_lock_.Unlock();
+-    if (!browser_exists)
++    if (!browser_exists) {
++      // The closure owns the browser even when reparenting loses to close.
++      delete pCallback;
+       return;
++    }
+ 
+     CefBrowserContentView* browser_view =
+         (CefBrowserContentView*)[CAST_CEF_WINDOW_HANDLE_TO_NSVIEW(handle)
+diff --git a/java/org/cef/CefRequestContextSettings.java b/java/org/cef/CefRequestContextSettings.java
+new file mode 100644
+--- /dev/null
++++ b/java/org/cef/CefRequestContextSettings.java
+@@ -0,0 +1,13 @@
++// Copyright (c) 2026 The Heartbeat Authors. BSD-3-Clause.
++package org.cef;
++
++/** Initialization values copied to CEF 152's cef_request_context_settings_t. */
++public final class CefRequestContextSettings {
++    /** Absolute directory below CefSettings.root_cache_path, or empty for incognito. */
++    public String cache_path = "";
++    /** Persist session cookies as well as cookies with an expiry date. */
++    public boolean persist_session_cookies = false;
++    public String accept_language_list = "";
++    public String cookieable_schemes_list = "";
++    public boolean cookieable_schemes_exclude_defaults = false;
++}
