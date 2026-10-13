@@ -1,8 +1,8 @@
 package io.aequicor.heartbeat.feature.serviceasui.impl.presentation.editor
 
 import androidx.compose.runtime.Immutable
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.PlacementUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.WriteNoticeUi
-import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.library.PlacementUi
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import pro.respawn.flowmvi.api.MVIAction

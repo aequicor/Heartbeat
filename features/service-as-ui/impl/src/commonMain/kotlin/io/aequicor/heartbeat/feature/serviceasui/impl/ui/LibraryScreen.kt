@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -20,6 +21,7 @@ import io.aequicor.heartbeat.ds.components.HbSettingsRow
 import io.aequicor.heartbeat.ds.components.HbSettingsSection
 import io.aequicor.heartbeat.ds.components.HbSwitch
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.PlacementUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.WriteNoticeUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.library.LibraryAction
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.library.LibraryIntent
@@ -27,7 +29,6 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.library.Libra
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.library.LibraryPhase
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.library.LibraryState
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.library.OwnerGroupUi
-import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.library.PlacementUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.library.SurfaceRowUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.Res
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_library_disabled
@@ -44,6 +45,7 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_place
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_placement_start
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_retry
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_show_surface
+import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.coroutines.launch
@@ -92,7 +94,7 @@ internal fun LibraryContent(
             }
         }
         state.groups.forEach { group ->
-            item(key = group.key) { OwnerSection(group, state, onIntent) }
+            item(key = group.key) { OwnerSection(group, state.pending, onIntent) }
         }
     }
 }
@@ -132,7 +134,7 @@ private fun LazyListScope.phaseItems(phase: LibraryPhase, onRetry: () -> Unit): 
 @Composable
 private fun OwnerSection(
     group: OwnerGroupUi,
-    state: LibraryState,
+    pending: ImmutableSet<String>,
     onIntent: (LibraryIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -141,11 +143,12 @@ private fun OwnerSection(
         !group.isEnabled -> stringResource(Res.string.service_ui_owner_off)
         else -> null
     }
+    // One item per owner: the library holds at most a few dozen surfaces, so rows need not be lazy.
     HbSettingsSection(group.title, modifier.testTag("service-ui-owner-${group.key}"), description = hint) {
         group.surfaces.forEachIndexed { index, surface ->
             key(surface.id) {
                 if (index > 0) HbDivider()
-                SurfaceRow(surface, isPending = surface.id in state.pending, onIntent)
+                SurfaceRow(surface, isPending = surface.id in pending, onIntent)
             }
         }
     }
@@ -162,7 +165,9 @@ private fun SurfaceRow(
     HbSettingsRow(
         surface.title,
         modifier.fillMaxWidth().testTag("service-ui-surface-${surface.id}"),
-        description = listOf(placement, surface.description).filter(String::isNotBlank).joinToString(" · "),
+        description = remember(placement, surface.description) {
+            listOf(placement, surface.description).filter(String::isNotBlank).joinToString(" · ")
+        },
         onClick = { onIntent(LibraryIntent.Open(surface.id)) },
     ) {
         HbSwitch(

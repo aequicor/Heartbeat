@@ -1,7 +1,7 @@
 package io.aequicor.heartbeat.feature.serviceasui.impl.presentation.library
 
 import androidx.compose.runtime.Immutable
-import io.aequicor.heartbeat.feature.serviceasui.api.UiPlacement
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.PlacementUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.WriteNoticeUi
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
@@ -13,9 +13,6 @@ import pro.respawn.flowmvi.api.MVIState
 
 /** Whether the library can be shown. */
 internal enum class LibraryPhase { Loading, Disabled, Failed, Ready }
-
-/** Where a surface appears. */
-internal enum class PlacementUi { Composer, Start, Panel, Modal }
 
 /** One surface of the library list. */
 @Immutable
@@ -70,12 +67,4 @@ internal sealed interface LibraryIntent : MVIIntent {
 internal sealed interface LibraryAction : MVIAction {
     /** Opens the editor of the surface [id]. */
     data class OpenSurface(val id: String) : LibraryAction
-}
-
-/** Presentation of this placement. */
-internal fun UiPlacement.toUi(): PlacementUi = when (this) {
-    UiPlacement.Composer -> PlacementUi.Composer
-    UiPlacement.Start -> PlacementUi.Start
-    UiPlacement.Panel -> PlacementUi.Panel
-    UiPlacement.Modal -> PlacementUi.Modal
 }

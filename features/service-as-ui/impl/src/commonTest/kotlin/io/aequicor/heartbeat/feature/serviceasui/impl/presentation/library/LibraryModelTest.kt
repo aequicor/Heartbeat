@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiPlacement
 import io.aequicor.heartbeat.feature.serviceasui.api.UiWriteOp
 import io.aequicor.heartbeat.feature.serviceasui.api.UiWriteOrigin
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.FakeServiceUiMachine
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.PlacementUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.TestScopeHandle
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.WriteNoticeUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.place.Other
@@ -97,6 +98,18 @@ class LibraryModelTest {
         library.intent(LibraryIntent.DismissNotice)
         runCurrent()
         assertEquals(null, library.states.value.notice)
+    }
+
+    @Test
+    fun `a switch that fails unexpectedly is unlocked`() = runTest {
+        val fixture = Fixture(this, ready())
+        fixture.machine.answer = { error("storage is gone") }
+        val library = subscribe(fixture.model.store)
+
+        library.intent(LibraryIntent.SetEnabled(map.id.value, isEnabled = false))
+        runCurrent()
+        assertEquals(emptySet(), library.states.value.pending)
+        assertEquals(LibraryPhase.Ready, library.states.value.phase)
     }
 
     @Test

@@ -11,8 +11,8 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpecOrigin
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpecRules
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.checkUiSpec
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.formatUiSpec
-import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.library.PlacementUi
-import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.library.toUi
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.PlacementUi
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.toUi
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 

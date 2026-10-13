@@ -18,10 +18,14 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiWriteOrigin
 import io.aequicor.heartbeat.feature.serviceasui.impl.di.scope.ServiceUiLibraryScope
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiMachine
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.submit
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.WriteNoticeUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.notice
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.toUi
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toPersistentSet
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import pro.respawn.flowmvi.api.PipelineContext
 import pro.respawn.flowmvi.api.Store
 import pro.respawn.flowmvi.plugins.reduce
@@ -87,10 +91,21 @@ internal class LibraryModel(
             if (!isStarted) return
             log.i { "User ${if (intent.isEnabled) "enables" else "disables"} interface ${intent.id}" }
             pipeline.launch {
-                val op = UiWriteOp.SetEnabled(surface.id, intent.isEnabled, surface.revision, clock.now())
-                val outcome = machine.submit(UiWrite("user.${Uuid.random().toHexString()}", UiWriteOrigin.User, op))
-                pipeline.updateState {
-                    copy(pending = (pending - intent.id).toPersistentSet(), notice = outcome.notice() ?: notice)
+                var notice: WriteNoticeUi? = null
+                try {
+                    val op = UiWriteOp.SetEnabled(surface.id, intent.isEnabled, surface.revision, clock.now())
+                    val write = UiWrite("user.${Uuid.random().toHexString()}", UiWriteOrigin.User, op)
+                    notice = machine.submit(write).notice()
+                } finally {
+                    // An unexpected failure must not leave the switch locked.
+                    withContext(NonCancellable) {
+                        pipeline.updateState {
+                            copy(
+                                pending = (pending - intent.id).toPersistentSet(),
+                                notice = notice,
+                            )
+                        }
+                    }
                 }
             }
         }

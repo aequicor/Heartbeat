@@ -32,6 +32,7 @@ import io.aequicor.heartbeat.ds.components.HbTone
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.PlacementUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.editor.DiagnosticUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.editor.EditorAction
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.editor.EditorIntent
@@ -39,7 +40,6 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.editor.Editor
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.editor.EditorPhase
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.editor.EditorState
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.editor.SurfaceInfoUi
-import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.library.PlacementUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceModel
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.Res
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_cancel

@@ -10,12 +10,12 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.PlacementUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.editor.DiagnosticUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.editor.EditorIntent
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.editor.EditorPhase
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.editor.EditorState
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.editor.SurfaceInfoUi
-import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.library.PlacementUi
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import java.util.Locale

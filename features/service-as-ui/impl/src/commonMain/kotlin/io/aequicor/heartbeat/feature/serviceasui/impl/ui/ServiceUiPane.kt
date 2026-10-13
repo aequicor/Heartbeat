@@ -87,7 +87,7 @@ internal fun ServiceUiPane(
 /** Why a change was not saved, with a button that hides the message. */
 @Composable
 internal fun WriteNoticeBanner(notice: WriteNoticeUi, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
-    HbBanner(stringResource(notice.text()), modifier.testTag("service-ui-notice"), tone = HbTone.Warning) {
+    HbBanner(stringResource(notice.text()), modifier.testTag("service-ui-notice"), tone = notice.tone()) {
         HbButton(
             stringResource(Res.string.service_ui_dismiss),
             onDismiss,
@@ -95,6 +95,14 @@ internal fun WriteNoticeBanner(notice: WriteNoticeUi, onDismiss: () -> Unit, mod
             size = HbButtonSize.Small,
         )
     }
+}
+
+/** Failures are errors; refusals of a change that can be retried or reviewed are warnings. */
+private fun WriteNoticeUi.tone(): HbTone = when (this) {
+    WriteNoticeUi.Failed, WriteNoticeUi.Unavailable -> HbTone.Danger
+
+    WriteNoticeUi.Changed, WriteNoticeUi.Missing, WriteNoticeUi.Full, WriteNoticeUi.Busy, WriteNoticeUi.Unconfirmed ->
+        HbTone.Warning
 }
 
 private fun WriteNoticeUi.text(): StringResource = when (this) {

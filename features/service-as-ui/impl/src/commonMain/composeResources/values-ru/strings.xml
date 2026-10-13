@@ -34,7 +34,7 @@
     <string name="service_ui_library_disabled">Интерфейсы агента выключены</string>
     <string name="service_ui_library_failed">Не удалось прочитать интерфейсы</string>
     <string name="service_ui_library_empty">Интерфейсов пока нет</string>
-    <string name="service_ui_library_empty_hint">Попросите агента сделать интерфейс для харнесса, например карту pull request. Он появится здесь: его можно включить, выключить и отредактировать.</string>
+    <string name="service_ui_library_empty_hint">Попросите агента сделать интерфейс для харнесса, например карту запросов на слияние. Он появится здесь: его можно включить, выключить и отредактировать.</string>
     <string name="service_ui_owner_unknown">Владелец недоступен, его интерфейсы скрыты</string>
     <string name="service_ui_owner_off">Владелец выключен, его интерфейсы скрыты</string>
     <string name="service_ui_show_surface">Показывать «%1$s»</string>

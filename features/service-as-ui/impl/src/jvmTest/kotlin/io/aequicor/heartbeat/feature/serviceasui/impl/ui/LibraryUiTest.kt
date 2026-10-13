@@ -13,12 +13,12 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.PlacementUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.WriteNoticeUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.library.LibraryIntent
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.library.LibraryPhase
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.library.LibraryState
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.library.OwnerGroupUi
-import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.library.PlacementUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.library.SurfaceRowUi
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentSetOf
