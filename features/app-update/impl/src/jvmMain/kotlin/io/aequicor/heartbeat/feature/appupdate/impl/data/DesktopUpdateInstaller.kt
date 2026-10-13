@@ -20,10 +20,11 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 
 /**
- * Installs a release on macOS or Windows. Everything that can fail runs while the app still works: the bundle must
+ * Installs a release on macOS or Windows. Download and validation run while the app still works: the bundle must
  * be replaceable before anything is downloaded, the download is verified and, on macOS, unpacked and checked. Only
- * then is the installation marked and the helper started; it waits for this process to quit, replaces the app and
- * starts the new version. The next launch compares its version with the mark ([previousAttempt]).
+ * then is the installation marked and the helper started. After this process quits, the macOS helper first stages
+ * the complete bundle on the installation volume while preserving the installed app, then swaps it and relaunches.
+ * The next launch compares its version with the mark ([previousAttempt]).
  */
 internal class DesktopUpdateInstaller(
     private val workspace: UpdateWorkspace,

@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateOutput
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.hours
 
@@ -37,11 +38,18 @@ internal class AppUpdateStartup(
             toggles.observe(AppUpdateEnabled).collectLatest { isEnabled ->
                 if (isEnabled) {
                     checkPeriodically(updates)
-                } else if (updates.state.value != AppUpdateState.Inactive) {
-                    updates.send(AppUpdateIntent.Public.Deactivate)
+                } else {
+                    deactivateWhenIdle(updates)
                 }
             }
         }
+    }
+
+    private suspend fun deactivateWhenIdle(updates: Machine<AppUpdateState, AppUpdateIntent, AppUpdateOutput>) {
+        // A started installation must finish. If it fails, discard its offer while the toggle is still off.
+        // collectLatest cancels this wait when the user enables updates again.
+        val idle = updates.state.first { it !is AppUpdateState.Installing && it !is AppUpdateState.Restarting }
+        if (idle != AppUpdateState.Inactive) updates.send(AppUpdateIntent.Public.Deactivate)
     }
 
     private suspend fun checkPeriodically(updates: Machine<AppUpdateState, AppUpdateIntent, AppUpdateOutput>) {

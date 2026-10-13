@@ -6,7 +6,9 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateFailure
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.AppUpdateException
 import io.aequicor.heartbeat.feature.appupdate.impl.domain.updateFailure
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.nio.file.Path
@@ -42,8 +44,15 @@ internal class CommandRunner(dispatchers: DispatcherProvider) {
                 )
             }
         } finally {
-            if (process.isAlive) process.destroyForcibly()
+            if (process.isAlive) {
+                // The caller can now clean up a mount or copied bundle without racing the still-running tool.
+                withContext(NonCancellable) { stop(process) }
+            }
         }
+    }
+
+    private suspend fun stop(process: Process) {
+        withContext(io) { process.destroyForcibly().waitFor() }
     }
 
     /**

@@ -56,8 +56,9 @@ internal class MacBundleUpdate(private val commands: CommandRunner) {
             "$mount",
             "$image",
         )
-        commands.run(listOf(HDIUTIL) + attach)
         try {
+            // Cancellation may arrive after hdiutil mounted the image but before its result reaches us.
+            commands.run(listOf(HDIUTIL) + attach)
             val app = files {
                 Files.list(mount).use { entries ->
                     entries.filter { it.name.endsWith(APP_SUFFIX) && Files.isDirectory(it, LinkOption.NOFOLLOW_LINKS) }

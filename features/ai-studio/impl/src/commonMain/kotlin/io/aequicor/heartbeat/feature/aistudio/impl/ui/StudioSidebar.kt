@@ -68,6 +68,7 @@ internal fun StudioSidebar(
     isOpenBesideAllowed: Boolean,
     exits: StudioExits,
     focus: StudioFocusState,
+    isAgentRunning: Boolean,
     modifier: Modifier = Modifier,
     isDrawer: Boolean = false,
     appUpdate: AppUpdateUi? = null,
@@ -89,7 +90,7 @@ internal fun StudioSidebar(
     HbColumn(modifier.testTag("studio-sidebar"), gap = HbTheme.spacing.none) {
         SidebarHeader(
             appUpdate = appUpdate,
-            isAgentRunning = input.running.isNotEmpty(),
+            isAgentRunning = isAgentRunning,
             onUpdate = { onIntent(AiStudioScreenIntent.InstallAppUpdate) },
             onNew = { onIntent(AiStudioScreenIntent.NewSession(input.newSessionProjectId)) },
             onCollapse = {

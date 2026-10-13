@@ -38,6 +38,18 @@ internal class StudioAppUpdate(private val machines: MachineRegistry) {
     }
 }
 
+/** Restarting interrupts ordinary turns and every active organism session, including chats outside the panes. */
+internal fun AiStudioScreenState.hasRunningAgentsForUpdate(): Boolean = running.isNotEmpty() || organisms.values.any {
+    it.status != OrganismStatusUi.Completed && it.status != OrganismStatusUi.Aborted && it.subSessions.any { session ->
+        session.state in setOf(
+            SubSessionStateUi.Germinating,
+            SubSessionStateUi.Working,
+            SubSessionStateUi.AwaitingUser,
+            SubSessionStateUi.Judging,
+        )
+    }
+}
+
 internal fun AppUpdateOffer.toUi(): AppUpdateUi {
     val isManual = failure == AppUpdateFailure.ManualInstallRequired
     val stage = when (phase) {

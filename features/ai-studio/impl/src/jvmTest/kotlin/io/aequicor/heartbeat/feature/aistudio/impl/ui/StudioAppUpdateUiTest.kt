@@ -30,6 +30,13 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioSc
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AppUpdateFailureUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AppUpdateStageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AppUpdateUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.OrganismStatusUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.OrganismUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SubSessionKindUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SubSessionStateUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SubSessionUi
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.persistentSetOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -70,6 +77,47 @@ class StudioAppUpdateUiTest {
             assertEquals(1, events.count { it == AiStudioScreenIntent.InstallAppUpdate })
             onNodeWithTag("app-update-confirm-dialog").assertDoesNotExist()
         }
+
+    @Test
+    fun `an active zygote requires confirmation without an ordinary running turn`() =
+        runSkikoComposeUiTest(size = Size(1280f, 800f)) {
+            val events = mutableListOf<AiStudioScreenIntent>()
+            render(organismWorkspace(SubSessionKindUi.Zygote, SubSessionStateUi.Working), events)
+
+            assertUpdateRequiresConfirmation(events)
+        }
+
+    @Test
+    fun `the compact drawer confirms an update while an unseen organism judge works`() =
+        runSkikoComposeUiTest(size = Size(420f, 800f)) {
+            val events = mutableListOf<AiStudioScreenIntent>()
+            val state = organismWorkspace(SubSessionKindUi.Complaint, SubSessionStateUi.Judging)
+            render(state.copy(sidebar = state.sidebar.copy(isDrawerOpen = true)), events)
+
+            onNodeWithTag("studio-drawer").assertIsDisplayed()
+            assertUpdateRequiresConfirmation(events)
+        }
+
+    private fun SkikoComposeUiTest.assertUpdateRequiresConfirmation(events: List<AiStudioScreenIntent>) {
+        onNodeWithTag("sidebar-app-update").performClick()
+        onNodeWithTag("app-update-confirm-dialog").assertIsDisplayed()
+        assertEquals(emptyList(), events.filterIsInstance<AiStudioScreenIntent.InstallAppUpdate>())
+
+        onNodeWithTag("app-update-confirm").performClick()
+        assertEquals(1, events.count { it == AiStudioScreenIntent.InstallAppUpdate })
+        onNodeWithTag("app-update-confirm-dialog").assertDoesNotExist()
+    }
+
+    private fun organismWorkspace(kind: SubSessionKindUi, phase: SubSessionStateUi) =
+        desktopAuditWorkspace(isEmpty = true).copy(
+            appUpdate = offer,
+            organisms = persistentMapOf(
+                "background-organism" to OrganismUi(
+                    OrganismStatusUi.Developing,
+                    persistentListOf(SubSessionUi("agent", kind, "Agent", phase)),
+                ),
+            ),
+        )
 
     @Test
     fun `a running installation shows its progress instead of a button`() =
