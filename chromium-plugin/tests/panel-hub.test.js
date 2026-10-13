@@ -239,3 +239,29 @@ test('a valid large reset is buffered and closing a pending panel releases its w
   await flush();
   assert.deepEqual(link.calls.at(-1)?.params, { watch: 'w:2' });
 });
+
+test('the studio view is watched, its early frames kept and its intents relayed', async () => {
+  const link = fakeLink();
+  const hub = createPanelHub({ link, extensionOrigin: ORIGIN });
+  const port = panelPort(`${ORIGIN}src/sidepanel/panel.html`);
+  hub.attach(port);
+
+  port.deliver({ type: 'watch', key: 'studio', method: 'studio.watch', params: { view: 'v1', schema: 'abc' } });
+  hub.onEvent('studio.changed', { watch: 'w:1', view: 'v1', frame: { '@type': 'snapshot' } });
+  await flush();
+  port.deliver({ type: 'call', id: 7, method: 'studio.intent', params: { view: 'v1', intents: [] } });
+  await flush();
+  link.calls[link.calls.length - 1].resolve({ ack: 0, refused: [] });
+  await flush();
+
+  assert.deepEqual(link.calls[0].params, { view: 'v1', schema: 'abc' });
+  assert.deepEqual(port.posted.slice(2), [
+    {
+      type: 'event',
+      key: 'studio',
+      event: 'studio.changed',
+      params: { watch: 'w:1', view: 'v1', frame: { '@type': 'snapshot' } },
+    },
+    { type: 'reply', id: 7, result: { ack: 0, refused: [] } },
+  ]);
+});
