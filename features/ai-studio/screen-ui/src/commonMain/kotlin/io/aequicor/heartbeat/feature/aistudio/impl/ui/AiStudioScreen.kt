@@ -55,8 +55,9 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_retry
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_title
 import org.jetbrains.compose.resources.stringResource
 
+/** The studio screen drawn from [state]; user actions go to [onIntent], window-level actions to [exits]. */
 @Composable
-internal fun AiStudioContent(
+fun AiStudioContent(
     state: AiStudioScreenState,
     onIntent: (AiStudioScreenIntent) -> Unit,
     exits: StudioExits,

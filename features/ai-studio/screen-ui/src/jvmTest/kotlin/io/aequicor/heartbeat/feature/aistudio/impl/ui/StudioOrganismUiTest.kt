@@ -54,7 +54,6 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PermissionOptionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionTreeUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioModelOptions
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SubSessionKindUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SubSessionStateUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SubSessionUi

@@ -43,7 +43,7 @@ import kotlin.time.Duration
  * "Settings" action; otherwise (unified settings off) it keeps the separate toggles, profile and connection actions.
  */
 @Immutable
-internal data class StudioExits(
+data class StudioExits(
     val onBack: () -> Unit,
     val onOpenToggles: () -> Unit,
     val onOpenProfileSettings: (() -> Unit)? = null,
@@ -66,7 +66,7 @@ internal data class PaneLayout(val isSplitAllowed: Boolean, val isCloseAllowed: 
  * session recomposes only the pane showing it. [elapsed] is set only while the session runs.
  */
 @Immutable
-internal data class PaneContent(
+data class PaneContent(
     val pane: PaneUi,
     val session: SessionUi?,
     val project: ProjectUi?,
@@ -129,7 +129,7 @@ internal data class PaneContent(
 
 /** Sidebar data only: transcripts and drafts do not recompose the session lists. */
 @Immutable
-internal data class SidebarInput(
+data class SidebarInput(
     val projects: ImmutableList<ProjectUi>,
     val sessions: ImmutableList<SessionUi>,
     val running: ImmutableSet<String>,
@@ -143,7 +143,7 @@ internal data class SidebarInput(
  * Harness choices of a pane: a chat shows its committed connections, a new chat the choice kept on its pane.
  * Only explicit connections are selected, regardless of a harness's stored legacy scope.
  */
-internal fun AiStudioScreenState.harnessChoices(pane: PaneUi): ImmutableList<HarnessChoiceUi> {
+fun AiStudioScreenState.harnessChoices(pane: PaneUi): ImmutableList<HarnessChoiceUi> {
     val selected = if (pane.sessionId != null) harnessChoices.chats[pane.sessionId] else harnessChoices.panes[pane.id]
     return availableHarnesses(pane).map { harness ->
         HarnessChoiceUi(harness.id, harness.title, selected?.contains(harness.id) == true, harness.description)
@@ -156,7 +156,8 @@ private fun HarnessChoicesUi.isFailed(chat: String?): Boolean = chat != null && 
 /** Rename origin of the header of [paneId]. */
 internal fun paneOrigin(paneId: Int): String = "pane:$paneId"
 
-internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
+/** Everything pane [pane] draws, projected from the screen state. */
+fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
     val session = displayedSession(pane.sessionId)
     val startedAt = runStartedAt[pane.sessionId]
     val configuration = configurations[pane.sessionId]
@@ -273,7 +274,8 @@ internal fun AiStudioScreenState.canCaptureAttachments(paneId: Int): Boolean {
     return attachmentSupport(paneId)?.mediaTypes?.isNotEmpty() == true
 }
 
-internal fun AiStudioScreenState.sidebarInput(): SidebarInput {
+/** What the sidebar draws, projected from the screen state. */
+fun AiStudioScreenState.sidebarInput(): SidebarInput {
     val focused = panes.firstOrNull { it.id == focusedPaneId }
     return SidebarInput(
         projects = projects,
@@ -306,7 +308,7 @@ private fun AiStudioScreenState.selectedSubSession(id: String?, session: Session
 
 /** Diagram interaction state of one pane, separate from normal composer submissions. */
 @Immutable
-internal data class DiagramActionsUi(
+data class DiagramActionsUi(
     val isPending: Boolean = false,
     val focusRequest: Long = 0L,
     val draftReason: io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.DiagramDraftReasonUi? = null,

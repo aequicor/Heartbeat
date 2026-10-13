@@ -9,6 +9,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(projects.features.aiStudio.screenModel)
+            implementation(projects.features.aiStudio.screenUi)
             implementation(projects.features.searchEngine.api)
             implementation(projects.features.aiStudio.api)
             implementation(projects.features.scheduler.api)
@@ -46,13 +47,13 @@ kotlin {
             implementation(projects.designSystem.components)
             implementation(projects.designSystem.theme)
             implementation(projects.designSystem.layouts)
-            implementation(libs.compose.components.resources)
             implementation(libs.compose.animation)
             implementation(libs.compose.uiToolingPreview)
         }
         jvmMain.dependencies { implementation(projects.core.desktopDialogs) }
         commonTest.dependencies { implementation(libs.flowmvi.test) }
         jvmTest.dependencies {
+            implementation(libs.compose.components.resources)
             implementation(libs.compose.uiTest)
             implementation(libs.androidx.sqlite.bundled)
             implementation(compose.desktop.currentOs)
@@ -60,4 +61,3 @@ kotlin {
     }
 }
 
-compose.resources { packageOfResClass = "io.aequicor.heartbeat.feature.aistudio.impl.resources" }

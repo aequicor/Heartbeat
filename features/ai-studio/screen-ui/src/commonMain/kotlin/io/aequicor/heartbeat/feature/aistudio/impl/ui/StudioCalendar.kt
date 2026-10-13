@@ -9,9 +9,11 @@ import kotlin.time.Instant
 
 /** Local day and zone stay stable between elapsed-time ticks, allowing unchanged panes to skip recomposition. */
 @Immutable
-internal data class StudioCalendar(val zone: TimeZone = TimeZone.UTC, val today: LocalDate? = null) {
+data class StudioCalendar(val zone: TimeZone = TimeZone.UTC, val today: LocalDate? = null) {
+    /** The local day of [instant]. */
     fun day(instant: Instant): LocalDate = instant.toLocalDateTime(zone).date
 
+    /** "Today", "yesterday" or the local date of [instant] as dd.MM.yyyy. */
     fun dateLabel(instant: Instant, todayLabel: String, yesterdayLabel: String): String {
         val date = day(instant)
         return when {
@@ -21,6 +23,7 @@ internal data class StudioCalendar(val zone: TimeZone = TimeZone.UTC, val today:
         }
     }
 
+    /** The local time of [instant] as HH:mm. */
     fun timeLabel(instant: Instant): String = instant.toLocalDateTime(zone).let {
         "${it.hour.pad()}:${it.minute.pad()}"
     }
