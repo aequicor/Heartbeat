@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioPermission
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionOption
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEnvironment
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioProject
@@ -154,6 +155,42 @@ class ProfileStudioChatsTest {
     }
 
     @Test
+    fun `a new chat needs the start page's model and is not created without one`() = runTest {
+        val fixture = Fixture(this)
+        fixture.runtime.defaults = DEFAULTS.copy(modelId = "")
+
+        val result = fixture.chats.send(StudioChatSend(null, null, "Hi"))
+
+        assertEquals(rejected(StudioChatRejection.NoModel), result)
+        assertTrue(fixture.repository.workspace.value.sessions.isEmpty())
+    }
+
+    @Test
+    fun `a chat started outside the screen takes the start page's model until it has its own`() = runTest {
+        val stores = ChecklistTestStores()
+        val runtime = ChatsRuntime()
+        stores.keyValue(ChatSpec).set(
+            ChatsKey,
+            listOf(
+                StudioChatRecord("fresh", "Fresh", later),
+                StudioChatRecord(
+                    "configured",
+                    "Configured",
+                    later,
+                    configuration = StudioSessionSettings("codex/gpt", approval = ApprovalMode.AutoApprove),
+                ),
+            ),
+        )
+        val settings = StoredStudioChatSettings(stores, runtime)
+
+        assertEquals(DEFAULTS, settings.settings("fresh"))
+        assertEquals(
+            DEFAULTS.copy(modelId = "codex/gpt", approval = ApprovalMode.AutoApprove),
+            settings.settings("configured"),
+        )
+    }
+
+    @Test
     fun `a turn the engine never accepted is reported as failed`() = runTest {
         val fixture = Fixture(this)
         fixture.repository.workspace.value = StudioWorkspace(emptyList(), listOf(session("a", later)))
@@ -253,7 +290,9 @@ class ProfileStudioChatsTest {
         val release = CompletableDeferred<Unit>()
         var isAccepting = true
 
-        override suspend fun defaults(): RunSettings = DEFAULTS
+        var defaults = DEFAULTS
+
+        override suspend fun defaults(): RunSettings = defaults
 
         override suspend fun run(sessionId: String, prompt: String, settings: RunSettings): RunOutcome = error("Unused")
 

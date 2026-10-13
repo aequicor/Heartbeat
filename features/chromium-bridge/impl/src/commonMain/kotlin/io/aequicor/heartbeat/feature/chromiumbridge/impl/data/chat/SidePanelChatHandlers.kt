@@ -157,6 +157,7 @@ internal class SidePanelChatHandlers(private val chats: StudioChats, private val
         StudioChatRejection.UnknownProject -> BridgeReply.Refused(BridgeErrorCode.BAD_REQUEST, "Unknown project")
         StudioChatRejection.NotContinuable -> BridgeReply.Refused(BridgeErrorCode.NOT_CONTINUABLE, "Chat is closed")
         StudioChatRejection.Busy -> BridgeReply.Refused(BridgeErrorCode.BUSY, "A turn is running")
+        StudioChatRejection.NoModel -> BridgeReply.Refused(BridgeErrorCode.NO_MODEL, "No model for a new chat")
         StudioChatRejection.Failed -> BridgeReply.Refused(BridgeErrorCode.INTERNAL, "The turn did not start")
     }
 

@@ -146,6 +146,9 @@ public enum class StudioChatRejection {
     /** A turn already runs in the chat. */
     Busy,
 
+    /** No connected model is chosen for a new chat. */
+    NoModel,
+
     /** The engine refused or failed the turn before accepting it. */
     Failed,
 }

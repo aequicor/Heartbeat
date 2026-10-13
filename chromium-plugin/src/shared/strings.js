@@ -15,6 +15,7 @@ export const ERROR_MESSAGES = Object.freeze({
   busy: 'errorBusy',
   unknown_chat: 'errorUnknownChat',
   not_continuable: 'errorNotContinuable',
+  no_model: 'errorNoModel',
   unavailable: 'errorUnavailable',
   stale_request: 'errorStale',
   timeout: 'errorTimeout',

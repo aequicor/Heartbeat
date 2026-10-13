@@ -43,7 +43,10 @@ internal fun interface StudioChatSettings {
     suspend fun settings(chatId: String): RunSettings
 }
 
-/** [StudioChatSettings] from the studio's chat records, the way scheduled turns are configured. */
+/**
+ * [StudioChatSettings] from the studio's chat records, the way scheduled turns are configured; a chat without a model
+ * of its own takes the start page's one.
+ */
 @ContributesBinding(ProfileScope::class)
 @Inject
 internal class StoredStudioChatSettings(
@@ -54,7 +57,10 @@ internal class StoredStudioChatSettings(
         val record = checkNotNull(stores.keyValue(ChatSpec).get(ChatsKey).orEmpty().firstOrNull { it.id == chatId }) {
             "Unknown studio conversation"
         }
-        return hostRunSettings(record, runtime.state.value.configurations[chatId]?.applied, runtime.defaults())
+        val defaults = runtime.defaults()
+        val settings = hostRunSettings(record, runtime.state.value.configurations[chatId]?.applied, defaults)
+        // A chat created outside the screen has no route yet: it takes the start page's model, as a new chat there.
+        return if (settings.modelId.isBlank()) settings.copy(modelId = defaults.modelId) else settings
     }
 }
 
@@ -147,6 +153,8 @@ internal class ProfileStudioChats(
             !toggles.get(StudioEngineRuntime) -> ChatTarget.Refused(StudioChatRejection.Unavailable)
 
             existing != null -> checkExisting(existing)?.let(ChatTarget::Refused) ?: ChatTarget.Chat(existing)
+
+            runtime.value.defaults().modelId.isBlank() -> ChatTarget.Refused(StudioChatRejection.NoModel)
 
             else -> create(request.projectId, prompt)?.let(ChatTarget::Chat)
                 ?: ChatTarget.Refused(StudioChatRejection.UnknownProject)

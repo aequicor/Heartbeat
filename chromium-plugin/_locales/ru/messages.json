@@ -135,6 +135,9 @@
   "errorNotContinuable": {
     "message": "Этот чат нельзя продолжить."
   },
+  "errorNoModel": {
+    "message": "Выберите модель для новых чатов в Heartbeat."
+  },
   "errorUnavailable": {
     "message": "Heartbeat недоступен."
   },
