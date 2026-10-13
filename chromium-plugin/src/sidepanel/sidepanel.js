@@ -4,15 +4,20 @@ import { capturePage } from '../shared/page-capture.js';
 import { CALL_TIMEOUT_MS, ErrorCode } from '../shared/protocol.js';
 import { createTranslator, errorMessage } from '../shared/strings.js';
 import { icon } from './icons.js';
-import { canSend, initialState, reduce, selectedChat, selectedPermissions } from './store.js';
+import { canSend, composerView, initialState, reduce, selectedChat, selectedPermissions } from './store.js';
 import { renderChatList } from './views/chat-list.js';
 import { createTranscriptRenderer } from './views/chat-view.js';
+import { renderComposerContext, renderComposerLead, renderComposerTrail } from './views/composer.js';
 import { h } from './views/dom.js';
 import { createPermissionRenderer } from './views/permission-card.js';
 import { statusNotice } from './views/status.js';
 
 /** Pages a prompt can carry (`ChatWireLimits.MAX_PAGES`). */
 const MAX_PAGES = 4;
+/** The studio's `editorMaxHeight` on desktop. */
+const PROMPT_MAX_HEIGHT = 168;
+/** Where the panel remembers its model and approvals for new chats. */
+const DRAFT_KEY = 'newChatDraft';
 
 const t = createTranslator(chrome.i18n);
 const port = chrome.runtime.connect({ name: 'heartbeat-panel' });
@@ -27,12 +32,10 @@ const calls = new Map();
 /** @param {string} id */
 const byId = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
 const prompt = /** @type {HTMLTextAreaElement} */ (byId('prompt'));
-const project = /** @type {HTMLSelectElement} */ (byId('project'));
 const searchField = /** @type {HTMLInputElement} */ (byId('search-field'));
 const transcriptView = h(document, 'div');
 const updateTranscript = createTranscriptRenderer(document, transcriptView, t);
 const updatePermissions = createPermissionRenderer(document, byId('permissions'), t, respond);
-let renderedProjects = '';
 
 /** @param {{ type: string, [key: string]: any }} action */
 function dispatch(action) {
@@ -120,6 +123,85 @@ async function edit(chatId, kind, value) {
 /** @param {Record<string, any>} change */
 const sidebar = (change) => dispatch({ type: 'sidebar', ...change });
 
+/**
+ * @param {'model' | 'effort' | 'approval'} kind
+ * @param {string | null} value
+ */
+async function configure(kind, value) {
+  try {
+    await call('chat.configure', { chatId: state.selected, kind, value });
+  } catch (error) {
+    dispatch({ type: 'failed', code: /** @type {any} */ (error).code ?? ErrorCode.INTERNAL });
+  }
+}
+
+/** @param {string | null} effort */
+async function chooseNewChatEffort(effort) {
+  const model = composerView(state).model;
+  if (!model) return;
+  try {
+    await call('composer.effort', { modelId: model.id, effort });
+  } catch (error) {
+    dispatch({ type: 'failed', code: /** @type {any} */ (error).code ?? ErrorCode.INTERNAL });
+  }
+}
+
+/**
+ * Keeps the panel's choice for new chats; the start page of the app is left as it is.
+ * @param {{ modelId?: string, approval?: string }} change
+ */
+function chooseDraft(change) {
+  dispatch({ type: 'draft', ...change });
+  try {
+    chrome.storage.local?.set({ [DRAFT_KEY]: state.draft })?.catch?.(() => {});
+  } catch {
+    // Remembering the choice is a convenience; the panel works without storage.
+  }
+}
+
+/** The editor grows with its text up to the studio's limit. */
+function fitPrompt() {
+  if (!prompt.style) return;
+  prompt.style.height = 'auto';
+  prompt.style.height = `${Math.min(prompt.scrollHeight, PROMPT_MAX_HEIGHT)}px`;
+}
+
+const closeMenu = () => dispatch({ type: 'composerMenu', menu: null });
+
+/** @type {import('./views/composer.js').ComposerContext} */
+const composerContext = {
+  t,
+  canAttach: true,
+  onMenu: (menu) => dispatch({ type: 'composerMenu', menu }),
+  onProject: (projectId) => dispatch({ type: 'compose', projectId }),
+  onTemplate: (text) => {
+    closeMenu();
+    prompt.value = prompt.value.trim() ? `${prompt.value.trimEnd()}\n${text}` : text;
+    fitPrompt();
+    prompt.focus();
+    /** @type {HTMLButtonElement} */ (byId('send')).disabled = !canSend(state, prompt.value);
+  },
+  onApproval: (approval) => {
+    closeMenu();
+    if (composerView(state).isNew) chooseDraft({ approval });
+    else configure('approval', approval);
+  },
+  onEffort: (effort) => {
+    closeMenu();
+    if (composerView(state).isNew) chooseNewChatEffort(effort);
+    else configure('effort', effort);
+  },
+  onModel: (modelId) => {
+    closeMenu();
+    if (composerView(state).isNew) chooseDraft({ modelId });
+    else configure('model', modelId);
+  },
+  onAttachPage: () => {
+    closeMenu();
+    attachPage();
+  },
+};
+
 /** @type {import('./views/chat-list.js').ListContext} */
 const listContext = {
   t,
@@ -140,13 +222,20 @@ function back() {
 async function send() {
   const text = prompt.value;
   if (!canSend(state, text)) return;
+  const view = composerView(state);
   const params = state.isComposingNew
-    ? { projectId: state.newChatProject, text, attachments: state.attachments }
+    ? {
+      projectId: state.newChatProject,
+      text,
+      attachments: state.attachments,
+      settings: view.model ? { modelId: view.model.id, approval: view.approval } : undefined,
+    }
     : { chatId: state.selected, text, attachments: state.attachments };
   dispatch({ type: 'sending' });
   try {
     const result = await call('chat.send', params);
     prompt.value = '';
+    fitPrompt();
     const chatId = String(result.chatId);
     const isNew = chatId !== state.selected;
     dispatch({ type: 'sent', chatId });
@@ -236,6 +325,15 @@ function render(previous) {
       renderedRenaming = state.sidebar.renaming;
       if (renderedRenaming) /** @type {HTMLElement | null} */ (content.querySelector('input'))?.focus();
     }
+  } else if (state.isComposingNew) {
+    const project = state.projects.find((it) => it.id === state.newChatProject);
+    content.replaceChildren(h(
+      document,
+      'div',
+      { className: 'new-chat' },
+      h(document, 'h2', { text: project ? t('newHeadingIn', project.name) : t('newHeading') }),
+      h(document, 'p', { className: 'meta', text: t('newHint') }),
+    ));
   } else if (state.transcript !== previous.transcript || state.selected !== previous.selected) {
     updateTranscript(state);
     if (content.firstElementChild !== transcriptView) content.replaceChildren(transcriptView);
@@ -251,29 +349,25 @@ function render(previous) {
  */
 function renderComposer(chat, isListing) {
   byId('composer').hidden = isListing;
-  project.hidden = !state.isComposingNew;
-  const projectsSignature = JSON.stringify(state.projects);
-  if (state.isComposingNew && projectsSignature !== renderedProjects) {
-    renderedProjects = projectsSignature;
-    project.replaceChildren(
-      h(document, 'option', { text: t('withoutProject'), attrs: { value: '' } }),
-      ...state.projects.map((it) => h(document, 'option', { text: it.name, attrs: { value: it.id } })),
-    );
-  }
-  if (state.isComposingNew) project.value = state.newChatProject ?? '';
-  project.setAttribute('aria-label', t('project'));
-  prompt.placeholder = t(state.isComposingNew ? 'placeholderNew' : 'placeholderChat');
+  if (isListing) return;
+  const view = composerView(state);
+  composerContext.canAttach = state.attachments.length < MAX_PAGES;
+  byId('composer-context').replaceChildren(...renderComposerContext(document, state, composerContext));
+  byId('composer-lead').replaceChildren(...renderComposerLead(document, state, view, composerContext));
+  byId('composer-trail').replaceChildren(...renderComposerTrail(document, state, view, composerContext));
+  prompt.placeholder = t('placeholder');
   const isClosed = Boolean(chat && !chat.continuable);
-  byId('composer-hint').textContent = chat?.archived ? t('chatArchived') : isClosed ? t('chatClosed') : '';
+  const modelHint = view.models.length ? 'chooseModelHint' : 'connectModelHint';
+  const hint = chat?.archived ? 'chatArchived' : isClosed ? 'chatClosed' : view.isNew && !view.model ? modelHint : '';
+  byId('composer-hint').textContent = hint ? t(hint) : '';
   const send = byId('send');
-  send.textContent = t('send');
+  send.setAttribute('aria-label', t('send'));
   send.title = t('sendHint');
+  send.hidden = Boolean(chat?.running);
   /** @type {HTMLButtonElement} */ (send).disabled = !canSend(state, prompt.value);
-  const attach = byId('attach-page');
-  attach.textContent = t('attachPage');
-  /** @type {HTMLButtonElement} */ (attach).disabled = state.attachments.length >= MAX_PAGES;
   const stop = byId('stop');
-  stop.textContent = t('stop');
+  stop.setAttribute('aria-label', t('stop'));
+  stop.title = t('stop');
   stop.hidden = !chat?.running;
   renderAttachments();
 }
@@ -361,31 +455,44 @@ searchField.addEventListener('keydown', (/** @type {KeyboardEvent} */ event) => 
 });
 byId('rail-sessions').addEventListener('click', () => sidebar({ change: 'mode', mode: 'sessions' }));
 byId('rail-archive').addEventListener('click', () => sidebar({ change: 'mode', mode: 'archive' }));
-// An open row menu closes on a click elsewhere or Escape.
+// Open menus close on a click elsewhere or Escape.
 document.addEventListener('click', (/** @type {MouseEvent} */ event) => {
   const target = /** @type {Element | null} */ (event.target);
   if (state.sidebar.menu && !target?.closest?.('.menu, .row.menu-open .row-actions')) sidebar({ change: 'menu', chatId: null });
+  if (state.composerMenu && !target?.closest?.('.menu-anchor')) closeMenu();
 });
 document.addEventListener('keydown', (/** @type {KeyboardEvent} */ event) => {
-  if (event.key === 'Escape' && state.sidebar.menu) sidebar({ change: 'menu', chatId: null });
+  if (event.key !== 'Escape') return;
+  if (state.sidebar.menu) sidebar({ change: 'menu', chatId: null });
+  if (state.composerMenu) closeMenu();
 });
+(async () => {
+  try {
+    const stored = (await chrome.storage.local?.get(DRAFT_KEY))?.[DRAFT_KEY];
+    if (stored) dispatch({ type: 'draft', modelId: stored.modelId ?? null, approval: stored.approval ?? null });
+  } catch {
+    // Without storage the start page's settings apply.
+  }
+})();
+byId('send').replaceChildren(icon(document, 'ArrowUp'));
+byId('stop').replaceChildren(icon(document, 'Stop'));
 byId('send').addEventListener('click', send);
-byId('attach-page').addEventListener('click', attachPage);
 byId('stop').addEventListener('click', stop);
 byId('error-dismiss').addEventListener('click', () => dispatch({ type: 'dismiss' }));
 byId('consent').addEventListener('change', (event) => {
   port.postMessage({ type: 'consent', isAllowed: /** @type {HTMLInputElement} */ (event.target).checked });
 });
 byId('revoke').addEventListener('click', () => port.postMessage({ type: 'revokeTabs' }));
-project.addEventListener('change', () => dispatch({ type: 'compose', projectId: project.value || null }));
 prompt.addEventListener('input', () => {
+  fitPrompt();
   /** @type {HTMLButtonElement} */ (byId('send')).disabled = !canSend(state, prompt.value);
 });
-prompt.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-    event.preventDefault();
-    send();
-  }
+// As in the studio on desktop: Enter sends, Shift+Enter breaks the line, Ctrl/Cmd+Enter always sends.
+prompt.addEventListener('keydown', (/** @type {KeyboardEvent} */ event) => {
+  if (event.key !== 'Enter' || event.isComposing || event.altKey) return;
+  if (event.shiftKey && !(event.ctrlKey || event.metaKey)) return;
+  event.preventDefault();
+  send();
 });
 
 chrome.storage.session.onChanged.addListener(async (/** @type {Record<string, unknown>} */ changes) => {

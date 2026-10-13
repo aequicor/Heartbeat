@@ -102,12 +102,6 @@
   "noticeRolledOver": {
     "message": "Continued in a new session"
   },
-  "placeholderNew": {
-    "message": "Ask Heartbeat…"
-  },
-  "placeholderChat": {
-    "message": "Reply…"
-  },
   "chatClosed": {
     "message": "This chat cannot be continued."
   },
@@ -115,7 +109,7 @@
     "message": "Send"
   },
   "sendHint": {
-    "message": "Send (Ctrl+Enter)"
+    "message": "Send (Enter)"
   },
   "stop": {
     "message": "Stop"
@@ -261,5 +255,73 @@
         "content": "$1"
       }
     }
+  },
+  "placeholder": {
+    "message": "Work with Heartbeat"
+  },
+  "composerAdd": {
+    "message": "Add"
+  },
+  "templatePlan": {
+    "message": "Plan a feature"
+  },
+  "templatePlanPrompt": {
+    "message": "Plan the feature: "
+  },
+  "templateTests": {
+    "message": "Write tests"
+  },
+  "templateTestsPrompt": {
+    "message": "Write tests for "
+  },
+  "templateReview": {
+    "message": "Review changes"
+  },
+  "templateReviewPrompt": {
+    "message": "Review the changes in "
+  },
+  "approvalMenu": {
+    "message": "Approvals"
+  },
+  "approvalAsk": {
+    "message": "Ask for approval"
+  },
+  "approvalEdits": {
+    "message": "Allow file edits"
+  },
+  "approvalAuto": {
+    "message": "Approve for me"
+  },
+  "effortMenu": {
+    "message": "Reasoning mode"
+  },
+  "effortAuto": {
+    "message": "Auto"
+  },
+  "modelMenu": {
+    "message": "Model and reasoning"
+  },
+  "modelNotSelected": {
+    "message": "No model selected"
+  },
+  "connectModelHint": {
+    "message": "Connect and select a model in settings"
+  },
+  "newHeading": {
+    "message": "What shall we build?"
+  },
+  "newHint": {
+    "message": "From idea to result — start with a task."
+  },
+  "newHeadingIn": {
+    "message": "What shall we build in $NAME$?",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseModelHint": {
+    "message": "Choose a model for the new chat."
   }
 }

@@ -5,7 +5,7 @@ import { FakePort, FakeTimers, flush } from './fakes/chrome.js';
 import { fakeDocument } from './fakes/dom.js';
 import { fakeLocks } from './fakes/locks.js';
 
-test('new-chat selector matches submitted project after navigation and same-size project changes', async () => {
+test('the new chat\'s project pill matches the submitted project across navigation and project changes', async () => {
   const document = fakeDocument();
   const port = new FakePort('heartbeat-panel');
   const timers = new FakeTimers();
@@ -24,36 +24,44 @@ test('new-chat selector matches submitted project after navigation and same-size
   try {
     await import('../src/sidepanel/sidepanel.js');
     await flush();
-    const projects = [{ id: 'p', name: 'Project P' }];
+    const composer = {
+      models: [{ id: 'm', name: 'Model', shortName: 'M', projects: true }],
+      newChat: { modelId: 'm', approval: 'ask' },
+    };
     const snapshot = (/** @type {{id: string, name: string}[]} */ next) => port.deliver({
-      type: 'event', event: 'chats.changed', params: { projects: next, chats: [], permissions: [] },
+      type: 'event', event: 'chats.changed', params: { projects: next, chats: [], permissions: [], composer },
     });
     port.deliver({ type: 'status', status: 'ready', features: { chat: true } });
-    snapshot(projects);
+    snapshot([{ id: 'p', name: 'Project P' }]);
     const byId = document.getElementById;
-    const project = byId('project');
+    const context = byId('composer-context');
+    const pill = () => context.querySelector('button');
+    const choose = (/** @type {string} */ label) => {
+      pill().fire('click');
+      context.querySelectorAll('button').find((it) => it.className.startsWith('menu-item') && it.textContent === label)
+        .fire('click');
+    };
+    const enter = () => byId('prompt').fire('keydown', { key: 'Enter', preventDefault: () => {} });
+
     byId('new-chat').fire('click');
-    project.value = 'p';
-    project.fire('change');
+    choose('Project P');
+    assert.equal(pill().textContent, 'Project P');
     byId('back').fire('click');
     byId('new-chat').fire('click');
-    assert.equal(project.value, '', 'new composer must visually reset to no project');
+    assert.equal(pill().textContent, 'withoutProject', 'a new composer starts without a project');
     byId('prompt').value = 'Hello';
-    byId('send').fire('click');
+    enter();
     assert.equal(port.last().params.projectId, null);
+    assert.deepEqual(port.last().params.settings, { modelId: 'm', approval: 'ask' });
     port.deliver({ type: 'reply', id: port.last().id, result: { chatId: 'new' } });
     await flush();
     byId('new-chat').fire('click');
-    project.value = 'p';
-    project.fire('change');
+    choose('Project P');
     snapshot([{ id: 'p', name: 'Renamed' }]);
-    assert.equal(project.options[1].textContent, 'Renamed');
-    assert.equal(project.value, 'p');
+    assert.equal(pill().textContent, 'Renamed');
     snapshot([{ id: 'q', name: 'Replacement' }]);
-    assert.equal(project.options[1].value, 'q');
-    assert.equal(project.value, '', 'removed selection resets state and UI together');
-    project.value = 'q';
-    project.fire('change');
+    assert.equal(pill().textContent, 'withoutProject', 'a removed project resets the choice');
+    choose('Replacement');
     byId('prompt').value = 'Next';
     byId('send').fire('click');
     assert.equal(port.last().params.projectId, 'q');

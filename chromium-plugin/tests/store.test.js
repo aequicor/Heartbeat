@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { canSend, initialState, reduce, selectedPermissions, sidebarSections } from '../src/sidepanel/store.js';
+import { canSend, composerView, initialState, reduce, selectedPermissions, sidebarSections } from '../src/sidepanel/store.js';
 
 const ready = reduce(initialState, { type: 'status', status: 'ready', features: { chat: true } });
 const listed = reduce(ready, {
@@ -13,6 +13,25 @@ const listed = reduce(ready, {
     { id: 'b', title: 'Fix login', projectId: 'p1', updatedAt: 1, running: true, pinned: false, unread: false, continuable: true },
   ],
   permissions: [{ chatId: 'b', requestId: 'r1', title: 'Run?', options: [] }],
+});
+
+const withModels = reduce(ready, {
+  type: 'chats',
+  projects: [{ id: 'p1', name: 'Heartbeat' }],
+  chats: [
+    { ...listed.chats[0] },
+    { ...listed.chats[1], running: false, modelId: 'gpt', settings: { modelId: 'gpt', effort: 'low', approval: 'ask' } },
+  ],
+  permissions: [],
+  composer: {
+    models: [
+      { id: 'gpt', name: 'GPT', shortName: 'GPT', efforts: ['low', 'high'], newChatEffort: 'high', trust: true, projects: true, connection: 'codex/a' },
+      { id: 'codex', name: 'Codex', shortName: 'Codex', projects: true, connection: 'codex/a' },
+      { id: 'local', name: 'Local', shortName: 'Local', projects: false },
+      { id: 'other', name: 'Other', shortName: 'Other', projects: true, connection: 'pi/b' },
+    ],
+    newChat: { modelId: 'gpt', approval: 'ask' },
+  },
 });
 
 test('the list is arranged like the studio sidebar: pinned, expanded projects, then recent', () => {
@@ -84,10 +103,36 @@ test('sending is possible only into an idle, continuable chat or a new one', () 
   assert.equal(canSend(reduce(listed, { type: 'open', chatId: 'b' }), 'Hi'), false);
   const archived = reduce(listed, { type: 'chats', projects: [], chats: [{ ...listed.chats[0], archived: true }], permissions: [] });
   assert.equal(canSend(reduce(archived, { type: 'open', chatId: 'a' }), 'Hi'), false);
-  assert.equal(canSend(reduce(listed, { type: 'compose', projectId: 'p1' }), 'Hi'), true);
-  assert.equal(canSend(reduce(listed, { type: 'compose' }), '  '), false);
-  const noChats = reduce(listed, { type: 'status', status: 'ready', features: { chat: false } });
+  assert.equal(canSend(reduce(withModels, { type: 'compose', projectId: 'p1' }), 'Hi'), true);
+  assert.equal(canSend(reduce(withModels, { type: 'compose' }), '  '), false);
+  assert.equal(canSend(reduce(listed, { type: 'compose' }), 'Hi'), false, 'a new chat needs a model');
+  const noChats = reduce(withModels, { type: 'status', status: 'ready', features: { chat: false } });
   assert.equal(canSend(reduce(noChats, { type: 'compose' }), 'Hi'), false);
+});
+
+test('the composer follows the studio: new chats on the panel\'s or the start page\'s model, chats on their own', () => {
+  const newChat = reduce(withModels, { type: 'compose', projectId: null });
+  const inProject = reduce(withModels, { type: 'compose', projectId: 'p1' });
+  const chosen = reduce(inProject, { type: 'draft', modelId: 'local', approval: 'auto_edits' });
+  const chat = reduce(withModels, { type: 'open', chatId: 'b' });
+
+  assert.equal(composerView(newChat).model?.id, 'gpt');
+  assert.equal(composerView(newChat).effort, 'high');
+  assert.deepEqual(composerView(inProject).models.map((it) => it.id), ['gpt', 'codex', 'other']);
+  assert.equal(composerView(chosen).model, null, 'a model without projects cannot start a project chat');
+  assert.equal(composerView(chosen).approval, 'auto_edits');
+  assert.deepEqual(composerView(chat).models.map((it) => it.id), ['gpt', 'codex']);
+  assert.equal(composerView(chat).effort, 'low');
+  assert.equal(composerView(chat).isLocked, false);
+  assert.equal(composerView(reduce(withModels, { type: 'open', chatId: 'a' })).isLocked, true, 'a chat without a model');
+});
+
+test('composer menus toggle and close when the chat changes', () => {
+  const open = reduce(withModels, { type: 'composerMenu', menu: 'model' });
+
+  assert.equal(open.composerMenu, 'model');
+  assert.equal(reduce(open, { type: 'composerMenu', menu: 'model' }).composerMenu, null);
+  assert.equal(reduce(open, { type: 'open', chatId: 'a' }).composerMenu, null);
 });
 
 test('a sent prompt opens its chat and clears attachments', () => {

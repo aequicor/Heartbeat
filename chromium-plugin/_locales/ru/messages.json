@@ -102,12 +102,6 @@
   "noticeRolledOver": {
     "message": "Продолжено в новой сессии"
   },
-  "placeholderNew": {
-    "message": "Спросите Heartbeat…"
-  },
-  "placeholderChat": {
-    "message": "Ответить…"
-  },
   "chatClosed": {
     "message": "Этот чат нельзя продолжить."
   },
@@ -115,10 +109,10 @@
     "message": "Отправить"
   },
   "sendHint": {
-    "message": "Отправить (Ctrl+Enter)"
+    "message": "Отправить (Enter)"
   },
   "stop": {
-    "message": "Стоп"
+    "message": "Остановить"
   },
   "permissionAnswer": {
     "message": "Ответ"
@@ -261,5 +255,73 @@
         "content": "$1"
       }
     }
+  },
+  "placeholder": {
+    "message": "Работайте с Heartbeat"
+  },
+  "composerAdd": {
+    "message": "Добавить"
+  },
+  "templatePlan": {
+    "message": "Спланировать фичу"
+  },
+  "templatePlanPrompt": {
+    "message": "Спланируй фичу: "
+  },
+  "templateTests": {
+    "message": "Написать тесты"
+  },
+  "templateTestsPrompt": {
+    "message": "Напиши тесты для "
+  },
+  "templateReview": {
+    "message": "Провести ревью"
+  },
+  "templateReviewPrompt": {
+    "message": "Проведи ревью изменений в "
+  },
+  "approvalMenu": {
+    "message": "Подтверждения"
+  },
+  "approvalAsk": {
+    "message": "Спрашивать разрешение"
+  },
+  "approvalEdits": {
+    "message": "Разрешать правки файлов"
+  },
+  "approvalAuto": {
+    "message": "Подтверждать за меня"
+  },
+  "effortMenu": {
+    "message": "Режим размышления"
+  },
+  "effortAuto": {
+    "message": "Авто"
+  },
+  "modelMenu": {
+    "message": "Модель и рассуждение"
+  },
+  "modelNotSelected": {
+    "message": "Модель не выбрана"
+  },
+  "connectModelHint": {
+    "message": "Подключите и выберите модель в настройках"
+  },
+  "newHeading": {
+    "message": "Что создадим?"
+  },
+  "newHint": {
+    "message": "От идеи до результата — начните с задачи."
+  },
+  "newHeadingIn": {
+    "message": "Что создадим в $NAME$?",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseModelHint": {
+    "message": "Выберите модель для нового чата."
   }
 }

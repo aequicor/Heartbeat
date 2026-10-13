@@ -115,3 +115,40 @@ test('session rows show the studio status, actions and menu, and edit titles inl
   field.fire('blur');
   assert.deepEqual(calls, [['rename', null], ['edit', 'new', 'rename', 'Renamed']]);
 });
+
+test('composer pills offer what the model supports and wait for pending changes', async () => {
+  const { renderComposerLead, renderComposerTrail } = await import('../src/sidepanel/views/composer.js');
+  const document = fakeDocument();
+  const picked = /** @type {any[][]} */ ([]);
+  const context = {
+    t,
+    canAttach: true,
+    onMenu: (/** @type {string} */ menu) => picked.push(['menu', menu]),
+    onProject: () => {},
+    onTemplate: (/** @type {string} */ text) => picked.push(['template', text]),
+    onApproval: (/** @type {string} */ approval) => picked.push(['approval', approval]),
+    onEffort: (/** @type {string | null} */ effort) => picked.push(['effort', effort]),
+    onModel: (/** @type {string} */ id) => picked.push(['model', id]),
+    onAttachPage: () => {},
+  };
+  const gpt = { id: 'gpt', name: 'GPT', shortName: 'GPT', efforts: ['low', 'high'], trust: true };
+  const local = { id: 'local', name: 'Local', shortName: 'Local' };
+  const view = { isNew: false, model: gpt, models: [gpt, local], effort: 'low', approval: 'ask', isLocked: false };
+  const labels = (/** @type {any[]} */ nodes) => nodes.flatMap((it) => it.querySelectorAll('button'))
+    .filter((it) => it.className.startsWith('menu-item')).map((it) => it.textContent);
+
+  const closed = renderComposerTrail(document, { ...initialState, composerMenu: null }, view, context);
+  assert.equal(closed.length, 2, 'effort and model pills');
+  assert.equal(closed[0].querySelector('button').textContent, 'low');
+  assert.deepEqual(labels(renderComposerTrail(document, { ...initialState, composerMenu: 'effort' }, view, context)),
+    ['effortAuto', 'low', 'high']);
+  assert.deepEqual(labels(renderComposerLead(document, { ...initialState, composerMenu: 'add' }, view, context)),
+    ['templatePlan', 'templateTests', 'templateReview', 'approvalAsk', 'approvalEdits', 'approvalAuto']);
+  const plain = { ...view, model: local, effort: null };
+  assert.equal(renderComposerTrail(document, initialState, plain, context).length, 1, 'no effort levels, no pill');
+  assert.deepEqual(labels(renderComposerLead(document, { ...initialState, composerMenu: 'add' }, plain, context)),
+    ['templatePlan', 'templateTests', 'templateReview']);
+  const locked = renderComposerTrail(document, { ...initialState, composerMenu: 'model' }, { ...view, isLocked: true }, context);
+  assert.equal(locked.at(-1).querySelector('button').disabled, true);
+  assert.deepEqual(labels(locked), [], 'a locked picker does not open');
+});
