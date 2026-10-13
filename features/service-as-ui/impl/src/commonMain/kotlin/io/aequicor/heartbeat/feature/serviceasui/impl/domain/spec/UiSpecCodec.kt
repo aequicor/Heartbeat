@@ -12,6 +12,9 @@ internal object UiSpecLimits {
     /** Nesting of nodes. */
     const val DEPTH: Int = 16
 
+    /** UTF-8 bytes of an indented draft in the editor; its compact form must fit [ServiceUiLimits.SPEC_BYTES]. */
+    const val DRAFT_BYTES: Int = 4 * ServiceUiLimits.SPEC_BYTES
+
     /** Nesting of raw JSON arrays and objects, checked before any parsing. */
     const val JSON_DEPTH: Int = 64
 
@@ -150,6 +153,19 @@ internal fun decodeUiSpec(text: String): UiSpecDecoding {
     return decodeTree(element)
 }
 
+/**
+ * The JSON [text] of a spec re-encoded [isIndented] for people to edit, or compactly for storage; null when it is not
+ * JSON within [UiSpecLimits.DRAFT_BYTES] and the nesting limit. Nothing beyond JSON syntax is checked: the compact
+ * form goes to [decodeUiSpec], which applies the spec's own size limit.
+ */
+internal fun formatUiSpec(text: String, isIndented: Boolean): String? {
+    if (text.encodeToByteArray().size > UiSpecLimits.DRAFT_BYTES || jsonNesting(text) > UiSpecLimits.JSON_DEPTH) {
+        return null
+    }
+    val element = parsing { SpecJson.parseToJsonElement(text) }.getOrNull() ?: return null
+    return if (isIndented) IndentedJson.encodeToString(JsonElement.serializer(), element) else element.toString()
+}
+
 private fun decodeTree(element: JsonElement): UiSpecDecoding {
     val decoded = parsing { SpecJson.decodeFromJsonElement(UiSpec.serializer(), element) }
     val spec = decoded.getOrNull()
@@ -224,6 +240,7 @@ private fun Throwable.path(): String? =
 private const val ROOT = "$"
 private const val MAX_DETAIL = 240
 private val PathInMessage = Regex("""(?:at path|at element)[:\s]+(\$\S*)""")
+private val IndentedJson = Json { prettyPrint = true }
 private val SpecJson = Json {
     classDiscriminator = "type"
     explicitNulls = false

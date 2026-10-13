@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiMachineKey
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiPanelRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiSlotRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiState
+import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiSurfaceRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.UiCallContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiDockId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostContext
@@ -92,7 +93,7 @@ class ServiceUiIntegrationTest {
     }
 
     @Test
-    fun `slot, panel, card and library routes build their places from the profile graph`() = runTest {
+    fun `slot, panel, card, library and editor routes build their places from the profile graph`() = runTest {
         val profile = app.profileSessions.open(ProfileId("service-ui-places"))
         val lifecycle = LifecycleRegistry().apply { resume() }
         try {
@@ -118,6 +119,11 @@ class ServiceUiIntegrationTest {
             val library = ServiceUiLibraryRoute(isEmbedded = true)
             root.navigator.navigate(library)
             assertEquals(library, root.stack.value.active.configuration.route)
+            assertIs<ComposableComponent>(root.stack.value.active.instance)
+
+            val editor = ServiceUiSurfaceRoute("harness:h_unknown:map")
+            root.navigator.navigate(editor)
+            assertEquals(editor, root.stack.value.active.configuration.route)
             assertIs<ComposableComponent>(root.stack.value.active.instance)
         } finally {
             lifecycle.destroy()

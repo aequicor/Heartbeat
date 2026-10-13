@@ -9,6 +9,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class UiSpecCodecTest {
@@ -108,6 +110,17 @@ class UiSpecCodecTest {
 
         assertFalse("secret" in diagnostic.toString())
         assertEquals("$.body: the structure does not match the spec format (secret value)", diagnostic.describe())
+    }
+
+    @Test
+    fun `specs are indented for editing and compacted for storage within the limits`() {
+        val compact = """{"version":1,"body":{"type":"text","text":"a: b"}}"""
+        val indented = assertNotNull(formatUiSpec(compact, isIndented = true))
+
+        assertTrue(indented.lines().size > 1)
+        assertEquals(compact, formatUiSpec(indented, isIndented = false))
+        assertNull(formatUiSpec("{", isIndented = true))
+        assertNull(formatUiSpec("[".repeat(5_000) + "]".repeat(5_000), isIndented = false))
     }
 
     private fun single(text: String): UiSpecDiagnostic =

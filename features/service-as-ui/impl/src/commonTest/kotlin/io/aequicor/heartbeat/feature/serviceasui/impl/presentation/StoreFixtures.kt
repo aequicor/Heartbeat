@@ -28,17 +28,18 @@ import pro.respawn.flowmvi.api.Provider
 import pro.respawn.flowmvi.api.Store
 import pro.respawn.flowmvi.dsl.collect
 
-/** Stores of a test running on the scheduler of [scope]. */
-internal fun testStores(scope: TestScope): HeartbeatStoreFactory {
+/** Dispatchers of a test running on the scheduler of [scope]. */
+internal fun testDispatchers(scope: TestScope): DispatcherProvider {
     val dispatcher = StandardTestDispatcher(scope.testScheduler)
-    return HeartbeatStoreFactory(
-        object : DispatcherProvider {
-            override val main: CoroutineDispatcher = dispatcher
-            override val default: CoroutineDispatcher = dispatcher
-            override val io: CoroutineDispatcher = dispatcher
-        },
-    )
+    return object : DispatcherProvider {
+        override val main: CoroutineDispatcher = dispatcher
+        override val default: CoroutineDispatcher = dispatcher
+        override val io: CoroutineDispatcher = dispatcher
+    }
 }
+
+/** Stores of a test running on the scheduler of [scope]. */
+internal fun testStores(scope: TestScope): HeartbeatStoreFactory = HeartbeatStoreFactory(testDispatchers(scope))
 
 /** Subscribes to [store] for the rest of the test, as a screen does. */
 internal suspend fun <S : MVIState, I : MVIIntent, A : MVIAction> TestScope.subscribe(
