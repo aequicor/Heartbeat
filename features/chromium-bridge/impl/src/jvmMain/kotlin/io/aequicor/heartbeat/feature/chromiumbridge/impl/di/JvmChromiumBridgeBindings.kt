@@ -12,14 +12,16 @@ import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
-import io.aequicor.heartbeat.feature.aistudio.api.StudioChats
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
+import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteScreens
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalBrowser
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.DesktopBridgeEnvironment
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.DesktopExtensionFolder
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.ToggleBridgeFeatures
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.agent.ChromiumExternalBrowser
-import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.chat.PageImporter
-import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.chat.SidePanelChatHandlers
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.chat.BridgeWatches
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.chat.SidePanelStudioHandlers
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.hosts.DesktopNativeHostRegistry
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.hosts.JnaWindowsRegistry
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeConnections
@@ -31,6 +33,7 @@ import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.BridgeServer
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.ExtensionFolder
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.ExtensionIdentity
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.NativeHostRegistry
+import kotlinx.serialization.json.Json
 
 /** Desktop server, host registry and request handlers of the bridge. */
 @ContributesTo(ProfileScope::class)
@@ -64,8 +67,19 @@ public object JvmChromiumBridgeBindings {
     /** Outside chat turns need the desktop browser route; mobile has no native messaging host. */
     @Provides
     @IntoSet
-    internal fun chats(chats: StudioChats, pages: PageImporter, browser: Lazy<ExternalBrowser>): BridgeRequestHandler =
-        SidePanelChatHandlers(chats, pages, browser)
+    internal fun studio(
+        studio: StudioRemoteScreens,
+        watches: BridgeWatches,
+        browser: Lazy<ExternalBrowser>,
+    ): BridgeRequestHandler = SidePanelStudioHandlers(studio, watches) { session ->
+        object : StudioChatEnvironment {
+            override val preselected = mapOf("external_browser" to setOf(session.id.toString()))
+            override fun bind(sessionRef: SessionRef): AutoCloseable = browser.value.bindSession(
+                Json.encodeToString(SessionRef.serializer(), sessionRef),
+                session.id.toString(),
+            )
+        }
+    }
 
     /** The socket. */
     @Provides

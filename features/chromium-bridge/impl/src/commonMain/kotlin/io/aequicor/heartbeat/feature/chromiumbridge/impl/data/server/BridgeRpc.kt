@@ -1,6 +1,6 @@
 package io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server
 
-import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeErrorCode
+import io.aequicor.heartbeat.feature.chromiumbridge.protocol.BridgeErrorCode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -69,7 +69,11 @@ internal data class BridgeCall(val method: String, val params: JsonObject, val s
 /** The answer to an extension request. */
 internal sealed interface BridgeReply {
     /** Success with [result]. */
-    data class Ok(val result: JsonElement) : BridgeReply
+    data class Ok(
+        val result: JsonElement,
+        /** Called once after the response send finishes; false also covers cancellation or a lost connection. */
+        val afterSend: ((isDelivered: Boolean) -> Unit)? = null,
+    ) : BridgeReply
 
     /** A refusal with one of [BridgeErrorCode]; [message] is shown to the user, so it carries no private data. */
     data class Refused(val code: String, val message: String) : BridgeReply

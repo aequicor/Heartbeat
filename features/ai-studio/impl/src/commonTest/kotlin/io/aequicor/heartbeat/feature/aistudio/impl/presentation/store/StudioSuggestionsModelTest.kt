@@ -8,8 +8,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPane
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModelTest.Fixture
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SuggestionKindUi
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssistOrigin
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
@@ -110,6 +113,31 @@ class StudioSuggestionsModelTest {
         advanceTimeBy(300.milliseconds)
         runCurrent()
         assertEquals("/new", screen.states.value.suggestions(0)?.items?.single()?.label)
+    }
+
+    @Test
+    fun `a remote screen excludes native files while keeping command acceptance`() = runTest {
+        val file = ComposerSuggestion.File(
+            "file",
+            "notes.md",
+            "",
+            ComposerAssistOrigin.Heartbeat,
+            "notes.md",
+            "/workspace/notes.md",
+            12,
+            "text/markdown",
+        )
+        val source = TestComposerAssists { listOf(file, testCommand("plan")) }
+        val fixture = Fixture(this, ready, host = StudioScreenHost.Remote, assists = source)
+        val screen = fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "/plan"))
+        advanceTimeBy(300.milliseconds)
+        runCurrent()
+        assertEquals(listOf(SuggestionKindUi.Command), screen.states.value.suggestions(0)?.items?.map { it.kind })
+
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.AcceptSuggestion(0))
+        runCurrent()
+        assertEquals("/plan ", screen.states.value.draft(0))
     }
 }
 

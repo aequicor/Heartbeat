@@ -77,6 +77,22 @@ class MachineRegistryTest {
     }
 
     @Test
+    fun `an unaddressable instance runs beside the registered one without taking its address`() = runTest {
+        val registered = runtime.launch(chatSpec(), FakeScope(backgroundScope), FakeEffects())
+        val privateScope = FakeScope(backgroundScope)
+        val private = runtime.launch(chatSpec(), privateScope, FakeEffects(), isAddressable = false)
+
+        assertSame(registered.state, runtime.find(ChatMachineKey)?.state)
+        assertEquals(SendResult.Accepted, private.send(ChatIntent.Public.Open("c2")))
+        assertEquals(ChatState.Loading("c2"), private.state.value)
+        assertEquals(ChatState.Idle, registered.state.value)
+        assertEquals(emptyList(), logs.messages(level = LogLevel.WARNING))
+
+        privateScope.close()
+        assertSame(registered.state, runtime.find(ChatMachineKey)?.state)
+    }
+
+    @Test
     fun `two keys with the same name fail`() = runTest {
         val impostor = object : MachineKey<ChatState, ChatIntent, ChatIntent.Public, ChatEffect, ChatOutput> {
             override val name = "chat"

@@ -71,7 +71,7 @@ class EngineStudioUsageTest {
         val fixture = UsageFixture(this)
         fixture.providers.snapshot.value = quota(42.0)
 
-        fixture.usage.observe(setOf(fixture.modelId))
+        fixture.usage.observe(fixture, setOf(fixture.modelId))
         runCurrent()
 
         assertEquals(42.0, fixture.usage.state.value.providers[fixture.modelId]?.windows?.single()?.usedPercent)
@@ -83,7 +83,7 @@ class EngineStudioUsageTest {
     fun `models sharing an account observe the same provider updates and removed targets disappear`() = runTest {
         val fixture = UsageFixture(this)
         val second = fixture.target.copy(model = ModelId("second")).encode()
-        fixture.usage.observe(setOf(fixture.modelId, second))
+        fixture.usage.observe(fixture, setOf(fixture.modelId, second))
         runCurrent()
 
         fixture.providers.snapshot.value = quota(75.0)
@@ -91,7 +91,7 @@ class EngineStudioUsageTest {
         assertEquals(setOf(fixture.modelId, second), fixture.usage.state.value.providers.keys)
         assertTrue(fixture.usage.state.value.providers.values.all { it == quota(75.0) })
 
-        fixture.usage.observe(setOf(second))
+        fixture.usage.observe(fixture, setOf(second))
         runCurrent()
         assertEquals(setOf(second), fixture.usage.state.value.providers.keys)
     }
@@ -99,11 +99,11 @@ class EngineStudioUsageTest {
     @Test
     fun `detaching the screen stops provider observation and later account refreshes`() = runTest {
         val fixture = UsageFixture(this)
-        fixture.usage.observe(setOf(fixture.modelId))
+        fixture.usage.observe(fixture, setOf(fixture.modelId))
         runCurrent()
         assertEquals(1, fixture.providers.snapshot.subscriptionCount.value)
 
-        fixture.usage.observe(emptySet())
+        fixture.usage.observe(fixture, emptySet())
         runCurrent()
         assertEquals(0, fixture.providers.snapshot.subscriptionCount.value)
         assertTrue(fixture.usage.state.value.providers.isEmpty())
@@ -117,9 +117,27 @@ class EngineStudioUsageTest {
     }
 
     @Test
+    fun `a second screen observes its own routes and detaching it keeps the first screen's quotas`() = runTest {
+        val fixture = UsageFixture(this)
+        val desktop = Any()
+        val panel = Any()
+        val second = fixture.target.copy(model = ModelId("second")).encode()
+        fixture.usage.observe(desktop, setOf(fixture.modelId))
+        fixture.usage.observe(panel, setOf(second))
+        runCurrent()
+        assertEquals(setOf(fixture.modelId, second), fixture.usage.state.value.providers.keys)
+
+        fixture.usage.observe(panel, emptySet())
+        runCurrent()
+
+        assertEquals(setOf(fixture.modelId), fixture.usage.state.value.providers.keys)
+        assertEquals(1, fixture.providers.snapshot.subscriptionCount.value)
+    }
+
+    @Test
     fun `the selected route refreshes quotas after an account revision changes`() = runTest {
         val fixture = UsageFixture(this)
-        fixture.usage.observe(setOf(fixture.modelId))
+        fixture.usage.observe(fixture, setOf(fixture.modelId))
         runCurrent()
         assertEquals(1, fixture.providers.refreshes.size)
 
@@ -136,7 +154,7 @@ class EngineStudioUsageTest {
         val fixture = UsageFixture(this)
         fixture.flags.enabled.value = false
         val active = fixture.session(20)
-        fixture.usage.observe(setOf(fixture.modelId))
+        fixture.usage.observe(fixture, setOf(fixture.modelId))
         fixture.usage.attach("chat", active)
         fixture.usage.refresh(fixture.modelId)
         runCurrent()

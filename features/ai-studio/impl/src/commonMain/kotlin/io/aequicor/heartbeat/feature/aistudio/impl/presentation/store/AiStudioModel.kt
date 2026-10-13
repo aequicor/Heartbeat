@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAttachmentPreviews
@@ -25,14 +26,26 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioCompactionPort
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaces
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote.StudioEmbeds
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote.StudioInputContexts
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenAction
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.EffortUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedCollapseUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.afterNavigation
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.isAttachmentPending
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.reduce
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.startRename
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
-import io.aequicor.heartbeat.feature.attachments.api.AttachmentInput
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
-import io.aequicor.heartbeat.feature.attachments.api.AttachmentsIntent
-import io.aequicor.heartbeat.feature.attachments.api.AttachmentsMachineKey
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureOwner
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineKey
@@ -53,6 +66,7 @@ import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -71,12 +85,13 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import pro.respawn.flowmvi.api.PipelineContext
+import pro.respawn.flowmvi.dsl.collect
+import pro.respawn.flowmvi.plugins.init
 import pro.respawn.flowmvi.plugins.reduce
 import pro.respawn.flowmvi.plugins.whileSubscribed
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
-import kotlin.uuid.Uuid
 
 internal typealias StudioPipeline = PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>
 
@@ -102,13 +117,23 @@ class AiStudioModel(
     previews: StudioAttachmentPreviews,
     private val harnesses: StudioHarnesses = StudioHarnesses.None,
     private val compactions: StudioCompactionPort = StudioCompactionPort.None,
+    private val host: StudioScreenHost = StudioScreenHost.Window,
+    private val embeddedScreens: StudioEmbeds = StudioEmbeds.None,
     surfaceBinding: StudioSurfaceBinding = StudioSurfaceBinding(StudioSurfaces.None, backend, scope),
 ) {
     private val log = Log.tag("AiStudioModel")
+    private val inputContexts = StudioInputContexts()
+
+    /** Enqueues native host provenance with the exact remote input instance. */
+    internal fun remoteIntent(intent: AiStudioScreenIntent, environment: StudioChatEnvironment?) {
+        if (environment != null) inputContexts.add(intent, environment)
+        store.intent(intent)
+    }
     private val harnessSelection = StudioHarnessSelection(harnesses, backend)
 
     /** Navigation is executed by the lifecycle component, never by a retained IO scope. */
     val attachmentNavigation = MutableSharedFlow<StudioAttachmentNavigation>(extraBufferCapacity = 8)
+    private val attachmentInputs = StudioAttachmentInputs(machines, attachmentNavigation)
     private val previewRequests = MutableStateFlow<List<ResourceRef>>(emptyList())
 
     private val organisms = StudioOrganismView(machine, machines, backend) { it.withAttachmentMetadata() }
@@ -117,7 +142,10 @@ class AiStudioModel(
     /** Late-bound file attach of an accepted suggestion: the store itself is created below. */
     private var attachSuggestedFile: suspend (paneId: Int, location: String) -> Unit = { _, _ -> }
 
-    private val suggestions = StudioSuggestions(assists) { paneId, location ->
+    private val suggestions = StudioSuggestions(
+        assists,
+        isFileInputAllowed = host == StudioScreenHost.Window,
+    ) { paneId, location ->
         attachSuggestedFile(paneId, location)
     }
     val store = factory.create<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>(
@@ -143,23 +171,44 @@ class AiStudioModel(
         reflect(machine, onOutput = { output ->
             handleStudioSubmissionOutput(this, machine.state.value, harnesses, output)
         }) { reflectMachine(it) }
+        init { launch { attachmentInputs.observe(this@init) } }
         whileSubscribed(name = "workspace") {
             val pipeline = this
             coroutineScope {
                 launch { observeWorkspace(pipeline) }
+                launch { embeddedScreens.observe(pipeline) }
                 launch {
                     entries.showsAttachments.collect { updateState { copy(isAttachmentsEnabled = it) } }
                 }
                 launch { entries.showsRemember.collect { updateState { copy(isRememberEnabled = it) } } }
                 launch { compactions.availability.collect { updateState { copy(isCompactEnabled = it) } } }
-                launch { compactions.feed.collect { updateState { copy(feedCollapse = it) } } }
-                launch { entries.showsOrganism.collect { updateState { copy(isOrganismEnabled = it) } } }
+                launch {
+                    compactions.feed.collect {
+                        updateState {
+                            copy(
+                                feedCollapse = FeedCollapseUi(it.isReasoningCollapsed, it.isToolCallsCollapsed),
+                            )
+                        }
+                    }
+                }
+                launch {
+                    entries.showsOrganism.collect {
+                        updateState {
+                            copy(
+                                isOrganismEnabled = it && host == StudioScreenHost.Window,
+                            )
+                        }
+                    }
+                }
                 launch { harnessSelection.observe(pipeline) }
-                launch { surfaceBinding.observe(pipeline) { paneId -> submit(pipeline, paneId) } }
+                launch {
+                    surfaceBinding.observe(pipeline) { paneId, isCurrent ->
+                        submitStudioDraft(pipeline, machine, harnesses, paneId, isCurrent = isCurrent)
+                    }
+                }
                 launch { organisms.observe(pipeline) }
-                launch { observeAttachmentOutputs(machines, pipeline) }
                 launch { observeResearch(pipeline) }
-                launch { appUpdate.observe(pipeline) }
+                if (host == StudioScreenHost.Window) launch { appUpdate.observe(pipeline) }
                 launch { observeComputerUse(pipeline) }
                 launch { observeEfforts(pipeline) }
                 launch { observeWorktrees(pipeline) }
@@ -180,7 +229,7 @@ class AiStudioModel(
                 launch { observeClock(pipeline) }
             }
         }
-        reduce { intent -> handle(this, intent) }
+        reduce { intent -> handle(this, intent, inputContexts.take(intent)) }
     }
 
     init {
@@ -190,6 +239,10 @@ class AiStudioModel(
             )
         }
         store.start(scope.coroutineScope)
+        // A remote screen lives through reconnect grace: its submission outputs must not lose their subscriber.
+        if (host == StudioScreenHost.Remote) {
+            scope.coroutineScope.launch { store.collect { awaitCancellation() } }
+        }
         scope.coroutineScope.launch { machine.send(AiStudioIntent.Public.Start) }
     }
 
@@ -377,16 +430,24 @@ class AiStudioModel(
             }
     }
 
-    private suspend fun handle(pipeline: StudioPipeline, intent: AiStudioScreenIntent) = with(pipeline) {
+    private suspend fun handle(
+        pipeline: StudioPipeline,
+        intent: AiStudioScreenIntent,
+        environment: StudioChatEnvironment?,
+    ) = with(
+        pipeline,
+    ) {
         when (intent) {
             is AiStudioScreenIntent.Navigation -> navigate(pipeline, intent)
-            is AiStudioScreenIntent.Composer -> compose(pipeline, intent)
-            is AiStudioScreenIntent.DiagramAction -> handleStudioDiagramAction(pipeline, machine, intent)
+            is AiStudioScreenIntent.Composer -> compose(pipeline, intent, environment)
+            is AiStudioScreenIntent.DiagramAction -> handleStudioDiagramAction(pipeline, machine, intent, environment)
             is AiStudioScreenIntent.SessionAction -> act(pipeline, intent)
             is AiStudioScreenIntent.Sidebar -> updateState { copy(sidebar = sidebar.reduce(intent)) }
             is AiStudioScreenIntent.Organism -> organisms.handle(pipeline, intent)
             is AiStudioScreenIntent.SelectHarness -> harnessSelection.select(pipeline, intent)
-            AiStudioScreenIntent.InstallAppUpdate -> appUpdate.install()
+            is AiStudioScreenIntent.RemoteApplied -> updateState { copy(remoteSeq = intent.seq) }
+            is AiStudioScreenIntent.Embed -> embeddedScreens.handle(pipeline, intent, environment)
+            AiStudioScreenIntent.InstallAppUpdate -> if (host == StudioScreenHost.Window) appUpdate.install()
         }
     }
 
@@ -432,11 +493,30 @@ class AiStudioModel(
     }
 
     /** A draft typed as `/compact` compacts the chat; anything else is sent as a prompt. */
-    private suspend fun submit(pipeline: StudioPipeline, paneId: Int) {
-        if (!compactStudioDraft(pipeline, compactions, paneId)) submitStudioDraft(pipeline, machine, harnesses, paneId)
+    private suspend fun submit(pipeline: StudioPipeline, paneId: Int, environment: StudioChatEnvironment?) {
+        var isPending = false
+        pipeline.withState { isPending = isAttachmentPending(paneId) }
+        if (isPending) {
+            log.i { "Submission waits for attachment import" }
+            return
+        }
+        if (!compactStudioDraft(
+                pipeline,
+                compactions,
+                paneId,
+            )
+        ) {
+            submitStudioDraft(pipeline, machine, harnesses, paneId, environment)
+        }
     }
 
-    private suspend fun compose(pipeline: StudioPipeline, intent: AiStudioScreenIntent.Composer) = with(pipeline) {
+    private suspend fun compose(
+        pipeline: StudioPipeline,
+        intent: AiStudioScreenIntent.Composer,
+        environment: StudioChatEnvironment?,
+    ) = with(
+        pipeline,
+    ) {
         when (intent) {
             is AiStudioScreenIntent.Worktree -> composeWorktree(pipeline, intent)
 
@@ -449,9 +529,9 @@ class AiStudioModel(
 
             is AiStudioScreenIntent.Suggestions -> suggestions.handle(pipeline, intent)
 
-            is AiStudioScreenIntent.Submit -> submit(pipeline, intent.paneId)
+            is AiStudioScreenIntent.Submit -> submit(pipeline, intent.paneId, environment)
 
-            is AiStudioScreenIntent.Attachment -> attach(pipeline, intent)
+            is AiStudioScreenIntent.Attachment -> attachmentInputs.handle(pipeline, intent)
 
             is AiStudioScreenIntent.Stop -> sendTo(machine, AiStudioIntent.Public.Stop(intent.sessionId))
 
@@ -474,93 +554,6 @@ class AiStudioModel(
                 log.i { "select approval: ${intent.approval}" }
                 val change = StudioSettingChange.Approval(intent.approval.toDomain())
                 selectSetting(pipeline, intent.paneId, change) { copy(approval = intent.approval.toDomain()) }
-            }
-        }
-    }
-
-    private suspend fun attach(pipeline: StudioPipeline, intent: AiStudioScreenIntent.Attachment) = with(pipeline) {
-        log.i { "Attachment action kind=${intent::class.simpleName.orEmpty()}" }
-        when (intent) {
-            is AiStudioScreenIntent.PickAttachments -> pickAttachments(pipeline, intent.paneId, null)
-
-            is AiStudioScreenIntent.ImportAttachments -> pickAttachments(pipeline, intent.paneId, intent.inputs)
-
-            is AiStudioScreenIntent.RemoveAttachment -> updateState {
-                val key = draftKey(intent.paneId)
-                copy(
-                    draftAttachments = (
-                        draftAttachments + (
-                            key to attachments(intent.paneId)
-                                .filterNot { it.id == intent.id }.toImmutableList()
-                        )
-                    ).toImmutableMap(),
-                )
-            }
-
-            is AiStudioScreenIntent.OpenAttachment -> attachmentNavigation.emit(
-                StudioAttachmentNavigation.Preview(intent.id),
-            )
-
-            is AiStudioScreenIntent.ExportAttachment -> attachmentNavigation.emit(
-                StudioAttachmentNavigation.Preview(intent.id, true),
-            )
-
-            is AiStudioScreenIntent.AttachmentsSelected -> appendAttachments(pipeline, intent.requestId, intent.files)
-
-            is AiStudioScreenIntent.AttachmentPreviewVisible -> updateState { withPreviewVisibility(intent) }
-        }
-    }
-
-    private suspend fun pickAttachments(pipeline: StudioPipeline, paneId: Int, inputs: List<NativeAttachmentUi>?) =
-        with(
-            pipeline,
-        ) {
-            withState {
-                if (!isAttachmentsEnabled) return@withState
-                val support = attachmentSupport(paneId) ?: return@withState
-                if (support.mediaTypes.isEmpty()) return@withState
-                val requestId = Uuid.random().toString()
-                val key = draftKey(paneId)
-                updateState {
-                    copy(
-                        attachmentRequests = (
-                            attachmentRequests.filterValues {
-                                it != key
-                            } + (requestId to key)
-                        ).toImmutableMap(),
-                        attachmentErrorPanes = (attachmentErrorPanes - paneId).toImmutableSet(),
-                    )
-                }
-                if (inputs == null) {
-                    log.i { "Open correlated attachment picker" }
-                    attachmentNavigation.emit(
-                        StudioAttachmentNavigation.Pick(requestId, support.toDomain()),
-                    )
-                } else {
-                    captureAttachments(pipeline, requestId, support, inputs)
-                }
-            }
-        }
-
-    private suspend fun captureAttachments(
-        pipeline: StudioPipeline,
-        requestId: String,
-        support: InputSupportUi,
-        inputs: List<NativeAttachmentUi>,
-    ) = with(pipeline) {
-        val captured = inputs.map {
-            when (it) {
-                is NativeAttachmentUi.File -> AttachmentInput.File(it.location)
-                is NativeAttachmentUi.Image -> AttachmentInput.Bytes("clipboard.png", "image/png", it.bytes)
-            }
-        }
-        val result = machines.send(
-            AttachmentsMachineKey,
-            AttachmentsIntent.Public.Import(requestId, captured, support.toDomain()),
-        )
-        if (result != SendResult.Accepted) {
-            updateState {
-                copy(attachmentRequests = (attachmentRequests - requestId).toImmutableMap())
             }
         }
     }

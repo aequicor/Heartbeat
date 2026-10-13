@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.contextwindowoptimization.api
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import kotlinx.serialization.Serializable
 
 /** How a compaction is preferably done; see [CompactionMethod]. */
@@ -108,6 +109,8 @@ public data class PendingCompaction(
     val method: CompactionMethod,
     val origin: CompactionOrigin,
     val instructions: String? = null,
+    /** Native source turn identity; never taken from model arguments. */
+    val sourceRequest: RequestId? = null,
 ) {
     init {
         require(instructions == null || instructions.isNotBlank())

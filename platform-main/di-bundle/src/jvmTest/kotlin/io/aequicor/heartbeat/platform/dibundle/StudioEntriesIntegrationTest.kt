@@ -10,9 +10,10 @@ import io.aequicor.heartbeat.feature.aistudio.impl.di.AiStudioGraph
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSessionViews
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModel
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatEnabled
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -59,7 +60,7 @@ class StudioEntriesIntegrationTest {
             flags.setOverride(ResearchChatEnabled, true)
             val profile = app.profileSessions.open(ProfileId("studio-entry"))
             val scope = app.scopes.child(profile.graph.scope, "studio-entry")
-            val graph = (profile.graph as AiStudioGraph.Factory).createAiStudio(scope)
+            val graph = (profile.graph as AiStudioGraph.Factory).createAiStudio(scope, StudioScreenHost.Window)
             val access = graph as StudioEntryTestAccessors
             assertSame((profile.graph as StudioHistoryTestAccessors).sessionViews, access.backend.sessionViews())
             val model = access.model

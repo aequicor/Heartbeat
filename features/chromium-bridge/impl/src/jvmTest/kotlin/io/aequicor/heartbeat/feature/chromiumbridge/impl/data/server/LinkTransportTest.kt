@@ -2,8 +2,8 @@ package io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server
 
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.NativeFraming
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.SocketFrameLink
-import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeErrorCode
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeProtocol
+import io.aequicor.heartbeat.feature.chromiumbridge.protocol.BridgeErrorCode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout

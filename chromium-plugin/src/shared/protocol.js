@@ -23,6 +23,7 @@ export const ErrorCode = Object.freeze({
   UNAVAILABLE: 'unavailable',
   BUSY: 'busy',
   UNKNOWN_CHAT: 'unknown_chat',
+  UNKNOWN_VIEW: 'unknown_view',
   NOT_CONTINUABLE: 'not_continuable',
   NO_MODEL: 'no_model',
   STALE_REQUEST: 'stale_request',

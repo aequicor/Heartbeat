@@ -48,6 +48,7 @@ public sealed interface QuestionnaireIntent : MachineIntent {
         public data class Answer(
             val id: QuestionnaireId,
             val answer: io.aequicor.heartbeat.feature.questionnaire.api.Answer,
+            val context: QuestionnaireAnswerContext? = null,
         ) : Public
 
         /** The source no longer needs [id] (answer delivered, turn ended or cancelled). */
@@ -64,7 +65,11 @@ public sealed interface QuestionnaireEffect : MachineEffect
 /** Events for sources. */
 public sealed interface QuestionnaireOutput : MachineOutput {
     /** The user answered [questionnaire]; its source delivers the answer and then withdraws the question. */
-    public data class Answered(val questionnaire: Questionnaire, val answer: Answer) : QuestionnaireOutput
+    public data class Answered(
+        val questionnaire: Questionnaire,
+        val answer: Answer,
+        val context: QuestionnaireAnswerContext? = null,
+    ) : QuestionnaireOutput
 
     /** [id] left the queue. */
     public data class Withdrawn(val id: QuestionnaireId) : QuestionnaireOutput
@@ -91,7 +96,8 @@ public object QuestionnaireMachineKey : MachineKey<
  * | Asking | Withdraw | pending, last one                       | Idle                       | Withdrawn |
  *
  * Everything else is ignored. The machine is a pure queue without effects; answers stay pending until the
- * source withdraws them, so a failed delivery can re-ask the same id.
+ * source withdraws them, so a failed delivery can re-ask the same id. Accepted answers relay native host context
+ * unchanged in their output, without storing it in queue state.
  * The machine lives in the profile scope, whose saved state is not persisted; open questions survive app restarts
  * through the questionnaire journal of the impl module, which asks them again (reopened) when the profile opens.
  */
@@ -112,7 +118,13 @@ public val QuestionnaireMachineSpec:
                     state.pending.any { it.id == intent.id && it.accepts(intent.answer) }
             }) {
                 stay { state.copy(submitting = state.submitting + intent.id) }
-                output { QuestionnaireOutput.Answered(state.pending.first { it.id == intent.id }, intent.answer) }
+                output {
+                    QuestionnaireOutput.Answered(
+                        state.pending.first { it.id == intent.id },
+                        intent.answer,
+                        intent.context,
+                    )
+                }
             }
             on<QuestionnaireIntent.Public.Withdraw>(guard = {
                 state.pending.any { it.id == intent.id } && state.pending.size > 1

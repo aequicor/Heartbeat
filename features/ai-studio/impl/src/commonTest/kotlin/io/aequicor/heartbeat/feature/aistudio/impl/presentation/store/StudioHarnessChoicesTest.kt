@@ -1,7 +1,17 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarness
-import io.aequicor.heartbeat.feature.aistudio.impl.ui.harnessChoices
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoiceUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoicesUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessOptionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.choosePane
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.pendingSubmission
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.prepareSubmission
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.queueSubmission
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.rejectSubmission
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.withoutPane
+import io.aequicor.heartbeat.feature.aistudio.screenui.harnessChoices
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.persistentSetOf
@@ -13,9 +23,9 @@ class StudioHarnessChoicesTest {
     private val state = AiStudioScreenState(
         harnessChoices = HarnessChoicesUi(
             options = persistentListOf(
-                StudioHarness("compose", "Compose"),
-                StudioHarness("verify", "Verify"),
-                StudioHarness("chosen", "Chosen"),
+                HarnessOptionUi("compose", "Compose"),
+                HarnessOptionUi("verify", "Verify"),
+                HarnessOptionUi("chosen", "Chosen"),
             ),
             chats = persistentMapOf("chat" to persistentSetOf("chosen")),
             panes = persistentMapOf(1 to persistentSetOf("chosen")),
@@ -59,7 +69,7 @@ class StudioHarnessChoicesTest {
             panes = persistentListOf(PaneUi(0)),
             drafts = persistentMapOf("pane:0" to "Question"),
             harnessChoices = HarnessChoicesUi(
-                options = persistentListOf(StudioHarness("chosen", "Chosen")),
+                options = persistentListOf(HarnessOptionUi("chosen", "Chosen")),
                 panes = persistentMapOf(0 to persistentSetOf("chosen")),
             ),
         )

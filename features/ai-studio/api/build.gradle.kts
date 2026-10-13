@@ -11,6 +11,8 @@ kotlin {
             api(projects.core.stateMachine.api)
             api(projects.core.navigation.api)
             api(projects.core.featureToggles.api)
+            // Remote studio views exchange the screen model's JSON (StudioRemoteScreens).
+            api(libs.kotlinx.serialization.json)
         }
     }
 }

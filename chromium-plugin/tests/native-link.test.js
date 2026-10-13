@@ -22,7 +22,7 @@ function setup(overrides = {}) {
     chrome: fake.chrome,
     extensionVersion: '0.1.0',
     browser: { brand: 'Google Chrome', version: '140' },
-    capabilities: () => ['chat'],
+    capabilities: () => ['studio'],
     onStatus: (status) => statuses.push(status),
     onEvent: (event, params) => events.push([event, params]),
     timers,
@@ -49,18 +49,18 @@ test('hello is sent once the host reports Heartbeat and carries version, browser
 
   assert.deepEqual(port.posted[0], fixture('hello-request'));
   assert.deepEqual(context.statuses, ['connecting', 'handshaking', 'ready']);
-  assert.deepEqual(context.link.hello?.features, { chat: true, agentControl: false });
+  assert.deepEqual(context.link.hello?.features, { studio: true, agentControl: false });
 });
 
 test('requests resolve with results and reject with bridge errors', async () => {
   const context = setup();
   const port = await ready(context);
 
-  const ok = context.link.request('chats.watch');
+  const ok = context.link.request('studio.watch');
   port.deliver({ kind: 'res', id: port.last().id, result: { watch: 'w1' } });
   assert.deepEqual(await ok, { watch: 'w1' });
 
-  const refused = context.link.request('chat.send', { text: 'x' });
+  const refused = context.link.request('studio.intent', { text: 'x' });
   port.deliver({ kind: 'res', id: port.last().id, error: { code: 'busy', message: 'Chat is running' } });
   await assert.rejects(refused, (error) => error instanceof BridgeError && error.code === 'busy');
 });
@@ -69,15 +69,15 @@ test('requests time out and fail when Heartbeat goes away', async () => {
   const context = setup();
   const port = await ready(context);
 
-  const slow = context.link.request('chats.watch', {}, 1_000);
+  const slow = context.link.request('studio.watch', {}, 1_000);
   context.timers.advance(1_001);
   await assert.rejects(slow, (error) => error instanceof BridgeError && error.code === 'timeout');
 
-  const abandoned = context.link.request('chats.watch');
+  const abandoned = context.link.request('studio.watch');
   port.deliver({ kind: 'host', state: 'waiting' });
   await assert.rejects(abandoned, (error) => error instanceof BridgeError && error.code === 'unavailable');
   assert.equal(context.link.status, 'waiting_for_app');
-  await assert.rejects(context.link.request('chats.watch'), (error) => error.code === 'unavailable');
+  await assert.rejects(context.link.request('studio.watch'), (error) => error.code === 'unavailable');
 });
 
 test('an unregistered host is reported and retried with backoff', () => {
@@ -138,15 +138,15 @@ test('app calls are answered and local failures keep their messages private', as
 test('chunked events are reassembled and feature updates refresh the hello result', async () => {
   const context = setup();
   const port = await ready(context);
-  const event = { kind: 'evt', event: 'chat.changed', params: { text: 'Ж'.repeat(10) } };
+  const event = { kind: 'evt', event: 'studio.changed', params: { text: 'Ж'.repeat(10) } };
   const bytes = Buffer.from(JSON.stringify(event), 'utf8');
 
   port.deliver({ kind: 'chunk', of: 'c:1', seq: 1, count: 2, data: bytes.subarray(5).toString('base64') });
   port.deliver({ kind: 'chunk', of: 'c:1', seq: 0, count: 2, data: bytes.subarray(0, 5).toString('base64') });
-  port.deliver({ kind: 'evt', event: 'app.features', params: { chat: false, agentControl: false } });
+  port.deliver({ kind: 'evt', event: 'app.features', params: { studio: false, agentControl: false } });
 
-  assert.deepEqual(context.events[0], ['chat.changed', { text: 'Ж'.repeat(10) }]);
-  assert.deepEqual(context.link.hello?.features, { chat: false, agentControl: false });
+  assert.deepEqual(context.events[0], ['studio.changed', { text: 'Ж'.repeat(10) }]);
+  assert.deepEqual(context.link.hello?.features, { studio: false, agentControl: false });
 });
 
 test('a reconnect after the port closes performs a fresh handshake', async () => {
@@ -192,7 +192,7 @@ test('completed old handshake cannot restore ready after the app disconnects', a
 test('app reconnect clears partial chunks before the new app reuses chunk ids', async () => {
   const context = setup();
   const port = await ready(context);
-  const event = { kind: 'evt', event: 'chat.changed', params: { text: 'fresh' } };
+  const event = { kind: 'evt', event: 'studio.changed', params: { text: 'fresh' } };
   const bytes = Buffer.from(JSON.stringify(event));
   const first = { kind: 'chunk', of: 'c:1', seq: 0, count: 2, data: bytes.subarray(0, 5).toString('base64') };
   port.deliver(first);
@@ -200,5 +200,5 @@ test('app reconnect clears partial chunks before the new app reuses chunk ids', 
   await ready(context);
   port.deliver(first);
   port.deliver({ ...first, seq: 1, data: bytes.subarray(5).toString('base64') });
-  assert.deepEqual(context.events, [['chat.changed', { text: 'fresh' }]]);
+  assert.deepEqual(context.events, [['studio.changed', { text: 'fresh' }]]);
 });

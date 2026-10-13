@@ -2,7 +2,15 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
-import io.aequicor.heartbeat.feature.aistudio.impl.ui.sidebarInput
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.EnvironmentUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PermissionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.collapsed
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.sidebarContent
+import io.aequicor.heartbeat.feature.aistudio.screenui.sidebarInput
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentSetOf
 import kotlin.test.Test

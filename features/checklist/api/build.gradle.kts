@@ -6,6 +6,7 @@ plugins {
 kotlin {
     sourceSets {
         commonMain.dependencies {
+            api(libs.kotlinx.serialization.json)
             api(projects.core.stateMachine.api)
             api(projects.core.navigation.api)
             api(projects.core.featureToggles.api)

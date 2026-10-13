@@ -1,9 +1,15 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import io.aequicor.heartbeat.core.logging.HighFrequency
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.COMPACT_COMMAND
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ComposerSuggestionsUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SuggestionKindUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SuggestionOriginUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SuggestionUi
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssistOrigin
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion
@@ -62,11 +68,6 @@ internal fun ComposerTrigger.tokenKey(): String {
     return "$kind:${range.first}:$query"
 }
 
-/** The caret follows the end of a programmatic draft replacement until the editor reports a position. */
-internal fun AiStudioScreenState.withDraftCaret(paneId: Int, caret: Int): AiStudioScreenState = copy(
-    draftCarets = (draftCarets + (draftKey(paneId) to caret)).toImmutableMap(),
-)
-
 /** Removes the pane's suggestions together with their pending query. */
 internal fun AiStudioScreenState.withoutSuggestions(paneId: Int): AiStudioScreenState = copy(
     composerSuggestions = (composerSuggestions - draftKey(paneId)).toImmutableMap(),
@@ -111,7 +112,7 @@ internal fun ComposerSuggestion.toUi(): SuggestionUi = SuggestionUi(
     },
     origin = when (val apiOrigin = origin) {
         is ComposerAssistOrigin.Heartbeat -> SuggestionOriginUi.Heartbeat
-        is ComposerAssistOrigin.Engine -> SuggestionOriginUi(apiOrigin.engine)
+        is ComposerAssistOrigin.Engine -> SuggestionOriginUi(apiOrigin.engine.value)
     },
     insert = when (this) {
         is ComposerSuggestion.Command -> insert
@@ -151,5 +152,5 @@ internal fun SuggestionUi.toCompletion(): ComposerSuggestion = when (kind) {
 }
 
 private fun SuggestionOriginUi.toApi(): ComposerAssistOrigin = engine
-    ?.let(ComposerAssistOrigin::Engine)
+    ?.let { ComposerAssistOrigin.Engine(EngineId(it)) }
     ?: ComposerAssistOrigin.Heartbeat

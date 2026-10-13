@@ -27,6 +27,9 @@ class EngineStudioEffects(
 ) : EffectHandler<AiStudioEffect, AiStudioIntent> {
     private val log = Log.tag("EngineStudioEffects")
 
+    /** Identity of this screen's usage targets; another screen of the profile keeps its own. */
+    private val usageOwner = Any()
+
     override suspend fun handle(effect: AiStudioEffect, machine: EffectScope<AiStudioIntent>) {
         when (effect) {
             AiStudioEffect.Load -> machine.send(
@@ -60,6 +63,7 @@ class EngineStudioEffects(
             )
 
             is AiStudioEffect.CreateSession -> {
+                requireBrowserCreationSupport(effect)
                 val session = repository.createSession(
                     effect.projectId,
                     titleOf(effect.prompt),
@@ -75,6 +79,7 @@ class EngineStudioEffects(
                         effect.requestId,
                         effect.attachments,
                         effect.submissionId,
+                        effect.environment,
                     ),
                 )
             }
@@ -103,6 +108,7 @@ class EngineStudioEffects(
             effect.settings,
             effect.attachments,
             effect.submissionId,
+            effect.environment,
         ) {
             isAccepted = true
             if (effect.submissionId.isNotEmpty()) {
@@ -140,14 +146,19 @@ class EngineStudioEffects(
             runtime.state.collect { machine.send(AiStudioIntent.Internal.RuntimeChanged(it)) }
         } finally {
             // Scope destruction may stop the machine before the store can send its detach intent.
-            withContext(NonCancellable) { runtime.observeUsageTargets(emptySet()) }
+            withContext(NonCancellable) { runtime.observeUsageTargets(usageOwner, emptySet()) }
         }
     }
 
     private suspend fun usage(effect: AiStudioEffect.Usage) {
         when (effect) {
-            is AiStudioEffect.ObserveUsageTargets -> runtime.observeUsageTargets(effect.modelIds)
+            is AiStudioEffect.ObserveUsageTargets -> runtime.observeUsageTargets(usageOwner, effect.modelIds)
             is AiStudioEffect.RefreshUsage -> runtime.refreshUsage(effect.modelId)
         }
     }
+}
+
+/** Outside turns cannot route independently created organism child sessions. */
+private fun requireBrowserCreationSupport(effect: AiStudioEffect.CreateSession) {
+    check(effect.environment == null || !effect.isOrganism) { "Browser-hosted organisms are unavailable" }
 }

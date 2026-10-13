@@ -1,9 +1,13 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
-
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPane
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModelTest.Fixture
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AppUpdateFailureUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AppUpdateStageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.AppUpdateUi
 import io.aequicor.heartbeat.feature.appupdate.api.AppRelease
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateFailure
 import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateIntent
@@ -81,6 +85,22 @@ class StudioAppUpdateTest {
         val screen = fixture.subscribe()
         runCurrent()
         assertNull(screen.states.value.appUpdate)
+    }
+
+    @Test
+    fun `a remote host neither observes nor installs native app updates`() = runTest {
+        val fixture = Fixture(
+            this,
+            ready,
+            host = StudioScreenHost.Remote,
+        )
+        val screen = fixture.subscribe()
+        fixture.efforts.appUpdate.state.value = AppUpdateState.Available(release)
+        fixture.model.store.intent(AiStudioScreenIntent.InstallAppUpdate)
+        runCurrent()
+
+        assertNull(screen.states.value.appUpdate)
+        assertEquals(emptyList(), fixture.efforts.appUpdate.sent)
     }
 
     @Test

@@ -24,6 +24,17 @@ class QuestionnaireMachineTest {
     private val asking = QuestionnaireState.Asking(listOf(pick))
 
     @Test
+    fun `accepted answers relay trusted context without storing it in queue state`() {
+        val context = object : QuestionnaireAnswerContext { }
+        spec.assertTransition(
+            asking,
+            QuestionnaireIntent.Public.Answer(pick.id, Answer.Selected(listOf("a")), context),
+            asking.copy(submitting = setOf(pick.id)),
+            outputs = listOf(QuestionnaireOutput.Answered(pick, Answer.Selected(listOf("a")), context)),
+        )
+    }
+
+    @Test
     fun `ask from idle starts asking and appends or replaces later questions`() {
         spec.assertTransition(QuestionnaireState.Idle, QuestionnaireIntent.Public.Ask(pick), asking)
         spec.assertTransition(

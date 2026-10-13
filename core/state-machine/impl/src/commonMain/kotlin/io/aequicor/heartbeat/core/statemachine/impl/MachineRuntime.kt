@@ -46,11 +46,17 @@ internal class MachineRuntime :
         spec: MachineSpec<S, I, E, O>,
         scope: ScopeHandle,
         effects: EffectHandler<E, I>,
+        isAddressable: Boolean,
     ): Machine<S, I, O> {
         check(!scope.isClosed) { "${spec.name}: cannot launch in closed scope ${scope.name}" }
         val slot = slot(spec.key) // fails on a name clash before anything is started
         val machine = RunningMachine(spec, scope, effects)
         machine.start()
+        if (!isAddressable) {
+            scope.onClose { machine.stop() }
+            Log.tag("SM/${spec.name}").v { "started unaddressable in ${scope.name}" }
+            return machine
+        }
         val ref = RegistryRef(machine)
         scope.onClose {
             machine.stop()

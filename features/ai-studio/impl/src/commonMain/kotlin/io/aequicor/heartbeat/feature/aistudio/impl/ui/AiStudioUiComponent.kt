@@ -23,6 +23,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.SidePa
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.StudioNoDialog
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.interface_panel
+import io.aequicor.heartbeat.feature.aistudio.screenui.StudioEmbed
+import io.aequicor.heartbeat.feature.aistudio.screenui.StudioExits
 import kotlinx.collections.immutable.toImmutableMap
 import org.jetbrains.compose.resources.stringResource
 
@@ -37,26 +39,26 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
         val checklistHosts by component.checklists.collectAsState()
         val checklists = remember(checklistHosts) {
             checklistHosts.mapNotNull { (id, host) ->
-                (host.stack.value.active.instance as? ComposableComponent)?.let { id to it }
+                (host.stack.value.active.instance as? ComposableComponent)?.let { id to it.asStudioEmbed() }
             }.toMap().toImmutableMap()
         }
         val slotHosts by component.slots.collectAsState()
         val slots = remember(slotHosts) {
             slotHosts.mapNotNull { (key, host) ->
-                (host.stack.value.active.instance as? ComposableComponent)?.let { key to it }
+                (host.stack.value.active.instance as? ComposableComponent)?.let { key to it.asStudioEmbed() }
             }.toMap().toImmutableMap()
         }
         val cardHosts by component.cards.collectAsState()
         val cards = remember(cardHosts) {
             cardHosts.mapNotNull { (id, host) ->
-                (host.stack.value.active.instance as? ComposableComponent)?.let { id to it }
+                (host.stack.value.active.instance as? ComposableComponent)?.let { id to it.asStudioEmbed() }
             }.toMap().toImmutableMap()
         }
         val hosts by component.questions.collectAsState()
         // Each host has one fixed entry, so its component never changes.
         val questions = remember(hosts) {
             hosts.mapNotNull { (session, host) ->
-                (host.stack.value.active.instance as? ComposableComponent)?.let { session to it }
+                (host.stack.value.active.instance as? ComposableComponent)?.let { session to it.asStudioEmbed() }
             }.toMap().toImmutableMap()
         }
         val isUnifiedSettingsShown by component.showsUnifiedSettings.collectAsState(false)
@@ -94,7 +96,8 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
         }
         // Any entry above the studio's own chat (research) takes over the chat area; the sidebar
         // stays.
-        val chatArea = workspace.active.instance as? ComposableComponent
+        val chatAreaComponent = workspace.active.instance as? ComposableComponent
+        val chatArea = remember(chatAreaComponent) { chatAreaComponent?.asStudioEmbed() }
         val sideMode = when (side) {
             SidePanelUi.Browser -> browserMode
             SidePanelUi.Interface -> BrowserPaneMode.Panel
@@ -106,6 +109,12 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
         val dialogs by component.dialogs.stack.subscribeAsState()
         if (dialogs.active.instance !== StudioNoDialog) NavStack(component.dialogs)
     }
+}
+
+/** A navigation component drawn inside the studio screen. */
+private fun ComposableComponent.asStudioEmbed(): StudioEmbed = object : StudioEmbed {
+    @Composable
+    override fun Content(modifier: Modifier) = this@asStudioEmbed.Content(modifier)
 }
 
 /** The browser, or the interface panel of the window drawn like the browser panel, within the window insets. */

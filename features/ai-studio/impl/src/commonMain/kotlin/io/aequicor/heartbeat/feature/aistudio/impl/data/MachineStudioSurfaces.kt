@@ -1,9 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
-import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
-import dev.zacsweers.metro.binding
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.MachineRef
@@ -46,7 +44,6 @@ private typealias SurfaceMachine = MachineRef<ServiceUiState, ServiceUiIntent.Pu
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 @SingleIn(AiStudioScope::class)
-@ContributesBinding(AiStudioScope::class, binding = binding<StudioSurfaces>())
 @Inject
 internal class MachineStudioSurfaces(private val machines: MachineRegistry, toggles: FeatureToggles) :
     StudioSurfaces {

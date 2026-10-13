@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.kotlinSerialization)
     alias(libs.plugins.heartbeat.kmp.library)
+    alias(libs.plugins.heartbeat.kmp.wasm)
     alias(libs.plugins.heartbeat.metro)
 }
 

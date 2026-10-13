@@ -20,9 +20,17 @@ test('the manifest is a module service worker without page-facing entry points',
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.background.type, 'module');
   for (const forbidden of ['content_scripts', 'externally_connectable', 'web_accessible_resources',
-    'content_security_policy', 'host_permissions', 'update_url']) {
+    'host_permissions', 'update_url']) {
     assert.equal(manifest[forbidden], undefined, forbidden);
   }
+});
+
+test('extension pages may only compile their own WebAssembly on top of the MV3 default policy', () => {
+  // The Compose side panel is Kotlin/Wasm; Chrome supports WasmGC from 119.
+  assert.deepEqual(manifest.content_security_policy, {
+    extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
+  });
+  assert.ok(Number(manifest.minimum_chrome_version) >= 119);
 });
 
 test('permissions are exactly the reviewed set', () => {
@@ -39,4 +47,12 @@ test('permissions are exactly the reviewed set', () => {
     'tabs',
   ]);
   assert.deepEqual(manifest.optional_host_permissions, ['http://*/*', 'https://*/*']);
+});
+
+test('the side panel starts only the bundled Compose application', () => {
+  assert.equal(manifest.side_panel.default_path, 'src/sidepanel/panel.html');
+  const html = readFileSync(new URL('../src/sidepanel/panel.html', import.meta.url), 'utf8');
+  assert.ok(html.includes('src="panel-boot.js"'));
+  assert.ok(html.includes('src="../../app/panel.js"'));
+  assert.ok(!html.includes('sidepanel.js'));
 });

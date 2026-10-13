@@ -59,6 +59,27 @@ def is_base_sync(commit, base, cwd=None):
     return len(parents) == 2 and is_ancestor(parents[1], base, cwd)
 
 
+def repeated_deletions(commit, cwd=None):
+    """Paths absent in both feature and result, but present in every common base.
+
+    Their deletion was already measured in the feature history. New upstream files
+    and files restored by the merge must still be included in the remerge diff.
+    """
+    parents = git("rev-list", "--parents", "--max-count=1", commit, cwd=cwd).decode().split()[1:]
+    if len(parents) != 2:
+        return []
+    bases = git("merge-base", "--all", *parents, cwd=cwd).decode().splitlines()
+    repeated = None
+    for base in bases:
+        for tip in (parents[0], commit):
+            paths = set(git(
+                "diff", "--no-ext-diff", "--no-textconv", "--no-relative", "--no-renames",
+                "--diff-filter=D", "--name-only", "-z", base, tip, "--", cwd=cwd,
+            ).split(b"\0")) - {b""}
+            repeated = paths if repeated is None else repeated & paths
+    return sorted(repeated or ())
+
+
 def read_diff(commit=None, cwd=None, base_sync=False):
     """Base syncs are measured by their remerge diff: only the manual conflict resolution needs review."""
     if commit is None:
@@ -67,21 +88,30 @@ def read_diff(commit=None, cwd=None, base_sync=False):
         merges = "remerge" if base_sync else "first-parent"
         command = ("show", "--format=", "--no-notes", "--no-show-signature",
                    f"--diff-merges={merges}", commit)
-    patch = git(*command, *DIFF_OPTIONS, "--patch", "--", cwd=cwd)
     numstat = git(*command, *DIFF_OPTIONS, "--no-patch", "--numstat", "-z", "--", cwd=cwd)
+    changed = [path for _, _, paths in stat_records(numstat) for path in paths]
+    candidates = repeated_deletions(commit, cwd) if commit and base_sync else ()
+    # Even a literal Git pathspec recursively selects a directory of the same name.
+    excluded = [path for path in candidates if not any(p.startswith(path + b"/") for p in changed)]
+    paths = tuple(f":(top,literal,exclude){os.fsdecode(path)}" for path in excluded)
+    patch = git(*command, *DIFF_OPTIONS, "--patch", "--", *paths, cwd=cwd)
+    if paths:
+        numstat = git(*command, *DIFF_OPTIONS, "--no-patch", "--numstat", "-z", "--", *paths, cwd=cwd)
     return patch.decode("utf-8", errors="replace"), numstat
+
+
+def stat_records(numstat):
+    records = iter(numstat.split(b"\0"))
+    for record in records:
+        if record:
+            added, deleted, path = record.split(b"\t", 2)
+            paths = (path,) if path else (next(records), next(records))
+            yield added, deleted, paths
 
 
 def read_stats(numstat):
     files = lines = binaries = 0
-    records = iter(numstat.split(b"\0"))
-    for record in records:
-        if not record:
-            continue
-        added, deleted, path = record.split(b"\t", 2)
-        if not path:  # A rename has two additional NUL-terminated paths.
-            next(records)
-            next(records)
+    for added, deleted, _ in stat_records(numstat):
         files += 1
         if added == b"-":
             binaries += 1

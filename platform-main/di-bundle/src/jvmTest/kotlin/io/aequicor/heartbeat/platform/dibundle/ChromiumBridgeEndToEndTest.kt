@@ -22,7 +22,6 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
@@ -42,7 +41,7 @@ import kotlin.test.assertTrue
 
 /**
  * The bridge as the extension sees it: a client speaking the native host's framing on the app socket shakes hands,
- * watches the chat list and is shown in the bridge state; with agent control on, the `ex_control_*` tools exist.
+ * checks studio availability and is shown in the bridge state; with agent control on, the `ex_control_*` tools exist.
  */
 class ChromiumBridgeEndToEndTest {
     private val persisted = PersistedProfile()
@@ -63,7 +62,7 @@ class ChromiumBridgeEndToEndTest {
     }
 
     @Test
-    fun `an extension connects through the socket and watches the chats`() = runTest {
+    fun `an extension connects through the socket and checks studio availability`() = runTest {
         if (!isSupported) return@runTest
         toggles.toggleControl.setOverride(ChromiumBridgeEnabled, true)
         toggles.toggleControl.setOverride(ChromiumBridgeAgentControl, true)
@@ -77,17 +76,17 @@ class ChromiumBridgeEndToEndTest {
             extension.write("""{"kind":"host","origin":"$ORIGIN","hostVersion":1}""")
             extension.write(HELLO)
             val hello = bounded("hello") { extension.response("e:1") }
-            extension.write("""{"kind":"req","id":"e:2","method":"chats.watch","params":{}}""")
-            val watch = bounded("chats.watch") { extension.response("e:2") }
-            val chats = bounded("chats.changed") { extension.event("chats.changed") }
+            extension.write(
+                """{"kind":"req","id":"e:2","method":"studio.watch","params":{"view":"test","schema":"unused"}}""",
+            )
+            val watch = bounded("studio.watch") { extension.response("e:2") }
 
             val result = hello.getValue("result").jsonObject
             assertEquals(1, result.getValue("protocol").jsonPrimitive.int)
-            // Profile chats are off by default: the panel is told so instead of getting an empty studio.
-            assertEquals(false, result.getValue("features").jsonObject.getValue("chat").jsonPrimitive.boolean)
+            // Studio views are off by default: the panel is told so instead of getting an empty studio.
+            assertEquals(false, result.getValue("features").jsonObject.getValue("studio").jsonPrimitive.boolean)
             assertEquals(true, result.getValue("features").jsonObject.getValue("agentControl").jsonPrimitive.boolean)
-            assertEquals(watch.getValue("result").jsonObject["watch"], chats["watch"])
-            assertTrue(chats.getValue("chats").jsonArray.isEmpty())
+            assertEquals("unavailable", watch.getValue("error").jsonObject.getValue("code").jsonPrimitive.content)
             val connected = bounded("connection shown") {
                 machine.state.first { (it as? ChromiumBridgeState.Enabled)?.connections?.isNotEmpty() == true }
             } as ChromiumBridgeState.Enabled
@@ -158,10 +157,6 @@ class ChromiumBridgeEndToEndTest {
             it["kind"]?.jsonPrimitive?.content == "res" && it["id"]?.jsonPrimitive?.content == id
         }
 
-        suspend fun event(name: String): JsonObject = next {
-            it["kind"]?.jsonPrimitive?.content == "evt" && it["event"]?.jsonPrimitive?.content == name
-        }.getValue("params").jsonObject
-
         /** The next frame, or `null` once the app closed the connection. */
         suspend fun readOrEnd(): JsonObject? = runInterruptible(Dispatchers.IO) {
             val header = ByteBuffer.allocate(Int.SIZE_BYTES).order(ByteOrder.LITTLE_ENDIAN)
@@ -198,6 +193,6 @@ class ChromiumBridgeEndToEndTest {
         const val ORIGIN = "chrome-extension://dngnkjkjppehmiaebojfebjcfkcpdjki/"
         const val HELLO = """{"kind":"req","id":"e:1","method":"hello","params":{"protocol":[1],""" +
             """"extension":{"version":"0.1.0"},"browser":{"brand":"Google Chrome","version":"140"},""" +
-            """"capabilities":["chat"]}}"""
+            """"capabilities":["studio"]}}"""
     }
 }

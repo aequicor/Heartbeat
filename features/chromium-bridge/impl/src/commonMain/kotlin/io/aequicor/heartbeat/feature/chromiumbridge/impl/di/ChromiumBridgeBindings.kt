@@ -17,7 +17,7 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileStartup
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
-import io.aequicor.heartbeat.feature.aistudio.api.StudioChats
+import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteScreens
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeAgentControl
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeEffect
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeEnabled
@@ -59,8 +59,8 @@ public object ChromiumBridgeBindings {
     /** Features offered to extensions. */
     @Provides
     @SingleIn(ProfileScope::class)
-    internal fun features(toggles: FeatureToggles, chats: StudioChats): ToggleBridgeFeatures =
-        ToggleBridgeFeatures(toggles, chats)
+    internal fun features(toggles: FeatureToggles, studio: StudioRemoteScreens): ToggleBridgeFeatures =
+        ToggleBridgeFeatures(toggles, studio)
 }
 
 /**

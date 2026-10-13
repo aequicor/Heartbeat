@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.checklist.impl.di
 import com.arkivanov.decompose.ComponentContext
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.BindingContainer
+import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.GraphExtension
@@ -28,19 +29,26 @@ import io.aequicor.heartbeat.feature.checklist.api.ChecklistEnabled
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistIntent
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistMachineSpec
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistOutput
+import io.aequicor.heartbeat.feature.checklist.api.ChecklistRemoteScreen
+import io.aequicor.heartbeat.feature.checklist.api.ChecklistRemoteScreens
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistRoute
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistState
 import io.aequicor.heartbeat.feature.checklist.impl.data.ChecklistBus
 import io.aequicor.heartbeat.feature.checklist.impl.data.ChecklistEffects
 import io.aequicor.heartbeat.feature.checklist.impl.di.scope.ChecklistScope
 import io.aequicor.heartbeat.feature.checklist.impl.presentation.component.ChecklistComponent
+import io.aequicor.heartbeat.feature.checklist.impl.presentation.remote.RemoteChecklistScreen
 import io.aequicor.heartbeat.feature.checklist.impl.ui.ChecklistUiComponent
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /** Screen graph of one checklist card, retained by its navigation entry under the profile. */
 @GraphExtension(ChecklistScope::class)
 interface ChecklistGraph {
     val factory: ChecklistComponent.Factory
+
+    /** Remote facade over the same source/card model. */
+    val remote: RemoteChecklistScreen
 
     /** Creates the graph of a checklist card. */
     @ContributesTo(ProfileScope::class)
@@ -103,4 +111,31 @@ internal class ChecklistRouteEntry(
     override fun create(route: ChecklistRoute, context: ComponentContext, navigator: Navigator): NavComponent =
         context.retainedGraph(scopes, profile, name = "checklist") { graphs.create(route, it) }
             .factory.create(context).let { ChecklistUiComponent(it) }
+}
+
+/** Remote children have independent drafts and close with their owning studio view. */
+@ContributesBinding(ProfileScope::class)
+@Inject
+internal class ProfileChecklistRemoteScreens(
+    private val scopes: ScopeFactory,
+    @ForScope(ProfileScope::class) private val profile: ScopeHandle,
+    private val graphs: ChecklistGraph.Factory,
+) : ChecklistRemoteScreens {
+    override fun open(id: String): ChecklistRemoteScreen {
+        val scope = scopes.child(profile, "remote-checklist")
+        return try {
+            val model = graphs.create(ChecklistRoute(id), scope).remote
+            object : ChecklistRemoteScreen {
+                override val states = model.states
+                override suspend fun dispatch(intent: kotlinx.serialization.json.JsonObject) = model.dispatch(intent)
+                override fun close() = scope.close()
+            }
+        } catch (error: CancellationException) {
+            scope.close()
+            throw error
+        } catch (error: Exception) {
+            scope.close()
+            throw error
+        }
+    }
 }

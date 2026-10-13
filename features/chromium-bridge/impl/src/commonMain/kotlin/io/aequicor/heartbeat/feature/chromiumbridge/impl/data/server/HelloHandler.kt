@@ -1,13 +1,13 @@
 package io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server
 
 import io.aequicor.heartbeat.core.logging.Log
-import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeErrorCode
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeFeatureSet
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeProtocol
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.HelloApp
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.HelloLimits
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.HelloParams
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.HelloResult
+import io.aequicor.heartbeat.feature.chromiumbridge.protocol.BridgeErrorCode
 
 /**
  * The handshake: agrees on the protocol version, records the client and tells the extension which features the app
