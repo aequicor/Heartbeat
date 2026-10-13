@@ -15,8 +15,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiEnabled
+import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiLimits
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiState
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiTools
+import io.aequicor.heartbeat.feature.serviceasui.api.UiCallContext
+import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodResult
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwner
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwnerInfo
 import io.aequicor.heartbeat.feature.serviceasui.api.UiPlacement
@@ -30,6 +33,11 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiWriteOp
 import io.aequicor.heartbeat.feature.serviceasui.api.UiWriteOrigin
 import io.aequicor.heartbeat.feature.serviceasui.impl.data.RESULT_BYTES
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiMachine
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCard
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardAdded
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardLimits
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardSource
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardStorage
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiMethodCalls
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiNode
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpecCheck
@@ -71,6 +79,7 @@ import kotlin.uuid.Uuid
 internal class ServiceUiAgentTools(
     private val machine: Lazy<ServiceUiMachine>,
     private val calls: Lazy<UiMethodCalls>,
+    private val cards: Lazy<UiCardStorage>,
     private val toggles: FeatureToggles,
     private val clock: Clock,
 ) : AgentToolContribution {
@@ -96,7 +105,13 @@ internal class ServiceUiAgentTools(
         context: AgentToolContext,
         spec: AgentToolSpec,
         arguments: JsonObject,
-    ): Boolean = (plan(spec.name, arguments) as? Plan.Write)?.isAlwaysAsked == true
+    ): Boolean = when (spec.name) {
+        ServiceUiTools.SHOW -> inlineSpec(
+            arguments,
+        )?.let { it is UiSpecCheck.Valid && it.spec.bodies.any { body -> body.hasWeb() } } == true
+
+        else -> (plan(spec.name, arguments) as? Plan.Write)?.isAlwaysAsked == true
+    }
 
     override suspend fun approval(
         context: AgentToolContext,
@@ -104,8 +119,24 @@ internal class ServiceUiAgentTools(
         arguments: JsonObject,
     ): AgentToolApproval = when (val plan = plan(spec.name, arguments)) {
         is Plan.Write -> plan.approval.copy(name = spec.name)
+
         is Plan.Invalid -> AgentToolApproval(spec.name, spec.description, "Request will be refused: ${plan.message}")
-        Plan.None -> AgentToolApproval(spec.name, spec.description)
+
+        Plan.None -> when (spec.name) {
+            ServiceUiTools.SHOW -> AgentToolApproval(
+                spec.name,
+                "Show the card “${arguments.text("title").orEmpty()}”",
+                arguments["spec"]?.let { PrettyJson.encodeToString(JsonElement.serializer(), it) },
+            )
+
+            ServiceUiTools.CALL -> AgentToolApproval(
+                spec.name,
+                "Call ${arguments.text("method").orEmpty()} of ${arguments.text("owner").orEmpty()}",
+                (arguments["args"] as? JsonObject)?.let { PrettyJson.encodeToString(JsonObject.serializer(), it) },
+            )
+
+            else -> AgentToolApproval(spec.name, spec.description)
+        }
     }
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
@@ -120,6 +151,10 @@ internal class ServiceUiAgentTools(
             ServiceUiTools.GET -> get(arguments)
 
             ServiceUiTools.PUT, ServiceUiTools.DELETE -> write(context, name, arguments)
+
+            ServiceUiTools.SHOW -> show(context, arguments)
+
+            ServiceUiTools.CALL -> callMethod(context, arguments)
 
             else -> failure("unknown interface tool")
         }
@@ -179,6 +214,66 @@ internal class ServiceUiAgentTools(
             put("spec", spec)
         }
         return AgentToolResult(result.toString())
+    }
+
+    private suspend fun show(context: AgentToolContext, arguments: JsonObject): AgentToolResult {
+        val title = arguments.text("title")?.takeIf { it.length <= ServiceUiLimits.TITLE_CHARS }
+            ?: return failure("title is required, at most ${ServiceUiLimits.TITLE_CHARS} characters")
+        val surface = arguments.text("surface")
+        val inline = inlineSpec(arguments)
+        val source = when {
+            (inline == null) == (surface == null) -> return failure("give either spec or surface")
+
+            inline is UiSpecCheck.Invalid -> return failure(
+                "the spec is invalid:\n" + inline.diagnostics.joinToString("\n") { it.describe() },
+            )
+
+            inline != null -> UiCardSource.Inline(requireNotNull(arguments["spec"]).toString())
+
+            else -> {
+                val ready = ready() ?: return failure(NOT_LOADED)
+                val found = ready.library.surfaces.firstOrNull { it.id.value == surface && it.isEnabled }
+                    ?: return failure("no enabled interface ${surface.orEmpty()}")
+                UiCardSource.Surface(found.id)
+            }
+        }
+        val args = arguments["args"] as? JsonObject ?: JsonObject(emptyMap())
+        if (args.toString().encodeToByteArray().size > ServiceUiLimits.ARGS_BYTES) return failure("args are too large")
+        val card = UiCard(
+            id = "c${Uuid.random().toHexString()}",
+            chat = context.session,
+            callId = context.callId?.value,
+            title = title,
+            source = source,
+            args = args,
+            createdAt = clock.now(),
+        )
+        return when (cards.value.add(card)) {
+            is UiCardAdded.Stored -> AgentToolResult(ServiceUiTools.shown(card.id))
+            UiCardAdded.ChatFull -> failure("this chat already shows ${UiCardLimits.PER_CHAT} cards; no more fit")
+        }
+    }
+
+    /** The inline spec of a `ui_show` call checked as a card without an owner, or null without one. */
+    private fun inlineSpec(arguments: JsonObject): UiSpecCheck? =
+        (arguments["spec"] as? JsonObject)?.let { checkUiSpec(it.toString(), UiSpecRules(UiSpecOrigin.Inline)) }
+
+    private suspend fun callMethod(context: AgentToolContext, arguments: JsonObject): AgentToolResult {
+        val ready = ready() ?: return failure(NOT_LOADED)
+        val owner = try {
+            owner(ready, requireNotNull(arguments.text("owner")) { "owner is required" })
+        } catch (e: IllegalArgumentException) {
+            log.w(e) { "Interface method call refused" }
+            return failure(e.message ?: "unknown owner")
+        }
+        val method = arguments.text("method") ?: return failure("method is required")
+        val args = arguments["args"] as? JsonObject ?: JsonObject(emptyMap())
+        val call = UiCallContext(session = context.session, workspace = context.workspace)
+        return when (val result = calls.value.call(owner, method, args, call)) {
+            is UiMethodResult.Success -> AgentToolResult(result.value.toString().take(CALL_RESULT_CHARS))
+            is UiMethodResult.UserError -> failure("the method reported: ${result.message}")
+            is UiMethodResult.Failure -> failure("the call failed: ${result.reason.name}")
+        }
     }
 
     private suspend fun write(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
@@ -375,6 +470,7 @@ internal class ServiceUiAgentTools(
 
     private companion object {
         const val CALL_SECONDS = 60
+        const val CALL_RESULT_CHARS = 16_000
         const val NOT_LOADED = "interfaces are turned off or not loaded yet"
         val METHODS_TIMEOUT = 3.seconds
         val PrettyJson = Json { prettyPrint = true }

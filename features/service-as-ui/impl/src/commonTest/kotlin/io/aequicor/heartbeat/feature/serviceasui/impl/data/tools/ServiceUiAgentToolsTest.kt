@@ -24,6 +24,9 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiOwnerInfo
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwners
 import io.aequicor.heartbeat.feature.serviceasui.api.UiWriteResult
 import io.aequicor.heartbeat.feature.serviceasui.api.apply
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCard
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardAdded
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardStorage
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiMethodCalls
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -50,7 +53,8 @@ class ServiceUiAgentToolsTest {
     private val owner = UiOwner("harness", "h_1")
     private val machine = FakeMachine()
     private val toggles = Toggles()
-    private val tools = ServiceUiAgentTools(lazyOf(machine), lazyOf(Calls), toggles, FixedClock)
+    private val cards = Cards()
+    private val tools = ServiceUiAgentTools(lazyOf(machine), lazyOf(Calls), lazyOf(cards), toggles, FixedClock)
     private val context = AgentToolContext(SessionRef(EngineId("pi"), SessionSourceId("s"), "chat"), null, TurnId("t1"))
 
     @Test
@@ -62,10 +66,12 @@ class ServiceUiAgentToolsTest {
                 ServiceUiTools.GET,
                 ServiceUiTools.PUT,
                 ServiceUiTools.DELETE,
+                ServiceUiTools.SHOW,
+                ServiceUiTools.CALL,
             ),
             tools.catalog.map { it.name },
         )
-        assertEquals(5, tools.specifications(null).size)
+        assertEquals(7, tools.specifications(null).size)
         assertTrue("ui_reference" in tools.instructions(null))
         assertTrue("Heartbeat interface spec" in call(ServiceUiTools.REFERENCE).text)
 
@@ -133,6 +139,56 @@ class ServiceUiAgentToolsTest {
         assertEquals(emptyList(), (machine.state.value as ServiceUiState.Ready).library.surfaces)
     }
 
+    @Test
+    fun `cards show inline specs or library interfaces and stop when the chat is full`() = runTest {
+        val inline = call(ServiceUiTools.SHOW, show(spec = """{"version":1,"body":{"type":"text","text":"Hi"}}"""))
+        val id = ServiceUiTools.shownCardId(ServiceUiTools.SHOW, inline.text)
+        assertEquals(context.session, cards.added.single { it.id == id }.chat)
+
+        val calling = call(ServiceUiTools.SHOW, show(spec = SPEC))
+        assertTrue(calling.isError)
+        assertTrue("not allowed in a card without an owner" in calling.text, calling.text)
+        assertTrue(call(ServiceUiTools.SHOW, show(surface = "harness:h_1:start")).isError)
+
+        call(ServiceUiTools.PUT, put(SPEC))
+        assertFalse(call(ServiceUiTools.SHOW, show(surface = "harness:h_1:start")).isError)
+        val web = show(
+            spec = """{"version":1,"modals":{"view":{"title":"V","body":{"type":"web","html":"<p>Hi</p>"}}},
+                "body":{"type":"button","label":"Open","action":{"type":"open","modal":"view"}}}""",
+        )
+        val spec = ServiceUiToolSpecs.first { it.name == ServiceUiTools.SHOW }
+        assertTrue(tools.requiresDecision(context, spec, web))
+
+        cards.isFull = true
+        assertTrue("already shows 64 cards" in call(ServiceUiTools.SHOW, show(surface = "harness:h_1:start")).text)
+    }
+
+    @Test
+    fun `a method call returns what the owner's method returns`() = runTest {
+        val result = call(
+            ServiceUiTools.CALL,
+            buildJsonObject {
+                put("owner", "pr_map")
+                put("method", "prs")
+            },
+        )
+        assertEquals(AgentToolResult("1"), result)
+        val stranger = call(
+            ServiceUiTools.CALL,
+            buildJsonObject {
+                put("owner", "nobody")
+                put("method", "prs")
+            },
+        )
+        assertTrue(stranger.isError)
+    }
+
+    private fun show(spec: String? = null, surface: String? = null) = buildJsonObject {
+        put("title", "PRs")
+        spec?.let { put("spec", Json.parseToJsonElement(it)) }
+        surface?.let { put("surface", it) }
+    }
+
     private suspend fun call(name: String, arguments: JsonObject = JsonObject(emptyMap())): AgentToolResult =
         execute(name, arguments, approval(name, arguments))
 
@@ -191,6 +247,20 @@ class ServiceUiAgentToolsTest {
             )
             return SendResult.Accepted
         }
+    }
+
+    private class Cards : UiCardStorage {
+        val added = mutableListOf<UiCard>()
+        var isFull = false
+
+        override suspend fun add(card: UiCard): UiCardAdded = if (isFull) {
+            UiCardAdded.ChatFull
+        } else {
+            added += card
+            UiCardAdded.Stored(0)
+        }
+
+        override fun observe(id: String): Flow<UiCard?> = flowOf(added.firstOrNull { it.id == id })
     }
 
     private object Calls : UiMethodCalls {

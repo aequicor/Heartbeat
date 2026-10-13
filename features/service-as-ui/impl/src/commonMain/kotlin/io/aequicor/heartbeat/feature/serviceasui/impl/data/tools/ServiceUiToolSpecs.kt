@@ -73,6 +73,36 @@ internal val ServiceUiToolSpecs: List<AgentToolSpec> = listOf(
         },
         AgentToolAction.Edit,
     ),
+    AgentToolSpec(
+        ServiceUiTools.SHOW,
+        "Shows an interface as a card in your reply: an inline spec without an owner, or an interface of the " +
+            "library with arguments. Inline cards cannot call methods; their prompts only fill the chat input.",
+        schema(listOf("title")) {
+            text("title", "Card title, at most 80 characters.")
+            putJsonObject("spec") {
+                put("type", "object")
+                put("description", "Inline spec, see ui_reference. Give either spec or surface.")
+            }
+            text("surface", "Id of a library interface from ui_list. Give either spec or surface.")
+            putJsonObject("args") {
+                put("type", "object")
+                put("description", "Arguments of a library interface, readable as args.")
+            }
+        },
+    ),
+    AgentToolSpec(
+        ServiceUiTools.CALL,
+        "Calls a method an owner publishes, as a button of its interface would, to check what it returns.",
+        schema(listOf("owner", "method")) {
+            text("owner", "Owner from ui_list: its ref (harness:<id>) or its name.")
+            text("method", "Method name from ui_list.")
+            putJsonObject("args") {
+                put("type", "object")
+                put("description", "Arguments of the method.")
+            }
+        },
+        AgentToolAction.Command,
+    ),
 )
 
 private fun schema(required: List<String> = emptyList(), properties: JsonObjectBuilder.() -> Unit = {}): JsonObject =

@@ -71,8 +71,8 @@ private fun nodesAndActions(): String = """
   multiline?}; `toggle` {bind, label}; `select` {bind, options: [{value, label}], label?}; `native` {widget: date |
   file | folder, bind, label?, extensions?}: a date is written as YYYY-MM-DD, a file or folder as an absolute path
   (desktop only).
-- `web` {html, bridge?, data?}: panel and modal surfaces only, one per surface, desktop only; saving it always asks
-  the user.
+- `web` {html, bridge?, data?}: in panel and modal surfaces and in modals (cards: modals only, without bridge), one
+  per surface, desktop only; saving or showing it always asks the user.
 Icons draw an icon button whose label is its tooltip and accessible name: ${UiIconNames.joinToString(", ")}.
 
 ## Actions (`type`)
