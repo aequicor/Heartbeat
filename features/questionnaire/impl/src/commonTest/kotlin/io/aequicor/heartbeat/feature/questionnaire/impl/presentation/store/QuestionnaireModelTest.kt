@@ -16,6 +16,9 @@ import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireIntent
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireOutput
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRoute
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireState
+import io.aequicor.heartbeat.feature.questionnaire.screenmodel.QuestionnaireScreenAction
+import io.aequicor.heartbeat.feature.questionnaire.screenmodel.QuestionnaireScreenIntent
+import io.aequicor.heartbeat.feature.questionnaire.screenmodel.QuestionnaireScreenState
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope

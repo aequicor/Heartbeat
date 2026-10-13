@@ -21,6 +21,8 @@ core/            инфраструктура: navigation, mvi, state-machine, d
 design-system/   tokens (единый набор, пресеты по хосту), theme, components, layouts, resources, catalog, adaptive (material | fluent | macos)
 features/<name>/ api  — контракт: state-machine (состояния, интенты, переходы, эффекты), MachineKey, маршруты
                  impl — UI, FlowMVI-сторы, Decompose-компоненты, репозитории, эффекты машины, DI-контрибуции
+features/{ai-studio,questionnaire,checklist}/screen-model — сериализуемые состояния и интенты экрана без domain/IO
+                 screen-ui — общие Compose-экраны desktop и Wasm; сторы и навигация остаются в impl
 build-logic/     convention-плагины Gradle (heartbeat.kmp.library, heartbeat.feature.api/impl, heartbeat.detekt…)
 lint/            detekt-rules — собственный набор правил `heartbeat` (политика логирования и обработки ошибок)
 chromium-plugin/ расширение для Chrome и других Chromium-браузеров (MV3, JS без сборки) — клиент `features:chromium-bridge`

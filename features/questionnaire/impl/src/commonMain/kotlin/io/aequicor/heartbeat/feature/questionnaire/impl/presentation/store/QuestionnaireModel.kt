@@ -18,6 +18,12 @@ import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireOutput
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRoute
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireState
 import io.aequicor.heartbeat.feature.questionnaire.impl.di.scope.QuestionnaireScope
+import io.aequicor.heartbeat.feature.questionnaire.screenmodel.ChoiceUi
+import io.aequicor.heartbeat.feature.questionnaire.screenmodel.QuestionKindUi
+import io.aequicor.heartbeat.feature.questionnaire.screenmodel.QuestionUi
+import io.aequicor.heartbeat.feature.questionnaire.screenmodel.QuestionnaireScreenAction
+import io.aequicor.heartbeat.feature.questionnaire.screenmodel.QuestionnaireScreenIntent
+import io.aequicor.heartbeat.feature.questionnaire.screenmodel.QuestionnaireScreenState
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableSet
 import pro.respawn.flowmvi.plugins.reduce
@@ -133,7 +139,7 @@ private fun QuestionUi.toggled(choiceId: String): QuestionUi {
     return copy(selected = next.toImmutableSet())
 }
 
-internal fun QuestionUi.draftAnswer(): Answer? = when (kind) {
+internal fun QuestionUi.draftAnswer(): Answer? = when (val kind = kind) {
     is QuestionKindUi.Confirm -> null
     is QuestionKindUi.Choice -> Answer.Selected(kind.choices.map { it.id }.filter { it in selected })
     is QuestionKindUi.Text -> Answer.Text(text)
