@@ -417,7 +417,12 @@ internal class HarnessAuthoringTools(
                 plan,
                 HarnessChange.PutItem(checkNotNull(plan.item)),
                 at,
-                "Saved ${command.item.kind.key} ${checkNotNull(harness).name.value}/${command.item.name.value}",
+                "Saved ${command.item.kind.key} ${checkNotNull(harness).name.value}/${command.item.name.value}. " +
+                    if (command.item.kind.isCode) {
+                        "Code activation is asynchronous; use harness_get to confirm active status or read the failure."
+                    } else {
+                        ""
+                    },
             )
 
             is AuthoringCommand.DeleteItem -> {

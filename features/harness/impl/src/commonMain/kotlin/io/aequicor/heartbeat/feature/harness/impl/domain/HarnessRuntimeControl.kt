@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.harness.impl.domain
 import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessActivationRequest
 import io.aequicor.heartbeat.feature.harness.api.HarnessEffect
+import io.aequicor.heartbeat.feature.harness.api.HarnessValidationCode
 
 /**
  * Profile runtime boundary. Availability describes executable code, independently of library storage.
@@ -13,8 +14,8 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessEffect
 internal interface HarnessRuntimeControl {
     val isAvailable: Boolean
 
-    /** Atomically publishes this exact generation, or leaves the previous instance intact on false. */
-    suspend fun activate(request: HarnessActivationRequest): Boolean
+    /** Atomically publishes this exact generation; a failed candidate leaves the previous instance intact. */
+    suspend fun activate(request: HarnessActivationRequest): HarnessActivationResult
 
     /** Applies item and harness generation fences, preserving the effect's stopping versus pausing semantics. */
     suspend fun deactivate(effect: HarnessEffect.Deactivate): Boolean
@@ -34,3 +35,9 @@ internal interface HarnessRuntimeControl {
 
 /** Ready proves cleanup only for the exact still-pending receipt; Retry retains the same generation fence. */
 internal enum class HarnessRemovalResult { Ready, Retry, Obsolete }
+
+/** A result belongs to its exact activation request; only safe host validation codes cross this boundary. */
+internal sealed interface HarnessActivationResult {
+    data object Active : HarnessActivationResult
+    data class Failed(val reason: HarnessValidationCode? = null) : HarnessActivationResult
+}

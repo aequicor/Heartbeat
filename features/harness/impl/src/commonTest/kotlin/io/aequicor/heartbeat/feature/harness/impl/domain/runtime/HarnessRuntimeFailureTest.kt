@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.runtime
 
+import io.aequicor.heartbeat.feature.harness.api.HarnessValidationCode
+import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessActivationResult
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
@@ -19,6 +21,23 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 class HarnessRuntimeFailureTest {
+    @Test
+    fun `known constructor validation reaches exact activation outcome without publishing the candidate`() = runTest {
+        val fixture = HarnessRuntimeFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        fixture.isEvaluationSuccessful = false
+        fixture.evaluationFailure = HarnessValidationCode.InvalidItemName
+        assertEquals(
+            HarnessActivationResult.Failed(HarnessValidationCode.InvalidItemName),
+            fixture.runtime.activateResult(fixture.desired),
+        )
+        runCurrent()
+        assertTrue(fixture.runtime.publishedInstances.value.isEmpty())
+        assertEquals(1, fixture.code.single().closes)
+        fixture.isEvaluationSuccessful = true
+        fixture.desired = runtimeRequest(2)
+        assertEquals(HarnessActivationResult.Active, fixture.runtime.activateResult(fixture.desired))
+    }
+
     @Test
     fun `five consecutive failures retire exact instance while a success resets the streak`() = runTest {
         val fixture = HarnessRuntimeFixture(backgroundScope, StandardTestDispatcher(testScheduler))

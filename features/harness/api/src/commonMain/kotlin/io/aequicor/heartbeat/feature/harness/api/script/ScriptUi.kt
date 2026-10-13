@@ -40,6 +40,7 @@ public interface ScriptUi {
     /**
      * Publishes the method [name] with a [description] for surface authors. At most HarnessLimits.UI_METHODS active
      * methods; a name can be registered again only after its previous registration is disposed.
+     * [ItemName] requires `[a-z][a-z0-9_]{0,31}`: use `save_record`, never `saveRecord`.
      */
     public fun method(
         name: ItemName,

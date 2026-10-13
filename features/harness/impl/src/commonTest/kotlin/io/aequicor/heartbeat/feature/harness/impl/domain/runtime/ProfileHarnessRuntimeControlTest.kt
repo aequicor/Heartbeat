@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowOrigin
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStatus
+import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessActivationResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRemovalResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
 import kotlinx.coroutines.CompletableDeferred
@@ -34,7 +35,7 @@ class ProfileHarnessRuntimeControlTest {
         val runs = RuntimeRunRecords()
         val control = ProfileHarnessRuntimeControl(fixture.runtime, runs) { true }
         assertFalse(control.isAvailable)
-        assertFalse(control.activate(fixture.desired))
+        assertEquals(HarnessActivationResult.Failed(), control.activate(fixture.desired))
         assertTrue(fixture.code.isEmpty())
         runs.records = listOf(runtimeRun())
         assertEquals(HarnessRemovalResult.Retry, control.remove(fixture.removal(fixture.desired.harness)))
@@ -77,7 +78,7 @@ class ProfileHarnessRuntimeControlTest {
         assertEquals(HarnessRemovalResult.Ready, control.remove(fixture.removal(harness)))
         assertEquals(listOf(instance.request.item.id), fixture.removedCache)
         assertEquals(1, fixture.code.single().closes)
-        assertFalse(control.activate(fixture.desired))
+        assertEquals(HarnessActivationResult.Failed(), control.activate(fixture.desired))
     }
 
     @Test

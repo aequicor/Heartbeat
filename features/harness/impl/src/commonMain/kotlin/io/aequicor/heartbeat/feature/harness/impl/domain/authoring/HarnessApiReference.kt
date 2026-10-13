@@ -81,6 +81,12 @@ private val API = """
     Import other types explicitly (package io.aequicor.heartbeat.feature.harness.api.*
     and io.aequicor.heartbeat.feature.aiengine.facade.api.*).
 
+    Every ItemName, including ui.method, agent.tool and scheduler.publish names, must match
+    [a-z][a-z0-9_]{0,31}: lowercase snake_case only, never camelCase. Use ItemName("save_record"), not
+    ItemName("saveRecord"). Invalid names compile but fail during activation with InvalidItemName.
+    harness_item_put confirms storage; activation is asynchronous. Read harness_get and require active before
+    calling methods. A failed status includes known host validation reasons; correct the script and put it again.
+
     JSON recipes (Kotlin, not JavaScript):
     - Builders always take a lambda: buildJsonArray { } and buildJsonObject { }. buildJsonArray() is invalid.
       Constructor alternatives are JsonArray(emptyList()) and JsonObject(emptyMap()).

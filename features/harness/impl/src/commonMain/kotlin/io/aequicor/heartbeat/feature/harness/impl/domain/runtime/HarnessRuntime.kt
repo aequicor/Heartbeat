@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.HarnessReceipt
 import io.aequicor.heartbeat.feature.harness.api.ItemId
+import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessActivationResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRemovalResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeKind
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCompilationRequest
@@ -75,7 +76,7 @@ internal class HarnessRuntime(
      * rechecked at least every [CAPACITY_RECHECK], so a request that became stale while waiting fails at once
      * instead of holding the rest of its Activate batch behind the lane.
      */
-    suspend fun activate(request: HarnessActivationRequest): Boolean {
+    suspend fun activateResult(request: HarnessActivationRequest): HarnessActivationResult {
         log.v { "prepare harness activation" }
         var preparation: HarnessPreparation? = null
         var isRejected = false
@@ -93,7 +94,7 @@ internal class HarnessRuntime(
             }
         }
         preparation?.job?.start()
-        return preparation?.result?.await() ?: false
+        return preparation?.result?.await() ?: HarnessActivationResult.Failed()
     }
 
     /** Returns only an admitted current generation; retaining the handle never bypasses invoke's recheck. */
@@ -266,7 +267,7 @@ internal class HarnessRuntime(
             preparation.job = environment.scope.launch(environment.dispatchers.default, start = CoroutineStart.LAZY) {
                 prepare(preparation)
             }
-            preparation.job?.invokeOnCompletion { preparation.result.complete(false) }
+            preparation.job?.invokeOnCompletion { preparation.result.complete(HarnessActivationResult.Failed()) }
         }
     }
 
@@ -284,20 +285,21 @@ internal class HarnessRuntime(
                 val compiled = cache.compile(checkNotNull(preparation.request.compilation()))
                 if (compiled is HarnessCompilationResult.Success) {
                     instance = construct(preparation, compiled)
-                    instance?.let { evaluateAndPublish(preparation, it) } == true
+                    instance?.let { evaluateAndPublish(preparation, it) } ?: HarnessActivationResult.Failed()
                 } else {
-                    false
+                    HarnessActivationResult.Failed()
                 }
             }
-            isPublished = (result as? HarnessAttempt.Success)?.value == true
-            preparation.result.complete(isPublished)
+            val outcome = (result as? HarnessAttempt.Success)?.value ?: HarnessActivationResult.Failed()
+            isPublished = outcome == HarnessActivationResult.Active
+            preparation.result.complete(outcome)
         } finally {
             withContext(NonCancellable) {
                 mutex.withLock {
                     instance?.releaseCall()
                     if (pending[preparation.request.key()] === preparation) pending.remove(preparation.request.key())
                     if (!isPublished) instance?.let(::retire)
-                    preparation.result.complete(false)
+                    preparation.result.complete(HarnessActivationResult.Failed())
                 }
             }
         }
@@ -331,7 +333,10 @@ internal class HarnessRuntime(
         }
     }
 
-    private suspend fun evaluateAndPublish(preparation: HarnessPreparation, instance: HarnessInstance): Boolean {
+    private suspend fun evaluateAndPublish(
+        preparation: HarnessPreparation,
+        instance: HarnessInstance,
+    ): HarnessActivationResult {
         val result = instance.calls.run(instance.dispatcher, HarnessInvocationBudget.Evaluation) {
             captureHarnessFailure { host.evaluate(instance.code, instance.prepareContext()) }
         }
@@ -339,16 +344,19 @@ internal class HarnessRuntime(
             log.w(ScriptFailure()) { "Script evaluation timed out" }
         }
         val evaluation = (result as? HarnessInvocationResult.Completed)?.value as? HarnessAttempt.Success
-        if (evaluation?.value != HarnessEvaluationResult.Success) return false
+        if (evaluation?.value != HarnessEvaluationResult.Success) {
+            val reason = (evaluation?.value as? HarnessEvaluationResult.Failure)?.reason
+            return HarnessActivationResult.Failed(reason)
+        }
         return mutex.withLock {
             if (isCandidate(preparation) && declarations.accepts(instance, current.values) && instance.publish()) {
                 declarations.published(instance)
                 val old = current.put(preparation.request.key(), instance)
                 old?.let(::retire)
                 updatePublication()
-                true
+                HarnessActivationResult.Active
             } else {
-                false
+                HarnessActivationResult.Failed()
             }
         }
     }
@@ -422,18 +430,18 @@ internal class HarnessRuntime(
 }
 
 private class HarnessPreparation(val request: HarnessActivationRequest) {
-    val result = CompletableDeferred<Boolean>()
+    val result = CompletableDeferred<HarnessActivationResult>()
     var job: Job? = null
     var instance: HarnessInstance? = null
 
     fun revoke() {
-        result.complete(false)
+        result.complete(HarnessActivationResult.Failed())
         job?.cancel()
     }
 
     companion object {
         fun completed(request: HarnessActivationRequest): HarnessPreparation =
-            HarnessPreparation(request).apply { result.complete(true) }
+            HarnessPreparation(request).apply { result.complete(HarnessActivationResult.Active) }
     }
 }
 

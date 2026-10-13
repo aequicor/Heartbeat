@@ -84,9 +84,10 @@ internal class RecordingRuntime : HarnessRuntimeControl {
     var isRemovedCleanupDone = true
     val cleanedUp = mutableListOf<HarnessEffect.Remove>()
     val retained = mutableListOf<List<Harness>>()
-    override suspend fun activate(request: HarnessActivationRequest): Boolean {
+    var activationResult: HarnessActivationResult = HarnessActivationResult.Active
+    override suspend fun activate(request: HarnessActivationRequest): HarnessActivationResult {
         activated += request
-        return true
+        return activationResult
     }
     override suspend fun deactivate(effect: HarnessEffect.Deactivate): Boolean {
         deactivated += effect

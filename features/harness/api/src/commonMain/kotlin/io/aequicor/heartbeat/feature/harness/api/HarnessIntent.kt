@@ -164,6 +164,7 @@ public sealed interface HarnessIntent : MachineIntent {
             val item: ItemId,
             val revision: Long,
             val generation: Long,
+            val reason: HarnessValidationCode? = null,
         ) : Runtime
 
         /** An exact published instance failed, possibly before its activation receipt reaches the machine. */

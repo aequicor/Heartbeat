@@ -1,9 +1,11 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain
 
+import io.aequicor.heartbeat.feature.harness.api.HarnessActivationRequest
 import io.aequicor.heartbeat.feature.harness.api.HarnessEffect
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
 import io.aequicor.heartbeat.feature.harness.api.HarnessLoad
 import io.aequicor.heartbeat.feature.harness.api.HarnessMachineSpec
+import io.aequicor.heartbeat.feature.harness.api.HarnessValidationCode
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
@@ -17,6 +19,28 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 class HarnessEffectsTest {
+    @Test
+    fun `activation feedback keeps the exact request and safe validation reason`() = runTest {
+        val runtime = RecordingRuntime().apply {
+            activationResult = HarnessActivationResult.Failed(HarnessValidationCode.InvalidItemName)
+        }
+        val feedback = RecordingFeedback()
+        val request = HarnessActivationRequest(harness, code, 7)
+        HarnessEffects(MemoryLibrary(), runtime).handle(HarnessEffect.Activate(listOf(request)), feedback)
+        assertEquals(
+            listOf<HarnessIntent>(
+                HarnessIntent.Internal.ItemActivationFailed(
+                    harness.id,
+                    code.id,
+                    harness.revision,
+                    7,
+                    HarnessValidationCode.InvalidItemName,
+                ),
+            ),
+            feedback.sent,
+        )
+    }
+
     @Test
     fun `uncertain write retries the exact receipt without false failure feedback`() = runTest {
         val storage = MemoryLibrary().apply {

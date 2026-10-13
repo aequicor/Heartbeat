@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.script
 
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
+import io.aequicor.heartbeat.feature.harness.api.HarnessValidationCode
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.script.HarnessScriptScope
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRegistration
@@ -82,7 +83,8 @@ internal sealed interface HarnessEvaluationContext {
 
 internal sealed interface HarnessEvaluationResult {
     data object Success : HarnessEvaluationResult
-    data class Failure(val diagnostics: List<HarnessCodeDiagnostic>) : HarnessEvaluationResult {
+    data class Failure(val diagnostics: List<HarnessCodeDiagnostic>, val reason: HarnessValidationCode? = null) :
+        HarnessEvaluationResult {
         override fun toString(): String = "HarnessEvaluationResult.Failure(***)"
     }
 
