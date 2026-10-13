@@ -46,7 +46,9 @@ alive until request completion, then dispose the request before its context.
 
 ## Next release: hb3 (prepared, not published)
 
-`request-context-settings.hb3.patch` is the complete patch of the next release: the hb2 patch plus a fix of
+`next/` holds the next release while the application still uses the current one: `next/request-context-settings.patch`
+is its complete patch and `next/source-lock.json` its lock (the patch's SHA-256, `artifactVersion`, no artifacts yet).
+For hb3 the patch is the hb2 patch plus a fix of
 upstream `GetCefValueFromJNIMap`, which built a dictionary but returned an empty, null-typed `CefValue`. Java
 `Map` (and nested `List`) values of `CefRequestContext.setPreference` therefore never reached CEF; dictionary
 preferences such as `proxy` were rejected as "type NULL". Unsupported or null entries now become explicit nulls.
@@ -59,24 +61,29 @@ macOS ARM64 was built from it locally and checked: `build`, `package` and `verif
 visibility/close phase (`CefClient.dispose` from `onAfterClose`, a focus handler on teardown); the published hb2
 jars crash the same way on that host, in an earlier phase, so the crash is not caused by this change.
 
-To release it, build every target with the hb3 patch and `source-lock.hb3.json` (the hb3 patch's SHA-256,
-`artifactVersion` `152.0.6-hb3`, no artifacts yet):
-
-```shell
-python native/jcef/build_runtime.py --patch native/jcef/request-context-settings.hb3.patch --source-lock native/jcef/source-lock.hb3.json --target <target> prepare
-```
-
-(and the same options for `build`, `package` and `verify`), then collect and publish as below. The release commit
-moves the hb3 patch over `request-context-settings.patch`, replaces `source-lock.json` with the completed lock and
-removes `source-lock.hb3.json`, sets `jcef-native` to
+To release it, build every target from `next/` — in CI (below) or locally with
+`--patch native/jcef/next/request-context-settings.patch --source-lock native/jcef/next/source-lock.json` added to
+every `build_runtime.py` command — then collect and publish as below. The release commit moves
+`next/request-context-settings.patch` over `request-context-settings.patch`, replaces `source-lock.json` with the
+completed lock, removes `next/`, sets `jcef-native` to
 `152.0.6-hb3` in `gradle/libs.versions.toml`, pins the five jars in `gradle/verification-metadata.xml`, adds the
 `proxy` preference to `DesktopDocumentEngine` and makes `browserDocumentNativeTest` assert that no TURN connection
 over TCP opens. Until then documents block STUN and TURN over UDP only.
 
-## Build and verify
+## Build in CI
 
-There is no CI pipeline for this runtime: each release is built, probed and collected
-locally, by the maintainer, on four native hosts. Cross-compilation is not used:
+`.github/workflows/jcef-runtime.yml` builds all four targets on native GitHub runners (Windows x64 and ARM64,
+macOS Intel and Apple silicon) with the same Python 3.13 and Microsoft JDK 21.0.10, runs the lifecycle probe on each
+host and collects the release directory into the `jcef-release` artifact. It builds `next/` when it exists, otherwise
+the current lock. It never runs on its own and never publishes: add the label `jcef-runtime` to a pull request (remove
+it by hand afterwards), or once the workflow is in `master` run `gh workflow run jcef-runtime.yml --ref <branch>`.
+The probe's result is reported per host and its reports are uploaded; a failed probe does not stop the release
+artifact, so the maintainer decides from the reports before running `publish_draft.py` on the downloaded release.
+
+## Build and verify locally
+
+Each release can also be built, probed and collected locally, by the maintainer, on four native hosts.
+Cross-compilation is not used:
 
 | Target | Host | Toolchain |
 | --- | --- | --- |

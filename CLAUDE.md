@@ -115,7 +115,7 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > ошибочные источники исследования и добавляет ручное продолжение загрузки через Chromium после проверки доступа.
 > Оба дополнительных флага выключены по умолчанию. Desktop-вкладки разделяют постоянное Chromium-хранилище своего
 > профиля (cookies, localStorage, IndexedDB); очистка браузера и удаление профиля закрывают вкладки до удаления данных.
-> Согласованные Java/JNI-артефакты для Windows/macOS x64/ARM64 собираются локально из `native/jcef` (CI нет), проверяются
+> Согласованные Java/JNI-артефакты для Windows/macOS x64/ARM64 собираются из `native/jcef` локально или в CI (`jcef-runtime.yml`, вручную), проверяются
 > по SHA-256 (`heartbeat.jcef`, `verifyBrowserRuntime`) и входят в дистрибутив. Нативные проверки с настоящим Chromium —
 > только локальные задачи `browserNativeTest`, `browserComposeNativeTest`, `browserRecoveryNativeTest`, `browserDocumentNativeTest` (нужен рабочий стол, вне `check`). Восстановление источника запускается только кнопкой пользователя и использует тот же профиль.
 > Сервисный контракт `BrowserDocuments` (`browser:api`) — изолированные локальные HTML-документы, которые фича рисует
