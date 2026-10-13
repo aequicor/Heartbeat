@@ -313,4 +313,5 @@ Compose:
     active: true
     # LocalNav*: core:navigation:compose passes host-wide rendering context (animations, shared transition scope) to nested hosts
     # LocalPaneExpansionAvailable: workspace layout capability, derived from the host's available width.
-    allowedCompositionLocals: LocalHbColors,LocalHbGradients,LocalHbTypography,LocalHbSpacing,LocalHbShapes,LocalHbElevation,LocalHbDimensions,LocalHbSurfaces,LocalHbMotion,LocalHbVisualStyle,LocalHbLocale,LocalComposerAnchor,LocalHbWindowScope,LocalHbWindowChrome,LocalHbWindowWidth,LocalHbCaptionControls,LocalHbDiagrams,LocalAdaptiveColors,LocalPlatformUi,LocalNavAnimations,LocalNavSharedTransitionScope,LocalNavEntryScopes,LocalPaneExpansionAvailable
+    # LocalHbNativeContentViewport: DS host clipping geometry for native peers outside Compose alpha masks.
+    allowedCompositionLocals: LocalHbColors,LocalHbGradients,LocalHbTypography,LocalHbSpacing,LocalHbShapes,LocalHbElevation,LocalHbDimensions,LocalHbSurfaces,LocalHbMotion,LocalHbVisualStyle,LocalHbLocale,LocalComposerAnchor,LocalHbWindowScope,LocalHbWindowChrome,LocalHbWindowWidth,LocalHbCaptionControls,LocalHbDiagrams,LocalHbNativeContentViewport,LocalAdaptiveColors,LocalPlatformUi,LocalNavAnimations,LocalNavSharedTransitionScope,LocalNavEntryScopes,LocalPaneExpansionAvailable

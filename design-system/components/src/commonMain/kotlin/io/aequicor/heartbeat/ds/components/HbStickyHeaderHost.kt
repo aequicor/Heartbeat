@@ -44,7 +44,8 @@ import kotlin.math.roundToInt
  * sticky slots. [header] must apply its modifier and render the same stateless surface for each key.
  * Native measurement and placement still control height, horizontal insets and section push-off.
  * [overlapInsets] fades only the scrolling layer beneath external top/bottom panels, preserving the
- * scrollbar and pinned headings as fully opaque controls.
+ * scrollbar and pinned headings as fully opaque controls. Native content receives the corresponding
+ * hard viewport through [LocalHbNativeContentViewport], since native peers cannot apply alpha masks.
  */
 @Composable
 public fun HbStickyHeaderHost(
@@ -74,7 +75,11 @@ public fun HbStickyHeaderHost(
             .scrollable(state, Orientation.Vertical, reverseDirection = true)
             .semantics { isTraversalGroup = true },
     ) {
-        Box(modifier = Modifier.fillMaxSize().then(fade)) {
+        HbNativeContentViewport(
+            modifier = Modifier.fillMaxSize().then(fade),
+            overlapInsets = overlapInsets,
+            pinnedHeaderBottom = pinned?.let { it.top + it.size } ?: 0,
+        ) {
             content { key ->
                 NativeStickyHeader(
                     headerKey = key,
