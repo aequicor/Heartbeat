@@ -83,12 +83,14 @@ private fun nodesAndActions(): String = """
 - `web` {html, bridge?, data?, height?: compact | regular | tall}: an isolated page in library surfaces (including
   `card` and `composer`) and in modals, one per surface, desktop only while web documents are enabled. Anonymous
   cards may show it only inside modals and never get a bridge; editor previews never execute owner methods.
-  Saving a web surface or showing an anonymous web spec asks the user. `height` is a bounded viewport: compact for
-  a status strip above the composer, regular (default) or tall for the mini-app body; use responsive CSS inside it.
+  Saving a web surface or showing an anonymous web spec uses automatic safety review. `height` is a bounded viewport:
+  compact for a status strip above the composer, regular (default) or tall for the mini-app body; use responsive CSS.
   The page has its own origin and no network: inline scripts and styles, `data:` images and fonts; no fetch, sockets, WebRTC, frames, workers, forms or links away. It reads `data` (a binding) as
   `heartbeat.data` and later values from the `heartbeat:data` event on `window` (`event.detail`). With `bridge: true`
   (library surfaces), `await heartbeat.call(method, args)` calls the owner's method with object `args` and returns
   its value, or rejects with an `Error` of the owner's message.
+  Native JavaScript dialogs (`alert`, `confirm`, `prompt`) and pop-ups are blocked. Show feedback inside the page;
+  call methods directly for ordinary actions. Never gate a working button on `window.confirm`.
 Icons draw an icon button whose label is its tooltip and accessible name: ${UiIconNames.joinToString(", ")}.
 
 ## Actions (`type`)
@@ -130,17 +132,22 @@ Use `web` with inline HTML/CSS/JS for a custom visual theme. Keep styles inside 
 sidebar or open a panel for this workflow. Declare `data` auto sources, bind `web.data` to `{{data.snapshot}}`, render
 `heartbeat.data` on startup and listen for `heartbeat:data` updates. Handle missing data and rejected bridge calls.
 Buttons call approved harness `ui.method` methods; persist changed values using harness `data` before returning.
+Resume controls must keep existing records. Check the current state inside `data.update` before starting a new
+session so repeated clicks cannot reset active progress; separate starting, resuming and clearing actions.
 The host updates other drawn surfaces after a durable write, without a model turn or a page reload. Do not poll or
 read the same data after every successful call. Use inline SVG or CSS for artwork; isolated pages have no network.
 
 ## Workflow
 1. Publish the methods in a harness script item: `ui.method(ItemName("prs"), "Open pull requests") { call ->
    ScriptUiResult.Value(json) }`; report expected problems with `ScriptUiResult.Error(message)`.
+   Every ItemName must match `[a-z][a-z0-9_]{0,31}`: use `log_set`, never `logSet`.
    For an early return from that lambda use `return@method`, never `return@ui.method`; or return an if/else expression.
 2. `ui_list` shows owners and their methods; `ui_call` checks what a method returns.
 3. `ui_put` creates or replaces the surface and returns diagnostics with JSON paths to fix.
 4. For an embedded mini-app use `placement: "card"`, then `ui_show` with the returned surface id. A saved surface
    alone is not a visible app. Optionally add `placement: "composer"` with a compact status and `focusCard` button.
+   To fix an already shown app, replace its existing surface with `ui_put`: live cards update automatically.
+   Do not call `ui_show` again for an edit unless another copy in the transcript is explicitly wanted.
     
     """.trimIndent()
 
