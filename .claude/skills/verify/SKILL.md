@@ -30,6 +30,10 @@ git status --porcelain
 
 ## 3. Lint
 
+Этот шаг относится к локальной проверке изменений кода. При сборке релиза detekt не запускай
+и в `release.yml` не добавляй (включая его проверки ktlint и compose-rules).
+Тесты самих правил `:lint:detekt-rules:test` остаются частью тестирования.
+
 ```bash
 ./gradlew detekt --continue
 ```
