@@ -13,8 +13,8 @@ internal data class PendingIntent(val seq: Long, val intent: AiStudioScreenInten
 /**
  * The studio screen of a remote view: the app's frames plus the panel's intents the app has not shown yet. An
  * intent stays predicted on top of the app's screen until a frame acknowledges it, so the screen never steps back
- * to an older draft. Intents are sent once; after a failed send or a snapshot (new attachment or view) everything
- * not acknowledged is sent again, which the app ignores for intents it already applied.
+ * to an older draft. Intents are sent once; after a failed send or another snapshot of the same instance,
+ * unacknowledged intents are sent again. A new generation drops the old queue and retains its screen for recovery.
  */
 internal class StudioViewSync {
     private var mirror = StudioViewMirror()
@@ -22,6 +22,15 @@ internal class StudioViewSync {
     private var ack = 0L
     private var sentUpTo = 0L
     private var nextSeq = 0L
+    private var isReady = false
+
+    /** The instance that may receive the queued intents, learned only from its snapshot. */
+    var generation: String? = null
+        private set
+
+    /** Drafts from a lost instance, kept for manual recovery without replaying any actions. */
+    var interruptedScreen: AiStudioScreenState? = null
+        private set
     private val pending = mutableListOf<PendingIntent>()
 
     /** The screen to draw, `null` until the first snapshot. */
@@ -35,7 +44,19 @@ internal class StudioViewSync {
      */
     @HighFrequency
     fun receive(frame: StudioViewFrame) {
-        confirmed = mirror.apply(frame)
+        val previousScreen = screen
+        val next = mirror.apply(frame)
+        if (frame is StudioViewFrame.Snapshot) {
+            if (generation != null && generation != frame.generation) {
+                interruptedScreen = previousScreen
+                pending.clear()
+                nextSeq = frame.ack
+            }
+            generation = frame.generation
+            isReady = true
+        }
+        confirmed = next
+        nextSeq = maxOf(nextSeq, frame.ack)
         ack = frame.ack
         pending.removeAll { it.seq <= frame.ack }
         if (frame is StudioViewFrame.Snapshot) sentUpTo = frame.ack
@@ -44,6 +65,7 @@ internal class StudioViewSync {
     /** The view is watched again: the next frame must be a snapshot. */
     fun restart() {
         mirror = StudioViewMirror()
+        isReady = false
     }
 
     /** Numbers [intent] and predicts it. */
@@ -54,7 +76,8 @@ internal class StudioViewSync {
 
     /** At most [limit] intents not sent yet, oldest first. */
     @HighFrequency
-    fun unsent(limit: Int): List<PendingIntent> = pending.asSequence().filter { it.seq > sentUpTo }.take(limit).toList()
+    fun unsent(limit: Int): List<PendingIntent> =
+        if (isReady) pending.asSequence().filter { it.seq > sentUpTo }.take(limit).toList() else emptyList()
 
     /** The app received the intents up to [seq]. */
     fun sent(seq: Long) {

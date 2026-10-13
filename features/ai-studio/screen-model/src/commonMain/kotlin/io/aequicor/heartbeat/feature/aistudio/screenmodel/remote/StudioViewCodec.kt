@@ -11,6 +11,7 @@ import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlin.uuid.Uuid
 
 private const val TRANSCRIPT = "t:"
 private const val SUB_TRANSCRIPT = "s:"
@@ -19,7 +20,10 @@ private const val SUB_TRANSCRIPT = "s:"
  * App side of one remote view: turns successive screen states into frames. The first frame and the first after
  * [reset] are snapshots; later frames carry only what changed. Not thread-safe: one view encodes on one coroutine.
  */
-class StudioViewEncoder(private val json: Json = StudioViewJson) {
+class StudioViewEncoder(
+    private val json: Json = StudioViewJson,
+    private val generation: String = Uuid.random().toString(),
+) {
     private var rev = 0L
     private var lastAck = 0L
     private var shell: JsonObject? = null
@@ -37,7 +41,7 @@ class StudioViewEncoder(private val json: Json = StudioViewJson) {
         val nextFeeds = state.feeds()
         val previous = shell
         val frame = if (previous == null) {
-            StudioViewFrame.Snapshot(++rev, ack, nextShell, nextFeeds)
+            StudioViewFrame.Snapshot(++rev, ack, nextShell, nextFeeds, generation)
         } else {
             val shellChanges = nextShell.filter { (key, value) -> previous[key] != value }
             val feedChanges = feedPatches(feeds, nextFeeds)

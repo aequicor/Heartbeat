@@ -158,6 +158,24 @@ class RemoteStudioStoreTest {
         }
     }
 
+    @Test
+    fun `a timed out send retries after resync without new user input`() = runTest {
+        store().subscribeAndTest {
+            runCurrent()
+            show(AiStudioScreenState())
+            runCurrent()
+            AiStudioScreenIntent.ToggleSearch resultsIn { runCurrent() }
+            reply(posted("call").single(), "\"error\":{\"code\":\"timeout\"}")
+            advanceTimeBy(6.seconds)
+            runCurrent()
+            assertEquals(2, posted("watch").size)
+            app.reset()
+            show(AiStudioScreenState())
+            runCurrent()
+            assertEquals(2, posted("call").size)
+        }
+    }
+
     private companion object {
         const val VIEW = "view-1"
     }

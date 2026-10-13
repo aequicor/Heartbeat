@@ -55,4 +55,35 @@ class StudioViewSyncTest {
         assertEquals(listOf(2L, 3L), sync.unsent(limit = 64).map { it.seq })
         assertEquals("abc", sync.screen?.draft(0))
     }
+
+    @Test
+    fun `a recreated view does not replay old actions and retains interrupted drafts`() {
+        val sync = StudioViewSync()
+        val old = StudioViewEncoder(generation = "old")
+        sync.receive(checkNotNull(old.frame(AiStudioScreenState(), 0)))
+        sync.add(typed("unsent text"))
+        sync.add(AiStudioScreenIntent.Submit(0))
+        sync.sent(2)
+        sync.restart()
+        assertEquals(emptyList(), sync.unsent(64))
+
+        val fresh = StudioViewEncoder(generation = "new")
+        sync.receive(checkNotNull(fresh.frame(AiStudioScreenState(), 0)))
+
+        assertEquals(emptyList(), sync.unsent(64))
+        assertEquals("unsent text", sync.interruptedScreen?.draft(0))
+        sync.add(typed("new input"))
+        assertEquals(listOf(1L), sync.unsent(64).map { it.seq })
+    }
+
+    @Test
+    fun `intents wait for a snapshot and numbering continues after its acknowledgement`() {
+        val sync = StudioViewSync()
+        sync.add(typed("before snapshot"))
+        assertEquals(emptyList(), sync.unsent(64))
+        val app = StudioViewEncoder()
+        sync.receive(checkNotNull(app.frame(AiStudioScreenState(), 10)))
+        sync.add(typed("after snapshot"))
+        assertEquals(listOf(11L), sync.unsent(64).map { it.seq })
+    }
 }

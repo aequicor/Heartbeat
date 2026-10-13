@@ -28,6 +28,7 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -69,9 +70,15 @@ class RemoteStudioViewsTest {
 
         suspend fun open(id: String, schema: String = StudioViewSchema.fingerprint) = views.open(id, schema)
 
+        val generations = mutableMapOf<String, String>()
+
+        suspend fun send() = views.send("view", generations["view"].orEmpty(), emptyList())
+
         /** Opens [id] and collects its frames until the returned job is cancelled. */
         suspend fun attach(id: String) = test.backgroundScope.launch {
-            assertIs<StudioRemoteOpen.Opened>(open(id)).frames.collect {}
+            assertIs<StudioRemoteOpen.Opened>(open(id)).frames.collect { frame ->
+                frame["generation"]?.jsonPrimitive?.content?.let { generations[id] = it }
+            }
         }.also { test.runCurrent() }
     }
 
@@ -100,10 +107,10 @@ class RemoteStudioViewsTest {
         runCurrent()
 
         advanceTimeBy(29.seconds)
-        assertIs<StudioRemoteReply.Applied>(harness.views.send("view", emptyList()))
+        assertIs<StudioRemoteReply.Applied>(harness.send())
         harness.attach("view")
         advanceTimeBy(60.seconds)
-        assertIs<StudioRemoteReply.Applied>(harness.views.send("view", emptyList()))
+        assertIs<StudioRemoteReply.Applied>(harness.send())
         assertEquals(1, harness.hosts.size, "joining again within the grace period keeps the view")
 
         harness.scopes.single().let { scope -> assertTrue(!scope.isClosed) }
@@ -117,7 +124,7 @@ class RemoteStudioViewsTest {
 
         advanceTimeBy(31.seconds)
 
-        assertEquals(StudioRemoteReply.UnknownView, harness.views.send("view", emptyList()))
+        assertEquals(StudioRemoteReply.UnknownView, harness.send())
         assertTrue(harness.scopes.single().isClosed)
     }
 
@@ -128,7 +135,7 @@ class RemoteStudioViewsTest {
 
         advanceTimeBy(31.seconds)
 
-        assertEquals(StudioRemoteReply.UnknownView, harness.views.send("view", emptyList()))
+        assertEquals(StudioRemoteReply.UnknownView, harness.send())
     }
 
     private class FakeScope(override val coroutineScope: CoroutineScope, override val name: String) : OwnedScope {

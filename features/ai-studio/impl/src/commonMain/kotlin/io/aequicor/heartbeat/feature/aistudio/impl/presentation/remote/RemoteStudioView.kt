@@ -24,6 +24,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import pro.respawn.flowmvi.dsl.collect
 import kotlin.time.Duration
+import kotlin.uuid.Uuid
 
 /**
  * One remote view: a studio screen store of its own ([release] closes its scope), drawn by a host from frames.
@@ -41,6 +42,9 @@ internal class RemoteStudioView(
     private val attached = MutableStateFlow<Job?>(null)
     private var lastSeq = 0L
 
+    /** Stable across attachments, different for every recreated view. */
+    val generation: String = Uuid.random().toString()
+
     /** Whether a host collects the frames now. */
     val isAttached: Boolean get() = attached.value?.isActive == true
 
@@ -48,7 +52,7 @@ internal class RemoteStudioView(
     fun frames(onDetached: () -> Unit): Flow<JsonObject> = channelFlow {
         attached.getAndUpdate { currentCoroutineContext().job }?.cancel()
         log.i { "view ${id.take(SHORT_ID)} attached" }
-        val encoder = StudioViewEncoder()
+        val encoder = StudioViewEncoder(generation = generation)
         try {
             // Collecting subscribes to the store, which also starts its subscription-bound observations.
             model.store.collect {
@@ -64,7 +68,8 @@ internal class RemoteStudioView(
     }.flowOn(encoding)
 
     /** Applies the host's intents after the last applied one; refused ones are acknowledged too. */
-    fun apply(intents: List<StudioRemoteIntent>): StudioRemoteReply {
+    fun apply(generation: String, intents: List<StudioRemoteIntent>): StudioRemoteReply {
+        if (generation != this.generation) return StudioRemoteReply.UnknownView
         val refused = mutableListOf<Long>()
         for (remote in intents.sortedBy { it.seq }) {
             if (remote.seq <= lastSeq) continue

@@ -25,9 +25,10 @@ public interface StudioRemoteScreens {
 
     /**
      * Applies host [intents] to view [viewId] in [StudioRemoteIntent.seq] order; intents at or below the last
-     * applied sequence number are ignored, so a host may resend after reconnecting.
+     * applied sequence number are ignored, so a host may resend after reconnecting. [generation] must match the
+     * instance identified by its snapshot; stale requests never reach a recreated screen.
      */
-    public suspend fun send(viewId: String, intents: List<StudioRemoteIntent>): StudioRemoteReply
+    public suspend fun send(viewId: String, generation: String, intents: List<StudioRemoteIntent>): StudioRemoteReply
 }
 
 /** One screen intent of a host, numbered by the host. */

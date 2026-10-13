@@ -65,7 +65,7 @@ class RemoteStudioViewTest {
         assertIs<StudioViewFrame.Snapshot>(snapshot)
         mirror.apply(snapshot)
 
-        val reply = harness.view.apply(listOf(intent(1, AiStudioScreenIntent.ToggleSearch)))
+        val reply = harness.view.apply(harness.view.generation, listOf(intent(1, AiStudioScreenIntent.ToggleSearch)))
         assertEquals(StudioRemoteReply.Applied(1, emptyList()), reply)
         advanceTimeBy(200.milliseconds)
         runCurrent()
@@ -82,6 +82,7 @@ class RemoteStudioViewTest {
         val harness = Harness(this, ready)
 
         val reply = harness.view.apply(
+            harness.view.generation,
             listOf(
                 intent(2, AiStudioScreenIntent.AddProject(0)),
                 intent(1, AiStudioScreenIntent.ToggleSearch),
@@ -89,7 +90,7 @@ class RemoteStudioViewTest {
                 StudioRemoteIntent(4, JsonPrimitive("not an intent")),
             ),
         )
-        val again = harness.view.apply(listOf(intent(4, AiStudioScreenIntent.ToggleSearch)))
+        val again = harness.view.apply(harness.view.generation, listOf(intent(4, AiStudioScreenIntent.ToggleSearch)))
 
         assertEquals(StudioRemoteReply.Applied(4, listOf(2L, 3L, 4L)), reply)
         assertEquals(StudioRemoteReply.Applied(4, emptyList()), again)
@@ -111,5 +112,21 @@ class RemoteStudioViewTest {
         runCurrent()
         assertEquals(2, detached)
         assertTrue(harness.isReleased)
+    }
+
+    @Test
+    fun `a request addressed to a destroyed instance never enters the new store`() = runTest {
+        val old = Harness(this, ready)
+        val replacement = Harness(this, ready)
+        val screen = replacement.fixture.subscribe()
+        val intent = intent(1, AiStudioScreenIntent.ToggleSearch)
+
+        assertEquals(StudioRemoteReply.UnknownView, replacement.view.apply(old.view.generation, listOf(intent)))
+        assertEquals(
+            StudioRemoteReply.Applied(1, emptyList()),
+            replacement.view.apply(replacement.view.generation, listOf(intent)),
+        )
+        runCurrent()
+        assertTrue(screen.states.value.sidebar.isSearchVisible)
     }
 }

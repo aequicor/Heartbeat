@@ -26,6 +26,8 @@ internal enum class StudioViewStatus {
 internal data class RemoteStudioState(
     val status: StudioViewStatus = StudioViewStatus.Connecting,
     val screen: AiStudioScreenState? = null,
+    /** Previous screen retained after the app recreated the view; actions were not replayed. */
+    val interruptedScreen: AiStudioScreenState? = null,
 ) : MVIState
 
 /** The remote studio has no one-off effects; the app's screen store has none either. */

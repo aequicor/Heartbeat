@@ -73,7 +73,7 @@ internal class SidePanelStudioHandlers(private val studio: StudioRemoteScreens, 
     private suspend fun intents(params: ViewIntents): BridgeReply {
         require(params.intents.size <= MAX_INTENTS) { "Too many intents" }
         val intents = params.intents.map { StudioRemoteIntent(it.seq, it.intent) }
-        return when (val reply = studio.send(params.view, intents)) {
+        return when (val reply = studio.send(params.view, params.generation, intents)) {
             is StudioRemoteReply.Applied -> BridgeReply.Ok(
                 BridgeProtocol.json.encodeToJsonElement(ViewAck.serializer(), ViewAck(reply.ack, reply.refused)),
             )
@@ -102,7 +102,7 @@ internal class SidePanelStudioHandlers(private val studio: StudioRemoteScreens, 
 
     /** `studio.intent` parameters. */
     @Serializable
-    private data class ViewIntents(val view: String, val intents: List<ViewIntent>)
+    private data class ViewIntents(val view: String, val generation: String, val intents: List<ViewIntent>)
 
     /** One numbered screen intent of the panel. */
     @Serializable

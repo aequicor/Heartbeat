@@ -80,8 +80,13 @@ internal class RemoteStudioViews(
         StudioRemoteOpen.Opened(view.frames(onDetached = { detached(view) }))
     }
 
-    override suspend fun send(viewId: String, intents: List<StudioRemoteIntent>): StudioRemoteReply =
-        withContext(dispatchers.main) { views[viewId]?.apply(intents) ?: StudioRemoteReply.UnknownView }
+    override suspend fun send(
+        viewId: String,
+        generation: String,
+        intents: List<StudioRemoteIntent>,
+    ): StudioRemoteReply = withContext(dispatchers.main) {
+        views[viewId]?.apply(generation, intents) ?: StudioRemoteReply.UnknownView
+    }
 
     private fun create(viewId: String): RemoteStudioView {
         val scope = scopes.child(profile, "aistudio-remote-${views.size + graces.size}")

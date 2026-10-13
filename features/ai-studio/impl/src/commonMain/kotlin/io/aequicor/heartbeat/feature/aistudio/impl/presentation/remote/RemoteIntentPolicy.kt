@@ -11,14 +11,70 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.NativeAtta
 internal fun isAllowedRemotely(intent: AiStudioScreenIntent): Boolean = when (intent) {
     is AiStudioScreenIntent.AddProject,
     is AiStudioScreenIntent.OpenBeside,
+    is AiStudioScreenIntent.RemoteApplied,
+    -> false
+
+    is AiStudioScreenIntent.Attachment -> isAllowedAttachment(intent)
+
+    is AiStudioScreenIntent.RespondPermission,
+    is AiStudioScreenIntent.SelectHarness,
+    is AiStudioScreenIntent.SelectOrganism,
+    is AiStudioScreenIntent.SelectSubSession,
+    is AiStudioScreenIntent.ControlOrganism,
+    is AiStudioScreenIntent.DecideOrganism,
+    is AiStudioScreenIntent.Retry,
+    is AiStudioScreenIntent.NewSession,
+    is AiStudioScreenIntent.SelectProject,
+    is AiStudioScreenIntent.OpenSession,
+    is AiStudioScreenIntent.ClosePane,
+    is AiStudioScreenIntent.FocusPane,
+    is AiStudioScreenIntent.Suggestions.DraftChanged,
+    is AiStudioScreenIntent.Suggestions.CaretMoved,
+    is AiStudioScreenIntent.Suggestions.CaretRequestApplied,
+    is AiStudioScreenIntent.Suggestions.MoveSuggestion,
+    is AiStudioScreenIntent.Suggestions.AcceptSuggestion,
+    is AiStudioScreenIntent.Suggestions.DismissSuggestions,
+    is AiStudioScreenIntent.SelectWorktree,
+    is AiStudioScreenIntent.DecideWorktree,
+    is AiStudioScreenIntent.RecheckWorktree,
+    is AiStudioScreenIntent.RetryWorktreeJournal,
+    is AiStudioScreenIntent.CancelWorktreeBuild,
+    is AiStudioScreenIntent.DiagramAction,
+    is AiStudioScreenIntent.Submit,
+    is AiStudioScreenIntent.Stop,
+    is AiStudioScreenIntent.RefreshUsage,
+    is AiStudioScreenIntent.CompactContext,
+    is AiStudioScreenIntent.SelectModel,
+    is AiStudioScreenIntent.SelectEffort,
+    is AiStudioScreenIntent.SelectEngineEffort,
+    is AiStudioScreenIntent.SelectApproval,
+    is AiStudioScreenIntent.SetPinned,
+    is AiStudioScreenIntent.SetUnread,
+    is AiStudioScreenIntent.SetArchived,
+    is AiStudioScreenIntent.StartRename,
+    is AiStudioScreenIntent.RenameChanged,
+    is AiStudioScreenIntent.CommitRename,
+    is AiStudioScreenIntent.CancelRename,
+    is AiStudioScreenIntent.ShowSidebarMode,
+    is AiStudioScreenIntent.ToggleSearch,
+    is AiStudioScreenIntent.SearchChanged,
+    is AiStudioScreenIntent.ToggleProject,
+    is AiStudioScreenIntent.ToggleProjectsSection,
+    is AiStudioScreenIntent.ToggleRecentSection,
+    is AiStudioScreenIntent.ToggleSidebar,
+    is AiStudioScreenIntent.SetDrawerOpen,
+    -> true
+}
+
+/** Keep new attachment surfaces explicit instead of inheriting permission from the composer group. */
+private fun isAllowedAttachment(intent: AiStudioScreenIntent.Attachment): Boolean = when (intent) {
     is AiStudioScreenIntent.PickAttachments,
     is AiStudioScreenIntent.AttachmentsSelected,
     is AiStudioScreenIntent.OpenAttachment,
     is AiStudioScreenIntent.ExportAttachment,
-    is AiStudioScreenIntent.RemoteApplied,
     -> false
 
     is AiStudioScreenIntent.ImportAttachments -> intent.inputs.none { it is NativeAttachmentUi.File }
 
-    else -> true
+    is AiStudioScreenIntent.RemoveAttachment, is AiStudioScreenIntent.AttachmentPreviewVisible -> true
 }

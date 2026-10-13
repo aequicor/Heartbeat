@@ -27,6 +27,8 @@ sealed interface StudioViewFrame {
         override val ack: Long,
         val shell: JsonObject,
         val feeds: Map<String, List<MessageUi>>,
+        /** Identity of this screen instance; changes when the app recreates it. */
+        val generation: String,
     ) : StudioViewFrame
 
     /** What changed since revision [base]: shell properties replaced as a whole and feed patches. */

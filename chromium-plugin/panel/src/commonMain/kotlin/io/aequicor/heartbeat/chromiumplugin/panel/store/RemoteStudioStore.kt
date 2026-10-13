@@ -140,7 +140,7 @@ private class StudioViewLink(
             return WatchEnd.Again
         }
         val screen = sync.screen
-        update { copy(status = StudioViewStatus.Live, screen = screen) }
+        update { copy(status = StudioViewStatus.Live, screen = screen, interruptedScreen = sync.interruptedScreen) }
         if (frame is StudioViewFrame.Snapshot) outbox.trySend(Unit)
         return null
     }
@@ -164,29 +164,34 @@ private class StudioViewLink(
             val intent = StudioViewJson.encodeToJsonElement(AiStudioScreenIntent.serializer(), pending.intent)
             ViewIntent(pending.seq, intent)
         }
-        val params = panelJson.encodeToJsonElement(ViewIntents.serializer(), ViewIntents(viewId, intents))
+        val generation = checkNotNull(sync.generation)
+        val params = panelJson.encodeToJsonElement(ViewIntents.serializer(), ViewIntents(viewId, generation, intents))
         return try {
             val reply = panelJson.decodeFromJsonElement(ViewAck.serializer(), link.call(STUDIO_INTENT, params))
             if (reply.refused.isNotEmpty()) log.i { "${reply.refused.size} studio intents refused by the app" }
-            sync.sent(batch.last().seq)
+            if (sync.generation == generation) sync.sent(batch.last().seq)
             true
         } catch (e: PanelCallException) {
-            sync.resend()
-            if (e.code == BridgeErrorCode.UNKNOWN_VIEW) {
-                log.i { "the app closed the studio view, opening it again" }
-                restarts.trySend(Unit)
-            } else {
-                log.w(e) { "studio intents not delivered" }
-            }
+            log.w(e) { "studio intents not delivered" }
+            retry(generation, immediately = e.code == BridgeErrorCode.UNKNOWN_VIEW)
             false
         } catch (e: SerializationException) {
-            sync.resend()
             log.w(e) { "studio intent reply unreadable" }
+            retry(generation)
             false
         } catch (e: IllegalArgumentException) {
-            sync.resend()
             log.w(e) { "studio intent reply unreadable" }
+            retry(generation)
             false
+        }
+    }
+
+    private suspend fun retry(generation: String, immediately: Boolean = false) {
+        if (sync.generation == generation) {
+            sync.resend()
+            if (!immediately) delay(retryDelay)
+            // A snapshot may have replaced the instance while the sender waited.
+            if (sync.generation == generation) restarts.trySend(Unit)
         }
     }
 }
@@ -204,7 +209,7 @@ private fun String?.viewStatus(): StudioViewStatus = when (this) {
 
 /** `studio.intent` parameters. */
 @Serializable
-private data class ViewIntents(val view: String, val intents: List<ViewIntent>)
+private data class ViewIntents(val view: String, val generation: String, val intents: List<ViewIntent>)
 
 /** One numbered screen intent. */
 @Serializable

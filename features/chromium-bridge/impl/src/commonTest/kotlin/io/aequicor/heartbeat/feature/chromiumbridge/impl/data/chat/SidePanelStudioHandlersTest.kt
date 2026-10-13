@@ -85,6 +85,7 @@ class SidePanelStudioHandlersTest {
         val session = FakeSession(this)
         val params = buildJsonObject {
             put("view", "v1")
+            put("generation", "g1")
             putJsonArray("intents") {
                 addJsonObject {
                     put("seq", 1)
@@ -121,7 +122,12 @@ class SidePanelStudioHandlersTest {
         override suspend fun open(viewId: String, schema: String): StudioRemoteOpen =
             refusal?.let(StudioRemoteOpen::Refused) ?: StudioRemoteOpen.Opened(frames)
 
-        override suspend fun send(viewId: String, intents: List<StudioRemoteIntent>): StudioRemoteReply {
+        override suspend fun send(
+            viewId: String,
+            generation: String,
+            intents: List<StudioRemoteIntent>,
+        ): StudioRemoteReply {
+            assertEquals("g1", generation)
             if (!isKnown) return StudioRemoteReply.UnknownView
             sent += intents
             return StudioRemoteReply.Applied(intents.maxOf { it.seq }, listOf(2))
