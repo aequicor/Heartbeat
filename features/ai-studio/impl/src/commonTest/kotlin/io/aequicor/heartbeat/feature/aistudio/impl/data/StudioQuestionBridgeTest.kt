@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermission
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionOption
@@ -352,6 +353,7 @@ private class FakeQuestionRuntime : StudioRuntime {
         settings: RunSettings,
         attachments: List<ResourceRef>,
         submissionId: String,
+        environment: StudioChatEnvironment?,
         onAccepted: suspend () -> Unit,
     ): RunOutcome {
         prompts += "$sessionId: $prompt"

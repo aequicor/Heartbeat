@@ -29,6 +29,7 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileStartup
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireAnswerContext
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireEnabled
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireIntent
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireMachineSpec
@@ -154,7 +155,13 @@ internal class ProfileQuestionnaireRemoteScreens(
             val model = graphs.create(QuestionnaireRoute(id), scope).remote
             object : QuestionnaireRemoteScreen {
                 override val states = model.states
-                override suspend fun dispatch(intent: kotlinx.serialization.json.JsonObject) = model.dispatch(intent)
+                override suspend fun dispatch(
+                    intent: kotlinx.serialization.json.JsonObject,
+                    context: QuestionnaireAnswerContext?,
+                ) = model.dispatch(
+                    intent,
+                    context,
+                )
                 override fun close() = scope.close()
             }
         } catch (error: CancellationException) {

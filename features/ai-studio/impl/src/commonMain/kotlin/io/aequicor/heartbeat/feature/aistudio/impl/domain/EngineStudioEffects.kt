@@ -63,6 +63,7 @@ class EngineStudioEffects(
             )
 
             is AiStudioEffect.CreateSession -> {
+                requireBrowserCreationSupport(effect)
                 val session = repository.createSession(
                     effect.projectId,
                     titleOf(effect.prompt),
@@ -78,6 +79,7 @@ class EngineStudioEffects(
                         effect.requestId,
                         effect.attachments,
                         effect.submissionId,
+                        effect.environment,
                     ),
                 )
             }
@@ -106,6 +108,7 @@ class EngineStudioEffects(
             effect.settings,
             effect.attachments,
             effect.submissionId,
+            effect.environment,
         ) {
             isAccepted = true
             if (effect.submissionId.isNotEmpty()) {
@@ -153,4 +156,9 @@ class EngineStudioEffects(
             is AiStudioEffect.RefreshUsage -> runtime.refreshUsage(effect.modelId)
         }
     }
+}
+
+/** Outside turns cannot route independently created organism child sessions. */
+private fun requireBrowserCreationSupport(effect: AiStudioEffect.CreateSession) {
+    check(effect.environment == null || !effect.isOrganism) { "Browser-hosted organisms are unavailable" }
 }

@@ -110,6 +110,7 @@ internal class ContextAgentTools(
             context.session,
             CompactionOrigin.Agent,
             arguments.text("instructions"),
+            sourceRequest = context.request,
         )
         return if (machines.send(ContextOptimizationMachineKey, intent) == SendResult.Accepted) {
             AgentToolResult(

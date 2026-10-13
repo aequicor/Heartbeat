@@ -7,8 +7,10 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioQuestionContext
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioChecklistView
@@ -38,12 +40,18 @@ interface StudioEmbeds {
     val states: Flow<StudioEmbedViews>
 
     /** Applies input to its exact child instance and returns the current child set after the barrier. */
-    suspend fun dispatch(input: AiStudioScreenIntent.Embed): StudioEmbedViews
+    suspend fun dispatch(
+        input: AiStudioScreenIntent.Embed,
+        environment: StudioChatEnvironment? = null,
+    ): StudioEmbedViews
 
     /** A native or test screen without remote children. */
     object None : StudioEmbeds {
         override val states: Flow<StudioEmbedViews> = flowOf(StudioEmbedViews())
-        override suspend fun dispatch(input: AiStudioScreenIntent.Embed): StudioEmbedViews = StudioEmbedViews()
+        override suspend fun dispatch(
+            input: AiStudioScreenIntent.Embed,
+            environment: StudioChatEnvironment?,
+        ): StudioEmbedViews = StudioEmbedViews()
     }
 }
 
@@ -77,7 +85,10 @@ internal class RemoteStudioEmbeds(
         }
     }
 
-    override suspend fun dispatch(input: AiStudioScreenIntent.Embed): StudioEmbedViews {
+    override suspend fun dispatch(
+        input: AiStudioScreenIntent.Embed,
+        environment: StudioChatEnvironment?,
+    ): StudioEmbedViews {
         val key: Key
         val instance: String
         val intent: JsonObject
@@ -100,7 +111,7 @@ internal class RemoteStudioEmbeds(
         val child = current[key]?.takeIf { it.instance == instance } ?: return committed.value
         child.inFlight++
         try {
-            accept(key, child, child.dispatch(intent))
+            accept(key, child, child.dispatch(intent, environment))
         } finally {
             child.inFlight--
             if (child.inFlight == 0 && retiring.remove(child)) child.close()
@@ -141,7 +152,12 @@ internal class RemoteStudioEmbeds(
             val handle = questions.open(key.id)
             Child(
                 handle.states.map { Projection(it.revision, it.screen) },
-                { intent -> handle.dispatch(intent).let { Projection(it.revision, it.screen) } },
+                { intent, environment ->
+                    handle.dispatch(
+                        intent,
+                        environment?.let(::StudioQuestionContext),
+                    ).let { Projection(it.revision, it.screen) }
+                },
                 handle::close,
             )
         }
@@ -150,7 +166,7 @@ internal class RemoteStudioEmbeds(
             val handle = checklists.open(key.id)
             Child(
                 handle.states.map { Projection(it.revision, it.screen) },
-                { intent -> handle.dispatch(intent).let { Projection(it.revision, it.screen) } },
+                { intent, _ -> handle.dispatch(intent).let { Projection(it.revision, it.screen) } },
                 handle::close,
             )
         }
@@ -195,7 +211,7 @@ internal class RemoteStudioEmbeds(
     private data class Projection(val revision: Long, val screen: JsonObject)
     private class Child(
         val states: Flow<Projection>,
-        val dispatch: suspend (JsonObject) -> Projection,
+        val dispatch: suspend (JsonObject, StudioChatEnvironment?) -> Projection,
         private val dispose: () -> Unit,
     ) {
         val instance: String = Uuid.random().toString()

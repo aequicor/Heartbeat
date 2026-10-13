@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireAnswerContext
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireViewState
 import io.aequicor.heartbeat.feature.questionnaire.impl.di.scope.QuestionnaireScope
 import io.aequicor.heartbeat.feature.questionnaire.impl.presentation.store.QuestionnaireModel
@@ -41,8 +42,8 @@ class RemoteQuestionnaireScreen internal constructor(
     }
 
     /** Applies a decoded input and waits for its committed projection. */
-    suspend fun dispatch(intent: JsonObject): QuestionnaireViewState =
-        snapshot(model.dispatch(json.decodeFromJsonElement(QuestionnaireScreenIntent.serializer(), intent)))
+    suspend fun dispatch(intent: JsonObject, context: QuestionnaireAnswerContext? = null): QuestionnaireViewState =
+        snapshot(model.dispatch(json.decodeFromJsonElement(QuestionnaireScreenIntent.serializer(), intent), context))
 
     @HighFrequency
     private fun publish(state: QuestionnaireScreenState) {

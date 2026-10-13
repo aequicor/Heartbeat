@@ -15,7 +15,10 @@ public interface QuestionnaireRemoteScreen {
     public val states: Flow<QuestionnaireViewState>
 
     /** Returns the committed projection after applying [intent], including the current machine state. */
-    public suspend fun dispatch(intent: JsonObject): QuestionnaireViewState
+    public suspend fun dispatch(
+        intent: JsonObject,
+        context: QuestionnaireAnswerContext? = null,
+    ): QuestionnaireViewState
 
     /** Releases the screen and cancels pending dispatch waiters; the profile machine keeps running. */
     public fun close()

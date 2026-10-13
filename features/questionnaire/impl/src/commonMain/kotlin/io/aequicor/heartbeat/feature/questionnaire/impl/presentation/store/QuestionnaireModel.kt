@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
 import io.aequicor.heartbeat.feature.questionnaire.api.Answer
 import io.aequicor.heartbeat.feature.questionnaire.api.Question
 import io.aequicor.heartbeat.feature.questionnaire.api.Questionnaire
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireAnswerContext
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireId
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireIntent
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireOutput
@@ -95,7 +96,7 @@ internal class QuestionnaireModel(
                     if (answer != null) {
                         log.i { "Answer question kind=${answer::class.simpleName.orEmpty()}" }
                         val id = QuestionnaireId(intent.questionId)
-                        sendTo(machine, QuestionnaireIntent.Public.Answer(id, answer)) { rejected ->
+                        sendTo(machine, QuestionnaireIntent.Public.Answer(id, answer, input.context)) { rejected ->
                             log.w { "Answer was not accepted: $rejected" }
                         }
                     }
@@ -118,10 +119,13 @@ internal class QuestionnaireModel(
     fun intent(intent: QuestionnaireScreenIntent) = store.intent(QuestionnaireModelInput(intent))
 
     /** Waits for committed reduction, and is cancelled when this screen closes. */
-    suspend fun dispatch(intent: QuestionnaireScreenIntent): QuestionnaireScreenState {
+    suspend fun dispatch(
+        intent: QuestionnaireScreenIntent,
+        context: QuestionnaireAnswerContext? = null,
+    ): QuestionnaireScreenState {
         val completion = CompletableDeferred<QuestionnaireScreenState>(lifetime)
         try {
-            store.intent(QuestionnaireModelInput(intent, completion))
+            store.intent(QuestionnaireModelInput(intent, completion, context))
             return completion.await()
         } finally {
             completion.cancel()
@@ -182,4 +186,5 @@ internal fun QuestionUi.draftAnswer(): Answer? = when (val kind = kind) {
 internal data class QuestionnaireModelInput(
     val intent: QuestionnaireScreenIntent,
     val completion: CompletableDeferred<QuestionnaireScreenState>? = null,
+    val context: QuestionnaireAnswerContext? = null,
 ) : MVIIntent

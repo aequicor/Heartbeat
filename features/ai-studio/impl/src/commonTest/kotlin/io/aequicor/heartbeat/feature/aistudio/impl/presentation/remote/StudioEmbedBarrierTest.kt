@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote
 
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModelTest
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioEmbedViews
@@ -26,7 +27,10 @@ class StudioEmbedBarrierTest {
         val committed = views(2, "confirmed")
         val embeds = object : StudioEmbeds {
             override val states = updates
-            override suspend fun dispatch(input: AiStudioScreenIntent.Embed): StudioEmbedViews {
+            override suspend fun dispatch(
+                input: AiStudioScreenIntent.Embed,
+                environment: StudioChatEnvironment?,
+            ): StudioEmbedViews {
                 gate.await()
                 return committed
             }

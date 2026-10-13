@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.questionnaire.api.Answer
 import io.aequicor.heartbeat.feature.questionnaire.api.Choice
 import io.aequicor.heartbeat.feature.questionnaire.api.Question
 import io.aequicor.heartbeat.feature.questionnaire.api.Questionnaire
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireAnswerContext
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireId
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireIntent
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireOutput
@@ -59,6 +60,19 @@ class QuestionnaireModelTest {
     )
     private val text = Questionnaire(QuestionnaireId("t"), "s1", "Name", Question.FreeText())
     private val foreign = Questionnaire(QuestionnaireId("f"), "s2", "Other", Question.Confirm("y", "n"))
+
+    @Test
+    fun `remote answer dispatch carries native context outside the serialized intent`() = runTest {
+        val fixture = Fixture(this, QuestionnaireState.Asking(listOf(text)))
+        fixture.subscribe()
+        val context = object : QuestionnaireAnswerContext { }
+        fixture.model.dispatch(QuestionnaireScreenIntent.TextChanged("t", "Ready"))
+        fixture.model.dispatch(QuestionnaireScreenIntent.Submit("t"), context)
+        assertEquals(
+            listOf<QuestionnaireIntent>(QuestionnaireIntent.Public.Answer(text.id, Answer.Text("Ready"), context)),
+            fixture.machine.sent,
+        )
+    }
 
     @Test
     fun `only questions of the shown source are reflected with their submitting state`() = runTest {

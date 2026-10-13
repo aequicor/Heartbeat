@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioViewJson
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistRemoteScreens
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireAnswerContext
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRemoteScreen
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRemoteScreens
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireViewState
@@ -105,7 +106,10 @@ class RemoteStudioEmbedsTest {
         var gate: CompletableDeferred<Unit>? = null
         var sent = 0
         var isClosed = false
-        override suspend fun dispatch(intent: JsonObject): QuestionnaireViewState {
+        override suspend fun dispatch(
+            intent: JsonObject,
+            context: QuestionnaireAnswerContext?,
+        ): QuestionnaireViewState {
             sent++
             gate?.await()
             return next

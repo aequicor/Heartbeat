@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.statemachine.assertIgnored
 import io.aequicor.heartbeat.core.statemachine.assertTransition
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationIntent.Internal
@@ -55,10 +56,15 @@ class ContextOptimizationMachineTest {
     fun `a compaction request follows the strategy unless a method is given`() {
         spec.assertTransition(
             from = Ready(),
-            intent = Public.Compact(Session, CompactionOrigin.Agent, "keep tests"),
+            intent = Public.Compact(Session, CompactionOrigin.Agent, "keep tests", sourceRequest = RequestId("native")),
             to = Ready(
                 pending = mapOf(
-                    Session to PendingCompaction(CompactionMethod.Native, CompactionOrigin.Agent, "keep tests"),
+                    Session to PendingCompaction(
+                        CompactionMethod.Native,
+                        CompactionOrigin.Agent,
+                        "keep tests",
+                        RequestId("native"),
+                    ),
                 ),
             ),
         )

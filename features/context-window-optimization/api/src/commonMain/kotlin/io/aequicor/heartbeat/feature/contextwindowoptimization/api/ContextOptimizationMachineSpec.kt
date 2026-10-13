@@ -52,7 +52,7 @@ public val ContextOptimizationMachineSpec: ContextOptimizationSpec =
             on<Public.Compact>(guard = { intent.session !in state.running }) {
                 stay {
                     val method = intent.method ?: state.settings.defaultMethod()
-                    val request = PendingCompaction(method, intent.origin, intent.instructions)
+                    val request = PendingCompaction(method, intent.origin, intent.instructions, intent.sourceRequest)
                     state.copy(pending = state.pending + (intent.session to request))
                 }
             }

@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionOwner
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -85,13 +86,20 @@ class ContextLedgerDeliveryTest {
         val checkpoint = Json.parseToJsonElement("""{"done":["#12"],"next":["#13"]}""").jsonObject
 
         tools.execute(ToolContext, ContextOptimizationTools.CHECKPOINT, checkpoint)
-        tools.execute(ToolContext, ContextOptimizationTools.COMPACT, JsonObject(emptyMap()))
+        tools.execute(
+            ToolContext.copy(request = RequestId("trusted")),
+            ContextOptimizationTools.COMPACT,
+            Json.parseToJsonElement("""{"sourceRequest":"forged"}""").jsonObject,
+        )
         val status = tools.execute(ToolContext, ContextOptimizationTools.STATUS, JsonObject(emptyMap())).text
 
         val update = (registry.sent.first() as Public.UpdateLedger).update
         assertEquals(listOf("#12"), update.done)
         assertEquals(listOf("#13"), update.next)
-        assertEquals(Public.Compact(Session, CompactionOrigin.Agent), registry.sent.last())
+        assertEquals(
+            Public.Compact(Session, CompactionOrigin.Agent, sourceRequest = RequestId("trusted")),
+            registry.sent.last(),
+        )
         assertTrue("70%" in status && "Fix every open issue" in status)
     }
 
