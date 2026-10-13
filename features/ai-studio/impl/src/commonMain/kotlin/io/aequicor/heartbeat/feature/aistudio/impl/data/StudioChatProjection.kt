@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioChatList
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatNotice
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatPart
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatProject
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatSummary
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatToolStatus
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
@@ -20,9 +21,10 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolRunStatus
 /** Chats an outside host may list: neither archived nor helpers of another chat; pinned first, then recent. */
 internal fun StudioWorkspace.toChatList(runtime: StudioRuntimeState): StudioChatList {
     val chats = sessions.asSequence()
-        .filter { !it.isArchived && it.parentChatId == null }
+        .filter { it.parentChatId == null }
         .sortedWith(compareByDescending<StudioSession> { it.isPinned }.thenByDescending { it.updatedAt })
         .map { session ->
+            val configuration = runtime.configurations[session.id]
             StudioChatSummary(
                 id = session.id,
                 title = session.title,
@@ -32,6 +34,12 @@ internal fun StudioWorkspace.toChatList(runtime: StudioRuntimeState): StudioChat
                 isPinned = session.isPinned,
                 isUnread = session.isUnread,
                 isContinuable = session.isContinuable,
+                isArchived = session.isArchived,
+                modelId = configuration?.applied?.modelId ?: session.modelId?.takeIf(String::isNotBlank),
+                settings = configuration?.applied?.let {
+                    StudioChatSettings(it.modelId, it.reasoningEffort, it.approval)
+                },
+                isConfiguring = configuration?.pendingOperation != null,
             )
         }
         .toList()

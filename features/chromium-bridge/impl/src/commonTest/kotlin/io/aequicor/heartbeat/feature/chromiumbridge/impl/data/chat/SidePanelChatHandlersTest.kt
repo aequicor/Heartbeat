@@ -1,6 +1,8 @@
 package io.aequicor.heartbeat.feature.chromiumbridge.impl.data.chat
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatComposer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEntry
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatList
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatPart
@@ -11,6 +13,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioChatSendResult
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatSummary
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChats
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeErrorCode
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeFrame
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.protocol.BridgeProtocol
@@ -249,6 +252,8 @@ class SidePanelChatHandlersTest {
 
         override fun observeList(): Flow<StudioChatList> = list
 
+        override fun observeComposer(): Flow<StudioChatComposer> = flowOf(StudioChatComposer())
+
         override fun observeTranscript(chatId: String): Flow<List<StudioChatEntry>> =
             transcripts[chatId] ?: flowOf(emptyList())
 
@@ -262,6 +267,12 @@ class SidePanelChatHandlersTest {
             optionId: String,
             answer: StudioPermissionAnswer?,
         ): Boolean = (requestId == "r1").also { if (it) answers += answer }
+
+        override suspend fun configure(chatId: String, change: StudioSettingChange): Boolean = false
+
+        override suspend fun chooseNewChatEffort(modelId: String, effort: String?): Boolean = false
+
+        override suspend fun edit(chatId: String, edit: SessionEdit): Boolean = false
     }
 
     private class FakeSession(test: TestScope) : BridgeSession {

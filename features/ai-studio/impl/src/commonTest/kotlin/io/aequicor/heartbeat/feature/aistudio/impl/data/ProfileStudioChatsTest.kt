@@ -2,9 +2,23 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.core.statemachine.MachineEffect
+import io.aequicor.heartbeat.core.statemachine.MachineIntent
+import io.aequicor.heartbeat.core.statemachine.MachineKey
+import io.aequicor.heartbeat.core.statemachine.MachineOutput
+import io.aequicor.heartbeat.core.statemachine.MachineRef
+import io.aequicor.heartbeat.core.statemachine.MachineRegistry
+import io.aequicor.heartbeat.core.statemachine.MachineState
+import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.hostDirective
 import io.aequicor.heartbeat.feature.aiengine.facade.api.withHostDirectives
+import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
+import io.aequicor.heartbeat.feature.aistudio.api.AiStudioMachineKey
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
@@ -16,15 +30,19 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioChatPart
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatRejection
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatSend
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatSendResult
+import io.aequicor.heartbeat.feature.aistudio.api.StudioChatSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatToolStatus
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermission
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionOption
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEnvironment
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioProject
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioReplyPart
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
@@ -33,9 +51,15 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioToolRun
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolRunStatus
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoice
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
@@ -52,30 +76,37 @@ class ProfileStudioChatsTest {
     private val later = Instant.fromEpochSeconds(2_000)
 
     @Test
-    fun `the list hides helpers and archived chats, puts pinned first and carries live permissions`() = runTest {
-        val fixture = Fixture(this)
-        fixture.repository.workspace.value = StudioWorkspace(
-            projects = listOf(StudioProject("p1", "Heartbeat", StudioEnvironment.Local, "main")),
-            sessions = listOf(
-                session("recent", later),
-                session("pinned", earlier, isPinned = true, projectId = "p1"),
-                session("helper", later, parentChatId = "recent"),
-                session("archived", later, isArchived = true),
-            ),
-        )
-        fixture.runtime.state.value = StudioRuntimeState(
-            running = setOf("recent"),
-            permissions = listOf(permission("recent"), permission("helper")),
-        )
+    fun `the list hides helpers, keeps archived chats, puts pinned first and carries settings and permissions`() =
+        runTest {
+            val fixture = Fixture(this)
+            fixture.repository.workspace.value = StudioWorkspace(
+                projects = listOf(StudioProject("p1", "Heartbeat", StudioEnvironment.Local, "main")),
+                sessions = listOf(
+                    session("recent", later),
+                    session("pinned", earlier, isPinned = true, projectId = "p1"),
+                    session("helper", later, parentChatId = "recent"),
+                    session("archived", later, isArchived = true),
+                ),
+            )
+            val applied = StudioSessionSettings("pi/default", "high", ApprovalMode.AutoEdits)
+            fixture.runtime.state.value = StudioRuntimeState(
+                running = setOf("recent"),
+                permissions = listOf(permission("recent"), permission("helper")),
+                configurations = mapOf("recent" to StudioSessionConfiguration(applied, pendingOperation = "op")),
+            )
 
-        val list = fixture.chats.observeList().first()
+            val list = fixture.chats.observeList().first()
 
-        assertEquals(listOf("pinned", "recent"), list.chats.map { it.id })
-        assertEquals("p1", list.chats.first().projectId)
-        assertTrue(list.chats.last().isRunning)
-        assertEquals(listOf("recent"), list.permissions.map { it.sessionId })
-        assertEquals(listOf("Heartbeat"), list.projects.map { it.name })
-    }
+            assertEquals(listOf("pinned", "recent", "archived"), list.chats.map { it.id })
+            assertEquals("p1", list.chats.first().projectId)
+            val recent = list.chats[1]
+            assertTrue(recent.isRunning)
+            assertEquals(StudioChatSettings("pi/default", "high", ApprovalMode.AutoEdits), recent.settings)
+            assertTrue(recent.isConfiguring)
+            assertTrue(list.chats.last().isArchived)
+            assertEquals(listOf("recent"), list.permissions.map { it.sessionId })
+            assertEquals(listOf("Heartbeat"), list.projects.map { it.name })
+        }
 
     @Test
     fun `nothing is listed or sent while profile chats are off`() = runTest {
@@ -166,6 +197,76 @@ class ProfileStudioChatsTest {
     }
 
     @Test
+    fun `a new chat runs on the chosen model and approvals when the model fits`() = runTest {
+        val fixture = Fixture(this)
+        fixture.repository.workspace.value = StudioWorkspace(
+            listOf(StudioProject("p1", "Heartbeat", StudioEnvironment.Local, "main")),
+            emptyList(),
+        )
+        val chosen = StudioChatSettings(ENGINE_MODEL, approval = ApprovalMode.AutoApprove)
+
+        val accepted = fixture.chats.send(StudioChatSend(null, null, "Hi", settings = chosen))
+        val unknown = fixture.chats.send(StudioChatSend(null, null, "Hi", settings = chosen.copy(modelId = "gone")))
+        val noProjects = fixture.chats.send(StudioChatSend(null, "p1", "Hi", settings = chosen))
+
+        assertTrue(accepted is StudioChatSendResult.Accepted)
+        assertEquals(
+            listOf(DEFAULTS.copy(modelId = ENGINE_MODEL, approval = ApprovalMode.AutoApprove)),
+            fixture.runtime.settings,
+        )
+        assertEquals(rejected(StudioChatRejection.NoModel), unknown)
+        assertEquals(rejected(StudioChatRejection.NoModel), noProjects)
+        assertEquals(1, fixture.repository.workspace.value.sessions.size)
+        fixture.runtime.release.complete(Unit)
+    }
+
+    @Test
+    fun `the composer offers the models with the start page's settings and the profile's efforts`() = runTest {
+        val fixture = Fixture(this)
+        fixture.efforts.value = EffortConfigurationState.Ready(listOf(EffortChoice(ENGINE_TARGET, "high")))
+
+        val composer = fixture.chats.observeComposer().first()
+
+        assertEquals(StudioChatSettings("pi/default", approval = ApprovalMode.Ask), composer.newChat)
+        val engine = composer.models.single { it.id == ENGINE_MODEL }
+        assertEquals(listOf("low", "high"), engine.efforts)
+        assertEquals("high", engine.newChatEffort)
+        assertEquals("pi/b1", engine.connection)
+        assertTrue(engine.isTrustSupported && !engine.isProjectSupported)
+    }
+
+    @Test
+    fun `chat settings, new-chat effort and edits take the studio's paths`() = runTest {
+        val fixture = Fixture(this)
+        fixture.repository.workspace.value = StudioWorkspace(
+            emptyList(),
+            listOf(session("a", later), session("helper", later, parentChatId = "a")),
+        )
+        val model = StudioSettingChange.Model(ENGINE_MODEL)
+
+        assertTrue(fixture.chats.configure("a", model))
+        assertFalse(fixture.chats.configure("a", StudioSettingChange.Model("gone")))
+        assertFalse(fixture.chats.configure("helper", model))
+        assertTrue(fixture.chats.chooseNewChatEffort(ENGINE_MODEL, "high"))
+        assertFalse(fixture.chats.chooseNewChatEffort(ENGINE_MODEL, "max"))
+        assertTrue(fixture.chats.edit("a", SessionEdit.Rename("  Renamed  ")))
+        fixture.registry.studioResult = SendResult.NotRunning
+        assertTrue(fixture.chats.edit("a", SessionEdit.SetPinned(true)))
+        assertFalse(fixture.chats.edit("a", SessionEdit.Rename(" ")))
+
+        assertEquals(listOf<StudioSettingChange>(model), fixture.runtime.configured)
+        assertEquals(
+            listOf<MachineIntent>(
+                EffortConfigurationIntent.Public.Select(ENGINE_TARGET, "high"),
+                AiStudioIntent.Public.Edit("a", SessionEdit.Rename("Renamed")),
+                AiStudioIntent.Public.Edit("a", SessionEdit.SetPinned(true)),
+            ),
+            fixture.registry.intents,
+        )
+        assertEquals(listOf<SessionEdit>(SessionEdit.SetPinned(true)), fixture.repository.edits)
+    }
+
+    @Test
     fun `a chat started outside the screen takes the start page's model until it has its own`() = runTest {
         val stores = ChecklistTestStores()
         val runtime = ChatsRuntime()
@@ -181,7 +282,7 @@ class ProfileStudioChatsTest {
                 ),
             ),
         )
-        val settings = StoredStudioChatSettings(stores, runtime)
+        val settings = StoredStudioChatRunSettings(stores, runtime)
 
         assertEquals(DEFAULTS, settings.settings("fresh"))
         assertEquals(
@@ -242,13 +343,46 @@ class ProfileStudioChatsTest {
     private class Fixture(scope: TestScope, isEnabled: Boolean = true) {
         val repository = ChatsRepository()
         val runtime = ChatsRuntime()
+        val efforts = MutableStateFlow<EffortConfigurationState>(EffortConfigurationState.Loading)
+        val registry = ChatsRegistry()
         val chats = ProfileStudioChats(
             ChatsToggles(isEnabled),
             lazyOf(repository),
             lazyOf(runtime),
-            lazyOf(StudioChatSettings { DEFAULTS }),
+            lazyOf(StudioChatRunSettings { DEFAULTS }),
+            lazyOf(
+                StudioChatControls(
+                    lazyOf(repository),
+                    lazyOf(runtime),
+                    object : EffortChoicesView {
+                        override val state = efforts
+                    },
+                    registry,
+                ),
+            ),
             RunProfile(scope.backgroundScope),
         )
+    }
+
+    private class ChatsRegistry : MachineRegistry {
+        val intents = mutableListOf<MachineIntent>()
+        var studioResult: SendResult = SendResult.Accepted
+
+        override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> find(
+            key: MachineKey<S, I, P, E, O>,
+        ): MachineRef<S, P, O>? = null
+
+        override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> observe(
+            key: MachineKey<S, I, P, E, O>,
+        ): StateFlow<MachineRef<S, P, O>?> = MutableStateFlow(null)
+
+        override suspend fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> send(
+            key: MachineKey<S, I, P, E, O>,
+            intent: P,
+        ): SendResult {
+            intents += intent
+            return if (key == AiStudioMachineKey) studioResult else SendResult.Accepted
+        }
     }
 
     private data class Run(val chat: String, val prompt: String, val attachments: List<ResourceRef>)
@@ -256,6 +390,20 @@ class ProfileStudioChatsTest {
     private class ChatsRepository : StudioRepository {
         val workspace = MutableStateFlow(StudioWorkspace(emptyList(), emptyList()))
         val messages = mutableMapOf<String, List<StudioMessage>>()
+        val edits = mutableListOf<SessionEdit>()
+
+        override fun observeModels(): Flow<List<StudioModel>> = flowOf(
+            listOf(
+                StudioModel("pi/default", "Pi", isLocalProjectSupported = true),
+                StudioModel(
+                    ENGINE_MODEL,
+                    "GPT",
+                    reasoningEfforts = listOf("low", "high"),
+                    isTrustSupported = true,
+                    isModelSwitchSupported = true,
+                ),
+            ),
+        )
         private var next = 0
 
         override fun observeWorkspace(): Flow<StudioWorkspace> = workspace
@@ -275,7 +423,9 @@ class ProfileStudioChatsTest {
 
         override suspend fun replace(sessionId: String, message: StudioMessage) = Unit
 
-        override suspend fun edit(sessionId: String, edit: SessionEdit) = Unit
+        override suspend fun edit(sessionId: String, edit: SessionEdit) {
+            edits += edit
+        }
 
         override suspend fun setBranch(sessionId: String, branch: String) = Unit
 
@@ -285,6 +435,8 @@ class ProfileStudioChatsTest {
     private class ChatsRuntime : StudioRuntime {
         override val state = MutableStateFlow(StudioRuntimeState())
         val runs = mutableListOf<Run>()
+        val settings = mutableListOf<RunSettings>()
+        val configured = mutableListOf<StudioSettingChange>()
         val cancelled = mutableListOf<String>()
         val answers = mutableListOf<Triple<String, String, String>>()
         val release = CompletableDeferred<Unit>()
@@ -305,10 +457,15 @@ class ProfileStudioChatsTest {
             onAccepted: suspend () -> Unit,
         ): RunOutcome {
             runs += Run(sessionId, prompt, attachments)
+            this.settings += settings
             if (!isAccepting) return RunOutcome.Failed
             onAccepted()
             release.await()
             return RunOutcome.Completed
+        }
+
+        override suspend fun configure(sessionId: String, change: StudioSettingChange) {
+            configured += change
         }
 
         override suspend fun cancel(sessionId: String) {
@@ -337,5 +494,7 @@ class ProfileStudioChatsTest {
 
     private companion object {
         val DEFAULTS = RunSettings("pi/default", ReasoningEffort.Medium, ApprovalMode.Ask)
+        val ENGINE_TARGET = EngineTarget(EngineId("pi"), EngineBindingId("b1"), ModelId("gpt"))
+        val ENGINE_MODEL = ENGINE_TARGET.studioModelId()
     }
 }
