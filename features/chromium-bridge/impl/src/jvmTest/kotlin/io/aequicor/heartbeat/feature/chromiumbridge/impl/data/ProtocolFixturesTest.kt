@@ -75,7 +75,10 @@ class ProtocolFixturesTest {
         val chats = BridgeProtocol.json.decodeFromJsonElement(ChatsChanged.serializer(), list.params)
         val change = BridgeProtocol.json.decodeFromJsonElement(ChatChanged.serializer(), transcript.params)
 
-        assertEquals(true, chats.chats.single().isRunning)
+        assertEquals(true, chats.chats.first().isRunning)
+        assertEquals("auto_edits", chats.chats.first().settings?.approval)
+        assertEquals(true, chats.chats.last().isArchived)
+        assertEquals("high", chats.composer?.models?.first()?.newChatEffort)
         assertEquals("text", chats.permissions.single().input?.kind)
         assertEquals(true, chats.permissions.single().options.last().isSkip)
         assertEquals(listOf("m0"), change.removed)

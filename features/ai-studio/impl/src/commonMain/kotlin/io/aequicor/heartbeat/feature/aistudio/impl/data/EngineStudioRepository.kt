@@ -54,7 +54,6 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.OrganismRequest
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.RunFailureKind
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioChatResolver
@@ -69,7 +68,6 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolChoices
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
-import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackAnchor
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeActionRequest
@@ -315,13 +313,13 @@ internal class EngineStudioRepository(
     }
 
     override suspend fun defaults(): RunSettings {
-        log.d { "Read model defaults" }
-        val selection = selections.observe().first()
-        val target = selection.defaultTarget
-        efforts.state.first { it is EffortConfigurationState.Ready }
-        return preferences.load(
-            DefaultRunSettings.copy(modelId = target?.studioModelId().orEmpty()),
-        )
+        log.v { "Read start-page defaults" }
+        return observeDefaults().first()
+    }
+
+    override fun observeDefaults(): Flow<RunSettings> {
+        log.v { "Observe start-page defaults" }
+        return observeStudioDefaults(preferences, selections, efforts)
     }
 
     override suspend fun saveDefaults(settings: RunSettings, version: StudioSettingsVersion) {
@@ -557,9 +555,9 @@ internal class EngineStudioRepository(
         return target
     }
 
-    override suspend fun configure(sessionId: String, change: StudioSettingChange) {
+    override suspend fun configure(sessionId: String, change: StudioSettingChange): Boolean {
         log.i { "Configure session parameter kind=${change::class.simpleName.orEmpty()}" }
-        configurations.configure(this, sessionId, change)
+        return configurations.configure(this, sessionId, change)
     }
 
     override suspend fun configurationRecord(id: String): StudioChatRecord {

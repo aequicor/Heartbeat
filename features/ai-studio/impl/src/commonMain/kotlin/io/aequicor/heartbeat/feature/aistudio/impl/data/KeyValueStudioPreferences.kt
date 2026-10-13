@@ -17,6 +17,11 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPreferences
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
@@ -44,13 +49,13 @@ internal class KeyValueStudioPreferences(
     private val lock = Mutex()
     private val revisions = mutableMapOf<String, Long>()
     private var isLoaded = false
-    private var current: SavedStudioDefaults? = null
+    private val current = MutableStateFlow<SavedStudioDefaults?>(null)
 
     override suspend fun load(fallback: RunSettings): RunSettings = lock.withLock {
         log.d { "Read start-page preferences" }
         if (!isLoaded) {
             try {
-                current = store.get(DefaultsKey)
+                current.value = store.get(DefaultsKey)
                 isLoaded = true
             } catch (e: CancellationException) {
                 throw e
@@ -58,7 +63,16 @@ internal class KeyValueStudioPreferences(
                 log.e(e) { "Could not read start-page preferences; using initial defaults" }
             }
         }
-        current?.let { fallback.copy(modelId = it.modelId, approval = it.approval) } ?: fallback
+        current.value?.let { fallback.copy(modelId = it.modelId, approval = it.approval) } ?: fallback
+    }
+
+    override fun observe(fallback: RunSettings): Flow<RunSettings> = flow {
+        load(fallback)
+        emitAll(
+            current.map { saved ->
+                saved?.let { fallback.copy(modelId = it.modelId, approval = it.approval) } ?: fallback
+            },
+        )
     }
 
     override suspend fun save(settings: RunSettings, version: StudioSettingsVersion) {
@@ -70,7 +84,7 @@ internal class KeyValueStudioPreferences(
                 }
                 val saved = SavedStudioDefaults(settings.modelId, settings.approval)
                 revisions[version.writer] = version.revision
-                current = saved
+                current.value = saved
                 isLoaded = true
                 log.d { "Write start-page preferences revision=${version.revision}" }
                 try {

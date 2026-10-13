@@ -2,6 +2,7 @@
 /** Small DOM with node identity, focus and insertion semantics for side-panel behavior tests. */
 export function fakeDocument() {
   const document = /** @type {any} */ ({ activeElement: null });
+  const documentListeners = /** @type {Record<string, Function>} */ ({});
   class Element {
     /** @param {string} tag */
     constructor(tag) {
@@ -31,7 +32,41 @@ export function fakeDocument() {
     /** @param {string} name @param {Function} listener */
     addEventListener(name, listener) { this.listeners[name] = listener; }
     /** @param {string} name @param {any} [event] */
-    fire(name, event = {}) { return this.listeners[name]?.(event); }
+    fire(name, event = {}) {
+      if (!event.bubbles) return this.listeners[name]?.(event);
+      // Browsers fix the event path before handlers run, even if a handler replaces the clicked tree.
+      const path = [];
+      for (let node = /** @type {Element | null} */ (this); node; node = node.parentElement) path.push(node);
+      let stopped = false;
+      event.target ??= this;
+      event.stopPropagation = () => { stopped = true; };
+      event.preventDefault ??= () => {};
+      for (const node of path) {
+        node.listeners[name]?.(event);
+        if (stopped) return;
+      }
+      documentListeners[name]?.(event);
+    }
+    /** Class selectors, compounds and descendant selectors used by the menu dismissal handlers.
+     * @param {string} selector @returns {Element | null}
+     */
+    closest(selector) {
+      const matches = (/** @type {Element} */ node, /** @type {string} */ part) =>
+        part.startsWith('.') && part.slice(1).split('.').every((cls) => node.className.split(' ').includes(cls));
+      for (let node = /** @type {Element | null} */ (this); node; node = node.parentElement) {
+        for (const choice of selector.split(',')) {
+          const parts = choice.trim().split(/\s+/);
+          if (!matches(node, parts.pop() ?? '')) continue;
+          let ancestor = node.parentElement;
+          while (parts.length && ancestor) {
+            if (matches(ancestor, parts[parts.length - 1])) parts.pop();
+            ancestor = ancestor.parentElement;
+          }
+          if (!parts.length) return node;
+        }
+      }
+      return null;
+    }
     focus() { document.activeElement = this; }
     remove() {
       if (!this.parentElement) return;
@@ -65,7 +100,11 @@ export function fakeDocument() {
     querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null; }
   }
   const ids = new Map();
+  document.addEventListener = (/** @type {string} */ name, /** @type {Function} */ listener) => {
+    documentListeners[name] = listener;
+  };
   document.createElement = (/** @type {string} */ tag) => new Element(tag);
+  document.createElementNS = (/** @type {string} */ _namespace, /** @type {string} */ tag) => new Element(tag);
   document.createDocumentFragment = () => new Element('fragment');
   document.createTextNode = (/** @type {string} */ text) => { const node = new Element('text'); node.text = text; return node; };
   document.getElementById = (/** @type {string} */ id) => {

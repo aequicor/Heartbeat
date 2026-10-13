@@ -5,7 +5,9 @@ import { BridgeError, ErrorCode, toWireError } from '../shared/protocol.js';
 export const PANEL_PORT = 'heartbeat-panel';
 
 /** App methods a panel may call directly; watches go through `watch` / `unwatch` messages. */
-const PANEL_METHODS = new Set(['chat.send', 'chat.stop', 'permission.respond']);
+const PANEL_METHODS = new Set([
+  'chat.send', 'chat.stop', 'permission.respond', 'chat.configure', 'composer.effort', 'chat.edit',
+]);
 
 /** Methods that open a watch and the events that carry its updates. */
 const WATCH_METHODS = new Set(['chats.watch', 'chat.watch']);

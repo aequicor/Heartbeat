@@ -24,22 +24,6 @@ export function h(document, tag, props = {}, ...children) {
 }
 
 /**
- * Short relative time of an epoch-millisecond instant.
- * @param {number} at
- * @param {number} now
- * @param {string} locale
- */
-export function relativeTime(at, now, locale) {
-  const seconds = Math.round((at - now) / 1000);
-  const format = new Intl.RelativeTimeFormat(locale, { numeric: 'auto', style: 'narrow' });
-  const units = /** @type {const} */ ([['day', 86_400], ['hour', 3_600], ['minute', 60]]);
-  for (const [unit, size] of units) {
-    if (Math.abs(seconds) >= size) return format.format(Math.round(seconds / size), unit);
-  }
-  return format.format(0, 'minute');
-}
-
-/**
  * Reconciles keyed children without detaching nodes that already occupy their place (preserving input focus).
  * @param {HTMLElement} parent
  * @param {HTMLElement[]} children

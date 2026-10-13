@@ -32,6 +32,7 @@ import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.TranscriptChange
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.TranscriptDiff
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.transform
 import kotlinx.serialization.KSerializer
@@ -64,9 +65,11 @@ internal class SidePanelChatHandlers(private val chats: StudioChats, private val
 
     private suspend fun watchList(session: BridgeSession): BridgeReply = opened(
         watches.open(session) { watch ->
-            chats.observeList().throttled(LIST_PERIOD_MILLIS).collect { list ->
-                session.emit(CHATS_CHANGED, encode(ChatsChanged.serializer(), list.toWire(watch)))
-            }
+            combine(chats.observeList(), chats.observeComposer(), ::Pair)
+                .throttled(LIST_PERIOD_MILLIS)
+                .collect { (list, composer) ->
+                    session.emit(CHATS_CHANGED, encode(ChatsChanged.serializer(), list.toWire(watch, composer)))
+                }
         },
     )
 
@@ -122,11 +125,16 @@ internal class SidePanelChatHandlers(private val chats: StudioChats, private val
             is PageImport.Imported -> imported.resources
             PageImport.Refused -> return BridgeReply.Refused(BridgeErrorCode.BUSY, "Attachments are busy")
         }
+        val settings = params.settings?.let { wire ->
+            require(wire.modelId.isNotEmpty() && wire.modelId.length <= MAX_MODEL_ID_CHARS) { "Invalid model" }
+            requireNotNull(wire.toSettings()) { "Invalid approval" }
+        }
         val request = StudioChatSend(
             params.chatId?.checkedId(),
             params.projectId?.checkedId(),
             params.text,
             attachments,
+            settings,
         )
         return when (val result = chats.send(request)) {
             is StudioChatSendResult.Accepted -> BridgeReply.Ok(encode(ChatSent.serializer(), ChatSent(result.chatId)))
@@ -157,6 +165,7 @@ internal class SidePanelChatHandlers(private val chats: StudioChats, private val
         StudioChatRejection.UnknownProject -> BridgeReply.Refused(BridgeErrorCode.BAD_REQUEST, "Unknown project")
         StudioChatRejection.NotContinuable -> BridgeReply.Refused(BridgeErrorCode.NOT_CONTINUABLE, "Chat is closed")
         StudioChatRejection.Busy -> BridgeReply.Refused(BridgeErrorCode.BUSY, "A turn is running")
+        StudioChatRejection.NoModel -> BridgeReply.Refused(BridgeErrorCode.NO_MODEL, "No model for a new chat")
         StudioChatRejection.Failed -> BridgeReply.Refused(BridgeErrorCode.INTERNAL, "The turn did not start")
     }
 
@@ -185,6 +194,7 @@ internal class SidePanelChatHandlers(private val chats: StudioChats, private val
         const val CHAT_PERIOD_MILLIS = 150L
         const val MAX_PROMPT_CHARS = 100_000
         const val MAX_ID_CHARS = 256
+        const val MAX_MODEL_ID_CHARS = 1024
     }
 }
 
