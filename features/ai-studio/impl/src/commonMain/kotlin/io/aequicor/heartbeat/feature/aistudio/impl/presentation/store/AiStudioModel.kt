@@ -66,6 +66,7 @@ import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -84,6 +85,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import pro.respawn.flowmvi.api.PipelineContext
+import pro.respawn.flowmvi.dsl.collect
 import pro.respawn.flowmvi.plugins.init
 import pro.respawn.flowmvi.plugins.reduce
 import pro.respawn.flowmvi.plugins.whileSubscribed
@@ -237,6 +239,10 @@ class AiStudioModel(
             )
         }
         store.start(scope.coroutineScope)
+        // A remote screen lives through reconnect grace: its submission outputs must not lose their subscriber.
+        if (host == StudioScreenHost.Remote) {
+            scope.coroutineScope.launch { store.collect { awaitCancellation() } }
+        }
         scope.coroutineScope.launch { machine.send(AiStudioIntent.Public.Start) }
     }
 

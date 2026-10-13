@@ -1,13 +1,9 @@
 package io.aequicor.heartbeat.ds.components
 
-import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 
-/**
- * Compose for web has no `TooltipArea`: the browser side panel shows no hover hints, controls keep their visible
- * labels and accessible names.
- */
+/** Browser hints share the tested Foundation implementation; accessible names remain on the controls. */
 @Composable
 internal actual fun HbPlatformTooltip(
     text: String,
@@ -15,5 +11,5 @@ internal actual fun HbPlatformTooltip(
     isEnabled: Boolean,
     content: @Composable () -> Unit,
 ) {
-    Box(modifier, propagateMinConstraints = true) { content() }
+    HbHoverTooltip(text, modifier, isEnabled, content)
 }

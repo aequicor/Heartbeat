@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.chromiumplugin.panel.store
 
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.reduce
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewEncoder
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
 import kotlin.test.Test
@@ -10,6 +11,31 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent a
 
 class StudioViewSyncTest {
     private fun typed(text: String) = StudioIntent.Suggestions.DraftChanged(paneId = 0, text = text)
+
+    @Test
+    fun `sidebar toggles are not replayed over an applied frame before its ack`() {
+        val toggles = listOf(
+            StudioIntent.ToggleSearch,
+            StudioIntent.ToggleProject("project"),
+            StudioIntent.ToggleProjectsSection,
+            StudioIntent.ToggleRecentSection,
+            StudioIntent.ToggleSidebar,
+        )
+        for (toggle in toggles) {
+            val initial = AiStudioScreenState()
+            val applied = initial.copy(sidebar = initial.sidebar.reduce(toggle))
+            val app = StudioViewEncoder()
+            val sync = StudioViewSync()
+            sync.receive(checkNotNull(app.frame(initial, ack = 0)))
+            sync.add(toggle)
+            assertEquals(initial.sidebar, sync.screen?.sidebar)
+            sync.receive(checkNotNull(app.frame(applied, ack = 0)))
+            assertEquals(applied.sidebar, sync.screen?.sidebar)
+            sync.receive(checkNotNull(app.frame(applied, ack = 1)))
+            assertEquals(applied.sidebar, sync.screen?.sidebar)
+            assertEquals(1L, sync.settledInputs)
+        }
+    }
 
     @Test
     fun `typed text stays on screen until a frame acknowledges it`() {

@@ -2,17 +2,20 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
+import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPane
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteIntent
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteReply
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModelTest
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioViewJson
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewFrame
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewMirror
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -39,7 +42,7 @@ class RemoteStudioViewTest {
 
     private class Harness(scope: TestScope, ready: AiStudioState) {
         var isReleased = false
-        val fixture = AiStudioModelTest.Fixture(scope, ready)
+        val fixture = AiStudioModelTest.Fixture(scope, ready, host = StudioScreenHost.Remote)
         val view = RemoteStudioView(
             id = "view-1",
             release = { isReleased = true },
@@ -57,6 +60,48 @@ class RemoteStudioViewTest {
         backgroundScope.launch { harness.view.frames(onDetached = {}).collect { frames.send(it) } }
         runCurrent()
         return frames
+    }
+
+    @Test
+    fun `acceptance during reconnect grace clears the pending draft`() = runTest {
+        checkSubmissionAfterDetach(isAccepted = true)
+    }
+
+    @Test
+    fun `rejection during reconnect grace restores a usable failed draft`() = runTest {
+        checkSubmissionAfterDetach(isAccepted = false)
+    }
+
+    private suspend fun TestScope.checkSubmissionAfterDetach(isAccepted: Boolean) {
+        val harness = Harness(this, ready)
+        val connection = backgroundScope.launch { harness.view.frames(onDetached = {}).collect {} }
+        runCurrent()
+        harness.view.apply(
+            harness.view.generation,
+            listOf(
+                intent(1, AiStudioScreenIntent.Suggestions.DraftChanged(0, "Pending prompt")),
+                intent(2, AiStudioScreenIntent.Submit(0)),
+            ),
+        )
+        runCurrent()
+        val sent = harness.fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.Submit>().single()
+        connection.cancelAndJoin()
+        advanceTimeBy(1_100.milliseconds)
+        runCurrent()
+        val output = if (isAccepted) {
+            AiStudioOutput.SubmitAccepted(0, sent.submissionId, "s-facade")
+        } else {
+            AiStudioOutput.SubmitRejected(0, sent.submissionId, "s-facade")
+        }
+        harness.fixture.machine.outputs.emit(output)
+        runCurrent()
+
+        val frames = collect(harness)
+        val snapshot = StudioViewJson.decodeFromJsonElement(StudioViewFrame.serializer(), frames.receive())
+        val screen = StudioViewMirror().apply(snapshot)
+        assertTrue(screen.submissions.isEmpty())
+        assertEquals(if (isAccepted) "" else "Pending prompt", screen.draft(0))
+        assertEquals(!isAccepted, 0 in screen.failedPanes)
     }
 
     @Test

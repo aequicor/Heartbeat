@@ -26,7 +26,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import java.io.File
@@ -67,8 +66,8 @@ class BrowserIntegrationTest {
             app.machines.send(BrowserMachineKey, BrowserIntent.Public.Open("example.org"))
             machine.state.first { it is BrowserState.Running && it.page.url == "https://example.org" }
             app.machines.send(BrowserMachineKey, BrowserIntent.Public.Stop)
-            runCurrent()
-            assertFalse((machine.state.value as BrowserState.Running).page.isLoading)
+            val settled = machine.state.first { it is BrowserState.Running && !it.page.isLoading }
+            assertFalse((settled as BrowserState.Running).page.isLoading)
             flags.setOverride(BrowserEnabled, false)
             val stopped = machine.state.first {
                 it is BrowserState.Running && !it.isEnabled

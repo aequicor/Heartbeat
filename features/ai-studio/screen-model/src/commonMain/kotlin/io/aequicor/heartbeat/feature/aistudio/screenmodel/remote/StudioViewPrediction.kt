@@ -13,9 +13,9 @@ import io.aequicor.heartbeat.feature.questionnaire.screenmodel.predictDraft
 import kotlinx.collections.immutable.toImmutableMap
 
 /**
- * What a remote view shows for [intent] before the app has applied it: the draft, its caret and the sidebar
- * change at once, with the same reducers as the app's store, so typing does not wait for the round trip. Other
- * intents wait for the app.
+ * What a remote view shows before the app acknowledges [intent]: idempotent draft, caret and sidebar assignments
+ * use the same reducers as the app. Toggles wait for the app, since an intermediate frame can already include
+ * their effect while still carrying the previous acknowledgement.
  */
 fun AiStudioScreenState.predict(intent: AiStudioScreenIntent): AiStudioScreenState = when {
     intent is AiStudioScreenIntent.Suggestions.DraftChanged ->
@@ -23,7 +23,16 @@ fun AiStudioScreenState.predict(intent: AiStudioScreenIntent): AiStudioScreenSta
 
     intent is AiStudioScreenIntent.Suggestions.CaretMoved -> withDraftCaret(intent.paneId, intent.caret)
 
-    intent is AiStudioScreenIntent.Sidebar -> copy(sidebar = sidebar.reduce(intent))
+    intent is AiStudioScreenIntent.Sidebar -> when (intent) {
+        is AiStudioScreenIntent.ShowSidebarMode, is AiStudioScreenIntent.SearchChanged,
+        is AiStudioScreenIntent.SetDrawerOpen,
+        -> copy(sidebar = sidebar.reduce(intent))
+
+        AiStudioScreenIntent.ToggleSearch, is AiStudioScreenIntent.ToggleProject,
+        AiStudioScreenIntent.ToggleProjectsSection, AiStudioScreenIntent.ToggleRecentSection,
+        AiStudioScreenIntent.ToggleSidebar,
+        -> this
+    }
 
     intent is AiStudioScreenIntent.ImportAttachments && !isAttachmentPending(intent.paneId) -> copy(
         attachmentRequests = (

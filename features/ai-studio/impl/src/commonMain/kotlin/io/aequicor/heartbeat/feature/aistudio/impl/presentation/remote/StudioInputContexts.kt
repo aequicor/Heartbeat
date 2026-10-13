@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote
 
+import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
@@ -12,13 +13,15 @@ internal class StudioInputContexts {
     private data class Entry(val intent: AiStudioScreenIntent, val environment: StudioChatEnvironment)
     private val pending = MutableStateFlow<List<Entry>>(emptyList())
 
+    @HighFrequency
     fun add(intent: AiStudioScreenIntent, environment: StudioChatEnvironment) {
-        log.d { "Queue trusted input context" }
+        log.v { "Queue trusted input context" }
         pending.update { it + Entry(intent, environment) }
     }
 
+    @HighFrequency
     fun take(intent: AiStudioScreenIntent): StudioChatEnvironment? {
-        log.d { "Consume trusted input context" }
+        log.v { "Consume trusted input context" }
         while (true) {
             val entries = pending.value
             val index = entries.indexOfFirst { it.intent === intent }

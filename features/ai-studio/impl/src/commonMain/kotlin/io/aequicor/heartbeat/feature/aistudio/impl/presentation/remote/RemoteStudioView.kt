@@ -76,7 +76,7 @@ internal class RemoteStudioView(
             if (!isAccepted) return@channelFlow
             log.i { "view ${id.take(SHORT_ID)} attached" }
             val writer = StudioViewWriter(generation = generation)
-            // Collecting subscribes to the store, which also starts its subscription-bound observations.
+            // The remote model remains subscribed through grace; this subscriber only transports frames.
             model.store.collect {
                 states.collect { state ->
                     writer.write(state.withRemoteToolOutput(), state.remoteSeq).forEach { send(it) }

@@ -15,7 +15,7 @@ class StudioViewPredictionTest {
         assertEquals(5, typed.draftCaret(0))
 
         assertEquals(2, typed.predict(AiStudioScreenIntent.Suggestions.CaretMoved(paneId = 0, caret = 2)).draftCaret(0))
-        assertTrue(typed.predict(AiStudioScreenIntent.ToggleSearch).sidebar.isSearchVisible)
+        assertTrue(typed.predict(AiStudioScreenIntent.SetDrawerOpen(true)).sidebar.isDrawerOpen)
     }
 
     @Test

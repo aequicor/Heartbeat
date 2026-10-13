@@ -636,8 +636,9 @@ class StudioEngineIntegrationTest {
         assertFailsWith<IllegalStateException> { runtime.respond(chat.id, pending.requestId, "invented-choice") }
         assertEquals(null, native.decision)
         runtime.respond(chat.id, pending.requestId, pending.options.single().id)
-        // Respond acknowledges the facade command; the native effect completes asynchronously.
-        native.state.first { it is ActiveSessionState.Running }
+        // Respond returns only after the native turn confirms this exact permission.
+        val resumed = assertIs<ActiveSessionState.Running>(native.state.value)
+        assertTrue(checkNotNull(native.decision).request in resumed.turn.resolvedPermissions)
         assertEquals("allow-once", native.decision?.option?.value)
         runtime.cancel(chat.id)
         assertEquals(RunOutcome.Stopped, run.await())
