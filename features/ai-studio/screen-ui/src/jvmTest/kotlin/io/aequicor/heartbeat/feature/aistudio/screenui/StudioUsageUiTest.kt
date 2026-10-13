@@ -19,7 +19,6 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextUsageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ModelUi
@@ -33,6 +32,7 @@ import javax.imageio.ImageIO
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.time.Instant
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent as StudioIntent
 
 @OptIn(ExperimentalTestApi::class)
 class StudioUsageUiTest {
@@ -52,11 +52,11 @@ class StudioUsageUiTest {
     @Test
     fun `confirmed zero opens details and refreshes the selected connection`() =
         runSkikoComposeUiTest(size = Size(900f, 700f)) {
-            val events = mutableListOf<AiStudioScreenIntent>()
+            val events = mutableListOf<StudioIntent>()
             setContent { UsageHost(pane().copy(contextUsage = ContextUsageUi(0, 1000, 0)), onIntent = events::add) }
             onNodeWithText("0%").assertIsDisplayed()
             onNodeWithTag("usage-0").performClick()
-            runOnIdle { assertEquals(listOf<AiStudioScreenIntent>(AiStudioScreenIntent.RefreshUsage("model")), events) }
+            runOnIdle { assertEquals(listOf<StudioIntent>(StudioIntent.RefreshUsage("model")), events) }
         }
 
     @Test
@@ -115,7 +115,7 @@ class StudioUsageUiTest {
     @Test
     fun `usage refresh uses confirmed pane settings while session metadata still names the old model`() =
         runSkikoComposeUiTest(size = Size(900f, 700f)) {
-            val events = mutableListOf<AiStudioScreenIntent>()
+            val events = mutableListOf<StudioIntent>()
             val base = pane()
             val content = base.copy(
                 session = SessionUi("s", "Chat", null, Instant.fromEpochSeconds(1), modelId = "old-model"),
@@ -127,7 +127,7 @@ class StudioUsageUiTest {
             onNodeWithTag("usage-0").performClick()
             runOnIdle {
                 assertEquals(
-                    listOf<AiStudioScreenIntent>(AiStudioScreenIntent.RefreshUsage("confirmed-model")),
+                    listOf<StudioIntent>(StudioIntent.RefreshUsage("confirmed-model")),
                     events,
                 )
             }
@@ -156,7 +156,7 @@ private fun UsageHost(
     content: PaneContent,
     dark: Boolean = false,
     compact: Boolean = false,
-    onIntent: (AiStudioScreenIntent) -> Unit = {},
+    onIntent: (StudioIntent) -> Unit = {},
 ) {
     HbTheme(darkTheme = dark, dimensions = if (compact) HbDimensions.Mobile else HbDimensions.Desktop) {
         Box(Modifier.fillMaxSize().padding(HbTheme.spacing.xl), contentAlignment = Alignment.BottomCenter) {
