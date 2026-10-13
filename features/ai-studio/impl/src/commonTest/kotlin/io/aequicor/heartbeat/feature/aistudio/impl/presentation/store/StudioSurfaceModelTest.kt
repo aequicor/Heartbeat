@@ -73,6 +73,25 @@ class StudioSurfaceModelTest {
     }
 
     @Test
+    fun `a delayed prompt cannot fill a pane now showing another project`() = runTest {
+        val surfaces = FakeStudioSurfaces()
+        val fixture = Fixture(this, ready(StudioPane(0, projectId = "p-new")), surfaces = surfaces)
+        val screen = fixture.subscribe()
+        surfaces.prompts.emit(
+            StudioSurfacePrompt(0, "Old project", true, StudioSurfacePlace(workspace = WorkspaceRef("p-old"))),
+        )
+        runCurrent()
+        assertTrue(screen.states.value.drafts[screen.states.value.draftKey(0)].isNullOrEmpty())
+        assertTrue(fixture.machine.sent.none { it is AiStudioIntent.Public.Submit })
+
+        surfaces.prompts.emit(
+            StudioSurfacePrompt(0, "Current project", false, StudioSurfacePlace(workspace = WorkspaceRef("p-new"))),
+        )
+        runCurrent()
+        assertEquals("Current project", screen.states.value.drafts[screen.states.value.draftKey(0)])
+    }
+
+    @Test
     fun `a prompt joins a started draft and never sends the user's text or a host command`() = runTest {
         val surfaces = FakeStudioSurfaces()
         val fixture = Fixture(this, ready(StudioPane(0), StudioPane(1)), surfaces = surfaces)

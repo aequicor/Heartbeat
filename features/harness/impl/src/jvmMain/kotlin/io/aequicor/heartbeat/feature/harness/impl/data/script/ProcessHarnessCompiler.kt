@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.harness.impl.data.script.worker.writeReques
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeDiagnostic
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeKind
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessDiagnosticSeverity
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -96,6 +97,11 @@ internal class ProcessHarnessCompiler(
             val worker = acquire() ?: return@withLock HarnessCompilerOutcome.Unavailable
             try {
                 exchange(worker, HarnessCompilerRequest(kind, source, output.toString()))
+            } catch (e: CancellationException) {
+                // Cancellation can complete the queued reader before it starts, or precede exchange altogether.
+                // That still owns a live process: retire and reap it before returning the compiler permit.
+                withContext(NonCancellable) { worker.stop() }
+                throw e
             } finally {
                 release(worker)
             }

@@ -43,7 +43,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -133,11 +132,15 @@ internal class PlaceModel(
                         ?: flowOf(ActiveOwners())
                 }
             combine(machine.state, reported, modal) { state, owners, open ->
-                // Owners reported for the previous context would show the wrong surfaces until the new ones arrive.
-                if (owners.context != target.host(state)?.second?.call) return@combine null
+                // Rebinding revokes the old surfaces immediately, including their running actions, while the new
+                // provider snapshot is still pending. Keeping the old state would leave another chat's UI live.
+                val context = target.host(state)?.second?.call
+                if (owners.context != context) {
+                    return@combine Shown(PlaceContent(), null, open, ActiveOwners(context))
+                }
                 val shown = open?.let { target.modal(state, owners.owners, it) }
                 Shown(target.content(state, owners.owners), shown, open, owners)
-            }.filterNotNull().distinctUntilChanged().collect { show(it) }
+            }.distinctUntilChanged().collect { show(it) }
         }
 
         suspend fun handle(intent: PlaceIntent) {
@@ -180,7 +183,7 @@ internal class PlaceModel(
             val launched = target.content(state, owners).launchers.firstOrNull { it.id.value == surface } ?: return
             log.i { "Launch surface $surface" }
             if (launched.content.placement == UiPlacement.Panel && context.dock != null) {
-                pipeline.sendTo(machine, ServiceUiIntent.Public.OpenPanel(host, launched.id))
+                pipeline.sendTo(machine, ServiceUiIntent.Public.OpenPanel(host, launched.id, expectedContext = context))
             } else {
                 modal.value = PlacedSurface(PlaceRole.Modal, launched, host, context)
             }
@@ -192,6 +195,7 @@ internal class PlaceModel(
 
     /** Opens the surface [name] of the owner of [from] as the modal over the place, in its context, with [args]. */
     private fun openOver(from: PlacedSurface, name: String, args: JsonObject): Boolean {
+        if (!isCurrent(from)) return false
         val surface = surfaceOver(from.surface.content.owner, name) ?: return false
         log.i { "Open surface ${surface.id.value} over the place" }
         modal.value = PlacedSurface(PlaceRole.Modal, surface, from.host, from.context, args)
@@ -250,15 +254,28 @@ internal class PlaceModel(
         }
     }
 
+    /** A retained or finishing action belongs only to the still-drawn surface in its original host context. */
+    private fun isCurrent(placed: PlacedSurface): Boolean {
+        val state = machine.state.value as? ServiceUiState.Ready ?: return false
+        return placed in running && target?.host(state) == (placed.host to placed.context) &&
+            state.library[placed.surface.id] == placed.surface &&
+            active.value.context == placed.context.call && placed.surface.content.owner in active.value.owners
+    }
+
     /** Prompts go to the host place of the surface; panels open in its dock, or over the place without one. */
     private inner class PlaceSurfaceHost(private val placed: PlacedSurface) : SurfaceHost {
-        override suspend fun prompt(text: String, isSubmitted: Boolean): Boolean =
-            machine.send(ServiceUiIntent.Internal.RequestPrompt(placed.host, text, isSubmitted)) == SendResult.Accepted
+        override suspend fun prompt(text: String, isSubmitted: Boolean): Boolean {
+            if (!isCurrent(placed)) return false
+            val request = ServiceUiIntent.Internal.RequestPrompt(placed.host, text, isSubmitted, placed.context)
+            return machine.send(request) == SendResult.Accepted
+        }
 
         override suspend fun openPanel(name: String, args: JsonObject): Boolean {
+            if (!isCurrent(placed)) return false
             if (placed.context.dock == null) return openOver(placed, name, args)
             val surface = surfaceOver(placed.surface.content.owner, name) ?: return false
-            return machine.send(ServiceUiIntent.Public.OpenPanel(placed.host, surface.id, args)) == SendResult.Accepted
+            val request = ServiceUiIntent.Public.OpenPanel(placed.host, surface.id, args, placed.context)
+            return machine.send(request) == SendResult.Accepted
         }
 
         override suspend fun openSurface(name: String, args: JsonObject): Boolean = openOver(placed, name, args)

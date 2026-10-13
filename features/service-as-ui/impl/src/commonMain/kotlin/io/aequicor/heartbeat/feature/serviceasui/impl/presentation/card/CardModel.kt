@@ -194,8 +194,13 @@ internal class CardModel(
     private inner class CardHost(private val drawn: DrawnCard) : SurfaceHost {
         override suspend fun prompt(text: String, isSubmitted: Boolean): Boolean {
             val host = drawn.host ?: return false
-            return machine.send(ServiceUiIntent.Internal.RequestPrompt(host, text, isSubmitted = false)) ==
-                SendResult.Accepted
+            val request = ServiceUiIntent.Internal.RequestPrompt(
+                host,
+                text,
+                isSubmitted = false,
+                expectedContext = drawn.context,
+            )
+            return machine.send(request) == SendResult.Accepted
         }
 
         override suspend fun openPanel(name: String, args: JsonObject): Boolean {
@@ -208,7 +213,8 @@ internal class CardModel(
                 log.w(e) { "Surface name of card $id is invalid" }
                 return false
             }
-            return machine.send(ServiceUiIntent.Public.OpenPanel(host, surface, args)) == SendResult.Accepted
+            val request = ServiceUiIntent.Public.OpenPanel(host, surface, args, expectedContext = drawn.context)
+            return machine.send(request) == SendResult.Accepted
         }
 
         override suspend fun openSurface(name: String, args: JsonObject): Boolean = false

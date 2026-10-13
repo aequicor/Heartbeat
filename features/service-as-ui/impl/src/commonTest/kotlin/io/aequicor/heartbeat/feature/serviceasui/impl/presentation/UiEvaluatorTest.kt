@@ -2,8 +2,12 @@ package io.aequicor.heartbeat.feature.serviceasui.impl.presentation
 
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiAction
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpec
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpecCheck
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpecDecoding
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpecLimits
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpecOrigin
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpecRules
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.checkUiSpec
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.decodeUiSpec
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.ButtonStyleUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiNodeUi
@@ -159,6 +163,70 @@ class UiEvaluatorTest {
         assertEquals("ask", button.press.origin)
         assertIs<UiAction.Prompt>(button.press.action)
         assertFalse("Ask about" in button.press.toString())
+    }
+
+    @Test
+    fun `nested lists share one expansion budget despite a small valid spec`() {
+        var body = """{"type":"text","text":"{{item}}"}"""
+        repeat(4) { body = """{"type":"list","items":"{{args.rows}}","item":$body}""" }
+        val json = """{"version":1,"body":$body}"""
+        assertIs<UiSpecCheck.Valid>(checkUiSpec(json, UiSpecRules(UiSpecOrigin.Inline)))
+        val values = UiValues(args = JsonObject(mapOf("rows" to JsonArray(List(10) { JsonPrimitive(it) }))))
+        val tree = column(UiEvaluator(spec(json)).body(values))
+        assertTrue(tree.elements() <= UiSpecLimits.RENDER_ELEMENTS)
+        assertTrue(tree.flattened().any { it is UiNodeUi.More && it.count > 0 })
+    }
+
+    @Test
+    fun `table cells and key value pairs share the expanded element budget`() {
+        val columns = List(12) { """{"title":"C$it","value":"{{item}}"}""" }.joinToString(",")
+        val table = """{"type":"table","rows":"{{args.rows}}","columns":[$columns]}"""
+        val pairs = List(64) { """{"key":"K$it","value":"{{item}}"}""" }.joinToString(",")
+        val body = """{"type":"list","items":"{{args.rows}}","item":{"type":"column","children":[
+            {"type":"keyValue","items":[$pairs]},$table]}}"""
+        val evaluator = UiEvaluator(spec("""{"version":1,"body":$body}"""))
+        val rows = JsonArray(List(200) { JsonPrimitive(it) })
+        val tree = column(evaluator.body(UiValues(args = JsonObject(mapOf("rows" to rows)))))
+        assertTrue(tree.elements() <= UiSpecLimits.RENDER_ELEMENTS)
+        val tables = tree.flattened().filterIsInstance<UiNodeUi.Table>()
+        assertTrue(tables.isNotEmpty())
+        assertTrue(tables.any { it.hidden > 0 })
+        tables.forEach { assertEquals(200, it.rows.size + it.hidden) }
+    }
+
+    @Test
+    fun `display text is bounded across bindings and across repeated nodes`() {
+        val json = """{"version":1,"body":{"type":"list","items":"{{args.rows}}",
+            "item":{"type":"text","text":"{{args.text}}{{args.text}}{{args.text}}{{args.text}}"}}}"""
+        val values = UiValues(
+            args = JsonObject(
+                mapOf(
+                    "rows" to JsonArray(List(200) { JsonPrimitive(it) }),
+                    "text" to JsonPrimitive("x".repeat(8192)),
+                ),
+            ),
+        )
+        val tree = column(UiEvaluator(spec(json)).body(values))
+        val texts = tree.flattened().filterIsInstance<UiNodeUi.Text>()
+        assertEquals(UiSpecLimits.RENDER_CHARS, texts.sumOf { it.text.length })
+        assertEquals("x".repeat(12), UiBindings(values).text("{{args.text}}{{args.text}}", UiScope(), 12))
+    }
+
+    private fun UiNodeUi.flattened(): List<UiNodeUi> = listOf(this) + when (this) {
+        is UiNodeUi.Column -> children.flatMap { it.flattened() }
+        is UiNodeUi.Row -> children.flatMap { it.flattened() }
+        is UiNodeUi.Card -> children.flatMap { it.flattened() }
+        is UiNodeUi.Section -> children.flatMap { it.flattened() }
+        else -> emptyList()
+    }
+
+    private fun UiNodeUi.elements(): Int = flattened().sumOf { node ->
+        1 + when (node) {
+            is UiNodeUi.Table -> node.columns.size + node.rows.sumOf { 1 + it.cells.size }
+            is UiNodeUi.KeyValue -> node.items.size
+            is UiNodeUi.Select -> node.options.size
+            else -> 0
+        }
     }
 
     private fun values(status: UiSourceStatus) = UiValues(

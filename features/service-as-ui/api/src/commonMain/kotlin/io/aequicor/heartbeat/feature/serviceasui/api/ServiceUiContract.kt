@@ -106,11 +106,15 @@ public sealed interface ServiceUiIntent : MachineIntent {
         /** Forgets the place [host]; panels it opened close. */
         public data class UnbindHost(val host: UiHostId) : Public
 
-        /** Opens [surface] in the dock of [host] with [args], replacing the panel open there. */
+        /**
+         * Opens [surface] in the dock of [host] with [args], replacing the panel open there. A surface supplies
+         * [expectedContext] so an action queued before a host rebind cannot open in the new context.
+         */
         public data class OpenPanel(
             val host: UiHostId,
             val surface: UiSurfaceId,
             val args: JsonObject = JsonObject(emptyMap()),
+            val expectedContext: UiHostContext? = null,
         ) : Public {
             override fun toString(): String = "OpenPanel(host=${host.value}, surface=${surface.value}, args=***)"
         }
@@ -148,8 +152,16 @@ public sealed interface ServiceUiIntent : MachineIntent {
         /** Storage failed to save the write [writeId]. */
         public data class PersistFailed(val writeId: String) : Internal
 
-        /** A surface in [host] asks the host to put [text] into its composer, or to send it when [isSubmitted]. */
-        public data class RequestPrompt(val host: UiHostId, val text: String, val isSubmitted: Boolean) : Internal {
+        /**
+         * A surface in [host] asks the host to put [text] into its composer, or to send it when [isSubmitted].
+         * [expectedContext] rejects delayed actions once their original host context changes.
+         */
+        public data class RequestPrompt(
+            val host: UiHostId,
+            val text: String,
+            val isSubmitted: Boolean,
+            val expectedContext: UiHostContext? = null,
+        ) : Internal {
             override fun toString(): String = "RequestPrompt(host=${host.value}, text=***, isSubmitted=$isSubmitted)"
         }
     }
@@ -179,9 +191,16 @@ public sealed interface ServiceUiOutput : MachineOutput {
     /** The write [writeId] changed nothing, for [reason]. */
     public data class EditRejected(val writeId: String, val reason: UiEditRejection) : ServiceUiOutput
 
-    /** The host of [host] should put [text] into its composer, or send it when [isSubmitted]. */
-    public data class PromptRequested(val host: UiHostId, val text: String, val isSubmitted: Boolean) :
-        ServiceUiOutput {
+    /**
+     * The host of [host] should put [text] into its composer, or send it when [isSubmitted], only while it still has
+     * [context]. Consumers must discard outputs delayed past a host rebind.
+     */
+    public data class PromptRequested(
+        val host: UiHostId,
+        val text: String,
+        val isSubmitted: Boolean,
+        val context: UiHostContext,
+    ) : ServiceUiOutput {
         override fun toString(): String = "PromptRequested(host=${host.value}, text=***, isSubmitted=$isSubmitted)"
     }
 }

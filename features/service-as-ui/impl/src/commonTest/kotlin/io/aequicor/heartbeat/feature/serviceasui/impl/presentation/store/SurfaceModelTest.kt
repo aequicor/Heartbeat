@@ -1,6 +1,8 @@
 package io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store
 
 import io.aequicor.heartbeat.core.common.DispatcherProvider
+import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.LogSink
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.feature.serviceasui.api.UiCallContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodFailure
@@ -29,6 +31,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -231,6 +234,81 @@ class SurfaceModelTest {
         assertEquals(emptyList(), fixture.platform.calls)
     }
 
+    @Test
+    fun `modal actions retain arguments through nested collections and after closing in a sequence`() = runTest {
+        val fixture = Fixture(
+            this,
+            available = true,
+            specText = """
+                {"version":1,"state":{"filter":""},"body":{"type":"button","label":"Open",
+                  "action":{"type":"open","modal":"details","args":{"pr":7,"rows":[{"id":"row-7"}]}}},
+                 "modals":{"details":{"title":"PR {{args.pr}}","body":{
+                   "type":"list","items":"{{args.rows}}","item":{
+                     "type":"table","rows":"{{args.rows}}","columns":[{"title":"PR","value":"{{args.pr}}"}],
+                     "onRowClick":{"type":"sequence","actions":[
+                       {"type":"close"},
+                       {"type":"set","key":"filter","value":"{{args.pr}}"},
+                       {"type":"call","method":"prs","args":{
+                         "pr":"{{args.pr}}","state":"{{state.filter}}","item":"{{item.id}}"}},
+                       {"type":"prompt","text":"PR {{args.pr}}","submit":true}
+                     ]}}}}}}
+            """.trimIndent(),
+            args = buildJsonObject { put("pr", 99) },
+        )
+        val screen = fixture.subscribe()
+        screen.intent(SurfaceIntent.Press(assertIs<UiNodeUi.Button>(screen.states.value.root).press))
+        runCurrent()
+        val body = assertIs<UiNodeUi.Column>(screen.states.value.modal!!.body)
+        val row = assertIs<UiNodeUi.Table>(body.children.single()).rows.single()
+        assertEquals(listOf("7"), row.cells)
+
+        screen.intent(SurfaceIntent.Press(row.press!!))
+        runCurrent()
+
+        assertNull(screen.states.value.modal)
+        assertEquals(
+            listOf(
+                "prs" to buildJsonObject {
+                    put("pr", 7)
+                    put("state", 7)
+                    put("item", "row-7")
+                },
+            ),
+            fixture.calls.made,
+        )
+        assertEquals(listOf("PR 7" to true), fixture.host.prompts)
+    }
+
+    @Test
+    fun `press logs never contain a dynamic item identity`() = runTest {
+        val secret = "private-row-identity"
+        val logs = mutableListOf<String>()
+        Log.init(isDebug = false, sinks = listOf(LogSink { _, _, _, message -> logs += message }))
+        try {
+            val fixture = Fixture(
+                this,
+                specText = """
+                    {"version":1,"body":{"type":"table","rows":"{{args.rows}}","key":"id",
+                     "columns":[{"title":"Item","value":"{{item.id}}"}],
+                     "onRowClick":{"type":"copy","text":"selected"}}}
+                """.trimIndent(),
+                args = buildJsonObject {
+                    put("rows", JsonArray(listOf(buildJsonObject { put("id", secret) })))
+                },
+            )
+            val screen = fixture.subscribe()
+            val press = assertIs<UiNodeUi.Table>(screen.states.value.root).rows.single().press!!
+            assertTrue(secret in press.origin)
+            assertFalse(secret in SurfaceIntent.Press(press).toString())
+            screen.intent(SurfaceIntent.Press(press))
+            runCurrent()
+            assertTrue(logs.any { "Surface action" in it })
+            assertTrue(logs.none { secret in it })
+        } finally {
+            Log.init(isDebug = false)
+        }
+    }
+
     private fun column(screen: SurfaceProvider) = assertIs<UiNodeUi.Column>(screen.states.value.root)
 
     private fun button(screen: SurfaceProvider, index: Int) = assertIs<UiNodeUi.Button>(column(screen).children[index])
@@ -240,17 +318,19 @@ class SurfaceModelTest {
         available: Boolean = false,
         hasOwner: Boolean = true,
         isCard: Boolean = false,
+        specText: String = SPEC,
+        args: JsonObject = JsonObject(emptyMap()),
     ) {
         val calls = FakeCalls(available)
         val host = FakeHost()
         val platform = FakePlatform()
-        private val spec = (decodeUiSpec(SPEC) as UiSpecDecoding.Decoded).spec
+        private val spec = (decodeUiSpec(specText) as UiSpecDecoding.Decoded).spec
         private val model = SurfaceModel(
             SurfaceSession(
                 spec,
                 UiOwner("harness", "h_1").takeIf { hasOwner },
                 UiCallContext(),
-                JsonObject(emptyMap()),
+                args,
                 UiFacts(),
                 host,
                 isCard,

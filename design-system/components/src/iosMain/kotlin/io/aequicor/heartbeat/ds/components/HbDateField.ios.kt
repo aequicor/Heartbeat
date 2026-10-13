@@ -30,7 +30,7 @@ import platform.darwin.NSObject
 
 private val log = Log.tag("DS/DateField")
 
-/** A compact `UIDatePicker`: the system shows the date and opens its calendar on tap. */
+/** A placeholder-capable date button opens the native picker; only confirmation commits its draft. */
 @OptIn(ExperimentalForeignApi::class)
 @Composable
 internal actual fun PlatformDateField(
@@ -40,22 +40,41 @@ internal actual fun PlatformDateField(
     modifier: Modifier,
     enabled: Boolean,
 ) {
-    val onDate by rememberUpdatedState(onValueChange)
     val formatter = remember { isoDateFormatter() }
-    val target = remember { DateChangeTarget { date -> onDate(formatter.stringFromDate(date)) } }
+    HbDatePickerField(
+        value,
+        onValueChange,
+        text,
+        today = { formatter.stringFromDate(NSDate()) },
+        modifier = modifier,
+        enabled = enabled,
+    ) { date, onDate -> NativeDatePicker(date, onDate, text.label, formatter) }
+}
+
+/** The native calendar edits an always-present draft, keeping empty values outside `UIDatePicker`. */
+@OptIn(ExperimentalForeignApi::class)
+@Composable
+private fun NativeDatePicker(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    formatter: NSDateFormatter,
+    modifier: Modifier = Modifier,
+) {
+    val onDate by rememberUpdatedState(onValueChange)
+    val target = remember(formatter) { DateChangeTarget { date -> onDate(formatter.stringFromDate(date)) } }
     UIKitView(
         factory = {
             UIDatePicker().apply {
                 datePickerMode = UIDatePickerMode.UIDatePickerModeDate
                 preferredDatePickerStyle = UIDatePickerStyle.UIDatePickerStyleCompact
                 contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeading
-                accessibilityLabel = text.label
                 addTarget(target, NSSelectorFromString("changed:"), UIControlEventValueChanged)
             }
         },
         modifier = modifier.fillMaxWidth().height(HbTheme.dimensions.touchTarget),
         update = { picker ->
-            picker.enabled = enabled
+            picker.accessibilityLabel = label
             formatter.dateFromString(value)?.let { picker.date = it }
         },
         onRelease = { picker -> picker.removeTarget(target, null, UIControlEventValueChanged) },

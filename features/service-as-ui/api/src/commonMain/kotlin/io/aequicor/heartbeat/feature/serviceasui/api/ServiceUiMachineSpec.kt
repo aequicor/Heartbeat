@@ -23,9 +23,9 @@ public const val SERVICE_UI_LOAD_ATTEMPTS: Int = 3
  * | Ready | Edit | a write being saved | EditRejected(Busy) |
  * | Ready | Persisted | the write being saved | commit, EditApplied; start a waiting purge |
  * | Ready | PersistFailed | the write being saved | drop it, EditRejected(Storage); start a waiting purge |
- * | Ready | OpenPanel | place with a dock, enabled panel or modal surface, args and panel limits | open in the dock |
+ * | Ready | OpenPanel | matching expected context, dock, enabled surface, args and panel limits | open in the dock |
  * | Ready | ClosePanel | open dock | close it |
- * | Ready | RequestPrompt | bound place, text within [ServiceUiLimits.PROMPT_CHARS] | PromptRequested |
+ * | Ready | RequestPrompt | bound place, matching expected context, bounded text | PromptRequested with context |
  *
  * Writes are serialized; callers retry on Busy. A commit closes the panels of surfaces it deleted or disabled. Purges
  * of owners whose deletion a complete provider snapshot confirmed are the feature's own writes: they wait for the
@@ -133,9 +133,17 @@ private fun ReadyBuilder.ready() {
         stay { state.copy(panels = state.panels - intent.dock) }
     }
     on<ServiceUiIntent.Internal.RequestPrompt>(guard = {
-        intent.host in state.hosts && intent.text.isNotBlank() && intent.text.length <= ServiceUiLimits.PROMPT_CHARS
+        intent.host in state.hosts && intent.text.isNotBlank() && intent.text.length <= ServiceUiLimits.PROMPT_CHARS &&
+            (intent.expectedContext == null || intent.expectedContext == state.hosts[intent.host])
     }) {
-        output { ServiceUiOutput.PromptRequested(intent.host, intent.text, intent.isSubmitted) }
+        output {
+            ServiceUiOutput.PromptRequested(
+                intent.host,
+                intent.text,
+                intent.isSubmitted,
+                state.hosts.getValue(intent.host),
+            )
+        }
     }
 }
 
@@ -214,8 +222,9 @@ private fun UiLibrary.canOpen(id: UiSurfaceId): Boolean =
     this[id]?.let { it.isEnabled && !it.content.placement.isInline } == true
 
 private fun ServiceUiState.Ready.canOpen(intent: ServiceUiIntent.Public.OpenPanel): Boolean {
-    val dock = hosts[intent.host]?.dock ?: return false
-    return library.canOpen(intent.surface) &&
+    val context = hosts[intent.host] ?: return false
+    val dock = context.dock ?: return false
+    return (intent.expectedContext == null || intent.expectedContext == context) && library.canOpen(intent.surface) &&
         intent.args.toString().encodeToByteArray().size <= ServiceUiLimits.ARGS_BYTES &&
         (dock in panels || panels.size < ServiceUiLimits.PANELS)
 }

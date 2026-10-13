@@ -24,11 +24,11 @@ internal enum class NativeWidgetUi { Date, File, Folder }
 
 /**
  * What pressing a button or a row does: the screen sends it back to its store, which runs [action] with the item it
- * was pressed on ([scope]). [origin] names the pressed node in logs.
+ * was pressed on ([scope]). [origin] tracks its busy state; it may contain user data and is never logged.
  */
 @Immutable
 internal data class UiPress(val origin: String, internal val action: UiAction, internal val scope: UiScope) {
-    override fun toString(): String = "UiPress(origin=$origin)"
+    override fun toString(): String = "UiPress(***)"
 }
 
 /** One column of a table. */

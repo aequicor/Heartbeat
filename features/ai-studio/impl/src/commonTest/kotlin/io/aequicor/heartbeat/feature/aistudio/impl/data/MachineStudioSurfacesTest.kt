@@ -20,7 +20,9 @@ import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiIntent
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiMachineKey
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiOutput
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiState
+import io.aequicor.heartbeat.feature.serviceasui.api.UiCallContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiDockId
+import io.aequicor.heartbeat.feature.serviceasui.api.UiHostContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiPanel
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSurfaceId
@@ -128,10 +130,33 @@ class MachineStudioSurfacesTest {
         val job = launch { surfaces.prompts.toList(received) }
         runCurrent()
 
-        machine.outputs.emit(ServiceUiOutput.PromptRequested(UiHostId(surfaces.host(3)), "Rank", isSubmitted = true))
-        machine.outputs.emit(ServiceUiOutput.PromptRequested(UiHostId(other.host(3)), "Other", isSubmitted = false))
+        val context = UiHostContext()
+        machine.state.value = ServiceUiState.Ready(hosts = mapOf(UiHostId(surfaces.host(3)) to context))
+        machine.outputs.emit(ServiceUiOutput.PromptRequested(UiHostId(surfaces.host(3)), "Rank", true, context))
+        machine.outputs.emit(ServiceUiOutput.PromptRequested(UiHostId(other.host(3)), "Other", false, context))
         runCurrent()
         assertEquals(listOf(StudioSurfacePrompt(3, "Rank", isSubmitted = true)), received)
+        job.cancel()
+    }
+
+    @Test
+    fun `a queued prompt from the previous host context never reaches the new chat`() = runTest {
+        val machine = FakeSurfaceMachine()
+        val surfaces = MachineStudioSurfaces(Registry(machine), Toggles(true))
+        val received = mutableListOf<StudioSurfacePrompt>()
+        val job = launch { surfaces.prompts.toList(received) }
+        runCurrent()
+        val host = UiHostId(surfaces.host(0))
+        val previous = UiHostContext(UiCallContext(session = native))
+        val current = UiHostContext(UiCallContext(session = native.copy(nativeId = "other")))
+        machine.state.value = ServiceUiState.Ready(hosts = mapOf(host to current))
+        machine.outputs.emit(ServiceUiOutput.PromptRequested(host, "Old", true, previous))
+        machine.outputs.emit(ServiceUiOutput.PromptRequested(host, "New", false, current))
+        runCurrent()
+        assertEquals(
+            listOf(StudioSurfacePrompt(0, "New", false, StudioSurfacePlace(chat = current.call.session))),
+            received,
+        )
         job.cancel()
     }
 

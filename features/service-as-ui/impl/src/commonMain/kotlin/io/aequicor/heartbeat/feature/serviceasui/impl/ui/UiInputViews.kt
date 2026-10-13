@@ -149,6 +149,8 @@ private fun NativeView(node: UiNodeUi.Native, onIntent: (SurfaceIntent) -> Unit)
             label = node.label ?: stringResource(Res.string.service_ui_date_hint),
             placeholder = stringResource(Res.string.service_ui_date_hint),
             invalidText = stringResource(Res.string.service_ui_date_invalid),
+            cancelText = stringResource(Res.string.service_ui_cancel),
+            confirmText = stringResource(Res.string.service_ui_continue),
         )
 
         NativeWidgetUi.File, NativeWidgetUi.Folder -> HbRow(gap = HbTheme.spacing.s) {

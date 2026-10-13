@@ -48,6 +48,7 @@ import io.aequicor.heartbeat.ds.resources.generated.en_cyan
 import io.aequicor.heartbeat.ds.resources.generated.en_danger
 import io.aequicor.heartbeat.ds.resources.generated.en_danger_action
 import io.aequicor.heartbeat.ds.resources.generated.en_dark
+import io.aequicor.heartbeat.ds.resources.generated.en_date_confirm
 import io.aequicor.heartbeat.ds.resources.generated.en_date_due
 import io.aequicor.heartbeat.ds.resources.generated.en_date_format
 import io.aequicor.heartbeat.ds.resources.generated.en_date_invalid
@@ -274,6 +275,7 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_cyan
 import io.aequicor.heartbeat.ds.resources.generated.ru_danger
 import io.aequicor.heartbeat.ds.resources.generated.ru_danger_action
 import io.aequicor.heartbeat.ds.resources.generated.ru_dark
+import io.aequicor.heartbeat.ds.resources.generated.ru_date_confirm
 import io.aequicor.heartbeat.ds.resources.generated.ru_date_due
 import io.aequicor.heartbeat.ds.resources.generated.ru_date_format
 import io.aequicor.heartbeat.ds.resources.generated.ru_date_invalid
@@ -695,6 +697,7 @@ public enum class HbString(internal val english: StringResource, internal val ru
     DiagramSourceCopied(Res.string.en_diagram_source_copied, Res.string.ru_diagram_source_copied),
     DiagramCopyFailed(Res.string.en_diagram_copy_failed, Res.string.ru_diagram_copy_failed),
     CodeErrorSample(Res.string.en_code_error_sample, Res.string.ru_code_error_sample),
+    DateConfirm(Res.string.en_date_confirm, Res.string.ru_date_confirm),
     DateDue(Res.string.en_date_due, Res.string.ru_date_due),
     DateFormat(Res.string.en_date_format, Res.string.ru_date_format),
     DateInvalid(Res.string.en_date_invalid, Res.string.ru_date_invalid),

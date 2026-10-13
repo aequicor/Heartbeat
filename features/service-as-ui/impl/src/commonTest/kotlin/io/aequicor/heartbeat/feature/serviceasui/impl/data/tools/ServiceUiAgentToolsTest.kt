@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.feature.serviceasui.impl.data.tools
 
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.LogSink
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
@@ -105,6 +107,35 @@ class ServiceUiAgentToolsTest {
         assertTrue(again.isError)
         assertTrue("pass expectedRevision 1" in again.text, again.text)
         assertFalse(call(ServiceUiTools.PUT, put(SPEC, revision = 1)).isError)
+    }
+
+    @Test
+    fun `an unreadable stored spec is returned for recovery without leaking it to logs`() = runTest {
+        call(ServiceUiTools.PUT, put(SPEC))
+        val ready = machine.state.value as ServiceUiState.Ready
+        val privateText = "private-surface-content"
+        val broken = "{\"text\":\"$privateText\""
+        machine.state.value = ready.copy(
+            library = ready.library.copy(
+                surfaces = ready.library.surfaces.map { it.copy(content = it.content.copy(spec = broken)) },
+            ),
+        )
+        val records = mutableListOf<String>()
+        val errors = mutableListOf<Throwable>()
+        val sink = LogSink { _, _, error, message ->
+            records += message
+            error?.let { errors += it }
+        }
+        Log.init(isDebug = false, sinks = listOf(sink))
+        try {
+            val result = call(ServiceUiTools.GET, buildJsonObject { put("id", "harness:h_1:start") })
+            assertEquals(JsonPrimitive(broken), Json.parseToJsonElement(result.text).jsonObject["spec"])
+            assertEquals(1, errors.size)
+            assertTrue(records.any { "unreadable" in it })
+            assertFalse(privateText in (records + errors.map { it.stackTraceToString() }).joinToString())
+        } finally {
+            Log.init(isDebug = false)
+        }
     }
 
     @Test

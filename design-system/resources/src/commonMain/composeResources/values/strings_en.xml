@@ -226,4 +226,5 @@
     <string name="en_diagram_insert_text">Insert into chat</string>
     <string name="en_diagram_send_text">Send to chat</string>
     <string name="en_diagram_unavailable_action">Chat action unavailable here</string>
+    <string name="en_date_confirm">Choose date</string>
 </resources>

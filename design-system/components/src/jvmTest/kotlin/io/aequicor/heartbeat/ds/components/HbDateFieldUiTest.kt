@@ -36,6 +36,8 @@ class HbDateFieldUiTest {
                             label = "Due",
                             placeholder = "YYYY-MM-DD",
                             invalidText = "Enter a date as YYYY-MM-DD",
+                            cancelText = "Cancel",
+                            confirmText = "Choose date",
                         )
                         HbTextField("", {}, accessibleLabel = "Other")
                     }

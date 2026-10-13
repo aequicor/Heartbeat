@@ -44,8 +44,11 @@ internal fun platformFact(host: HostPlatform): String = when (host) {
     HostPlatform.MacOs, HostPlatform.Windows, HostPlatform.Linux -> "desktop"
 }
 
-/** The current list element and its position, readable as `item` and `index`. */
-internal data class UiScope(val item: JsonElement? = null, val index: Int? = null) {
+/**
+ * The current list element and its position, readable as `item` and `index`. A modal captures its [args] here so
+ * pressed actions retain them even if an earlier sequence step closes or replaces the modal.
+ */
+internal data class UiScope(val item: JsonElement? = null, val index: Int? = null, val args: JsonObject? = null) {
     override fun toString(): String = "UiScope(index=${index ?: "none"})"
 }
 
@@ -77,7 +80,7 @@ internal class UiBindings(
 
             UiPathRoot.State -> JsonObject(values.state)
 
-            UiPathRoot.Args -> values.args
+            UiPathRoot.Args -> scope.args ?: values.args
 
             UiPathRoot.Item -> scope.item
 
@@ -100,14 +103,19 @@ internal class UiBindings(
         }
     }
 
-    /** [text] with every binding replaced by its value as text. */
+    /** [text] with every binding replaced by its value as text, bounded while concatenating to [maxChars]. */
     @HighFrequency
-    fun text(text: String, scope: UiScope): String {
-        val template = template(text) ?: return text
-        return template.parts.joinToString("") { part ->
-            when (part) {
-                is UiTemplatePart.Text -> part.value
-                is UiTemplatePart.Binding -> resolve(part.path, scope).text()
+    fun text(text: String, scope: UiScope, maxChars: Int = Int.MAX_VALUE): String {
+        if (maxChars <= 0) return ""
+        val template = template(text) ?: return text.take(maxChars)
+        return buildString {
+            for (part in template.parts) {
+                if (length >= maxChars) break
+                val value = when (part) {
+                    is UiTemplatePart.Text -> part.value
+                    is UiTemplatePart.Binding -> resolve(part.path, scope).text()
+                }
+                append(value, 0, minOf(value.length, maxChars - length))
             }
         }
     }

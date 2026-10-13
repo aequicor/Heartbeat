@@ -31,6 +31,7 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiWebDocuments
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiNodeUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceIntent
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceModel
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceSession
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceState
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -43,6 +44,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onSubscription
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -57,6 +59,7 @@ import pro.respawn.flowmvi.api.Store
 import pro.respawn.flowmvi.dsl.collect
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
@@ -107,7 +110,10 @@ class PlaceModelTest {
 
         place.intent(PlaceIntent.Launch(map.id.value))
         runCurrent()
-        assertEquals(listOf<ServiceUiIntent>(ServiceUiIntent.Public.OpenPanel(host, map.id)), fixture.machine.sent)
+        assertEquals(
+            listOf<ServiceUiIntent>(ServiceUiIntent.Public.OpenPanel(host, map.id, expectedContext = docked)),
+            fixture.machine.sent,
+        )
 
         place.intent(PlaceIntent.Launch(details.id.value))
         runCurrent()
@@ -135,7 +141,14 @@ class PlaceModelTest {
             surface.intent(SurfaceIntent.Press(button(surface, 1).press))
             runCurrent()
             assertEquals(
-                listOf<ServiceUiIntent>(ServiceUiIntent.Internal.RequestPrompt(host, "Rank PRs", isSubmitted = true)),
+                listOf<ServiceUiIntent>(
+                    ServiceUiIntent.Internal.RequestPrompt(
+                        host,
+                        "Rank PRs",
+                        isSubmitted = true,
+                        expectedContext = bare,
+                    ),
+                ),
                 fixture.machine.sent,
             )
 
@@ -182,13 +195,47 @@ class PlaceModelTest {
         val before = place.states.value
         assertEquals(listOf("START"), before.surfaces.map { it.title })
 
+        place.intent(PlaceIntent.Launch(details.id.value))
+        runCurrent()
+        val previous = fixture.drawings.toList()
+        assertTrue(previous.all { it.second.isActive })
         fixture.machine.state.value = ready(chat)
         runCurrent()
-        assertEquals(before, place.states.value)
+        assertEquals(PlaceState(), place.states.value)
+        assertTrue(fixture.model.surfaces.value.isEmpty())
+        assertTrue(previous.none { it.second.isActive })
 
         fixture.calls.report(chat.call, emptySet())
         runCurrent()
         assertEquals(PlaceState(), place.states.value)
+    }
+
+    @Test
+    fun `retained actions cannot use a host that rebound before its owner snapshot arrived`() = runTest {
+        for (original in listOf(docked, UiHostContext())) {
+            val changed = original.copy(call = UiCallContext(preselected = mapOf("harness" to setOf("h_2"))))
+            val fixture = Fixture(this, ServiceUiPlace.of(slot), ready(original))
+            fixture.calls.report(original.call, setOf(PrMap))
+            val place = fixture.subscribe()
+            val oldHost = fixture.drawings.single().first.host
+
+            // No scheduler advancement: the place still holds its old models, but the authoritative host changed.
+            fixture.machine.state.value = ready(changed)
+            assertFalse(oldHost.prompt("From the previous chat", isSubmitted = true))
+            assertFalse(oldHost.openPanel("map", JsonObject(emptyMap())))
+            assertFalse(oldHost.openSurface("details", JsonObject(emptyMap())))
+            assertTrue(fixture.machine.sent.isEmpty())
+            runCurrent()
+            assertEquals(PlaceState(), place.states.value)
+
+            // Even when the same owner is available again, a retained callback cannot revive its old drawing.
+            fixture.calls.report(changed.call, setOf(PrMap))
+            runCurrent()
+            assertFalse(oldHost.prompt("Still stale", isSubmitted = false))
+            assertFalse(oldHost.openSurface("details", JsonObject(emptyMap())))
+            assertNull(place.states.value.modal)
+            assertTrue(fixture.machine.sent.isEmpty())
+        }
     }
 
     @Test
@@ -236,12 +283,14 @@ class PlaceModelTest {
     private class Fixture(private val scope: TestScope, place: ServiceUiPlace, state: ServiceUiState) {
         val machine = FakeMachine(state)
         val calls = FakeCalls()
+        val drawings = mutableListOf<Pair<SurfaceSession, CoroutineScope>>()
         private val stores = HeartbeatStoreFactory(TestDispatchers(StandardTestDispatcher(scope.testScheduler)))
         val model = PlaceModel(
             place,
             machine,
             calls,
             { session, child ->
+                drawings += session to child
                 SurfaceModel(
                     session,
                     calls,

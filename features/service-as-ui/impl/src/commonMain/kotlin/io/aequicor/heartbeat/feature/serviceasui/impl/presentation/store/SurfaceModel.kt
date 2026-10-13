@@ -161,7 +161,7 @@ internal class SurfaceModel(
             when (intent) {
                 is SurfaceIntent.Press -> {
                     val type = intent.press.action::class.simpleName ?: "UiAction"
-                    log.i { "Surface action $type from ${intent.press.origin}" }
+                    log.i { "Surface action $type" }
                     pipeline.launch { press(intent.press) }
                 }
 

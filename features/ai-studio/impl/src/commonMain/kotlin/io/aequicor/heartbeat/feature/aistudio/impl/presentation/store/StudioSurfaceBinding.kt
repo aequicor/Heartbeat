@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfacePlace
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfacePrompt
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaces
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,6 +42,7 @@ class StudioSurfaceBinding internal constructor(
     private val cards = MutableStateFlow<Map<Int, Set<String>>>(emptyMap())
 
     private var seen: SeenInputs? = null
+    private val latestWorkspace = MutableStateFlow<StudioWorkspace?>(null)
 
     /** The open panes, for the slot hosts of the component. */
     internal val openPanes: StateFlow<Map<Int, PaneSurfaceUi>> = panes.asStateFlow()
@@ -52,6 +54,8 @@ class StudioSurfaceBinding internal constructor(
         // Places live as long as the studio window, not its subscription: a panel stays open across settings.
         scope.coroutineScope.launch {
             val places = combine(panes, backend.repository().observeWorkspace()) { panes, workspace ->
+                latestWorkspace.value = workspace
+                log.v { "Interface workspace projection updated" }
                 panes.mapValues { (_, pane) -> pane.place(workspace) }
             }.distinctUntilChanged()
             surfaces.keep(places)
@@ -90,21 +94,41 @@ class StudioSurfaceBinding internal constructor(
      * command, so a surface cannot send the user's text, attachments or a `/compact` or `/remember` directive.
      */
     internal suspend fun observe(pipeline: SurfacePipeline, submit: suspend (paneId: Int) -> Unit) {
-        surfaces.prompts.collect { prompt ->
-            val paneId = prompt.paneId
-            if (paneId !in panes.value) return@collect
-            var isSent = false
-            pipeline.updateState {
-                val key = draftKey(paneId)
-                val draft = drafts[key].orEmpty()
-                val isEmpty = draft.isBlank() && draftAttachments[key].isNullOrEmpty()
-                val text = if (draft.isBlank()) prompt.text else draft.trimEnd() + "\n\n" + prompt.text
-                isSent = prompt.isSubmitted && isEmpty && !prompt.text.trimStart().startsWith("/")
-                withDraft(paneId, text).withDraftCaret(paneId, text.length)
-            }
-            log.i { "Interface prompt for pane $paneId submitted=$isSent" }
-            if (isSent) submit(paneId)
+        surfaces.prompts.collect { prompt -> applyPrompt(pipeline, prompt, submit) }
+    }
+
+    private suspend fun applyPrompt(
+        pipeline: SurfacePipeline,
+        prompt: StudioSurfacePrompt,
+        submit: suspend (paneId: Int) -> Unit,
+    ) {
+        val paneId = prompt.paneId
+        if (paneId !in panes.value) return
+        var isSent = false
+        var isApplied = false
+        pipeline.updateState {
+            isSent = false
+            isApplied = false
+            if (!accepts(prompt)) return@updateState this
+            isApplied = true
+            val key = draftKey(paneId)
+            val draft = drafts[key].orEmpty()
+            val isEmpty = draft.isBlank() && draftAttachments[key].isNullOrEmpty()
+            val text = if (draft.isBlank()) prompt.text else draft.trimEnd() + "\n\n" + prompt.text
+            isSent = prompt.isSubmitted && isEmpty && !prompt.text.trimStart().startsWith("/")
+            withDraft(paneId, text).withDraftCaret(paneId, text.length)
         }
+        if (!isApplied) return
+        log.i { "Interface prompt for pane $paneId submitted=$isSent" }
+        if (isSent) submit(paneId)
+    }
+
+    /** Revalidates a delayed output against the screen state whose draft will actually change. */
+    private fun AiStudioScreenState.accepts(prompt: StudioSurfacePrompt): Boolean {
+        val pane = panes.firstOrNull { it.id == prompt.paneId } ?: return false
+        val workspace = latestWorkspace.value ?: return false
+        val selected = if (pane.sessionId == null) harnessChoices.panes[pane.id].orEmpty() else emptySet()
+        return PaneSurfaceUi(pane.sessionId, pane.projectId, selected).place(workspace) == prompt.place
     }
 }
 

@@ -260,11 +260,34 @@ class ServiceUiMachineSpecTest {
             from = Ready,
             intent = Internal.RequestPrompt(Host, "Review PR 7", isSubmitted = true),
             to = Ready,
-            outputs = listOf(ServiceUiOutput.PromptRequested(Host, "Review PR 7", isSubmitted = true)),
+            outputs = listOf(
+                ServiceUiOutput.PromptRequested(
+                    Host,
+                    "Review PR 7",
+                    isSubmitted = true,
+                    context = Hosts.getValue(Host),
+                ),
+            ),
         )
         Spec.assertIgnored(Ready, Internal.RequestPrompt(UiHostId("unknown"), "text", isSubmitted = false))
         Spec.assertIgnored(Ready, Internal.RequestPrompt(Host, " ", isSubmitted = false))
         Spec.assertIgnored(Ready, Internal.RequestPrompt(Host, "x".repeat(ServiceUiLimits.PROMPT_CHARS + 1), false))
+    }
+
+    @Test
+    fun `queued surface actions are refused after their host context changes`() {
+        val original = Hosts.getValue(Host)
+        val changed = original.copy(call = UiCallContext(preselected = mapOf("harness" to setOf("other"))))
+        val rebound = Ready.copy(hosts = mapOf(Host to changed))
+        val prompt = Internal.RequestPrompt(Host, "Review PR 7", isSubmitted = true, expectedContext = original)
+        Spec.assertIgnored(rebound, prompt)
+        Spec.assertIgnored(rebound, Public.OpenPanel(Host, PanelSurface.id, expectedContext = original))
+        Spec.assertTransition(
+            from = Ready,
+            intent = prompt,
+            to = Ready,
+            outputs = listOf(ServiceUiOutput.PromptRequested(Host, "Review PR 7", true, original)),
+        )
     }
 
     @Test

@@ -5,6 +5,7 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
@@ -207,7 +208,7 @@ internal class ServiceUiAgentTools(
         val spec = try {
             Json.parseToJsonElement(surface.content.spec)
         } catch (e: IllegalArgumentException) {
-            log.w(e) { "Stored spec of $id is unreadable" }
+            log.w(e.redactedFailure()) { "Stored spec of $id is unreadable" }
             JsonPrimitive(surface.content.spec)
         }
         val result = buildJsonObject {

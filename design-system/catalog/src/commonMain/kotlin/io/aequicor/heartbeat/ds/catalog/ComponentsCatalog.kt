@@ -83,6 +83,8 @@ internal fun ComponentsCatalog(state: SandboxState, modifier: Modifier = Modifie
                     label = hbString(HbString.DateDue),
                     placeholder = hbString(HbString.DateFormat),
                     invalidText = hbString(HbString.DateInvalid),
+                    cancelText = hbString(HbString.CancelAction),
+                    confirmText = hbString(HbString.DateConfirm),
                 )
                 HbDateField(
                     "2026-10-12",
@@ -90,6 +92,8 @@ internal fun ComponentsCatalog(state: SandboxState, modifier: Modifier = Modifie
                     label = hbString(HbString.Disabled),
                     placeholder = hbString(HbString.DateFormat),
                     invalidText = hbString(HbString.DateInvalid),
+                    cancelText = hbString(HbString.CancelAction),
+                    confirmText = hbString(HbString.DateConfirm),
                     enabled = false,
                 )
             }

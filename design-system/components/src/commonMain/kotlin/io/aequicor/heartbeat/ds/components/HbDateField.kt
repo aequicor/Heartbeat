@@ -6,10 +6,12 @@ import androidx.compose.ui.Modifier
 
 /**
  * A calendar date kept as `YYYY-MM-DD`. Each host picks dates its own way: Android opens the framework
- * `DatePickerDialog` from a button that shows the date, iOS embeds a compact `UIDatePicker`, and desktop keeps a flat
+ * `DatePickerDialog` from a button that shows the date, iOS opens a compact `UIDatePicker` with confirmation from a
+ * button that shows the date or [placeholder], and desktop keeps a flat
  * [HbTextField] that passes only calendar dates: while focused it shows what the user types and reports an empty value
  * until the text is a date, with [invalidText] under it; out of focus it shows [value]. [label] names the field for
- * screen readers; [placeholder] stands in for a missing date and spells the expected format.
+ * screen readers; [placeholder] stands in for a missing date and spells the expected format. [cancelText] and
+ * [confirmText] name the actions of the iOS draft picker; the caller supplies localized labels.
  */
 @Composable
 public fun HbDateField(
@@ -18,15 +20,24 @@ public fun HbDateField(
     label: String,
     placeholder: String,
     invalidText: String,
+    cancelText: String,
+    confirmText: String,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
-    PlatformDateField(value, onValueChange, HbDateFieldText(label, placeholder, invalidText), modifier, enabled)
+    val text = HbDateFieldText(label, placeholder, invalidText, cancelText, confirmText)
+    PlatformDateField(value, onValueChange, text, modifier, enabled)
 }
 
 /** Labels of a date field. */
 @Immutable
-internal data class HbDateFieldText(val label: String, val placeholder: String, val invalid: String)
+internal data class HbDateFieldText(
+    val label: String,
+    val placeholder: String,
+    val invalid: String,
+    val cancel: String,
+    val confirm: String,
+)
 
 /** A date as its year, month 1..12 and day of month; [toString] writes `YYYY-MM-DD`. */
 internal data class HbDateParts(val year: Int, val month: Int, val day: Int) {

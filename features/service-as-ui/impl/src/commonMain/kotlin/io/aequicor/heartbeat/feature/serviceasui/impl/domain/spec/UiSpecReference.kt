@@ -97,6 +97,12 @@ ${ServiceUiLimits.SPEC_BYTES / KIB} KiB per spec, ${UiSpecLimits.HTML_BYTES / KI
 ${methodResultBytes / KIB} KiB per method result, $callSeconds s per call, ${UiSpecLimits.CALLS} calls at a time per
 surface; ${ServiceUiLimits.SURFACES} surfaces per profile, ${ServiceUiLimits.SURFACES_PER_OWNER} per owner.
 
+Each drawn body or modal shares ${UiSpecLimits.RENDER_ELEMENTS} expanded elements (including rows, cells, pairs and
+options) and ${UiSpecLimits.RENDER_CHARS} formatted display characters: excess elements are omitted and text is truncated.
+Input values stay intact.
+List and table hidden counts include rows omitted by this shared budget. Item keys beyond ${UiSpecLimits.ITEM_KEY_CHARS}
+characters fall back to positions.
+
 ## Cards (`ui_show`)
 A card shows a surface in your reply. An inline card has no owner: no `call`, `reload`, data sources, `reveal`,
 sent prompts or web bridge; the user confirms its links. A card of a library surface may call the owner's methods

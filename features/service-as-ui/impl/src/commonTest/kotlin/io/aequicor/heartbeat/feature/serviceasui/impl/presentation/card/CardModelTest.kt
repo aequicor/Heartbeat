@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiIntent
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiOutput
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiState
 import io.aequicor.heartbeat.feature.serviceasui.api.UiCallContext
+import io.aequicor.heartbeat.feature.serviceasui.api.UiDockId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiLibrary
@@ -81,7 +82,9 @@ class CardModelTest {
         surface.intent(SurfaceIntent.Press(button.press))
         runCurrent()
         assertEquals(
-            listOf<ServiceUiIntent>(ServiceUiIntent.Internal.RequestPrompt(host, "Rank PRs", isSubmitted = false)),
+            listOf<ServiceUiIntent>(
+                ServiceUiIntent.Internal.RequestPrompt(host, "Rank PRs", isSubmitted = false, expectedContext = bound),
+            ),
             fixture.machine.sent,
         )
     }
@@ -101,6 +104,23 @@ class CardModelTest {
         val fixture = Fixture(this, other)
         fixture.press()
         assertEquals(emptyList(), fixture.machine.sent, "a place showing another chat takes no prompt")
+    }
+
+    @Test
+    fun `a card panel request carries the context of its drawing`() = runTest {
+        val docked = bound.copy(dock = UiDockId("side"))
+        val fixture = Fixture(this, ready(UiLibrary(listOf(map))).copy(hosts = mapOf(host to docked)))
+        fixture.cards.value = mapOf(ID to card(UiCardSource.Surface(map.id)))
+        val card = fixture.subscribe()
+        val surface = fixture.subscribe(fixture.model.surfaces.value.getValue(card.states.value.key!!).store)
+        val root = assertIs<UiNodeUi.Column>(surface.states.value.root)
+        val button = assertIs<UiNodeUi.Button>(root.children[2])
+        surface.intent(SurfaceIntent.Press(button.press))
+        runCurrent()
+        assertEquals(
+            listOf<ServiceUiIntent>(ServiceUiIntent.Public.OpenPanel(host, map.id, expectedContext = docked)),
+            fixture.machine.sent,
+        )
     }
 
     @Test

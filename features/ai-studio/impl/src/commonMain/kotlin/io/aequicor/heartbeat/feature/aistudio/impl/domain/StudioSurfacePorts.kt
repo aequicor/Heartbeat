@@ -17,8 +17,13 @@ data class StudioSurfacePlace(
     val harnesses: Set<String> = emptySet(),
 )
 
-/** A surface in pane [paneId] asks to put [text] into its composer, or to send it when [isSubmitted]. */
-data class StudioSurfacePrompt(val paneId: Int, val text: String, val isSubmitted: Boolean) {
+/** A surface in [place] of pane [paneId] asks to insert [text], or send it when [isSubmitted]. */
+data class StudioSurfacePrompt(
+    val paneId: Int,
+    val text: String,
+    val isSubmitted: Boolean,
+    val place: StudioSurfacePlace = StudioSurfacePlace(),
+) {
     override fun toString(): String = "StudioSurfacePrompt(paneId=$paneId, isSubmitted=$isSubmitted)"
 }
 

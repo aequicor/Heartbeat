@@ -33,6 +33,7 @@ import kotlinx.serialization.json.doubleOrNull
 /**
  * Turns a spec and its current values into resolved UI models: bindings become values, lists and tables expand over
  * their arrays (at most [UiSpecLimits.LIST_ITEMS] elements), conditions pick their branch, inputs show local state.
+ * Each body/modal evaluation has one shared element and display-text budget, including expanded collections.
  * Pure; parsed templates are cached for the lifetime of the evaluator.
  */
 internal class UiEvaluator(private val spec: UiSpec) {
@@ -50,7 +51,7 @@ internal class UiEvaluator(private val spec: UiSpec) {
         return UiModalUi(
             name,
             pass.text(modal.title, UiScope()),
-            pass.node(modal.body, "m.$name", UiScope()),
+            pass.node(modal.body, "m.$name", UiScope(args = values.args)),
             modal.isWide,
         )
     }
@@ -60,14 +61,27 @@ internal class UiEvaluator(private val spec: UiSpec) {
 
     private inner class Pass(private val values: UiValues) {
         private val bindings = UiBindings(values, templates)
+        private var remaining = UiSpecLimits.RENDER_ELEMENTS
+        private var characters = UiSpecLimits.RENDER_CHARS
 
-        fun text(text: String, scope: UiScope): String = bindings.text(text, scope)
+        fun text(text: String, scope: UiScope): String = bindings.text(text, scope, characters).also {
+            characters -= it.length
+        }
 
-        fun node(node: UiNode, key: String, scope: UiScope): UiNodeUi? = when (node) {
-            is UiNode.Layout -> layout(node, key, scope)
-            is UiNode.Content -> content(node, key, scope)
-            is UiNode.Structure -> structure(node, key, scope)
-            is UiNode.Input -> input(node, key, scope)
+        private fun take(elements: Int = 1): Boolean {
+            if (remaining < elements) return false
+            remaining -= elements
+            return true
+        }
+
+        fun node(node: UiNode, key: String, scope: UiScope): UiNodeUi? {
+            if (!take()) return null
+            return when (node) {
+                is UiNode.Layout -> layout(node, key, scope)
+                is UiNode.Content -> content(node, key, scope)
+                is UiNode.Structure -> structure(node, key, scope)
+                is UiNode.Input -> input(node, key, scope)
+            }
         }
 
         private fun layout(node: UiNode.Layout, key: String, scope: UiScope): UiNodeUi = when (node) {
@@ -108,7 +122,8 @@ internal class UiEvaluator(private val spec: UiSpec) {
 
             is UiNode.KeyValue -> UiNodeUi.KeyValue(
                 key,
-                node.items.map { PairUi(text(it.key, scope), text(it.value, scope)) }.toImmutableList(),
+                node.items.asSequence().takeWhile { take() }
+                    .map { PairUi(text(it.key, scope), text(it.value, scope)) }.toImmutableList(),
             )
 
             is UiNode.Empty -> UiNodeUi.Empty(key, text(node.title, scope), node.description?.let { text(it, scope) })
@@ -158,7 +173,8 @@ internal class UiEvaluator(private val spec: UiSpec) {
                 key,
                 node.bind,
                 node.label?.let { text(it, scope) },
-                node.options.map { OptionUi(it.value, text(it.label, scope)) }.toImmutableList(),
+                node.options.asSequence().takeWhile { take() }
+                    .map { OptionUi(it.value, text(it.label, scope)) }.toImmutableList(),
                 values.state[node.bind]?.text(),
             )
 
@@ -173,37 +189,50 @@ internal class UiEvaluator(private val spec: UiSpec) {
         }
 
         private fun children(nodes: List<UiNode>, key: String, scope: UiScope): ImmutableList<UiNodeUi> =
-            nodes.mapIndexedNotNull { index, child -> node(child, "$key.$index", scope) }.toImmutableList()
+            nodes.asSequence().takeWhile { remaining > 0 }
+                .mapIndexedNotNull { index, child -> node(child, "$key.$index", scope) }.toImmutableList()
 
         private fun items(node: UiNode.Items, key: String, scope: UiScope): UiNodeUi? {
             val array = bindings.value(node.items, scope) as? JsonArray ?: JsonArray(emptyList())
             if (array.isEmpty()) return node.empty?.let { node(it, "$key.empty", scope) }
             val shown = array.take(UiSpecLimits.LIST_ITEMS)
             val keys = elementKeys(shown, node.key)
-            val elements = shown.mapIndexedNotNull { index, item ->
-                node(node.item, "$key[${keys[index]}]", UiScope(item, index))
-            }
-            val more = (array.size - shown.size).takeIf { it > 0 }?.let { UiNodeUi.More("$key.more", it) }
+            // Reserve the count node before descending: a nested list may consume the rest of the budget.
+            val hasCounter = take()
+            var visited = 0
+            val elements = shown.asSequence().takeWhile { remaining > 0 }.mapIndexedNotNull { index, item ->
+                visited++
+                node(node.item, "$key[${keys[index]}]", scope.copy(item = item, index = index))
+            }.toList()
+            val hidden = array.size - visited
+            val more = hidden.takeIf { it > 0 && hasCounter }?.let { UiNodeUi.More("$key.more", it) }
+            if (hasCounter && more == null) remaining++
             return UiNodeUi.Column(key, (elements + listOfNotNull(more)).toImmutableList(), GapUi.Small)
         }
 
         private fun table(node: UiNode.Table, key: String, scope: UiScope): UiNodeUi {
             val array = bindings.value(node.rows, scope) as? JsonArray ?: JsonArray(emptyList())
-            val shown = array.take(UiSpecLimits.LIST_ITEMS)
+            val columns = node.columns.take(remaining)
+                .map {
+                    take()
+                    ColumnUi(text(it.title, scope), it.weight)
+                }.toImmutableList()
+            val shown = array.take(minOf(UiSpecLimits.LIST_ITEMS, remaining / (columns.size + 1)))
             val keys = elementKeys(shown, node.key)
             val rows = shown.mapIndexed { index, row ->
-                val rowScope = UiScope(row, index)
+                take(columns.size + 1)
+                val rowScope = scope.copy(item = row, index = index)
                 val origin = "$key[${keys[index]}]"
                 RowUi(
                     keys[index],
-                    node.columns.map { text(it.value, rowScope) }.toImmutableList(),
+                    node.columns.take(columns.size).map { text(it.value, rowScope) }.toImmutableList(),
                     node.onRowClick?.let { UiPress(origin, it, rowScope) },
                     isBusy = origin in values.busy,
                 )
             }
             return UiNodeUi.Table(
                 key,
-                node.columns.map { ColumnUi(text(it.title, scope), it.weight) }.toImmutableList(),
+                columns,
                 rows.toImmutableList(),
                 node.empty?.let { text(it, scope) },
                 hidden = array.size - shown.size,
@@ -241,7 +270,10 @@ internal class UiEvaluator(private val spec: UiSpec) {
                     ).text()
                 }
             }
-            return if (keys != null && keys.none { it.isEmpty() } && keys.distinct().size == keys.size) {
+            return if (
+                keys != null && keys.all { it.length in 1..UiSpecLimits.ITEM_KEY_CHARS } &&
+                keys.distinct().size == keys.size
+            ) {
                 keys
             } else {
                 elements.indices.map { it.toString() }

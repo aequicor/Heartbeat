@@ -45,6 +45,15 @@ internal object UiSpecLimits {
     /** Elements of a list or rows of a table drawn; the rest are counted. */
     const val LIST_ITEMS: Int = 200
 
+    /** Expanded elements of one body or modal, including table rows/cells, key-value pairs and select options. */
+    const val RENDER_ELEMENTS: Int = 4096
+
+    /** Combined characters of evaluated display strings of one body or modal. */
+    const val RENDER_CHARS: Int = 256 * 1024
+
+    /** Long item identities fall back to their positions rather than multiplying large keys through nested lists. */
+    const val ITEM_KEY_CHARS: Int = 128
+
     /** Method calls of one surface running at the same time. */
     const val CALLS: Int = 2
 }

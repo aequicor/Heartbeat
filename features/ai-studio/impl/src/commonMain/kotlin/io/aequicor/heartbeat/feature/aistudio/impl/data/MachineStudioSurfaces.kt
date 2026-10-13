@@ -64,10 +64,23 @@ internal class MachineStudioSurfaces(private val machines: MachineRegistry, togg
     override val availability: Flow<Boolean> = toggles.observe(ServiceUiEnabled)
 
     override val prompts: Flow<StudioSurfacePrompt> = machines.observe(ServiceUiMachineKey)
-        .flatMapLatest { it?.outputs ?: emptyFlow() }
-        .filterIsInstance<ServiceUiOutput.PromptRequested>()
-        .mapNotNull { output ->
-            paneOf(output.host)?.let { StudioSurfacePrompt(it, output.text, output.isSubmitted) }
+        .flatMapLatest { machine ->
+            machine?.outputs?.filterIsInstance<ServiceUiOutput.PromptRequested>()?.mapNotNull { output ->
+                val current = machine.state.value as? ServiceUiState.Ready
+                if (current?.hosts?.get(output.host) != output.context) return@mapNotNull null
+                paneOf(output.host)?.let {
+                    StudioSurfacePrompt(
+                        it,
+                        output.text,
+                        output.isSubmitted,
+                        StudioSurfacePlace(
+                            chat = output.context.call.session,
+                            workspace = output.context.call.workspace,
+                            harnesses = output.context.call.preselected[HarnessTools.GROUP].orEmpty(),
+                        ),
+                    )
+                }
+            } ?: emptyFlow()
         }
 
     override fun host(paneId: Int): String = "$prefix.pane-$paneId"

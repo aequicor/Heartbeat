@@ -8,11 +8,13 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeKind
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessDiagnosticSeverity
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -89,6 +91,25 @@ class ProcessHarnessCompilerTest {
         val worker = started.await()
         compiling.cancelAndJoin()
         assertFalse(worker.isAlive)
+    }
+
+    @Test
+    fun `cancellation before the queued reader starts still reaps its worker`() = runTest {
+        val workers = RecordingLauncher(helper())
+        val queued = StandardTestDispatcher(testScheduler)
+        val compiler = ProcessHarnessCompiler(scope, queued, queued, workers)
+        // Acquire synchronously but leave the reader and its waiter queued; cancellation completes the reader
+        // without ever entering serve, before exchange's finally observes its isCompleted flag.
+        val compiling = launch(start = CoroutineStart.UNDISPATCHED) {
+            compiler.compile(HarnessCodeKind.Script, "", output())
+        }
+        val worker = workers.processes.single()
+        assertTrue(worker.isAlive)
+
+        compiling.cancelAndJoin()
+
+        assertFalse(worker.isAlive)
+        assertEquals(null, compiler.process)
     }
 
     @Test
