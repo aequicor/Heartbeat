@@ -272,4 +272,5 @@
     <string name="harness_menu_section">Harnesses</string>
     <string name="harness_connect_failed">The harness change was not applied to this chat. Try again.</string>
     <string name="browser_mode">Browser</string>
+    <string name="interface_panel">Interface panel</string>
 </resources>

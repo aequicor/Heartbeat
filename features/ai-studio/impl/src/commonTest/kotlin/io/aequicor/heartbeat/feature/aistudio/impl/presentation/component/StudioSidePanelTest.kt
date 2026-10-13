@@ -33,4 +33,15 @@ class StudioSidePanelTest {
         assertEquals(SidePanelUi.Interface, browser.next(BrowserPaneMode.Hidden, panel = 1).shown)
         assertEquals(SidePanelUi.None, browser.next(BrowserPaneMode.Hidden, panel = null).shown)
     }
+
+    @Test
+    fun `raising an open browser behind the interface panel brings it to the front`() {
+        val covered = SideChoice().next(BrowserPaneMode.Panel, panel = null).next(BrowserPaneMode.Panel, panel = 1)
+        assertEquals(SidePanelUi.Interface, covered.shown)
+
+        val raised = covered.next(BrowserPaneMode.Panel, panel = 1, raise = 1)
+        assertEquals(SidePanelUi.Browser, raised.shown)
+        assertEquals(SidePanelUi.Browser, raised.next(BrowserPaneMode.Panel, panel = 1).shown)
+        assertEquals(SidePanelUi.Interface, raised.next(BrowserPaneMode.Panel, panel = 2).shown)
+    }
 }

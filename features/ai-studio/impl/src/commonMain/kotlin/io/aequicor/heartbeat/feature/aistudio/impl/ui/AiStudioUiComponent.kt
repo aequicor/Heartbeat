@@ -3,13 +3,16 @@ package io.aequicor.heartbeat.feature.aistudio.impl.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.core.navigation.compose.NavStack
@@ -18,7 +21,10 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.AiStud
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.BrowserPaneMode
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.SidePanelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.StudioNoDialog
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.interface_panel
 import kotlinx.collections.immutable.toImmutableMap
+import org.jetbrains.compose.resources.stringResource
 
 /** Rendering adapter assembled by the route entry; presentation never imports Compose screens. */
 internal class AiStudioUiComponent(private val component: AiStudioComponent) : ComposableComponent {
@@ -55,7 +61,9 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
         }
         val isUnifiedSettingsShown by component.showsUnifiedSettings.collectAsState(false)
         val browserMode by component.browserMode.collectAsState()
-        val isBrowserOpen = browserMode != BrowserPaneMode.Hidden
+        val side by component.sidePanel.collectAsState()
+        // The rail marks the browser only while it is the panel in front.
+        val isBrowserOpen = browserMode != BrowserPaneMode.Hidden && side == SidePanelUi.Browser
         val exits = remember(
             component,
             isConnectionsShown,
@@ -87,7 +95,6 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
         // Any entry above the studio's own chat (research) takes over the chat area; the sidebar
         // stays.
         val chatArea = workspace.active.instance as? ComposableComponent
-        val side by component.sidePanel.collectAsState()
         val sideMode = when (side) {
             SidePanelUi.Browser -> browserMode
             SidePanelUi.Interface -> BrowserPaneMode.Panel
@@ -101,14 +108,16 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
     }
 }
 
-/** The browser, or the interface panel of the window on the assistant surface. */
+/** The browser, or the interface panel of the window drawn like the browser panel, within the window insets. */
 @Composable
 private fun SidePanel(component: AiStudioComponent, side: SidePanelUi) {
     if (side == SidePanelUi.Interface) {
+        val panel by component.interfacePanel.collectAsState()
+        val title = stringResource(Res.string.interface_panel)
         Box(
-            Modifier.fillMaxSize().background(HbTheme.surfaces.assistant).padding(HbTheme.spacing.l)
-                .testTag("studio-interface-panel"),
-        ) { NavStack(component.interfacePanel) }
+            Modifier.fillMaxSize().background(HbTheme.surfaces.backdrop).safeDrawingPadding().imePadding()
+                .semantics { paneTitle = title }.testTag("studio-interface-panel"),
+        ) { panel?.let { NavStack(it) } }
     } else {
         NavStack(component.browser)
     }

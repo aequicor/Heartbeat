@@ -51,7 +51,6 @@ import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRoute
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatRoute
 import io.aequicor.heartbeat.feature.searchengine.api.ProfileSettingsRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiCardRoute
-import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiPanelRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiSlotRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSlot
 import io.aequicor.heartbeat.feature.settings.api.SettingsRoute
@@ -114,16 +113,10 @@ class AiStudioComponent(
     val browserMode: StateFlow<BrowserPaneMode> = browserPresentation
     private val browserBack = StudioBrowserBack(::hideBrowser)
 
-    /** The panel of interfaces open in this window's dock; it shares the side of the window with the browser. */
-    val interfacePanel: StackHost = hosts.stack(
-        context = this,
-        parent = navigator,
-        name = "interface-panel",
-        initial = listOf(ServiceUiPanelRoute(surfaces.dock)),
-        local = emptyList(),
-        global = GlobalRoutes.Only(setOf(ServiceUiPanelRoute::class)),
-    )
-    private val side = StudioSidePanel(browserPresentation, surfaces, scope.coroutineScope)
+    private val side = StudioSidePanel(this, navigator, hosts, browserPresentation, surfaces, scope.coroutineScope)
+
+    /** The interface panel of this window's dock while interfaces are on; it shares the side with the browser. */
+    val interfacePanel: StateFlow<StackHost?> = side.panel
 
     /** What the side of the window shows: the browser or the interface panel opened last. */
     val sidePanel: StateFlow<SidePanelUi> = side.shown
@@ -150,6 +143,7 @@ class AiStudioComponent(
         lifecycle.doOnDestroy {
             presentation.cancel()
             backHandler.unregister(browserBack.callback)
+            backHandler.unregister(side.back)
         }
     }
 
@@ -396,6 +390,8 @@ class AiStudioComponent(
 
     /** Opens the browser inside the studio while preserving its sidebar. */
     fun openBrowser() {
+        // An open browser behind the interface panel comes to the front; a hidden one opens and wins anyway.
+        if (browserPresentation.value != BrowserPaneMode.Hidden) side.raiseBrowser()
         scope.coroutineScope.launch {
             machines.send(BrowserMachineKey, BrowserIntent.Public.Display(BrowserDisplay.Panel))
         }
