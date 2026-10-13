@@ -1,0 +1,182 @@
+{
+  "extName": {
+    "message": "Heartbeat"
+  },
+  "extDescription": {
+    "message": "Чат Heartbeat в боковой панели браузера и управление браузером агентами Heartbeat."
+  },
+  "chats": {
+    "message": "Чаты"
+  },
+  "newChat": {
+    "message": "Новый чат"
+  },
+  "back": {
+    "message": "К списку чатов"
+  },
+  "search": {
+    "message": "Поиск по чатам"
+  },
+  "noChats": {
+    "message": "Чатов пока нет"
+  },
+  "withoutProject": {
+    "message": "Без проекта"
+  },
+  "project": {
+    "message": "Проект"
+  },
+  "running": {
+    "message": "Выполняется"
+  },
+  "unread": {
+    "message": "Новое"
+  },
+  "statusConnecting": {
+    "message": "Подключение к Heartbeat…"
+  },
+  "statusHostMissing": {
+    "message": "Heartbeat не зарегистрирован в этом браузере. Откройте Heartbeat → Настройки → «Браузер Chrome» → «Зарегистрировать»."
+  },
+  "statusForbidden": {
+    "message": "Регистрация Heartbeat не допускает это расширение. Зарегистрируйте браузер заново в настройках Heartbeat."
+  },
+  "statusWaiting": {
+    "message": "Heartbeat не запущен или мост с браузером выключен."
+  },
+  "statusIncompatible": {
+    "message": "Версии Heartbeat и расширения несовместимы. Обновите расширение или приложение."
+  },
+  "statusDisconnected": {
+    "message": "Связь с Heartbeat потеряна. Переподключение…"
+  },
+  "chatsOff": {
+    "message": "Чаты профиля выключены в Heartbeat."
+  },
+  "olderOmitted": {
+    "message": "Ранние сообщения здесь не показаны: $COUNT$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "attachments": {
+    "message": "Вложения: $COUNT$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "truncated": {
+    "message": "Сокращено; полный текст — в Heartbeat."
+  },
+  "reasoning": {
+    "message": "Размышления"
+  },
+  "toolPending": {
+    "message": "ожидает"
+  },
+  "toolRunning": {
+    "message": "выполняется"
+  },
+  "toolDone": {
+    "message": "готово"
+  },
+  "toolFailed": {
+    "message": "ошибка"
+  },
+  "toolCancelled": {
+    "message": "отменено"
+  },
+  "noticeStopped": {
+    "message": "Остановлено"
+  },
+  "noticeFailed": {
+    "message": "Ход завершился ошибкой; подробности — в Heartbeat."
+  },
+  "noticeCompacted": {
+    "message": "Контекст сжат"
+  },
+  "noticeRolledOver": {
+    "message": "Продолжено в новой сессии"
+  },
+  "placeholderNew": {
+    "message": "Спросите Heartbeat…"
+  },
+  "placeholderChat": {
+    "message": "Ответить…"
+  },
+  "chatClosed": {
+    "message": "Этот чат нельзя продолжить."
+  },
+  "send": {
+    "message": "Отправить"
+  },
+  "sendHint": {
+    "message": "Отправить (Ctrl+Enter)"
+  },
+  "stop": {
+    "message": "Стоп"
+  },
+  "permissionAnswer": {
+    "message": "Ответ"
+  },
+  "dismiss": {
+    "message": "Скрыть"
+  },
+  "errorBusy": {
+    "message": "В чате уже идёт ход."
+  },
+  "errorUnknownChat": {
+    "message": "Чат не найден."
+  },
+  "errorNotContinuable": {
+    "message": "Этот чат нельзя продолжить."
+  },
+  "errorUnavailable": {
+    "message": "Heartbeat недоступен."
+  },
+  "errorStale": {
+    "message": "Запрос уже неактуален."
+  },
+  "errorTimeout": {
+    "message": "Heartbeat не ответил."
+  },
+  "errorBadRequest": {
+    "message": "Heartbeat не смог принять запрос."
+  },
+  "errorTooLarge": {
+    "message": "Запрос слишком большой."
+  },
+  "errorGeneric": {
+    "message": "Не удалось выполнить действие."
+  },
+  "sendSelection": {
+    "message": "Отправить выделенное в Heartbeat"
+  },
+  "attachPage": {
+    "message": "Приложить страницу"
+  },
+  "errorCapture": {
+    "message": "Эту страницу нельзя приложить."
+  },
+  "agentConsent": {
+    "message": "Разрешить агентам Heartbeat управлять этим браузером"
+  },
+  "agentConsentHint": {
+    "message": "Агенты открывают свои вкладки в группе «Heartbeat», а ваши вкладки используют только после вашего подтверждения в Heartbeat."
+  },
+  "agentControlling": {
+    "message": "Агенты управляют вкладками: $COUNT$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "revokeAll": {
+    "message": "Забрать все"
+  }
+}

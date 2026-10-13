@@ -1,0 +1,182 @@
+{
+  "extName": {
+    "message": "Heartbeat"
+  },
+  "extDescription": {
+    "message": "Heartbeat chat in the browser side panel and browser control by Heartbeat agents."
+  },
+  "chats": {
+    "message": "Chats"
+  },
+  "newChat": {
+    "message": "New chat"
+  },
+  "back": {
+    "message": "Back to chats"
+  },
+  "search": {
+    "message": "Search chats"
+  },
+  "noChats": {
+    "message": "No chats yet"
+  },
+  "withoutProject": {
+    "message": "Without a project"
+  },
+  "project": {
+    "message": "Project"
+  },
+  "running": {
+    "message": "Running"
+  },
+  "unread": {
+    "message": "New"
+  },
+  "statusConnecting": {
+    "message": "Connecting to Heartbeat…"
+  },
+  "statusHostMissing": {
+    "message": "Heartbeat is not registered in this browser. Open Heartbeat → Settings → Chrome browser → Register."
+  },
+  "statusForbidden": {
+    "message": "The Heartbeat registration does not allow this extension. Register the browser again in Heartbeat settings."
+  },
+  "statusWaiting": {
+    "message": "Heartbeat is not running, or its browser bridge is off."
+  },
+  "statusIncompatible": {
+    "message": "Heartbeat and the extension are incompatible. Update the extension or the app."
+  },
+  "statusDisconnected": {
+    "message": "Lost connection to Heartbeat. Reconnecting…"
+  },
+  "chatsOff": {
+    "message": "Profile chats are off in Heartbeat."
+  },
+  "olderOmitted": {
+    "message": "Earlier messages are not shown here: $COUNT$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "attachments": {
+    "message": "Attachments: $COUNT$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "truncated": {
+    "message": "Shortened; the full text is in Heartbeat."
+  },
+  "reasoning": {
+    "message": "Reasoning"
+  },
+  "toolPending": {
+    "message": "waiting"
+  },
+  "toolRunning": {
+    "message": "running"
+  },
+  "toolDone": {
+    "message": "done"
+  },
+  "toolFailed": {
+    "message": "failed"
+  },
+  "toolCancelled": {
+    "message": "cancelled"
+  },
+  "noticeStopped": {
+    "message": "Stopped"
+  },
+  "noticeFailed": {
+    "message": "The turn failed; details are in Heartbeat."
+  },
+  "noticeCompacted": {
+    "message": "Context compacted"
+  },
+  "noticeRolledOver": {
+    "message": "Continued in a new session"
+  },
+  "placeholderNew": {
+    "message": "Ask Heartbeat…"
+  },
+  "placeholderChat": {
+    "message": "Reply…"
+  },
+  "chatClosed": {
+    "message": "This chat cannot be continued."
+  },
+  "send": {
+    "message": "Send"
+  },
+  "sendHint": {
+    "message": "Send (Ctrl+Enter)"
+  },
+  "stop": {
+    "message": "Stop"
+  },
+  "permissionAnswer": {
+    "message": "Answer"
+  },
+  "dismiss": {
+    "message": "Dismiss"
+  },
+  "errorBusy": {
+    "message": "A turn is already running in this chat."
+  },
+  "errorUnknownChat": {
+    "message": "The chat no longer exists."
+  },
+  "errorNotContinuable": {
+    "message": "This chat cannot be continued."
+  },
+  "errorUnavailable": {
+    "message": "Heartbeat is not available."
+  },
+  "errorStale": {
+    "message": "The request is no longer waiting."
+  },
+  "errorTimeout": {
+    "message": "Heartbeat did not answer."
+  },
+  "errorBadRequest": {
+    "message": "Heartbeat could not accept this request."
+  },
+  "errorTooLarge": {
+    "message": "The request is too large."
+  },
+  "errorGeneric": {
+    "message": "The action failed."
+  },
+  "sendSelection": {
+    "message": "Send selection to Heartbeat"
+  },
+  "attachPage": {
+    "message": "Attach this page"
+  },
+  "errorCapture": {
+    "message": "This page cannot be attached."
+  },
+  "agentConsent": {
+    "message": "Let Heartbeat agents control this browser"
+  },
+  "agentConsentHint": {
+    "message": "Agents open their tabs in the Heartbeat group and use your tabs only when you approve it in Heartbeat."
+  },
+  "agentControlling": {
+    "message": "Agents control tabs: $COUNT$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "revokeAll": {
+    "message": "Take all back"
+  }
+}

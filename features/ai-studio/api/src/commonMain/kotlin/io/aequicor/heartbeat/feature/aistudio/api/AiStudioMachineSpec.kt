@@ -294,7 +294,14 @@ private fun ReadyTransitions.conversations() {
     }
     on<AiStudioIntent.Public.FollowUp>(guard = { intent.prompt.isNotBlank() && state.isIdle(intent.sessionId) }) {
         stay { state.copy(running = state.running + intent.sessionId) }
-        effect { AiStudioEffect.Run(intent.sessionId, intent.prompt.trim(), state.settings) }
+        effect {
+            AiStudioEffect.Run(
+                intent.sessionId,
+                intent.prompt.trim(),
+                state.settings,
+                submissionId = intent.submissionId,
+            )
+        }
     }
     creationResults()
 }

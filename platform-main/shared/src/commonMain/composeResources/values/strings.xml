@@ -24,4 +24,11 @@
     <string name="diagram_copy_source">Copy source</string>
     <string name="diagram_source_copied">Source copied</string>
     <string name="diagram_copy_failed">Could not copy</string>
+    <string name="diagram_zoom_in">Zoom in</string>
+    <string name="diagram_zoom_out">Zoom out</string>
+    <string name="diagram_fit">Fit</string>
+    <string name="diagram_actual_size">100%</string>
+    <string name="diagram_insert_text">Insert into chat</string>
+    <string name="diagram_send_text">Send to chat</string>
+    <string name="diagram_unavailable_action">Chat action unavailable here</string>
 </resources>

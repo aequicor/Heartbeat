@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.core.navigation.routeEntry
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectEngineRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsRoute
+import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeRoute
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRoute
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessDetailRoute
@@ -148,6 +149,7 @@ class SettingsComponent(
         val SECTION_ROUTES = setOf(
             EngineConnectionsRoute::class,
             ComputerUseRoute::class,
+            ChromiumBridgeRoute::class,
             AgentLearningRoute::class,
             ContextOptimizationRoute::class,
             HarnessRoute::class,
@@ -168,6 +170,7 @@ internal fun SettingsSection.route(): Route = when (this) {
     SettingsSection.Models -> EngineConnectionsRoute(isEmbedded = true)
     SettingsSection.Search -> ProfileSettingsRoute(isEmbedded = true)
     SettingsSection.ComputerUse -> ComputerUseRoute(isEmbedded = true)
+    SettingsSection.ChromiumBrowser -> ChromiumBridgeRoute(isEmbedded = true)
     SettingsSection.AgentLearning -> AgentLearningRoute(isEmbedded = true)
     SettingsSection.Context -> ContextOptimizationRoute(isEmbedded = true)
     SettingsSection.Harness -> HarnessRoute(isEmbedded = true)

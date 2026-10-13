@@ -423,6 +423,20 @@ class AiStudioMachineTest {
     }
 
     @Test
+    fun `diagram follow up carries its submission identity without attachments`() {
+        AiStudioMachineSpec.assertTransition(
+            from = session,
+            intent = AiStudioIntent.Public.FollowUp("s1", " Button ", "diagram-1"),
+            to = session.copy(running = setOf("s1")),
+            effects = listOf(AiStudioEffect.Run("s1", "Button", settings, submissionId = "diagram-1")),
+        )
+        AiStudioMachineSpec.assertIgnored(
+            session.copy(running = setOf("s1")),
+            AiStudioIntent.Public.FollowUp("s1", "Button", "diagram-1"),
+        )
+    }
+
+    @Test
     fun `follow-up answers run idle sessions only`() {
         AiStudioMachineSpec.assertTransition(
             from = session,

@@ -67,6 +67,12 @@ data class HbDimensions(
     val inspectorPanelWidth: Dp = 320.dp,
     /** Minimum combined workspace width for a conversation and an adjacent browser pane. */
     val browserSplitMinWidth: Dp = 720.dp,
+    /** Browser tabs shrink to this width before the strip scrolls. */
+    val browserTabMinWidth: Dp = 160.dp,
+    /** Maximum width of a browser tab including its close action. */
+    val browserTabMaxWidth: Dp = 220.dp,
+    /** Bounded group badge; accommodates a session number before text fades. */
+    val browserGroupLabelMaxWidth: Dp = 96.dp,
     /** Narrowest readable content pane; side-by-side panes need at least two. */
     val paneMinWidth: Dp = 360.dp,
     /** Small status dot, e.g. unread content in a navigation row. */
@@ -123,7 +129,12 @@ data class HbDimensions(
     /** Width of the trailing fade that replaces an ellipsis on clipped single-line text. */
     val textOverflowFade: Dp = 24.dp,
     val toolPayloadMaxHeight: Dp = 320.dp,
+    /** Maximum natural column width before table text wraps; includes cell padding. */
     val markdownTableCellWidth: Dp = 200.dp,
+    /** Minimum readable width of short table columns, such as a number or status. */
+    val markdownTableMinCellWidth: Dp = 64.dp,
+    /** Bounded viewport for large Markdown tables; short tables retain their natural height. */
+    val markdownTableMaxHeight: Dp = 480.dp,
     /** Inline diagram preview in a conversation; the full-size viewer shows the rest. */
     val diagramPreviewMaxHeight: Dp = 480.dp,
     /** One arrow-key step of a keyboard-scrolled viewport, such as the full-size diagram viewer. */
@@ -203,6 +214,7 @@ data class HbDimensions(
         val Mobile = HbDimensions()
         val Desktop = HbDimensions(
             touchTarget = 32.dp,
+            browserTabMinWidth = 120.dp,
             attachmentThumbnailSize = 32.dp,
             isDesktop = true,
             railWidth = 52.dp,

@@ -32,4 +32,8 @@
     <string name="browser_cancel">Отмена</string>
     <string name="browser_user_group">Личные</string>
     <string name="browser_session_group">Сессия %1$d</string>
+    <string name="browser_all_tabs">Все вкладки</string>
+    <string name="browser_actions">Действия браузера</string>
+    <string name="browser_tab_groups">Группы вкладок</string>
+    <string name="browser_group_selector">Переключить группу: %1$s, вкладок: %2$d</string>
 </resources>

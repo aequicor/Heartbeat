@@ -113,6 +113,7 @@ internal data class PaneContent(
     /** Suggestions of the pane's active composer token; null hides the popup. */
     val suggestions: io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ComposerSuggestionsUi? = null,
     val caretRequest: ComposerCaretRequestUi? = null,
+    val diagram: DiagramActionsUi = DiagramActionsUi(),
 ) {
     /** The chat exists and compaction is enabled, so the pane offers it. */
     val isCompactOffered: Boolean get() = isCompactEnabled && pane.sessionId != null
@@ -189,6 +190,7 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         attachmentPreviews = attachmentPreviews,
         suggestions = composerSuggestions[draftKey(pane.id)]?.takeIf { it.items.isNotEmpty() },
         caretRequest = caretRequest(pane.id),
+        diagram = diagramActions(pane),
         isSubmitFailed = pane.id in failedPanes,
         renaming = sidebar.renaming?.takeIf { it.origin == paneOrigin(pane.id) },
         settings = effectiveSettings,
@@ -305,3 +307,17 @@ private fun AiStudioScreenState.organismObservation(id: String?) = subObservatio
 
 private fun AiStudioScreenState.selectedSubSession(id: String?, session: SessionUi?): String =
     if (session?.isOrganism == true) subSessions[id] ?: PrimarySubSession else selectedNative(id)
+
+/** Diagram interaction state of one pane, separate from normal composer submissions. */
+@Immutable
+internal data class DiagramActionsUi(
+    val isPending: Boolean = false,
+    val focusRequest: Long = 0L,
+    val draftReason: io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.DiagramDraftReasonUi? = null,
+)
+
+private fun AiStudioScreenState.diagramActions(pane: PaneUi): DiagramActionsUi = DiagramActionsUi(
+    isPending = diagramSubmissions.values.any { it.sessionId == pane.sessionId },
+    focusRequest = diagramFocusRequests[pane.id] ?: 0L,
+    draftReason = diagramDraftReasons[pane.sessionId],
+)

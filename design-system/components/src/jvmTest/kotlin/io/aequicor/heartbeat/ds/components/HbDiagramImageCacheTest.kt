@@ -1,9 +1,11 @@
 package io.aequicor.heartbeat.ds.components
 
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import kotlinx.collections.immutable.persistentListOf
 import kotlin.test.Test
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -35,6 +37,16 @@ class HbDiagramImageCacheTest {
         assertNotNull(cache.peek(request("a")))
         assertNull(cache.peek(request("b")))
         assertNotNull(cache.peek(request("c")))
+    }
+
+    @Test
+    fun `link metadata counts against the image cache budget`() {
+        val cache = HbDiagramImageCache(maxBytes = 100)
+        cache.put(request("first"), image(1))
+        val linked = image(1).copy(links = persistentListOf(HbDiagramLink(Rect(0f, 0f, 1f, 1f), "x".repeat(100))))
+        cache.put(request("linked"), linked)
+        assertNull(cache.peek(request("first")))
+        assertSame(linked, cache.peek(request("linked")))
     }
 
     @Test

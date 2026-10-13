@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserReferrer
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserReferrerPolicy
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserRequestKind
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserWorkspaceStorage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -407,10 +408,12 @@ class DesktopBrowserSessionTest {
         assertFalse(fixture.guards.last().isRestricted)
     }
 
-    private class Fixture(
+    internal class Fixture(
         scope: TestScope,
         private val clearRelease: CompletableDeferred<Unit>? = null,
         private val nativeCommand: (suspend () -> String)? = null,
+        val storage: BrowserWorkspaceStorage = MemoryBrowserWorkspaceStorage(),
+        private val failCreateAt: Int? = null,
     ) {
         val closed = mutableListOf<BrowserSurface>()
         val surfaces = mutableListOf<BrowserSurface>()
@@ -442,6 +445,7 @@ class DesktopBrowserSessionTest {
                 guard: DesktopBrowserAgentGuard,
                 openTab: ((BrowserCommand.Load) -> Unit)?,
             ): DesktopBrowserPanel {
+                check(surfaces.size != failCreateAt) { "Panel creation failed" }
                 links += requireNotNull(openTab)
                 surfaces += surface
                 guards += guard
@@ -460,7 +464,13 @@ class DesktopBrowserSessionTest {
                     }
                 }.also(panels::add)
         }
-        val session = DesktopBrowserSession(BrowserTestScope(scope.backgroundScope), dispatchers, resources, policy)
+        val session = DesktopBrowserSession(
+            BrowserTestScope(scope.backgroundScope),
+            dispatchers,
+            resources,
+            policy,
+            storage,
+        )
 
         fun attach() = SwingUtilities.invokeAndWait { panels.single().createComponent() }
 

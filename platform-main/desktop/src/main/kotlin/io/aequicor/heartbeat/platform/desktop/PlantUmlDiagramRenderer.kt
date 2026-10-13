@@ -1,11 +1,13 @@
 package io.aequicor.heartbeat.platform.desktop
 
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.components.HbDiagramFailure
 import io.aequicor.heartbeat.ds.components.HbDiagramLanguage
+import io.aequicor.heartbeat.ds.components.HbDiagramLink
 import io.aequicor.heartbeat.ds.components.HbDiagramRenderer
 import io.aequicor.heartbeat.ds.components.HbDiagramRequest
 import io.aequicor.heartbeat.ds.components.HbDiagramResult
@@ -16,6 +18,7 @@ import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlRenderer
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlRequest
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlResult
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlStyle
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
@@ -41,7 +44,13 @@ internal class PlantUmlDiagramRenderer(
 
     private suspend fun decode(image: PlantUmlResult.Image): HbDiagramResult = try {
         val bitmap = withContext(decoder) { decodeHbImageBitmap(image.png) }
-        HbDiagramResult.Image(bitmap, DpSize(Dp(image.width), Dp(image.height)))
+        HbDiagramResult.Image(
+            bitmap,
+            DpSize(Dp(image.width), Dp(image.height)),
+            image.links.map {
+                HbDiagramLink(Rect(it.left, it.top, it.right, it.bottom), it.destination, it.tooltip)
+            }.toImmutableList(),
+        )
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {

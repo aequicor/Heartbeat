@@ -27,7 +27,10 @@ private fun MarkdownPreview(isDark: Boolean) {
         HbColumn(modifier = Modifier.background(HbTheme.colors.background).padding(HbTheme.spacing.xl)) {
             HbMarkdown(
                 "## A thoughtful answer\n\n**Rich text**, *quiet emphasis* and `precise code`.\n\n" +
-                    "```kotlin\n// A calm workspace\nval title = \"Studio\"\nStudioConversation(title, 24)\n```",
+                    "```kotlin\n// A calm workspace\nval title = \"Studio\"\nStudioConversation(title, 24)\n```\n\n" +
+                    "| # | Изменение | Статус |\n| --- | --- | --- |\n" +
+                    "| 1 | Длинное описание изменения в чате, которое переносится на несколько строк | **Готово** |\n" +
+                    "| 2 | *Требует внимания* | `Warning` |",
             )
             HbToolCallView(
                 toolCall = HbToolCall(

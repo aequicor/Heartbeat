@@ -12,6 +12,7 @@ kotlin {
             implementation(projects.features.searchEngine.api)
             implementation(projects.features.aiEngine.connections.api)
             implementation(projects.features.computerUse.api)
+            implementation(projects.features.chromiumBridge.api)
             implementation(projects.features.agentLearning.api)
             implementation(projects.features.contextWindowOptimization.api)
             implementation(projects.features.harness.api)

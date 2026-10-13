@@ -12,6 +12,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -80,6 +81,8 @@ internal class BrowserEffects(private val availability: BrowserAvailability, pri
                 availability.observe().collect { enabled ->
                     session.setEnabled(enabled)
                     machine.send(BrowserIntent.Internal.AvailabilityChanged(enabled))
+                    // Restore can publish before the machine is enabled; seed its selected page after availability.
+                    if (enabled) machine.send(BrowserIntent.Internal.PageChanged(session.pages.first()))
                 }
             }
             isFailed = false

@@ -45,7 +45,9 @@ internal fun diagramExample(copy: ChatDemoCopy, id: String): HbChatMessage = HbC
 internal fun markdownExample(copy: ChatDemoCopy, id: String): HbChatMessage = HbChatMessage(
     id = id,
     author = copy.agent,
-    text = copy.reply,
+    text = copy.reply + "\n\n| # | ${copy.codeLabel} | ${copy.toolResult} |\n" +
+        "| --- | --- | --- |\n| 1 | **${copy.notice}** | `${copy.toolResult}` |\n" +
+        "| 2 | *${copy.notice}* | ${copy.toolResult} |",
     kind = HbMessageKind.Markdown,
 )
 

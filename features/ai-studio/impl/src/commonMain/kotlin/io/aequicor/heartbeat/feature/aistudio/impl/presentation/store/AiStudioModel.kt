@@ -140,37 +140,7 @@ class AiStudioModel(
             }
         }
         reflect(machine, onOutput = { output ->
-            when (output) {
-                // A new chat's harness claim travels with its submission; the turn uses and releases it. A chat
-                // that failed to start, or whose session another request owns, runs no turn, so its claim is
-                // released and the choice returns to the pane.
-                is AiStudioOutput.SubmitFailed -> {
-                    if (output.submissionId.isNotEmpty()) harnesses.release(output.submissionId)
-                    updateState {
-                        if (output.submissionId.isEmpty()) {
-                            restoreDraft(output, machine.state.value)
-                        } else {
-                            rejectSubmission(output.submissionId)
-                        }
-                    }
-                }
-
-                is AiStudioOutput.SubmitPrepared -> {
-                    updateState { prepareSubmission(output.submissionId, output.sessionId) }
-                }
-
-                is AiStudioOutput.SubmitAccepted -> {
-                    updateState { acceptSubmission(output.submissionId, output.sessionId) }
-                }
-
-                is AiStudioOutput.SubmitRejected -> {
-                    harnesses.release(output.submissionId)
-                    updateState { rejectSubmission(output.submissionId, output.sessionId) }
-                }
-
-                // Delivery results of engine questions are handled by the question bridge.
-                is AiStudioOutput.PermissionAnswerFailed, is AiStudioOutput.RunEnded -> Unit
-            }
+            handleStudioSubmissionOutput(this, machine.state.value, harnesses, output)
         }) { reflectMachine(it) }
         whileSubscribed(name = "workspace") {
             val pipeline = this
@@ -409,6 +379,7 @@ class AiStudioModel(
         when (intent) {
             is AiStudioScreenIntent.Navigation -> navigate(pipeline, intent)
             is AiStudioScreenIntent.Composer -> compose(pipeline, intent)
+            is AiStudioScreenIntent.DiagramAction -> handleStudioDiagramAction(pipeline, machine, intent)
             is AiStudioScreenIntent.SessionAction -> act(pipeline, intent)
             is AiStudioScreenIntent.Sidebar -> updateState { copy(sidebar = sidebar.reduce(intent)) }
             is AiStudioScreenIntent.Organism -> organisms.handle(pipeline, intent)

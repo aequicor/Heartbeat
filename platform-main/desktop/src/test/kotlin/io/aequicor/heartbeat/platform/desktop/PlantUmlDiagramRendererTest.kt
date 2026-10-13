@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.platform.desktop
 
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.DpSize
@@ -10,6 +11,7 @@ import io.aequicor.heartbeat.ds.components.HbDiagramRequest
 import io.aequicor.heartbeat.ds.components.HbDiagramResult
 import io.aequicor.heartbeat.ds.components.HbDiagramStyle
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlFailure
+import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlLink
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlRenderer
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlRequest
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlResult
@@ -56,8 +58,11 @@ class PlantUmlDiagramRendererTest {
         val png = ByteArrayOutputStream().also {
             ImageIO.write(BufferedImage(80, 40, BufferedImage.TYPE_INT_ARGB), "png", it)
         }.toByteArray()
-        val result = adapter(PlantUmlResult.Image(png, 40f, 20f, 2f), requests).render(request)
+        val link = PlantUmlLink(2f, 3f, 12f, 10f, "https://example.com", "Docs")
+        val result = adapter(PlantUmlResult.Image(png, 40f, 20f, 2f, listOf(link)), requests).render(request)
         val image = assertIs<HbDiagramResult.Image>(result)
+        assertEquals(Rect(2f, 3f, 12f, 10f), image.links.single().bounds)
+        assertEquals(link.destination, image.links.single().destination)
         assertEquals(80, image.bitmap.width)
         assertEquals(DpSize(40.dp, 20.dp), image.size)
         val sent = requests.single()

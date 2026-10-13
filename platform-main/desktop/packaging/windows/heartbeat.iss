@@ -79,6 +79,15 @@ Type: filesandordirs; Name: "{localappdata}\Aequicor\Heartbeat"
 Type: dirifempty; Name: "{userappdata}\Aequicor"
 Type: dirifempty; Name: "{localappdata}\Aequicor"
 
+[Registry]
+; Native-messaging host registrations of the Chromium bridge (features:chromium-bridge, BrowserLocations): the app
+; writes them on request from its settings; uninstalling removes them, their manifests go with the app data above.
+Root: HKCU; Subkey: "Software\Google\Chrome\NativeMessagingHosts\io.aequicor.heartbeat"; Flags: uninsdeletekey dontcreatekey
+Root: HKCU; Subkey: "Software\Microsoft\Edge\NativeMessagingHosts\io.aequicor.heartbeat"; Flags: uninsdeletekey dontcreatekey
+Root: HKCU; Subkey: "Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\io.aequicor.heartbeat"; Flags: uninsdeletekey dontcreatekey
+Root: HKCU; Subkey: "Software\Chromium\NativeMessagingHosts\io.aequicor.heartbeat"; Flags: uninsdeletekey dontcreatekey
+Root: HKCU; Subkey: "Software\Vivaldi\NativeMessagingHosts\io.aequicor.heartbeat"; Flags: uninsdeletekey dontcreatekey
+
 [Code]
 const
   RetiredMsiKey = 'Software\Aequicor\Heartbeat';

@@ -58,6 +58,19 @@ class BrowserEffectsTest {
     }
 
     @Test
+    fun `restored selected page is delivered after the machine becomes enabled`() = runTest {
+        val restored = BrowserPage("https://example.com/restored", title = "Restored")
+        val session = TestBrowserSession(onEnable = { restored })
+        val feedback = RecordingFeedback()
+        val effects = BrowserEffects(BrowserAvailability { MutableStateFlow(true) }, session)
+        backgroundScope.launch { effects.handle(BrowserEffect.Observe, feedback) }
+        runCurrent()
+        val available = feedback.sent.indexOf(BrowserIntent.Internal.AvailabilityChanged(true))
+        assertTrue(available >= 0)
+        assertTrue(feedback.sent.drop(available + 1).contains(BrowserIntent.Internal.PageChanged(restored)))
+    }
+
+    @Test
     fun `navigation effects use domain commands without accessing presentation`() = runTest {
         val session = TestBrowserSession()
         val effects = BrowserEffects(BrowserAvailability { MutableStateFlow(true) }, session)
@@ -186,6 +199,7 @@ private class TestBrowserSession(
     private val perform: suspend () -> BrowserResult = { error("unused") },
     private val cancel: suspend () -> Unit = {},
     private val select: suspend () -> Unit = {},
+    private val onEnable: () -> BrowserPage = { BrowserPage() },
 ) : BrowserSession {
     override val pages = MutableStateFlow(BrowserPage())
     val availability = mutableListOf<Boolean>()
@@ -199,6 +213,7 @@ private class TestBrowserSession(
 
     override suspend fun setEnabled(isEnabled: Boolean) {
         availability += isEnabled
+        if (isEnabled) pages.value = onEnable()
     }
 
     override suspend fun execute(command: BrowserCommand) {

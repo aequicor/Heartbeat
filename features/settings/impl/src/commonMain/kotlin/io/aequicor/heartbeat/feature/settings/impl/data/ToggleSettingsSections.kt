@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningEnabled
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
+import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeEnabled
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
@@ -32,7 +33,9 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
     override val available: Flow<ImmutableList<SettingsSection>> = combine(
         toggles.observe(EngineConnectionsEnabled),
         toggles.observe(SearchEngineTools),
-        toggles.observe(ComputerUseEnabled),
+        combine(toggles.observe(ComputerUseEnabled), toggles.observe(ChromiumBridgeEnabled)) { computer, chromium ->
+            computer to chromium
+        },
         // Profile features beyond the five-flow overload are combined first.
         combine(
             toggles.observe(AgentLearningEnabled),
@@ -41,12 +44,13 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             toggles.observe(ServiceUiEnabled),
         ) { learning, harness, context, interfaces -> ProfileSections(learning, harness, context, interfaces) },
         sessions.active,
-    ) { connections, search, computerUse, profile, session ->
+    ) { connections, search, (computerUse, chromium), profile, session ->
         availableSections(
             isModelsEnabled = connections,
             isSearchEnabled = search,
             hasProfile = session != null,
             isComputerUseEnabled = computerUse,
+            isChromiumBridgeEnabled = chromium,
             isLearningEnabled = profile.isLearning,
             isHarnessEnabled = profile.isHarness,
             isContextEnabled = profile.isContext,

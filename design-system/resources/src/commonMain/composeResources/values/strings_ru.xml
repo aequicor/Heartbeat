@@ -199,7 +199,7 @@
     <string name="ru_worktree_failed">Ошибка операции worktree</string>
     <string name="ru_worktree_failure">В исходной рабочей папке есть незакоммиченные изменения. Сохраните их или создайте коммит, затем проверьте папку перед слиянием.</string>
     <string name="ru_worktree_recheck">Проверить рабочую папку</string>
-    <string name="ru_diagram_sample">### Диаграммы\n\nБлок PlantUML превращается в картинку; выберите её, чтобы открыть в полном размере.\n\n```plantuml\n@startuml\nYou -&gt; Studio : sketch the flow\nStudio --&gt; You : diagram\n@enduml\n```\n\nОшибочный блок объясняет проблему над исходником:\n\n```plantuml\n@startuml\nYou -&gt; : error\n@enduml\n```\n\nБольшая диаграмма вписывается в колонку, а в полном размере прокручивается в обе стороны:\n\n```plantuml\n@startuml\nnote over You : wide\n@enduml\n```\n\nЗанятый рендерер предлагает повторить:\n\n```plantuml\n@startuml\nnote over You : busy\n@enduml\n```</string>
+    <string name="ru_diagram_sample">### Диаграммы\n\nБлок PlantUML превращается в картинку; выберите её, чтобы открыть в полном размере.\n\n```plantuml\n@startuml\nYou -&gt; Studio : sketch the flow\nStudio --&gt; You : diagram\n@enduml\n```\n\nОшибочный блок объясняет проблему над исходником:\n\n```plantuml\n@startuml\nYou -&gt; : error\n@enduml\n```\n\nБольшая диаграмма вписывается в колонку, а в просмотре на всё окно перемещается мышью и масштабируется:\n\n```plantuml\n@startuml\nnote over You : wide\n@enduml\n```\n\nЗанятый рендерер предлагает повторить:\n\n```plantuml\n@startuml\nnote over You : busy\n@enduml\n```\n\nКнопки поддерживают ссылки и действия чата (действия чата доступны в студии):\n\n```plantuml\n@startuml\nrectangle "Docs" [[https://example.com]]\nrectangle "Insert" [[heartbeat://diagram/insert?text=Hello%20chat]]\nrectangle "Send" [[heartbeat://diagram/send?text=Hello%20chat]]\n@enduml\n```</string>
     <string name="ru_diagram_rendering">Рисуем диаграмму…</string>
     <string name="ru_diagram_title">Диаграмма</string>
     <string name="ru_diagram_open_full_size">Открыть в полном размере</string>
@@ -219,4 +219,11 @@
     <string name="ru_date_due">Срок</string>
     <string name="ru_date_format">ГГГГ-ММ-ДД</string>
     <string name="ru_date_invalid">Введите дату в формате ГГГГ-ММ-ДД</string>
+    <string name="ru_diagram_zoom_in">Увеличить</string>
+    <string name="ru_diagram_zoom_out">Уменьшить</string>
+    <string name="ru_diagram_fit">Вписать</string>
+    <string name="ru_diagram_actual_size">100%</string>
+    <string name="ru_diagram_insert_text">Вставить в чат</string>
+    <string name="ru_diagram_send_text">Отправить в чат</string>
+    <string name="ru_diagram_unavailable_action">Действие чата здесь недоступно</string>
 </resources>

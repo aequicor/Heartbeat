@@ -45,6 +45,7 @@ internal fun NavigationExample(modifier: Modifier = Modifier) {
             HbChip(hbString(HbString.AppName), icon = HbIcons.Folder, onClick = { isExpanded = !isExpanded })
             HbChip(hbString(HbString.LocalDemo), icon = HbIcons.Laptop)
         }
+        GroupMenuExample()
         HbColumn(Modifier.widthIn(max = HbTheme.dimensions.sidebarWidth).fillMaxWidth(), gap = HbTheme.spacing.xxs) {
             HbNavigationHeader(
                 title = hbString(HbString.Projects),
@@ -86,4 +87,25 @@ internal fun NavigationExample(modifier: Modifier = Modifier) {
             }
         }
     }
+}
+
+@Composable
+private fun GroupMenuExample() {
+    var isGroupMenuOpen by remember { mutableStateOf(false) }
+    var group by remember { mutableStateOf("projects") }
+    val groupLabel = hbString(if (group == "projects") HbString.Projects else HbString.Workspace)
+    HbMenuButton(
+        icon = if (isGroupMenuOpen) HbIcons.ChevronUp else HbIcons.ChevronDown,
+        contentDescription = hbString(HbString.NavigationMenus),
+        items = persistentListOf(
+            HbMenuItem("projects", hbString(HbString.Projects), isChecked = group == "projects", badge = "12"),
+            HbMenuItem("workspace", hbString(HbString.Workspace), isChecked = group == "workspace", badge = "3"),
+        ),
+        isExpanded = isGroupMenuOpen,
+        onExpandedChange = { isGroupMenuOpen = it },
+        onItem = { group = it },
+        modifier = Modifier.widthIn(max = HbTheme.dimensions.sidebarWidth),
+        label = groupLabel,
+        badge = if (group == "projects") "12" else "3",
+    )
 }

@@ -25,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
@@ -54,6 +55,7 @@ private val log = Log.tag("DS/Navigation")
  * its nested actions, and after touch input on that row, which has no hover. Mobile rows start in touch mode.
  * Mouse input restores hover behavior even on a device that also has a touchscreen. Nested actions keep their own click
  * targets.
+ * [shape] applies to the selection fill and keyboard focus ring.
  * [role] is [Role.Button] for list entries; pass [Role.Tab] only inside a tab list.
  * All visual styles share this foundation row; it has no native counterpart in the platform kits.
  */
@@ -75,6 +77,7 @@ public fun HbNavigationItem(
     minHeight: Dp = HbTheme.dimensions.touchTarget,
     textStyle: TextStyle = HbTheme.typography.label,
     onSecondaryClick: (() -> Unit)? = null,
+    shape: Shape = RoundedCornerShape(HbTheme.dimensions.controlCornerRadius),
     trailingContent: @Composable RowScope.(isActive: Boolean) -> Unit = {},
 ) {
     val interactions = remember { MutableInteractionSource() }
@@ -86,7 +89,6 @@ public fun HbNavigationItem(
     var isTouch by remember { mutableStateOf(defaultNavigationUsesTouch()) }
     val onTouchChanged: (Boolean) -> Unit = remember { { isTouch = it } }
     val colors = HbTheme.colors
-    val shape = RoundedCornerShape(HbTheme.dimensions.controlCornerRadius)
     val background = navigationBackground(isSelected, isHovered, isPressed, selectedBackground)
     val foreground = when {
         isSelected -> selectedForeground
@@ -98,6 +100,7 @@ public fun HbNavigationItem(
     HbRow(
         modifier = modifier
             .fillMaxWidth()
+            .captionClientArea()
             .heightIn(min = navigationMinHeight(minHeight))
             .semantics { if (isSelected) selected = true }
             .navigationPointerInput(onTouchChanged)

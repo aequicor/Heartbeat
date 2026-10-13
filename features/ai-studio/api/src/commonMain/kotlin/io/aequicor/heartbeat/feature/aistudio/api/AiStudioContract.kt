@@ -166,9 +166,10 @@ public sealed interface AiStudioIntent : MachineIntent {
 
         /**
          * Sends [prompt] as the next user message of [sessionId] without a composer (e.g. an answer to a question
-         * whose native request no longer exists); accepted only while the session is idle.
+         * whose native request no longer exists); accepted only while the session is idle. A non-empty
+         * [submissionId] correlates native acceptance/rejection through the existing submission outputs.
          */
-        public data class FollowUp(val sessionId: String, val prompt: String) : Public
+        public data class FollowUp(val sessionId: String, val prompt: String, val submissionId: String = "") : Public
 
         /** Changes the metadata of [sessionId]. */
         public data class Edit(val sessionId: String, val edit: SessionEdit) : Public

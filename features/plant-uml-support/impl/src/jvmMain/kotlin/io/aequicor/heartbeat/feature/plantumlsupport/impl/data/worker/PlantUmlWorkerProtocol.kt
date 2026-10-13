@@ -2,7 +2,13 @@ package io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker
 
 import io.aequicor.heartbeat.core.logging.LogLevel
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlFailure
+import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlLink
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlResult
+import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.MAX_DIAGRAM_LINKS
+import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.MAX_LINK_METADATA_BYTES
+import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.MAX_LINK_TEXT_BYTES
+import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.isValid
+import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.metadataBytes
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.domain.PlantUmlDiagramType
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.domain.PlantUmlLimits
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.domain.PlantUmlSource
@@ -68,6 +74,18 @@ internal fun DataOutputStream.writeReply(reply: PlantUmlWorkerReply) {
             writeFloat(result.width)
             writeFloat(result.height)
             writeFloat(result.scale)
+            require(result.links.size <= MAX_DIAGRAM_LINKS)
+            require(result.links.sumOf { it.metadataBytes() } <= MAX_LINK_METADATA_BYTES)
+            writeInt(result.links.size)
+            result.links.forEach { link ->
+                require(link.isValid(result.width, result.height))
+                writeFloat(link.left)
+                writeFloat(link.top)
+                writeFloat(link.right)
+                writeFloat(link.bottom)
+                writeText(link.destination)
+                writeText(link.tooltip)
+            }
         }
 
         is PlantUmlResult.SyntaxError -> {
@@ -96,10 +114,7 @@ internal fun DataOutputStream.writeReply(reply: PlantUmlWorkerReply) {
 /** Reads a reply whose image may not exceed [maxPngBytes]. */
 internal fun DataInputStream.readReply(maxPngBytes: Int): PlantUmlWorkerReply {
     val result = when (val kind = readUnsignedByte()) {
-        RESULT_IMAGE -> {
-            val png = ByteArray(readCount(maxPngBytes)).also(::readFully)
-            PlantUmlResult.Image(png, width = readFloat(), height = readFloat(), scale = readFloat())
-        }
+        RESULT_IMAGE -> readImage(maxPngBytes)
 
         RESULT_SYNTAX_ERROR -> PlantUmlResult.SyntaxError(
             line = readInt().takeIf { it != NO_LINE },
@@ -150,3 +165,30 @@ private const val RESULT_SYNTAX_ERROR = 2
 private const val RESULT_FAILED = 3
 private const val RESULT_UNSUPPORTED = 4
 private const val NO_LINE = -1
+
+private fun DataInputStream.readImage(maxPngBytes: Int): PlantUmlResult.Image {
+    val png = ByteArray(readCount(maxPngBytes)).also(::readFully)
+    val width = readFloat()
+    val height = readFloat()
+    val scale = readFloat()
+    if (listOf(width, height, scale).any { !it.isFinite() || it <= 0f }) {
+        throw IOException("Invalid diagram dimensions")
+    }
+    var bytes = 0
+    val links = List(readCount(MAX_DIAGRAM_LINKS)) {
+        val link = PlantUmlLink(
+            readFloat(),
+            readFloat(),
+            readFloat(),
+            readFloat(),
+            readText(MAX_LINK_TEXT_BYTES),
+            readText(MAX_LINK_TEXT_BYTES),
+        )
+        bytes += link.metadataBytes()
+        if (!link.isValid(width, height) || bytes > MAX_LINK_METADATA_BYTES) {
+            throw IOException("Invalid diagram link metadata")
+        }
+        link
+    }
+    return PlantUmlResult.Image(png, width, height, scale, links)
+}

@@ -39,14 +39,18 @@ import io.aequicor.heartbeat.platform.shared.resources.Res
 import io.aequicor.heartbeat.platform.shared.resources.computer_use_stop
 import io.aequicor.heartbeat.platform.shared.resources.computer_use_stop_description
 import io.aequicor.heartbeat.platform.shared.resources.computer_use_working
+import io.aequicor.heartbeat.platform.shared.resources.diagram_actual_size
 import io.aequicor.heartbeat.platform.shared.resources.diagram_busy
 import io.aequicor.heartbeat.platform.shared.resources.diagram_close
 import io.aequicor.heartbeat.platform.shared.resources.diagram_copy_failed
 import io.aequicor.heartbeat.platform.shared.resources.diagram_copy_source
 import io.aequicor.heartbeat.platform.shared.resources.diagram_failed
+import io.aequicor.heartbeat.platform.shared.resources.diagram_fit
+import io.aequicor.heartbeat.platform.shared.resources.diagram_insert_text
 import io.aequicor.heartbeat.platform.shared.resources.diagram_open_full_size
 import io.aequicor.heartbeat.platform.shared.resources.diagram_rendering
 import io.aequicor.heartbeat.platform.shared.resources.diagram_retry
+import io.aequicor.heartbeat.platform.shared.resources.diagram_send_text
 import io.aequicor.heartbeat.platform.shared.resources.diagram_show_diagram
 import io.aequicor.heartbeat.platform.shared.resources.diagram_show_source
 import io.aequicor.heartbeat.platform.shared.resources.diagram_source_copied
@@ -55,6 +59,9 @@ import io.aequicor.heartbeat.platform.shared.resources.diagram_syntax_error_at_l
 import io.aequicor.heartbeat.platform.shared.resources.diagram_timeout
 import io.aequicor.heartbeat.platform.shared.resources.diagram_title
 import io.aequicor.heartbeat.platform.shared.resources.diagram_too_large
+import io.aequicor.heartbeat.platform.shared.resources.diagram_unavailable_action
+import io.aequicor.heartbeat.platform.shared.resources.diagram_zoom_in
+import io.aequicor.heartbeat.platform.shared.resources.diagram_zoom_out
 import org.jetbrains.compose.resources.stringResource
 
 /**
@@ -127,6 +134,13 @@ private fun AppContent(root: HeartbeatRoot, modifier: Modifier = Modifier) {
 
 @Composable
 private fun diagramLabels(): HbDiagramLabels = HbDiagramLabels(
+    zoomIn = stringResource(Res.string.diagram_zoom_in),
+    zoomOut = stringResource(Res.string.diagram_zoom_out),
+    fit = stringResource(Res.string.diagram_fit),
+    actualSize = stringResource(Res.string.diagram_actual_size),
+    insertText = stringResource(Res.string.diagram_insert_text),
+    sendText = stringResource(Res.string.diagram_send_text),
+    unavailableAction = stringResource(Res.string.diagram_unavailable_action),
     rendering = stringResource(Res.string.diagram_rendering),
     diagram = stringResource(Res.string.diagram_title),
     openFullSize = stringResource(Res.string.diagram_open_full_size),

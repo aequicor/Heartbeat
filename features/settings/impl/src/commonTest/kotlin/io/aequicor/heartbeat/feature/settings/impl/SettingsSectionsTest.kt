@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.settings.impl
 
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningRoute
+import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeRoute
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRoute
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessRoute
@@ -32,6 +33,7 @@ class SettingsSectionsTest {
                 isSearchEnabled = true,
                 hasProfile = true,
                 isComputerUseEnabled = true,
+                isChromiumBridgeEnabled = true,
                 isLearningEnabled = true,
                 isHarnessEnabled = true,
                 isContextEnabled = true,
@@ -57,6 +59,18 @@ class SettingsSectionsTest {
             }
         }
         assertEquals(ComputerUseRoute(isEmbedded = true), SettingsSection.ComputerUse.route())
+    }
+
+    @Test
+    fun `the chromium browser bridge is offered only with its toggle and an active profile and opens embedded`() {
+        for (enabled in listOf(false, true)) {
+            for (profile in listOf(false, true)) {
+                val sections = availableSections(false, false, profile, isChromiumBridgeEnabled = enabled)
+                assertEquals(enabled && profile, SettingsSection.ChromiumBrowser in sections)
+            }
+        }
+        assertEquals(ChromiumBridgeRoute(isEmbedded = true), SettingsSection.ChromiumBrowser.route())
+        assertEquals("chromium_browser", SettingsSection.ChromiumBrowser.deepLinkName)
     }
 
     @Test

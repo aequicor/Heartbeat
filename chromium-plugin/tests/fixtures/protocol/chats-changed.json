@@ -1,0 +1,30 @@
+{
+  "kind": "evt",
+  "event": "chats.changed",
+  "params": {
+    "watch": "w:1",
+    "projects": [{ "id": "p1", "name": "Heartbeat" }],
+    "chats": [
+      {
+        "id": "c1",
+        "title": "Release notes",
+        "projectId": "p1",
+        "updatedAt": 1700000000000,
+        "running": true,
+        "pinned": false,
+        "unread": false,
+        "continuable": true
+      }
+    ],
+    "permissions": [
+      {
+        "chatId": "c1",
+        "requestId": "r1",
+        "title": "Run git push?",
+        "options": [{ "id": "allow", "title": "Allow", "skip": false }, { "id": "deny", "title": "Deny", "skip": true }],
+        "input": { "kind": "text", "placeholder": "Why?", "multiline": false }
+      }
+    ],
+    "omitted": 0
+  }
+}

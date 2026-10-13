@@ -7,9 +7,12 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.unit.DpSize
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 
 /**
  * Colors and text size a diagram is drawn with, taken from the current theme so a diagram reads as part of the
@@ -49,7 +52,11 @@ public enum class HbDiagramFailure {
 public sealed interface HbDiagramResult {
     /** A drawn diagram: [bitmap] in physical pixels, shown at its logical [size]. Equal only for the same bitmap. */
     @Immutable
-    public data class Image(val bitmap: ImageBitmap, val size: DpSize) : HbDiagramResult
+    public data class Image(
+        val bitmap: ImageBitmap,
+        val size: DpSize,
+        val links: ImmutableList<HbDiagramLink> = persistentListOf(),
+    ) : HbDiagramResult
 
     /** The source is not valid; [line] is 1-based in the fence source, null when the renderer cannot tell. */
     @Immutable
@@ -62,6 +69,10 @@ public sealed interface HbDiagramResult {
     /** This renderer does not draw the source here; the row shows it as code. */
     public data object Unsupported : HbDiagramResult
 }
+
+/** A link rectangle in logical image units (dp before zoom); the host owns its destination. */
+@Immutable
+public data class HbDiagramLink(val bounds: Rect, val destination: String, val tooltip: String = "")
 
 /**
  * Draws diagram fences of Markdown. The design system has no dispatchers: implementations move blocking work
@@ -96,6 +107,14 @@ public data class HbDiagramLabels(
     val copySource: String = "Copy source",
     val sourceCopied: String = "Source copied",
     val copyFailed: String = "Could not copy",
+    val zoomIn: String = "Zoom in",
+    val zoomOut: String = "Zoom out",
+    val fit: String = "Fit",
+    val actualSize: String = "100%",
+    val insertText: String = "Insert into chat",
+    val sendText: String = "Send to chat",
+    val unavailableAction: String = "Chat action unavailable here",
+
 )
 
 /**
@@ -126,9 +145,10 @@ internal data class HbDiagrams(
     val renderer: HbDiagramRenderer,
     val labels: HbDiagramLabels,
     val images: HbDiagramImageCache,
+    val onAction: ((HbDiagramAction) -> Unit)? = null,
 )
 
-private val LocalHbDiagrams = staticCompositionLocalOf<HbDiagrams?> { null }
+internal val LocalHbDiagrams = staticCompositionLocalOf<HbDiagrams?> { null }
 
 /** The diagram renderer of the enclosing [HbDiagramsProvider], or null when diagrams stay code. */
 internal val currentHbDiagrams: HbDiagrams?
@@ -160,9 +180,12 @@ internal class HbDiagramImageCache(
 
     private fun isOverBudget(): Boolean = entries.size > maxEntries || bytes > maxBytes
 
-    private fun HbDiagramResult.Image.byteSize(): Long = bitmap.width.toLong() * bitmap.height * BYTES_PER_PIXEL
+    private fun HbDiagramResult.Image.byteSize(): Long = bitmap.width.toLong() * bitmap.height * BYTES_PER_PIXEL +
+        links.sumOf { (it.destination.length + it.tooltip.length) * Char.SIZE_BYTES + LINK_COORDINATE_BYTES }
 }
 
 private const val MAX_CACHED_DIAGRAMS = 24
 private const val MAX_CACHED_DIAGRAM_BYTES = 64L * 1024 * 1024
 private const val BYTES_PER_PIXEL = 4
+
+private const val LINK_COORDINATE_BYTES = 4L * Float.SIZE_BYTES

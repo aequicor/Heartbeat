@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -19,6 +20,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
 import io.aequicor.heartbeat.ds.components.HbBanner
 import io.aequicor.heartbeat.ds.components.HbEmptyState
+import io.aequicor.heartbeat.ds.components.HbIcon
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbLoadingState
@@ -73,6 +75,7 @@ internal fun BrowserScreenContent(
     HbColumn(
         modifier.fillMaxSize().safeDrawingPadding()
             .background(HbTheme.surfaces.backdrop).testTag("browser"),
+        gap = HbTheme.spacing.none,
     ) {
         BrowserTabs(state, onIntent)
         BrowserToolbar(state, onIntent)
@@ -143,6 +146,17 @@ private fun BrowserAddressField(
         placeholder = stringResource(Res.string.browser_address),
         enabled = isEnabled,
         selectAllOnFocus = true,
+        shape = CircleShape,
+        leadingContent = { HbIcon(HbIcons.Globe, contentDescription = null) },
+        trailingContent = {
+            HbIconButton(
+                HbIcons.ArrowRight,
+                stringResource(Res.string.browser_open),
+                { onIntent(BrowserScreenIntent.Open) },
+                Modifier.testTag("browser-open"),
+                enabled = isEnabled,
+            )
+        },
     )
 }
 
@@ -153,7 +167,10 @@ private fun BrowserToolbar(
     modifier: Modifier = Modifier,
 ) {
     val isEnabled = state.phase == BrowserPhase.Ready
-    HbRow(modifier.fillMaxWidth().padding(HbTheme.spacing.s), gap = HbTheme.spacing.xs) {
+    HbRow(
+        modifier.fillMaxWidth().background(HbTheme.surfaces.backdrop).padding(HbTheme.spacing.s),
+        gap = HbTheme.spacing.xs,
+    ) {
         HbIconButton(
             HbIcons.ArrowLeft,
             stringResource(Res.string.browser_back),
@@ -168,14 +185,6 @@ private fun BrowserToolbar(
             Modifier.testTag("browser-forward"),
             enabled = isEnabled && state.isForwardAvailable,
         )
-        BrowserAddressField(state.address, isEnabled, onIntent, Modifier.weight(1f))
-        HbIconButton(
-            HbIcons.ArrowRight,
-            stringResource(Res.string.browser_open),
-            { onIntent(BrowserScreenIntent.Open) },
-            Modifier.testTag("browser-open"),
-            enabled = isEnabled,
-        )
         HbIconButton(
             if (state.isLoading) HbIcons.Stop else HbIcons.Refresh,
             stringResource(
@@ -189,5 +198,6 @@ private fun BrowserToolbar(
             Modifier.testTag("browser-reload-stop"),
             enabled = isEnabled && state.url.isNotEmpty(),
         )
+        BrowserAddressField(state.address, isEnabled, onIntent, Modifier.weight(1f))
     }
 }
