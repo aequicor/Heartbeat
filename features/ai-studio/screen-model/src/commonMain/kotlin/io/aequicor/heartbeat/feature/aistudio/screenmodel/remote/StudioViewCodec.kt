@@ -92,7 +92,7 @@ class StudioViewMirror(private val json: Json = StudioViewJson) {
 
 /** A delta arrived for another revision than the mirror holds; the view must start over with a snapshot. */
 class StudioViewGapException(val held: Long?, val base: Long) :
-    IllegalStateException("Studio view delta for revision $base, mirror at $held")
+    IllegalStateException("Studio view delta for revision $base, mirror at ${held ?: "none"}")
 
 private fun AiStudioScreenState.shell(): AiStudioScreenState =
     copy(transcripts = persistentMapOf(), subTranscripts = persistentMapOf())

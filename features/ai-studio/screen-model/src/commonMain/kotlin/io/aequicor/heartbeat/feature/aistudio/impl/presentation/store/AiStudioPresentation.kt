@@ -23,6 +23,11 @@ fun AiStudioScreenState.withDraft(paneId: Int, text: String): AiStudioScreenStat
     failedPanes = (failedPanes - paneId).toImmutableSet(),
 )
 
+/** The caret follows the end of a programmatic draft replacement until the editor reports a position. */
+fun AiStudioScreenState.withDraftCaret(paneId: Int, caret: Int): AiStudioScreenState = copy(
+    draftCarets = (draftCarets + (draftKey(paneId) to caret)).toImmutableMap(),
+)
+
 /** Local follow-up of an accepted navigation: the drawer closes, closed panes forget their drafts. */
 fun AiStudioScreenState.afterNavigation(
     intent: AiStudioScreenIntent.Navigation,

@@ -27,10 +27,15 @@ internal sealed interface PanelInbound {
     @SerialName("agent")
     data class Agent(val isAllowed: Boolean = false, val controlled: Int = 0) : PanelInbound
 
+    /** A message for the watch the panel opened under [key]. */
+    sealed interface ForWatch : PanelInbound {
+        val key: String?
+    }
+
     /** An app event of a watch the panel opened under [key]. */
     @Serializable
     @SerialName("event")
-    data class Event(val key: String? = null, val event: String, val params: JsonObject) : PanelInbound
+    data class Event(override val key: String? = null, val event: String, val params: JsonObject) : ForWatch
 
     /** The answer to a [PanelOutbound.Call] with the same [id]. */
     @Serializable
@@ -40,7 +45,7 @@ internal sealed interface PanelInbound {
     /** The watch under [key] could not be opened. */
     @Serializable
     @SerialName("watchFailed")
-    data class WatchFailed(val key: String, val error: PanelError? = null) : PanelInbound
+    data class WatchFailed(override val key: String, val error: PanelError? = null) : ForWatch
 }
 
 /** Bridge features the app offers (`app.features`). */
@@ -48,6 +53,7 @@ internal sealed interface PanelInbound {
 internal data class PanelFeatures(
     @SerialName("chat") val isChat: Boolean = false,
     @SerialName("agentControl") val isAgentControl: Boolean = false,
+    @SerialName("studio") val isStudio: Boolean = false,
 )
 
 /** A failure with one of `BridgeErrorCode`; the message is diagnostic only. */

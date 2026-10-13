@@ -63,11 +63,6 @@ internal fun ComposerTrigger.tokenKey(): String {
     return "$kind:${range.first}:$query"
 }
 
-/** The caret follows the end of a programmatic draft replacement until the editor reports a position. */
-internal fun AiStudioScreenState.withDraftCaret(paneId: Int, caret: Int): AiStudioScreenState = copy(
-    draftCarets = (draftCarets + (draftKey(paneId) to caret)).toImmutableMap(),
-)
-
 /** Removes the pane's suggestions together with their pending query. */
 internal fun AiStudioScreenState.withoutSuggestions(paneId: Int): AiStudioScreenState = copy(
     composerSuggestions = (composerSuggestions - draftKey(paneId)).toImmutableMap(),

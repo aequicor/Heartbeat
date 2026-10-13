@@ -27,6 +27,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(projects.features.chromiumBridge.protocol)
+            implementation(projects.features.aiStudio.screenModel)
             implementation(projects.designSystem.components)
             implementation(projects.designSystem.theme)
             implementation(projects.designSystem.layouts)

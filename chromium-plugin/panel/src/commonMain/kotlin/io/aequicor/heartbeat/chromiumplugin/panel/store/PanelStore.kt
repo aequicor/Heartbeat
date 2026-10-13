@@ -1,6 +1,5 @@
 package io.aequicor.heartbeat.chromiumplugin.panel.store
 
-import io.aequicor.heartbeat.chromiumplugin.panel.link.PanelInbound
 import io.aequicor.heartbeat.chromiumplugin.panel.link.PanelLink
 import io.aequicor.heartbeat.chromiumplugin.panel.link.PanelOutbound
 import io.aequicor.heartbeat.core.logging.Log
@@ -16,25 +15,28 @@ private val log = Log.tag("Panel")
 internal fun panelStore(factory: HeartbeatStoreFactory, link: PanelLink): Store<PanelState, PanelIntent, PanelAction> =
     factory.create("ChromiumPanel", PanelState(), onError = { this }) {
         init {
-            launch { link.messages.collect { message -> updateState { reflect(message) } } }
+            launch {
+                link.status.collect { status ->
+                    updateState { copy(status = LinkStatus.fromWire(status.status), features = status.features) }
+                }
+            }
+            launch {
+                link.agent.collect { agent ->
+                    updateState { copy(agent = AgentControl(agent.isAllowed, agent.controlled)) }
+                }
+            }
         }
         reduce { intent ->
             when (intent) {
                 is PanelIntent.SetAgentControl -> {
                     log.i { "agent control allowed=${intent.isAllowed}" }
-                    link.send(PanelOutbound.Consent(intent.isAllowed))
+                    link.post(PanelOutbound.Consent(intent.isAllowed))
                 }
 
                 PanelIntent.RevokeTabs -> {
                     log.i { "revoke agent tabs" }
-                    link.send(PanelOutbound.RevokeTabs)
+                    link.post(PanelOutbound.RevokeTabs)
                 }
             }
         }
     }
-
-private fun PanelState.reflect(message: PanelInbound): PanelState = when (message) {
-    is PanelInbound.Status -> copy(status = LinkStatus.fromWire(message.status), features = message.features)
-    is PanelInbound.Agent -> copy(agent = AgentControl(message.isAllowed, message.controlled))
-    is PanelInbound.Event, is PanelInbound.Reply, is PanelInbound.WatchFailed -> this
-}
