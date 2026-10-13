@@ -274,4 +274,24 @@
     <string name="browser_mode">Browser</string>
     <string name="diagram_draft_busy">Chat is busy. Button text was added to the draft.</string>
     <string name="diagram_draft_rejected">Message was not accepted. Button text was added to the draft.</string>
+    <string name="app_update_install">Update</string>
+    <string name="app_update_retry">Retry</string>
+    <string name="app_update_manual">Download</string>
+    <string name="app_update_downloading">Downloading…</string>
+    <string name="app_update_downloading_percent">Downloading %1$d%%</string>
+    <string name="app_update_preparing">Preparing…</string>
+    <string name="app_update_restarting">Restarting…</string>
+    <string name="app_update_available">Heartbeat %1$s is available</string>
+    <string name="app_update_confirm_title">Update to %1$s?</string>
+    <string name="app_update_confirm_message">Heartbeat restarts to install the update. Agents that are working now stop their turns.</string>
+    <string name="app_update_confirm">Update and restart</string>
+    <string name="app_update_cancel">Cancel</string>
+    <string name="app_update_failure_network">Could not reach GitHub. Check the connection and retry.</string>
+    <string name="app_update_failure_rate_limited">GitHub limited requests. Retry later.</string>
+    <string name="app_update_failure_invalid">The release has no verified build for this computer.</string>
+    <string name="app_update_failure_corrupted">The download was damaged. Retry the update.</string>
+    <string name="app_update_failure_space">Not enough disk space for the update.</string>
+    <string name="app_update_failure_storage">The update could not be saved.</string>
+    <string name="app_update_failure_install">The update could not be installed.</string>
+    <string name="app_update_failure_previous">The previous update did not finish. Retry it.</string>
 </resources>

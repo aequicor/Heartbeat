@@ -15,6 +15,7 @@ kotlin {
             implementation(projects.features.harness.api)
             implementation(projects.features.autocomplete.api)
             implementation(projects.features.computerUse.api)
+            implementation(projects.features.appUpdate.api)
             implementation(projects.features.attachments.api)
             implementation(projects.features.worktreeMode.api)
             implementation(projects.features.organicAi.api)

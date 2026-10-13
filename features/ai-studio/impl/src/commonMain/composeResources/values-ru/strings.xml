@@ -268,4 +268,24 @@
     <string name="composer_suggestions_close">Закрыть подсказки</string>
     <string name="diagram_draft_busy">Чат занят. Текст кнопки добавлен в черновик.</string>
     <string name="diagram_draft_rejected">Сообщение не принято. Текст кнопки добавлен в черновик.</string>
+    <string name="app_update_install">Обновить</string>
+    <string name="app_update_retry">Повторить</string>
+    <string name="app_update_manual">Скачать</string>
+    <string name="app_update_downloading">Загрузка…</string>
+    <string name="app_update_downloading_percent">Загрузка %1$d%%</string>
+    <string name="app_update_preparing">Подготовка…</string>
+    <string name="app_update_restarting">Перезапуск…</string>
+    <string name="app_update_available">Доступна версия Heartbeat %1$s — обновить приложение</string>
+    <string name="app_update_confirm_title">Обновить до %1$s?</string>
+    <string name="app_update_confirm_message">Heartbeat перезапустится, чтобы установить обновление. Агенты, которые сейчас работают, прервут свои ходы.</string>
+    <string name="app_update_confirm">Обновить и перезапустить</string>
+    <string name="app_update_cancel">Отмена</string>
+    <string name="app_update_failure_network">Нет связи с GitHub. Проверьте подключение и повторите.</string>
+    <string name="app_update_failure_rate_limited">GitHub ограничил запросы. Повторите позже.</string>
+    <string name="app_update_failure_invalid">В релизе нет проверенной сборки для этого компьютера.</string>
+    <string name="app_update_failure_corrupted">Загруженный файл повреждён. Повторите обновление.</string>
+    <string name="app_update_failure_space">Недостаточно места на диске для обновления.</string>
+    <string name="app_update_failure_storage">Не удалось сохранить обновление.</string>
+    <string name="app_update_failure_install">Не удалось установить обновление.</string>
+    <string name="app_update_failure_previous">Прошлое обновление не завершилось. Повторите его.</string>
 </resources>

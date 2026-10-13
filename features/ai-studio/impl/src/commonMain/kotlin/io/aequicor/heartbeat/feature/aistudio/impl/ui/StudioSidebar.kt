@@ -34,6 +34,7 @@ import io.aequicor.heartbeat.ds.layouts.HbLazyColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AppUpdateUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectGroupUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarContent
@@ -86,6 +87,9 @@ internal fun StudioSidebar(
     )
     HbColumn(modifier.testTag("studio-sidebar"), gap = HbTheme.spacing.none) {
         SidebarHeader(
+            appUpdate = input.appUpdate,
+            isAgentRunning = input.running.isNotEmpty(),
+            onUpdate = { onIntent(AiStudioScreenIntent.InstallAppUpdate) },
             onNew = { onIntent(AiStudioScreenIntent.NewSession(input.newSessionProjectId)) },
             onCollapse = {
                 onIntent(
@@ -120,7 +124,13 @@ internal fun StudioSidebar(
 }
 
 @Composable
-private fun SidebarHeader(onNew: () -> Unit, onCollapse: () -> Unit) {
+private fun SidebarHeader(
+    appUpdate: AppUpdateUi?,
+    isAgentRunning: Boolean,
+    onUpdate: () -> Unit,
+    onNew: () -> Unit,
+    onCollapse: () -> Unit,
+) {
     HbWindowDragArea(Modifier.fillMaxWidth()) {
         HbRow(
             Modifier.fillMaxWidth().padding(top = HbTheme.dimensions.titlebarInset)
@@ -136,6 +146,7 @@ private fun SidebarHeader(onNew: () -> Unit, onCollapse: () -> Unit) {
                 color = if (HbTheme.dimensions.isDesktop) HbTheme.colors.textSecondary else HbTheme.colors.textPrimary,
                 maxLines = 1,
             )
+            appUpdate?.let { update -> AppUpdateButton(update, isAgentRunning, onUpdate) }
             HbIconButton(
                 HbIcons.Plus,
                 stringResource(Res.string.sidebar_new_session),
