@@ -344,6 +344,54 @@ class SurfaceModelTest {
     }
 
     @Test
+    fun `a new method generation refreshes card and composer data while preserving input`() = runTest {
+        val fixture = Fixture(this, available = true, isCard = true)
+        fixture.calls.generation("first")
+        val card = fixture.subscribe()
+        val composer = Fixture(this, sharedCalls = fixture.calls).subscribe()
+        card.intent(SurfaceIntent.Input("filter", JsonPrimitive("all")))
+        runCurrent()
+        assertEquals(2, fixture.calls.made.size)
+
+        fixture.calls.next = { UiMethodResult.Success(buildJsonObject { put("count", 8) }) }
+        fixture.calls.available(false)
+        fixture.calls.generation("second")
+        runCurrent()
+        assertEquals("first", card.states.value.loadedMethodsGeneration)
+        assertEquals(2, fixture.calls.made.size)
+        fixture.calls.available(true)
+        runCurrent()
+
+        assertEquals("8 all PRs", assertIs<UiNodeUi.Text>(column(card).children[0]).text)
+        assertEquals("8 open PRs", assertIs<UiNodeUi.Text>(column(composer).children[0]).text)
+        assertEquals(JsonPrimitive("all"), card.states.value.values.state["filter"])
+        assertEquals("second", card.states.value.loadedMethodsGeneration)
+        assertEquals(0L, card.states.value.loadedRevision)
+        assertEquals(4, fixture.calls.made.size)
+        fixture.calls.generation("second")
+        runCurrent()
+        assertEquals(4, fixture.calls.made.size, "The same generation cannot cause a reload loop")
+    }
+
+    @Test
+    fun `replacement during an automatic load refreshes after the retired result completes`() = runTest {
+        val fixture = Fixture(this, available = true)
+        fixture.calls.generation("first")
+        val gate = CompletableDeferred<UiMethodResult>()
+        fixture.calls.next = { gate.await() }
+        val screen = fixture.subscribe()
+        fixture.calls.generation("second")
+        runCurrent()
+        assertEquals(1, fixture.calls.made.size)
+        fixture.calls.next = { UiMethodResult.Success(buildJsonObject { put("count", 9) }) }
+        gate.complete(UiMethodResult.Success(buildJsonObject { put("count", 2) }))
+        runCurrent()
+        assertEquals(2, fixture.calls.made.size)
+        assertEquals("9 open PRs", assertIs<UiNodeUi.Text>(column(screen).children[0]).text)
+        assertEquals("second", screen.states.value.loadedMethodsGeneration)
+    }
+
+    @Test
     fun `a write during an automatic load is read again after the older result completes`() = runTest {
         val fixture = Fixture(this, available = true)
         val gate = CompletableDeferred<UiMethodResult>()
@@ -440,6 +488,10 @@ class SurfaceModelTest {
 
         fun available(isAvailable: Boolean) {
             methods.value = methods.value.copy(isAvailable = isAvailable)
+        }
+
+        fun generation(value: String) {
+            methods.value = methods.value.copy(generation = value)
         }
 
         override fun activeOwners(context: UiCallContext): Flow<Set<UiOwner>> = flowOf(emptySet())

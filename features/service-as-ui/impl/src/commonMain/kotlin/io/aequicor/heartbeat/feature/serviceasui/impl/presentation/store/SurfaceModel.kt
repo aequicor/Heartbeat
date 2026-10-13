@@ -154,7 +154,9 @@ internal class SurfaceModel(
                 .collect { (methods, revision) ->
                     var isLoadNeeded = false
                     pipeline.updateState {
-                        isLoadNeeded = methods.isAvailable && (!hasStarted || loadedRevision != revision)
+                        isLoadNeeded = methods.isAvailable && (
+                            !hasStarted || loadedRevision != revision || loadedMethodsGeneration != methods.generation
+                        )
                         copy(isMethodsAvailable = methods.isAvailable)
                     }
                     if (isLoadNeeded) {
@@ -165,7 +167,13 @@ internal class SurfaceModel(
                                 launch { load(name) }
                             }
                         }
-                        pipeline.updateState { copy(hasStarted = true, loadedRevision = revision) }
+                        pipeline.updateState {
+                            copy(
+                                hasStarted = true,
+                                loadedRevision = revision,
+                                loadedMethodsGeneration = methods.generation,
+                            )
+                        }
                     }
                 }
         }

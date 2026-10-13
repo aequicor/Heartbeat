@@ -51,7 +51,8 @@ internal data class OpenModal(val name: String, val args: JsonObject) {
 
 /**
  * The drawn surface: [root] and the top [modal] are evaluated from [values]; [isMethodsAvailable] tells whether the
- * owner's code runs here, [hasStarted] whether the automatic data sources were loaded.
+ * owner's code runs here, [hasStarted] whether the automatic data sources were loaded. [loadedRevision] and
+ * [loadedMethodsGeneration] identify the durable data and published code last read by automatic sources.
  */
 @Immutable
 internal data class SurfaceState(
@@ -63,6 +64,7 @@ internal data class SurfaceState(
     val isMethodsAvailable: Boolean = false,
     val hasStarted: Boolean = false,
     val loadedRevision: Long? = null,
+    val loadedMethodsGeneration: String? = null,
 ) : MVIState {
     override fun toString(): String =
         "SurfaceState(modals=${modals.size}, notice=${notice?.let { it::class.simpleName } ?: "none"}, " +

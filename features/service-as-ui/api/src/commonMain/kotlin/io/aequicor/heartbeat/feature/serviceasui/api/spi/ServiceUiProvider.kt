@@ -39,7 +39,7 @@ public interface ServiceUiProvider {
      */
     public fun dataRevision(owner: String): Flow<Long> = flowOf(0L)
 
-    /** Methods [owner] publishes now. */
+    /** Methods [owner] publishes now, including a new [UiMethods.generation] when its implementation changes. */
     public fun methods(owner: String): Flow<UiMethods>
 
     /**

@@ -181,6 +181,30 @@ class SurfaceWebDocumentsTest {
         assertTrue(!document.isClosed)
     }
 
+    @Test
+    fun `script replacement updates the existing card document without a durable write`() = runTest {
+        val fixture = Fixture(
+            this,
+            enabled = true,
+            isCard = true,
+            specText = """{"version":1,"data":{"snapshot":{"method":"prs"}},"body":{
+                "type":"web","html":"<p>App</p>","bridge":true,"data":"{{data.snapshot}}"}}""",
+        )
+        subscribe(fixture.model.store)
+        val document = fixture.web.opened.single()
+        val updated = buildJsonObject { put("count", 9) }
+        fixture.calls.next = UiMethodResult.Success(updated)
+        fixture.calls.published.value = fixture.calls.published.value.copy(generation = "replacement")
+        runCurrent()
+
+        assertEquals(2, fixture.calls.made.size)
+        assertEquals(0L, fixture.calls.revision.value)
+        assertEquals(updated, document.updates.last())
+        assertEquals(1, fixture.web.opened.size)
+        assertTrue(!document.isClosed)
+        assertNotNull(document.document.bridge)
+    }
+
     private fun column(screen: SurfaceProviderOf) = assertIs<UiNodeUi.Column>(screen.states.value.root)
 
     private fun webKey(screen: SurfaceProviderOf) = assertIs<UiNodeUi.Web>(column(screen).children[0]).key
@@ -249,6 +273,7 @@ class SurfaceWebDocumentsTest {
 
     private class Calls : UiMethodCalls {
         val revision = MutableStateFlow(0L)
+        val published = MutableStateFlow(UiMethods(true, listOf(UiMethodInfo("prs", "PRs"))))
         val made = mutableListOf<Pair<String, JsonObject>>()
         var next: UiMethodResult = UiMethodResult.Success(buildJsonObject { put("count", 2) })
 
@@ -256,8 +281,7 @@ class SurfaceWebDocumentsTest {
 
         override fun activeOwners(context: UiCallContext): Flow<Set<UiOwner>> = flowOf(emptySet())
 
-        override fun methods(owner: UiOwner): Flow<UiMethods> =
-            flowOf(UiMethods(true, listOf(UiMethodInfo("prs", "PRs"))))
+        override fun methods(owner: UiOwner): Flow<UiMethods> = published
 
         override suspend fun call(
             owner: UiOwner,

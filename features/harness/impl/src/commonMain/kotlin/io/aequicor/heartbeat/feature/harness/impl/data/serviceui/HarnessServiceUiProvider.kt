@@ -74,10 +74,16 @@ internal class HarnessServiceUiProvider(
         if (!host.isAvailable) return flowOf(UiMethods(isAvailable = false))
         val harness = HarnessId(owner)
         return runtime.value.publishedInstances.mapLatest { instances ->
-            if (instances.none { it.request.harness.id == harness }) {
+            val published = instances.filter { it.request.harness.id == harness }
+            if (published.isEmpty()) {
                 UiMethods(isAvailable = false)
             } else {
-                UiMethods(true, dispatch.value.methods(harness).map { UiMethodInfo(it.name.value, it.description) })
+                UiMethods(
+                    true,
+                    dispatch.value.methods(harness).map { UiMethodInfo(it.name.value, it.description) },
+                    // Publication order also determines which script wins a duplicate method name.
+                    generation = published.joinToString(":") { it.reviewIdentity },
+                )
             }
         }.distinctUntilChanged()
     }

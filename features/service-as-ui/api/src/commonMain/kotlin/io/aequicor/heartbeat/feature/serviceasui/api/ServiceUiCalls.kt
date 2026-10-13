@@ -33,9 +33,16 @@ public data class UiMethodInfo(val name: String, val description: String)
 
 /**
  * Methods of one owner. [isAvailable] is false where the owner cannot run code (for example on mobile) or while its
- * code is not running; surfaces then show their calls as unavailable.
+ * code is not running; surfaces then show their calls as unavailable. [generation] is an opaque identity of the
+ * published implementation, changing on replacement or reactivation even when method names and descriptions
+ * stay equal. Surfaces reload automatic sources on its change; ordinary calls and data writes do not change it.
+ * Providers without replaceable implementations may leave it null. It grants no authority to invoke methods.
  */
-public data class UiMethods(val isAvailable: Boolean, val methods: List<UiMethodInfo> = emptyList())
+public data class UiMethods(
+    val isAvailable: Boolean,
+    val methods: List<UiMethodInfo> = emptyList(),
+    val generation: String? = null,
+)
 
 /**
  * Exact executable source selected for one method and its opaque live [binding]. The binding changes when its
