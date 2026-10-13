@@ -30,7 +30,6 @@ import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
-import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.data.studioSeed
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
@@ -216,7 +215,7 @@ class AiStudioUiTest {
                     PermissionUi("s-facade", "request", "Pick", persistentListOf(PermissionOptionUi("once", "Once"))),
                 ),
             )
-            val questions = object : ComposableComponent {
+            val questions = object : StudioEmbed {
                 @Composable
                 override fun Content(modifier: Modifier) = Box(modifier)
             }

@@ -24,14 +24,14 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
         val checklistHosts by component.checklists.collectAsState()
         val checklists = remember(checklistHosts) {
             checklistHosts.mapNotNull { (id, host) ->
-                (host.stack.value.active.instance as? ComposableComponent)?.let { id to it }
+                (host.stack.value.active.instance as? ComposableComponent)?.let { id to it.asStudioEmbed() }
             }.toMap().toImmutableMap()
         }
         val hosts by component.questions.collectAsState()
         // Each host has one fixed entry, so its component never changes.
         val questions = remember(hosts) {
             hosts.mapNotNull { (session, host) ->
-                (host.stack.value.active.instance as? ComposableComponent)?.let { session to it }
+                (host.stack.value.active.instance as? ComposableComponent)?.let { session to it.asStudioEmbed() }
             }.toMap().toImmutableMap()
         }
         val isUnifiedSettingsShown by component.showsUnifiedSettings.collectAsState(false)
@@ -63,11 +63,18 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
         }
         // Any entry above the studio's own chat (research) takes over the chat area; the sidebar
         // stays.
-        val chatArea = workspace.active.instance as? ComposableComponent
+        val chatAreaComponent = workspace.active.instance as? ComposableComponent
+        val chatArea = remember(chatAreaComponent) { chatAreaComponent?.asStudioEmbed() }
         StudioBrowserLayout(browserMode, modifier, browser = { NavStack(component.browser) }) {
             AiStudioScreen(component.model, exits, Modifier, chatArea = chatArea)
         }
         val dialogs by component.dialogs.stack.subscribeAsState()
         if (dialogs.active.instance !== StudioNoDialog) NavStack(component.dialogs)
     }
+}
+
+/** A navigation component drawn inside the studio screen. */
+private fun ComposableComponent.asStudioEmbed(): StudioEmbed = object : StudioEmbed {
+    @Composable
+    override fun Content(modifier: Modifier) = this@asStudioEmbed.Content(modifier)
 }

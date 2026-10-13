@@ -16,7 +16,6 @@ import androidx.compose.ui.test.isSelected
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
-import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.reduce
@@ -25,7 +24,7 @@ import kotlin.test.Test
 /** Research replaces only the chat area: the studio sidebar, its toggle and the header stay with the studio. */
 @OptIn(ExperimentalTestApi::class)
 class AiStudioChatAreaUiTest {
-    private object FakeResearch : ComposableComponent {
+    private object FakeResearch : StudioEmbed {
         @Composable
         override fun Content(modifier: Modifier) {
             Box(modifier.testTag("fake-research"))

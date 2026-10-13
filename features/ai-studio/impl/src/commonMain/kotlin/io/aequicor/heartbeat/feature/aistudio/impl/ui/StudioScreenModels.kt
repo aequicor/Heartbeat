@@ -1,7 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
 import androidx.compose.runtime.Immutable
-import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentPreviewUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentUi
@@ -53,8 +52,8 @@ internal data class StudioExits(
     val onOpenBrowser: (() -> Unit)? = null,
     val isBrowserOpen: Boolean = false,
     val onCloseChatArea: (() -> Unit)? = null,
-    val questions: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
-    val checklists: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
+    val questions: ImmutableMap<String, StudioEmbed> = persistentMapOf(),
+    val checklists: ImmutableMap<String, StudioEmbed> = persistentMapOf(),
     val onOpenSettings: (() -> Unit)? = null,
 )
 

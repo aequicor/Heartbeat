@@ -19,7 +19,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,7 +27,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
-import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.ds.components.HbActivityIndicator
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
@@ -42,7 +40,6 @@ import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.NativeAttachmentUi
@@ -57,20 +54,6 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_loading
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_retry
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_title
 import org.jetbrains.compose.resources.stringResource
-import pro.respawn.flowmvi.dsl.collect
-
-@Composable
-internal fun AiStudioScreen(
-    model: AiStudioModel,
-    exits: StudioExits,
-    modifier: Modifier = Modifier,
-    chatArea: ComposableComponent? = null,
-) {
-    val state by produceState(AiStudioScreenState(), model) {
-        model.store.collect { states.collect { value = it } }
-    }
-    AiStudioContent(state, model.store::intent, exits, modifier, chatArea)
-}
 
 @Composable
 internal fun AiStudioContent(
@@ -78,7 +61,7 @@ internal fun AiStudioContent(
     onIntent: (AiStudioScreenIntent) -> Unit,
     exits: StudioExits,
     modifier: Modifier = Modifier,
-    chatArea: ComposableComponent? = null,
+    chatArea: StudioEmbed? = null,
 ) {
     Box(modifier.fillMaxSize().testTag("ai-studio").background(HbTheme.colors.background)) {
         Box(Modifier.fillMaxSize().background(HbTheme.surfaces.backdrop)) {
@@ -110,7 +93,7 @@ private fun StudioWorkspace(
     state: AiStudioScreenState,
     onIntent: (AiStudioScreenIntent) -> Unit,
     exits: StudioExits,
-    chatArea: ComposableComponent?,
+    chatArea: StudioEmbed?,
 ) {
     val focus = remember { StudioFocusState() }
     val timelineState = remember { StudioTimelineState() }
@@ -174,7 +157,7 @@ private fun WideWorkspace(
     focus: StudioFocusState,
     sidebarWidth: Dp,
     isSplitAllowed: Boolean,
-    chatArea: ComposableComponent?,
+    chatArea: StudioEmbed?,
     timelineState: StudioTimelineState,
 ) {
     HbRow(
@@ -255,7 +238,7 @@ private fun CompactWorkspace(
     exits: StudioExits,
     focus: StudioFocusState,
     drawerWidth: Dp,
-    chatArea: ComposableComponent?,
+    chatArea: StudioEmbed?,
     timelineState: StudioTimelineState,
 ) {
     Box(Modifier.fillMaxSize()) {
@@ -382,7 +365,7 @@ private fun workspaceAttachmentCapture(
  */
 @Composable
 private fun StudioChatArea(
-    component: ComposableComponent,
+    component: StudioEmbed,
     exits: StudioExits,
     onToggleSidebar: () -> Unit,
     isAtWindowLeadingEdge: Boolean,

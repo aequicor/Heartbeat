@@ -38,7 +38,6 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
-import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.ds.components.HbActivityIndicator
 import io.aequicor.heartbeat.ds.components.HbBadge
 import io.aequicor.heartbeat.ds.components.HbButton
@@ -124,8 +123,8 @@ internal fun StudioPaneView(
     modifier: Modifier = Modifier,
     onOpenResearch: ((String) -> Unit)? = null,
     isAtWindowLeadingEdge: Boolean = false,
-    questions: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
-    checklists: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
+    questions: ImmutableMap<String, StudioEmbed> = persistentMapOf(),
+    checklists: ImmutableMap<String, StudioEmbed> = persistentMapOf(),
     timelineState: StudioTimelineState = remember { StudioTimelineState() },
 ) {
     val pane = content.pane
@@ -221,7 +220,7 @@ private fun composerRegionAlignment(isCentered: Boolean): Alignment =
 private fun PaneComposerRegion(
     content: PaneContent,
     onIntent: (AiStudioScreenIntent) -> Unit,
-    questions: ImmutableMap<String, ComposableComponent>,
+    questions: ImmutableMap<String, StudioEmbed>,
     isCompact: Boolean,
     onOpenResearch: ((String) -> Unit)?,
     isCentered: Boolean,
@@ -274,7 +273,7 @@ private fun PaneComposerRegion(
 private fun PaneNotices(
     content: PaneContent,
     onIntent: (AiStudioScreenIntent) -> Unit,
-    questions: ImmutableMap<String, ComposableComponent>,
+    questions: ImmutableMap<String, StudioEmbed>,
     modifier: Modifier = Modifier,
 ) = HbBoxWithConstraints(modifier.fillMaxWidth()) {
     // Descriptions share a part of the pane, so long ones never push the decisions or the composer off a low pane.
@@ -585,7 +584,7 @@ private fun SessionTranscript(
     timelineState: StudioTimelineState,
     messages: ImmutableList<MessageUi>,
     worktree: WorktreeTimeline,
-    checklists: ImmutableMap<String, ComposableComponent>,
+    checklists: ImmutableMap<String, StudioEmbed>,
     section: String,
     contentPadding: PaddingValues,
     overlapInsets: PaddingValues,
