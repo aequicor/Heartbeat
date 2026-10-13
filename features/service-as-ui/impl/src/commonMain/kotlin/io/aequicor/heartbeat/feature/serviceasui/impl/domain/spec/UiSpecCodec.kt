@@ -2,7 +2,10 @@ package io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec
 
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiLimits
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /** Bounds of the spec format beyond the library's byte limit. */
 internal object UiSpecLimits {
@@ -176,7 +179,7 @@ internal fun formatUiSpec(text: String, isIndented: Boolean): String? {
 }
 
 private fun decodeTree(element: JsonElement): UiSpecDecoding {
-    val decoded = parsing { SpecJson.decodeFromJsonElement(UiSpec.serializer(), element) }
+    val decoded = parsing { SpecJson.decodeFromString<UiSpec>(element.discriminatorFirst().toString()) }
     val spec = decoded.getOrNull()
     val error = decoded.exceptionOrNull()
     return when {
@@ -184,6 +187,27 @@ private fun decodeTree(element: JsonElement): UiSpecDecoding {
         spec.version != UI_SPEC_VERSION -> rejected(UiSpecProblem.UnsupportedVersion, path = "$ROOT.version")
         else -> checkStructure(spec)
     }
+}
+
+/**
+ * Keeps kotlinx on its streaming decoder, which retains the full JSON path in structural errors. Its tree decoder
+ * loses parent paths at polymorphic nodes; even streaming falls back to it when `type` is not the first key.
+ * Only object key order changes, including in opaque state/arguments; stored specs and all values stay intact.
+ * The raw JSON depth has already been bounded before this recursive traversal.
+ */
+private fun JsonElement.discriminatorFirst(): JsonElement = when (this) {
+    is JsonObject -> JsonObject(
+        buildMap {
+            this@discriminatorFirst["type"]?.let { put("type", it.discriminatorFirst()) }
+            for ((key, value) in this@discriminatorFirst) {
+                if (key != "type") put(key, value.discriminatorFirst())
+            }
+        },
+    )
+
+    is JsonArray -> JsonArray(map { it.discriminatorFirst() })
+
+    is JsonPrimitive -> this
 }
 
 private fun checkStructure(spec: UiSpec): UiSpecDecoding {
