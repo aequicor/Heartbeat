@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.CompactCommand
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioCompactionPort
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.compactCommand
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
 import kotlinx.collections.immutable.toImmutableSet
 import pro.respawn.flowmvi.api.PipelineContext
 import kotlin.uuid.Uuid

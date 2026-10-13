@@ -16,12 +16,6 @@ import io.aequicor.heartbeat.ds.components.HbToolCall
 import io.aequicor.heartbeat.ds.components.HbToolKind
 import io.aequicor.heartbeat.ds.components.HbToolStatus
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.BuildPhaseUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.BuildUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeActionUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeJournalUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreePhaseUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.author_studio
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_action_working
@@ -56,6 +50,12 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_recheck
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_recovery
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_refine
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_result
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.BuildPhaseUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.BuildUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeActionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreePhaseUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeUi
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet

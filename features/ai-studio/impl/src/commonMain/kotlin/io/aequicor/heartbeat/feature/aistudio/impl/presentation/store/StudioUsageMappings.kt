@@ -2,6 +2,10 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextUsageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProviderUsageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.UsageCreditsUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.UsageWindowUi
 import kotlinx.collections.immutable.toImmutableList
 import kotlin.math.roundToInt
 

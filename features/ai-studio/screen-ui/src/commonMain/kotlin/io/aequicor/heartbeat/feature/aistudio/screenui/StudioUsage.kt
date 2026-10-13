@@ -19,10 +19,6 @@ import io.aequicor.heartbeat.ds.components.HbProgressBar
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ContextUsageUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProviderUsageUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.UsageCreditsUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.UsageWindowUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_all_models
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_compact
@@ -42,6 +38,10 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_unlimited
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_window_hours
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_window_minutes
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_window_week
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextUsageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProviderUsageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.UsageCreditsUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.UsageWindowUi
 import org.jetbrains.compose.resources.stringResource
 import kotlin.time.Instant
 

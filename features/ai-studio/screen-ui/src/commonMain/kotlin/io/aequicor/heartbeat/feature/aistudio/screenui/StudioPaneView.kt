@@ -63,7 +63,6 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioSc
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentPreviewUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.DiagramDraftReasonUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PRIMARY_SUB_SESSION
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
@@ -101,6 +100,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_review_pro
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_tests
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_tests_prompt
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.working_for
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentListOf

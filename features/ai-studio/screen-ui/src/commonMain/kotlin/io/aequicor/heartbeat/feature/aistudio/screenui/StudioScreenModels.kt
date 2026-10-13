@@ -5,30 +5,30 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioSc
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentPreviewUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ComposerCaretRequestUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ContextUsageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.HarnessChoiceUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.HarnessChoicesUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.OrganismUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PRIMARY_SUB_SESSION
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PermissionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProviderUsageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.RenameUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionConfigurationUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionTreeUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SettingsUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeJournalUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.attachmentSupport
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.availableHarnesses
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.collapsed
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.isAttachmentPending
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.selectedNative
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextUsageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProviderUsageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeUi
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
@@ -123,7 +123,7 @@ data class PaneContent(
     /** A descendant view has no execution controls; root ownership remains unchanged. */
     val isNativeChild: Boolean get() = nativeTree?.sessions?.any {
         it.key == subSession &&
-            it.kind == io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SubSessionKindUi.Agent
+            it.kind == io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionKindUi.Agent
     } == true
 
     /** Only the settings of this pane wait while its session configuration is being confirmed. */

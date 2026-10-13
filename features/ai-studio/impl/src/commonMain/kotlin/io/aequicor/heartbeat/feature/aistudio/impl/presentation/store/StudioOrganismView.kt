@@ -12,6 +12,9 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismActionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionObservationUi
 import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiIntent
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiMachineKey

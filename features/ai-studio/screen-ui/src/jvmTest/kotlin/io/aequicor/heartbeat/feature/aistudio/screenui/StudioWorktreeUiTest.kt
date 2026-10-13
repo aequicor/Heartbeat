@@ -38,8 +38,6 @@ import androidx.compose.ui.test.withKeyDown
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.BuildPhaseUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.BuildUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.EnvironmentUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
@@ -47,10 +45,6 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioPhase
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeActionUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeJournalUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreePhaseUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.withDraft
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_failure_checkout_dirty
@@ -59,6 +53,12 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_merge_targ
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_preparing
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_result
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_this_computer
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.BuildPhaseUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.BuildUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeActionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreePhaseUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeUi
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import org.jetbrains.compose.resources.stringResource

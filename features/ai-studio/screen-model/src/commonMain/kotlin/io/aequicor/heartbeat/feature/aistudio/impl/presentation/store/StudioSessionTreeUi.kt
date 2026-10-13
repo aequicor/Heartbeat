@@ -6,6 +6,7 @@ import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableListSerializer
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableMapSerializer
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableSetSerializer
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionUi
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable

@@ -3,10 +3,6 @@ package io.aequicor.heartbeat.feature.aistudio.screenui
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ApprovalUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.FeedbackFailureUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.FeedbackOutcomeUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.FeedbackParameterUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.FeedbackUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_ask
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_auto
@@ -33,6 +29,10 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.feedback_pending_de
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.feedback_trust
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.feedback_unknown
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.feedback_unknown_detail
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedbackFailureUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedbackOutcomeUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedbackParameterUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedbackUi
 import org.jetbrains.compose.resources.stringResource
 
 /** Localized feedback copy prepared in composition and formatted with confirmed UI values. */

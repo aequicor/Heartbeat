@@ -11,6 +11,12 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionKindUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionStateUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.activeDescendants
 import io.aequicor.heartbeat.feature.organicai.api.Organism
 import io.aequicor.heartbeat.feature.organicai.api.sessionOf
 import kotlinx.collections.immutable.ImmutableList

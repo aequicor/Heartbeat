@@ -5,6 +5,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionObservationSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismPermissionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismStatusUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionKindUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionObservationUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionStateUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SubSessionUi
 import io.aequicor.heartbeat.feature.organicai.api.Cell
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.DeathCause

@@ -1,11 +1,10 @@
 @file:UseSerializers(ImmutableListSerializer::class, ImmutableSetSerializer::class, ImmutableMapSerializer::class)
 
-package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
+package io.aequicor.heartbeat.feature.aistudio.screenmodel
 
 import androidx.compose.runtime.Immutable
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableListSerializer
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableMapSerializer
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.ImmutableSetSerializer
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ApprovalUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PermissionOptionUi
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.serialization.SerialName

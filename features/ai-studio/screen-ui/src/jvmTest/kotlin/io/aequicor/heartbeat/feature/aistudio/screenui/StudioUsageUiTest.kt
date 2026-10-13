@@ -21,12 +21,12 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ContextUsageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProviderUsageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.UsageWindowUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextUsageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProviderUsageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.UsageWindowUi
 import kotlinx.collections.immutable.persistentListOf
 import java.io.File
 import javax.imageio.ImageIO
