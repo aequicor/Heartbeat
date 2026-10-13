@@ -33,7 +33,8 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > Адаптер `koog:{api,impl}` (OpenAI, Anthropic, OpenAI-/Anthropic-совместимые серверы по HTTPS или loopback, локальный Ollama, потоковые текстовые сессии, история и подключения профиля)
 > подключён в DI, включение — тогл `ai.koog` (по умолчанию false).
 > Кодинг-сессии Koog (только Desktop, тогл `ai.koog.coding_tools`): сессия на проекте получает файловые инструменты и `run_command`
-> в корне проекта; запись и команды — автоматически (тогл `ai.koog.auto_approve`, по умолчанию true) или через подтверждение `session.permissions`.
+> в корне проекта. Обычные ходы студии проверяют запись и команды независимым `AgentSafetyReviewer`; safe разрешает
+> точный снимок, остальные результаты дают отказ без ручного диалога. У других хостов сохраняется прежний режим доверия.
 > Локальный Desktop-адаптер `codex:{api,impl}` — app-server, сессии, текстовый стриминг, отмена и approvals (тогл `ai.codex`).
 > `claude:{api,impl}` — desktop Claude Code CLI, профильный runtime текстовых сессий, CLI-авторизация, обнаружение моделей,
 > частичная история наблюдённых ходов (тогл `ai.claude`, по умолчанию false); внешняя история CLI и tools/permissions пока нет.
@@ -58,7 +59,10 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > `core:secrets:{api,impl}` (защищённые секреты профиля и ссылки), `core:feature-toggles:{api,impl}` (тоглы, реестр, локальные переопределения, `FeatureToggleControl`).
 > `features:ai-engine:{facade:{api,impl},pi:{api,impl}}` — встроенный движок Pi по умолчанию только на Desktop (Windows/macOS)
 > (бинарь Pi вшит в дистрибутив задачей `preparePiRuntime`, данные — в каталоге приложения `<app data>/engines/pi`; установщик Windows на Inno Setup (`packageInnoSetup`) при удалении чистит данные пользователя — `platform-main/desktop/packaging/windows/heartbeat.iss`)
-> за тоглами `ai.engines` + `ai.pi` (вендорные ключи и OpenAI-/Anthropic-совместимые серверы — `CompatibleProtocol` в `facade:api`), изменяющие вызовы инструментов — по уровню доверия хода (`TrustLevel` в `facade:api`: спрашивать / авто-правки / полное доверие, выбор в композере ai-studio), иначе после подтверждения пользователя;
+> за тоглами `ai.engines` + `ai.pi` (вендорные ключи и OpenAI-/Anthropic-совместимые серверы — `CompatibleProtocol` в `facade:api`).
+> Обычные ходы студии задают доверенный `AgentToolDecisionMode.AutomaticSafety`: нативные вызовы и поддержанные
+> изменяющие hosted tools проходят независимую проверку без ручных разрешений. Непроверенные действия отклоняются;
+> `TrustLevel` не заменяет автоматический гейт. Другие хосты сохраняют `Interactive` по умолчанию;
 > на Android/iOS — заглушка «не поддерживается».
 > Дизайн-система: `design-system:{tokens,adaptive,theme,resources,layouts,components,catalog}`;
 > отдельная `platform-main:uikit-sandbox:{desktop,android,shared}` и iOS Xcode app — [запуск](platform-main/uikit-sandbox/README.md).
@@ -261,7 +265,7 @@ Windows: `.\gradlew.bat`, macOS: `./gradlew`.
 > **`./gradlew --stop` завершает само приложение.** Desktop, запущенный из IDE, — потомок демона Gradle, поэтому
 > остановка демонов убивает всё дерево процессов вместе с Heartbeat: мгновенно, без стектрейса и без отчёта о краше,
 > с потерей текущего хода агента. Агент, работающий внутри Heartbeat, такую команду не выполняет — движок Pi не
-> доверяет её никакому уровню доверия и спрашивает пользователя (`PiHostCommands`). Останавливай демоны только
+> доверяет её никакому уровню доверия; автоматическая проверка отклоняет её (`PiHostCommands`). Останавливай демоны только
 > во внешнем терминале и только не из-под агента.
 
 iOS собирается только на macOS (Xcode, `platform-main/ios/`). На Windows iOS-таргеты не компилируются — проверяй `commonMain` через `jvmTest`.

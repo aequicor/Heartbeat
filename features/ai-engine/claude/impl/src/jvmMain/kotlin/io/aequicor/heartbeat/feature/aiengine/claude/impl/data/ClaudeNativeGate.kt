@@ -2,9 +2,11 @@ package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -142,7 +144,9 @@ internal class ClaudeNativeGate(
         return if (trusted == null || native == null) {
             NativePreparation.Deny("Native turn ended or tool arguments are invalid")
         } else {
-            tools.prepareNative(trusted, native)
+            val result = tools.prepareNative(trusted.copy(callId = ToolCallId(call.id)), native)
+            val refusal = if (result == NativePreparation.Allow) automaticRecheck(trusted, call) else null
+            if (refusal == null) result else NativePreparation.Deny(refusal)
         }
     }
 
@@ -152,13 +156,23 @@ internal class ClaudeNativeGate(
         return if (trusted == null || native == null) {
             NativeVerdict.Deny("Native turn ended or tool arguments are invalid")
         } else {
-            tools.authorizeNative(trusted, native)
+            val result = tools.authorizeNative(trusted.copy(callId = ToolCallId(call.id)), native)
+            val refusal = if (result == NativeVerdict.Allow) automaticRecheck(trusted, call) else null
+            if (refusal == null) result else NativeVerdict.Deny(refusal)
         }
+    }
+
+    /** Re-resolves file containment after review; it does not provide an OS filesystem sandbox. */
+    private suspend fun automaticRecheck(trusted: AgentToolContext, call: Call): String? {
+        if (trusted.decisionMode != AgentToolDecisionMode.AutomaticSafety) return null
+        val native = workspace.classify(call.name, call.input)
+            ?: return "Native action can no longer be classified"
+        return native.automaticDenial
     }
 
     private fun call(request: JsonObject, inputKey: String): Call {
         val name = request.text("tool_name")?.takeIf { it in enabled } ?: protocolFailure()
-        return Call(name, request[inputKey] as? JsonObject ?: protocolFailure())
+        return Call(name, request[inputKey] as? JsonObject ?: protocolFailure(), identity(request))
     }
 
     override fun close() {
@@ -202,7 +216,7 @@ private fun permissionDecision(verdict: NativeVerdict, input: JsonObject): JsonO
     }
 }
 
-private data class Call(val name: String, val input: JsonObject) {
+private data class Call(val name: String, val input: JsonObject, val id: String) {
     override fun toString(): String = "ClaudeNativeCall"
 }
 private data class Prepared(val call: Call, val decision: NativePreparation) {
@@ -213,5 +227,6 @@ private const val MAX_CALLS = 4_096
 
 private const val MAX_TOOL_ID_CHARS = 256
 
-private const val HOOK_TIMEOUT_MS = 5_000L
-private const val CLI_HOOK_TIMEOUT_SECONDS = 60
+// Independent review allows two minutes plus bounded cleanup; the CLI must outlive the host's deadline.
+private const val HOOK_TIMEOUT_MS = 150_000L
+private const val CLI_HOOK_TIMEOUT_SECONDS = 180

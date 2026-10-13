@@ -41,6 +41,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableAgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.NativeCallClassifier
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEnabled
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngineId
 import kotlinx.coroutines.CompletableDeferred
@@ -76,6 +77,7 @@ internal suspend fun fixture(
     project: WorkspaceRef? = WorkspaceRef("hosted-workspace"),
     areDetachedToolsEnabled: Boolean = false,
     turns: PiTurnRecords = MemoryPiTurnRecords(),
+    nativeCalls: NativeCallClassifier = TestNativeClassifier,
     configure: (Int, FakeConnection) -> Unit = { _, _ -> },
 ): Fixture {
     val target = EngineTarget(PiEngineId, EngineBindingId("binding"), targetModel)
@@ -93,6 +95,7 @@ internal suspend fun fixture(
             bridge = bridge,
             resources = resources,
             turns = turns,
+            nativeCalls = nativeCalls,
         ),
         "test-ownership",
         validate,
@@ -125,6 +128,7 @@ internal fun piTestEnvironment(
     bridge: AgentToolBridge = UnavailableAgentToolBridge,
     resources: ResourceResolver = ResourceResolver { null },
     turns: PiTurnRecords = MemoryPiTurnRecords(),
+    nativeCalls: NativeCallClassifier = TestNativeClassifier,
 ): PiSessionEnvironment {
     val dispatcher = StandardTestDispatcher(test.testScheduler)
     val dispatchers = object : DispatcherProvider {
@@ -142,7 +146,7 @@ internal fun piTestEnvironment(
         FakeScope(test.backgroundScope),
         dispatchers,
         DefaultPiTestToggles(isUsageEnabled, areEnginesEnabled),
-        TestNativeClassifier,
+        nativeCalls,
         tools = tools,
         bridge = bridge,
         resources = resources,

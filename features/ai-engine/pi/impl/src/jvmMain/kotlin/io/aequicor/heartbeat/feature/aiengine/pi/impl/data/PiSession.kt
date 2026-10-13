@@ -257,7 +257,7 @@ internal class PiSession(
         if (mutex.isLocked || isAdmissionBlocked || state.value !is ActiveSessionState.Ready) {
             piFailure(EngineFailure.Session(SessionFailureReason.Busy))
         }
-        val next = Turn(TurnId(UUID.randomUUID().toString()), request.id, target)
+        val next = Turn(TurnId(UUID.randomUUID().toString()), request.id, target, decisionMode = request.decisionMode)
         submissions.send(request, next) { entry -> prepareSubmission(request, entry) }
     }
 

@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CompactsContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextCompaction
@@ -40,7 +41,13 @@ internal suspend fun ActiveSession.submitStudioPrompt(
     // A compaction carries no input and no effort: it only summarizes the native context. It keeps the chat's trust,
     // which the engine would otherwise reset to its default and report back as the chat's configuration.
     val request = if (compaction != null) {
-        PromptRequest(requestId, emptyList(), trust = trust, compaction = supportedCompaction(compaction))
+        PromptRequest(
+            requestId,
+            emptyList(),
+            trust = trust,
+            compaction = supportedCompaction(compaction),
+            decisionMode = AgentToolDecisionMode.AutomaticSafety,
+        )
     } else {
         PromptRequest(
             requestId,
@@ -49,6 +56,7 @@ internal suspend fun ActiveSession.submitStudioPrompt(
             },
             reasoningEffort = reasoningEffort,
             trust = trust,
+            decisionMode = AgentToolDecisionMode.AutomaticSafety,
         )
     }
     val sender = features.requireFeature(SendsPrompts)

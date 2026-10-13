@@ -113,6 +113,7 @@ internal class ClaudeHostedTurn(
             permissions,
             lifetime = lifetime,
             target = context.target,
+            decisionMode = context.request.decisionMode,
         )
     }
 

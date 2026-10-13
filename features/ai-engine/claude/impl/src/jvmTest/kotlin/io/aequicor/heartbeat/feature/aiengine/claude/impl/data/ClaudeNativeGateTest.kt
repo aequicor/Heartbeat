@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeConfirmation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativePreparation
@@ -11,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -27,6 +29,46 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 internal class ClaudeNativeGateTest {
+    @Test
+    fun `automatic edit containment is checked again before both native allow transports`() = runTest {
+        for (isPreflight in listOf(false, true)) {
+            var isInside = true
+            var checks = 0
+            val workspace = ClaudeNativeWorkspace(
+                "/project",
+                object : NativeCallClassifier {
+                    override fun terminatesHost(command: String) = false
+                    override suspend fun isWorkspaceEdit(path: String, workspace: String): Boolean {
+                        checks++
+                        return isInside
+                    }
+                },
+            )
+            val tools = object : ProfileAgentTools by NoAgentTools {
+                override suspend fun prepareNative(context: AgentToolContext, call: NativeToolCall): NativePreparation {
+                    assertNull(call.automaticDenial)
+                    isInside = false
+                    return NativePreparation.Allow
+                }
+                override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict {
+                    assertNull(call.automaticDenial)
+                    isInside = false
+                    return NativeVerdict.Allow
+                }
+            }
+            val gate = gate(tools, workspace, AgentToolDecisionMode.AutomaticSafety, "Write")
+            val request = frame(
+                (if (isPreflight) hook() else permission()).toString()
+                    .replace("\"Bash\"", "\"Write\"")
+                    .replace("\"command\":\"echo example\"", "\"file_path\":\"/project/file\""),
+            )
+            val response = gate.handle(request)
+            val result = if (isPreflight) hookOutput(response).text("permissionDecision") else response.text("behavior")
+            assertEquals("deny", result)
+            assertEquals(2, checks)
+        }
+    }
+
     @Test
     fun `initialize must confirm hook registration`() {
         val gate = gate(Tools())
@@ -113,10 +155,15 @@ internal class ClaudeNativeGateTest {
         val edit = assertNotNull(workspace.classify("Write", frame("""{"file_path":"/project/file"}""")))
         assertEquals(AgentToolAction.Edit, edit.action)
         assertTrue(edit.covered(TrustLevel.AutoEdits))
+        assertNull(edit.automaticDenial)
         val outside = assertNotNull(workspace.classify("Edit", frame("""{"file_path":"relative"}""")))
         assertFalse(outside.covered(TrustLevel.AutoEdits))
+        assertNotNull(outside.automaticDenial)
+        assertNotNull(workspace.classify("Write", frame("""{"file_path":"/outside/file"}"""))?.automaticDenial)
         val command = assertNotNull(workspace.classify("Bash", frame("""{"command":"kill host"}""")))
         assertFalse(command.covered(TrustLevel.Full))
+        assertNotNull(command.automaticDenial)
+        assertEquals("/project", command.workingDirectory)
         assertNull(workspace.classify("Agent", frame("{}")))
         assertNull(workspace.classify("Bash", frame("{}")))
     }
@@ -144,6 +191,9 @@ internal class ClaudeNativeGateTest {
         override suspend fun prepareNative(context: AgentToolContext, call: NativeToolCall): NativePreparation {
             preflights++
             assertEquals("native", context.session.nativeId)
+            assertEquals(ToolCallId("call"), context.callId)
+            assertEquals(hook()["input"]?.let { (it as JsonObject)["tool_input"] }, call.arguments)
+            assertEquals("/project", call.workingDirectory)
             return decision
         }
         override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict {
@@ -160,13 +210,19 @@ internal fun nativeWorkspace() = ClaudeNativeWorkspace(
         override suspend fun isWorkspaceEdit(path: String, workspace: String) = path == "/project/file"
     },
 )
-private fun gate(tools: ProfileAgentTools) = ClaudeNativeGate("native", setOf("Bash"), nativeWorkspace(), tools) {
+private fun gate(
+    tools: ProfileAgentTools,
+    workspace: ClaudeNativeWorkspace = nativeWorkspace(),
+    decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
+    tool: String = "Bash",
+) = ClaudeNativeGate("native", setOf(tool), workspace, tools) {
     AgentToolContext(
         SessionRef(testTarget.engine, SessionSourceId("test"), "native"),
         WorkspaceRef("project"),
         TurnId("turn"),
         prompt().id,
         TrustLevel.Ask,
+        decisionMode = decisionMode,
     )
 }
 private fun frame(text: String) = Json.parseToJsonElement(text) as JsonObject

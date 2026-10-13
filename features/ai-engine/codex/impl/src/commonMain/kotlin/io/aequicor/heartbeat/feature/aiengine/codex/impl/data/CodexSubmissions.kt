@@ -39,7 +39,12 @@ internal class CodexSubmissions(
             if (pending != null && pending?.turn?.id != last?.id) {
                 fail(EngineFailure.Session(SessionFailureReason.Busy))
             }
-            val turn = Turn(TurnId(Uuid.random().toString()), request.id, session.target)
+            val turn = Turn(
+                TurnId(Uuid.random().toString()),
+                request.id,
+                session.target,
+                decisionMode = request.decisionMode,
+            )
             val submission = CodexSubmission(turn, session.hostedJobs::revoke, request.trust ?: TrustLevel.Ask, last)
             entry = submission
             pending = submission

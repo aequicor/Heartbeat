@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
@@ -326,6 +327,7 @@ class StudioTurnExecutorTest {
         )
         val sent = requireNotNull(fixture.active.submittedRequest)
         assertEquals(fixture.request.request, sent.id)
+        assertEquals(AgentToolDecisionMode.AutomaticSafety, sent.decisionMode)
         assertEquals(
             listOf(ContentPart.Image(ExecutorAttachments[0]), ContentPart.Resource(ExecutorAttachments[1])),
             sent.parts,

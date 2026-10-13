@@ -49,6 +49,8 @@ internal class ClaudeNativeWorkspace(private val path: String, private val class
             paths = listOfNotNull(file),
             command = command,
             arguments = input,
+            workingDirectory = path,
+            automaticDenial = automaticDenial(spec.action, isHostTermination, isProjectEdit),
             covered = { trust ->
                 !isHostTermination && (
                     isCovered(trust, spec.action, isProjectEdit)
@@ -67,4 +69,16 @@ internal fun supportsClaudeNativeGate(version: String?): Boolean {
 
 private fun isCovered(trust: TrustLevel, action: AgentToolAction, isProjectEdit: Boolean): Boolean =
     action == AgentToolAction.Read || trust == TrustLevel.Full || (trust == TrustLevel.AutoEdits && isProjectEdit)
+
+/** Deterministic host and filesystem restrictions cannot be overruled by model review. */
+private fun automaticDenial(action: AgentToolAction, isHostTermination: Boolean, isProjectEdit: Boolean): String? =
+    when {
+        isHostTermination -> "Automatic execution cannot terminate Heartbeat"
+
+        action == AgentToolAction.Edit && !isProjectEdit ->
+            "Automatic edits require a pinned path inside the trusted workspace"
+
+        else -> null
+    }
+
 private const val MINIMUM_PATCH = 285

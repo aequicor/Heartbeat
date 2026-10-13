@@ -56,6 +56,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_ask
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_auto
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_edits
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_menu
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_safety
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_paste
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
@@ -309,6 +310,8 @@ private fun StudioComposerLeading(
         onDraft = { onIntent(AiStudioScreenIntent.Suggestions.DraftChanged(content.pane.id, it)) },
         onApproval = { onIntent(AiStudioScreenIntent.SelectApproval(it, content.pane.id)) },
         approvalEnabled = !content.isSettingPending && content.organism == null,
+        isAutomaticSafety = !hasRunPreferences && content.organism == null && !content.pane.isOrganism &&
+            content.models.any { it.id == content.settings.modelId },
         organism = content.pane.isOrganism.takeIf { content.isOrganismOffered() },
         onOrganism = { onIntent(AiStudioScreenIntent.SelectOrganism(content.pane.id, it)) },
         onAttach = { onIntent(AiStudioScreenIntent.PickAttachments(content.pane.id)) }.takeIf {
@@ -542,6 +545,7 @@ private fun TemplatesMenu(
     onDraft: (String) -> Unit,
     onApproval: (ApprovalUi) -> Unit,
     approvalEnabled: Boolean,
+    isAutomaticSafety: Boolean,
     organism: Boolean?,
     onOrganism: (Boolean) -> Unit,
     onAttach: (() -> Unit)?,
@@ -578,7 +582,7 @@ private fun TemplatesMenu(
     )
     val actions = attachments + templates.map { HbComposerAction(it.id, stringResource(it.label)) } +
         listOfNotNull(rememberAction.takeIf { isRememberEnabled }, organismAction) +
-        approvalActions(approval, approvalEnabled)
+        approvalActions(approval, approvalEnabled, isAutomaticSafety)
     HbComposerMenuButton(
         label = stringResource(Res.string.composer_add),
         actions = actions.toImmutableList(),
@@ -670,7 +674,21 @@ private fun EffortMenu(
 }
 
 @Composable
-private fun approvalActions(selected: ApprovalUi?, enabled: Boolean): List<HbComposerAction> {
+private fun approvalActions(
+    selected: ApprovalUi?,
+    enabled: Boolean,
+    isAutomaticSafety: Boolean,
+): List<HbComposerAction> {
+    if (isAutomaticSafety) {
+        return listOf(
+            HbComposerAction(
+                id = "automatic-safety",
+                label = stringResource(Res.string.approval_safety),
+                sectionLabel = stringResource(Res.string.approval_menu),
+                isEnabled = false,
+            ),
+        )
+    }
     if (selected == null) return emptyList()
     return ApprovalUi.entries.mapIndexed { index, approval ->
         HbComposerAction(

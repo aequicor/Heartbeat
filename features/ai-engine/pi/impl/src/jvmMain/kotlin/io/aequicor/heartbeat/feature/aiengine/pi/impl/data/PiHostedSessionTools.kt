@@ -61,6 +61,7 @@ internal class PiHostedSessionTools(
             AgentToolPermissions { approval(turn, hostedApproval(turn, it), HostedAllow) },
             lifetime = lifetime,
             target = turn.target,
+            decisionMode = turn.decisionMode,
         )
     }
 

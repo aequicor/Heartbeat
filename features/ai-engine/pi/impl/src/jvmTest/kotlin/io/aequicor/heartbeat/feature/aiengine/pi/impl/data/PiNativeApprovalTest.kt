@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -13,7 +14,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.NativeCallClassifier
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.test.runCurrent
@@ -25,9 +29,100 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PiNativeApprovalTest {
+    @Test
+    fun `outside unpinned and detached edits carry a deterministic automatic refusal`() = runTest {
+        val scenarios = listOf(
+            WorkspaceRef("project") to "/outside/file",
+            WorkspaceRef("project") to null,
+            null to TestWorkspace.resolve("file").toString(),
+        )
+        for ((workspace, path) in scenarios) {
+            val tools = object : ProfileAgentTools by NoAgentTools {
+                override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict {
+                    assertNotNull(call.automaticDenial)
+                    return NativeVerdict.Deny(checkNotNull(call.automaticDenial))
+                }
+            }
+            val fixture = fixture(this, tools = tools, project = workspace)
+            fixture.runningTurn(TrustLevel.Full)
+            fixture.connection.event(approval("edit", "file", "write", path))
+            runCurrent()
+            assertEquals(listOf(answer("edit", "confirmed", false)), fixture.connection.sent)
+            fixture.session.shutdown()
+        }
+    }
+
+    @Test
+    fun `a path that escapes its workspace during review is refused before Pi receives allow`() = runTest {
+        var isInside = true
+        var classifications = 0
+        val classifier = object : NativeCallClassifier {
+            override fun terminatesHost(command: String) = false
+            override suspend fun isWorkspaceEdit(path: String, workspace: String): Boolean {
+                classifications++
+                return isInside
+            }
+        }
+        val tools = object : ProfileAgentTools by NoAgentTools {
+            override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict {
+                assertNull(call.automaticDenial)
+                isInside = false
+                return NativeVerdict.Allow
+            }
+        }
+        val fixture = fixture(this, tools = tools, nativeCalls = classifier)
+        fixture.connection.promptAck.complete(JsonObject(emptyMap()))
+        fixture.session.send(prompt("automatic").copy(decisionMode = AgentToolDecisionMode.AutomaticSafety))
+        fixture.connection.event(record("""{"type":"agent_start"}"""))
+        fixture.connection.event(approval("edit", "file", "write", TestWorkspace.resolve("file").toString()))
+        runCurrent()
+        assertEquals(2, classifications)
+        assertEquals(listOf(answer("edit", "confirmed", false)), fixture.connection.sent)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `automatic native ingress retains full arguments call identity directory and accepted mode`() = runTest {
+        val arguments = record("""{"command":"true","timeout":30,"extra":"complete-input"}""")
+        var calls = 0
+        val tools = object : ProfileAgentTools by NoAgentTools {
+            override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict {
+                calls++
+                assertEquals(AgentToolDecisionMode.AutomaticSafety, context.decisionMode)
+                assertEquals(ToolCallId("c1"), context.callId)
+                assertEquals(arguments, call.arguments)
+                assertEquals("true", call.command)
+                assertEquals(TestWorkspace.toString(), call.workingDirectory)
+                assertEquals("anthropic/test", context.target?.model?.value)
+                return NativeVerdict.Allow
+            }
+        }
+        val fixture = fixture(this, tools = tools)
+        fixture.connection.promptAck.complete(JsonObject(emptyMap()))
+        fixture.session.send(prompt("automatic").copy(decisionMode = AgentToolDecisionMode.AutomaticSafety))
+        fixture.connection.event(record("""{"type":"agent_start"}"""))
+        val request = approval("automatic", "true")
+        val payload = record(request.string("message")!!)
+        fixture.connection.event(
+            JsonObject(
+                request + ("message" to JsonPrimitive(JsonObject(payload + ("arguments" to arguments)).toString())),
+            ),
+        )
+        runCurrent()
+        assertEquals(1, calls)
+        assertEquals(listOf(answer("automatic", "confirmed", true)), fixture.connection.sent)
+        assertEquals(
+            AgentToolDecisionMode.AutomaticSafety,
+            assertIs<ActiveSessionState.Running>(fixture.session.state.value).turn.decisionMode,
+        )
+        fixture.session.shutdown()
+    }
+
     @Test
     fun `search uses hosted authorization and returns hook context without a user dialog`() = runTest {
         val arguments = JsonObject(mapOf("query" to JsonPrimitive("original query")))
