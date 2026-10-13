@@ -94,3 +94,27 @@ tasks.register<Sync>("syncChromiumPanel") {
     from(tasks.named("wasmJsBrowserDistribution"))
     into(layout.settingsDirectory.dir("chromium-plugin/app"))
 }
+
+// Temporary Windows diagnosis: removed after inspecting the missing npm dependency.
+val wasmNpmDiagnosticRoot = rootProject.layout.buildDirectory.dir("wasm")
+tasks.register("diagnoseWasmNpm") {
+    dependsOn(":kotlinWasmNpmInstall")
+    val diagnosticRoot = wasmNpmDiagnosticRoot
+    inputs.dir(diagnosticRoot)
+    doLast {
+        val root = diagnosticRoot.get().asFile
+        val paths = listOf(
+            "package.json",
+            "packages/heartbeat-panel/package.json",
+            "node_modules/.yarn-integrity",
+            "node_modules/@js-joda/core/package.json",
+            "node_modules/@js-joda/core/dist/js-joda.js",
+            "node_modules/@js-joda/core/dist/js-joda.esm.js",
+        )
+        paths.forEach { relative ->
+            val file = root.resolve(relative)
+            println("$relative: exists=${file.exists()}, file=${file.isFile}, canonical=${file.canonicalPath}")
+            if (file.isFile && !relative.endsWith(".js")) println(file.readText())
+        }
+    }
+}
