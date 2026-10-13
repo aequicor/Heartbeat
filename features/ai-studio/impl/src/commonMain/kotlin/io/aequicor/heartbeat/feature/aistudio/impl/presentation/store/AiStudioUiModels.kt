@@ -1,31 +1,12 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
-import io.aequicor.heartbeat.feature.agentlearning.api.InstructionKind
-import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
-import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
-import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
-import io.aequicor.heartbeat.feature.aistudio.api.StudioPane
-import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.ContextNoticeKind
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.LearningAction
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEnvironment
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarness
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModels
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioReplyPart
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioToolRun
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolRunStatus
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.persistentSetOf
-import kotlinx.collections.immutable.toImmutableList
-import kotlinx.collections.immutable.toImmutableSet
 import kotlin.time.Duration
 import kotlin.time.Instant
 
@@ -86,32 +67,6 @@ data class SessionConfigurationUi(
     val reasoningEffort: String?,
     val approval: ApprovalUi,
     val pendingOperation: String? = null,
-)
-
-internal fun StudioSessionConfiguration.toUi(): SessionConfigurationUi = SessionConfigurationUi(
-    applied.modelId,
-    applied.reasoningEffort,
-    applied.approval.toUi(),
-    pendingOperation,
-)
-
-/** Models offered by the composer, from the most capable to the fastest. */
-val StudioModelOptions: ImmutableList<ModelUi> = StudioModels.map {
-    it.toUi()
-}.toImmutableList()
-
-internal fun StudioModel.toUi(): ModelUi = ModelUi(
-    id,
-    name,
-    isResearchSupported,
-    isLocalProjectSupported,
-    shortName,
-    reasoningEfforts.toImmutableList(),
-    defaultReasoningEffort,
-    studioModelTarget(id)?.takeIf { isModelSwitchSupported }?.let { "${it.engine.value}/${it.binding.value}" },
-    isTrustSupported,
-    inputSupport.toUi(),
-    isScripted = StudioModels.any { it.id == id },
 )
 
 /** Progress of an agent tool call. */
@@ -214,108 +169,6 @@ sealed interface MessageUi {
 /** Preferences of a fresh workspace; equals the domain `DefaultRunSettings`. */
 internal val DefaultSettingsUi: SettingsUi = SettingsUi("pulse-pro", EffortUi.High, ApprovalUi.Ask)
 
-internal fun StudioPane.toUi(): PaneUi = PaneUi(id, sessionId, projectId, isCreating, isWorktree, isOrganism)
-
-internal fun StudioEnvironment.toUi(): EnvironmentUi = when (this) {
-    StudioEnvironment.Local -> EnvironmentUi.Local
-    StudioEnvironment.Cloud -> EnvironmentUi.Cloud
-}
-
-internal fun RunSettings.toUi(): SettingsUi = SettingsUi(
-    modelId,
-    effort.toUi(),
-    approval.toUi(),
-)
-
-internal fun ReasoningEffort.toUi(): EffortUi = when (this) {
-    ReasoningEffort.Low -> EffortUi.Low
-    ReasoningEffort.Medium -> EffortUi.Medium
-    ReasoningEffort.High -> EffortUi.High
-    ReasoningEffort.VeryHigh -> EffortUi.VeryHigh
-}
-
-internal fun EffortUi.toDomain(): ReasoningEffort = when (this) {
-    EffortUi.Low -> ReasoningEffort.Low
-    EffortUi.Medium -> ReasoningEffort.Medium
-    EffortUi.High -> ReasoningEffort.High
-    EffortUi.VeryHigh -> ReasoningEffort.VeryHigh
-}
-
-internal fun ApprovalMode.toUi(): ApprovalUi = when (this) {
-    ApprovalMode.Ask -> ApprovalUi.Ask
-    ApprovalMode.AutoEdits -> ApprovalUi.AutoEdits
-    ApprovalMode.AutoApprove -> ApprovalUi.AutoApprove
-}
-
-internal fun ApprovalUi.toDomain(): ApprovalMode = when (this) {
-    ApprovalUi.Ask -> ApprovalMode.Ask
-    ApprovalUi.AutoEdits -> ApprovalMode.AutoEdits
-    ApprovalUi.AutoApprove -> ApprovalMode.AutoApprove
-}
-
-internal fun StudioMessage.toUi(): MessageUi = when (this) {
-    is StudioMessage.Prompt -> MessageUi.Prompt(
-        id,
-        createdAt,
-        text,
-        isTimestampKnown,
-        attachments.filter { it.id.startsWith("attachment:") }.map {
-            AttachmentUi(it.id.removePrefix("attachment:"), "", it.mediaType, 0)
-        }.toImmutableList(),
-    )
-
-    is StudioMessage.Reply -> MessageUi.Reply(
-        id,
-        createdAt,
-        text,
-        tools.map { it.toUi() }.toImmutableList(),
-        isStreaming,
-        parts.map { part ->
-            when (part) {
-                is StudioReplyPart.Text -> ReplyPartUi.Text(part.id, part.text)
-                is StudioReplyPart.Reasoning -> ReplyPartUi.Reasoning(part.id, part.text)
-                is StudioReplyPart.Tool -> ReplyPartUi.Tool(part.tool.toUi())
-            }
-        }.toImmutableList(),
-        isTimestampKnown,
-        checklistIds.toImmutableList(),
-    )
-
-    is StudioMessage.Stopped -> MessageUi.Stopped(id, createdAt, elapsed)
-
-    is StudioMessage.Failed -> MessageUi.Failed(id, createdAt, FailureUi.valueOf(kind.name))
-
-    is StudioMessage.ContextNotice -> MessageUi.ContextNotice(id, createdAt, kind == ContextNoticeKind.RolledOver)
-}
-
-private fun StudioToolRun.toUi(): ToolUi = ToolUi(
-    id = id,
-    title = title,
-    status = when (status) {
-        ToolRunStatus.Pending -> ToolStatusUi.Pending
-        ToolRunStatus.Cancelled -> ToolStatusUi.Cancelled
-        ToolRunStatus.Running -> ToolStatusUi.Running
-        ToolRunStatus.Done -> ToolStatusUi.Done
-        ToolRunStatus.Failed -> ToolStatusUi.Failed
-    },
-    output = output,
-    diff = diff,
-    feedback = feedback?.toUi(),
-    learning = learning?.let { call ->
-        LearningCallUi(
-            isSkillLoad = call.action == LearningAction.LoadSkill,
-            kind = when (call.kind) {
-                InstructionKind.General -> LearningKindUi.General
-                InstructionKind.Model -> LearningKindUi.Model
-                InstructionKind.Skill -> LearningKindUi.Skill
-                null -> null
-            },
-            title = call.title,
-            content = call.content,
-        )
-    },
-)
-
 /**
  * Harnesses of the composer picker: enabled [options], committed connections by chat id and choices kept on the panes
  * of chats that have no session yet. [failedChats] are chats whose last connection change was not confirmed.
@@ -339,13 +192,6 @@ data class HarnessOptionUi(
     /** Project restrictions only control discovery, never automatic attachment. */
     fun isAvailableFor(projectId: String?): Boolean = projectIds.isEmpty() || projectId in projectIds
 }
-
-internal fun StudioHarness.toUi(): HarnessOptionUi = HarnessOptionUi(
-    id,
-    title,
-    description,
-    projectIds.toImmutableSet(),
-)
 
 /** One harness of a pane's picker. */
 @Immutable

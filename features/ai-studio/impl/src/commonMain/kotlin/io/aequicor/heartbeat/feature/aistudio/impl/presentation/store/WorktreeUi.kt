@@ -1,10 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeAction
-import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.toImmutableList
 
 /** Screen phases of the profile-owned task. */
 enum class WorktreePhaseUi {
@@ -50,25 +47,3 @@ data class WorktreeUi(
     val failure: String?,
     val builds: ImmutableList<BuildUi>,
 )
-
-internal fun WorktreeTask.toUi(): WorktreeUi = WorktreeUi(
-    WorktreePhaseUi.valueOf(phase.name),
-    branch,
-    sourceBranch,
-    run?.summary,
-    verifiedPullRequestUrl?.takeIf { it.startsWith("https://") },
-    failure,
-    builds.values.map {
-        BuildUi(
-            it.id,
-            it.command,
-            BuildPhaseUi.valueOf(it.phase.name),
-            it.output,
-            it.failure,
-            it.queuePosition,
-        )
-    }
-        .toImmutableList(),
-)
-
-internal fun WorktreeActionUi.toDomain(): WorktreeAction = WorktreeAction.valueOf(name)

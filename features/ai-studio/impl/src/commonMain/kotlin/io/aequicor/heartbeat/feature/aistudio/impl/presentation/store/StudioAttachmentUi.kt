@@ -1,9 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
-import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAttachmentPreview
-import io.aequicor.heartbeat.feature.attachments.api.AttachmentDescriptor
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
@@ -29,9 +26,6 @@ data class AttachmentPreviewUi(
 /** Multiple visible rows may share one stable attachment; only the last disposal releases its preview. */
 @Immutable
 data class PreviewVisibilityUi(val mediaType: String, val consumers: Int)
-
-internal fun StudioAttachmentPreview.toUi() = AttachmentPreviewUi(imageBytes, documentSnippet, isUnavailable)
-
 internal fun AiStudioScreenState.withPreviewVisibility(
     event: AiStudioScreenIntent.AttachmentPreviewVisible,
 ): AiStudioScreenState {
@@ -63,24 +57,6 @@ data class InputSupportUi(
     fun withinLimits(files: List<AttachmentUi>): Boolean = files.size <= maxAttachments &&
         files.sumOf { it.sizeBytes } <= maxTotalBytes
 }
-
-internal fun PromptInputSupport.toUi() = InputSupportUi(
-    allowedMediaTypes.toImmutableList(),
-    imageMediaTypes.toImmutableList(),
-    maxFileBytes,
-    maxAttachments,
-    maxTotalBytes,
-)
-
-internal fun InputSupportUi.toDomain() = PromptInputSupport(
-    imageMediaTypes.toSet(),
-    (mediaTypes - imageMediaTypes.toSet()).toSet(),
-    maxFileBytes,
-    maxAttachments,
-    maxTotalBytes,
-)
-
-internal fun AttachmentDescriptor.toUi() = AttachmentUi(id.value, name, mediaType, sizeBytes)
 
 /** Transient platform input captured only by an explicit drop or clipboard gesture. */
 sealed interface NativeAttachmentUi {
@@ -115,7 +91,6 @@ internal fun AiStudioScreenState.prepareSubmission(id: String, sessionId: String
     val submitted = submissions[id] ?: return this
     return copy(submissions = (submissions + (id to submitted.copy(sessionId = sessionId))).toImmutableMap())
 }
-
 internal fun AiStudioScreenState.pendingSubmission(paneId: Int, id: String): SubmissionUi {
     val key = draftKey(paneId)
     val pane = panes.firstOrNull { it.id == paneId }
@@ -220,14 +195,12 @@ internal fun AiStudioScreenState.rejectSubmission(id: String, sessionId: String 
         ).toImmutableSet(),
     )
 }
-
 internal fun AiStudioScreenState.attachmentSupport(paneId: Int): InputSupportUi? {
     val sessionId = panes.firstOrNull { it.id == paneId }?.sessionId
     val modelId = organisms[sessionId]?.modelId ?: configurations[sessionId]?.modelId
         ?: session(sessionId)?.modelId ?: settings.modelId
     return models.firstOrNull { it.id == modelId }?.inputSupport
 }
-
 private const val DEFAULT_FILE_BYTES = 10L * 1024 * 1024
 private const val DEFAULT_FILE_COUNT = 10
 private const val DEFAULT_TOTAL_BYTES = 25L * 1024 * 1024
