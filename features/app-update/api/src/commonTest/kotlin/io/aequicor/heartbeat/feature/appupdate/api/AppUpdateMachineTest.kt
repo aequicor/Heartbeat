@@ -57,7 +57,7 @@ class AppUpdateMachineTest {
     }
 
     @Test
-    fun `no newer release means up to date, also dropping an earlier offer`() {
+    fun `no newer release means up to date and drops an earlier offer`() {
         AppUpdateMachineSpec.assertTransition(
             from = AppUpdateState.Checking(offered = release),
             intent = Internal.Checked(null),
@@ -95,7 +95,7 @@ class AppUpdateMachineTest {
     }
 
     @Test
-    fun `install downloads the offered release, also as a retry`() {
+    fun `install downloads the offered release including on retry`() {
         AppUpdateMachineSpec.assertTransition(
             from = AppUpdateState.Available(release, AppUpdateFailure.Network),
             intent = Public.Install,
