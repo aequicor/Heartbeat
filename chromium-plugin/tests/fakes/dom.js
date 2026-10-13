@@ -66,6 +66,7 @@ export function fakeDocument() {
   }
   const ids = new Map();
   document.createElement = (/** @type {string} */ tag) => new Element(tag);
+  document.createElementNS = (/** @type {string} */ _namespace, /** @type {string} */ tag) => new Element(tag);
   document.createDocumentFragment = () => new Element('fragment');
   document.createTextNode = (/** @type {string} */ text) => { const node = new Element('text'); node.text = text; return node; };
   document.getElementById = (/** @type {string} */ id) => {

@@ -3,6 +3,7 @@ import { pendingAttachmentKey, takeSelection } from '../background/context-menu.
 import { capturePage } from '../shared/page-capture.js';
 import { CALL_TIMEOUT_MS, ErrorCode } from '../shared/protocol.js';
 import { createTranslator, errorMessage } from '../shared/strings.js';
+import { icon } from './icons.js';
 import { canSend, initialState, reduce, selectedChat, selectedPermissions } from './store.js';
 import { renderChatList } from './views/chat-list.js';
 import { createTranscriptRenderer } from './views/chat-view.js';
@@ -170,7 +171,8 @@ function render(previous) {
   byId('title').textContent = chat?.title ?? (state.isComposingNew ? t('newChat') : t('chats'));
   byId('back').hidden = isListing;
   byId('back').setAttribute('aria-label', t('back'));
-  byId('new-chat').textContent = t('newChat');
+  byId('new-chat').setAttribute('aria-label', t('newChat'));
+  byId('new-chat').title = t('newChat');
   byId('new-chat').hidden = state.isComposingNew;
   filterInput.hidden = !isListing;
   filterInput.placeholder = t('search');
@@ -253,17 +255,23 @@ function renderAttachments() {
         'span',
         { className: 'chip' },
         h(document, 'span', { text: attachment.title || attachment.url, title: attachment.url }),
-        h(document, 'button', {
-          className: 'icon',
-          text: '×',
-          attrs: { type: 'button', 'aria-label': t('dismiss') },
-          on: { click: () => dispatch({ type: 'detach', index }) },
-        }),
+        h(
+          document,
+          'button',
+          {
+            className: 'icon',
+            attrs: { type: 'button', 'aria-label': t('dismiss') },
+            on: { click: () => dispatch({ type: 'detach', index }) },
+          },
+          icon(document, 'Close', 14),
+        ),
       ),
     ),
   );
 }
 
+byId('back').replaceChildren(icon(document, 'ArrowLeft'));
+byId('new-chat').replaceChildren(icon(document, 'Plus'));
 byId('back').addEventListener('click', back);
 byId('new-chat').addEventListener('click', () => {
   port.postMessage({ type: 'unwatch', key: 'chat' });
