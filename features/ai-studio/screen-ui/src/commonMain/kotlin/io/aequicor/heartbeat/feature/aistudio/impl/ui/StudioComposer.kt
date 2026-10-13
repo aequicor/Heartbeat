@@ -141,7 +141,11 @@ internal fun StudioComposer(
         stopLabel = stringResource(Res.string.composer_stop),
         modifier = modifier.testTag("composer-${pane.id}"),
         hasAttachments = content.attachments.isNotEmpty(),
-        canSend = support?.accepts(content.attachments) ?: content.attachments.isEmpty(),
+        canSend = !content.isAttachmentPending && (
+            support?.accepts(
+                content.attachments,
+            ) ?: content.attachments.isEmpty()
+        ),
         layout = HbComposerLayout.Panel,
         inputMaxHeight = if (isCompact && !HbTheme.dimensions.isDesktop) {
             HbTheme.dimensions.composerMaxHeight

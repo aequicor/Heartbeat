@@ -13,11 +13,15 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteIntent
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteOpen
+import io.aequicor.heartbeat.feature.aistudio.api.StudioRemotePage
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteRefusal
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteReply
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteScreens
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote.RemoteStudioView
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.NativeAttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioViewJson
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewSchema
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -87,6 +91,19 @@ internal class RemoteStudioViews(
         intents: List<StudioRemoteIntent>,
     ): StudioRemoteReply = withContext(dispatchers.main) {
         views[viewId]?.apply(generation, intents) ?: StudioRemoteReply.UnknownView
+    }
+
+    override suspend fun attachPage(
+        viewId: String,
+        generation: String,
+        seq: Long,
+        paneId: Int,
+        page: StudioRemotePage,
+    ): StudioRemoteReply {
+        val input = NativeAttachmentUi.Page(page.url, page.title, page.text, page.selection)
+        val intent = AiStudioScreenIntent.ImportAttachments(paneId, listOf(input))
+        val encoded = StudioViewJson.encodeToJsonElement(AiStudioScreenIntent.serializer(), intent)
+        return send(viewId, generation, listOf(StudioRemoteIntent(seq, encoded)))
     }
 
     private fun create(viewId: String): RemoteStudioView {

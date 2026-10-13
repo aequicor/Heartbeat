@@ -29,6 +29,19 @@ public interface StudioRemoteScreens {
      * instance identified by its snapshot; stale requests never reach a recreated screen.
      */
     public suspend fun send(viewId: String, generation: String, intents: List<StudioRemoteIntent>): StudioRemoteReply
+
+    /**
+     * Imports the user's captured [page] into the draft of [paneId]. Shares the sequence space and generation
+     * guard of [send], so retries cannot import twice and subsequent intents observe the import request.
+     * The selected model's attachment support still applies; the result arrives in the screen's frames.
+     */
+    public suspend fun attachPage(
+        viewId: String,
+        generation: String,
+        seq: Long,
+        paneId: Int,
+        page: StudioRemotePage,
+    ): StudioRemoteReply
 }
 
 /** One screen intent of a host, numbered by the host. */
@@ -63,3 +76,11 @@ public sealed interface StudioRemoteReply {
     /** No such view (closed after its grace period, or the app restarted): the host opens it again. */
     public data object UnknownView : StudioRemoteReply
 }
+
+/** Explicitly captured browser content, imported as a Markdown attachment by the studio's attachment flow. */
+public data class StudioRemotePage(
+    public val url: String,
+    public val title: String,
+    public val text: String,
+    public val selection: String?,
+)

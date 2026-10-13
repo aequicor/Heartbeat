@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.NativeAttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.withDraft
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioViewJson
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewEncoder
@@ -201,6 +202,41 @@ class RemoteStudioStoreTest {
             show(AiStudioScreenState())
             runCurrent()
             assertEquals(2, posted("call").size)
+        }
+    }
+
+    @Test
+    fun `a captured page stays between edits and retries with its original sequence`() = runTest {
+        store().subscribeAndTest {
+            runCurrent()
+            show(AiStudioScreenState())
+            runCurrent()
+            AiStudioScreenIntent.ToggleSearch resultsIn { runCurrent() }
+            AiStudioScreenIntent.ImportAttachments(
+                7,
+                listOf(NativeAttachmentUi.Page("https://example.com", "Page", "Body", "Selected")),
+            ) resultsIn { runCurrent() }
+            AiStudioScreenIntent.Suggestions.DraftChanged(7, "Read this") resultsIn { runCurrent() }
+            reply(posted("call").single(), "\"result\":{\"ack\":1}")
+            runCurrent()
+            val page = posted("call").last()
+            assertEquals("studio.attachPage", page.getValue("method").jsonPrimitive.content)
+            val params = page.getValue("params").jsonObject
+            assertEquals(2, params.getValue("seq").jsonPrimitive.long)
+            assertEquals(JsonPrimitive(7), params["paneId"])
+            assertEquals(JsonPrimitive("Selected"), params.getValue("page").jsonObject["selection"])
+            reply(page, "\"error\":{\"code\":\"timeout\"}")
+            advanceTimeBy(6.seconds)
+            runCurrent()
+            app.reset()
+            show(AiStudioScreenState().copy(remoteSeq = 1))
+            runCurrent()
+            assertEquals(params, posted("call").last().getValue("params"))
+            reply(posted("call").last(), "\"result\":{\"ack\":2}")
+            runCurrent()
+            assertEquals("studio.intent", posted("call").last().getValue("method").jsonPrimitive.content)
+            val intents = posted("call").last().getValue("params").jsonObject.getValue("intents").jsonArray
+            assertEquals(3, intents.single().jsonObject.getValue("seq").jsonPrimitive.long)
         }
     }
 

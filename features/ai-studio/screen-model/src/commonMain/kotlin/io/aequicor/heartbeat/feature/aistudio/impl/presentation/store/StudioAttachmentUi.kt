@@ -89,6 +89,14 @@ sealed interface NativeAttachmentUi {
         override fun toString(): String = "NativeAttachmentUi.File(redacted)"
     }
 
+    /** Readable text captured from a browser page by the user's explicit gesture. */
+    @Serializable
+    @SerialName("NativeAttachmentUi.Page")
+    data class Page(val url: String, val title: String = "", val text: String = "", val selection: String? = null) :
+        NativeAttachmentUi {
+        override fun toString(): String = "NativeAttachmentUi.Page(redacted)"
+    }
+
     /** PNG image captured by an explicit clipboard gesture. */
     @Serializable
     @SerialName("NativeAttachmentUi.Image")
@@ -239,3 +247,6 @@ fun AiStudioScreenState.attachmentSupport(paneId: Int): InputSupportUi? {
 private const val DEFAULT_FILE_BYTES = 10L * 1024 * 1024
 private const val DEFAULT_FILE_COUNT = 10
 private const val DEFAULT_TOTAL_BYTES = 25L * 1024 * 1024
+
+/** A draft cannot be submitted while its attachment request has not returned. */
+fun AiStudioScreenState.isAttachmentPending(paneId: Int): Boolean = draftKey(paneId) in attachmentRequests.values

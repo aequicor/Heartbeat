@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.screenmodel.remote
 
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.isAttachmentPending
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.reduce
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.withDraft
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.withDraftCaret
@@ -23,6 +24,16 @@ fun AiStudioScreenState.predict(intent: AiStudioScreenIntent): AiStudioScreenSta
     intent is AiStudioScreenIntent.Suggestions.CaretMoved -> withDraftCaret(intent.paneId, intent.caret)
 
     intent is AiStudioScreenIntent.Sidebar -> copy(sidebar = sidebar.reduce(intent))
+
+    intent is AiStudioScreenIntent.ImportAttachments && !isAttachmentPending(intent.paneId) -> copy(
+        attachmentRequests = (
+            attachmentRequests + (
+                "remote-import:${intent.paneId}" to draftKey(
+                    intent.paneId,
+                )
+            )
+        ).toImmutableMap(),
+    )
 
     intent is AiStudioScreenIntent.QuestionInput -> predictQuestion(intent)
 

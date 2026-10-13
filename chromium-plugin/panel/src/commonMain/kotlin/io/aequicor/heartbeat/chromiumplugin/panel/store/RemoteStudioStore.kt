@@ -9,7 +9,6 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
-import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioViewJson
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewFrame
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewGapException
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.remote.StudioViewLimitException
@@ -26,7 +25,6 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import pro.respawn.flowmvi.api.Store
@@ -164,16 +162,12 @@ private class StudioViewLink(
 
     /** Sends one batch of unsent intents; `false` when nothing is left or the send failed. */
     private suspend fun sendBatch(): Boolean {
-        val batch = sync.unsent(MAX_BATCH)
+        val batch = sync.unsent(MAX_BATCH).nextStudioBatch()
         if (batch.isEmpty()) return false
-        val intents = batch.map { pending ->
-            val intent = StudioViewJson.encodeToJsonElement(AiStudioScreenIntent.serializer(), pending.intent)
-            ViewIntent(pending.seq, intent)
-        }
         val generation = checkNotNull(sync.generation)
-        val params = panelJson.encodeToJsonElement(ViewIntents.serializer(), ViewIntents(viewId, generation, intents))
+        val call = studioBatchCall(viewId, generation, batch)
         return try {
-            val reply = panelJson.decodeFromJsonElement(ViewAck.serializer(), link.call(STUDIO_INTENT, params))
+            val reply = panelJson.decodeFromJsonElement(ViewAck.serializer(), link.call(call.method, call.params))
             if (reply.refused.isNotEmpty()) log.i { "${reply.refused.size} studio intents refused by the app" }
             if (sync.generation == generation) sync.sent(batch.last().seq)
             true
@@ -194,6 +188,7 @@ private class StudioViewLink(
 
     private suspend fun retry(generation: String, immediately: Boolean = false) {
         if (sync.generation == generation) {
+            sync.restart()
             sync.resend()
             if (!immediately) delay(retryDelay)
             // A snapshot may have replaced the instance while the sender waited.
@@ -213,21 +208,12 @@ private fun String?.viewStatus(): StudioViewStatus = when (this) {
     else -> StudioViewStatus.Connecting
 }
 
-/** `studio.intent` parameters. */
-@Serializable
-private data class ViewIntents(val view: String, val generation: String, val intents: List<ViewIntent>)
-
-/** One numbered screen intent. */
-@Serializable
-private data class ViewIntent(val seq: Long, val intent: JsonElement)
-
 /** `studio.intent` result: the last applied sequence number and the refused ones. */
 @Serializable
 private data class ViewAck(val ack: Long, val refused: List<Long> = emptyList())
 
 private const val WATCH_KEY = "studio"
 private const val STUDIO_WATCH = "studio.watch"
-private const val STUDIO_INTENT = "studio.intent"
 private const val STUDIO_CHANGED = "studio.changed"
 
 /** The app takes at most 64 intents per call (`SidePanelStudioHandlers`). */

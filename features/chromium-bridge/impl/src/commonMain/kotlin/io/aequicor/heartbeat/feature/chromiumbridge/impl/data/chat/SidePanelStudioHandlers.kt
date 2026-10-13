@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteIntent
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteOpen
+import io.aequicor.heartbeat.feature.aistudio.api.StudioRemotePage
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteRefusal
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteReply
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteScreens
@@ -18,6 +19,7 @@ import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeReque
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.server.BridgeSession
 import io.aequicor.heartbeat.feature.chromiumbridge.protocol.BridgeErrorCode
 import io.aequicor.heartbeat.feature.chromiumbridge.protocol.WatchRef
+import io.aequicor.heartbeat.feature.chromiumbridge.protocol.WirePage
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.KSerializer
@@ -37,11 +39,12 @@ internal class SidePanelStudioHandlers(private val studio: StudioRemoteScreens, 
     BridgeRequestHandler {
     private val log = Log.tag("SidePanelStudio")
 
-    override val methods: Set<String> = setOf(STUDIO_WATCH, STUDIO_INTENT)
+    override val methods: Set<String> = setOf(STUDIO_WATCH, STUDIO_INTENT, STUDIO_ATTACH_PAGE)
 
     override suspend fun handle(call: BridgeCall): BridgeReply = when (call.method) {
         STUDIO_WATCH -> watch(call.session, decode(call, ViewOpen.serializer()))
         STUDIO_INTENT -> intents(decode(call, ViewIntents.serializer()))
+        STUDIO_ATTACH_PAGE -> attachPage(decode(call, ViewPage.serializer()))
         else -> BridgeReply.Refused(BridgeErrorCode.UNKNOWN_METHOD, "Unknown method")
     }
 
@@ -79,13 +82,21 @@ internal class SidePanelStudioHandlers(private val studio: StudioRemoteScreens, 
     private suspend fun intents(params: ViewIntents): BridgeReply {
         require(params.intents.size <= MAX_INTENTS) { "Too many intents" }
         val intents = params.intents.map { StudioRemoteIntent(it.seq, it.intent) }
-        return when (val reply = studio.send(params.view, params.generation, intents)) {
-            is StudioRemoteReply.Applied -> BridgeReply.Ok(
-                BridgeProtocol.json.encodeToJsonElement(ViewAck.serializer(), ViewAck(reply.ack, reply.refused)),
-            )
+        return studio.send(params.view, params.generation, intents).reply()
+    }
 
-            StudioRemoteReply.UnknownView -> BridgeReply.Refused(BridgeErrorCode.UNKNOWN_VIEW, "Unknown view")
-        }
+    private suspend fun attachPage(params: ViewPage): BridgeReply {
+        require(params.page.isValid()) { "Invalid captured page" }
+        val page = params.page.let { StudioRemotePage(it.url, it.title, it.text, it.selection) }
+        return studio.attachPage(params.view, params.generation, params.seq, params.paneId, page).reply()
+    }
+
+    private fun StudioRemoteReply.reply(): BridgeReply = when (this) {
+        is StudioRemoteReply.Applied -> BridgeReply.Ok(
+            BridgeProtocol.json.encodeToJsonElement(ViewAck.serializer(), ViewAck(ack, refused)),
+        )
+
+        StudioRemoteReply.UnknownView -> BridgeReply.Refused(BridgeErrorCode.UNKNOWN_VIEW, "Unknown view")
     }
 
     private fun StudioRemoteRefusal.refusal(): BridgeReply.Refused = when (this) {
@@ -114,6 +125,16 @@ internal class SidePanelStudioHandlers(private val studio: StudioRemoteScreens, 
     @Serializable
     private data class ViewIntent(val seq: Long, val intent: JsonElement)
 
+    /** Page capture in the same ordered stream as `studio.intent`. */
+    @Serializable
+    private data class ViewPage(
+        val view: String,
+        val generation: String,
+        val seq: Long,
+        val paneId: Int,
+        val page: WirePage,
+    )
+
     /** `studio.intent` result. */
     @Serializable
     private data class ViewAck(val ack: Long, val refused: List<Long>)
@@ -121,6 +142,7 @@ internal class SidePanelStudioHandlers(private val studio: StudioRemoteScreens, 
     private companion object {
         const val STUDIO_WATCH = "studio.watch"
         const val STUDIO_INTENT = "studio.intent"
+        const val STUDIO_ATTACH_PAGE = "studio.attachPage"
         const val STUDIO_CHANGED = "studio.changed"
         const val MAX_INTENTS = 64
         const val MAX_ID_CHARS = 256

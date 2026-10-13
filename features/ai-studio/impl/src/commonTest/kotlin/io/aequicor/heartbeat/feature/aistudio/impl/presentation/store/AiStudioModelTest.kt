@@ -51,6 +51,10 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentDescriptor
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsIntent
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsMachineKey
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsOutput
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsState
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssistOrigin
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
@@ -795,6 +799,7 @@ class AiStudioModelTest {
             io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote.StudioEmbeds.None,
         host: io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost =
             io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioScreenHost.Window,
+        attachments: Machine<AttachmentsState, AttachmentsIntent, AttachmentsOutput>? = null,
         assists: io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists =
             object : io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists {
                 override suspend fun suggest(
@@ -805,7 +810,7 @@ class AiStudioModelTest {
             },
     ) {
         val machine = FakeMachine(initial)
-        val efforts = FakeEfforts()
+        val efforts = FakeEfforts(attachments)
         val researchEnabled = MutableStateFlow(false)
         val catalog = FakeCatalog()
         val model = AiStudioModel(
@@ -819,6 +824,7 @@ class AiStudioModelTest {
             scope = TestScopeHandle(scope.backgroundScope),
             factory = HeartbeatStoreFactory(TestDispatchers(StandardTestDispatcher(scope.testScheduler))),
             entries = object : StudioEntries {
+                override val showsAttachments = flowOf(attachments != null)
                 override val showsResearch = researchEnabled
                 override val showsConnections = flowOf(false)
                 override val showsProfileSettings = flowOf(false)
@@ -875,8 +881,9 @@ internal class FakeMachine(initial: AiStudioState) : Machine<AiStudioState, AiSt
     }
 }
 
-internal class FakeEfforts :
-    EffortChoicesView,
+internal class FakeEfforts(
+    private val attachments: Machine<AttachmentsState, AttachmentsIntent, AttachmentsOutput>? = null,
+) : EffortChoicesView,
     MachineRegistry {
     override val state = MutableStateFlow<EffortConfigurationState>(EffortConfigurationState.Ready())
     val sent = mutableListOf<Any>()
@@ -891,6 +898,8 @@ internal class FakeEfforts :
     override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> observe(
         key: MachineKey<S, I, P, E, O>,
     ): StateFlow<MachineRef<S, P, O>?> = when (key) {
+        AttachmentsMachineKey -> MutableStateFlow(attachments) as StateFlow<MachineRef<S, P, O>?>
+
         ComputerUseMachineKey ->
             MutableStateFlow<MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>?>(computerUse) as
                 StateFlow<MachineRef<S, P, O>?>
@@ -906,6 +915,7 @@ internal class FakeEfforts :
         key: MachineKey<S, I, P, E, O>,
         intent: P,
     ): SendResult {
+        if (key == AttachmentsMachineKey) return checkNotNull(attachments).send(intent as AttachmentsIntent)
         assertEquals(EffortConfigurationMachineKey.name, key.name)
         sent += intent
         return SendResult.Accepted

@@ -27,6 +27,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.attachmentSupport
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.availableHarnesses
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.collapsed
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.isAttachmentPending
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.selectedNative
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
@@ -105,6 +106,7 @@ data class PaneContent(
     val subSession: String = PRIMARY_SUB_SESSION,
     val nativeTree: SessionTreeUi? = null,
     val isAttachmentFailed: Boolean = false,
+    val isAttachmentPending: Boolean = false,
     val attachmentPreviews: ImmutableMap<String, AttachmentPreviewUi> = persistentMapOf(),
     /** Suggestions of the pane's active composer token; null hides the popup. */
     val suggestions: io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ComposerSuggestionsUi? = null,
@@ -184,6 +186,7 @@ fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         subSession = selectedSubSession(pane.sessionId, session),
         nativeTree = nativeTrees[pane.sessionId],
         isAttachmentFailed = pane.id in attachmentErrorPanes,
+        isAttachmentPending = isAttachmentPending(pane.id),
         attachmentPreviews = attachmentPreviews,
         suggestions = composerSuggestions[draftKey(pane.id)]?.takeIf { it.items.isNotEmpty() },
         caretRequest = caretRequest(pane.id),

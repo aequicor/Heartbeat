@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.remote
 
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.NativeAttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.isValid
 
 /**
  * Whether a remote view may send [intent]. Refused: native desktop surfaces the browser cannot show (folder and file
@@ -76,7 +77,13 @@ private fun isAllowedAttachment(intent: AiStudioScreenIntent.Attachment): Boolea
     is AiStudioScreenIntent.ExportAttachment,
     -> false
 
-    is AiStudioScreenIntent.ImportAttachments -> intent.inputs.none { it is NativeAttachmentUi.File }
+    is AiStudioScreenIntent.ImportAttachments -> intent.inputs.all {
+        when (it) {
+            is NativeAttachmentUi.File -> false
+            is NativeAttachmentUi.Page -> it.isValid()
+            is NativeAttachmentUi.Image -> true
+        }
+    }
 
     is AiStudioScreenIntent.RemoveAttachment, is AiStudioScreenIntent.AttachmentPreviewVisible -> true
 }
