@@ -194,6 +194,13 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > Скрипты и workflow работают только на Desktop: K2 компилирует
 > в отдельном процессе-воркере (свой малый heap, убивается по таймауту), исполняются они в процессе приложения
 > (проба `--heartbeat-harness-probe`); запуски workflow восстанавливаются после рестарта.
+> `features:app-update:{api,impl}` — самообновление установленного desktop-приложения (macOS, Windows) из GitHub Releases
+> (тогл `app_update.enabled`, по умолчанию true): машина в AppScope (`AppUpdateMachineKey`, запуск — `AppStartup` desktop)
+> проверяет последний релиз `vX.Y.Z` при запуске и раз в 6 ч; кнопка «Обновить» в шапке сайдбара студии скачивает сборку
+> с проверкой SHA-256, на macOS меняет бандл из DMG, на Windows тихо ставит установщик Inno Setup поверх, после выхода
+> приложения helper запускает новую версию (desktop выходит штатно по `Restarting`). Активно только в установленной
+> релизной сборке (`-Dheartbeat.app.update.repository` у release-лаунчера). Версия — `heartbeat.version` в
+> `gradle.properties`; релиз публикует `.github/workflows/release.yml` по тегу после всех тестов и сборок.
 > Приложение: `core:mvi`, фичи `welcome`, `ai-studio`, `toggles-panel`, `ai-engine:connections` (профильные маршруты); платформенные входы подключены к root.
 
 ## Жёсткие правила (нарушение = блокер ревью)

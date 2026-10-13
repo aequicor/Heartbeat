@@ -1,0 +1,230 @@
+name: Release
+
+# Publishes a Heartbeat release when a tag vMAJOR.MINOR.PATCH is pushed; the tagged commit must be on master.
+# Publishing needs every job to pass: all tests and lint, the Android and iOS builds, and the four desktop
+# installers, each checked by running its packaged app (verifyReleaseHarnessCompiler).
+# Installed release builds update themselves from the latest release (features/app-update): the release is
+# created as a draft, gets every installer and SHA256SUMS, and only then becomes public and latest. The asset
+# names are what the app looks for (ReleasePlatform in features/app-update/impl): keep them in sync.
+# A manual run builds and checks everything for a version without publishing it, e.g. before the first tag:
+#   gh workflow run release.yml --ref <branch> -f version=1.4.0
+run-name: "${{ github.event_name == 'push' && format('Release {0}', github.ref_name) || format('Release dry run {0}', inputs.version) }}"
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build and check without publishing: MAJOR.MINOR.PATCH'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check the version
+        id: version
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          TAG: ${{ github.ref_name }}
+          INPUT: ${{ inputs.version }}
+        run: |
+          if [ "$EVENT" = push ]; then version=${TAG#v}; else version=$INPUT; fi
+          # jpackage needs a major of at least 1; Android's versionCode needs minor and patch below 1000.
+          if [[ ! $version =~ ^[1-9][0-9]{0,2}\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$ ]]; then
+            echo "::error::The version must be MAJOR.MINOR.PATCH with numbers up to 999 and a major of at least 1"
+            exit 1
+          fi
+          if [ "$EVENT" = push ] && ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+            echo "::error::Release tags must point to a commit on master"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  checks:
+    name: Tests and lint
+    needs: version
+    runs-on: macos-15
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: jetbrains
+          java-version: '21'
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Test repository scripts
+        run: |
+          python -m pip install -r scripts/requirements-commit-policy.txt
+          python -m unittest discover -s scripts/tests -v
+          python -m unittest discover -s native/jcef -p "test_*.py" -v
+      - name: Test and lint all modules
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: >-
+          ./gradlew -Pheartbeat.version="$VERSION"
+          allTests :platform-main:desktop:test :lint:detekt-rules:test detekt
+          --continue --stacktrace
+
+  mobile:
+    name: Android and iOS builds
+    needs: version
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: jetbrains
+          java-version: '21'
+      - name: Build the Android app and the iOS framework
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: >-
+          ./gradlew -Pheartbeat.version="$VERSION"
+          :platform-main:android:assembleRelease :platform-main:shared:linkReleaseFrameworkIosArm64
+          --stacktrace
+
+  desktop:
+    name: Desktop ${{ matrix.platform }}
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-arm64
+            runner: macos-15
+            task: packageReleaseDmg
+          - platform: macos-x64
+            runner: macos-15-intel
+            task: packageReleaseDmg
+          - platform: windows-x64
+            runner: windows-2025
+            task: packageReleaseInnoSetup
+          - platform: windows-arm64
+            runner: windows-11-arm
+            task: packageReleaseInnoSetup
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: jetbrains
+          java-version: '21'
+      - name: Install Inno Setup
+        if: runner.os == 'Windows'
+        shell: pwsh
+        # packaging/windows/heartbeat.iss needs Inno Setup 6.6 or newer; the newest installed major is used.
+        run: choco install innosetup --no-progress -y
+      - name: Package and check the release app
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          TASK: ${{ matrix.task }}
+        run: >-
+          ./gradlew -Pheartbeat.version="$VERSION"
+          :platform-main:desktop:verifyReleaseHarnessCompiler ":platform-main:desktop:$TASK"
+          --stacktrace
+      - name: Name the installer
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          binaries=platform-main/desktop/build/compose/binaries/main-release
+          mkdir release
+          if [ "$RUNNER_OS" = Windows ]; then
+            cp "$binaries/exe/Heartbeat-$VERSION-setup.exe" "release/Heartbeat-$VERSION-$PLATFORM-setup.exe"
+          else
+            images=("$binaries"/dmg/*.dmg)
+            if [ "${#images[@]}" -ne 1 ]; then
+              echo "::error::Expected one disk image"
+              exit 1
+            fi
+            cp "${images[0]}" "release/Heartbeat-$VERSION-$PLATFORM.dmg"
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.platform }}
+          path: release/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish
+    needs: [version, checks, mobile, desktop]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: desktop-*
+          path: release
+          merge-multiple: true
+      - name: Write checksums
+        working-directory: release
+        run: |
+          sha256sum Heartbeat-* > SHA256SUMS
+          cat SHA256SUMS
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          cat > notes.md <<'NOTES'
+          Установленный Heartbeat обновляется сам: при запуске он находит этот релиз и предлагает «Обновить» в шапке
+          сайдбара студии.
+
+          Первая установка:
+          - macOS: `macos-arm64` — Apple Silicon, `macos-x64` — Intel. Откройте DMG и перетащите приложение в
+            «Программы». Сборка не подписана: при первом запуске откройте его из контекстного меню «Открыть» или
+            разрешите в «Системные настройки → Конфиденциальность и безопасность».
+          - Windows: `windows-x64` или `windows-arm64`, запустите `…-setup.exe`. SmartScreen может предупредить о
+            неизвестном издателе: «Подробнее → Выполнить в любом случае».
+
+          `SHA256SUMS` — контрольные суммы всех файлов релиза.
+          NOTES
+          # A re-run continues a draft left by a failed run; a published release is never replaced.
+          if gh release view "$TAG" --json isDraft --jq .isDraft > draft 2>/dev/null; then
+            if [ "$(cat draft)" != true ]; then
+              echo "::error::Release $TAG is already published"
+              exit 1
+            fi
+            gh release upload "$TAG" release/* --clobber
+          else
+            gh release create "$TAG" release/* --draft --verify-tag --title "Heartbeat $VERSION" \
+              --notes-file notes.md --generate-notes
+          fi
+          # Public only with every asset: installed apps take the latest release as soon as it appears.
+          gh release edit "$TAG" --draft=false --latest
