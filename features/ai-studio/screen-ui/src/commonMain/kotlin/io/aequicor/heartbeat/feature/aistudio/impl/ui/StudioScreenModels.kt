@@ -45,8 +45,8 @@ import kotlin.time.Duration
  */
 @Immutable
 data class StudioExits(
-    val onBack: () -> Unit,
-    val onOpenToggles: () -> Unit,
+    val onBack: (() -> Unit)? = null,
+    val onOpenToggles: (() -> Unit)? = null,
     val onOpenProfileSettings: (() -> Unit)? = null,
     val onOpenConnections: (() -> Unit)? = null,
     val onOpenResearch: ((String) -> Unit)? = null,
@@ -112,6 +112,7 @@ data class PaneContent(
     val suggestions: io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ComposerSuggestionsUi? = null,
     val caretRequest: ComposerCaretRequestUi? = null,
     val diagram: DiagramActionsUi = DiagramActionsUi(),
+    val host: StudioHostCapabilities = StudioHostCapabilities(),
 ) {
     /** The chat exists and compaction is enabled, so the pane offers it. */
     val isCompactOffered: Boolean get() = isCompactEnabled && pane.sessionId != null
@@ -322,3 +323,12 @@ private fun AiStudioScreenState.diagramActions(pane: PaneUi): DiagramActionsUi =
     focusRequest = diagramFocusRequests[pane.id] ?: 0L,
     draftReason = diagramDraftReasons[pane.sessionId],
 )
+
+/** The same pane with native affordances constrained by its rendering host. */
+fun AiStudioScreenState.paneContent(pane: PaneUi, host: StudioHostCapabilities): PaneContent =
+    paneContent(pane).let { content ->
+        content.copy(
+            host = host,
+            isProjectAddingAvailable = content.isProjectAddingAvailable && host.isProjectAddingAvailable,
+        )
+    }

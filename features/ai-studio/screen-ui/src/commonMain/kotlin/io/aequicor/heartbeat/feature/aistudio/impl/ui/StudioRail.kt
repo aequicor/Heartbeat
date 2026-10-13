@@ -80,7 +80,7 @@ internal fun StudioRail(
         } else {
             LegacySettingsActions(exits)
         }
-        FooterAction(HbIcons.ArrowLeft, stringResource(Res.string.studio_back), exits.onBack, "rail-back")
+        exits.onBack?.let { FooterAction(HbIcons.ArrowLeft, stringResource(Res.string.studio_back), it, "rail-back") }
     }
 }
 
@@ -88,7 +88,9 @@ internal fun StudioRail(
 @Composable
 private fun LegacySettingsActions(exits: StudioExits, modifier: Modifier = Modifier) {
     HbRow(modifier, gap = HbTheme.spacing.xxs) {
-        FooterAction(HbIcons.Sliders, stringResource(Res.string.rail_toggles), exits.onOpenToggles, "rail-toggles")
+        exits.onOpenToggles?.let {
+            FooterAction(HbIcons.Sliders, stringResource(Res.string.rail_toggles), it, "rail-toggles")
+        }
         exits.onOpenProfileSettings?.let {
             FooterAction(
                 HbIcons.Settings,

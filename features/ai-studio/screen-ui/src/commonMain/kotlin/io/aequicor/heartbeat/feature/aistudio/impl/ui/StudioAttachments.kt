@@ -47,6 +47,7 @@ internal fun StudioAttachments(
     paneId: Int? = null,
     support: InputSupportUi? = null,
     previews: ImmutableMap<String, AttachmentPreviewUi> = persistentMapOf(),
+    isOpeningAvailable: Boolean = true,
 ) {
     HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.xs) {
         if (paneId != null) {
@@ -59,13 +60,13 @@ internal fun StudioAttachments(
                 items(
                     files,
                     key = { it.id },
-                ) { file -> AttachmentRow(file, onIntent, paneId, support, previews[file.id]) }
+                ) { file -> AttachmentRow(file, onIntent, paneId, support, previews[file.id], isOpeningAvailable) }
             }
         } else {
             HbColumn(Modifier.fillMaxWidth(), gap = HbTheme.spacing.xs) {
                 files.forEach { file ->
                     key(file.id) {
-                        AttachmentRow(file, onIntent, paneId, support, previews[file.id])
+                        AttachmentRow(file, onIntent, paneId, support, previews[file.id], isOpeningAvailable)
                     }
                 }
             }
@@ -81,6 +82,7 @@ private fun AttachmentRow(
     paneId: Int?,
     support: InputSupportUi?,
     preview: AttachmentPreviewUi?,
+    isOpeningAvailable: Boolean,
 ) {
     val callback by rememberUpdatedState(onIntent)
     DisposableEffect(file.id, file.mediaType) {
@@ -92,7 +94,11 @@ private fun AttachmentRow(
         HbSettingsRow(
             title = name,
             description = listOfNotNull(attachmentSize(file.sizeBytes), preview?.documentSnippet).joinToString(" · "),
-            onClick = { onIntent(AiStudioScreenIntent.OpenAttachment(file.id)) },
+            onClick = if (isOpeningAvailable) {
+                { onIntent(AiStudioScreenIntent.OpenAttachment(file.id)) }
+            } else {
+                null
+            },
             modifier = Modifier.weight(1f).testTag("attachment-${file.id}"),
             leadingContent = {
                 HbAttachmentThumbnail(
@@ -110,13 +116,14 @@ private fun AttachmentRow(
                 HbIcon(HbIcons.Warning, "$name: $unsupported", tint = HbTheme.colors.warning)
             }
         }
-        if (paneId == null) {
+        if (paneId == null && isOpeningAvailable) {
             HbIconButton(
                 HbIcons.Download,
                 stringResource(Res.string.attachments_save),
                 onClick = { onIntent(AiStudioScreenIntent.ExportAttachment(file.id)) },
+                modifier = Modifier.testTag("attachment-export-${file.id}"),
             )
-        } else {
+        } else if (paneId != null) {
             HbIconButton(
                 HbIcons.Close,
                 stringResource(Res.string.attachments_remove),

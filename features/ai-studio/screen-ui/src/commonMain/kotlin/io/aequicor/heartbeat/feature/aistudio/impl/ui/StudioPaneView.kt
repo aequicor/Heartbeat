@@ -173,6 +173,7 @@ internal fun StudioPaneView(
                     section = sectionTitle(content.project, content.session),
                     calendar = content.calendar,
                     attachmentPreviews = content.attachmentPreviews,
+                    isAttachmentOpeningAvailable = content.host.isAttachmentOpeningAvailable,
                     onIntent = onIntent,
                     contentPadding = PaddingValues(
                         start = HbTheme.spacing.xl,
@@ -590,6 +591,7 @@ private fun SessionTranscript(
     overlapInsets: PaddingValues,
     calendar: StudioCalendar,
     attachmentPreviews: ImmutableMap<String, AttachmentPreviewUi>,
+    isAttachmentOpeningAvailable: Boolean,
     onIntent: (AiStudioScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -624,7 +626,12 @@ private fun SessionTranscript(
             messageFooterContent = { rendered ->
                 val prompt = messages.firstOrNull { it.id == rendered.id } as? MessageUi.Prompt
                 if (prompt != null && prompt.attachments.isNotEmpty()) {
-                    StudioAttachments(prompt.attachments, onIntent, previews = attachmentPreviews)
+                    StudioAttachments(
+                        prompt.attachments,
+                        onIntent,
+                        previews = attachmentPreviews,
+                        isOpeningAvailable = isAttachmentOpeningAvailable,
+                    )
                 }
             },
         )
@@ -682,6 +689,7 @@ private fun PaneFooter(
                 paneId = content.pane.id,
                 support = content.models.firstOrNull { it.id == content.settings.modelId }?.inputSupport,
                 previews = content.attachmentPreviews,
+                isOpeningAvailable = content.host.isAttachmentOpeningAvailable,
             )
         }
         StudioComposer(content, onIntent, isCompact, column, onOpenResearch)

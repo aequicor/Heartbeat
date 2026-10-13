@@ -63,6 +63,7 @@ fun AiStudioContent(
     exits: StudioExits,
     modifier: Modifier = Modifier,
     chatArea: StudioEmbed? = null,
+    host: StudioHostCapabilities = StudioHostCapabilities(),
 ) {
     Box(modifier.fillMaxSize().testTag("ai-studio").background(HbTheme.colors.background)) {
         Box(Modifier.fillMaxSize().background(HbTheme.surfaces.backdrop)) {
@@ -79,7 +80,7 @@ fun AiStudioContent(
 
                     StudioPhase.Disabled -> StudioPlaceholder(exits.onBack)
 
-                    StudioPhase.Ready -> StudioWorkspace(state, onIntent, exits, chatArea)
+                    StudioPhase.Ready -> StudioWorkspace(state, onIntent, exits, chatArea, host)
                 }
                 if (HbTheme.dimensions.isDesktop && state.phase != StudioPhase.Ready) {
                     HbWindowDragArea(Modifier.fillMaxWidth().height(HbTheme.dimensions.headerHeight)) { }
@@ -95,6 +96,7 @@ private fun StudioWorkspace(
     onIntent: (AiStudioScreenIntent) -> Unit,
     exits: StudioExits,
     chatArea: StudioEmbed?,
+    host: StudioHostCapabilities,
 ) {
     val focus = remember { StudioFocusState() }
     val timelineState = remember { StudioTimelineState() }
@@ -120,7 +122,14 @@ private fun StudioWorkspace(
         val isCompact = availableWidth < maxOf(dimensions.compactBreakpoint, minimumWideWidth)
         Box(
             Modifier.fillMaxSize().studioShortcuts(state, isCompact, focus, dispatch)
-                .then(workspaceAttachmentCapture(state, isChatAreaAttached = chatArea != null, onIntent = dispatch))
+                .then(
+                    workspaceAttachmentCapture(
+                        state,
+                        host,
+                        isChatAreaAttached = chatArea != null,
+                        onIntent = dispatch,
+                    ),
+                )
                 .testTag("studio-workspace"),
         ) {
             if (isCompact) {
@@ -132,6 +141,7 @@ private fun StudioWorkspace(
                     drawerWidth = minOf(dimensions.drawerMaxWidth, availableWidth),
                     chatArea = chatArea,
                     timelineState = timelineState,
+                    host = host,
                 )
             } else {
                 val panesWidth = availableWidth - sidebarWidth - studio.outerInset * 2
@@ -141,9 +151,11 @@ private fun StudioWorkspace(
                     exits,
                     focus,
                     sidebarWidth,
-                    isSplitAllowed = panesWidth >= dimensions.paneMinWidth * 2 + studio.panelGap,
+                    isSplitAllowed = host.isSplitAvailable &&
+                        panesWidth >= dimensions.paneMinWidth * 2 + studio.panelGap,
                     chatArea = chatArea,
                     timelineState = timelineState,
+                    host = host,
                 )
             }
         }
@@ -160,6 +172,7 @@ private fun WideWorkspace(
     isSplitAllowed: Boolean,
     chatArea: StudioEmbed?,
     timelineState: StudioTimelineState,
+    host: StudioHostCapabilities,
 ) {
     HbRow(
         Modifier.fillMaxSize().padding(
@@ -202,7 +215,7 @@ private fun WideWorkspace(
                 key(pane.id) {
                     PaneFrame(pane != shown.first(), Modifier.weight(1f).fillMaxHeight()) {
                         StudioPaneView(
-                            content = state.paneContent(pane),
+                            content = state.paneContent(pane, host),
                             timelineState = timelineState,
                             onOpenResearch = exits.onOpenResearch,
                             questions = exits.questions,
@@ -241,6 +254,7 @@ private fun CompactWorkspace(
     drawerWidth: Dp,
     chatArea: StudioEmbed?,
     timelineState: StudioTimelineState,
+    host: StudioHostCapabilities,
 ) {
     Box(Modifier.fillMaxSize()) {
         if (chatArea != null) {
@@ -254,7 +268,7 @@ private fun CompactWorkspace(
         }
         state.panes.takeIf { chatArea == null }?.firstOrNull { it.id == state.focusedPaneId }?.let { pane ->
             StudioPaneView(
-                content = state.paneContent(pane),
+                content = state.paneContent(pane, host),
                 timelineState = timelineState,
                 onOpenResearch = exits.onOpenResearch,
                 questions = exits.questions,
@@ -310,7 +324,7 @@ private fun StudioMessage(title: String, action: String, onAction: () -> Unit, m
 }
 
 @Composable
-private fun StudioPlaceholder(onBack: () -> Unit, modifier: Modifier = Modifier) {
+private fun StudioPlaceholder(onBack: (() -> Unit)?, modifier: Modifier = Modifier) {
     Box(
         modifier.fillMaxSize().hbVerticalScroll(rememberScrollState()).padding(HbTheme.spacing.xxl),
         contentAlignment = Alignment.Center,
@@ -323,13 +337,17 @@ private fun StudioPlaceholder(onBack: () -> Unit, modifier: Modifier = Modifier)
             HbEmptyState(
                 stringResource(Res.string.studio_empty),
                 description = stringResource(Res.string.studio_description),
-                action = {
-                    HbButton(
-                        stringResource(Res.string.studio_back),
-                        onBack,
-                        Modifier.testTag("studio-back"),
-                        style = HbButtonStyle.Secondary,
-                    )
+                action = if (onBack == null) {
+                    null
+                } else {
+                    {
+                        HbButton(
+                            stringResource(Res.string.studio_back),
+                            onBack,
+                            Modifier.testTag("studio-back"),
+                            style = HbButtonStyle.Secondary,
+                        )
+                    }
                 },
             )
         }
@@ -345,12 +363,14 @@ private fun StudioPlaceholder(onBack: () -> Unit, modifier: Modifier = Modifier)
 @Composable
 private fun workspaceAttachmentCapture(
     state: AiStudioScreenState,
+    host: StudioHostCapabilities,
     isChatAreaAttached: Boolean,
     onIntent: (AiStudioScreenIntent) -> Unit,
 ): Modifier {
     val paneId = state.focusedPaneId
     return hbAttachmentInput(
-        enabled = !isChatAreaAttached && state.canCaptureAttachments(paneId),
+        enabled = host.isNativeAttachmentInputAvailable &&
+            !isChatAreaAttached && state.canCaptureAttachments(paneId),
         onFiles = { paths ->
             onIntent(AiStudioScreenIntent.ImportAttachments(paneId, paths.map(NativeAttachmentUi::File)))
         },

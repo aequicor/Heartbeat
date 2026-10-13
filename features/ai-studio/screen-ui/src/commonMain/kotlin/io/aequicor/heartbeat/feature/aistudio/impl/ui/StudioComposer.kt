@@ -27,6 +27,7 @@ import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbPasteImageButton
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTooltip
+import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ApprovalUi
@@ -49,6 +50,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_auto
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_edits
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_add
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_page
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_paste
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_commands
@@ -319,28 +321,42 @@ private fun AttachmentActions(
     isAddingEnabled: Boolean,
     content: PaneContent,
     onIntent: (AiStudioScreenIntent) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val pane = content.pane
     val support = content.models.firstOrNull { it.id == content.settings.modelId }?.inputSupport
-    if (isAddingEnabled) {
-        HbIconButton(
-            HbIcons.FilePlus,
-            stringResource(Res.string.attachments_add),
-            onClick = { onIntent(AiStudioScreenIntent.PickAttachments(pane.id)) },
-            modifier = Modifier.testTag("attachment-add-${pane.id}"),
-        )
-        if (!support?.imageMediaTypes.isNullOrEmpty()) {
-            HbPasteImageButton(
-                stringResource(Res.string.attachments_paste),
-                onImage = {
-                    onIntent(
-                        AiStudioScreenIntent.ImportAttachments(
-                            pane.id,
-                            listOf(NativeAttachmentUi.Image(it)),
-                        ),
+    val host = content.host
+    HbRow(modifier, gap = HbTheme.spacing.s) {
+        if (isAddingEnabled && !content.isAttachmentPending) {
+            host.onAttachPage?.takeIf { "text/markdown" in support?.mediaTypes.orEmpty() }?.let { attach ->
+                HbIconButton(
+                    HbIcons.Globe,
+                    stringResource(Res.string.attachments_page),
+                    onClick = { attach(pane.id) },
+                    modifier = Modifier.testTag("attachment-page-${pane.id}"),
+                )
+            }
+            if (host.isNativeAttachmentInputAvailable) {
+                HbIconButton(
+                    HbIcons.FilePlus,
+                    stringResource(Res.string.attachments_add),
+                    onClick = { onIntent(AiStudioScreenIntent.PickAttachments(pane.id)) },
+                    modifier = Modifier.testTag("attachment-add-${pane.id}"),
+                )
+                if (!support?.imageMediaTypes.isNullOrEmpty()) {
+                    HbPasteImageButton(
+                        stringResource(Res.string.attachments_paste),
+                        onImage = {
+                            onIntent(
+                                AiStudioScreenIntent.ImportAttachments(
+                                    pane.id,
+                                    listOf(NativeAttachmentUi.Image(it)),
+                                ),
+                            )
+                        },
                     )
-                },
-            )
+                }
+            }
         }
     }
 }
