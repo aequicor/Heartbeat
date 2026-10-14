@@ -55,6 +55,7 @@
     <string name="action_restore">Restore</string>
 
     <string name="pane_split">Split view</string>
+    <string name="notice_dismiss">Dismiss notification</string>
     <string name="pane_close">Close pane</string>
     <string name="pane_open_sidebar">Open sidebar</string>
     <string name="pane_general">Conversation</string>

@@ -91,6 +91,8 @@ data class AiStudioScreenState(
     val nativeTranscripts: ImmutableMap<String, NativeTranscriptUi> = persistentMapOf(),
     val attachmentErrorPanes: ImmutableSet<Int> = persistentSetOf(),
     val failedPanes: ImmutableSet<Int> = persistentSetOf(),
+    /** Local dismissals of passive messages, scoped to their pane and current source. */
+    val noticeDismissals: ImmutableSet<StudioNoticeDismissalUi> = persistentSetOf(),
     val sidebar: SidebarUi = SidebarUi(),
     val now: Instant = Instant.DISTANT_PAST,
     /** Sequence number of the last intent a remote view applied ([AiStudioScreenIntent.RemoteApplied]). */

@@ -42,7 +42,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import io.aequicor.heartbeat.ds.components.HbActivityIndicator
-import io.aequicor.heartbeat.ds.components.HbBadge
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbChatTranscript
 import io.aequicor.heartbeat.ds.components.HbChip
@@ -105,6 +104,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.paneCards
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioComposerSlotKey
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioStartSlotKey
@@ -239,6 +239,17 @@ private fun composerRegionAlignment(isCentered: Boolean): Alignment =
     if (isCentered) BiasAlignment(0f, HbTheme.dimensions.emptyStateVerticalBias) else Alignment.BottomCenter
 
 @Composable
+@ReadOnlyComposable
+private fun composerHeadingGap(isCentered: Boolean): Dp =
+    if (isCentered) HbTheme.spacing.xxl + HbTheme.spacing.l else HbTheme.spacing.none
+
+/** A nested questionnaire owns its scroll and must receive the finite viewport captured above the outer scroll. */
+@Composable
+@ReadOnlyComposable
+private fun questionViewportHeight(maxHeight: Dp): Dp =
+    if (maxHeight == Dp.Infinity) HbTheme.dimensions.toolPayloadMaxHeight else maxHeight
+
+@Composable
 private fun PaneComposerRegion(
     content: PaneContent,
     onIntent: (StudioIntent) -> Unit,
@@ -261,13 +272,14 @@ private fun PaneComposerRegion(
     } else {
         Modifier
     }
-    val headingGap = if (isCentered) HbTheme.spacing.xxl + HbTheme.spacing.l else HbTheme.spacing.none
+    val headingGap = composerHeadingGap(isCentered)
     Box(modifier.then(regionInset).fillMaxWidth()) {
         HbColumn(
             Modifier.fillMaxWidth().then(heroModifier),
             gap = HbTheme.spacing.none,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            val noticesModifier = if (isCentered) Modifier else Modifier.weight(1f, fill = false)
             if (isCentered) NewSessionHeading(content.project)
             Box(Modifier.fillMaxWidth().padding(top = headingGap)) {
                 HbColumn(
@@ -278,7 +290,8 @@ private fun PaneComposerRegion(
                         content,
                         onIntent,
                         questions,
-                        Modifier.weight(1f, fill = false),
+                        isCompact,
+                        noticesModifier,
                     )
                     PaneFooter(content, onIntent, isCompact, onOpenResearch, slots.composer)
                 }
@@ -298,6 +311,7 @@ private fun PaneNotices(
     content: PaneContent,
     onIntent: (StudioIntent) -> Unit,
     questions: ImmutableMap<String, StudioEmbed>,
+    isCompact: Boolean,
     modifier: Modifier = Modifier,
 ) = HbBoxWithConstraints(modifier.fillMaxWidth()) {
     // Descriptions share a part of the pane, so long ones never push the decisions or the composer off a low pane.
@@ -309,25 +323,21 @@ private fun PaneNotices(
     } else {
         HbTheme.dimensions.toolPayloadMaxHeight
     }
+    val questionMaxHeight = questionViewportHeight(maxHeight)
+    val scroll = rememberScrollState()
+    // All notices share the space left by the composer; the centered start page already has an outer scroll.
+    val scrolling = if (constraints.hasBoundedHeight) Modifier.hbVerticalScroll(scroll) else Modifier
     HbColumn(
-        Modifier.fillMaxWidth().background(HbTheme.surfaces.header, HbTheme.shapes.large)
+        Modifier.fillMaxWidth().then(scrolling).background(HbTheme.surfaces.header, HbTheme.shapes.large)
             .pointerInput(Unit) { detectTapGestures { } },
         gap = HbTheme.spacing.none,
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        if (content.isNativeChild) {
-            HbText(stringResource(Res.string.session_child_view), Modifier.padding(HbTheme.spacing.m))
-        } else if (content.session?.isOrganism == true) {
-            OrganismNotices(content, descriptionMaxHeight, onIntent)
-        } else if (content.session?.isContinuable == false) {
-            HbText(stringResource(Res.string.session_read_only), Modifier.padding(HbTheme.spacing.m))
-        } else if (content.session?.isRunning == true && !content.isStoppable) {
-            HbText(stringResource(Res.string.stop_unsupported), Modifier.padding(HbTheme.spacing.m))
-        }
-        if (content.isStopFailed) {
-            HbText(stringResource(Res.string.stop_failed), Modifier.padding(HbTheme.spacing.m))
-        }
+        PaneSessionNotices(content, descriptionMaxHeight, onIntent)
         val asked = content.session?.id?.let(questions::get)
-        asked?.Content(Modifier.padding(HbTheme.spacing.m).testTag("pane-questionnaire"))
+        asked?.Content(
+            Modifier.heightIn(max = questionMaxHeight).padding(HbTheme.spacing.m).testTag("pane-questionnaire"),
+        )
         content.permissions.takeIf { asked == null }.orEmpty().forEach { request ->
             key(request.requestId) {
                 HbColumn(
@@ -357,6 +367,34 @@ private fun PaneNotices(
                 }
             }
         }
+        FooterNotices(
+            content,
+            onIntent,
+            Modifier.padding(horizontal = if (isCompact) HbTheme.spacing.m else HbTheme.spacing.xl)
+                .widthIn(max = HbTheme.dimensions.composerMaxWidth).fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
+private fun PaneSessionNotices(content: PaneContent, descriptionMaxHeight: Dp, onIntent: (StudioIntent) -> Unit) {
+    if (content.isNativeChild) {
+        StudioNotice(content, StudioNoticeUi.NativeChild, stringResource(Res.string.session_child_view), onIntent)
+    } else if (content.session?.isOrganism == true) {
+        OrganismNotices(content, descriptionMaxHeight, onIntent)
+    } else if (content.session?.isContinuable == false) {
+        StudioNotice(content, StudioNoticeUi.ReadOnly, stringResource(Res.string.session_read_only), onIntent)
+    } else if (content.session?.isRunning == true && !content.isStoppable) {
+        StudioNotice(content, StudioNoticeUi.StopUnsupported, stringResource(Res.string.stop_unsupported), onIntent)
+    }
+    if (content.isStopFailed) {
+        StudioNotice(
+            content,
+            StudioNoticeUi.StopFailed,
+            stringResource(Res.string.stop_failed),
+            onIntent,
+            tone = HbTone.Danger,
+        )
     }
 }
 
@@ -710,33 +748,7 @@ private fun PaneFooter(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         val column = Modifier.widthIn(max = HbTheme.dimensions.composerMaxWidth).fillMaxWidth()
-        ModelConnectionHint(content, column)
-        if (content.session?.isRunning == true) {
-            RunStatus(content.isStopping, content.elapsed, column)
-        } else if (content.session?.isWaiting == true) {
-            SessionWaitStatus(content.session, column)
-        }
-        DiagramDraftNotice(content.diagram.draftReason, column)
-        if (content.isSubmitFailed) {
-            HbBadge(stringResource(Res.string.submit_failed), column, tone = HbTone.Danger)
-        }
-        if (content.isProjectFailed) {
-            HbBadge(stringResource(Res.string.project_add_failed), column, tone = HbTone.Danger)
-        }
-        if (content.isAttachmentFailed) {
-            HbBadge(
-                stringResource(Res.string.attachments_failed),
-                column,
-                tone = HbTone.Danger,
-            )
-        }
-        if (content.isHarnessFailed) {
-            HbBadge(
-                stringResource(Res.string.harness_connect_failed),
-                column.testTag("harness-failed-${content.pane.id}"),
-                tone = HbTone.Danger,
-            )
-        }
+        PaneExecutionStatus(content, column)
         if (content.attachments.isNotEmpty()) {
             StudioAttachments(
                 content.attachments,
@@ -759,16 +771,78 @@ private fun PaneFooter(
 }
 
 @Composable
-private fun ModelConnectionHint(content: PaneContent, modifier: Modifier = Modifier) {
-    val hint = when {
-        content.models.isEmpty() -> stringResource(Res.string.connect_model_hint)
-
-        content.project != null && content.models.none { it.id == content.settings.modelId } ->
-            stringResource(Res.string.project_model_hint)
-
-        else -> null
+private fun PaneExecutionStatus(content: PaneContent, modifier: Modifier = Modifier) {
+    if (content.session?.isRunning == true) {
+        RunStatus(content.isStopping, content.elapsed, modifier)
+    } else if (content.session?.isWaiting == true) {
+        SessionWaitStatus(content.session, modifier)
     }
-    if (hint != null) HbText(hint, modifier, style = HbTheme.typography.caption, color = HbTheme.colors.textSecondary)
+}
+
+/** Passive banners share only the height left after the editor and its controls have been measured. */
+@Composable
+private fun FooterNotices(content: PaneContent, onIntent: (StudioIntent) -> Unit, modifier: Modifier = Modifier) {
+    HbColumn(modifier.testTag("footer-notices-${content.pane.id}"), gap = HbTheme.spacing.s) {
+        ModelConnectionHint(content, onIntent)
+        DiagramDraftNotice(content, onIntent)
+        if (content.isSubmitFailed) {
+            StudioNotice(
+                content,
+                StudioNoticeUi.SubmitFailed,
+                stringResource(Res.string.submit_failed),
+                onIntent,
+                tone = HbTone.Danger,
+            )
+        }
+        if (content.isProjectFailed) {
+            StudioNotice(
+                content,
+                StudioNoticeUi.ProjectFailed,
+                stringResource(Res.string.project_add_failed),
+                onIntent,
+                tone = HbTone.Danger,
+            )
+        }
+        if (content.isAttachmentFailed) {
+            StudioNotice(
+                content,
+                StudioNoticeUi.AttachmentFailed,
+                stringResource(Res.string.attachments_failed),
+                onIntent,
+                tone = HbTone.Danger,
+            )
+        }
+        if (content.isHarnessFailed) {
+            StudioNotice(
+                content,
+                StudioNoticeUi.HarnessFailed,
+                stringResource(Res.string.harness_connect_failed),
+                onIntent,
+                tone = HbTone.Danger,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ModelConnectionHint(content: PaneContent, onIntent: (StudioIntent) -> Unit, modifier: Modifier = Modifier) {
+    when {
+        content.models.isEmpty() -> StudioNotice(
+            content,
+            StudioNoticeUi.ConnectModel,
+            stringResource(Res.string.connect_model_hint),
+            onIntent,
+            modifier,
+        )
+
+        content.project != null && content.models.none { it.id == content.settings.modelId } -> StudioNotice(
+            content,
+            StudioNoticeUi.ProjectModel,
+            stringResource(Res.string.project_model_hint),
+            onIntent,
+            modifier,
+        )
+    }
 }
 
 @Composable
@@ -831,15 +905,11 @@ private fun PaneContent.diagramActionHandler(onIntent: (StudioIntent) -> Unit): 
     }
 
 @Composable
-private fun DiagramDraftNotice(reason: DiagramDraftReasonUi?, modifier: Modifier = Modifier) {
-    if (reason != null) {
-        val message = if (reason ==
-            DiagramDraftReasonUi.Busy
-        ) {
-            Res.string.diagram_draft_busy
-        } else {
-            Res.string.diagram_draft_rejected
-        }
-        HbText(stringResource(message), modifier, color = HbTheme.colors.textSecondary)
+private fun DiagramDraftNotice(content: PaneContent, onIntent: (StudioIntent) -> Unit, modifier: Modifier = Modifier) {
+    val reason = content.diagram.draftReason ?: return
+    val message = when (reason) {
+        DiagramDraftReasonUi.Busy -> Res.string.diagram_draft_busy
+        DiagramDraftReasonUi.Rejected -> Res.string.diagram_draft_rejected
     }
+    StudioNotice(content, StudioNoticeUi.DiagramDraft, stringResource(message), onIntent, modifier)
 }

@@ -3,9 +3,11 @@ package io.aequicor.heartbeat.feature.aistudio.screenmodel
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.persistentSetOf
+import kotlinx.serialization.SerializationException
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
@@ -58,6 +60,9 @@ class StudioScreenSerializationTest {
         drafts = persistentMapOf("s1" to "черновик"),
         cardFocusRequests = persistentMapOf(1 to CardFocusRequestUi("s1", "m2", "card-2", 3)),
         diagramFocusRequests = persistentMapOf(1 to 2L),
+        noticeDismissals = persistentSetOf(
+            StudioNoticeDismissalUi(1, StudioNoticeUi.StopFailed, "s1", "p1", PRIMARY_SUB_SESSION),
+        ),
         attachmentPreviews = persistentMapOf("a1" to AttachmentPreviewUi(imageBytes = byteArrayOf(0, 1, -1, 127))),
         now = at,
     )
@@ -81,6 +86,16 @@ class StudioScreenSerializationTest {
     }
 
     @Test
+    fun `a remote dismissal requires the displayed notice context`() {
+        assertFailsWith<SerializationException> {
+            StudioViewJson.decodeFromString(
+                AiStudioScreenIntent.serializer(),
+                """{"@type":"AiStudioScreenIntent.DismissNotice"}""",
+            )
+        }
+    }
+
+    @Test
     fun `intents survive a JSON round trip as the sealed hierarchy`() {
         val intents = listOf(
             AiStudioScreenIntent.Retry,
@@ -88,6 +103,7 @@ class StudioScreenSerializationTest {
             AiStudioScreenIntent.OpenSession("s1"),
             AiStudioScreenIntent.Submit(1),
             AiStudioScreenIntent.CardFocusApplied(1, 3),
+            AiStudioScreenIntent.DismissNotice(state.noticeDismissal(state.panes.single(), StudioNoticeUi.StopFailed)),
             AiStudioScreenIntent.RespondPermission("s1", "r1", "allow"),
             AiStudioScreenIntent.ToggleSearch,
             AiStudioScreenIntent.ToggleProjectSessions("p1"),
