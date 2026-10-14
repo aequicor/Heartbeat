@@ -338,5 +338,5 @@ private fun Modifier.diagramDismissOnEscape(onDismiss: () -> Unit): Modifier = o
 /** Modal controls must not register selectable text in the transcript's separate layout hierarchy. */
 @Composable
 private fun DiagramModal(onDismiss: () -> Unit, content: @Composable () -> Unit) {
-    DisableSelection { HbPlatformDialog(onDismiss, content) }
+    DisableSelection { HbPlatformDialog(onDismiss, content = content) }
 }

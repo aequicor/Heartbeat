@@ -11,6 +11,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.awt.LocalAwtWindow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.window.Dialog
@@ -25,7 +26,22 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-internal actual fun HbPlatformDialog(onDismissRequest: () -> Unit, content: @Composable () -> Unit) {
+internal actual fun HbPlatformDialog(
+    onDismissRequest: () -> Unit,
+    hasOverlay: Boolean,
+    content: @Composable () -> Unit,
+) {
+    val owner = LocalAwtWindow.current
+    if (hasOverlay && owner != null) {
+        HbOwnedDialog(owner, onDismissRequest, content)
+    } else {
+        HbLayerDialog(onDismissRequest, content)
+    }
+}
+
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun HbLayerDialog(onDismissRequest: () -> Unit, content: @Composable () -> Unit) {
     Dialog(
         onDismissRequest,
         DialogProperties(

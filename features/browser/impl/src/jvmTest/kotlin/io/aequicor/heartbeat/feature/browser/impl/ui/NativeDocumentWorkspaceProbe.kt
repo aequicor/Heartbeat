@@ -3,16 +3,22 @@ package io.aequicor.heartbeat.feature.browser.impl.ui
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.ComposeWindow
+import androidx.compose.ui.platform.LocalDensity
 import io.aequicor.heartbeat.core.common.DispatcherProvider
+import io.aequicor.heartbeat.ds.components.HbDesktopPopupRendering
 import io.aequicor.heartbeat.ds.components.HbDialog
 import io.aequicor.heartbeat.ds.components.HbDialogWidth
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
+import io.aequicor.heartbeat.ds.components.hbSurface
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.browser.api.BrowserBridgeResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocument
@@ -24,6 +30,8 @@ import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserTestScope
 import io.aequicor.heartbeat.feature.browser.impl.presentation.DesktopDocumentPanel
 import io.aequicor.heartbeat.feature.browser.impl.presentation.DesktopDocumentPanels
 import io.aequicor.heartbeat.feature.browser.impl.presentation.DesktopDocumentViews
+import io.aequicor.heartbeat.feature.browser.impl.resources.Res
+import io.aequicor.heartbeat.feature.browser.impl.resources.browser_close_tab
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -37,11 +45,18 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.cef.OS
+import org.jetbrains.compose.resources.stringResource
+import java.awt.Rectangle
+import java.awt.Window
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
+import javax.swing.JComponent
 import javax.swing.RootPaneContainer
+import javax.swing.SwingUtilities
 import javax.swing.Timer
+import kotlin.math.abs
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -88,12 +103,15 @@ private class NativeDocumentWorkspaceProbe(
         BrowserDocumentPresentation.Content,
     )
     private var isExpanded by mutableStateOf(false)
+    private var isDocumentOnly by mutableStateOf(false)
     private var isShown by mutableStateOf(true)
+    private var overlayInset = 0.0
     private val window = nativeEdt {
         ComposeWindow().apply {
             title = "Heartbeat retained Compose workspace verification (no input)"
             setSize(900, 720)
-            setContent { Content() }
+            val host = this
+            setContent { Content(host) }
             isVisible = true
         }
     }
@@ -140,6 +158,9 @@ private class NativeDocumentWorkspaceProbe(
             settledHeights.put(height, actual)?.let { previous ->
                 assertEquals(previous, actual, "Native rounding must not accumulate after content changes")
             }
+            val modal = awaitModal()
+            awaitOverlayPosition(modal)
+            awaitShape(modal, isRounded = true)
         }
         nativeEdt { isExpanded = false }
         awaitClippedDocument()
@@ -153,17 +174,39 @@ private class NativeDocumentWorkspaceProbe(
     }
 
     @Composable
-    private fun Content() {
+    private fun Content(host: Window) {
+        HbDesktopPopupRendering(host)
+        LaunchedEffect(isExpanded) {
+            isDocumentOnly = false
+            if (isExpanded) {
+                // AppScreen discovers the loaded root through a separate surface-state subscription.
+                withFrameNanos { }
+                isDocumentOnly = true
+            }
+        }
         HbTheme(darkTheme = true) {
+            val inset = with(LocalDensity.current) { HbTheme.spacing.s.toPx() }
+            SideEffect { overlayInset = inset / host.graphicsConfiguration.defaultTransform.scaleX }
             if (isExpanded) {
                 HbDialog(
                     "Retained app",
                     { isExpanded = false },
                     width = HbDialogWidth.Wide,
                     isContentScrollable = false,
-                    isContentEdgeToEdge = true,
-                    isTitleVisible = false,
-                    headerActions = { HbIconButton(HbIcons.Close, "Close", { isExpanded = false }) },
+                    isContentEdgeToEdge = isDocumentOnly,
+                    isTitleVisible = !isDocumentOnly,
+                    headerActions = {
+                        HbIconButton(
+                            HbIcons.Close,
+                            stringResource(Res.string.browser_close_tab, "Retained app"),
+                            { isExpanded = false },
+                            modifier = if (isDocumentOnly) {
+                                Modifier.hbSurface(HbTheme.colors.surface, HbTheme.shapes.small)
+                            } else {
+                                Modifier
+                            },
+                        )
+                    },
                 ) {
                     BrowserDocumentView(surface, Modifier.fillMaxWidth())
                 }
@@ -180,12 +223,52 @@ private class NativeDocumentWorkspaceProbe(
             snapshot.await(window.rootPane, 0)
             val modal = awaitModal()
             snapshot.await(modal.rootPane, 1, areAllClipped = true)
-            awaitShape(modal, isRounded = true)
             awaitOverlay(isOccupied = true)
+            awaitShape(modal, isRounded = true)
+            awaitOverlayPosition(modal)
         } else {
             snapshot.await(window.rootPane, 1, areAllClipped = true)
             awaitShape(window, isRounded = false)
             awaitOverlay(isOccupied = false)
+        }
+        nativeEdt {
+            val panel = assertNotNull(panels.retain(surface.document))
+            val attachment = panel.createComponent().parent as JComponent
+            val interop = attachment.parent as JComponent
+            assertEquals(!isExpanded, attachment.isOpaque, "Attachment backdrop ignored its current host")
+            assertEquals(!isExpanded, interop.isOpaque, "Compose interop backdrop ignored its current host")
+        }
+    }
+
+    private fun awaitOverlayPosition(modal: RootPaneContainer) {
+        val result = CompletableFuture<Unit>()
+        var latest = "No visible document or owned Close popup"
+        val timer = nativeEdt {
+            Timer(20) {
+                val component = assertNotNull(panels.retain(surface.document)).createComponent()
+                val popup = (modal as Window).ownedWindows.singleOrNull {
+                    it.isShowing && !it.focusableWindowState && it.type == Window.Type.POPUP
+                }
+                if (component.isShowing && popup != null) {
+                    val page = Rectangle(component.visibleRect).apply {
+                        translate(component.locationOnScreen.x, component.locationOnScreen.y)
+                    }
+                    val close = popup.bounds
+                    latest = "Page=$page, Close=$close, inset=$overlayInset"
+                    // Layer draw bounds and native document clipping can round opposite fractional edges.
+                    val isMeasured = close.width > 1 && close.height > 1
+                    val isAtCorner = abs(page.maxX - close.maxX - overlayInset) <= 2 &&
+                        abs(close.y - page.y - overlayInset) <= 2
+                    if (isMeasured && isAtCorner) result.complete(Unit)
+                }
+            }.apply { start() }
+        }
+        try {
+            result.awaitNative()
+        } catch (error: TimeoutException) {
+            throw AssertionError("Close did not follow the visible page: $latest", error)
+        } finally {
+            nativeEdt(timer::stop)
         }
     }
 
@@ -214,7 +297,12 @@ private class NativeDocumentWorkspaceProbe(
             Timer(20) {
                 try {
                     val shape = snapshot.shapes(host.rootPane).singleOrNull()
-                    if (shape != null && (shape.radius > 0 && shape.isMasked) == isRounded) result.complete(shape)
+                    val rounded = shape != null && shape.radius > 0 && shape.isMasked
+                    if (shape != null && rounded == isRounded &&
+                        shape.matchesFrame(nativeDocumentFrame(host))
+                    ) {
+                        result.complete(shape)
+                    }
                 } catch (failure: Throwable) {
                     result.completeExceptionally(failure)
                 }
@@ -227,17 +315,39 @@ private class NativeDocumentWorkspaceProbe(
                 assertEquals(prior.radius, shape.radius, "Modal corner radius leaked into Start")
                 assertEquals(prior.isMasked, shape.isMasked, "Modal mask leaked into Start")
             }
+        } catch (error: TimeoutException) {
+            val shapes = nativeEdt { snapshot.shapes(host.rootPane) }
+            val expected = nativeEdt { nativeDocumentFrame(host) }
+            throw AssertionError("Rounded=$isRounded, expected frame=$expected, last native shape=$shapes", error)
         } finally {
             nativeEdt(timer::stop)
         }
     }
 
+    private fun nativeDocumentFrame(host: RootPaneContainer): Rectangle {
+        val component = assertNotNull(panels.retain(surface.document)).createComponent()
+        val visible = component.visibleRect
+        val origin = SwingUtilities.convertPoint(component, visible.location, host.rootPane)
+        return Rectangle(origin.x, host.rootPane.height - origin.y - visible.height, visible.width, visible.height)
+    }
+
     private fun awaitOverlay(isOccupied: Boolean) {
-        awaitViewport(overlays) {
-            val width = it.getValue("overlayWidth").jsonPrimitive.content.toDouble()
-            val height = it.getValue("overlayHeight").jsonPrimitive.content.toDouble()
-            if (isOccupied) width > 0 && height > 0 else width == 0.0 && height == 0.0
+        try {
+            awaitViewport(overlays) {
+                val width = it.getValue("overlayWidth").jsonPrimitive.content.toDouble()
+                val height = it.getValue("overlayHeight").jsonPrimitive.content.toDouble()
+                if (isOccupied) width > 0 && height > 0 else width == 0.0 && height == 0.0
+            }
+        } catch (error: IllegalStateException) {
+            throw AssertionError(nativeEdt { describeWindow(window) }, error)
         }
+    }
+
+    private fun describeWindow(host: Window): String = buildString {
+        append("${host.javaClass.simpleName} bounds=${host.bounds} showing=${host.isShowing}")
+        append(" focusable=${host.focusableWindowState}")
+        append(" client=${(host as? RootPaneContainer)?.contentPane?.bounds}")
+        append(host.ownedWindows.joinToString(prefix = " children=[", postfix = "]", transform = ::describeWindow))
     }
 
     private fun awaitReport(request: Int): JsonObject {
@@ -276,6 +386,16 @@ private class NativeDocumentWorkspaceProbe(
             owner.coroutineScope.cancel()
         }
     }
+}
+
+/** The mask must be on the current visible native rectangle, not merely a retained layer with the right flags. */
+private fun NativeDocumentShape.matchesFrame(expected: Rectangle): Boolean {
+    val expectedSize = listOf(expected.width.toDouble(), expected.height.toDouble())
+    val matchingSizes = listOf(viewFrame, viewBounds, layerFrame, layerBounds).all { rect ->
+        listOf(rect.width, rect.height).zip(expectedSize).all { (actual, wanted) -> abs(actual - wanted) <= 1 }
+    }
+    val matchingOrigin = abs(viewFrame.x - expected.x) <= 1 && abs(viewFrame.y - expected.y) <= 1
+    return hasLayer && matchingSizes && matchingOrigin
 }
 
 private fun command(request: Int, operation: String, height: Int = 2400): JsonElement = buildJsonObject {

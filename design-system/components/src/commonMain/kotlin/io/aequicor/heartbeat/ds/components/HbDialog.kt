@@ -95,17 +95,18 @@ public fun HbDialog(
     val focus = remember { FocusRequester() }
     val inset = if (isCompact) HbTheme.spacing.s else HbTheme.spacing.xl
     val gap = if (isCompact) HbTheme.spacing.s else HbTheme.spacing.l
-    LaunchedEffect(focus) {
-        // Wait until the focus target is attached and laid out.
-        withFrameNanos { }
-        focus.requestFocus()
-    }
     HbPlatformDialog(
+        hasOverlay = isContentEdgeToEdge,
         onDismissRequest = {
             log.i { "dialog dismissed" }
             dismiss()
         },
     ) {
+        LaunchedEffect(focus) {
+            // An owned desktop dialog composes separately; wait for its own focus target and first layout.
+            withFrameNanos { }
+            focus.requestFocus()
+        }
         Box(
             modifier
                 .then(if (isSheet) Modifier.fillMaxWidth() else Modifier)
@@ -235,4 +236,8 @@ private fun DialogHeader(title: String, isTitleVisible: Boolean, actions: @Compo
 
 /** The platform owns modal input interception and dimming above any embedded native surface. */
 @Composable
-internal expect fun HbPlatformDialog(onDismissRequest: () -> Unit, content: @Composable () -> Unit)
+internal expect fun HbPlatformDialog(
+    onDismissRequest: () -> Unit,
+    hasOverlay: Boolean = false,
+    content: @Composable () -> Unit,
+)

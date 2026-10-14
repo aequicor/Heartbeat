@@ -12,6 +12,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
@@ -82,10 +83,11 @@ private fun RetainedDocumentPanel(
     } else {
         0.0
     }
+    val scrim = java.awt.Color(HbTheme.colors.scrim.toArgb(), true)
     SideEffect {
         panel.updateTheme(theme)
         attachment.updateDismissRequest(dismiss)
-        attachment.updateCornerRadius(cornerRadius)
+        attachment.updateCornerRadius(cornerRadius, scrim)
     }
     val intrinsicHeight = size?.logicalHeight(viewportWidth / density.density)?.dp ?: dimensions.webDocumentHeight
     val sized = modifier.documentSize(surface, intrinsicHeight, dimensions)

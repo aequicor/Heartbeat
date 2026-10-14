@@ -1,10 +1,12 @@
 package io.aequicor.heartbeat.feature.browser.impl.ui
 
+import com.sun.jna.Memory
 import com.sun.jna.NativeLibrary
 import com.sun.jna.NativeLong
 import com.sun.jna.Pointer
 import io.aequicor.heartbeat.feature.browser.impl.presentation.MacDocumentAppKitThread
 import org.cef.browser.CefBrowserWindow
+import java.awt.geom.Rectangle2D
 import java.util.concurrent.CompletableFuture
 import javax.swing.JComponent
 import javax.swing.SwingUtilities
@@ -84,6 +86,12 @@ internal class NativeDocumentClipSnapshot {
                     value and 0xff != 0,
                     message.invokeDouble(arrayOf(layer, selector.invokePointer(arrayOf("cornerRadius")))),
                     message.invokeInt(arrayOf(layer, selector.invokePointer(arrayOf("masksToBounds")))) and 0xff != 0,
+                    message.invokeInt(arrayOf(view, selector.invokePointer(arrayOf("wantsLayer")))) and 0xff != 0,
+                    Pointer.nativeValue(layer),
+                    rectangle(view, "frame"),
+                    rectangle(view, "bounds"),
+                    rectangle(layer, "frame"),
+                    rectangle(layer, "bounds"),
                 )
             }
             val children = pointer(view, "subviews") ?: continue
@@ -97,7 +105,32 @@ internal class NativeDocumentClipSnapshot {
 
     private fun pointer(receiver: Pointer, name: String, vararg args: Any): Pointer? =
         message.invokePointer(arrayOf(receiver, selector.invokePointer(arrayOf(name)), *args))
+
+    /** Public KVC boxes CGRect into NSValue, avoiding architecture-specific objc_msgSend_stret conventions. */
+    private fun rectangle(receiver: Pointer, name: String): Rectangle2D.Double {
+        val strings = checkNotNull(getClass.invokePointer(arrayOf("NSString")))
+        val key = checkNotNull(pointer(strings, "stringWithUTF8String:", name))
+        val boxed = checkNotNull(pointer(receiver, "valueForKey:", key))
+        return Memory(4L * Double.SIZE_BYTES).use { value ->
+            message.invokeVoid(
+                arrayOf(boxed, selector.invokePointer(arrayOf("getValue:size:")), value, NativeLong(value.size())),
+            )
+            val fields = value.getDoubleArray(0, 4)
+            Rectangle2D.Double(fields[0], fields[1], fields[2], fields[3])
+        }
+    }
 }
 
 /** Exact-group identity and read-only AppKit layer state, used to detect mask leakage after reparenting. */
-internal data class NativeDocumentShape(val id: Long, val isClipped: Boolean, val radius: Double, val isMasked: Boolean)
+internal data class NativeDocumentShape(
+    val id: Long,
+    val isClipped: Boolean,
+    val radius: Double,
+    val isMasked: Boolean,
+    val hasLayer: Boolean,
+    val layerId: Long,
+    val viewFrame: Rectangle2D.Double,
+    val viewBounds: Rectangle2D.Double,
+    val layerFrame: Rectangle2D.Double,
+    val layerBounds: Rectangle2D.Double,
+)

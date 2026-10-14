@@ -1,14 +1,15 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
-import java.awt.BorderLayout
+import java.awt.Color
 import javax.swing.JComponent
-import javax.swing.JPanel
 import javax.swing.SwingUtilities
 
 /** One composition's emptyable host for a retained page; disposal never closes the page itself. */
 internal class DesktopDocumentAttachment(private val panel: DesktopDocumentPanel) {
-    private var host: JPanel? = null
+    private var host: DesktopDocumentHost? = null
+    private var backdrop: DesktopDocumentBackdrop? = null
     private var isClosed = false
+    private var scrim: Color? = null
 
     var onDismissRequest: (() -> Unit)? = null
         private set
@@ -17,10 +18,13 @@ internal class DesktopDocumentAttachment(private val panel: DesktopDocumentPanel
         private set
 
     /** A native corner mask belongs only to the current modal lease. */
-    fun updateCornerRadius(value: Double) {
+    fun updateCornerRadius(value: Double, color: Color) {
         check(SwingUtilities.isEventDispatchThread())
         if (!isClosed) {
             cornerRadius = value
+            scrim = color
+            host?.updateBackdrop(value, color)
+            backdrop?.update(value > 0)
             panel.updateCornerRadius(this)
         }
     }
@@ -36,10 +40,14 @@ internal class DesktopDocumentAttachment(private val panel: DesktopDocumentPanel
     fun createComponent(): JComponent {
         check(SwingUtilities.isEventDispatchThread())
         host?.let { return it }
-        return JPanel(BorderLayout()).also {
-            host = it
-            if (!isClosed) panel.attach(this, it)
+        val component = DesktopDocumentHost()
+        scrim?.let { component.updateBackdrop(cornerRadius, it) }
+        host = component
+        if (!isClosed) {
+            backdrop = DesktopDocumentBackdrop(component).also { it.update(cornerRadius > 0) }
+            panel.attach(this, component)
         }
+        return component
     }
 
     fun close() {
@@ -47,6 +55,9 @@ internal class DesktopDocumentAttachment(private val panel: DesktopDocumentPanel
         if (isClosed) return
         isClosed = true
         onDismissRequest = null
+        host?.clearBackdrop()
         panel.detach(this)
+        backdrop?.close()
+        backdrop = null
     }
 }
