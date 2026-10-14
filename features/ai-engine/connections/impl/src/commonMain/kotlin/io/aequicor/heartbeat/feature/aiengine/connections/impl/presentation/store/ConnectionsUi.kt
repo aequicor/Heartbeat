@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
 import io.aequicor.heartbeat.feature.aiengine.connections.api.isConnectable
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
@@ -13,7 +14,18 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 enum class AvailabilityUi { Unknown, Available, Unsupported, Unavailable }
 
 /** Localizable failure category; native diagnostics are never shown. */
-enum class FailureUi { Authentication, Network, Limit, EngineUnavailable, Access, Rejected, Unknown }
+enum class FailureUi {
+    Authentication,
+    CredentialsMissing,
+    ConnectionChanged,
+    Network,
+    Limit,
+    Quota,
+    EngineUnavailable,
+    Access,
+    Rejected,
+    Unknown,
+}
 
 /** How a method authenticates. */
 enum class MethodKindUi { ApiKey, CliLogin, NoAuth }
@@ -84,11 +96,17 @@ internal fun EngineAvailability.toUi(): AvailabilityUi = when (this) {
 }
 
 internal fun EngineFailure.toUi(): FailureUi = when (this) {
-    is EngineFailure.Authentication -> FailureUi.Authentication
+    is EngineFailure.Authentication -> when (reason.reason) {
+        AuthFailureReason.NotAuthenticated, AuthFailureReason.SourceUnavailable -> FailureUi.CredentialsMissing
+        AuthFailureReason.AuthMismatch, AuthFailureReason.SourceChanged -> FailureUi.ConnectionChanged
+        AuthFailureReason.CredentialsExpired, AuthFailureReason.CredentialsRejected -> FailureUi.Authentication
+    }
 
     is EngineFailure.Transport -> FailureUi.Network
 
-    is EngineFailure.RateLimited, is EngineFailure.QuotaExceeded -> FailureUi.Limit
+    is EngineFailure.RateLimited -> FailureUi.Limit
+
+    is EngineFailure.QuotaExceeded -> FailureUi.Quota
 
     is EngineFailure.Access -> FailureUi.Access
 

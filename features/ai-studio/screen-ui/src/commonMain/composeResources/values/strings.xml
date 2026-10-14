@@ -113,9 +113,15 @@
     <string name="context_compacted">Context compacted: the agent continues from a summary</string>
     <string name="context_rolled_over">Continued in a new session with a summary of this one</string>
     <string name="run_failed">The run failed. Try again.</string>
-    <string name="run_failed_limit">The engine usage limit has been reached. Try again after it resets or switch the model.</string>
+    <string name="run_failed_limit">The provider temporarily limited request frequency. Wait and try again.</string>
     <string name="run_failed_context">The conversation exceeds the model context window. Start a new chat or pick a model with a larger context.</string>
-    <string name="run_failed_auth">The engine rejected the credentials. Reconnect it in settings.</string>
+    <string name="run_failed_auth">Could not authenticate with the provider. In Settings → Models and engines, add a connection with a valid API key or sign in to the CLI again.</string>
+    <string name="run_failed_credentials_missing">Credentials for this connection are unavailable on this device. In Settings → Models and engines, add the connection again or sign in to the CLI, then select it for a new chat.</string>
+    <string name="run_failed_connection_changed">The connection credentials changed or do not match the engine. Check the connection in Settings → Models and engines, then select a working connection for a new chat.</string>
+    <string name="run_failed_quota">The provider quota is exhausted. Check your subscription and remaining allowance in the provider account, or choose another connection for a new chat.</string>
+    <string name="run_failed_access">Access to this operation or model was denied. Check permissions and your subscription, or choose an available model. If the account is restricted, contact the provider to restore access.</string>
+    <string name="run_failed_request">The provider rejected the request. Check the model and connection in Settings → Models and engines; for a custom server, also check the base URL and API path.</string>
+    <string name="run_failed_engine">The engine is unavailable on this device. In Settings → Models and engines, check that it is installed and enabled, then restart the engine.</string>
     <string name="run_failed_network">Could not reach the engine service. Check the connection and try again.</string>
     <string name="submit_failed">The session could not be created. Your prompt was restored.</string>
     <string name="duration_seconds">%1$d s</string>
