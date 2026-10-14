@@ -19,8 +19,8 @@
 ---
 
 Heartbeat объединяет ИИ-движки, подключения, модели и историю бесед в одном рабочем пространстве.
-Общий код приложения работает на **Android, Windows, macOS и iOS**, а интерфейс учитывает привычки платформы:
-Material на Android, Fluent на Windows и macOS UI на Mac.
+Общий код приложения работает на **Android, Windows, macOS, Linux и iOS**, а интерфейс учитывает привычки платформы:
+Material на Android и Linux, Fluent на Windows и macOS UI на Mac.
 
 Знак Heartbeat — светящаяся линия ЭКГ на сине-фиолетовой плитке. Один визуальный стиль объединяет
 иконку приложения, Desktop-окно, Dock, установочные пакеты и этот README.
@@ -53,6 +53,8 @@ cd Heartbeat
 Для сборки нужен **JDK 21**; Gradle настраивает Java toolchain проекта. Для Android установите SDK 37
 и укажите его путь в `local.properties` (`sdk.dir=...`) или в `ANDROID_HOME`.
 Для iOS нужен macOS с Xcode; минимальная версия iOS в проекте — **18.2**.
+Для сборки DEB на Ubuntu 24.04 установите `sudo apt install libatomic1 fakeroot dpkg-dev`:
+`libatomic1` нужен Node, который Gradle скачивает для сборки Chromium-панели.
 
 Запуск Desktop на macOS:
 
@@ -78,14 +80,21 @@ cd Heartbeat
 
 Установочные файлы собираются из исходников. Desktop-пакеты включают Java runtime,
 поэтому пользователю установленного приложения отдельный JDK не нужен.
-Установщик Windows (Inno Setup) собирается на Windows, DMG — на macOS.
+Установщик Windows (Inno Setup) собирается на Windows, DMG — на macOS, DEB — на Ubuntu 24.04 x64.
 
 | Платформа | Собрать | Установить |
 | --- | --- | --- |
 | **Android** | `./gradlew :platform-main:android:assembleDebug` | Установить APK из `platform-main/android/build/outputs/apk/debug/`. |
 | **Windows** | `.\gradlew.bat :platform-main:desktop:packageInnoSetup` | Запустить `Heartbeat-<версия>-setup.exe` из `platform-main/desktop/build/compose/binaries/main/exe/` (релизная сборка — `packageReleaseInnoSetup`, папка `main-release/exe/`). |
 | **macOS** | `./gradlew :platform-main:desktop:packageDmg` | Открыть DMG из `platform-main/desktop/build/compose/binaries/main/dmg/` и перенести приложение в Applications. |
+| **Linux x64** | `./gradlew :platform-main:desktop:packageDeb` | Установить DEB из `platform-main/desktop/build/compose/binaries/main/deb/` через `sudo apt install ./heartbeat_*.deb` (релиз — `packageReleaseDeb`, папка `main-release/deb/`). |
 | **iOS** | Открыть `platform-main/ios/iosApp.xcodeproj` в Xcode | Выбрать команду подписи и iPhone либо Simulator, затем выполнить Run. |
+
+Linux: Ubuntu 24.04 x64, X11 или XWayland и разблокированный Secret Service (например GNOME Keyring).
+DEB устанавливает зависимости libsecret и встроенного Chromium. API-ключи сохраняются в системном keyring;
+без доступного хранилища операции с секретами возвращают ошибку. Обновления DEB устанавливаются через
+пакетный менеджер: кнопка обновления открывает страницу релиза. Управление компьютером `computer_*`
+на Linux пока недоступно.
 
 Установщик Windows по умолчанию ставит приложение только для текущего пользователя, без прав администратора
 (на первом шаге можно выбрать установку для всех пользователей), создаёт ярлыки в меню «Пуск» и, по выбору,

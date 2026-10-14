@@ -1,11 +1,11 @@
 name: Release
 
 # Run workflow on master with patch, minor or major to publish the next Heartbeat release.
-# Publishing needs every job to pass: all tests, the Android and iOS builds, and the four desktop
+# Publishing needs every job to pass: all tests, the Android and iOS builds, and the five desktop
 # installers, each checked by running its packaged app (verifyReleaseHarnessCompiler).
 # JVM tests seed portable task outputs; Linux builds the shared Wasm panel once.
 # Remaining desktop/mobile builds and platform tests fan out from Linux. Host toolchains stay
-# OS/architecture-specific. The Linux DEB is a CI artifact until its runtime subsystems support Linux.
+# OS/architecture-specific. Linux ships a DEB for Ubuntu 24.04 x64 with Secret Service and X11/XWayland.
 # Installed release builds update themselves from the latest release (features/app-update): the release is
 # created as a draft, gets every installer and SHA256SUMS, and only then becomes public and latest. The asset
 # names are what the app looks for (ReleasePlatform in features/app-update/impl): keep them in sync.
@@ -62,7 +62,7 @@ jobs:
   checks:
     name: JVM tests
     needs: version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 150
     steps:
       - uses: actions/checkout@v7
@@ -113,7 +113,7 @@ jobs:
   desktop-linux:
     name: Desktop Linux x64
     needs: [version, checks]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
@@ -132,28 +132,55 @@ jobs:
           stage: desktop-linux
           save-portable: 'true'
           upstream: checks
-      - name: Package Linux and prepare the shared browser panel
+      - name: Install Linux runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libatomic1 fakeroot dpkg-dev libsecret-1-0 gnome-keyring dbus-x11 xvfb xauth \
+            libnss3 libnspr4 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libdrm2 \
+            libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
+            libasound2t64 libgtk-3-0t64 libx11-6 libxcb1 libxext6 libxrender1 libxtst6
+      - name: Verify Linux runtimes and package the release
         env:
           VERSION: ${{ needs.version.outputs.version }}
-        run: >-
-          xvfb-run --auto-servernum ./gradlew -Pheartbeat.version="$VERSION"
-          -Porg.gradle.java.installations.auto-detect=false
-          -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64
-          :platform-main:desktop:verifyReleaseHarnessCompiler :platform-main:desktop:packageReleaseDeb
-          :chromium-plugin:panel:prepareChromiumPanelArtifact
-          --no-daemon --stacktrace --profile
+        # One Gradle invocation shares configuration and compilation across the native checks and packaging.
+        run: |
+          export XDG_DATA_HOME="$RUNNER_TEMP/heartbeat-test-keyring-data"
+          export XDG_RUNTIME_DIR="$RUNNER_TEMP/heartbeat-test-keyring-runtime"
+          mkdir -p "$XDG_DATA_HOME" "$XDG_RUNTIME_DIR"
+          chmod 700 "$XDG_DATA_HOME" "$XDG_RUNTIME_DIR"
+          dbus-run-session -- bash -euo pipefail <<'TEST'
+          printf '%s\n' 'heartbeat-ci-synthetic-keyring' | gnome-keyring-daemon --unlock --components=secrets
+          xvfb-run --auto-servernum ./gradlew -Pheartbeat.version="$VERSION" \
+            -Porg.gradle.java.installations.auto-detect=false \
+            -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64 \
+            :core:secrets:impl:nativeSecretsTest \
+            :features:browser:impl:browserNativeTest :features:browser:impl:browserDocumentNativeTest \
+            :platform-main:desktop:verifyReleaseHarnessCompiler :platform-main:desktop:packageReleaseDeb \
+            :chromium-plugin:panel:prepareChromiumPanelArtifact \
+            --no-daemon --stacktrace --profile
+          TEST
       - uses: actions/upload-artifact@v7
         with:
           name: chromium-panel
           path: chromium-plugin/panel/build/release-panel/
           if-no-files-found: error
           retention-days: 7
-      # This target verifies packaging and warms the cache; it is not a supported Linux release yet.
-      # Deliberately outside publish's desktop-* pattern.
+      - name: Name the Linux installer
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          shopt -s nullglob
+          packages=(platform-main/desktop/build/compose/binaries/main-release/deb/*.deb)
+          if [ "${#packages[@]}" -ne 1 ]; then
+            echo "::error::Expected one Debian package"
+            exit 1
+          fi
+          mkdir release
+          cp "${packages[0]}" "release/Heartbeat-$VERSION-linux-x64.deb"
       - uses: actions/upload-artifact@v7
         with:
-          name: linux-build
-          path: platform-main/desktop/build/compose/binaries/main-release/deb/*.deb
+          name: desktop-linux-x64
+          path: release/
           if-no-files-found: error
           retention-days: 7
 
@@ -482,8 +509,8 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           cat > notes.md <<'NOTES'
-          Установленный Heartbeat обновляется сам: при запуске он находит этот релиз и предлагает «Обновить» в шапке
-          сайдбара студии.
+          Установленный Heartbeat находит этот релиз при запуске. На macOS и Windows кнопка «Обновить» в шапке
+          сайдбара студии устанавливает обновление; на Linux она открывает страницу загрузки DEB для пакетного менеджера.
 
           Первая установка:
           - macOS: `macos-arm64` — Apple Silicon, `macos-x64` — Intel. Откройте DMG и перетащите приложение в
@@ -491,6 +518,10 @@ jobs:
             разрешите в «Системные настройки → Конфиденциальность и безопасность».
           - Windows: `windows-x64` или `windows-arm64`, запустите `…-setup.exe`. SmartScreen может предупредить о
             неизвестном издателе: «Подробнее → Выполнить в любом случае».
+
+          - Linux: Ubuntu 24.04 x64, графическая сессия X11 или XWayland, разблокированное хранилище Secret Service
+            (например GNOME Keyring). Скачайте `linux-x64.deb` и установите `sudo apt install ./Heartbeat-*-linux-x64.deb`.
+            Обновления устанавливаются той же командой. Ключи хранятся в системном keyring; plaintext fallback отсутствует.
 
           `SHA256SUMS` — контрольные суммы всех файлов релиза.
           NOTES

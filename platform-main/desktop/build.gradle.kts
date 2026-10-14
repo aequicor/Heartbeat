@@ -197,6 +197,7 @@ compose.desktop {
             linux {
                 // Debian package names are lowercase.
                 packageName = "heartbeat"
+                shortcut = true
                 iconFile.set(layout.projectDirectory.file("icons/heartbeat.png"))
             }
             appResourcesRootDir.set(layout.dir(collectAppResources.map { it.destinationDir }))
@@ -247,6 +248,36 @@ afterEvaluate {
     tasks.withType<AbstractJPackageTask>().configureEach {
         dependsOn(verifyWindowRuntime)
         dependsOn(verifyBrowserRuntime)
+        if (targetFormat == TargetFormat.Deb) {
+            // jpackage cannot discover libraries loaded through JNA or from the JCEF native archive.
+            // Compose exposes extra jpackage options on the task, not in LinuxPlatformSettings.
+            // These package names target Ubuntu 24.04; no spaces keeps the value intact in Compose's argfile.
+            freeArgs.addAll(
+                "--linux-package-deps",
+                listOf(
+                    "libsecret-1-0",
+                    "libnss3",
+                    "libnspr4",
+                    "libatk1.0-0t64",
+                    "libatk-bridge2.0-0t64",
+                    "libcups2t64",
+                    "libdrm2",
+                    "libxkbcommon0",
+                    "libxcomposite1",
+                    "libxdamage1",
+                    "libxfixes3",
+                    "libxrandr2",
+                    "libgbm1",
+                    "libasound2t64",
+                    "libgtk-3-0t64",
+                    "libx11-6",
+                    "libxcb1",
+                    "libxext6",
+                    "libxrender1",
+                    "libxtst6",
+                ).joinToString(","),
+            )
+        }
         if (!name.contains("Release")) {
             launcherMainClass.set("io.aequicor.heartbeat.platform.desktop.DevelopmentMainKt")
         } else {
