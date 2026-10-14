@@ -190,10 +190,11 @@ internal class PiSession(
         val isActiveTurn = turn?.id == active.id && !isHandleClosed
         isSameProcess && isActiveTurn && state.value !is ActiveSessionState.Interrupting
     }, failed = ::failed)
-    private val toolPlans = PiToolPlans(environment, hostedTools, request.areDetachedToolsEnabled) {
+    private val toolPlans = PiToolPlans(environment, hostedTools, request) {
         AgentToolScope(route.workspace, target, session = nativeRef)
     }
     private var launchedTools: Set<String> = emptySet()
+    private var launchedInstructions: String? = null
     private val profileClose = profile.onClose {
         cancellationAck?.completeExceptionally(profileClosed())
         acceptance?.completeExceptionally(profileClosed())
@@ -458,18 +459,20 @@ internal class PiSession(
             },
         )
         launchedTools = plan.requestedNames
+        launchedInstructions = plan.requestedInstructions
         return fresh
     }
 
-    /** Only growth needs a restart, between turns and under the send mutex, on the same saved transcript. */
+    /** Refresh frozen declarations between turns, under the send mutex, on the same saved transcript. */
     private suspend fun refreshTools() {
         val process = connection?.takeIf { it.isOpen } ?: return
-        if (!toolPlans.hasGrown(launchedTools)) return
         // get_state may advertise an allocated path before Pi writes its first assistant message.
         // Only a transcript found in profile storage is safe to reattach after closing this process.
-        val file = nativeRef?.nativeId?.let { persistedTranscript(it) } ?: return
+        val file = toolPlans.refreshedTranscript(launchedTools, launchedInstructions) {
+            nativeRef?.nativeId?.let { persistedTranscript(it) }
+        } ?: return
         sessionFile = file
-        log.i { "Restarting Pi between turns to expose additional tools" }
+        log.i { "Restarting Pi between turns to update tool declarations" }
         process.close()
         connected(isRecovery = false)
     }

@@ -186,12 +186,7 @@ internal class PiProcessLauncher(
         // A harness can become active during this process's lifetime. Always gate inspection too, so live Off
         // and hooks take effect without a restart; ordinary reads are automatically allowed by the host.
         environment["HEARTBEAT_GATE_ALL"] = "true"
-        if (hosted != null) {
-            environment["HEARTBEAT_AGENT_TOOLS_URL"] = hosted.endpoint.url
-            environment["HEARTBEAT_AGENT_TOOLS_TOKEN"] = hosted.endpoint.token
-            environment["HEARTBEAT_AGENT_TOOL_SPECS"] = hosted.schemas()
-            environment["HEARTBEAT_AGENT_TOOL_INSTRUCTIONS"] = hosted.instructions
-        }
+        hosted?.applyEnvironment(environment)
         var process: Process? = null
         try {
             if (areSearchToolsEnabled) {
