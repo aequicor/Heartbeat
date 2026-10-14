@@ -13,6 +13,10 @@ inputs:
   upstream:
     description: Preferred completed stage in this release run.
     required: true
+outputs:
+  apple-toolchain-fingerprint:
+    description: Hash of the active Xcode build and Apple SDK versions when native outputs are enabled.
+    value: ${{ steps.native-toolchain.outputs.fingerprint }}
 runs:
   using: composite
   steps:

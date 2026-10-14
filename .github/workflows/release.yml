@@ -212,8 +212,49 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  mobile:
-    name: Android and iOS builds
+  android:
+    name: Android release
+    needs: [version, desktop-linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: microsoft
+          java-version: '17'
+      - uses: actions/setup-java@v6
+        with:
+          distribution: jetbrains
+          java-version: '21'
+      - uses: ./.github/actions/gradle-cache
+        with:
+          stage: android
+          upstream: desktop-linux
+      - name: Build the Android app
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: >-
+          ./gradlew -Pheartbeat.version="$VERSION"
+          -Porg.gradle.java.installations.auto-detect=false
+          -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64
+          :platform-main:android:assembleRelease
+          --no-daemon --stacktrace --profile
+      - name: Upload Gradle timing and test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gradle-reports-android
+          path: |
+            build/reports/profile/
+            **/build/test-results/**/*.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+  ios:
+    name: iOS framework
     needs: [version, desktop-linux]
     # The Intel runner has 14 GiB RAM; the 7 GiB arm64 runner cannot fit the release linker heap.
     runs-on: macos-15-intel
@@ -231,11 +272,40 @@ jobs:
           distribution: jetbrains
           java-version: '21'
       - uses: ./.github/actions/gradle-cache
+        id: gradle-cache
         with:
-          stage: mobile
+          stage: ios
           native-outputs: 'true'
           upstream: desktop-linux
-      - name: Build the Android app and the iOS framework
+      - name: Identify the exact iOS framework build
+        id: ios-framework-key
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          APPLE_FINGERPRINT: ${{ steps.gradle-cache.outputs.apple-toolchain-fingerprint }}
+        run: |
+          FRAMEWORK_KEY=$(python3 scripts/ios_framework_cache.py key \
+            --version "$VERSION" --apple-fingerprint "$APPLE_FINGERPRINT" \
+            --java-home "$JAVA_HOME" --java-home "$JAVA_HOME_17_X64" \
+            --identity "$RUNNER_TEMP/ios-framework-identity.json")
+          echo "key=$FRAMEWORK_KEY" >> "$GITHUB_OUTPUT"
+
+      # No restore prefix: changed inputs must run the optimized release linker.
+      - name: Restore the exact iOS framework archive
+        id: ios-framework-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: ${{ runner.temp }}/ios-framework-cache
+          key: release-ios-framework-v1-${{ steps.ios-framework-key.outputs.key }}
+
+      - name: Validate and unpack the cached iOS framework
+        if: steps.ios-framework-cache.outputs.cache-hit == 'true'
+        run: >-
+          python3 scripts/ios_framework_cache.py restore
+          --identity "$RUNNER_TEMP/ios-framework-identity.json"
+          --cache-directory "$RUNNER_TEMP/ios-framework-cache"
+          --directory platform-main/shared/build/bin/iosArm64/releaseFramework
+      - name: Build the iOS framework
+        if: steps.ios-framework-cache.outputs.cache-hit != 'true'
         env:
           VERSION: ${{ needs.version.outputs.version }}
         # Kotlin/Native links in the Gradle JVM. The release optimizer exceeds the default 4 GiB heap.
@@ -244,14 +314,28 @@ jobs:
           -Porg.gradle.java.installations.auto-detect=false
           -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64
           -Dorg.gradle.jvmargs="-Xmx8g -Dfile.encoding=UTF-8"
-          :platform-main:android:assembleRelease :platform-main:shared:linkReleaseFrameworkIosArm64
+          :platform-main:shared:linkReleaseFrameworkIosArm64
           --no-daemon --stacktrace --profile
+      - name: Archive the successfully linked iOS framework
+        if: steps.ios-framework-cache.outputs.cache-hit != 'true'
+        run: >-
+          python3 scripts/ios_framework_cache.py pack
+          --identity "$RUNNER_TEMP/ios-framework-identity.json"
+          --cache-directory "$RUNNER_TEMP/ios-framework-cache"
+          --directory platform-main/shared/build/bin/iosArm64/releaseFramework
+
+      - name: Save the exact iOS framework archive
+        if: steps.ios-framework-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ runner.temp }}/ios-framework-cache
+          key: release-ios-framework-v1-${{ steps.ios-framework-key.outputs.key }}
 
       - name: Upload Gradle timing and test reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: gradle-reports-mobile
+          name: gradle-reports-ios
           path: |
             build/reports/profile/
             **/build/test-results/**/*.xml
@@ -354,7 +438,7 @@ jobs:
 
   publish:
     name: Publish
-    needs: [version, checks, desktop-linux, desktop, platform-tests, mobile]
+    needs: [version, checks, desktop-linux, desktop, platform-tests, android, ios]
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
