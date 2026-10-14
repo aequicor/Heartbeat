@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation.component
 
 import com.arkivanov.decompose.ComponentContext
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPresentation
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserDocumentNatives
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserDocumentRegistry
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserDocumentSurface
@@ -21,13 +22,14 @@ internal class BrowserDocumentComponent(
     registry: BrowserDocumentRegistry,
     scope: CoroutineScope,
     natives: BrowserDocumentNatives = BrowserDocumentNatives.None,
+    presentation: BrowserDocumentPresentation = BrowserDocumentPresentation.Document,
 ) : ComponentContext by context {
     val surface: StateFlow<BrowserDocumentSurface?> = registry.documents
-        .map { documents -> documents[id]?.let { BrowserDocumentSurface(it, natives) } }
+        .map { documents -> documents[id]?.let { BrowserDocumentSurface(it, natives, presentation) } }
         .distinctUntilChanged()
         .stateIn(
             scope,
             SharingStarted.Eagerly,
-            registry.documents.value[id]?.let { BrowserDocumentSurface(it, natives) },
+            registry.documents.value[id]?.let { BrowserDocumentSurface(it, natives, presentation) },
         )
 }

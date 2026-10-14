@@ -3,12 +3,15 @@ package io.aequicor.heartbeat.ds.components
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -28,6 +31,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
@@ -49,6 +53,9 @@ public enum class HbDialogWidth {
  * The surface is flat with the popup shadow — the only elevated surface of the style — and no blur.
  * With [isContentScrollable] false the content area is still bounded by the window but does not scroll itself,
  * so content with its own scrolling (for example on both axes) is not nested inside a vertical scroll.
+ * [isContentFill] gives an application workspace all available height. Its fixed [headerActions] remain reachable
+ * while the body scrolls. [isTitleVisible] may hide a title already drawn by the document; the accessible pane name
+ * stays available.
  */
 @Composable
 public fun HbDialog(
@@ -57,6 +64,9 @@ public fun HbDialog(
     modifier: Modifier = Modifier,
     width: HbDialogWidth = HbDialogWidth.Regular,
     isContentScrollable: Boolean = true,
+    isContentFill: Boolean = false,
+    isTitleVisible: Boolean = true,
+    headerActions: @Composable RowScope.() -> Unit = {},
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -64,11 +74,7 @@ public fun HbDialog(
     val dimensions = HbTheme.dimensions
     val windowWidth = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
     val isSheet = windowWidth < dimensions.compactBreakpoint
-    val maxWidth = when {
-        isSheet -> windowWidth
-        width == HbDialogWidth.Wide -> dimensions.dialogWideMaxWidth
-        else -> dimensions.dialogMaxWidth
-    }
+    val maxWidth = dialogMaxWidth(width, windowWidth)
     val focus = remember { FocusRequester() }
     LaunchedEffect(focus) {
         // Wait until the focus target is attached and laid out.
@@ -84,7 +90,8 @@ public fun HbDialog(
         HbColumn(
             modifier
                 .then(if (isSheet) Modifier.fillMaxWidth() else Modifier)
-                .widthIn(min = dimensions.dialogMinWidth, max = maxWidth)
+                .widthIn(min = minOf(dimensions.dialogMinWidth, maxWidth), max = maxWidth)
+                .then(if (isContentFill) Modifier.fillMaxSize() else Modifier)
                 .padding(HbTheme.spacing.l)
                 .hbPopupSurface(HbTheme.colors.surface, HbTheme.shapes.large)
                 .semantics { paneTitle = title }
@@ -103,12 +110,8 @@ public fun HbDialog(
                 .padding(HbTheme.spacing.xl),
             gap = HbTheme.spacing.l,
         ) {
-            HbText(
-                title,
-                Modifier.semantics { heading() },
-                style = HbTheme.typography.title.copy(fontWeight = FontWeight.SemiBold),
-            )
-            val body = Modifier.weight(1f, fill = false)
+            DialogHeader(title, isTitleVisible, headerActions)
+            val body = Modifier.weight(1f, fill = isContentFill)
             HbColumn(
                 if (isContentScrollable) body.hbVerticalScroll(rememberScrollState()) else body,
                 gap = HbTheme.spacing.m,
@@ -120,6 +123,31 @@ public fun HbDialog(
                 content = actions,
             )
         }
+    }
+}
+
+@Composable
+@ReadOnlyComposable
+private fun dialogMaxWidth(width: HbDialogWidth, windowWidth: Dp): Dp = when {
+    windowWidth < HbTheme.dimensions.compactBreakpoint -> windowWidth
+    width == HbDialogWidth.Wide -> HbTheme.dimensions.dialogWideMaxWidth
+    else -> HbTheme.dimensions.dialogMaxWidth
+}
+
+@Composable
+private fun DialogHeader(title: String, isTitleVisible: Boolean, actions: @Composable RowScope.() -> Unit) {
+    HbRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.m) {
+        if (isTitleVisible) {
+            HbText(
+                title,
+                Modifier.weight(1f).semantics { heading() },
+                style = HbTheme.typography.title.copy(fontWeight = FontWeight.SemiBold),
+                maxLines = 1,
+            )
+        } else {
+            Spacer(Modifier.weight(1f))
+        }
+        actions()
     }
 }
 

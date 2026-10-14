@@ -53,7 +53,8 @@ public enum class BrowserDocumentSizing {
 
 /**
  * Calls of a page into its opener. Runs off the main thread with page input already bounded by
- * [BrowserDocumentLimits]; cancelled when the page reloads, its view closes or the document closes.
+ * [BrowserDocumentLimits]; cancelled when the page reloads or the document closes. Hiding a retained view does not
+ * reload the page or cancel its work.
  */
 public fun interface BrowserDocumentBridge {
     /** Handles `heartbeat.call([method], [arguments])` of the page. */
@@ -74,9 +75,10 @@ public sealed interface BrowserBridgeResult {
 }
 
 /**
- * An open document. Its opener closes it once it no longer shows the document: an open document counts toward
- * [BrowserDocumentLimits.DOCUMENTS] until then. Closing it closes its views and cancels the page's pending calls; it
- * cannot reopen. A view that cannot show the page explains it itself.
+ * An open document. Its opener closes it when its owning feature no longer needs it: an open document counts toward
+ * [BrowserDocumentLimits.DOCUMENTS] until then. Desktop retains one native page across hiding and moving its view;
+ * at most one host displays that page at a time. Closing closes the page and cancels its pending calls; it cannot
+ * reopen. A view that cannot show the page explains it itself.
  */
 public interface BrowserDocumentHandle {
     /** Draws the document; a route of a closed document draws a "closed" note. */
@@ -92,10 +94,25 @@ public interface BrowserDocumentHandle {
 /**
  * Embeds document [id] in the opener's screen. Fixed documents fill the given size; content-sized documents follow
  * intrinsic height inside host bounds, falling back to the regular viewport until measurement is available.
+ * [presentation] overrides only the host layout, never the registration, page, data or bridge. Hosts may move the
+ * same registration between routes without reloading it; the most recently attached host owns its native view.
  */
 @Serializable
 @SerialName("browser_document")
-public data class BrowserDocumentRoute(val id: String) : Route
+public data class BrowserDocumentRoute(
+    val id: String,
+    val presentation: BrowserDocumentPresentation = BrowserDocumentPresentation.Document,
+) : Route
+
+/** Layout of a registered document in one host; changing it preserves the page's identity and DOM. */
+@Serializable
+public enum class BrowserDocumentPresentation {
+    /** Honor the registration's [BrowserDocument.sizing]. */
+    Document,
+
+    /** Fill the bounded host viewport, including for an intrinsically sized registration. */
+    Fill,
+}
 
 /** Bounds of documents and of what their pages send and receive. */
 public object BrowserDocumentLimits {

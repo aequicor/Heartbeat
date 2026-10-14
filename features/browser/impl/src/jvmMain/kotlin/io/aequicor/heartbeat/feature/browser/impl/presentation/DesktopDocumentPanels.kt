@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserDocumentNatives
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserDocumentRegistry
 import io.aequicor.heartbeat.feature.browser.impl.domain.DesktopBrowserResources
 import io.aequicor.heartbeat.feature.browser.impl.domain.OpenBrowserDocument
 import kotlinx.coroutines.CancellationException
@@ -31,8 +32,9 @@ import javax.swing.JPanel
 import javax.swing.SwingUtilities
 
 /**
- * Native views of the profile's documents on desktop, on the app's CEF runtime: each view owns one browser, closed
- * when the view leaves the screen or the profile closes, and known to [browsers] until it has closed natively.
+ * Native pages of the profile's documents on desktop: one retained browser per registration, closed when the
+ * registration or profile closes, and known to [browsers] until it has closed natively. Moving or hiding a host only
+ * detaches the page; a new host reuses its DOM and in-memory context.
  * Documents use their own in-memory contexts, so neither the profile's browser storage nor clearing it concerns them.
  */
 @SingleIn(ProfileScope::class)
@@ -44,28 +46,38 @@ internal class DesktopDocumentPanels(
     @ForScope(ProfileScope::class) private val scope: ScopeHandle,
     @ForScope(AppScope::class) private val app: ScopeHandle,
     private val browsers: DesktopDocumentViews,
+    private val registry: BrowserDocumentRegistry,
 ) : BrowserDocumentNatives {
-    private val panels = mutableSetOf<DesktopDocumentPanel>()
+    private val panels = mutableMapOf<String, DesktopDocumentPanel>()
 
     init {
-        scope.onClose { SwingUtilities.invokeLater { panels.toList().forEach(DesktopDocumentPanel::release) } }
+        scope.coroutineScope.launch(dispatchers.main) {
+            registry.documents.collect { documents ->
+                panels.filterKeys { it !in documents }.values.toList().forEach(DesktopDocumentPanel::release)
+            }
+        }
+        scope.onClose { SwingUtilities.invokeLater { panels.values.toList().forEach(DesktopDocumentPanel::release) } }
     }
 
-    /** A new view of [document]; called on EDT, released by its owner. */
-    fun create(document: OpenBrowserDocument): DesktopDocumentPanel {
+    /** The sole page of this still-open registration; stale compositions cannot resurrect a closed document. */
+    fun retain(document: OpenBrowserDocument): DesktopDocumentPanel? {
         check(SwingUtilities.isEventDispatchThread())
-        return DesktopDocumentPanel(document, resources, dispatchers, scope.coroutineScope) { released ->
-            panels -= released
+        if (scope.isClosed || registry.documents.value[document.id] !== document) return null
+        return panels[document.id] ?: create(document)
+    }
+
+    private fun create(document: OpenBrowserDocument): DesktopDocumentPanel =
+        DesktopDocumentPanel(document, resources, dispatchers, scope.coroutineScope) { released ->
+            panels.remove(document.id, released)
             // The app scope outlives the profile, so the barrier holds until the native close completes.
             app.coroutineScope.launch {
                 released.awaitClosed()
                 browsers.closed(released)
             }
         }.also {
-            panels += it
+            panels[document.id] = it
             browsers.register(it)
         }
-    }
 }
 
 /**
@@ -86,6 +98,7 @@ internal class DesktopDocumentPanel(
     private val presentation = DesktopDocumentPresentation()
     private var container: JPanel? = null
     private var engine: DesktopDocumentEngine? = null
+    private var attachment: DesktopDocumentAttachment? = null
     private val engines = mutableListOf<DesktopDocumentEngine>()
 
     @Volatile
@@ -112,9 +125,49 @@ internal class DesktopDocumentPanel(
         return panel
     }
 
+    /** A host lease; creating it does not attach, start or duplicate the native page. */
+    fun newAttachment(): DesktopDocumentAttachment = DesktopDocumentAttachment(this)
+
+    /** EDT detach-before-attach prevents native content from belonging to two host windows at once. */
+    internal fun attach(next: DesktopDocumentAttachment, host: JPanel) {
+        check(SwingUtilities.isEventDispatchThread())
+        if (isReleased) return
+        attachment?.let(::detach)
+        val content = createComponent()
+        content.parent?.remove(content)
+        attachment = next
+        host.add(content, BorderLayout.CENTER)
+        content.isVisible = true
+        updateDismissRequest(next)
+        host.revalidate()
+        host.repaint()
+    }
+
+    /** A superseded host cannot detach the page or revoke the current host's keyboard callback. */
+    internal fun detach(previous: DesktopDocumentAttachment) {
+        check(SwingUtilities.isEventDispatchThread())
+        if (attachment !== previous) return
+        presentation.dismissal.update(null)
+        attachment = null
+        val content = container ?: return
+        content.isVisible = false
+        val parent = content.parent
+        if (parent != null) {
+            parent.remove(content)
+            parent.revalidate()
+            parent.repaint()
+        }
+    }
+
+    internal fun updateDismissRequest(owner: DesktopDocumentAttachment) {
+        check(SwingUtilities.isEventDispatchThread())
+        if (attachment === owner && !isReleased) presentation.dismissal.update(owner.onDismissRequest)
+    }
+
     fun release() {
         check(SwingUtilities.isEventDispatchThread())
         if (isReleased) return
+        attachment?.let(::detach)
         isReleased = true
         scope.cancel()
         presentation.measurements.close()

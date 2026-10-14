@@ -36,4 +36,14 @@ class BrowserDocumentsTest {
         assertEquals("browser_document", BrowserDocumentRoute.serializer().descriptor.serialName)
         assertEquals(route, Json.decodeFromString(BrowserDocumentRoute.serializer(), json))
     }
+
+    @Test
+    fun `fill is a route presentation of the same registration and round trips`() {
+        val original = BrowserDocumentRoute("document")
+        val fill = original.copy(presentation = BrowserDocumentPresentation.Fill)
+        assertEquals(original.id, fill.id)
+        val json = Json.encodeToString(BrowserDocumentRoute.serializer(), fill)
+        assertEquals(fill, Json.decodeFromString(BrowserDocumentRoute.serializer(), json))
+        assertEquals(BrowserDocumentPresentation.Document, original.presentation)
+    }
 }

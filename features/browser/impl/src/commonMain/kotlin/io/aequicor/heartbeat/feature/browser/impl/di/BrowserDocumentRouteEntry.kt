@@ -30,7 +30,14 @@ internal class BrowserDocumentRouteEntry(
 ) : RouteEntry<BrowserDocumentRoute>(BrowserDocumentRoute::class, BrowserDocumentRoute.serializer()) {
     override fun create(route: BrowserDocumentRoute, context: ComponentContext, navigator: Navigator): NavComponent {
         val scope = context.retainedScope(scopes, profile, name = "browser-document")
-        val component = BrowserDocumentComponent(context, route.id, registry, scope.coroutineScope, natives)
+        val component = BrowserDocumentComponent(
+            context,
+            route.id,
+            registry,
+            scope.coroutineScope,
+            natives,
+            route.presentation,
+        )
         return BrowserDocumentUiComponent(component)
     }
 }

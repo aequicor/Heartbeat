@@ -113,6 +113,7 @@ internal class DesktopDocumentEngine(
             client.addRequestHandler(policy.requestHandler)
             client.addLifeSpanHandler(LifeSpan())
             client.addLoadHandler(Load())
+            client.addKeyboardHandler(DesktopDocumentKeyboard(presentation.dismissal))
             client.addDisplayHandler(
                 object : CefDisplayHandlerAdapter() {
                     override fun onConsoleMessage(

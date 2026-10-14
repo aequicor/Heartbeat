@@ -35,7 +35,10 @@ internal actual fun HbPlatformDialog(onDismissRequest: () -> Unit, content: @Com
             animateTransition = false,
         ),
     ) {
-        CompositionLocalProvider(LocalHbNativeContentViewport provides null) {
+        CompositionLocalProvider(
+            LocalHbNativeContentViewport provides null,
+            LocalHbDialogDismissRequest provides onDismissRequest,
+        ) {
             HbDesktopDialogContent(onDismissRequest, content = content)
         }
     }
