@@ -43,8 +43,11 @@ private val GUIDE = """
     5. Check with harness_get, then tell the user what was set up.
 
     Embedded mini-app path:
+    - Read the built-in skills with ui_reference(topic="mini-app-design") for design and topic="service-as-ui"
+      for rendering choices, placements and examples. Use topic="spec" for the exact format.
+      If the session's ui_reference schema has no topic argument, call it without arguments for all documents.
     - Create the harness with attach=true (or harness_attach an existing harness to this chat).
-    - Read the local mini-app in topic="examples" and ui_reference. Save its methods with
+    - Read the local mini-app in harness_api_reference(topic="examples"). Save its methods with
       harness_item_put(kind="script").
       This tool compiles Kotlin before saving. On "compilation failed", fix the reported source line and submit
       the complete corrected source with the SAME harness and item name. A failed compile does not save the item.
@@ -55,7 +58,8 @@ private val GUIDE = """
       the snapshot method only reads and supplies defaults. The examples topic includes a bounded record list.
     - Create an owner-backed surface with ui_put and placement="card", then
       ui_show(title="Records", surface=returned_id).
-      Keep the existing chat and input. An optional placement="composer" surface shows compact shared status.
+      Keep the existing chat and input. The host creates the app's composer button and full start view.
+      Add placement="context" only for a useful separate summary or quick action, not a duplicate app.
       See ui_reference for the exact spec, data sources and web bridge. A saved surface alone is not visible.
 
     Safety: every agent mutation passes independent automatic review of the exact caller, content, previous

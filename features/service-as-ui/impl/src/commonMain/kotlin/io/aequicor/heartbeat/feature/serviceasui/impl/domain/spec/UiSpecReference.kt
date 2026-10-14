@@ -18,7 +18,8 @@ internal val UiIconNames: List<String> = listOf(
  */
 internal fun uiSpecReference(methodResultBytes: Int, callSeconds: Int): String = listOf(
     placesAndDocument(),
-    nodesAndActions(),
+    nodesReference(),
+    actionsReference(),
     limitsAndCards(methodResultBytes, callSeconds),
     miniAppsAndWorkflow(),
 )
@@ -39,9 +40,17 @@ to you; inspect the reason and correct the operation. Do not ask the user to byp
   and the native composer chip open a spacious modal. The selected harness also shows the full app on new-chat start.
 - `composer`: inline in a compact row above the chat input while the owner is connected to the chat.
 - `start`: inline in the start window of a new chat for which the owner is selected.
+- `context`: automatically shown in a compact, rounded card at the top right of the chat (also on new-chat start
+  for the selected owner). It stays alongside a canonical mini-app without creating another app or message.
+  The host adapts its placement on narrow windows. Use it for summaries, sections, short lists and quick actions;
+  content determines its height. Prefer native nodes; the spec supplies its own concise heading and the host does
+  not repeat the title. Do not add a nested outer card. If several context surfaces are active, one card has a
+  selector and shows the selected surface. A web root uses a content-sized viewport within the card's bounds.
 - `panel`: in the side panel, opened by a launcher or by an `open` action with `presentation: "panel"`.
 - `modal`: in a dialog, opened by a launcher or by an `open` action.
-`launchers` (panel and modal surfaces only): `["composer", "start"]` put a button that opens the surface there.
+`launchers` (panel and modal surfaces only): `["composer", "start", "context"]` put a button that opens the surface
+in the chosen slots. Use only the slots where that action belongs.
+Panel launchers use a dialog when the host has no dock; modal launchers always open a dialog.
 
 ## Document
 {"version": $UI_SPEC_VERSION, "title"?, "state"?: {key: JSON}, "data"?: {name: {"method", "args"?, "load"?: "auto" | "manual"}},
@@ -62,14 +71,15 @@ no expressions: compute values in the owner's methods.
 Roots: `data.<source>…`, `state.<key>…`, `item` and `index` (inside list items and table rows), `args…` (arguments the
 surface or modal was opened with), `status.<source>.loading|failed|ready|error`, `context.platform`
 (`desktop`, `android` or `ios`), `context.hasSession`. Paths: `a.b`, `a[0]`.
-Conditions (`if.when`, `enabledWhen`) are false for false, null, 0, "" and missing values.
+Conditions (`if.when`, `enabledWhen`) are false for false, null, 0, "", empty arrays/objects and missing values.
     """.trimIndent()
 
-private fun nodesAndActions(): String = """
+private fun nodesReference(): String = """
 ## Nodes (`type`)
 - Layout: `column` {children, gap?}, `row` {children, gap?, wrap?}, `card` {children, title?},
   `section` {title, children, description?}, `divider`, `spacer` {size?}. gap and size: none | small | medium | large.
-  In a row, buttons, badges and spacers keep their width; other nodes share the rest.
+  In a nonwrapping row, buttons, badges and spacers keep their width; other nodes share the rest.
+  Wrapping rows flow or stack according to host and width; they do not guarantee equal-width columns.
   `gap` belongs only to `column` and `row`, never to the document, `card` or `section`. To space a card's contents,
   put a `column` with `gap` inside its `children`.
 - Content: `text` {text, style?: body | caption | title | heading | code, tone?}, `markdown` {text},
@@ -94,10 +104,12 @@ private fun nodesAndActions(): String = """
   content height up to the available screen height and shrinks again when content becomes shorter. These app views
   ignore the preset, with one page scroll and no outer chat scroll. Keep the page responsive and
   its content in normal flow; avoid fixed pixel page heights and nested overflow containers.
-  A mini-app modal whose root is `web` has no host padding or title bar; close overlays the top-end corner.
-  `--hb-overlay-width` and `--hb-overlay-height` describe that occupied area in CSS pixels (zero elsewhere).
+  A mini-app Start surface or modal whose root is `web` has no host padding or title bar; expand on Start and
+  close in the modal overlay the top-end corner. `--hb-overlay-width` and `--hb-overlay-height` describe that
+  occupied area in CSS pixels (zero elsewhere).
   Let your header or toolbar account for this area at its inline end without adding an empty full-width top strip.
-  The page has its own origin and no network: inline scripts and styles, `data:` images and fonts; no fetch, sockets, WebRTC, frames, workers, forms or links away. It reads `data` (a binding) as
+  The page has its own origin and no network: inline scripts and styles, `data:` images and fonts;
+  no fetch, sockets, WebRTC, frames, workers, form submissions or links away. It reads `data` (a binding) as
   `heartbeat.data` and later values from the `heartbeat:data` event on `window` (`event.detail`). With `bridge: true`
   (library surfaces), `await heartbeat.call(method, args)` calls the owner's method with object `args` and returns
   its value, or rejects with an `Error` of the owner's message.
@@ -113,15 +125,22 @@ private fun nodesAndActions(): String = """
   Native JavaScript dialogs (`alert`, `confirm`, `prompt`) and pop-ups are blocked. Show feedback inside the page;
   call methods directly for ordinary actions. Never gate a working button on `window.confirm`.
 Icons draw an icon button whose label is its tooltip and accessible name: ${UiIconNames.joinToString(", ")}.
+    """.trimIndent()
 
+private fun actionsReference(): String = """
 ## Actions (`type`)
 `call` {method, args?, into? (state key for the result)}, `reload` {source}, `set` {key, value},
 `focusCard` {surface: owner-local name} (opens the canonical app of this surface, or focuses its chat card as a fallback;
 unavailable to anonymous cards and editor previews),
-`open` {modal? | surface? (another surface of the same owner, by name), presentation?: modal | panel, args?},
-`close` (closes the modal it runs in), `prompt` {text, submit?} (surfaces of the library may send the prompt; cards
+`open` {modal? | surface? (a host-supported surface of the same owner, by name), presentation?: modal | panel, args?},
+`close` (closes the top named local modal opened by `open.modal`, not the host's app dialog),
+`prompt` {text, submit?} (surfaces of the library may send the prompt; cards
 only put it into the chat input), `openUrl` {url: http or https}, `copy` {text}, `saveFile` {text, name?,
 extensions?}, `reveal` {path: absolute; library surfaces only}, `sequence` {actions} (stops at the first failure).
+For details within a canonical app, use named local modals. External `open.surface` navigation depends on the host:
+placement hosts open enabled, active same-owner panel/modal targets; a canonical app's modal presentation only
+reopens itself with unchanged arguments. Panel presentation requires a dock for canonical apps and transcript cards;
+placement hosts can fall back to a dialog. See `ui_reference(topic="service-as-ui/actions-data")` for navigation scope.
     """.trimIndent()
 
 private fun limitsAndCards(methodResultBytes: Int, callSeconds: Int): String = """
@@ -130,8 +149,11 @@ ${UiSpecLimits.NODES} nodes, nesting ${UiSpecLimits.DEPTH}, ${UiSpecLimits.SOURC
 ${UiSpecLimits.MODALS} modals, ${UiSpecLimits.SEQUENCE} steps in a sequence, ${UiSpecLimits.COLUMNS} table columns,
 ${UiSpecLimits.OPTIONS} select options, ${UiSpecLimits.STATE_BYTES / KIB} KiB of initial state,
 ${ServiceUiLimits.SPEC_BYTES / KIB} KiB per spec, ${UiSpecLimits.HTML_BYTES / KIB} KiB of HTML,
-${methodResultBytes / KIB} KiB per method result, $callSeconds s per call, ${UiSpecLimits.CALLS} calls at a time per
-surface; ${ServiceUiLimits.SURFACES} surfaces per profile, ${ServiceUiLimits.SURFACES_PER_OWNER} per owner.
+${ServiceUiLimits.ARGS_BYTES / KIB} KiB per method argument object, ${methodResultBytes / KIB} KiB per method result,
+$callSeconds s per call, ${UiSpecLimits.CALLS} concurrent native action/source calls per surface.
+WebView bridge calls execute one at a time, separately from native actions; see the WebView limits in
+`ui_reference(topic="service-as-ui/actions-data")` for pending-call bounds.
+${ServiceUiLimits.SURFACES} surfaces per profile, ${ServiceUiLimits.SURFACES_PER_OWNER} per owner.
 
 Each drawn body or modal shares ${UiSpecLimits.RENDER_ELEMENTS} expanded elements (including rows, cells, pairs and
 options) and ${UiSpecLimits.RENDER_CHARS} formatted display characters: excess elements are omitted and text is truncated.
@@ -152,10 +174,12 @@ private fun miniAppsAndWorkflow(): String = """
 ## Mini-apps inside the conversation
 Build a full app as one owner-backed `card` surface with internal tabs, forms and history. The host supplies its
 compact chat entry, composer button, full start view and modal. Do not create duplicate `composer` or `start`
-surfaces for that app; existing mirrors from the same owner are hidden. Keep the chat, sidebar and input intact.
+surfaces for that app; existing composer/start mirrors from the same owner are hidden. A separate `context`
+surface may provide a useful summary or quick action alongside the app. Keep the chat, sidebar and input intact.
 Prefer native nodes for straightforward lists, forms and status. Use `web` with inline HTML/CSS/JS when the task
 needs a custom view, with host theme variables. Keep styles inside the document; do not create another
-sidebar or open a panel for this workflow. Declare `data` auto sources, bind `web.data` to `{{data.snapshot}}`, render
+sidebar inside the document. Use a host `panel` only when the task needs a non-modal workspace compatible with the
+user's constraints, such as simultaneous chat input. Declare `data` auto sources, bind `web.data` to `{{data.snapshot}}`, render
 `heartbeat.data` on startup and listen for `heartbeat:data` updates. Handle missing data and rejected bridge calls.
 Buttons call approved harness `ui.method` methods; persist changed values using harness `data` before returning.
 Resume controls must keep existing records. Check the current state inside `data.update` before starting a new
@@ -163,26 +187,12 @@ session so repeated clicks cannot reset active progress; separate starting, resu
 The host updates other drawn surfaces after a durable write, without a model turn or a page reload. Do not poll or
 read the same data after every successful call. Use inline SVG or CSS for artwork; isolated pages have no network.
 
-## Embedded app design
-- Preserve the chat shell. One concise app header, a useful current state and one primary action; secondary actions
-  stay quiet. Use compact internal tabs only when they organize real content. No second sidebar or navigation shell.
-- Use the host's proportional sans font for labels, buttons, prose and numbers; monospace is for source code only.
-  Use tabular figures for aligned numeric columns. Hierarchy comes from 400/500/600 weights and spacing, not all-caps.
-- Honor a requested visual style through a restrained accent or small illustration. A space theme can use an orbit
-  motif; it does not require neon glows, a starfield background, glowing pills, gradients or a terminal typeface.
-  Flat rows, subtle dividers and calm selection states should carry the working interface.
-- Show the next useful task first. Avoid hero-sized headings, decorative metrics, nested cards and empty dashboard
-  space. Empty history should explain that there are no records and offer the relevant action, without fake progress.
-- Use width before adding height: align a row's title and summary on the left, related inputs and actions on the
-  right. Keep tags and details on a compact secondary line; stack these groups at narrow widths.
-- Keep headers, tabs and toolbars compact. Content determines row height: no empty spacers, stretched rows or
-  vertical space-between layouts. Fit the usual worklist in view through layout and spacing, while preserving
-  readable text and comfortable touch targets. Longer lists scroll naturally; never clip records to make them fit.
-- Collapse multi-column layouts at narrow widths; no horizontal page scroll. Buttons have visible labels,
-  :focus-visible states and sufficient contrast. Do not communicate state only by color; respect reduced motion.
-- Use the available viewport, with one page scroll. Loading, empty, success and error states must fit naturally.
-  Render one visible app heading; the native host does not repeat web-document headings. Preserve durable records
-  when redesigning. Update the existing surface rather than adding another card.
+## Built-in authoring skills
+Read `ui_reference(topic="mini-app-design")` for task flows, durable behavior, native platform fit and design.
+Read `ui_reference(topic="service-as-ui")` for rendering choices, extension points and tool workflows; it links
+focused layout, actions/data, WebView and example references. Both skills ship with Heartbeat and are available
+without a project or an attached harness. `ui_reference(topic="spec")` returns this technical reference alone;
+calling without arguments returns all bundled documents for sessions with an older tool schema.
 
 ## Workflow
 1. Publish the methods in a harness script item: `ui.method(ItemName("prs"), "Open pull requests") { call ->

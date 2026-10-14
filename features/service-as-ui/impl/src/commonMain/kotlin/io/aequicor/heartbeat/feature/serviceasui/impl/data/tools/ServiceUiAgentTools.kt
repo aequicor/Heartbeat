@@ -36,6 +36,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiWriteOp
 import io.aequicor.heartbeat.feature.serviceasui.api.UiWriteOrigin
 import io.aequicor.heartbeat.feature.serviceasui.impl.data.RESULT_BYTES
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiMachine
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiAuthoringKnowledge
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCard
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardAdded
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardLimits
@@ -50,7 +51,6 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpecRules
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.bodies
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.checkUiSpec
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.children
-import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.uiSpecReference
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.submit
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -88,6 +88,7 @@ internal class ServiceUiAgentTools(
     private val toggles: FeatureToggles,
     private val clock: Clock,
     private val safety: ServiceUiToolSafety,
+    private val knowledge: UiAuthoringKnowledge,
 ) : AgentToolContribution {
     private val log = Log.tag("ServiceUiTools")
 
@@ -283,9 +284,7 @@ internal class ServiceUiAgentTools(
         }
         val authorized = proposal?.let { context.copy(authorization = it.request.original) } ?: context
         return when (name) {
-            ServiceUiTools.REFERENCE -> AgentToolResult(
-                uiSpecReference(RESULT_BYTES, CALL_SECONDS),
-            )
+            ServiceUiTools.REFERENCE -> serviceUiReference(arguments, knowledge, RESULT_BYTES, CALL_SECONDS)
 
             ServiceUiTools.LIST -> list()
 
@@ -532,7 +531,9 @@ internal class ServiceUiAgentTools(
         val content = UiSurfaceContent(
             owner = owner,
             name = UiSurfaceName(requireNotNull(arguments.text("name")) { "name is required" }),
-            placement = requireNotNull(placement) { "placement must be card, composer, start, panel or modal" },
+            placement = requireNotNull(
+                placement,
+            ) { "placement must be card, composer, start, context, panel or modal" },
             title = requireNotNull(arguments.text("title")) { "title is required" },
             description = arguments.text("description").orEmpty(),
             launchers = launchers.toSet(),
@@ -661,13 +662,17 @@ internal class ServiceUiAgentTools(
         val PrettyJson = Json { prettyPrint = true }
         val REVIEWED_TOOLS = setOf(ServiceUiTools.PUT, ServiceUiTools.DELETE, ServiceUiTools.SHOW, ServiceUiTools.CALL)
         const val INSTRUCTIONS =
-            "Interfaces: build mini-apps inside ordinary chat replies: ui_put placement=card, " +
-                "then ui_show(surface=id). " +
-                "Use web nodes for custom HTML/CSS/JS themes and ui.method for button actions without a model turn. " +
-                "Keep the existing chat and sidebar; optionally add a compact composer status and focusCard button. " +
-                "Persist app records with harness data; auto sources refresh on durable writes. Read ui_reference " +
-                "before writing a spec; ui_list shows owners/methods; ui_put saves and returns diagnostics; " +
-                "ui_delete removes a surface."
+            "Interfaces: before creating or redesigning a mini-app, load the bundled mini-app-design skill with " +
+                "ui_reference(topic=mini-app-design). Load ui_reference(topic=service-as-ui) for rendering choices, " +
+                "placements and examples; it routes to focused references. " +
+                "Read ui_reference(topic=spec) for the schema; no arguments reads all bundled documents. " +
+                "Prefer native nodes; use web for custom views with host theme tokens. " +
+                "Create one canonical ui_put placement=card, then ui_show(surface=id). " +
+                "Update the existing surface; the host supplies its chat entry, composer button, start view " +
+                "and modal. " +
+                "Keep the chat shell; add context only for a useful summary or quick action. Buttons call ui.method " +
+                "without a model turn. Persist records with harness data; auto sources refresh on durable writes. " +
+                "ui_list shows owners/methods; ui_put returns diagnostics; ui_delete removes a surface."
     }
 }
 
