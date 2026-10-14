@@ -24,7 +24,7 @@ private class LibsecretConnection {
 
     fun open(serviceName: String, profile: String): LinuxKeyringSession {
         val resources = NativeResources()
-        var transferred = false
+        var isTransferred = false
         try {
             // Fresh proxies observe the current keyring lock state without a UI/main-loop dependency.
             val service = resources.own(
@@ -68,10 +68,10 @@ private class LibsecretConnection {
             val item = items.singleOrNull()
             checkUnlocked(collection, item)
             val session = Session(collection, attributes, item, resources)
-            transferred = true
+            isTransferred = true
             return session
         } finally {
-            if (!transferred) resources.close()
+            if (!isTransferred) resources.close()
         }
     }
 

@@ -192,7 +192,7 @@ internal fun CefSettings.useBundledBrowserPaths(directory: File, os: EnumOS) {
     val helper = when (os) {
         EnumOS.WINDOWS -> "jcef_helper.exe"
         EnumOS.LINUX -> "jcef_helper"
-        else -> return
+        EnumOS.MACOSX -> return
     }
     browser_subprocess_path = File(directory, helper).absolutePath
     resources_dir_path = directory.absolutePath

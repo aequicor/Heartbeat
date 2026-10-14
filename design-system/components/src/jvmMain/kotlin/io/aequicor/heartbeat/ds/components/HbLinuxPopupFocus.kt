@@ -66,8 +66,8 @@ internal class HbLinuxPopupFocus(private val owner: Window) : AWTEventListener {
                 .filter { it.isShowing && it.isDisplayable }
                 .map(Native::getWindowID)
                 .toSet()
-            val sent = requestX11PopupFocus(Native.getWindowID(owner), Native.getWindowID(popup), nativeOwners)
-            log.v { "Linux popup focus handoff requested: $sent" }
+            val isSent = requestX11PopupFocus(Native.getWindowID(owner), Native.getWindowID(popup), nativeOwners)
+            log.v { "Linux popup focus handoff requested: $isSent" }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {

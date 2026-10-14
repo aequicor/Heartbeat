@@ -28,15 +28,21 @@ internal class DesktopBrowserRuntimeLifecycle {
                 terminated.complete(Unit)
             }
 
-            else -> Unit
+            CefApp.CefAppState.NONE,
+            CefApp.CefAppState.NEW,
+            CefApp.CefAppState.INITIALIZING,
+            CefApp.CefAppState.INITIALIZED,
+            CefApp.CefAppState.SHUTTING_DOWN,
+            -> Unit
         }
     }
 
     /** Suspends without blocking EDT; [dispose] must run on the runtime's initialization thread. */
     suspend fun shutdown(state: () -> CefApp.CefAppState, dispose: suspend () -> Unit) {
         val starting = state()
-        val needsContext = starting == CefApp.CefAppState.INITIALIZING || starting == CefApp.CefAppState.INITIALIZED
-        if (needsContext && !contextReady.await()) return
+        val isContextRequired =
+            starting == CefApp.CefAppState.INITIALIZING || starting == CefApp.CefAppState.INITIALIZED
+        if (isContextRequired && !contextReady.await()) return
         // Re-read after the suspension: another owner may already have completed native termination.
         when (state()) {
             CefApp.CefAppState.NONE,

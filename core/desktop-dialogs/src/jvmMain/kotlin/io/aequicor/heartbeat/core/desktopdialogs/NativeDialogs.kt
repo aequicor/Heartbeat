@@ -23,8 +23,8 @@ internal interface NativeDialogs {
 internal fun nativeDialogsFor(host: HostPlatform): NativeDialogs = when (host) {
     HostPlatform.Windows -> WindowsExplorerDialogs()
 
-    HostPlatform.MacOs -> AwtNativeDialogs(directoriesThroughAwtProperty = true)
+    HostPlatform.MacOs -> AwtNativeDialogs(isDirectorySelectionThroughAwtProperty = true)
 
     HostPlatform.Linux, HostPlatform.Android, HostPlatform.Ios ->
-        AwtNativeDialogs(directoriesThroughAwtProperty = false)
+        AwtNativeDialogs(isDirectorySelectionThroughAwtProperty = false)
 }
