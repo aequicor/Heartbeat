@@ -4,9 +4,9 @@ Heartbeat builds Java-CEF `17e805ad387d89839fdd2b864466b6510b2a783c` with CEF
 `152.0.6+g708dc14+chromium-152.0.7977.83`. `source-lock.json` pins the source and
 SHA-256 of `request-context-settings.patch`. Upstream files retain their BSD license.
 
-The published **152.0.6-hb3** release is pinned by this source lock and by Gradle
+The **152.0.6-hb4** runtime is pinned by this source lock and by Gradle
 verification metadata. It contains the matching Java API and native libraries
-for all four desktop targets. The previous hb1 and hb2 releases remain immutable.
+for all five desktop targets. The previous hb1, hb2 and hb3 releases remain immutable.
 
 hb3 fixes upstream `GetCefValueFromJNIMap`, which built a dictionary but returned an
 empty, null-typed `CefValue`: `Map` (and nested `List`) values of
@@ -50,9 +50,9 @@ and explicitly follows accepted HTTP(S) locations within one transfer budget. A 
 context fails rather than falling back to the global profile. Keep the context
 alive until request completion, then dispose the request before its context.
 
-## Next release
+## Linux and lifecycle fixes in hb4
 
-The prepared **152.0.6-hb4** release adds Linux x64. Its CEF archive digest is pinned in `next/source-lock.json`.
+The **152.0.6-hb4** release adds Linux x64. Its CEF archive digest is pinned in `source-lock.json`.
 The Linux patch synchronizes creation of JCEF's temporary X11 parent before Chromium uses its window ID
 on a separate connection, preventing the first embedded browser from losing its native window and close callback.
 Native browser-handle reads now retain the Java-owned CEF wrapper under the same lock that publishes or clears
@@ -73,18 +73,19 @@ The native suite requires all 13 phases, including `close-remove` and visual sca
 `fullSuitePassed`; focused diagnostics and compile-only runs do not replace the five-host release gate.
 
 The embedder and probe also pass `--no-first-run` to prevent Chrome's standalone first-run dialog from
-blocking initialization. The current four-host hb3 lock and published assets remain unchanged until all
-five native builds and probes pass. The completed hb4 lock must contain six real jar hashes before Gradle's
-`jcef-native` version and `jcef-linux-x64` coordinate are enabled together. Do not publish the application with
-a missing Linux native jar or replace it with an unpatched upstream runtime.
+blocking initialization. The completed lock contains six real jar hashes, verified against all five native
+builds and probes before enabling Gradle's `jcef-native` version and `jcef-linux-x64` coordinate together.
+Do not publish the application with a missing Linux native jar or replace it with an unpatched upstream runtime.
+
+## Preparing another release
 
 `next/` holds a prepared release while the application still uses the current one: `next/request-context-settings.patch`
 is its complete patch and `next/source-lock.json` its lock (the patch's SHA-256, `artifactVersion`, no artifacts yet).
 Build every target from it — in CI (below) or locally with `--patch native/jcef/next/request-context-settings.patch
 --source-lock native/jcef/next/source-lock.json` added to every `build_runtime.py` command — then collect and publish
 as below. The release commit moves the patch over `request-context-settings.patch`, replaces `source-lock.json` with
-the completed lock, removes `next/`, sets `jcef-native` in `gradle/libs.versions.toml` and pins the five jars in
-`gradle/verification-metadata.xml` (six jars for hb4).
+the completed lock, removes `next/`, sets `jcef-native` in `gradle/libs.versions.toml` and pins all six jars in
+`gradle/verification-metadata.xml`.
 
 ## Build in CI
 
@@ -175,14 +176,14 @@ python native/jcef/build_runtime.py collect --source build/jcef-inputs --output 
 
 The release directory contains:
 
-- `jcef-api-152.0.6-hb3.jar`
-- `jcef-natives-<target>-152.0.6-hb3.jar` for each target
+- `jcef-api-152.0.6-hb4.jar`
+- `jcef-natives-<target>-152.0.6-hb4.jar` for each target
 - `SHA256SUMS`, `runtime-manifest.json`, and completed `source-lock.json`
 
 The native jar contains a tar.gz resource named exactly as jcefmaven expects:
 `jcef-natives-<target>-<release_tag>.tar.gz`. Both API `build_meta.json` and native
 metadata use the unique release tag
-`jcef-17e805a+cef-152.0.6+g708dc14+chromium-152.0.7977.83+heartbeat-hb3`.
+`jcef-17e805a+cef-152.0.6+g708dc14+chromium-152.0.7977.83+heartbeat-hb4`.
 This prevents reuse of an unpatched extraction cache. Native archives include
 resources, locales, helper executables/apps and licenses. macOS symlinks and
 executable modes are preserved. Jar entries and archive timestamps are normalized;
@@ -193,13 +194,13 @@ with the GitHub CLI; existing assets are never replaced and a retry must match t
 published checksums and manifests:
 
 ```shell
-python native/jcef/publish_draft.py --artifacts build/jcef-release --repository aequicor/Heartbeat --commit <sha> --version 152.0.6-hb3
+python native/jcef/publish_draft.py --artifacts build/jcef-release --repository aequicor/Heartbeat --commit <sha> --version 152.0.6-hb4
 ```
 
 Publication follows inspection of the verified jars and manifests as immutable
-assets of the GitHub release tag `152.0.6-hb3`. Copy the completed source lock into
+assets of the GitHub release tag `152.0.6-hb4`. Copy the completed source lock into
 this directory, and pin actual jar hashes in Gradle verification metadata.
-Coordinates are `io.aequicor.heartbeat.jcef:<artifact>:152.0.6-hb3`;
+Coordinates are `io.aequicor.heartbeat.jcef:<artifact>:152.0.6-hb4`;
 Gradle consumes release assets using an Ivy artifact pattern. JOGL/gluegen Java
 API dependencies remain explicit dependencies of the application.
 

@@ -23,6 +23,12 @@ Swing visibility/focus events race with native browser close, observed on Linux.
 Linux reparent callbacks retain their lock and wait condition after the bounded EDT wait
 times out. The queued `SetParentSync` callback can finish without accessing destroyed
 stack state during visibility and resize operations.
+Linux viewport clipping uses an X11 bounding shape while preserving Chromium's full
+layout size. It clips both drawing and input without changing the DOM viewport.
+During forced close, Linux still detaches Chromium before AWT destroys its Canvas;
+closing an inactive and an active tab together now completes both native callbacks,
+client cleanup, context flush and runtime termination. The release probe requires
+all 13 phases, including this close/remove regression, on every native host.
 Embedders must pass `--no-first-run` to suppress Chrome's standalone
 first-run dialog during initialization; Heartbeat and the lifecycle probe both do so.
 `source-lock.json` identifies the exact upstream JCEF commit, CEF version, patch

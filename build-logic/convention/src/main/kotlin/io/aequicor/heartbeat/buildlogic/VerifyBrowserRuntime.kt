@@ -48,8 +48,12 @@ abstract class VerifyBrowserRuntime : DefaultTask() {
         check(lock["artifactVersion"] == version.get()) { "JCEF catalog and source lock versions differ" }
         check(lock["patchSha256"] == patch.get().asFile.sha256()) { "JCEF source patch checksum differs" }
         val natives = lock["nativeArtifacts"] as? Map<*, *> ?: error("Missing JCEF native manifest")
-        val required = setOf("windows-amd64", "windows-arm64", "macosx-amd64", "macosx-arm64")
-        check(natives.keys == required) { "JCEF release requires all four native targets" }
+        val legacy = setOf("windows-amd64", "windows-arm64", "macosx-amd64", "macosx-arm64")
+        val distributions = lock["cefDistributions"] as? Map<*, *> ?: error("Missing JCEF distributions")
+        val required = distributions.keys
+        check(required == legacy || required == legacy + "linux-amd64") { "Unsupported JCEF release targets" }
+        check(natives.keys == required) { "JCEF release requires every locked native target" }
+        check(platform.get() in required) { "JCEF release does not contain the current host" }
         val api = lock["apiArtifact"] as? Map<*, *> ?: error("Missing patched JCEF API")
         val entries = listOf(api) + natives.values.map { it as Map<*, *> }
         entries.forEach { entry ->
