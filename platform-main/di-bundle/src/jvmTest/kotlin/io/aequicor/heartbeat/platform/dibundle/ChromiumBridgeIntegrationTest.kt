@@ -33,7 +33,8 @@ class ChromiumBridgeIntegrationTest {
     private val app = createGraphFactory<TestAppGraph.Factory>().create(persisted)
     private val toggles = app as TestToggleAccessors
     private val isSupported = System.getProperty("os.name").orEmpty().let {
-        it.startsWith("Mac", ignoreCase = true) || it.startsWith("Windows", ignoreCase = true)
+        it.startsWith("Mac", ignoreCase = true) || it.startsWith("Windows", ignoreCase = true) ||
+            it.startsWith("Linux", ignoreCase = true)
     }
 
     @BeforeTest

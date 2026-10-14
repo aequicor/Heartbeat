@@ -40,6 +40,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerBus
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.filterIsInstance
@@ -118,9 +119,7 @@ class HarnessIntegrationTest {
                 machine.state.filterIsInstance<HarnessState.Ready>().first()
                 val code = hookScript()
                 create(machine, code)
-                val saved = machine.state.filterIsInstance<HarnessState.Ready>().first {
-                    it.harnesses.singleOrNull()?.itemStatus?.get(code.id) is ItemStatus.Active
-                }
+                val saved = awaitInitialActivation(machine, code.id)
                 assertTrue(saved.isRuntimeAvailable)
                 // Only an explicit connection activates a harness, so the hooks run for the connected chat.
                 machine.send(HarnessIntent.Public.Attach(RequestId("attach"), HarnessId("harness"), HOOKED_SESSION))
@@ -159,6 +158,29 @@ class HarnessIntegrationTest {
             }
         }
         app.profileSessions.close()
+    }
+
+    private suspend fun awaitInitialActivation(
+        machine: MachineRef<HarnessState, *, HarnessOutput>,
+        item: ItemId,
+    ): HarnessState.Ready = try {
+        machine.state.filterIsInstance<HarnessState.Ready>().first { state ->
+            val status = state.harnesses.singleOrNull()?.itemStatus?.get(item)
+            assertTrue(
+                status !is ItemStatus.Failed && status != ItemStatus.Unsupported,
+                "Initial script activation failed: status=$status, runtimeAvailable=${state.isRuntimeAvailable}",
+            )
+            status is ItemStatus.Active
+        }
+    } catch (error: TimeoutCancellationException) {
+        val state = machine.state.value
+        val ready = state as? HarnessState.Ready
+        val status = ready?.harnesses?.singleOrNull()?.itemStatus?.get(item)
+        throw AssertionError(
+            "Timed out at initial script activation: state=${state::class.simpleName}, " +
+                "status=$status, runtimeAvailable=${ready?.isRuntimeAvailable}",
+            error,
+        )
     }
 
     /** Edits are Internal and only harness:impl holds the full machine; the cast stands in for it here. */
