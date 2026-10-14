@@ -3,11 +3,39 @@ package io.aequicor.heartbeat.feature.appupdate.impl.data
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
+import kotlin.io.path.ExperimentalPathApi
+import kotlin.io.path.createTempDirectory
+import kotlin.io.path.deleteRecursively
+import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 internal val isMacHost: Boolean = System.getProperty("os.name").orEmpty().startsWith("Mac")
+
+/** Exercises image cleanup against a disposable Applications link without touching the host's applications. */
+@OptIn(ExperimentalPathApi::class)
+internal fun assertCleanupPreservesLinkedApplications(root: Path, cleanup: () -> Unit) {
+    if (!isMacHost) return
+    val applications = createTempDirectory("app-update-linked-applications")
+    val marker = Files.writeString(applications.resolve("marker"), "outside the test root")
+    try {
+        marker.toFile().setWritable(false)
+        val permissions = Files.getPosixFilePermissions(marker)
+        val image = Files.createDirectories(root.resolve("image"))
+        Files.createSymbolicLink(image.resolve("Applications"), applications)
+
+        cleanup()
+
+        assertFalse(root.exists())
+        assertEquals("outside the test root", marker.readText())
+        assertEquals(permissions, Files.getPosixFilePermissions(marker), "Cleanup followed the Applications link")
+    } finally {
+        marker.toFile().setWritable(true)
+        applications.deleteRecursively()
+    }
+}
 
 /** A minimal app bundle `<directory>/<name>` of [version], shaped like the jpackage bundle. */
 internal fun fakeBundle(directory: Path, version: String, name: String = "Heartbeat.app"): Path {
