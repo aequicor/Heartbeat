@@ -37,7 +37,11 @@ class ServiceUiContractTest {
     fun `slots map to inline placements`() {
         assertEquals(UiPlacement.Composer, UiSlot.Composer.placement)
         assertEquals(UiPlacement.Start, UiSlot.Start.placement)
-        assertEquals(listOf(UiPlacement.Composer, UiPlacement.Start), UiPlacement.entries.filter { it.isInline })
+        assertEquals(UiPlacement.Context, UiSlot.Context.placement)
+        assertEquals(
+            listOf(UiPlacement.Composer, UiPlacement.Start, UiPlacement.Context),
+            UiPlacement.entries.filter { it.isInline },
+        )
     }
 
     @Test

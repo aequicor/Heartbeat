@@ -144,6 +144,7 @@ private fun EditedSurface.info() = SurfaceInfoUi(
 private fun UiSlot.toUi(): PlacementUi = when (this) {
     UiSlot.Composer -> PlacementUi.Composer
     UiSlot.Start -> PlacementUi.Start
+    UiSlot.Context -> PlacementUi.Context
 }
 
 private fun UiSpecDiagnostic.toUi() = DiagnosticUi(

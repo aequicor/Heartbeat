@@ -139,6 +139,21 @@ class ServiceUiLibraryTest {
     }
 
     @Test
+    fun `context surfaces and launchers persist as a distinct inline placement`() {
+        val context = content("summary").copy(placement = UiPlacement.Context)
+        assertTrue(context.placement.isInline)
+        assertEquals(UiPlacement.Context, UiSlot.Context.placement)
+        assertEquals("\"context\"", Json.encodeToString(UiPlacement.Context))
+        assertEquals(context, Json.decodeFromString<UiSurfaceContent>(Json.encodeToString(context)))
+        assertFailsWith<IllegalArgumentException> { context.copy(launchers = setOf(UiSlot.Context)) }
+
+        val panel = content("details").copy(placement = UiPlacement.Panel, launchers = setOf(UiSlot.Context))
+        assertEquals(panel, Json.decodeFromString<UiSurfaceContent>(Json.encodeToString(panel)))
+        val route = ServiceUiSlotRoute("chat", UiSlot.Context)
+        assertEquals(route, Json.decodeFromString<ServiceUiSlotRoute>(Json.encodeToString(route)))
+    }
+
+    @Test
     fun `library round trips and never prints specs or titles`() {
         val secret = """{"version":1,"body":{"type":"text","text":"private"}}"""
         val library = library(content("map", spec = secret).copy(title = "Private title"))

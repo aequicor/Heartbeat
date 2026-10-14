@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.serviceasui.impl.ui
 
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -77,12 +78,13 @@ internal fun SurfaceScreen(
     isApp: Boolean = false,
     scrollState: ScrollState = rememberScrollState(),
     isContentFill: Boolean = true,
+    isBodyInset: Boolean = false,
 ) {
     val shown by model.webDocuments.collectAsState()
     val webs = remember(shown, documents) {
         shown.mapValues { (_, id) -> documents[id] ?: OpeningDocument }.toImmutableMap()
     }
-    SurfaceScreen(model.store, modifier, webs, isApp, scrollState, isContentFill)
+    SurfaceScreen(model.store, modifier, webs, isApp, scrollState, isContentFill, isBodyInset)
 }
 
 /**
@@ -97,6 +99,7 @@ internal fun SurfaceScreen(
     isApp: Boolean = false,
     scrollState: ScrollState = rememberScrollState(),
     isContentFill: Boolean = true,
+    isBodyInset: Boolean = false,
 ) {
     val uriHandler = LocalUriHandler.current
     val clipboard = LocalClipboard.current
@@ -119,7 +122,7 @@ internal fun SurfaceScreen(
             states.collect { value = it }
         }
     }
-    SurfaceContent(state, store::intent, modifier, webs, isApp, scrollState, isContentFill)
+    SurfaceContent(state, store::intent, modifier, webs, isApp, scrollState, isContentFill, isBodyInset)
     link?.let { url ->
         HbDialog(
             title = stringResource(Res.string.service_ui_open_link_title),
@@ -148,8 +151,10 @@ internal fun SurfaceContent(
     isApp: Boolean = false,
     scrollState: ScrollState = rememberScrollState(),
     isContentFill: Boolean = true,
+    isBodyInset: Boolean = false,
 ) {
-    HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.m) {
+    val inset = if (isBodyInset) HbTheme.spacing.xl else HbTheme.spacing.none
+    HbColumn(modifier.fillMaxWidth().padding(inset), gap = HbTheme.spacing.m) {
         state.notice?.let { notice ->
             HbBanner(
                 message = notice.text(),

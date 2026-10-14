@@ -40,6 +40,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioAppKey
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioCardKey
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioComposerSlotKey
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioContextSlotKey
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioStartSlotKey
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentPreviewRoute
@@ -299,6 +300,7 @@ class AiStudioComponent(
                         listOfNotNull(
                             studioAppKey(paneId),
                             studioSlotKey(paneId, UiSlot.Composer),
+                            studioSlotKey(paneId, UiSlot.Context),
                             studioSlotKey(paneId, UiSlot.Start).takeIf { pane.chatId == null },
                         )
                     }
@@ -504,6 +506,7 @@ enum class BrowserPaneMode {
 internal fun studioSlotKey(paneId: Int, slot: UiSlot): String = when (slot) {
     UiSlot.Composer -> studioComposerSlotKey(paneId)
     UiSlot.Start -> studioStartSlotKey(paneId)
+    UiSlot.Context -> studioContextSlotKey(paneId)
 }
 
 /** App hosts share the lifecycle registry of slots but always resolve to their own single retained route. */

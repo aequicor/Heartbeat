@@ -27,13 +27,16 @@ public const val SERVICE_UI_LOAD_ATTEMPTS: Int = 3
  * | Ready | ClosePanel | open dock | close it |
  * | Ready | RequestPrompt | bound place, matching expected context, bounded text | PromptRequested with context |
  * | Ready | RequestFocusCard | matching chat context, enabled surface of the requesting owner | CardFocusRequested |
+ * | Ready | ResolveSlot | exact host context and library snapshot | publish or clear inline slot presence |
  * | Ready | ResolveApp | exact host context and library snapshot | select the canonical app or revoke it |
  * | Ready | OpenApp | exact selected identity and context | expand the retained app, including before a chat |
  * | Ready | CloseApp | matching opening sequence | close its modal, retaining the app |
  *
  * Writes are serialized; callers retry on Busy. An expected library revision mismatch reports Conflict before applying
- * the operation. A commit closes the panels of surfaces it deleted or disabled. Purges
- * of owners whose deletion a complete provider snapshot confirmed are the feature's own writes: they wait for the
+ * the operation. Rebinding or removing a host clears its slot presence; a library commit clears all slot presence
+ * until the feature resolves it again. Disabling drops every slot projection. A commit closes the panels of surfaces
+ * it deleted or disabled. Purges of owners whose deletion a complete provider snapshot confirmed are the feature's
+ * own writes: they wait for the
  * write being saved and are not retried after a storage failure until the next snapshot. Stale storage responses and
  * other unexpected inputs are ignored.
  */
@@ -108,6 +111,7 @@ private typealias ReadyBuilder =
 
 private fun ReadyBuilder.ready() {
     appTransitions()
+    slotTransitions()
     on<ServiceUiIntent.Internal.RequestFocusCard>(guard = {
         intent.expectedContext.call.session != null && state.hosts[intent.host] == intent.expectedContext &&
             intent.cardId.isNotBlank() &&
@@ -140,6 +144,7 @@ private fun ReadyBuilder.ready() {
                 hosts = state.hosts - intent.host,
                 panels = state.panels.filterValues { it.host != intent.host },
                 apps = state.apps - intent.host,
+                slots = state.slots - intent.host,
             )
         }
     }
@@ -166,9 +171,16 @@ private fun ReadyBuilder.ready() {
 
 private fun ServiceUiState.withHosts(hosts: Map<UiHostId, UiHostContext>): ServiceUiState = when (this) {
     is ServiceUiState.Disabled -> copy(hosts = hosts)
+
     is ServiceUiState.Loading -> copy(hosts = hosts)
+
     is ServiceUiState.Failed -> copy(hosts = hosts)
-    is ServiceUiState.Ready -> copy(hosts = hosts, apps = apps.filter { (host, app) -> hosts[host] == app.context })
+
+    is ServiceUiState.Ready -> copy(
+        hosts = hosts,
+        apps = apps.filter { (host, app) -> hosts[host] == app.context },
+        slots = slots.filterKeys { hosts[it] == this.hosts[it] },
+    )
 }
 
 private fun ServiceUiState.withOwners(owners: Map<String, UiOwners>): ServiceUiState = when (this) {
@@ -218,6 +230,7 @@ private fun ServiceUiState.Ready.committed(): ServiceUiState.Ready {
         write = null,
         panels = panels.filterValues { library.canOpen(it.surface) },
         apps = apps.filterValues { library[it.surface]?.isEnabled == true },
+        slots = emptyMap(),
     )
         .purged()
 }

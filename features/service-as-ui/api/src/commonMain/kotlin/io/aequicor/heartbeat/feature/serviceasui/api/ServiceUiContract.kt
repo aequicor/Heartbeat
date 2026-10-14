@@ -91,7 +91,8 @@ public sealed interface ServiceUiState : MachineState {
 
     /**
      * The committed [library] and open [panels] by dock. At most one [write] is being saved; owners whose deletion
-     * was confirmed meanwhile wait in [purge]. [writes] numbers the feature's own writes, [panelSequence] openings.
+     * was confirmed meanwhile wait in [purge]. [slots] reports nonempty inline places for the current host and library.
+     * [writes] numbers the feature's own writes, [panelSequence] openings.
      */
     public data class Ready(
         override val hosts: Map<UiHostId, UiHostContext> = emptyMap(),
@@ -104,6 +105,7 @@ public sealed interface ServiceUiState : MachineState {
         val panelSequence: Long = 0,
         val apps: Map<UiHostId, UiApp> = emptyMap(),
         val appSequence: Long = 0,
+        val slots: Map<UiHostId, Set<UiSlot>> = emptyMap(),
     ) : ServiceUiState
 }
 
@@ -165,6 +167,18 @@ public sealed interface ServiceUiIntent : MachineIntent {
         public data class ResolveApp(
             val host: UiHostId,
             val target: UiAppTarget?,
+            val expectedContext: UiHostContext,
+            val expectedLibraryRevision: Long,
+        ) : Internal
+
+        /**
+         * Publishes whether [slot] has live content or launchers after resolving active owners in this exact host
+         * context and library snapshot. A host may reserve space without mounting the slot's surface views.
+         */
+        public data class ResolveSlot(
+            val host: UiHostId,
+            val slot: UiSlot,
+            val isPresent: Boolean,
             val expectedContext: UiHostContext,
             val expectedLibraryRevision: Long,
         ) : Internal

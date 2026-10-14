@@ -109,7 +109,10 @@ private fun PlaceTarget.readyContent(state: ServiceUiState.Ready, active: Set<Ui
         is PlaceTarget.Slot -> PlaceContent(
             host = host,
             context = context,
-            surfaces = shown.filter { it.content.placement == slot.placement && it.content.owner != appOwner }
+            surfaces = shown.filter {
+                it.content.placement == slot.placement &&
+                    (slot == UiSlot.Context || it.content.owner != appOwner)
+            }
                 .map { PlacedSurface(PlaceRole.Body, it, host, context) },
             launchers = shown.filter { slot in it.content.launchers },
         )
