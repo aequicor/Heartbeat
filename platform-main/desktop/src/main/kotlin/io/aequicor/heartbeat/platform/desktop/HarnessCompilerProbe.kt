@@ -13,7 +13,8 @@ import java.util.concurrent.TimeUnit
 /**
  * Exercises the compiler shipped in the release image, before opening any user profile: the feature compiles in its
  * worker process, started through this launcher's private worker mode ([runPackagedHarnessCompilerWorker]), and
- * evaluates in this one. This host checks that native window services and the event thread still work afterwards.
+ * evaluates in this one. This host checks the event thread afterwards, plus native window services on macOS and
+ * Windows. Linux uses standard window decorations and does not require JBR's native caption service.
  * Reflection preserves the desktop module's dependency boundary, as for the packaged workers.
  */
 internal fun handleHarnessCompilerProbe(arguments: Array<String>): Boolean {
@@ -32,7 +33,7 @@ internal fun handleHarnessCompilerProbe(arguments: Array<String>): Boolean {
         check(completion.get(PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS) == PROBE_SUCCESS) {
             "HarnessCompilerProbeFailed"
         }
-        check(JBR.isWindowDecorationsSupported()) { "HarnessProbeWindowRuntimeUnavailable" }
+        verifyHarnessWindowRuntime()
         EventQueue.invokeAndWait { check(EventQueue.isDispatchThread()) }
         isSuccessful = true
         Log.tag("HarnessHost").i { "Packaged harness compiler and desktop event thread verified" }
@@ -46,6 +47,16 @@ internal fun handleHarnessCompilerProbe(arguments: Array<String>): Boolean {
         }
     }
     return true
+}
+
+/** Matches the desktop host's native caption requirement without rejecting Linux's standard decorations. */
+internal fun verifyHarnessWindowRuntime(
+    osName: String = System.getProperty("os.name").orEmpty(),
+    isSupported: () -> Boolean = JBR::isWindowDecorationsSupported,
+) {
+    if (osName.startsWith("Mac") || osName.startsWith("Windows")) {
+        check(isSupported()) { "HarnessProbeWindowRuntimeUnavailable" }
+    }
 }
 
 private fun cleanHarnessProbe(directory: Path, shouldFail: Boolean) {

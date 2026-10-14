@@ -1,5 +1,6 @@
 import io.aequicor.heartbeat.buildlogic.PackageInnoSetup
 import io.aequicor.heartbeat.buildlogic.PreparePiRuntime
+import io.aequicor.heartbeat.buildlogic.VerifyChromiumPanelArtifact
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
 import org.jetbrains.compose.desktop.application.tasks.AbstractCheckNativeDistributionRuntime
@@ -115,14 +116,38 @@ preparePiRuntime?.let { task -> tasks.named("processResources") { dependsOn(task
 
 // App resources of the distribution: the Pi runtime and the Chromium extension folder that settings offer for
 // "Load unpacked". Runs from a checkout use the repository's extension folder instead (DesktopExtensionFolder).
+// CI passes the artifact exported by prepareChromiumPanelArtifact from this release's Linux build.
+// Without the property, local packaging continues to build the panel from the checkout.
+val prebuiltChromiumPanel = providers.gradleProperty("heartbeat.chromiumPanelDir").orNull?.let { path ->
+    require(path.isNotBlank()) { "heartbeat.chromiumPanelDir must name a prebuilt Chromium panel directory" }
+    layout.settingsDirectory.dir(path)
+}
+val verifyChromiumPanelArtifact = if (prebuiltChromiumPanel != null) {
+    tasks.register<VerifyChromiumPanelArtifact>("verifyChromiumPanelArtifact") {
+        group = "verification"
+        description = "Checks the complete prebuilt Chromium panel before desktop packaging."
+        panelDirectory.set(prebuiltChromiumPanel)
+    }
+} else {
+    null
+}
 val collectAppResources = tasks.register<Sync>("collectAppResources") {
-    dependsOn(":chromium-plugin:panel:syncChromiumPanel")
+    if (verifyChromiumPanelArtifact != null) {
+        dependsOn(verifyChromiumPanelArtifact)
+        from(verifyChromiumPanelArtifact.flatMap { it.panelDirectory }) {
+            into("common/chromium-plugin/app")
+            exclude("SHA256SUMS")
+        }
+    } else {
+        dependsOn(":chromium-plugin:panel:syncChromiumPanel")
+    }
     preparePiRuntime?.let { task -> from(task.flatMap { it.outputDirectory }) }
     from(layout.settingsDirectory.dir("chromium-plugin")) {
         into("common/chromium-plugin")
         // Tests, editor typings, a private signing key and the Kotlin sources of the side panel (built into app/)
         // are not part of the extension.
         exclude("tests/**", "jsconfig.json", "src/types/**", "*.pem", "panel/**")
+        if (prebuiltChromiumPanel != null) exclude("app/**")
     }
     into(layout.buildDirectory.dir("generated/appResources"))
 }
