@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FrozenHostedTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
@@ -30,6 +31,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlin.reflect.safeCast
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -163,10 +165,10 @@ class StudioContextCarryTest {
         var isEnabled = false
         val restored = mutableListOf<Set<String>>()
         val harnesses = object : StudioHarnessAttach by NoStudioHarnessAttach {
-            override suspend fun attached(session: SessionRef): Set<String>? {
-                assertEquals(old, session)
-                return setOf("restricted").takeIf { isEnabled }
-            }
+            override suspend fun attached(session: SessionRef): Set<String>? =
+                (if (session == old) setOf("restricted") else emptySet()).takeIf {
+                    isEnabled
+                }
             override suspend fun restore(harnesses: Set<String>, session: SessionRef) {
                 restored += harnesses
             }
@@ -183,7 +185,7 @@ class StudioContextCarryTest {
         record = record.rolledOver("another seed")
         val replacement = old.copy(nativeId = "replacement")
         record = record.copy(ref = replacement)
-        carry.restoreHarnesses("chat", replacement, harnesses)
+        carry.restoreHarnesses("chat", Session(ref = replacement), harnesses)
         assertTrue(restored.isEmpty())
         assertEquals(old, record.pendingHarnessSource)
 
@@ -192,10 +194,182 @@ class StudioContextCarryTest {
             mapOf("harness" to setOf("restricted")),
             carry.prepareHarnesses("chat", harnesses).withCarriedHarnesses(emptyMap()),
         )
-        carry.restoreHarnesses("chat", replacement, harnesses)
+        carry.restoreHarnesses("chat", Session(ref = replacement), harnesses)
         assertEquals(listOf(setOf("restricted")), restored)
         assertNull(record.pendingHarnesses)
         assertNull(record.pendingHarnessSource)
+    }
+
+    @Test
+    fun `reenabled carry retains connections added to the intermediate native session`() = runTest {
+        record = StudioChatRecord("chat", "Chat", Instant.DISTANT_PAST, ref = old)
+        var isEnabled = false
+        val intermediate = old.copy(nativeId = "intermediate")
+        val connections = mapOf(old to setOf("first-off"), intermediate to setOf("later-deny"))
+        val harnesses = object : StudioHarnessAttach by NoStudioHarnessAttach {
+            override suspend fun attached(session: SessionRef): Set<String>? =
+                connections[session].orEmpty().takeIf { isEnabled }
+        }
+        val carry = carry { stored }
+        val first = Session().also { handle = it }
+        carry.environment(rollover(), first, harnesses) { }
+        record = record.copy(ref = intermediate)
+        val second = Session(ref = intermediate).also { handle = it }
+
+        isEnabled = true
+        carry.environment(rollover(), second, harnesses) { }
+
+        assertEquals(setOf("first-off", "later-deny"), record.pendingHarnesses)
+        assertEquals(old, record.pendingHarnessSource)
+        assertEquals(listOf(old, intermediate), record.previousRefs)
+        assertEquals(
+            mapOf("harness" to setOf("first-off", "later-deny")),
+            record.withCarriedHarnesses(emptyMap()),
+        )
+    }
+
+    @Test
+    fun `deferred carry includes connections from every intermediate context after restart`() = runTest {
+        val middle = old.copy(nativeId = "middle")
+        val current = old.copy(nativeId = "current")
+        val unrelated = old.copy(nativeId = "unrelated")
+        record = StudioChatRecord(
+            "chat",
+            "Chat",
+            Instant.DISTANT_PAST,
+            ref = current,
+            previousRefs = listOf(unrelated, old, middle),
+            pendingHarnesses = setOf("already-carried"),
+            pendingHarnessSource = old,
+        )
+        record = Json.decodeFromString(
+            StudioChatRecord.serializer(),
+            Json.encodeToString(StudioChatRecord.serializer(), record),
+        )
+        val harnesses = object : StudioHarnessAttach by NoStudioHarnessAttach {
+            override suspend fun attached(session: SessionRef): Set<String> = setOf(session.nativeId)
+        }
+
+        carry { stored }.prepareHarnesses("chat", harnesses)
+
+        assertEquals(setOf("already-carried", "old", "middle", "current"), record.pendingHarnesses)
+    }
+
+    @Test
+    fun `connections changing on the current context abort carry before freezing history`() = runTest {
+        val current = old.copy(nativeId = "current")
+        record = StudioChatRecord(
+            "chat",
+            "Chat",
+            Instant.DISTANT_PAST,
+            ref = current,
+            previousRefs = listOf(old),
+            pendingHarnessSource = old,
+        )
+        var later = emptySet<String>()
+        val harnesses = object : StudioHarnessAttach by NoStudioHarnessAttach {
+            override suspend fun attached(session: SessionRef): Set<String> =
+                if (session == old) setOf("first") else later
+        }
+        val active = Session(ref = current).also { handle = it }
+        val before = stored
+
+        assertFailsWith<IllegalStateException> {
+            carry { stored }.environment(rollover(), active, harnesses) { later = setOf("new-deny") }
+        }
+        assertEquals(current, record.ref)
+        assertEquals(before, stored)
+        assertSame(active, handle)
+    }
+
+    @Test
+    fun `connections added after frozen creation require fresh declarations before restoration`() = runTest {
+        val current = old.copy(nativeId = "current")
+        record = StudioChatRecord(
+            "chat",
+            "Chat",
+            Instant.DISTANT_PAST,
+            ref = current,
+            previousRefs = listOf(old),
+            pendingHarnessSource = old,
+            pendingHarnesses = setOf("first"),
+            pendingHarnessContext = current,
+        )
+        val restored = mutableListOf<Pair<SessionRef, Set<String>>>()
+        val harnesses = object : StudioHarnessAttach by NoStudioHarnessAttach {
+            override suspend fun attached(session: SessionRef): Set<String> = when (session) {
+                old -> setOf("first")
+                current -> setOf("new-deny")
+                else -> emptySet()
+            }
+            override suspend fun restore(harnesses: Set<String>, session: SessionRef) {
+                restored += session to harnesses
+            }
+        }
+        val carry = carry { stored }
+        val active = Session(ref = current, isFrozen = true).also { handle = it }
+
+        assertFailsWith<IllegalStateException> { carry.restoreHarnesses("chat", active, harnesses) }
+        assertTrue(restored.isEmpty())
+        assertEquals(setOf("first", "new-deny"), record.pendingHarnesses)
+        assertNull(record.pendingHarnessContext)
+        assertTrue(record.needsHarnessDeclarations(current, harnesses))
+
+        carry.environment(rollover(), active, harnesses) { }
+        assertEquals(mapOf("harness" to setOf("first", "new-deny")), record.withCarriedHarnesses(emptyMap()))
+        val replacement = old.copy(nativeId = "replacement")
+        record = record.copy(ref = replacement, pendingHarnessContext = replacement)
+        carry.restoreHarnesses("chat", Session(ref = replacement, isFrozen = true), harnesses)
+        assertEquals(listOf(replacement to setOf("first", "new-deny")), restored)
+        assertNull(record.pendingHarnesses)
+        assertNull(record.pendingHarnessSource)
+        assertNull(record.pendingHarnessContext)
+    }
+
+    @Test
+    fun `undelivered history survives repeated rollover and restart until native acceptance`() = runTest {
+        record = StudioChatRecord("chat", "Chat", Instant.DISTANT_PAST, ref = old)
+        val carry = carry { stored }
+        carry.rollover(rollover())
+        val seed = record.pendingSeed
+        assertTrue("Fix the parser" in seed.orEmpty())
+        record = Json.decodeFromString(
+            StudioChatRecord.serializer(),
+            Json.encodeToString(StudioChatRecord.serializer(), record),
+        )
+        // No accepted turn has consumed the original seed before another native context is required.
+        repeat(2) { index ->
+            record = record.copy(ref = old.copy(nativeId = "replacement-$index"))
+            carry.rollover(rollover())
+            assertEquals(seed, record.pendingSeed)
+            assertEquals(listOf(seed), record.carriedDirectives(rollover()))
+        }
+        record = record.seeded().copy(ref = old.copy(nativeId = "accepted"))
+        stored = stored + user("Continue with tests")
+        carry.rollover(rollover())
+        assertTrue("Continue with tests" in record.pendingSeed.orEmpty())
+        assertFalse("Fix the parser" in record.pendingSeed.orEmpty())
+    }
+
+    @Test
+    fun `accepted history survives rollover when the old seed could not be marked delivered`() = runTest {
+        record = StudioChatRecord("chat", "Chat", Instant.DISTANT_PAST, ref = old)
+        val carry = carry { stored }
+        carry.rollover(rollover())
+        // The engine accepted B, but its consumeSeed write failed: native history and the old receipt coexist.
+        record = record.copy(ref = old.copy(nativeId = "accepted"))
+        stored = stored + user("Continue with tests")
+        carry.rollover(rollover())
+        val merged = record.pendingSeed
+        assertTrue("Fix the parser" in merged.orEmpty())
+        assertTrue("Continue with tests" in merged.orEmpty())
+        record = Json.decodeFromString(
+            StudioChatRecord.serializer(),
+            Json.encodeToString(StudioChatRecord.serializer(), record),
+        )
+        record = record.copy(ref = old.copy(nativeId = "empty"))
+        carry.rollover(rollover())
+        assertEquals(merged, record.pendingSeed)
     }
 
     private fun carry(items: suspend (String) -> List<SessionItem>) = StudioContextCarry(
@@ -226,8 +400,11 @@ class StudioContextCarryTest {
         SessionItem.Message(ItemInfo(ItemId("u"), 0, 0), MessageRole.User, listOf(ContentPart.Text(text)))
 
     /** A failed close leaves the handle closing, as the engine contract requires. */
-    private inner class Session(private val closeFailure: Exception? = null) : ActiveSession {
-        override val ref = old
+    private inner class Session(
+        private val closeFailure: Exception? = null,
+        override val ref: SessionRef = old,
+        private val isFrozen: Boolean = false,
+    ) : ActiveSession {
         override val route = ExecutionRoute(
             EngineId("pi"),
             EngineBindingId("b"),
@@ -236,8 +413,16 @@ class StudioContextCarryTest {
         )
         override val state = MutableStateFlow<ActiveSessionState>(ActiveSessionState.Ready())
         override val features = object : EngineFeatures {
+            private val frozen = object : FrozenHostedTools {
+                override val names = emptySet<String>()
+            }
+
             override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> =
-                FeatureAccess.Unsupported
+                if (isFrozen && key == FrozenHostedTools) {
+                    FeatureAccess.Available(checkNotNull(key.type.safeCast(frozen)))
+                } else {
+                    FeatureAccess.Unsupported
+                }
         }
 
         override suspend fun close() {

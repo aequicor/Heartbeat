@@ -50,6 +50,27 @@ internal fun StudioChatRecord.rolledOver(seed: String?): StudioChatRecord {
     )
 }
 
+/**
+ * An undelivered seed survives empty intermediate contexts unchanged. If native acceptance succeeded but clearing
+ * its receipt failed, the new transcript is carried too, within one budget; empty retries never append it again.
+ */
+internal fun StudioChatRecord.retainedRolloverSeed(items: List<SessionItem>, next: String): String {
+    val previous = pendingSeed ?: return next
+    val current = sessionEssence(items.filterNot { it.isFrozenSegment }, ROLLOVER_SEED_CHARS)
+    if (current.text.isBlank()) return previous
+    val separator = "\n\n--- Later native context ---\n\n"
+    val budget = ROLLOVER_SEED_CHARS - separator.length
+    val earlierLimit = minOf(previous.length, maxOf(budget / 2, budget - next.length))
+    val laterLimit = budget - earlierLimit
+    val earlier = if (previous.length > earlierLimit) {
+        previous.take(earlierLimit - ELLIPSIS.length) + ELLIPSIS
+    } else {
+        previous
+    }
+    val later = if (next.length > laterLimit) ELLIPSIS + next.takeLast(laterLimit - ELLIPSIS.length) else next
+    return earlier + separator + later
+}
+
 /** The record without the failure of its last turn. */
 internal fun StudioChatRecord.withoutFailure(): StudioChatRecord =
     copy(hasFailed = false, failureKind = RunFailureKind.Unknown)
@@ -137,6 +158,7 @@ private fun SessionItem.withId(id: String): SessionItem {
 
 private val log = Log.tag("StudioRollover")
 private const val ROLLOVER_NOTICE = "Continued in a new session"
+private const val ELLIPSIS = " … "
 private const val SEED_END = "--- End of earlier conversation ---"
 private const val SEED_HEADER =
     "This conversation continues from an earlier native session. Its essence " +

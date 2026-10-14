@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FrozenHostedTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
@@ -46,7 +48,7 @@ internal class StudioContextCarry(
         write(id) { it.frozen(record.contextSegment + 1) }
         // A briefed rollover ran the handoff summary turn last: its failure is not the chat's.
         update(id) {
-            rolledOver(seed).copy(
+            rolledOver(retainedRolloverSeed(items, seed)).copy(
                 pendingHarnesses = harnesses ?: pendingHarnesses,
                 pendingHarnessSource = pendingHarnessSource ?: harnessSource,
             ).let { if (request.isBriefed) it.withoutFailure() else it }
@@ -65,9 +67,11 @@ internal class StudioContextCarry(
         check(active.canCarryEnvironment()) { "The previous native turn is still active or uncertain" }
         val current = record(request.id)
         val source = current.pendingHarnessSource ?: active.ref
-        val attached = current.pendingHarnesses ?: harnesses.attached(source)
+        val snapshot = current.harnessCarrySnapshot(harnesses)
+        val attached = snapshot?.values?.flatten()?.toSet()?.plus(current.pendingHarnesses.orEmpty())
+            ?: current.pendingHarnesses
         refresh()
-        check(current.pendingHarnesses != null || harnesses.attached(source) == attached) {
+        check(current.harnessCarrySnapshot(harnesses) == snapshot) {
             "Harness connections changed while preparing carry"
         }
         check(rollover(request, active, attached, source) == RunOutcome.Completed) {
@@ -78,16 +82,27 @@ internal class StudioContextCarry(
     /** Resolves deferred choices before native declarations once the feature is enabled; otherwise keeps the source. */
     suspend fun prepareHarnesses(id: String, harnesses: StudioHarnessAttach): StudioChatRecord {
         val current = record(id)
-        val source = current.pendingHarnessSource ?: return current
-        if (current.pendingHarnesses != null) return current
-        val selected = harnesses.attached(source) ?: return current
-        update(id) { copy(pendingHarnesses = selected) }
+        if (current.pendingHarnessSource == null) return current
+        val snapshot = current.harnessCarrySnapshot(harnesses) ?: return current
+        check(current.harnessCarrySnapshot(harnesses) == snapshot) {
+            "Harness connections changed while preparing declarations"
+        }
+        val selected = current.pendingHarnesses.orEmpty() + snapshot.values.flatten()
+        if (selected == current.pendingHarnesses) return current
+        update(id) { withPendingHarnesses(selected) }
         return record(id)
     }
 
     /** Restores before the next enabled prompt; failure or a disabled feature leaves the durable receipt intact. */
-    suspend fun restoreHarnesses(id: String, session: SessionRef, harnesses: StudioHarnessAttach) {
-        prepareHarnesses(id, harnesses).restoreCarriedHarnesses(session, harnesses) { pending ->
+    suspend fun restoreHarnesses(id: String, active: ActiveSession, harnesses: StudioHarnessAttach) {
+        val session = active.ref
+        val prepared = prepareHarnesses(id, harnesses)
+        if (prepared.needsHarnessDeclarations(session, harnesses)) {
+            check(active.features.resolve(FrozenHostedTools) == FeatureAccess.Unsupported) {
+                "Carried harness connections changed after native declarations"
+            }
+        }
+        prepared.restoreCarriedHarnesses(session, harnesses) { pending ->
             update(id) {
                 check(ref == session && pendingHarnesses == pending) { "Carried harness ownership changed" }
                 copy(pendingHarnesses = null, pendingHarnessSource = null, pendingHarnessContext = null)

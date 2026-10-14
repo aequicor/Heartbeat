@@ -59,8 +59,8 @@ import kotlin.uuid.Uuid
 /**
  * The agent's side of self-learning: `remember` saves an instruction for the project of the session (or for chats
  * without a project) and `load_learned_skill` returns a learned skill. Instructions of the session are added to its
- * prompt. Declarations never change while the toggle is on, so native threads that froze their tools stay valid.
- * Instruction texts are never logged.
+ * prompt even when no learning tools are declared. Declarations never change while the toggle is on, so native
+ * threads that froze their tools stay valid. Instruction texts are never logged.
  */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
@@ -78,6 +78,7 @@ internal class LearningAgentTools(
     private val log = Log.tag("LearningAgentTools")
 
     override val isDetachedSupported: Boolean get() = true
+    override val hasIndependentInstructions: Boolean get() = true
 
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
         if (toggles.get(AgentLearningEnabled)) listOf(REMEMBER_SPEC, LOAD_SKILL_SPEC) else emptyList()

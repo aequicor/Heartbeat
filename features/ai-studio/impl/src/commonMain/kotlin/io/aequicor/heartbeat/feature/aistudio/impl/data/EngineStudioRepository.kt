@@ -531,7 +531,7 @@ internal class EngineStudioRepository(
 
     override suspend fun submitTurn(active: ActiveSession, request: StudioTurnRequest): TurnId {
         log.i { "Submit the reserved native request" }
-        carry.restoreHarnesses(request.id, active.ref, harnesses)
+        carry.restoreHarnesses(request.id, active, harnesses)
         val target = checkNotNull(record(request.id).target)
         checklists.publishGeneration(record(request.id).copy(ref = active.ref))
         return configuredSubmission.submit(

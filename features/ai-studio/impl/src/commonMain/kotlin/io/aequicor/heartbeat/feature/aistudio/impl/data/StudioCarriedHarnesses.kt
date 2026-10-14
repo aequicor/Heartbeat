@@ -47,3 +47,25 @@ internal suspend fun StudioChatRecord.needsHarnessDeclarations(
     check(ref == session) { "Carried harnesses belong to another native session" }
     return !pendingHarnesses.isNullOrEmpty() && pendingHarnessContext != session && isHarnessCarryEnabled(harnesses)
 }
+
+/** Every context traversed while carry is pending can gain connections, even across disabled/manual rollovers. */
+internal suspend fun StudioChatRecord.harnessCarrySnapshot(
+    harnesses: StudioHarnessAttach,
+): Map<SessionRef, Set<String>>? {
+    val earlier = pendingHarnessSource?.let { source ->
+        val start = previousRefs.indexOf(source)
+        if (start >= 0) previousRefs.drop(start) else listOf(source)
+    }.orEmpty()
+    val snapshots = (earlier + listOfNotNull(ref)).distinct().associateWith { harnesses.attached(it) }
+    check(snapshots.values.all { it == null } || snapshots.values.none { it == null }) {
+        "Harness availability changed while reading carried connections"
+    }
+    if (snapshots.values.any { it == null }) return null
+    return snapshots.mapValues { checkNotNull(it.value) }
+}
+
+/** A declaration receipt covers its original set only; additional connections require another frozen context. */
+internal fun StudioChatRecord.withPendingHarnesses(selected: Set<String>): StudioChatRecord = copy(
+    pendingHarnesses = selected,
+    pendingHarnessContext = pendingHarnessContext.takeIf { pendingHarnesses.orEmpty().containsAll(selected) },
+)
