@@ -2,8 +2,9 @@
  * Heartbeat tool approval for the bundled Pi runtime.
  *
  * Every native and adapter-operated tool call waits for a Heartbeat decision: the host answers it on its own when
- * the turn's trust level covers the tool, otherwise the user decides.
- * The request travels over Pi's RPC extension UI protocol (`confirm`), and the host answers with
+ * the turn's trust level covers the tool, or uses the turn's automatic safety reviewer. Interactive turns may ask
+ * the user. The request travels over Pi's RPC extension UI protocol (`input`); its string value carries a JSON
+ * verdict so refusals preserve their reason. The host answers with
  * `extension_ui_response`. A missing, cancelled or failed answer blocks the tool: Pi treats a failing
  * `tool_call` handler as a block as well.
  *
@@ -60,6 +61,21 @@ function pinPath(input: any, cwd: string): string | undefined {
 	return absolute;
 }
 
+/** Only an exact host verdict authorizes execution; missing or malformed replies fail closed. */
+function decisionReply(value: unknown): { allowed: boolean; reason?: string } {
+    const refused = { allowed: false, reason: "Heartbeat did not return a valid tool authorization" };
+    if (typeof value !== "string") return refused;
+    let decision: any;
+    try { decision = JSON.parse(value); } catch { return refused; }
+    if (!decision || typeof decision !== "object" || Array.isArray(decision)) return refused;
+    const keys = Object.keys(decision);
+    if (decision.allowed === true && keys.length === 1) return { allowed: true };
+    if (decision.allowed === false && keys.length === 2 && typeof decision.reason === "string" && decision.reason.trim()) {
+        return { allowed: false, reason: decision.reason };
+    }
+    return refused;
+}
+
 export default function (pi: any) {
     const completed = new Set<string>();
     pi.on("agent_end", () => { completed.clear(); });
@@ -78,11 +94,11 @@ export default function (pi: any) {
 			target = typeof input.command === "string" ? input.command : typeof input.path === "string" ? input.path : "";
 		}
 		const request = JSON.stringify({ toolCallId: event.toolCallId, toolName: event.toolName, target, path, arguments: input });
-		const allowed = ctx.hasUI ? await ctx.ui.confirm(APPROVAL_TITLE, request) : false;
-        if (allowed === true && (event.toolName === "web_search" || event.toolName === "web_fetch")) {
+		const decision = decisionReply(ctx.hasUI ? await ctx.ui.input(APPROVAL_TITLE, request) : undefined);
+        if (decision.allowed && (event.toolName === "web_search" || event.toolName === "web_fetch")) {
             completed.add(event.toolCallId);
         }
-		return allowed === true ? undefined : { block: true, reason: "The Heartbeat user did not allow this tool call" };
+		return decision.allowed ? undefined : { block: true, reason: decision.reason };
 	});
     pi.on("tool_result", async (event: any, ctx: any) => {
         if (!completed.delete(event.toolCallId) || !ctx.hasUI) return undefined;

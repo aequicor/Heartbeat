@@ -182,7 +182,8 @@ read the same data after every successful call. Use inline SVG or CSS for artwor
 4. For an embedded mini-app use `placement: "card"`, then `ui_show` with the returned surface id. A saved surface
    alone is not a visible app. Optionally add `placement: "composer"` with a compact status and `focusCard` button.
    To fix an already shown app, replace its existing surface with `ui_put`: live cards update automatically.
-   Do not call `ui_show` again for an edit unless another copy in the transcript is explicitly wanted.
+   Repeating `ui_show` updates or switches the conversation's single live app slot and its arguments;
+   it never creates another copy.
     
     """.trimIndent()
 

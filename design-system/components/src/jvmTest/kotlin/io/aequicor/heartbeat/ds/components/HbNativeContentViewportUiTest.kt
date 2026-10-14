@@ -23,9 +23,56 @@ import androidx.compose.ui.unit.dp
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 @OptIn(ExperimentalTestApi::class)
 class HbNativeContentViewportUiTest {
+    @Test
+    fun `desktop dialog escapes its source pane and can establish its own native viewport`() =
+        runSkikoComposeUiTest(size = Size(800f, 600f)) {
+            var parentLeft by mutableStateOf(500.dp)
+            var source: Rect? = null
+            var inherited: Rect? = Rect.Zero
+            var own: Rect? = null
+            setContent {
+                CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                    HbTheme {
+                        Box(Modifier.fillMaxSize()) {
+                            HbNativeContentViewport(Modifier.offset(parentLeft, 100.dp).size(100.dp, 300.dp)) {
+                                val sourceViewport = LocalHbNativeContentViewport.current
+                                SideEffect { source = sourceViewport }
+                                Box(Modifier.fillMaxSize())
+                                HbPlatformDialog(onDismissRequest = {}) {
+                                    val inheritedViewport = LocalHbNativeContentViewport.current
+                                    SideEffect { inherited = inheritedViewport }
+                                    HbNativeContentViewport(
+                                        modifier = Modifier.size(400.dp, 300.dp),
+                                        overlapInsets = PaddingValues(top = 20.dp, bottom = 40.dp),
+                                    ) {
+                                        val ownViewport = LocalHbNativeContentViewport.current
+                                        SideEffect { own = ownViewport }
+                                        Box(Modifier.fillMaxSize())
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            runOnIdle {
+                assertEquals(Rect(500f, 100f, 600f, 400f), source)
+                assertNull(inherited)
+                assertEquals(Size(400f, 240f), own?.size)
+            }
+            val original = own
+            runOnIdle { parentLeft = 50.dp }
+            runOnIdle {
+                assertEquals(Rect(50f, 100f, 150f, 400f), source)
+                assertNull(inherited)
+                assertEquals(original, own)
+            }
+        }
+
     @Test
     fun `pinned heading and overlay use the larger top obstruction`() = runSkikoComposeUiTest(
         size = Size(300f, 200f),

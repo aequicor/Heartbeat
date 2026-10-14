@@ -615,8 +615,9 @@ internal class PiSession(
         message: String?,
         isResult: Boolean = false,
         timeoutMillis: Long? = null,
+        isStructuredReply: Boolean = false,
     ) {
-        val call = approvalCall(message, isResult) ?: return dismiss(id)
+        val call = approvalCall(message, isResult)?.copy(isStructuredReply = isStructuredReply) ?: return dismiss(id)
         val active = turn ?: return dismiss(id)
         val process = connection ?: return dismiss(id)
         if (isHandleClosed || !nativeApprovals.launch(id, call, active, process, generation, timeoutMillis)) dismiss(id)

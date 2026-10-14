@@ -10,15 +10,17 @@ internal suspend fun handlePiUiRequest(
     record: JsonObject,
     turn: TurnId?,
     permissions: PiSessionPermissions,
-    approve: suspend (String, String?, Boolean, Long?) -> Unit,
+    approve: suspend (String, String?, Boolean, Long?, Boolean) -> Unit,
 ) {
     val id = record.string("id") ?: return
     if (record.string("method") !in DIALOG_METHODS) return
     val timeout = (record["timeout"] as? JsonPrimitive)?.longOrNull?.takeIf { it > 0 }
     if (record.string("method") == "confirm" && record.string("title") == APPROVAL_TITLE) {
-        approve(id, record.string("message"), false, timeout)
+        approve(id, record.string("message"), false, timeout, false)
+    } else if (record.string("method") == "input" && record.string("title") == APPROVAL_TITLE) {
+        approve(id, record.string("placeholder"), false, timeout, true)
     } else if (record.string("method") == "input" && record.string("title") == "heartbeat.tool-result") {
-        approve(id, record.string("placeholder"), true, timeout)
+        approve(id, record.string("placeholder"), true, timeout, false)
     } else {
         permissions.await(id, turn?.let { PiDialog.from(record, id, it) }, timeout)
     }

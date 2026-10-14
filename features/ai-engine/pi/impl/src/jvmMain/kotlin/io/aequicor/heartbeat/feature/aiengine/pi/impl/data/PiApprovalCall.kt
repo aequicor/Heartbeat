@@ -28,6 +28,7 @@ internal data class PiApprovalCall(
     val arguments: JsonObject = JsonObject(emptyMap()),
     val result: AgentToolResult? = null,
     val toolCallId: ToolCallId? = null,
+    val isStructuredReply: Boolean = false,
 ) {
     override fun toString(): String = "PiApprovalCall"
 }

@@ -35,6 +35,57 @@ import kotlin.test.assertTrue
 
 class PiNativeApprovalTest {
     @Test
+    fun `input approval transports the exact automatic verdict without a user dialog`() = runTest {
+        val reason = "Automatic safety is uncertain: inspect \"config\" first.\nRetry with a bounded edit."
+        for (verdict in listOf(NativeVerdict.Allow, NativeVerdict.Deny(reason))) {
+            val tools = object : ProfileAgentTools by NoAgentTools {
+                override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict {
+                    assertEquals(AgentToolDecisionMode.AutomaticSafety, context.decisionMode)
+                    return verdict
+                }
+            }
+            val fixture = fixture(this, tools = tools)
+            fixture.connection.promptAck.complete(JsonObject(emptyMap()))
+            fixture.session.send(prompt("automatic").copy(decisionMode = AgentToolDecisionMode.AutomaticSafety))
+            fixture.connection.event(record("""{"type":"agent_start"}"""))
+            fixture.connection.event(structuredApproval("decision"))
+            runCurrent()
+            val expected = when (verdict) {
+                NativeVerdict.Allow -> record("""{"allowed":true}""")
+
+                is NativeVerdict.Deny -> JsonObject(
+                    mapOf("allowed" to JsonPrimitive(false), "reason" to JsonPrimitive(reason)),
+                )
+            }
+            assertEquals(listOf(valueAnswer("decision", expected.toString())), fixture.connection.sent)
+            assertIs<ActiveSessionState.Running>(fixture.session.state.value)
+            fixture.session.shutdown()
+        }
+    }
+
+    @Test
+    fun `failed authorization returns a structured refusal without exception details`() = runTest {
+        val tools = object : ProfileAgentTools by NoAgentTools {
+            override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict =
+                error("Private request details")
+        }
+        val fixture = fixture(this, tools = tools)
+        fixture.runningTurn(TrustLevel.Full)
+        fixture.connection.event(structuredApproval("failure"))
+        runCurrent()
+        assertEquals(
+            listOf(
+                valueAnswer(
+                    "failure",
+                    """{"allowed":false,"reason":"Heartbeat could not complete tool authorization"}""",
+                ),
+            ),
+            fixture.connection.sent,
+        )
+        fixture.session.shutdown()
+    }
+
+    @Test
     fun `outside unpinned and detached edits carry a deterministic automatic refusal`() = runTest {
         val scenarios = listOf(
             WorkspaceRef("project") to "/outside/file",
@@ -316,4 +367,15 @@ class PiNativeApprovalTest {
             fixture.session.shutdown()
         }
     }
+}
+
+/** Mirrors the extension's string-valued input RPC while the other fixtures cover legacy confirm replies. */
+private fun structuredApproval(id: String): JsonObject {
+    val legacy = approval(id)
+    return JsonObject(
+        legacy - "message" + mapOf(
+            "method" to JsonPrimitive("input"),
+            "placeholder" to checkNotNull(legacy["message"]),
+        ),
+    )
 }

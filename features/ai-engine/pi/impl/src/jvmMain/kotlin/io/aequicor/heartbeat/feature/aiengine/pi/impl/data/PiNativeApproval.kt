@@ -18,6 +18,8 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /** An immutable approval bound to the originating native turn and connection. Never runs on the RPC reader. */
 internal class PiNativeApproval(
@@ -37,7 +39,7 @@ internal class PiNativeApproval(
                 val note = environment.tools.afterHosted(context, call.tool, call.arguments, result)
                 "value" to JsonPrimitive(note.orEmpty())
             } else {
-                "confirmed" to JsonPrimitive(checkNotNull(decision).verdict.isAllowed)
+                checkNotNull(decision).verdict.response(call.isStructuredReply)
             }
             currentCoroutineContext().ensureActive()
             // Recheck after the gate, before sending Allow to the captured process.
@@ -51,7 +53,12 @@ internal class PiNativeApproval(
             throw e
         } catch (e: Exception) {
             log.w(e.withoutDetails()) { "Pi native approval failed; the call stays blocked" }
-            reply(id, if (call.result == null) "confirmed" to JsonPrimitive(false) else "value" to JsonPrimitive(""))
+            val response = if (call.result == null) {
+                NativeVerdict.Deny("Heartbeat could not complete tool authorization").response(call.isStructuredReply)
+            } else {
+                "value" to JsonPrimitive("")
+            }
+            reply(id, response)
         }
     }
 
@@ -149,6 +156,17 @@ internal class PiNativeApproval(
         )
         return native to isHostTermination
     }
+}
+
+/** Input RPC carries the denial unchanged; legacy confirm requests still receive their Boolean contract. */
+private fun NativeVerdict.response(isStructured: Boolean): Pair<String, JsonElement> = if (isStructured) {
+    val decision = buildJsonObject {
+        put("allowed", isAllowed)
+        if (this@response is NativeVerdict.Deny) put("reason", reason)
+    }
+    "value" to JsonPrimitive(decision.toString())
+} else {
+    "confirmed" to JsonPrimitive(isAllowed)
 }
 
 private val NativeVerdict.isAllowed: Boolean get() = this == NativeVerdict.Allow
