@@ -42,7 +42,6 @@ import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoice
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfiguration
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
@@ -51,16 +50,12 @@ import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfiguration
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCreateRequest
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.resetMain
@@ -523,6 +518,11 @@ class StudioEngineIntegrationTest {
     }
 
     @Test
+    fun `removing a running provider closes its session and removes its model choices`() = runStudioTest {
+        assertProviderRemovalDuringExecution(configured(), app.machines)
+    }
+
+    @Test
     fun indexedConversationResumesTheSameNativeSessionAfterHandleRelease() = runStudioTest {
         val services = configured()
         val repository = services.studioRepository
@@ -669,25 +669,5 @@ class StudioEngineIntegrationTest {
                 app.closeAndAwaitStorages()
             }
         }
-    }
-
-    /** Native history can publish inside send before the facade acknowledges ownership of its turn. */
-    private suspend fun CoroutineScope.startAcceptedRun(
-        runtime: StudioRuntime,
-        sessionId: String,
-        prompt: String,
-        settings: RunSettings,
-    ): Deferred<RunOutcome> {
-        val accepted = CompletableDeferred<Unit>()
-        val result = async {
-            runtime.run(sessionId, prompt, settings, emptyList()) { accepted.complete(Unit) }
-        }
-        select {
-            accepted.onAwait { }
-            result.onAwait { outcome ->
-                error("Run completed before native acceptance: $outcome")
-            }
-        }
-        return result
     }
 }

@@ -228,7 +228,8 @@ class PiStopOpeningTest {
             }
         }
         runCurrent()
-        first.runtime.close()
+        assertFailsWith<EngineException> { first.runtime.close() }
+        assertEquals(turn, records.get(session.ref)?.active?.turn?.id)
         val second = runtimeFixture(this, records, drains)
         second.processes.exited = { it == Owner }
         val blocked = second.runtime.attach(session.ref, RuntimeRequest)
@@ -262,7 +263,8 @@ class PiStopOpeningTest {
             }
         }
         runCurrent()
-        first.runtime.close()
+        assertFailsWith<EngineException> { first.runtime.close() }
+        assertEquals(turn, records.get(session.ref)?.active?.turn?.id)
         val journal = PiTurnJournal(records, session.ref, session.route, "fingerprint")
         assertNotNull(journal.fenceStop(prompt("request").id, turn))
         val second = runtimeFixture(this, records, drains)
@@ -281,7 +283,7 @@ class PiStopOpeningTest {
         second.runtime.close()
     }
 
-    /** A turn whose runtime closed without confirming its process exit, as after a crash. */
+    /** A turn retained after failed runtime shutdown, as recovery may observe after a crash. */
     private suspend fun TestScope.interrupted(
         records: PiTurnRecords,
         owner: PiExecutionOwner?,
@@ -295,7 +297,8 @@ class PiStopOpeningTest {
         val session = first.runtime.create(CreateSessionRequest(RuntimeTarget))
         val turn = assertIs<FeatureAccess.Available<SendsPrompts>>(session.features.resolve(SendsPrompts))
             .feature.send(prompt("request"))
-        first.runtime.close()
+        assertFailsWith<EngineException> { first.runtime.close() }
+        assertEquals(turn, records.get(session.ref)?.active?.turn?.id)
         return session.ref to turn
     }
 

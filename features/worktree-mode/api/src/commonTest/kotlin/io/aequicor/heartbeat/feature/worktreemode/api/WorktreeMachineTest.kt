@@ -186,6 +186,65 @@ class WorktreeMachineTest {
     }
 
     @Test
+    fun `lost submission observation requires recovery without inventing acceptance or completion`() {
+        for (kind in listOf(WorktreeRunKind.Coding, WorktreeRunKind.Merge)) {
+            val pending = task.transition(WorktreeIntent.Public.RunStarted(task.chatId, request, kind))
+                .runPrepared(request)
+            val command = WorktreeIntent.Public.RunSubmissionObservationLost(task.chatId, request, session, "Lost")
+            val ready = WorktreeState.Ready(mapOf(task.chatId to pending))
+            WorktreeMachineSpec.assertTransition(ready, command, ready, effects = listOf(WorktreeEffect.Apply(command)))
+            val lost = pending.transition(command)
+            assertEquals(WorktreePhase.RecoveryRequired, lost.phase)
+            assertEquals(pending.run?.copy(session = session), lost.run)
+            assertEquals("Lost", lost.failure)
+            assertNull(checkNotNull(lost.run).turn)
+            assertNull(lost.run.outcome)
+            assertEquals(lost, lost.transition(WorktreeIntent.Public.RunStarted(task.chatId, RequestId("next"))))
+            assertEquals(lost, lost.reconciled(true, lost.executionWorkspace, restart = false))
+            assertEquals(WorktreePhase.Idle, lost.transition(settled.copy(outcome = TurnOutcome.Cancelled)).phase)
+        }
+    }
+
+    @Test
+    fun `lost submission observation ignores stale identities and already accepted or settled runs`() {
+        val pending = task.transition(WorktreeIntent.Public.RunStarted(task.chatId, request))
+        val command = WorktreeIntent.Public.RunSubmissionObservationLost(task.chatId, request, session, "Lost")
+        assertEquals(pending, pending.transition(command.copy(chatId = "other")))
+        assertEquals(pending, pending.transition(command.copy(request = RequestId("other"))))
+        val bound = pending.copy(run = checkNotNull(pending.run).copy(session = session))
+        val other = SessionRef(session.engine, session.source, "other")
+        assertEquals(bound, bound.transition(command.copy(session = other)))
+        assertEquals(running, running.transition(command))
+        val finished = running.transition(settled)
+        assertEquals(finished, finished.transition(command))
+    }
+
+    @Test
+    fun `fresh idle reconciliation clears only its unaccepted recovery request without a terminal receipt`() {
+        val pending = task.transition(WorktreeIntent.Public.RunStarted(task.chatId, request))
+        val lost = pending.transition(
+            WorktreeIntent.Public.RunSubmissionObservationLost(task.chatId, request, session, "Lost"),
+        )
+        val command = WorktreeIntent.Public.RunSubmissionReconciled(task.chatId, request, session)
+        val ready = WorktreeState.Ready(mapOf(task.chatId to lost))
+        WorktreeMachineSpec.assertTransition(ready, command, ready, effects = listOf(WorktreeEffect.Apply(command)))
+        val reconciled = lost.transition(command)
+        assertEquals(WorktreePhase.Failed, reconciled.phase)
+        assertEquals("NativeOutcomeUnknown", reconciled.failure)
+        assertNull(reconciled.run)
+        val retry = RequestId("retry")
+        assertEquals(retry, reconciled.transition(WorktreeIntent.Public.RunStarted(task.chatId, retry)).run?.request)
+        assertEquals(lost, lost.transition(command.copy(chatId = "other")))
+        assertEquals(lost, lost.transition(command.copy(request = RequestId("other"))))
+        assertEquals(lost, lost.transition(command.copy(session = SessionRef(session.engine, session.source, "other"))))
+        assertEquals(pending, pending.transition(command))
+        val accepted = lost.transition(WorktreeIntent.Public.RunAccepted(task.chatId, request, session, turn))
+        assertEquals(accepted, accepted.transition(command))
+        val finished = accepted.transition(settled)
+        assertEquals(finished, finished.transition(command))
+    }
+
+    @Test
     fun `configuration versions advance and operation snapshot retains the selected version`() {
         val plan = WorktreeBuildPlan("test", listOf(WorktreeBuildCommand("build", "build")))
         val configured = task.transition(WorktreeIntent.Public.ProposeBuildPlan(task.chatId, plan))

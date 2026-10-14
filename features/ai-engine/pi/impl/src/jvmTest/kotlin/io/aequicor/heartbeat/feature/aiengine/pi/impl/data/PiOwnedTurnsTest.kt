@@ -297,7 +297,8 @@ class PiOwnedTurnsTest {
         }
         runCurrent()
         first.processes.connections.single().stopProof = { false }
-        first.runtime.close()
+        assertFailsWith<EngineException> { first.runtime.close() }
+        assertEquals(turn, records.get(session.ref)?.active?.turn?.id)
         val second = runtimeFixture(this, records, drains)
         assertEquals(OwnedTurnStop.Unconfirmed, second.stop(session, "request", turn))
         assertEquals(0, second.processes.stopCalls)

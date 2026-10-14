@@ -16,6 +16,15 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  *
  * Individual task transitions use pure reducers in this API against the journaled phase. Keeping the
  * machine in Ready prevents one chat's progress from cancelling another chat's accepted IO.
+ *
+ * | Task phase | Intent | Guard | Result |
+ * |---|---|---|---|
+ * | Working / ActionWorking | RunSubmissionObservationLost | Matching pending identity; no turn | RecoveryRequired |
+ * | RecoveryRequired | RunSubmissionReconciled | Matching request/session; no turn | Failed; clear run and lease |
+ * | Any | Either submission command | Accepted, settled or mismatched identity | Unchanged |
+ *
+ * Lost submission observation retains the lease and never proves rejection or native completion. Recovery needs
+ * the same session and either confirmed terminal identity or fresh native idle inspection before releasing ownership.
  */
 public val WorktreeMachineSpec: MachineSpec<WorktreeState, WorktreeIntent, WorktreeEffect, WorktreeOutput> =
     machineSpec(WorktreeMachineKey, WorktreeState.Idle) {

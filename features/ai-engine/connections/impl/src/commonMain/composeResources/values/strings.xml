@@ -72,8 +72,8 @@
     <string name="settings_connection_off">Off</string>
     <string name="settings_enabled_models">Models: %1$d</string>
     <string name="settings_refresh_models">Sync models</string>
-    <string name="settings_disconnect">Disconnect</string>
-    <string name="settings_disconnect_confirm">Disconnect “%1$s”? Its model choice is removed; a stored key is deleted when nothing else uses it.</string>
+    <string name="settings_disconnect">Delete</string>
+    <string name="settings_disconnect_confirm">Delete “%1$s”? Current requests will be interrupted, and the connection and model choice removed. Chat history will be kept. A stored key is deleted when nothing else uses it.</string>
     <string name="settings_default">Default</string>
     <string name="settings_make_default">Make default</string>
     <string name="settings_models_stale">Cached list. Sync to refresh it.</string>
@@ -81,7 +81,7 @@
     <string name="settings_saving">Saving…</string>
     <string name="settings_dismiss">Dismiss</string>
     <string name="conn_models_search_clear">Clear search</string>
-    <string name="settings_disconnect_title">Disconnect this connection?</string>
+    <string name="settings_disconnect_title">Delete this connection?</string>
     <string name="wizard_check">Check connection</string>
     <string name="wizard_checking">Checking…</string>
     <string name="wizard_check_passed">Connection works · models available: %1$d</string>

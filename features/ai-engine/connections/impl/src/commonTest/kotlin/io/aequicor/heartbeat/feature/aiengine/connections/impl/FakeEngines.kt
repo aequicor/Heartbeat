@@ -100,6 +100,7 @@ internal class FakeEngineFacade : EngineFacade {
     var refreshFailure: EngineFailure? = null
     var connectGate: CompletableDeferred<Unit>? = null
     var disconnectFailure: Exception? = null
+    var disconnectCleanupFailure: Exception? = null
     val calls = mutableListOf<String>()
 
     override val engines: EngineCatalog = object : EngineCatalog {
@@ -134,6 +135,7 @@ internal class FakeEngineFacade : EngineFacade {
             calls += "disconnect"
             disconnectFailure?.let { throw it }
             bindingsState.update { all -> all.filterNot { it.id == binding } }
+            disconnectCleanupFailure?.let { throw it }
         }
 
         override suspend fun check(target: EngineTarget, workspace: WorkspaceRef?): BindingCheck = error("unused")

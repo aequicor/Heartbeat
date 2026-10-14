@@ -82,7 +82,10 @@ private fun ActiveSession.supportedCompaction(compaction: ContextCompaction): Co
     return ContextCompaction()
 }
 
-/** Keeps the profile reservation until reconciliation establishes acceptance or a known idle native session. */
+/**
+ * Keeps the profile reservation until reconciliation establishes acceptance or a known idle native session.
+ * A closed handle ends observation while preserving pending delivery; it never proves a rejected request.
+ */
 private suspend fun ActiveSession.resolveUnknownSubmission(
     request: RequestId,
     error: EngineException,
@@ -91,9 +94,10 @@ private suspend fun ActiveSession.resolveUnknownSubmission(
     val initial = state.value
     val isSynchronized = synchronizeSubmission()
     val resolved = state.first { current ->
-        current.confirmedTurn(request) != null ||
+        current == ActiveSessionState.Closed || current.confirmedTurn(request) != null ||
             (current is ActiveSessionState.Ready && (isSynchronized || current != initial))
     }
+    if (resolved == ActiveSessionState.Closed) throw error
     resolved.confirmedTurn(request)?.let { return it.id }
     delivery?.isPending = false
     throw error

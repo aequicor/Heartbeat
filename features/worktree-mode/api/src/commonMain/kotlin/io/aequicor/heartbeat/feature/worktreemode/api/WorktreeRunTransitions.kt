@@ -47,6 +47,33 @@ internal fun WorktreeTask.runRejected(command: WorktreeIntent.Public.RunRejected
     return if (active.turn == null) copy(phase = WorktreePhase.Failed, run = null, failure = command.reason) else this
 }
 
+internal fun WorktreeTask.runSubmissionObservationLost(
+    command: WorktreeIntent.Public.RunSubmissionObservationLost,
+): WorktreeTask {
+    val active = pendingRun(command.chatId, command.request) ?: return this
+    val isSessionMatching = active.session == null || active.session == command.session
+    return if (active.turn == null && isSessionMatching) {
+        copy(
+            phase = WorktreePhase.RecoveryRequired,
+            run = active.copy(session = command.session),
+            failure = command.reason,
+        )
+    } else {
+        this
+    }
+}
+
+internal fun WorktreeTask.runSubmissionReconciled(
+    command: WorktreeIntent.Public.RunSubmissionReconciled,
+): WorktreeTask {
+    val active = pendingRun(command.chatId, command.request) ?: return this
+    return if (phase == WorktreePhase.RecoveryRequired && active.turn == null && active.session == command.session) {
+        copy(phase = WorktreePhase.Failed, run = null, failure = "NativeOutcomeUnknown")
+    } else {
+        this
+    }
+}
+
 internal fun WorktreeTask.runObservationLost(command: WorktreeIntent.Public.RunObservationLost): WorktreeTask {
     val active = pendingRun(command.chatId, command.request) ?: return this
     return if (active.canAttach(command.session, command.turn)) {

@@ -94,22 +94,24 @@ internal class PiSession(
     private val promptResources = PiPromptResources(environment) { rpc, request -> compactions.start(rpc, request) }
     private val journal = PiJournal(promptResources::originals)
     private val mutex = Mutex()
-    internal var connection: PiConnection? = null
-        private set
+    private val processLifetime: PiProcessLifetime = PiProcessLifetime(dispatchers, ::event, ::failed)
+    internal var connection: PiConnection?
+        get() = processLifetime.connection
+        private set(value) {
+            processLifetime.connection = value
+        }
     private var connector: PiConnector? = null
     private var persistedTranscript: suspend (String) -> String? = { null }
     private var nativeRef: SessionRef? = null
     private val usage = PiSessionUsage(environment, handle)
-    val contextRevision = PiContextRevision()
+    val contextRevision: PiContextRevision get() = processLifetime.contextRevision
 
     // Native transcript path, used only to reattach a restarted process; never logged.
     private var sessionFile: String? = null
     private var isHandleClosed = false
     private var isReleased = false
-    private var isShuttingDown = false
 
-    // Callbacks of a replaced or failed process are ignored once a newer connection generation exists.
-    private var generation = 0
+    private val generation get() = processLifetime.generation
     private var isTurnStarted = false
     internal var turn: Turn? = restored?.active?.turn
         private set
@@ -193,8 +195,6 @@ internal class PiSession(
     private val toolPlans = PiToolPlans(environment, hostedTools, request) {
         AgentToolScope(route.workspace, target, session = nativeRef)
     }
-    private var launchedTools: Set<String> = emptySet()
-    private var launchedInstructions: String? = null
     private val profileClose = profile.onClose {
         cancellationAck?.completeExceptionally(profileClosed())
         acceptance?.completeExceptionally(profileClosed())
@@ -399,15 +399,17 @@ internal class PiSession(
         }
     }
 
+    /** Failed process termination retains the connection and turn for the runtime's next shutdown attempt. */
     suspend fun shutdown() = withContext(NonCancellable + dispatchers.main) {
-        isShuttingDown = true
+        processLifetime.beginShutdown()
         submissions.pending?.stop()
         usage.close()
         try {
             val active = turn
             hostedTools.revoke()
-            val isStopped = connection?.stopAndAwait() == true && isExecutionOwned
-            if (active != null && isTurnStarted && isStopped) {
+            val isStopped = processLifetime.stop()
+            val isOwnedStopped = isStopped == true && isExecutionOwned
+            if (active != null && isTurnStarted && isOwnedStopped) {
                 try {
                     finish(TurnOutcome.Unknown)
                 } catch (error: EngineException) {
@@ -421,6 +423,8 @@ internal class PiSession(
             }
         } finally {
             withContext(NonCancellable) {
+                // A replacement runtime must observe hosted cleanup even when process exit was not confirmed.
+                nativeRef?.let { environment.hostedDrains.retain(it, route, ownership, hostedJobs) }
                 machine.send(ActiveSessionIntent.Public.Close)
                 machine.send(ActiveSessionIntent.Internal.Released)
                 acceptance?.completeExceptionally(profileClosed())
@@ -432,7 +436,8 @@ internal class PiSession(
     }
 
     private suspend fun release() {
-        if (isReleased) return
+        // Handle cleanup also runs after a failed runtime shutdown; it must not discard the retry barrier.
+        if (isReleased || processLifetime.isReleaseBlocked) return
         isReleased = true
         nativeRef?.let { environment.hostedDrains.retain(it, route, ownership, hostedJobs) }
         hostedTools.close()
@@ -445,22 +450,12 @@ internal class PiSession(
         released(this)
     }
 
-    private suspend fun open(factory: PiConnector): PiConnection {
+    private suspend fun open(factory: PiConnector): PiConnection = processLifetime.open(factory) {
         val plan = toolPlans.launch()
         ensureOpen()
         if (nativeRef != null) turnJournal.restoreForOpening()
-        val current = ++generation
-        contextRevision.renewed()
-        val fresh = factory(
-            plan,
-            { record -> withContext(dispatchers.main) { if (!isShuttingDown && current == generation) event(record) } },
-            { failure ->
-                withContext(dispatchers.main) { if (!isShuttingDown && current == generation) failed(failure) }
-            },
-        )
-        launchedTools = plan.requestedNames
-        launchedInstructions = plan.requestedInstructions
-        return fresh
+        ensureOpen()
+        plan
     }
 
     /** Refresh frozen declarations between turns, under the send mutex, on the same saved transcript. */
@@ -468,7 +463,7 @@ internal class PiSession(
         val process = connection?.takeIf { it.isOpen } ?: return
         // get_state may advertise an allocated path before Pi writes its first assistant message.
         // Only a transcript found in profile storage is safe to reattach after closing this process.
-        val file = toolPlans.refreshedTranscript(launchedTools, launchedInstructions) {
+        val file = toolPlans.refreshedTranscript(processLifetime.launchedTools, processLifetime.launchedInstructions) {
             nativeRef?.nativeId?.let { persistedTranscript(it) }
         } ?: return
         sessionFile = file
@@ -501,7 +496,7 @@ internal class PiSession(
                     ensureOpen()
                     turnJournal.restoreForOpening()
                 },
-                discarded = { generation++ },
+                discarded = processLifetime::discard,
             )
             connection = fresh
             val model = snapshot["model"] as? JsonObject
@@ -709,7 +704,7 @@ internal class PiSession(
         if (isOriginRunning && (!isCurrent || isExecutionOwned)) {
             stop.origin?.close()
             if (connection === stop.origin) {
-                generation++
+                processLifetime.discard()
                 connection = null
             }
         }
@@ -725,7 +720,7 @@ internal class PiSession(
         if (isHandleClosed) release()
     }
 
-    private fun ensureOpen() = state.value.ensurePiSessionOpen(isShuttingDown)
+    private fun ensureOpen() = state.value.ensurePiSessionOpen(processLifetime.isShuttingDown)
 
     private fun rpc(): PiConnection = connection
         ?: piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable))

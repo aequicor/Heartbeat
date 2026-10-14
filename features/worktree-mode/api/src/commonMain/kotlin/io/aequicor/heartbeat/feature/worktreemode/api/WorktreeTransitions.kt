@@ -12,12 +12,27 @@ public fun WorktreeTask.transition(command: WorktreeIntent.Public): WorktreeTask
 
     is WorktreeIntent.Public.RunRejected -> runRejected(command)
 
+    is WorktreeIntent.Public.RunSubmissionObservationLost -> runSubmissionObservationLost(command)
+
+    is WorktreeIntent.Public.RunSubmissionReconciled -> runSubmissionReconciled(command)
+
     is WorktreeIntent.Public.RunObservationLost -> runObservationLost(command)
 
     is WorktreeIntent.Public.RunSettled -> runSettled(command)
 
     is WorktreeIntent.Public.TaskCompleteSignaled -> completionSignaled(command)
 
+    WorktreeIntent.Public.Start, WorktreeIntent.Public.RetryLoad,
+    is WorktreeIntent.Public.Prepare, is WorktreeIntent.Public.TrackMainSession,
+    is WorktreeIntent.Public.Recheck, is WorktreeIntent.Public.RunBuild, is WorktreeIntent.Public.CancelBuild,
+    is WorktreeIntent.Public.ProposeBuildPlan, is WorktreeIntent.Public.ApproveBuildPlan,
+    is WorktreeIntent.Public.ActionDelivered, is WorktreeIntent.Public.ActionDeliveryFailed,
+    is WorktreeIntent.Public.ChooseAction,
+    -> actionTransition(command)
+}
+
+/** Build declarations and completion choices do not change native run ownership. */
+private fun WorktreeTask.actionTransition(command: WorktreeIntent.Public): WorktreeTask = when (command) {
     is WorktreeIntent.Public.ProposeBuildPlan -> buildPlanProposed(command)
 
     is WorktreeIntent.Public.ApproveBuildPlan -> buildPlanApproved(command)
@@ -31,6 +46,10 @@ public fun WorktreeTask.transition(command: WorktreeIntent.Public): WorktreeTask
     WorktreeIntent.Public.Start, WorktreeIntent.Public.RetryLoad,
     is WorktreeIntent.Public.Prepare, is WorktreeIntent.Public.TrackMainSession,
     is WorktreeIntent.Public.Recheck, is WorktreeIntent.Public.RunBuild, is WorktreeIntent.Public.CancelBuild,
+    is WorktreeIntent.Public.RunStarted, is WorktreeIntent.Public.RunAccepted, is WorktreeIntent.Public.RunRejected,
+    is WorktreeIntent.Public.RunSubmissionObservationLost, is WorktreeIntent.Public.RunSubmissionReconciled,
+    is WorktreeIntent.Public.RunObservationLost, is WorktreeIntent.Public.RunSettled,
+    is WorktreeIntent.Public.TaskCompleteSignaled,
     -> this
 }
 

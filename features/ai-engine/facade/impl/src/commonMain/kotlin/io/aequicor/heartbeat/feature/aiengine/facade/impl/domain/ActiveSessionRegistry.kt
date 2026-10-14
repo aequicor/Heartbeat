@@ -42,7 +42,7 @@ import kotlin.coroutines.cancellation.CancellationException
  * Open handles of the profile. Commands are serialized per native session across handles, and a handle may
  * start a turn only while no other handle of the same session is executing one.
  */
-class ActiveSessionRegistry : BindingUsage {
+class ActiveSessionRegistry {
     private val log = Log.tag("ActiveSessions")
     private val handles = MutableStateFlow(emptyList<ActiveSession>())
     private val guard = Mutex()
@@ -77,7 +77,8 @@ class ActiveSessionRegistry : BindingUsage {
         handles.update { current -> current.filterNot { it === handle } }
     }
 
-    override fun isInUse(binding: EngineBindingId): Boolean =
+    /** Whether any facade handle still holds [binding], regardless of whether a turn is running. */
+    fun isInUse(binding: EngineBindingId): Boolean =
         handles.value.any { it.route.binding == binding && it.state.value != ActiveSessionState.Closed }
 
     /** Borrows only history from an open handle of the exact session, without acquiring its lifecycle. */

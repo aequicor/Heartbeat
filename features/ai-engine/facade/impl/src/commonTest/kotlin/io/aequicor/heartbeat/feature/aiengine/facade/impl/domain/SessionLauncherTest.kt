@@ -28,6 +28,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SourceDiscovery
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -72,6 +73,7 @@ class SessionLauncherTest {
     private val source = FakeSessionSource()
     private lateinit var pool: RuntimePool
     private val factory = FakeEngineFactory()
+    private var beforeOpenGate: CompletableDeferred<Unit>? = null
 
     private fun TestScope.launcher(
         features: Set<io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureId> =
@@ -79,7 +81,12 @@ class SessionLauncherTest {
         supports: Boolean = true,
     ): Triple<RouteFixture, SessionLauncher, FacadeCapabilities> {
         factory.runtime = { FakeRuntime(it, supports).also { runtime -> runtimes += runtime } }
-        val fixture = RouteFixture(this, factory, registration(factory, sources = listOf(source), features = features))
+        val fixture = RouteFixture(
+            this,
+            factory,
+            registration(factory, sources = listOf(source), features = features),
+            release = { pool.disconnect(it) },
+        )
         val enabled = EnabledEngines(fixture.registry, fixture.toggles, backgroundScope)
         lateinit var capabilities: FacadeCapabilities
         val sessions = SessionCatalogService(enabled, index, FakeCursors, fixture.context) { registration, stored ->
@@ -90,6 +97,7 @@ class SessionLauncherTest {
         val assembler = ActiveSessionAssembler(policy, backgroundScope)
         var handles = 0
         val host = ActiveSessionHost { native, route, model, hooks ->
+            beforeOpenGate?.await()
             assembler.assemble(native, route, model, TestHandleScope("h${++handles}", backgroundScope), hooks)
         }
         pool = RuntimePool(fixture.context, registry::hasActiveTurn, registry::closeHandles)
@@ -188,6 +196,70 @@ class SessionLauncherTest {
 
         assertEquals(EngineFailure.Session(SessionFailureReason.Busy), error.failure)
         assertEquals(0, runtimes.single().closes)
+    }
+
+    @Test
+    fun `disconnect removes the connection and stops its running session`() = runTest {
+        val (fixture, launcher, _) = launcher()
+        val session = launcher.create(CreateSessionRequest(fixture.target))
+        val sender = (session.features.resolve(SendsPrompts) as FeatureAccess.Available).feature
+        sender.send(PromptRequest(RequestId("r1"), listOf(ContentPart.Text("hi"))))
+
+        fixture.bindings.disconnect(fixture.binding.id)
+        runCurrent()
+
+        assertTrue(fixture.store.bindings.value.isEmpty())
+        assertTrue(pool.entries.value.isEmpty())
+        assertEquals(1, runtimes.single().closes)
+        assertEquals(ActiveSessionState.Closed, session.state.value)
+        assertFailsWith<EngineException> { sender.send(PromptRequest(RequestId("r2"), listOf(ContentPart.Text("hi")))) }
+    }
+
+    @Test
+    fun `disconnect stops the runtime even after its running handle was released`() = runTest {
+        val (fixture, launcher, _) = launcher()
+        val session = launcher.create(CreateSessionRequest(fixture.target))
+        val sender = (session.features.resolve(SendsPrompts) as FeatureAccess.Available).feature
+        sender.send(PromptRequest(RequestId("r1"), listOf(ContentPart.Text("hi"))))
+        session.close()
+
+        fixture.bindings.disconnect(fixture.binding.id)
+
+        assertEquals(1, runtimes.single().closes)
+        assertTrue(pool.entries.value.isEmpty())
+    }
+
+    @Test
+    fun `a native session created after disconnect is released without opening a handle`() = runTest {
+        val (fixture, launcher, _) = launcher()
+        launcher.create(CreateSessionRequest(fixture.target))
+        val gate = CompletableDeferred<Unit>().also { runtimes.single().sessionGate = it }
+        val opening = async {
+            assertFailsWith<EngineException> { launcher.create(CreateSessionRequest(fixture.target)) }
+        }
+        runCurrent()
+
+        fixture.bindings.disconnect(fixture.binding.id)
+        gate.complete(Unit)
+
+        assertEquals(OperationNotAllowed, opening.await().failure)
+        assertEquals(1, runtimes.single().sessions.last().closes)
+    }
+
+    @Test
+    fun `a facade handle registered after disconnect is immediately released`() = runTest {
+        val (fixture, launcher, _) = launcher()
+        val gate = CompletableDeferred<Unit>().also { beforeOpenGate = it }
+        val opening = async {
+            assertFailsWith<EngineException> { launcher.create(CreateSessionRequest(fixture.target)) }
+        }
+        runCurrent()
+
+        fixture.bindings.disconnect(fixture.binding.id)
+        gate.complete(Unit)
+
+        assertEquals(OperationNotAllowed, opening.await().failure)
+        assertEquals(1, runtimes.single().sessions.single().closes)
     }
 
     @Test

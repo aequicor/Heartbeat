@@ -39,8 +39,13 @@ import io.aequicor.heartbeat.feature.aiengine.pi.api.PiActiveSession
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEnabled
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiSessions
 import io.aequicor.heartbeat.feature.searchengine.api.NativeWebFetch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -77,7 +82,12 @@ internal class PiRuntime(
     private val processes get() = services.processes
     private val workspaces get() = services.workspaces
     private val mutex = Mutex()
+    private val shutdownMutex = Mutex()
     private val sessions: MutableSet<PiSession> = ConcurrentHashMap.newKeySet()
+
+    // Ownership begins before process startup and ends only after confirmed cleanup. The signal completes
+    // when startup finishes; live sessions keep it completed until [forgotten] removes their ownership.
+    private val ownedSessions = mutableMapOf<PiSession, CompletableDeferred<Unit>>()
 
     // Reserved before transcript lookup and process startup; only accessed under mutex.
     private val attaching = mutableSetOf<SessionRef>()
@@ -259,7 +269,13 @@ internal class PiRuntime(
             // Every handle is a borrowing one, so the caller's close only ends its own use of the process.
             return PiSessionView(session.first) { releaseBorrow(session.first) }
         } finally {
-            if (!isRegistered) withContext(NonCancellable) { session.first.shutdown() }
+            withContext(NonCancellable) {
+                try {
+                    if (!isRegistered) session.first.shutdown()
+                } finally {
+                    mutex.withLock { ownedSessions[session.first]?.complete(Unit) }
+                }
+            }
         }
     }
 
@@ -309,7 +325,7 @@ internal class PiRuntime(
             val restored = transcript?.let {
                 PiTurnJournal(environment.turns, it.ref, route, credential).restoreForOpening()
             }
-            withContext(dispatchers.main) {
+            val session = withContext(dispatchers.main) {
                 PiSession(
                     request,
                     route,
@@ -320,7 +336,9 @@ internal class PiRuntime(
                     restored,
                     ::stopRestored,
                 )
-            } to directory
+            }
+            ownedSessions[session] = CompletableDeferred()
+            session to directory
         }
 
     private fun route(request: CreateSessionRequest) =
@@ -331,6 +349,7 @@ internal class PiRuntime(
     private suspend fun forgotten(session: PiSession) {
         mutex.withLock {
             ownedTurns.forget(session)
+            ownedSessions.remove(session)?.complete(Unit)
             sessions.remove(session)
             draining.remove(session)
             consumers.remove(session)
@@ -346,18 +365,37 @@ internal class PiRuntime(
         }
     }
 
-    override suspend fun close() {
-        // Shutdown happens outside the lock: each session release re-enters through [forgotten], and the
-        // lock is not reentrant.
-        val snapshot = mutex.withLock {
-            isClosed = true
-            sessions.toList().also {
-                sessions.clear()
-                consumers.clear()
-                draining.clear()
+    /** Stops every session; unconfirmed shutdowns remain owned and a later close retries them. */
+    override suspend fun close(): Unit = shutdownMutex.withLock {
+        withContext(NonCancellable) {
+            // The separate shutdown lock serializes retries without blocking the [forgotten] callback.
+            val snapshot = mutex.withLock {
+                isClosed = true
+                ownedSessions.toList()
+            }
+            supervisorScope {
+                val attempts = snapshot.map { (session, started) ->
+                    async {
+                        started.await()
+                        if (mutex.withLock { session in ownedSessions }) shutdown(session)
+                    }
+                }
+                // One failed or cancelled adapter attempt must not skip stopping the remaining processes.
+                attempts.joinAll()
+                attempts.forEach { it.await() }
             }
         }
-        snapshot.forEach { it.shutdown() }
+    }
+
+    private suspend fun shutdown(session: PiSession) {
+        try {
+            session.shutdown()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(error) { "Pi runtime shutdown retained a session for retry" }
+            throw error
+        }
     }
 }
 

@@ -14,17 +14,18 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.cancellation.CancellationException
 
 /** Persistent bindings of one profile. Failures propagate. */
@@ -39,10 +40,10 @@ interface BindingStore {
     suspend fun save(bindings: List<EngineBinding>)
 }
 
-/** Whether active handles still execute through a binding; such bindings cannot be removed. */
-fun interface BindingUsage {
-    /** True while an open handle uses [binding]. */
-    fun isInUse(binding: EngineBindingId): Boolean
+/** Forced runtime and handle cleanup after a binding was removed from persistent settings. */
+fun interface BindingRelease {
+    /** Stops execution through [binding], including accepted work without an open handle. Failures propagate. */
+    suspend fun release(binding: EngineBinding)
 }
 
 /** Toggle and registration gate shared by every operation that may start engine work. */
@@ -65,21 +66,24 @@ class EngineGate(val registry: EngineRegistry, private val toggles: EngineToggle
  * never observes a half-applied change. Ownership is checked through the registration (CLI logins stay with their
  * owner) and the adapter route is stored by [EngineFactory.bind] before a binding is saved; if that save fails for a
  * new binding, the route is compensated with [EngineFactory.unbind] and the save failure propagates.
- * Removal calls [EngineFactory.unbind] after the binding is gone; a failing unbind is only logged — the binding is
- * already removed and every later route resolution fails on it, so the stale adapter route is unreachable.
- * A handle opened concurrently with [disconnect] is caught by the route recheck before each turn
- * ([RouteResolver.recheck]). Authentication itself is checked only on request.
+ * Removal first saves the missing binding, then forcibly releases its runtime outside the settings mutex, so
+ * shutdown callbacks can read routes. A failed release is remembered for a retry. [EngineFactory.unbind] follows
+ * a successful release; a failing unbind is only logged because its stale adapter route is unreachable.
+ * Concurrent session opening rechecks the removed route before returning a handle. Authentication itself is
+ * checked only on request.
  */
 class EngineBindingsService(
     private val gate: EngineGate,
     private val store: BindingStore,
     private val sources: AuthSources,
     private val checks: AuthChecks,
-    private val usage: BindingUsage,
+    private val release: BindingRelease,
     private val context: FacadeContext,
 ) : EngineBindings {
     private val log = Log.tag("EngineBindings")
     private val mutex = Mutex()
+    private val disconnectMutex = Mutex()
+    private val pendingRemovals = mutableMapOf<EngineBindingId, EngineBinding>()
 
     override val state: StateFlow<List<EngineBinding>> =
         store.observe().stateIn(context.scope, SharingStarted.Eagerly, emptyList())
@@ -130,16 +134,33 @@ class EngineBindingsService(
         store.save(saved.map { if (it.id == binding) it.copy(isEnabled = enabled) else it })
     }
 
-    override suspend fun disconnect(binding: EngineBindingId): Unit = mutex.withLock {
+    override suspend fun disconnect(binding: EngineBindingId): Unit = disconnectMutex.withLock {
+        // Once removal starts, caller cancellation must not leave its accepted work running without a route.
+        withContext(NonCancellable) { removeAndRelease(binding) }
+    }
+
+    private suspend fun removeAndRelease(binding: EngineBindingId) {
         log.i { "disconnect binding=${binding.value}" }
-        if (usage.isInUse(binding)) fail(EngineFailure.Session(SessionFailureReason.Busy))
-        val saved = store.load()
-        val removed = saved.firstOrNull { it.id == binding } ?: return@withLock
-        store.save(saved.filterNot { it.id == binding })
+        val removed = mutex.withLock {
+            val saved = store.load()
+            val existing = saved.firstOrNull { it.id == binding }
+            if (existing != null) {
+                store.save(saved.filterNot { it.id == binding })
+                pendingRemovals[binding] = existing
+            }
+            pendingRemovals[binding]
+        } ?: return
+        release.release(removed)
+        unbind(removed)
+        mutex.withLock { pendingRemovals.remove(binding) }
+    }
+
+    private suspend fun unbind(removed: EngineBinding) {
+        val binding = removed.id
         val factory = gate.registry.find(removed.engine)?.factory?.value
         if (factory == null) {
             log.w { "no registration to unbind engine=${removed.engine.value} binding=${binding.value}" }
-            return@withLock
+            return
         }
         try {
             factory.unbind(binding)
