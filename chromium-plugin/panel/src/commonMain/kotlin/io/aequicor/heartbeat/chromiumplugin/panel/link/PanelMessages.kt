@@ -63,6 +63,7 @@ internal sealed interface PanelInbound {
 internal data class PanelFeatures(
     @SerialName("agentControl") val isAgentControl: Boolean = false,
     @SerialName("studio") val isStudio: Boolean = false,
+    @SerialName("diagrams") val isDiagrams: Boolean = false,
 )
 
 /** A failure with one of `BridgeErrorCode`; the message is diagnostic only. */

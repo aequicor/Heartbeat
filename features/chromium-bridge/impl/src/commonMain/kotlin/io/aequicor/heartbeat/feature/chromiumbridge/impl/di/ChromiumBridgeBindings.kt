@@ -30,8 +30,10 @@ import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.BridgeServer
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.ChromiumBridgeEffects
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.ExtensionFolder
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.NativeHostRegistry
+import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlRenderer
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 
 /** The machine of the bridge lives as long as the profile, so the socket survives screens. */
@@ -59,8 +61,11 @@ public object ChromiumBridgeBindings {
     /** Features offered to extensions. */
     @Provides
     @SingleIn(ProfileScope::class)
-    internal fun features(toggles: FeatureToggles, studio: StudioRemoteScreens): ToggleBridgeFeatures =
-        ToggleBridgeFeatures(toggles, studio)
+    internal fun features(
+        toggles: FeatureToggles,
+        studio: StudioRemoteScreens,
+        plantUml: PlantUmlRenderer? = null,
+    ): ToggleBridgeFeatures = ToggleBridgeFeatures(toggles, studio, plantUml?.availability ?: flowOf(false))
 }
 
 /**

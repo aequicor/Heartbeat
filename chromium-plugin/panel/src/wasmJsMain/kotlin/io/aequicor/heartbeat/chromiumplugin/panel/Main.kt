@@ -7,6 +7,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.window.ComposeViewport
+import io.aequicor.heartbeat.chromiumplugin.panel.diagram.PanelDiagrams
 import io.aequicor.heartbeat.chromiumplugin.panel.link.PanelLink
 import io.aequicor.heartbeat.chromiumplugin.panel.store.StudioPanelModel
 import io.aequicor.heartbeat.chromiumplugin.panel.store.panelStore
@@ -58,7 +59,11 @@ fun main() {
             value = fonts != null
         }
         // Text laid out before the fallback fonts would keep empty boxes for emoji and symbols.
-        if (ready) PanelTheme(fonts) { PanelApp(store) { StudioPanelScreen(studio.store) } }
+        if (ready) {
+            PanelTheme(fonts) {
+                PanelDiagrams(link, host, dispatchers) { PanelApp(store) { StudioPanelScreen(studio.store) } }
+            }
+        }
     }
 }
 

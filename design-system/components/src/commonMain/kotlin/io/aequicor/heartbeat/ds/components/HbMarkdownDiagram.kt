@@ -105,7 +105,15 @@ private fun DrawnDiagram(
     when (val current = result) {
         null -> MarkdownDiagramSource(block, modifier, foreground, status = labels.rendering)
 
-        is HbDiagramResult.Image -> DiagramPreview(block, current, labels, modifier, foreground, onLinkClick)
+        is HbDiagramResult.Image -> DiagramPreview(
+            block,
+            current,
+            labels,
+            { diagrams.renderer.openFullSize(request) },
+            modifier,
+            foreground,
+            onLinkClick,
+        )
 
         is HbDiagramResult.SyntaxError -> DiagramProblem(block, current.message(labels), labels, modifier, foreground)
 
@@ -168,11 +176,14 @@ private fun DiagramPreview(
     block: HbMarkdownBlock,
     image: HbDiagramResult.Image,
     labels: HbDiagramLabels,
+    onOpenFullSize: suspend () -> Boolean,
     modifier: Modifier = Modifier,
     foreground: Color = HbTheme.colors.textPrimary,
     onLinkClick: ((String) -> Unit)? = null,
 ) {
     var isViewerOpen by remember { mutableStateOf(false) }
+    var isOpening by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val interactions = remember { MutableInteractionSource() }
     val isFocused by interactions.collectIsFocusedAsState()
     val shape = HbTheme.shapes.small
@@ -190,11 +201,20 @@ private fun DiagramPreview(
                     .clickable(
                         interactions,
                         indication = null,
+                        enabled = !isOpening,
                         role = Role.Button,
                         onClickLabel = labels.openFullSize,
                     ) {
+                        if (isOpening) return@clickable
                         log.i { "Diagram viewer opened" }
-                        isViewerOpen = true
+                        isOpening = true
+                        scope.launch {
+                            try {
+                                isViewerOpen = !openHostViewer(onOpenFullSize)
+                            } finally {
+                                isOpening = false
+                            }
+                        }
                     },
                 contentScale = ContentScale.Fit,
                 // Fitting a sharp bitmap into the column shrinks it; mipmaps keep thin lines and text legible.
@@ -205,6 +225,16 @@ private fun DiagramPreview(
     if (isViewerOpen) {
         DiagramViewer(block, image, labels, foreground, onLinkClick, onDismiss = { isViewerOpen = false })
     }
+}
+
+/** A failed external viewer leaves the already drawn image available in the shared viewer. */
+private suspend fun openHostViewer(open: suspend () -> Boolean): Boolean = try {
+    open()
+} catch (error: CancellationException) {
+    throw error
+} catch (error: Exception) {
+    log.w(error) { "Host diagram viewer failed" }
+    false
 }
 
 /**

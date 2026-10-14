@@ -6,14 +6,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SkikoComposeUiTest
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
@@ -43,6 +48,60 @@ class HbDiagramUiTest {
         onNodeWithTag(DIAGRAM_PREVIEW_TAG).performClick()
         onNodeWithTag(DIAGRAM_VIEWER_TAG).performKeyInput { pressKey(Key.Escape) }
         onNodeWithTag(DIAGRAM_VIEWER_TAG).assertDoesNotExist()
+    }
+
+    @Test
+    fun `a host viewer opens once while pending and leaves the preview available after success`() =
+        runSkikoComposeUiTest {
+            val opened = CompletableDeferred<Boolean>()
+            val requests = mutableListOf<HbDiagramRequest>()
+            showHostViewer { request ->
+                requests += request
+                opened.await()
+            }
+
+            val preview = onNodeWithTag(DIAGRAM_PREVIEW_TAG)
+            val activate = requireNotNull(preview.fetchSemanticsNode().config[SemanticsActions.OnClick].action)
+            // Both activations use the enabled callback before recomposition can disable the preview.
+            runOnIdle {
+                activate()
+                activate()
+            }
+            preview.assertIsNotEnabled()
+            preview.performTouchInput { click() }
+            onNodeWithTag(DIAGRAM_VIEWER_TAG).assertDoesNotExist()
+            assertEquals(listOf(source), requests.map { it.source })
+
+            runOnIdle { opened.complete(true) }
+            preview.assertIsEnabled()
+            onNodeWithTag(DIAGRAM_VIEWER_TAG).assertDoesNotExist()
+            preview.performClick()
+            waitForIdle()
+            assertEquals(2, requests.size)
+            onNodeWithTag(DIAGRAM_VIEWER_TAG).assertDoesNotExist()
+        }
+
+    @Test
+    fun `a host refusal opens the shared viewer only after the request finishes`() = runSkikoComposeUiTest {
+        val opened = CompletableDeferred<Boolean>()
+        showHostViewer { opened.await() }
+        onNodeWithTag(DIAGRAM_PREVIEW_TAG).performClick()
+        onNodeWithTag(DIAGRAM_VIEWER_TAG).assertDoesNotExist()
+
+        runOnIdle { opened.complete(false) }
+        onNodeWithTag(DIAGRAM_VIEWER_TAG).assertExists()
+        onNodeWithText("Close").performClick()
+        onNodeWithTag(DIAGRAM_PREVIEW_TAG).assertIsEnabled()
+    }
+
+    @Test
+    fun `a failed host viewer falls back to the drawn image in the shared viewer`() = runSkikoComposeUiTest {
+        showHostViewer { error("The browser refused to open a tab") }
+        onNodeWithTag(DIAGRAM_PREVIEW_TAG).performClick()
+        onNodeWithTag(DIAGRAM_VIEWER_TAG).assertExists()
+        onNodeWithText("The browser refused to open a tab").assertDoesNotExist()
+        onNodeWithText("Close").performClick()
+        onNodeWithTag(DIAGRAM_PREVIEW_TAG).assertIsEnabled()
     }
 
     @Test
@@ -151,6 +210,16 @@ class HbDiagramUiTest {
 
     private fun SkikoComposeUiTest.show(render: suspend () -> HbDiagramResult) {
         val renderer = HbDiagramRenderer { render() }
+        setContent { HbTheme { HbDiagramsProvider(renderer) { HbMarkdownBlockContent(block) } } }
+    }
+
+    private fun SkikoComposeUiTest.showHostViewer(open: suspend (HbDiagramRequest) -> Boolean) {
+        val image = HbDiagramResult.Image(ImageBitmap(80, 40), DpSize(40.dp, 20.dp))
+        val renderer = object : HbDiagramRenderer {
+            override suspend fun render(request: HbDiagramRequest): HbDiagramResult = image
+
+            override suspend fun openFullSize(request: HbDiagramRequest): Boolean = open(request)
+        }
         setContent { HbTheme { HbDiagramsProvider(renderer) { HbMarkdownBlockContent(block) } } }
     }
 }

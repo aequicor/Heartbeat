@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src blob:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>PlantUML — Heartbeat</title>
+  <link rel="stylesheet" href="diagram.css">
+</head>
+<body>
+  <header>
+    <h1 id="title">PlantUML</h1>
+    <nav id="controls" hidden>
+      <button id="zoom-out" type="button">−</button>
+      <output id="scale" aria-live="polite"></output>
+      <button id="zoom-in" type="button">+</button>
+      <button id="actual" type="button">100%</button>
+      <button id="fit" type="button"></button>
+    </nav>
+  </header>
+  <p id="status" role="status"></p>
+  <main id="viewport" tabindex="0" hidden>
+    <img id="diagram" alt="PlantUML" draggable="false">
+  </main>
+  <script type="module" src="diagram-boot.js"></script>
+</body>
+</html>
