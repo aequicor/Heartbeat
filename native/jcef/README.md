@@ -79,6 +79,25 @@ Do not publish the application with a missing Linux native jar or replace it wit
 
 ## Preparing another release
 
+`next/` currently prepares **152.0.6-hb5** for a Linux teardown race confirmed with the CEF UI thread
+deliberately held in a close callback. In hb4, the one-second wait for queued reparenting can expire while
+Swing destroys its Canvas. Chromium then loses its child X11 window before processing its close message,
+and never delivers the native close callback. Increasing the wait cannot guarantee safety, and waiting
+indefinitely while Swing owns its tree lock can deadlock a CEF callback that needs that lock.
+
+hb5 reparents Linux windows synchronously on the caller using a separate, checked XCB connection to the
+same display. The request's server acknowledgement completes before Swing can destroy its Canvas;
+neither attachment nor detachment waits for the CEF UI queue, so an older queued attachment cannot undo
+a completed detach. A mutex keeps the temporary parent and display name alive through the request.
+The existing creation-time XSync makes that parent visible to the new connection. XCB reports errors
+without replacing the process-wide Xlib error handler shared with AWT/CEF: an already destroyed browser
+window needs no reparenting; other request and connection failures are logged. The parent-change callback
+retains the browser and runs later on CEF UI only while it is still valid.
+
+The Linux library now links `libxcb`, already a dependency of its X11 runtime. Building needs `libxcb1-dev`
+(also supplied by Ubuntu's `libx11-dev` dependency). The current hb4 patch, published jars and application
+coordinates stay immutable until the hb5 builds and probes have passed the release gate below.
+
 `next/` holds a prepared release while the application still uses the current one: `next/request-context-settings.patch`
 is its complete patch and `next/source-lock.json` its lock (the patch's SHA-256, `artifactVersion`, no artifacts yet).
 Build every target from it — in CI (below) or locally with `--patch native/jcef/next/request-context-settings.patch
