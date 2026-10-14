@@ -30,6 +30,7 @@ class StudioScreenSerializationTest {
         panes = persistentListOf(PaneUi(1, sessionId = "s1", projectId = "p1")),
         focusedPaneId = 1,
         running = persistentSetOf("s1"),
+        sidebar = SidebarUi(expandedProjectSessions = persistentSetOf("p1"), isNoProjectExpanded = false),
         runStartedAt = persistentMapOf("s1" to at),
         transcripts = persistentMapOf(
             "s1" to persistentListOf(
@@ -74,6 +75,12 @@ class StudioScreenSerializationTest {
     }
 
     @Test
+    fun `sidebar snapshots without disclosure fields retain default visibility`() {
+        val decoded = StudioViewJson.decodeFromString(SidebarUi.serializer(), """{"isRecentExpanded":false}""")
+        assertEquals(SidebarUi(isRecentExpanded = false), decoded)
+    }
+
+    @Test
     fun `intents survive a JSON round trip as the sealed hierarchy`() {
         val intents = listOf(
             AiStudioScreenIntent.Retry,
@@ -83,6 +90,8 @@ class StudioScreenSerializationTest {
             AiStudioScreenIntent.CardFocusApplied(1, 3),
             AiStudioScreenIntent.RespondPermission("s1", "r1", "allow"),
             AiStudioScreenIntent.ToggleSearch,
+            AiStudioScreenIntent.ToggleProjectSessions("p1"),
+            AiStudioScreenIntent.ToggleNoProjectSection,
         )
         for (intent in intents) {
             val json = StudioViewJson.encodeToString(AiStudioScreenIntent.serializer(), intent)

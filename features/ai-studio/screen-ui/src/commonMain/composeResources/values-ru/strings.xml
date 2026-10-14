@@ -36,6 +36,8 @@
     <string name="sidebar_expanded">Развёрнуто</string>
     <string name="sidebar_collapsed">Свёрнуто</string>
     <string name="sidebar_project_empty">Сессий пока нет</string>
+    <string name="sidebar_show_more_sessions">Показать ещё (%1$d)</string>
+    <string name="sidebar_show_fewer_sessions">Скрыть</string>
 
     <string name="session_awaiting_permission">Ожидает разрешения</string>
     <string name="session_running">Агент работает</string>

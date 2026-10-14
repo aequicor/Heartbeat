@@ -22,5 +22,7 @@ class StudioViewPredictionTest {
     fun `other intents wait for the app`() {
         val state = AiStudioScreenState()
         assertSame(state, state.predict(AiStudioScreenIntent.Retry))
+        assertSame(state, state.predict(AiStudioScreenIntent.ToggleProjectSessions("project")))
+        assertSame(state, state.predict(AiStudioScreenIntent.ToggleNoProjectSection))
     }
 }

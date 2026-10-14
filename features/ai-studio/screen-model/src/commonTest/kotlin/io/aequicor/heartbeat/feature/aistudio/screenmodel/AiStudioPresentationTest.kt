@@ -23,14 +23,15 @@ class AiStudioPresentationTest {
     )
 
     @Test
-    fun `sidebar shows each active session once with pinned then project then recent priority`() {
+    fun `sidebar shows each active session once in pinned project or projectless sections`() {
         val content = sidebarContent(state)
         assertEquals(listOf("pinned"), content.pinned.map { it.id })
         assertEquals(listOf("new", "old"), content.projects.single().sessions.map { it.id })
-        assertEquals(listOf("outside"), content.recent.map { it.id })
+        assertEquals(listOf("outside"), content.noProject.map { it.id })
+        assertTrue(content.recent.isEmpty())
         assertEquals(listOf("archived"), content.archived.map { it.id })
         assertTrue(content.projects.single().sessions.first().isRunning)
-        val displayed = content.pinned + content.projects.flatMap { it.sessions } + content.recent
+        val displayed = content.pinned + content.projects.flatMap { it.sessions } + content.recent + content.noProject
         assertEquals(listOf("new", "old", "outside", "pinned"), displayed.map { it.id }.sorted())
     }
 
@@ -40,7 +41,8 @@ class AiStudioPresentationTest {
         val content = sidebarContent(collapsed)
         assertEquals(listOf("pinned"), content.pinned.map { it.id })
         assertEquals(false, content.projects.single().isExpanded)
-        assertEquals(listOf("new", "old", "outside"), content.recent.map { it.id })
+        assertEquals(listOf("new", "old"), content.recent.map { it.id })
+        assertEquals(listOf("outside"), content.noProject.map { it.id })
         assertTrue(content.recent.first().isRunning)
 
         val expanded = collapsed.copy(sidebar = collapsed.sidebar.reduce(AiStudioScreenIntent.ToggleProject("p")))
@@ -48,11 +50,12 @@ class AiStudioPresentationTest {
     }
 
     @Test
-    fun `collapsing projects keeps pinned visible and all other sessions available in recent`() {
+    fun `collapsing projects keeps pinned and projectless sessions separate from recent`() {
         val collapsed = state.sidebar.reduce(AiStudioScreenIntent.ToggleProjectsSection)
         val content = sidebarContent(state.copy(sidebar = collapsed))
         assertEquals(listOf("pinned"), content.pinned.map { it.id })
-        assertEquals(listOf("new", "old", "outside"), content.recent.map { it.id })
+        assertEquals(listOf("new", "old"), content.recent.map { it.id })
+        assertEquals(listOf("outside"), content.noProject.map { it.id })
 
         val recentCollapsed = collapsed.reduce(AiStudioScreenIntent.ToggleRecentSection)
         assertEquals(content, sidebarContent(state.copy(sidebar = recentCollapsed)))
@@ -63,7 +66,8 @@ class AiStudioPresentationTest {
         val orphaned = state.copy(projects = persistentListOf())
         val content = sidebarContent(orphaned)
         assertEquals(listOf("pinned"), content.pinned.map { it.id })
-        assertEquals(listOf("new", "old", "outside"), content.recent.map { it.id })
+        assertEquals(listOf("new", "old"), content.recent.map { it.id })
+        assertEquals(listOf("outside"), content.noProject.map { it.id })
         assertTrue(content.projects.isEmpty())
     }
 
@@ -91,6 +95,7 @@ class AiStudioPresentationTest {
         assertTrue(content.pinned.isEmpty())
         assertTrue(content.projects.isEmpty())
         assertTrue(content.recent.isEmpty())
+        assertTrue(content.noProject.isEmpty())
         assertEquals(listOf("archived"), content.archived.map { it.id })
     }
 

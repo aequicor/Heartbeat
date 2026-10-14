@@ -80,26 +80,60 @@ fun SidebarUi.reduce(intent: AiStudioScreenIntent.Sidebar): SidebarUi = when (in
         }.toImmutableSet(),
     )
 
+    is AiStudioScreenIntent.ToggleProjectSessions -> copy(
+        expandedProjectSessions = if (intent.projectId in expandedProjectSessions) {
+            expandedProjectSessions - intent.projectId
+        } else {
+            expandedProjectSessions + intent.projectId
+        }.toImmutableSet(),
+    )
+
     AiStudioScreenIntent.ToggleProjectsSection -> copy(isProjectsExpanded = !isProjectsExpanded)
 
     AiStudioScreenIntent.ToggleRecentSection -> copy(isRecentExpanded = !isRecentExpanded)
+
+    AiStudioScreenIntent.ToggleNoProjectSection -> copy(isNoProjectExpanded = !isNoProjectExpanded)
 
     AiStudioScreenIntent.ToggleSidebar -> copy(isVisible = !isVisible)
 
     is AiStudioScreenIntent.SetDrawerOpen -> copy(isDrawerOpen = intent.isOpen)
 }
 
-/** Unpinned sessions of one project, newest first; collapsed groups retain their hidden contents. */
+/** Unpinned sessions of one project; the five newest roots keep their complete helper subtrees visible. */
 @Serializable
 @SerialName("ProjectGroupUi")
 @Immutable
-data class ProjectGroupUi(val project: ProjectUi, val sessions: ImmutableList<SessionUi>, val isExpanded: Boolean)
+data class ProjectGroupUi(
+    val project: ProjectUi,
+    val sessions: ImmutableList<SessionUi>,
+    val isExpanded: Boolean,
+    val isShowingAllSessions: Boolean = false,
+) {
+    /** The full list remains in [sessions], so hiding older roots never moves them to another section. */
+    val visibleSessions: ImmutableList<SessionUi>
+        get() {
+            if (isShowingAllSessions) return sessions
+            var roots = 0
+            return sessions.takeWhile { session ->
+                if (session.depth == 0) roots += 1
+                roots <= PROJECT_SESSION_LIMIT
+            }.toImmutableList()
+        }
+
+    /** Whether this project needs a show-more or show-less control. */
+    val hasMoreSessions: Boolean get() = hiddenSessionCount > 0
+
+    /** Root chats beyond the compact list; helper descendants do not count against its limit. */
+    val hiddenSessionCount: Int get() = (sessions.count { it.depth == 0 } - PROJECT_SESSION_LIMIT).coerceAtLeast(0)
+}
+
+private const val PROJECT_SESSION_LIMIT = 5
 
 /**
- * Sidebar lists, newest first within each group. Without a query, each active session is rendered once:
- * Root chats select their section: pinned, expanded project, then [recent]. Helper descendants follow their root.
+ * Sidebar lists, newest first within each group. Root chats select their section: pinned, expanded project,
+ * [noProject], then [recent]. Helper descendants follow their root without appearing in another section.
  * Collapsing a project or the projects section returns its unpinned sessions to [recent].
- * The renderer controls visibility of the recent section without changing its contents.
+ * The renderer controls visibility of recent and projectless sections without changing their contents.
  * With a query: [results] only. Archived sessions are listed separately.
  */
 @Serializable
@@ -111,6 +145,7 @@ data class SidebarContent(
     val recent: ImmutableList<SessionUi> = persistentListOf(),
     val results: ImmutableList<SessionUi>? = null,
     val archived: ImmutableList<SessionUi> = persistentListOf(),
+    val noProject: ImmutableList<SessionUi> = persistentListOf(),
 )
 
 /** Groups the sessions of [state] for the sidebar. */
@@ -158,9 +193,12 @@ fun sidebarContent(
                 project = project,
                 sessions = tree.rows(unpinned.filter { it.projectId == project.id }).toImmutableList(),
                 isExpanded = project.id !in sidebar.collapsedProjects,
+                isShowingAllSessions = project.id in sidebar.expandedProjectSessions,
             )
         }.toImmutableList(),
-        recent = tree.rows(unpinned.filter { it.projectId !in expandedProjectIds }).toImmutableList(),
+        recent = tree.rows(unpinned.filter { it.projectId != null && it.projectId !in expandedProjectIds })
+            .toImmutableList(),
         archived = archived,
+        noProject = tree.rows(unpinned.filter { it.projectId == null }).toImmutableList(),
     )
 }

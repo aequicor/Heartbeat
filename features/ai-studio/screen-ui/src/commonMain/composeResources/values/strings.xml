@@ -36,6 +36,8 @@
     <string name="sidebar_expanded">Expanded</string>
     <string name="sidebar_collapsed">Collapsed</string>
     <string name="sidebar_project_empty">No sessions yet</string>
+    <string name="sidebar_show_more_sessions">Show more (%1$d)</string>
+    <string name="sidebar_show_fewer_sessions">Show fewer</string>
 
     <string name="session_awaiting_permission">Waiting for permission</string>
     <string name="session_running">Agent is working</string>

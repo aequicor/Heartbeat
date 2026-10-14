@@ -144,16 +144,25 @@ class RemoteStudioViewTest {
         assertIs<StudioViewFrame.Snapshot>(snapshot)
         mirror.apply(snapshot)
 
-        val reply = harness.view.apply(harness.view.generation, listOf(intent(1, AiStudioScreenIntent.ToggleSearch)))
-        assertEquals(StudioRemoteReply.Applied(1, emptyList()), reply)
+        val reply = harness.view.apply(
+            harness.view.generation,
+            listOf(
+                intent(1, AiStudioScreenIntent.ToggleSearch),
+                intent(2, AiStudioScreenIntent.ToggleProjectSessions("p-heartbeat")),
+                intent(3, AiStudioScreenIntent.ToggleNoProjectSection),
+            ),
+        )
+        assertEquals(StudioRemoteReply.Applied(3, emptyList()), reply)
         advanceTimeBy(200.milliseconds)
         runCurrent()
 
         var state = mirror.apply(StudioViewJson.decodeFromJsonElement(StudioViewFrame.serializer(), frames.receive()))
-        while (state.remoteSeq < 1) {
+        while (state.remoteSeq < 3) {
             state = mirror.apply(StudioViewJson.decodeFromJsonElement(StudioViewFrame.serializer(), frames.receive()))
         }
         assertTrue(state.sidebar.isSearchVisible)
+        assertEquals(setOf("p-heartbeat"), state.sidebar.expandedProjectSessions)
+        assertEquals(false, state.sidebar.isNoProjectExpanded)
     }
 
     @Test
