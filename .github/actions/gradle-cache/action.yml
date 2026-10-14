@@ -1,0 +1,27 @@
+name: Release Gradle cache
+description: Reuse the preceding release stage on the same OS and architecture.
+inputs:
+  stage:
+    description: Unique stage name within this runner OS and architecture.
+    required: true
+  upstream:
+    description: Preferred completed stage in this release run.
+    required: true
+runs:
+  using: composite
+  steps:
+    # Cache entries are immutable: each stage saves its own snapshot after success.
+    # Prefer this run's upstream snapshot over an older snapshot of the consuming job.
+    # Keep the same path list for every stage so the Actions cache version also matches.
+    - uses: actions/cache@v5
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+          !~/.gradle/caches/**/*.lock
+          !~/.gradle/caches/**/gc.properties
+        key: release-gradle-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.stage }}
+        restore-keys: |
+          release-gradle-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.upstream }}
+          release-gradle-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-
+          release-gradle-v1-${{ runner.os }}-${{ runner.arch }}-
