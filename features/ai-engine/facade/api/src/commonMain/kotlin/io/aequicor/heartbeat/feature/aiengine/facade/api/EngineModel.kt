@@ -9,7 +9,7 @@ import kotlin.time.Instant
 
 /** Heartbeat platforms supported by an engine registration. */
 @Serializable
-public enum class EnginePlatform { Android, Ios, DesktopMacOs, DesktopWindows }
+public enum class EnginePlatform { Android, Ios, DesktopMacOs, DesktopWindows, DesktopLinux }
 
 /** Engine family is descriptive metadata, never a substitute for capabilities. */
 @Serializable

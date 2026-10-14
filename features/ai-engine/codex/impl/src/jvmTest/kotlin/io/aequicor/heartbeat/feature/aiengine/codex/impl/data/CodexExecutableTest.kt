@@ -35,8 +35,22 @@ class CodexExecutableTest {
     }
 
     @Test
-    fun `other platforms keep normal process resolution`() {
+    fun `Linux never discovers macOS app bundles`() {
         assertEquals("codex", resolve(osName = "Linux", available = setOf(CHATGPT_CLI)))
+    }
+
+    @Test
+    fun `Linux resolves PATH first and local bin without a shell environment`() {
+        val local = "/users/test/.local/bin/codex"
+        val system = "/usr/local/bin/codex"
+        val custom = "/custom/bin/codex"
+        assertEquals(
+            custom,
+            resolve(osName = "Linux", path = "/custom/bin", available = setOf(custom, local, system)),
+        )
+        assertEquals(local, resolve(osName = "Linux", path = null, available = setOf(local, system)))
+        assertEquals(system, resolve(osName = "Linux", path = null, available = setOf(system)))
+        assertEquals("codex", resolve(osName = "FreeBSD", path = "/custom/bin", available = setOf(custom)))
     }
 
     @Test

@@ -63,8 +63,7 @@ internal class DesktopPiEngine(
 
     override suspend fun checkRequirements(): EngineAvailability = withContext(dispatchers.io) {
         log.d { "Checking Pi installation" }
-        val os = System.getProperty("os.name")
-        if (!os.startsWith("Windows") && !os.startsWith("Mac")) {
+        if (piReleaseTarget() == null) {
             EngineAvailability.UnsupportedPlatform
         } else if (processes.executable()?.let { Files.isRegularFile(it) && Files.isExecutable(it) } == true) {
             EngineAvailability.Available

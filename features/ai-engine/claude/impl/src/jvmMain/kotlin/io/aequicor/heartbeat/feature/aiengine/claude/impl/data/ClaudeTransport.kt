@@ -229,7 +229,7 @@ internal class ProcessClaudeTransport(
         }
     }
 
-    private val configDirectory by lazy { mcpConfigDirectory() }
+    private val configDirectory by lazy { claudeMcpDirectory() }
 
     private fun instructionFile(text: String): Path {
         val file = Files.createTempFile(configDirectory, "heartbeat-instructions-", ".txt")
@@ -265,26 +265,6 @@ internal class ProcessClaudeTransport(
     } catch (e: Exception) {
         log.w(e.redacted()) { "Hosted MCP config could not be prepared" }
         searchUnavailable()
-    }
-
-    /** One owner-only directory; files left by a crashed run are removed once per profile transport. */
-    private fun mcpConfigDirectory(): Path {
-        val directory = Path.of(System.getProperty("java.io.tmpdir"), MCP_CONFIG_DIRECTORY)
-        Files.createDirectories(directory)
-        restrictToOwner(directory, directory = true)
-        val staleBefore = System.currentTimeMillis() - STALE_CONFIG_MILLIS
-        Files.list(directory).use { files ->
-            files.forEach { file ->
-                // Another run may delete the file between listing and stat; each file is handled on its own.
-                try {
-                    if (Files.getLastModifiedTime(file).toMillis() < staleBefore) Files.deleteIfExists(file)
-                } catch (e: IOException) {
-                    log.w(e) { "Stale MCP config could not be removed" }
-                }
-            }
-        }
-        log.d { "MCP config directory ready" }
-        return directory
     }
 
     private suspend fun communicateDuplex(process: Process, session: suspend (ClaudeDuplex) -> Unit): Int =
@@ -534,7 +514,7 @@ internal fun claudeSearchConfig(endpoint: SearchBridgeEndpoint, directory: Path)
 /**
  * Restricts [path] to its owner: POSIX permissions, otherwise the ACL is replaced by one owner-only ALLOW entry
  * (Windows). The DACL is not marked protected, so inheritable entries of the parent may still apply; the
- * per-user temp directory is the remaining boundary. On a file system with neither view only the temp-directory
+ * per-user parent directory is the remaining boundary. On a file system with neither view only the parent-directory
  * permissions protect the file. May throw [UnsupportedOperationException] or [SecurityException].
  */
 internal fun restrictToOwner(path: Path, directory: Boolean) {
@@ -555,7 +535,40 @@ internal fun restrictToOwner(path: Path, directory: Boolean) {
     }
 }
 
-private const val MCP_CONFIG_DIRECTORY = "heartbeat-mcp"
+/**
+ * Owner-only CLI files, with leftovers older than a day removed once per profile transport. Linux's temporary
+ * directory is shared by users, so it uses the user's cache instead; relative XDG paths are ignored.
+ */
+internal fun claudeMcpDirectory(
+    system: String = System.getProperty("os.name").orEmpty(),
+    userHome: Path = Path.of(System.getProperty("user.home")),
+    cacheHome: String? = System.getenv("XDG_CACHE_HOME"),
+    temporaryDirectory: Path = Path.of(System.getProperty("java.io.tmpdir")),
+): Path {
+    val directory = if (system.startsWith("Linux", ignoreCase = true)) {
+        val cache = cacheHome?.let(Path::of)?.takeIf { it.isAbsolute } ?: userHome.resolve(".cache")
+        cache.resolve("heartbeat/mcp")
+    } else {
+        temporaryDirectory.resolve("heartbeat-mcp")
+    }
+    Files.createDirectories(directory)
+    restrictToOwner(directory, directory = true)
+    val staleBefore = System.currentTimeMillis() - STALE_CONFIG_MILLIS
+    Files.list(directory).use { files ->
+        files.forEach { file ->
+            // Another run may delete the file between listing and stat; each file is handled on its own.
+            try {
+                if (Files.getLastModifiedTime(file).toMillis() < staleBefore) Files.deleteIfExists(file)
+            } catch (e: IOException) {
+                mcpLog.w(e) { "Stale MCP config could not be removed" }
+            }
+        }
+    }
+    mcpLog.d { "MCP config directory ready" }
+    return directory
+}
+
+private val mcpLog = Log.tag("ClaudeProcess/McpFiles")
 private const val STALE_CONFIG_MILLIS = 24L * 60 * 60 * 1000
 
 internal fun BufferedReader.readFrame(): String? {

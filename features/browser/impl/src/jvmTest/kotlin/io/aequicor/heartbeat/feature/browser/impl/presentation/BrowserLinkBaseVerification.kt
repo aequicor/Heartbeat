@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.browser.impl.presentation
 
 import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -20,6 +21,7 @@ internal suspend fun verifyChangedLinkBase(engine: DesktopBrowserEngine) {
             buildJsonObject {
                 put("expression", expression)
                 put("returnByValue", true)
+                put("awaitPromise", true)
             },
         ),
     ).jsonObject.getValue("result").jsonObject.getValue("value").jsonPrimitive.content
@@ -29,10 +31,17 @@ internal suspend fun verifyChangedLinkBase(engine: DesktopBrowserEngine) {
             document.head.innerHTML='<base href="https://before.example/">';
             document.body.innerHTML='<a href="action" style="position:fixed;left:20px;top:20px">Open</a>';
             window.linkClicks=0;
-            document.querySelector('a').onclick=e=>{e.preventDefault();window.linkClicks++;};
+            window.linkClickHandled=new Promise(resolve=>{
+                document.querySelector('a').onclick=e=>{
+                    e.preventDefault();
+                    window.linkClicks++;
+                    resolve(window.linkClicks);
+                };
+            });
             return true;
         })()""",
     )
+    engine.awaitNativeFixtureFrame()
     val driver = DesktopBrowserAutomation(engine::devTools)
     suspend fun read() = driver.perform(BrowserRequest("read-link", BrowserOperation.Read, "tab")).data
     suspend fun click(snapshot: JsonObject) = driver.perform(
@@ -61,5 +70,7 @@ internal suspend fun verifyChangedLinkBase(engine: DesktopBrowserEngine) {
         after.getValue("elements").jsonArray.single().jsonObject.getValue("href").jsonPrimitive.content,
     )
     click(after)
+    // Observe the DOM handler before reading its result; a missing click still fails within the bound.
+    withTimeout(10_000) { evaluate("window.linkClickHandled") }
     assertEquals("1", evaluate("window.linkClicks"))
 }

@@ -64,6 +64,9 @@ class LaunchPropertiesTest {
         assertEquals(ReleasePlatform.MacOsX64, releasePlatform(HostPlatform.MacOs, "x86_64"))
         assertEquals(ReleasePlatform.WindowsX64, releasePlatform(HostPlatform.Windows, "amd64"))
         assertEquals(ReleasePlatform.WindowsArm64, releasePlatform(HostPlatform.Windows, "aarch64"))
+        assertEquals(ReleasePlatform.LinuxX64, releasePlatform(HostPlatform.Linux, "amd64"))
+        assertEquals(ReleasePlatform.LinuxX64, releasePlatform(HostPlatform.Linux, "x86_64"))
+        assertNull(releasePlatform(HostPlatform.Linux, "aarch64"))
         assertNull(releasePlatform(HostPlatform.Android, "aarch64"))
     }
 }

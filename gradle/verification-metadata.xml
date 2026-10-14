@@ -11,29 +11,34 @@
       </trusted-artifacts>
    </configuration>
    <components>
-      <component group="io.aequicor.heartbeat.jcef" name="jcef-api" version="152.0.6-hb3">
-         <artifact name="jcef-api-152.0.6-hb3.jar">
-            <sha256 value="9e5c3bf1375638e8197202392d79668541d252f39a2aaeb794e3bfb7685f0f36" origin="Verified four-platform JCEF release"/>
+      <component group="io.aequicor.heartbeat.jcef" name="jcef-api" version="152.0.6-hb4">
+         <artifact name="jcef-api-152.0.6-hb4.jar">
+            <sha256 value="4c5426beea86965e14755c22154a91d9bf9ef6adbb2f5548d75a026fdbdd07fa" origin="Verified five-platform JCEF release"/>
          </artifact>
       </component>
-      <component group="io.aequicor.heartbeat.jcef" name="jcef-natives-macosx-amd64" version="152.0.6-hb3">
-         <artifact name="jcef-natives-macosx-amd64-152.0.6-hb3.jar">
-            <sha256 value="78fa4bd5600cd2e7f93a1cd5f35515e0c72c905233c7eab98a69a228fe673fd0" origin="Verified four-platform JCEF release"/>
+      <component group="io.aequicor.heartbeat.jcef" name="jcef-natives-linux-amd64" version="152.0.6-hb4">
+         <artifact name="jcef-natives-linux-amd64-152.0.6-hb4.jar">
+            <sha256 value="d5cfabafb0e6da644dd2dbf146ff34205ddcadee4c8fb8ed401518521fe55bd9" origin="Verified five-platform JCEF release"/>
          </artifact>
       </component>
-      <component group="io.aequicor.heartbeat.jcef" name="jcef-natives-macosx-arm64" version="152.0.6-hb3">
-         <artifact name="jcef-natives-macosx-arm64-152.0.6-hb3.jar">
-            <sha256 value="8121d3371ab757cb739d815a9143799f3f734e7d0e5a63406e954a29c1d82139" origin="Verified four-platform JCEF release"/>
+      <component group="io.aequicor.heartbeat.jcef" name="jcef-natives-macosx-amd64" version="152.0.6-hb4">
+         <artifact name="jcef-natives-macosx-amd64-152.0.6-hb4.jar">
+            <sha256 value="df17b29c0e4b15fea86368e1fe8c3e03937b9e7d40cad52dc7ecaf60dd9f9f3b" origin="Verified five-platform JCEF release"/>
          </artifact>
       </component>
-      <component group="io.aequicor.heartbeat.jcef" name="jcef-natives-windows-amd64" version="152.0.6-hb3">
-         <artifact name="jcef-natives-windows-amd64-152.0.6-hb3.jar">
-            <sha256 value="e289156357c71cd81a04bf9abcfac2400e1ecbb8b82bd7be61e066c52376d260" origin="Verified four-platform JCEF release"/>
+      <component group="io.aequicor.heartbeat.jcef" name="jcef-natives-macosx-arm64" version="152.0.6-hb4">
+         <artifact name="jcef-natives-macosx-arm64-152.0.6-hb4.jar">
+            <sha256 value="48aeb520a2272e83d5705886841febbe988cbfe30bc5f77c27f30f4ca11ecc8d" origin="Verified five-platform JCEF release"/>
          </artifact>
       </component>
-      <component group="io.aequicor.heartbeat.jcef" name="jcef-natives-windows-arm64" version="152.0.6-hb3">
-         <artifact name="jcef-natives-windows-arm64-152.0.6-hb3.jar">
-            <sha256 value="7ffc9c752df4ed5778e37c4e68a29f2786a9e14eb951620585c31734dee4bb4c" origin="Verified four-platform JCEF release"/>
+      <component group="io.aequicor.heartbeat.jcef" name="jcef-natives-windows-amd64" version="152.0.6-hb4">
+         <artifact name="jcef-natives-windows-amd64-152.0.6-hb4.jar">
+            <sha256 value="5ff24e6650631dcf81e953e08bcc90e5c98b488ab01b34a0d42eccdd4be09791" origin="Verified five-platform JCEF release"/>
+         </artifact>
+      </component>
+      <component group="io.aequicor.heartbeat.jcef" name="jcef-natives-windows-arm64" version="152.0.6-hb4">
+         <artifact name="jcef-natives-windows-arm64-152.0.6-hb4.jar">
+            <sha256 value="0fca5aa78bcf29f331bed54f26d84d343e298f4bc6999e1b9af82c8b8d8324c8" origin="Verified five-platform JCEF release"/>
          </artifact>
       </component>
    </components>

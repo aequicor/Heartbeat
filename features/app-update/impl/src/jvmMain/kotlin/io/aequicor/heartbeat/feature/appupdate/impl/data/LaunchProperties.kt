@@ -74,6 +74,7 @@ internal fun releasePlatform(host: HostPlatform, architecture: String): ReleaseP
         host == HostPlatform.MacOs && isX64 -> ReleasePlatform.MacOsX64
         host == HostPlatform.Windows && isArm -> ReleasePlatform.WindowsArm64
         host == HostPlatform.Windows && isX64 -> ReleasePlatform.WindowsX64
+        host == HostPlatform.Linux && isX64 -> ReleasePlatform.LinuxX64
         else -> null
     }
 }

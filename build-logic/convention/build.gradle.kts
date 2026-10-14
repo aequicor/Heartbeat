@@ -1,3 +1,5 @@
+import org.gradle.api.tasks.testing.Test
+
 plugins {
     `kotlin-dsl`
 }
@@ -22,6 +24,11 @@ dependencies {
 
 tasks.pluginUnderTestMetadata {
     pluginClasspath.from(functionalTestClasspath)
+}
+
+tasks.withType<Test>().configureEach {
+    inputs.property("heartbeat.test.os", providers.systemProperty("os.name"))
+    inputs.property("heartbeat.test.arch", providers.systemProperty("os.arch"))
 }
 
 gradlePlugin {

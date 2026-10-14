@@ -1,4 +1,5 @@
-* text=auto
+# Identical source bytes let Gradle reuse task outputs between release hosts.
+* text=auto eol=lf
 *.sh text eol=lf
 gradlew text eol=lf
 *.bat text eol=crlf

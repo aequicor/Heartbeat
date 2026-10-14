@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.awt.BorderLayout
@@ -36,7 +37,7 @@ internal class DesktopBrowserReferrerProbe(
                 "redirect" to "$base/",
             )[policy] ?: source
             val opened = LinkedBlockingQueue<BrowserCommand.Load>()
-            val states = LinkedBlockingQueue<BrowserViewState>()
+            val states = ReferrerProbeStates()
             val runtimes = mutableListOf<DesktopBrowserEngine>()
             val frames = mutableListOf<JFrame>()
             fun create(
@@ -58,23 +59,11 @@ internal class DesktopBrowserReferrerProbe(
                 return assertNotNull(created)
             }
             val parent = create(BrowserCommand.Load(source), if (fork) ({ opened.offer(it) }) else null)
+            val clickTrace = BrowserReferrerClickTrace(parent, fork, policy, source)
+            var failure: Throwable? = null
             try {
                 awaitTitle(states, "Referrer source")
-                runBlocking {
-                    val driver = DesktopBrowserAutomation(parent::devTools, parent::captureResource)
-                    val read = driver.perform(BrowserRequest("read", BrowserOperation.Read, "tab"))
-                    driver.perform(
-                        BrowserRequest(
-                            "click",
-                            BrowserOperation.Click,
-                            "tab",
-                            arguments = buildJsonObject {
-                                put("snapshotId", read.data.getValue("snapshotId"))
-                                put("element", 0)
-                            },
-                        ),
-                    )
-                }
+                runBlocking { clickLink(parent, clickTrace) }
                 val destination = if (fork) {
                     create(assertNotNull(opened.poll(10, TimeUnit.SECONDS), "No linked navigation: $policy"))
                 } else {
@@ -90,14 +79,47 @@ internal class DesktopBrowserReferrerProbe(
                     destination.execute(BrowserViewCommand.Load("$base/referrer-target"))
                 }
                 assertEquals("<missing>", headers.poll(10, TimeUnit.SECONDS), "Typed navigation reused $policy")
+            } catch (error: Throwable) {
+                failure = error
+                clickTrace.attachFailure(error, states.latest.get())
+                throw error
             } finally {
-                SwingUtilities.invokeAndWait {
-                    runtimes.forEach { it.release() }
-                    frames.forEach { it.dispose() }
-                }
-                runBlocking { runtimes.forEach { it.awaitClosed() } }
+                closeRuntimes(runtimes, frames, failure)
             }
         }
+    }
+
+    /** A lost native callback fails promptly; an earlier navigation assertion remains the primary failure. */
+    private fun closeRuntimes(runtimes: List<DesktopBrowserEngine>, frames: List<JFrame>, failure: Throwable?) {
+        val cleanupFailure = runCatching {
+            SwingUtilities.invokeAndWait {
+                runtimes.forEach { it.release() }
+                frames.forEach { it.dispose() }
+            }
+            runBlocking { withTimeout(30_000) { runtimes.forEach { it.awaitClosed() } } }
+        }.exceptionOrNull()
+        if (cleanupFailure != null) {
+            if (failure == null) throw cleanupFailure
+            failure.addSuppressed(cleanupFailure)
+        }
+    }
+
+    private suspend fun clickLink(engine: DesktopBrowserEngine, trace: BrowserReferrerClickTrace) {
+        engine.awaitNativeFixtureFrame()
+        trace.arm()
+        val driver = DesktopBrowserAutomation(trace::dispatch, engine::captureResource)
+        val read = driver.perform(BrowserRequest("read", BrowserOperation.Read, "tab"))
+        driver.perform(
+            BrowserRequest(
+                "click",
+                BrowserOperation.Click,
+                "tab",
+                arguments = buildJsonObject {
+                    put("snapshotId", read.data.getValue("snapshotId"))
+                    put("element", 0)
+                },
+            ),
+        )
     }
 
     private fun linkedReferrerEndpoints(server: HttpServer, headers: LinkedBlockingQueue<String>) {

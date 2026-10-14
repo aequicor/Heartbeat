@@ -16,13 +16,13 @@ class NativeDialogsTest {
     fun `macos folders come from the finder panel property`() {
         val dialogs = nativeDialogsFor(HostPlatform.MacOs)
         assertIs<AwtNativeDialogs>(dialogs)
-        assertTrue(dialogs.directoriesThroughAwtProperty)
+        assertTrue(dialogs.isDirectorySelectionThroughAwtProperty)
     }
 
     @Test
     fun `hosts without a native folder dialog keep the development fallback`() {
         val dialogs = nativeDialogsFor(HostPlatform.Linux)
         assertIs<AwtNativeDialogs>(dialogs)
-        assertFalse(dialogs.directoriesThroughAwtProperty)
+        assertFalse(dialogs.isDirectorySelectionThroughAwtProperty)
     }
 }

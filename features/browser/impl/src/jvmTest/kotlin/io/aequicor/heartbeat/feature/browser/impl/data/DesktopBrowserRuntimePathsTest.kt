@@ -8,6 +8,18 @@ import kotlin.test.assertEquals
 
 class DesktopBrowserRuntimePathsTest {
     @Test
+    fun `linux helper and data use the extracted bundle without modifying the JDK`() {
+        val directory = File("build/browser-runtime-test/linux-pinned-version")
+        val settings = CefSettings()
+
+        settings.useBundledBrowserPaths(directory, EnumOS.LINUX)
+
+        assertEquals(File(directory, "jcef_helper").absolutePath, settings.browser_subprocess_path)
+        assertEquals(directory.absolutePath, settings.resources_dir_path)
+        assertEquals(File(directory, "locales").absolutePath, settings.locales_dir_path)
+    }
+
+    @Test
     fun `windows helper and resources use the bundled runtime rather than SDK discovery`() {
         val directory = File("build/browser-runtime-test/pinned-version")
         val settings = CefSettings()

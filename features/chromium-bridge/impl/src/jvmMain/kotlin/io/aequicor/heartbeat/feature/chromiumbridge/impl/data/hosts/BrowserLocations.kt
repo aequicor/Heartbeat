@@ -11,7 +11,7 @@ internal sealed interface BrowserLocation {
     /** The browser's user data directory; it exists once the browser ran for this user. */
     val userData: Path
 
-    /** macOS: the host manifest file in the browser's own directory. */
+    /** macOS/Linux: the host manifest file in the browser's own directory. */
     data class Directory(override val browser: ChromiumBrowser, override val userData: Path, val manifest: Path) :
         BrowserLocation
 
@@ -36,6 +36,27 @@ internal object BrowserLocations {
         ChromiumBrowser.Chromium to ("Chromium" to "Chromium/User Data"),
         ChromiumBrowser.Vivaldi to ("Vivaldi" to "Vivaldi/User Data"),
     )
+    private val linuxDirectories = mapOf(
+        ChromiumBrowser.Chrome to "google-chrome",
+        ChromiumBrowser.Edge to "microsoft-edge",
+        ChromiumBrowser.Brave to "BraveSoftware/Brave-Browser",
+        ChromiumBrowser.Chromium to "chromium",
+        ChromiumBrowser.Vivaldi to "vivaldi",
+    )
+
+    /** Linux: native browser packages store manifests below the XDG configuration directory. */
+    fun linux(home: Path, configHome: String?): List<BrowserLocation> {
+        val config = configHome?.takeIf { it.isNotBlank() }?.let(Path::of)?.takeIf { it.isAbsolute }
+            ?: home.resolve(".config")
+        return ChromiumBrowser.entries.map { browser ->
+            val userData = config.resolve(checkNotNull(linuxDirectories[browser]))
+            BrowserLocation.Directory(
+                browser = browser,
+                userData = userData,
+                manifest = userData.resolve("NativeMessagingHosts").resolve("${BridgeProtocol.HOST_NAME}.json"),
+            )
+        }
+    }
 
     /** macOS: `~/Library/Application Support/<browser>/NativeMessagingHosts/<host>.json`. */
     fun macOs(home: Path): List<BrowserLocation> = ChromiumBrowser.entries.map { browser ->

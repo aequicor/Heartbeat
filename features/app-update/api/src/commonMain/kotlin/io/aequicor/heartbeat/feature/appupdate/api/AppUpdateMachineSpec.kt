@@ -13,11 +13,11 @@ import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateIntent.Public
  * | From | Intent | Guard | To | Effect |
  * |---|---|---|---|---|
  * | Inactive, UpToDate, CheckFailed | Check | | Checking | FetchLatest |
- * | Available | Check | | Checking (offered = release) | FetchLatest |
+ * | Available | Check | | Checking (offered = release, failure) | FetchLatest |
  * | Checking | Internal.Unsupported | | Unsupported | |
  * | Checking | Checked | release found | Available (release, failure) | |
  * | Checking | Checked | no newer release | UpToDate | |
- * | Checking | CheckFailed | a release is offered | Available (offered) | |
+ * | Checking | CheckFailed | a release is offered | Available (offered, existing failure) | |
  * | Checking | CheckFailed | nothing offered | CheckFailed | |
  * | Checking | Install | a release is offered | Installing (Downloading) | Install |
  * | Available | Install | | Installing (Downloading) | Install |
@@ -28,8 +28,8 @@ import io.aequicor.heartbeat.feature.appupdate.api.AppUpdateIntent.Public
  * | Unsupported, Checking, UpToDate, CheckFailed, Available | Deactivate | | Inactive | |
  *
  * Install is also accepted after a failed attempt: the button retries it. A check that fails while a release is
- * offered keeps the offer. Installing ignores Check and Deactivate, so a started installation always ends in
- * Restarting or back in Available; Restarting accepts nothing.
+ * offered keeps the offer and its installation restriction. Installing ignores Check and Deactivate, so a started
+ * installation always ends in Restarting or back in Available; Restarting accepts nothing.
  *
  * ```mermaid
  * stateDiagram-v2
@@ -76,7 +76,7 @@ public val AppUpdateMachineSpec: MachineSpec<AppUpdateState, AppUpdateIntent, Ap
                 goto<AppUpdateState.UpToDate> { AppUpdateState.UpToDate }
             }
             on<Internal.CheckFailed>(guard = { state.offered != null }) {
-                goto<AppUpdateState.Available> { AppUpdateState.Available(checkNotNull(state.offered)) }
+                goto<AppUpdateState.Available> { AppUpdateState.Available(checkNotNull(state.offered), state.failure) }
             }
             on<Internal.CheckFailed>(guard = { state.offered == null }) {
                 goto<AppUpdateState.CheckFailed> { AppUpdateState.CheckFailed(intent.failure) }
@@ -103,7 +103,9 @@ public val AppUpdateMachineSpec: MachineSpec<AppUpdateState, AppUpdateIntent, Ap
         }
         state<AppUpdateState.Available> {
             on<Public.Check> {
-                goto<AppUpdateState.Checking> { AppUpdateState.Checking(offered = state.release) }
+                goto<AppUpdateState.Checking> {
+                    AppUpdateState.Checking(offered = state.release, failure = state.failure)
+                }
                 effect { AppUpdateEffect.FetchLatest }
             }
             on<Public.Install> {

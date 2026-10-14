@@ -83,7 +83,7 @@ internal class ChromiumBridgeStartup(
     private val log = Log.tag("ChromiumBridgeStartup")
 
     override fun start() {
-        val isSupported = platform.host == HostPlatform.MacOs || platform.host == HostPlatform.Windows
+        val isSupported = platform.host in setOf(HostPlatform.MacOs, HostPlatform.Windows, HostPlatform.Linux)
         profile.coroutineScope.launch {
             val availability = combine(
                 toggles.observe(ChromiumBridgeEnabled),

@@ -5,17 +5,68 @@ import http.server
 import json
 import os
 from pathlib import Path
+import signal
+import subprocess
 import tempfile
 import sys
 import threading
 import unittest
 import urllib.error
 import urllib.request
+from unittest.mock import MagicMock, patch
 
-from run_probe import handler_type, java_platform_options, launch, remove_owned_profile
+from run_probe import full_suite_passed, handler_type, java_platform_options, launch, native_layout, remove_owned_profile
+
+
+class SuiteReportTests(unittest.TestCase):
+    def report(self):
+        labels = ["close-remove", "anchor-close", "write", "restart", "clear", "restart-after-clear",
+                  "delete", "restart-after-delete", "visibility-close",
+                  "visual-native", "visual-1", "visual-1.5", "visual-2"]
+        return {"passed": True, "nativeExecuted": True,
+                "phases": [{"label": label, "passed": True} for label in labels]}
+
+    def test_full_native_suite_requires_the_new_regression_and_existing_phases(self):
+        report = self.report()
+        self.assertTrue(full_suite_passed(report))
+        for phase in report["phases"]:
+            with self.subTest(missing=phase["label"]):
+                incomplete = dict(report, phases=[item for item in report["phases"] if item is not phase])
+                self.assertFalse(full_suite_passed(incomplete))
+            with self.subTest(failed=phase["label"]):
+                failed = dict(report, phases=[dict(item, passed=False) if item is phase else item
+                                              for item in report["phases"]])
+                self.assertFalse(full_suite_passed(failed))
+
+    def test_focused_compile_and_failed_reports_cannot_claim_full_suite(self):
+        for overrides in ({"focusedPhase": "close-remove"}, {"focusedPhase": "anchor-close"},
+                          {"compileOnly": True}, {"nativeExecuted": False}, {"passed": False}):
+            with self.subTest(overrides=overrides):
+                self.assertFalse(full_suite_passed(dict(self.report(), **overrides)))
+
+    def test_duplicate_phase_cannot_replace_a_required_visual_scale(self):
+        report = self.report()
+        report["phases"][-1] = report["phases"][-2]
+        self.assertFalse(full_suite_passed(report))
 
 
 class LauncherTests(unittest.TestCase):
+    def test_linux_layout_requires_matching_cef_and_uses_bundled_resources(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            for name in ("libjcef.so", "jcef_helper"):
+                (directory / name).write_bytes(b"native fixture")
+            (directory / "jcef_helper").chmod(0o755)
+            (directory / "locales").mkdir()
+            with patch("run_probe.sys.platform", "linux"):
+                with self.assertRaisesRegex(ValueError, "libcef.so"):
+                    native_layout(directory)
+                (directory / "libcef.so").write_bytes(b"matching CEF")
+                result = native_layout(directory)
+            self.assertEqual(directory.resolve() / "jcef_helper", result["helper"])
+            self.assertEqual(directory.resolve(), result["resources"])
+            self.assertEqual([], java_platform_options("linux"))
+
     def test_mac_windowed_peer_packages_are_opened(self):
         options = java_platform_options("darwin")
         for package in ("sun.awt", "sun.lwawt", "sun.lwawt.macosx"):
@@ -28,6 +79,20 @@ class LauncherTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "synthetic native diagnostic"):
                 launch([sys.executable, "-c", "print('synthetic native diagnostic'); exit(7)"],
                        log, 10, os.environ.copy())
+
+    @unittest.skipUnless(hasattr(signal, "SIGQUIT"), "HotSpot thread dumps use a POSIX signal")
+    def test_java_timeout_captures_threads_then_terminates_and_fails(self):
+        process = MagicMock()
+        process.wait.side_effect = [subprocess.TimeoutExpired("java", 240),
+                                    subprocess.TimeoutExpired("java", 3)]
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch("run_probe.sys.platform", "linux"), \
+                    patch("run_probe.subprocess.Popen", return_value=process), \
+                    patch("run_probe.terminate_tree") as terminate:
+                with self.assertRaisesRegex(RuntimeError, "Native phase timed out"):
+                    launch(["/jdk/bin/java", "SessionProbe"], Path(temporary) / "timeout.log", 240, {})
+        process.send_signal.assert_called_once_with(signal.SIGQUIT)
+        terminate.assert_called_once_with(process)
 
 
 class FixtureTests(unittest.TestCase):

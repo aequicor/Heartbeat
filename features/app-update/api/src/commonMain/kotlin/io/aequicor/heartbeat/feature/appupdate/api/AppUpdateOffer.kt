@@ -34,7 +34,7 @@ public sealed interface AppUpdatePhase {
 public fun AppUpdateState.appUpdateOffer(): AppUpdateOffer? = when (this) {
     is AppUpdateState.Available -> release.offer(AppUpdatePhase.Ready, failure)
 
-    is AppUpdateState.Checking -> offered?.offer(AppUpdatePhase.Ready)
+    is AppUpdateState.Checking -> offered?.offer(AppUpdatePhase.Ready, failure)
 
     is AppUpdateState.Installing -> release.offer(
         when (progress) {

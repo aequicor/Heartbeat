@@ -11,6 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -65,12 +66,14 @@ class StudioHarnessPickerUiTest {
 
     private fun renderComposer(width: Float, dark: Boolean) = runSkikoComposeUiTest(size = Size(width, 800f)) {
         var harnessLabel = ""
+        var contextGap = 0f
         setContent {
             harnessLabel = stringResource(Res.string.harness_menu_section)
             HbTheme(
                 darkTheme = dark,
                 dimensions = if (width == 1280f) HbDimensions.Desktop else HbDimensions.Mobile,
             ) {
+                contextGap = with(LocalDensity.current) { HbTheme.spacing.s.roundToPx().toFloat() }
                 Box(
                     Modifier.fillMaxSize().background(HbTheme.surfaces.backdrop).padding(HbTheme.spacing.xl),
                     contentAlignment = Alignment.BottomCenter,
@@ -89,7 +92,10 @@ class StudioHarnessPickerUiTest {
         assertEquals(project.height, harness.height, "Project and harness controls must have equal height")
         assertEquals(project.height, worktree.height, "Project and worktree controls must have equal height")
         assertEquals(project.center.y, harness.center.y, 1f, "Identity controls must share a row")
-        if (width >= 420f) {
+        // Host fonts have different widths; wrapping depends on the rendered controls, not a fixed viewport breakpoint.
+        val contextRight = composer.right - (project.left - composer.left)
+        val fitsInRow = harness.right + contextGap + worktree.width <= contextRight
+        if (fitsInRow) {
             assertEquals(project.center.y, worktree.center.y, 1f, "Worktree must use available space in the row")
             assertTrue(worktree.left >= harness.right, "Context controls must not overlap")
         } else {

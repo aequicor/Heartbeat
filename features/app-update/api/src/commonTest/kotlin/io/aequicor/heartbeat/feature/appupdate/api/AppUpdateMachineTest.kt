@@ -36,7 +36,7 @@ class AppUpdateMachineTest {
         AppUpdateMachineSpec.assertTransition(
             from = AppUpdateState.Available(release, AppUpdateFailure.Corrupted),
             intent = Public.Check,
-            to = AppUpdateState.Checking(offered = release),
+            to = AppUpdateState.Checking(offered = release, failure = AppUpdateFailure.Corrupted),
             effects = listOf(AppUpdateEffect.FetchLatest),
         )
         AppUpdateMachineSpec.assertTransition(
@@ -44,6 +44,32 @@ class AppUpdateMachineTest {
             intent = Public.Install,
             to = downloading,
             effects = listOf(AppUpdateEffect.Install(release)),
+        )
+    }
+
+    @Test
+    fun `a manual release stays manual during and after a failed recheck`() {
+        val available = AppUpdateState.Available(release, AppUpdateFailure.ManualInstallRequired)
+        val checking = AppUpdateState.Checking(release, AppUpdateFailure.ManualInstallRequired)
+        AppUpdateMachineSpec.assertTransition(
+            from = available,
+            intent = Public.Check,
+            to = checking,
+            effects = listOf(AppUpdateEffect.FetchLatest),
+        )
+        AppUpdateMachineSpec.assertTransition(
+            from = checking,
+            intent = Internal.CheckFailed(AppUpdateFailure.Network),
+            to = available,
+        )
+    }
+
+    @Test
+    fun `a system package release is offered for manual installation`() {
+        AppUpdateMachineSpec.assertTransition(
+            from = AppUpdateState.Checking(),
+            intent = Internal.Checked(release, AppUpdateFailure.ManualInstallRequired),
+            to = AppUpdateState.Available(release, AppUpdateFailure.ManualInstallRequired),
         )
     }
 

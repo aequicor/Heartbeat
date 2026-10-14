@@ -2,6 +2,7 @@
 import hashlib
 import io
 import json
+import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import tarfile
 import tempfile
@@ -46,7 +47,8 @@ class RuntimePackagingTest(unittest.TestCase):
 
     def test_lock_pins_the_cef_distribution_of_every_target(self):
         data = runtime.lock()
-        for target, (cef_platform, _) in runtime.TARGETS.items():
+        for target in runtime.release_targets(data):
+            cef_platform, _ = runtime.TARGETS[target]
             name, _ = runtime.cef_distribution(data, target)
             self.assertEqual(f"cef_binary_{data['cefVersion']}_{cef_platform}.tar.bz2", name)
         with self.assertRaisesRegex(ValueError, "does not pin"):
@@ -162,7 +164,7 @@ class RuntimePackagingTest(unittest.TestCase):
             runtime.verify_package(source, "windows-amd64", self.root / "first")
 
     def artifacts(self):
-        for target in runtime.TARGETS:
+        for target in runtime.release_targets(runtime.lock()):
             api = f"jcef-api-{runtime.VERSION}.jar"
             native = f"jcef-natives-{target}-{runtime.VERSION}.jar"
             self.write(f"inputs/{target}/{api}", b"same API")
@@ -176,9 +178,9 @@ class RuntimePackagingTest(unittest.TestCase):
         self.artifacts()
         runtime.collect(self.root / "inputs", self.root / "release")
         lock = json.loads((self.root / "release/source-lock.json").read_text())
-        self.assertEqual(set(runtime.TARGETS), set(lock["nativeArtifacts"]))
+        self.assertEqual(runtime.release_targets(lock), set(lock["nativeArtifacts"]))
         self.assertEqual(runtime.VERSION, lock["artifactVersion"])
-        self.assertEqual(5, len(list((self.root / "release").glob("*.jar"))))
+        self.assertEqual(len(runtime.release_targets(lock)) + 1, len(list((self.root / "release").glob("*.jar"))))
         for artifact in [lock["apiArtifact"], *lock["nativeArtifacts"].values()]:
             self.assertEqual(artifact["sha256"], runtime.sha256(self.root / "release" / artifact["file"]))
 
@@ -191,8 +193,64 @@ class RuntimePackagingTest(unittest.TestCase):
     def test_collection_rejects_missing_architecture(self):
         self.artifacts()
         (self.root / "inputs/windows-arm64/manifest-windows-arm64.json").unlink()
-        with self.assertRaisesRegex(ValueError, "Exactly four"):
+        with self.assertRaisesRegex(ValueError, "every locked platform"):
             runtime.collect(self.root / "inputs", self.root / "release")
+
+    def test_linux_candidate_requires_five_hosts_without_rewriting_published_lock(self):
+        canonical = runtime.SOURCE_LOCK.read_bytes()
+        self.select_linux_candidate()
+        self.assertEqual(set(runtime.TARGETS), runtime.release_targets(runtime.lock()))
+        runtime.cef_distribution(runtime.lock(), "linux-amd64")
+        self.artifacts()
+        missing = self.root / "inputs/linux-amd64/manifest-linux-amd64.json"
+        data = missing.read_bytes()
+        missing.unlink()
+        with self.assertRaisesRegex(ValueError, "every locked platform"):
+            runtime.collect(self.root / "inputs", self.root / "release")
+        missing.write_bytes(data)
+        runtime.collect(self.root / "inputs", self.root / "release")
+        self.assertEqual(6, len(list((self.root / "release").glob("*.jar"))))
+        self.assertEqual(canonical, (runtime.HERE / "source-lock.json").read_bytes())
+
+    def test_linux_archive_preserves_helper_mode_and_all_runtime_payloads(self):
+        self.select_linux_candidate()
+        source = self.root / "source"
+        for name in ["libjcef.so", "libcef.so", "jcef_helper", "icudtl.dat", "resources.pak",
+                     "v8_context_snapshot.bin", "libEGL.so", "libGLESv2.so", "libvulkan.so.1",
+                     "libvk_swiftshader.so", "vk_swiftshader_icd.json", "locales/en-US.pak"]:
+            path = self.write("source/jcef_build/native/Release/" + name)
+            if name == "jcef_helper":
+                path.chmod(0o755)
+        self.write("source/LICENSE.txt")
+        cef = runtime.lock()["cefVersion"]
+        self.write(f"source/third_party/cef/cef_binary_{cef}_linux64/LICENSE.txt")
+        self.write("source/heartbeat-api-classes/org/cef/CefApp.class")
+        runtime.package(source, "linux-amd64", self.root / "linux")
+        with zipfile.ZipFile(self.root / "linux" / f"jcef-natives-linux-amd64-{runtime.VERSION}.jar") as jar:
+            archive = f"jcef-natives-linux-amd64-{runtime.RELEASE_TAG}.tar.gz"
+            with tarfile.open(fileobj=io.BytesIO(jar.read(archive)), mode="r:gz") as tar:
+                self.assertIn("libvulkan.so.1", tar.getnames())
+                self.assertIn("locales/en-US.pak", tar.getnames())
+                if os.name != "nt":
+                    self.assertTrue(tar.getmember("jcef_helper").mode & 0o111)
+                self.assertTrue(all(member.mtime == 0 for member in tar.getmembers()))
+
+    def select_linux_candidate(self):
+        candidate_lock, candidate_patch = self.candidate_inputs()
+        data = json.loads(candidate_lock.read_text())
+        data["cefDistributions"]["linux-amd64"] = {
+            "file": f"cef_binary_{data['cefVersion']}_linux64.tar.bz2", "sha1": "1" * 40,
+        }
+        candidate_lock.write_text(json.dumps(data))
+        runtime.select_inputs(candidate_lock, candidate_patch)
+
+    def test_linux_formatter_uses_the_locked_linux_executable(self):
+        payload = b"linux formatter"
+        expected = hashlib.sha1(payload).hexdigest()
+        self.write("tools/buildtools/linux64/clang-format.sha1", expected.encode())
+        with patch.object(runtime.urllib.request, "urlopen", return_value=io.BytesIO(payload)):
+            runtime.prepare_formatter(self.root, "linux-amd64")
+        self.assertEqual(payload, (self.root / "tools/buildtools/linux64/clang-format").read_bytes())
 
     def test_patch_lock_rejects_unreviewed_patch(self):
         with patch.object(runtime, "sha256", return_value="bad"):

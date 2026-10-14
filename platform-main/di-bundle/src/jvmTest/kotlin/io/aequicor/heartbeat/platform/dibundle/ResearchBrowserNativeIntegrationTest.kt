@@ -75,6 +75,7 @@ class ResearchBrowserNativeIntegrationTest {
     @Test
     fun `human browser unlock persists actual HTML and PDF into the original research resources`() {
         assumeTrue(System.getProperty("heartbeat.browser.recoveryNativeTest") == "true")
+        Log.init(isDebug = true, isTrace = true)
         runBlocking {
             val run = NativeResearchRun()
             val outcome = runCatching { withTimeout(180_000) { run.verify() } }

@@ -1,14 +1,14 @@
 # Проверка нативного жизненного цикла JCEF
 
 Standalone harness для согласованных Java/native-артефактов Heartbeat. Нужны JDK 21,
-Python 3.11+, Windows или macOS с доступной графической сессией и бинарники **архитектуры
+Python 3.11+, Windows, macOS или Linux с доступной графической сессией и бинарники **архитектуры
 самого хоста**. Gradle, сеть для загрузки зависимостей и запущенный Heartbeat не нужны.
 Проверка открывает настоящие JFrame с windowed JCEF; headless-режим не подменяет результат.
 
 ## Запуск после сборки
 
 Из корня репозитория, заменив `<target>` на `windows-amd64`, `windows-arm64`,
-`macosx-amd64` или `macosx-arm64`:
+`macosx-amd64`, `macosx-arm64` или `linux-amd64` (Linux — начиная с hb4):
 
 ```text
 python native/jcef/verification/run_probe.py --jcef-api build/jcef-artifacts/jcef-api-152.0.6-hb3.jar --native-dir build/jcef-source/heartbeat-native-stage --extra-classpath build/jcef-artifacts/jcef-natives-<target>-152.0.6-hb3.jar --extra-classpath build/jcef-source/third_party/jogamp/jar/jogl-all.jar --extra-classpath build/jcef-source/third_party/jogamp/jar/gluegen-rt.jar --output build/jcef-verification
@@ -24,10 +24,16 @@ python native/jcef/verification/run_probe.py --jcef-api build/jcef-artifacts/jce
 - Windows: `jcef.dll`, `libcef.dll`, `chrome_elf.dll`, `jcef_helper.exe`, ресурсы CEF и `locales/`.
 - macOS: `libjcef.dylib`, `Chromium Embedded Framework.framework`, `jcef Helper.app`
   и остальные helper bundles. macOS bridge-классы должны быть в native JAR из команды выше.
+- Linux: `libjcef.so`, `libcef.so`, исполняемый `jcef_helper`, ресурсы CEF и `locales/`.
+  Нужны X11 или XWayland; в CI команду оборачивает `xvfb-run --auto-servernum`. Проба не заменяет
+  ресурсы системного JDK и использует helper/data paths только переданного bundle.
 
 Native loader привязан к переданному каталогу, включая subprocess/framework paths.
 Harness не использует другую JCEF-копию из JBR, не скачивает runtime и не подменяет
-пропатченный API исходным. Компиляция требует:
+пропатченный API исходным. Как и приложение, он передаёт `--no-first-run`: standalone-диалог
+первого запуска Chrome не должен блокировать `CefInitialize` встроенного браузера на новом
+Linux-профиле. Linux использует `--ozone-platform=x11`, включая сессии Wayland через XWayland.
+Компиляция требует:
 
 ```java
 CefRequestContext.createContext(CefRequestContextSettings settings, CefRequestContextHandler handler);
@@ -65,22 +71,44 @@ Python-процесс один раз запускает HTTP server на `127.0
 7. **visibility-close:** 20 новых вкладок закрываются с ещё не обработанными изменениями
    видимости и размеров; проверяются native cleanup и неизменность соседней вкладки.
 
+На Linux смена родительского X11-окна выполняется в очереди CEF, а EDT ждёт ограниченное
+время. Таймаут не должен уничтожать lock и wait condition: `SetParentSync` может начаться
+позже. Патч удерживает общее состояние ожидания до выхода и вызывающего EDT, и CEF callback;
+visibility-close проверяет жизненный цикл при накопленных изменениях видимости и размеров.
+
 Перед нативными фазами запускается Java-only `DevToolsClientProbe`: десять детерминированных
 порядков CDP callbacks проверяют ранний результат до ID, ошибки, закрытие и отмену отдельного
 вызова, независимость соседнего вызова, очистку pending entries и отсутствие JNI-вызова под lock.
 Нужен JDK без встроенного JCEF module (например Microsoft или Temurin), иначе его пакет
 `org.cef.browser` перекроет тестовый класс и проверяемую API-библиотеку.
 
-Первой нативной фазой выполняется **anchor-close**: 20 отдельных persistent contexts проходят
+Первой нативной фазой выполняется **close-remove**: три пары вкладок используют разные
+`CefClient`, shared wrappers одного persistent context и общее окно. Первая вкладка заранее
+отсоединяется от Swing, сохраняя DOM; вторая остаётся активной. Один EDT-вызов отправляет
+`close(true)` обеим вкладкам и сразу выполняет `removeAll()` контейнера активной вкладки,
+без ожидания CEF callbacks между операциями. Обязательны оба `onAfterClose`, очистка обоих
+client registry, отсутствие оставшихся клиентов, flush/release anchor и `CEF TERMINATED`.
+Этот порядок воспроизводит потерю close callback при удалении native peer уже закрывающейся
+вкладки. Для отдельной диагностики доступен `--close-remove-only`.
+
+Следующая фаза **anchor-close**: 20 отдельных persistent contexts проходят
 создание вкладки, запись данных, закрытие вкладки и flush/release контекста при живой контрольной
-вкладке. Для отдельной диагностики этой фазы добавьте `--anchor-close-only`; результат помечается
-`focusedPhase`, он не заменяет полный прогон хранения, снимков и ввода.
+вкладке. Во время закрытия отдельный поток читает идентификатор браузера: уже начатый JNI-вызов
+должен удерживать native wrapper до его освобождения. Поток прекращает чтение по событию закрытия
+и завершается до выхода из проверки. Для отдельной диагностики этой фазы добавьте
+`--anchor-close-only`; результат помечается
+`focusedPhase`, он не заменяет полный прогон хранения, снимков и ввода. Focused-флаги
+взаимоисключающие. `fullSuitePassed: true` появляется только после всех 13 обязательных
+native-фаз, включая прежние проверки хранения и четыре масштаба visual; compile-only,
+focused, сокращённые наборы масштабов и неуспешные прогоны имеют `fullSuitePassed: false`.
 
 После каждой JVM проверяется код выхода; Java завершается успешно только после callback
 `CefAppState.TERMINATED`. Вкладки ждут `onLoadEnd`/`onAfterClose`, сохранение — callback
 освобождения anchor, DOM-операции — CDP futures и browser events. `Thread.sleep`, задержек
 для «успевания записи», повторов удаления до успеха и автоматического пропуска ошибок нет.
 Таймаут этапа по умолчанию 240 секунд завершает всё дерево процесса и проваливает прогон.
+Перед завершением зависшей JVM на POSIX harness отправляет `SIGQUIT`, чтобы сохранить
+Java thread dump в логе этапа; на вывод диагностики отводятся ещё три секунды.
 
 На macOS callback `onBeforeClose` идёт с AppKit thread, а Swing — с EDT. Harness освобождает
 клиент по patched `onAfterClose`, после освобождения wrapper и удаления браузера из registry JCEF.
@@ -112,6 +140,13 @@ Harness проверяет, что Chromium действительно прим�
 реальных дисплеев запустить на нужном дисплее с `--scales native` и сравнить отчёты.
 Проверка JFrame не заменяет проверки Compose/Swing overlay, диалогов, клавиатурного фокуса,
 смены физического монитора и полноэкранного режима в самом Heartbeat.
+
+Локальный Linux candidate с viewport patch `2e77c988f9f9190c949ca16ffadc7783f6b32abe747b36e359beb2ab18b0a19d`
+прошёл прежние 12 фаз harness (до добавления close-remove) и отдельную X11-диагностику:
+физическое окно и DOM остаются `400×600`,
+bounding shape меняется с `(20,180,340,300)` на `(40,200,280,240)`, DOM сохраняется. Настоящий XTest-клик
+передаёт координаты документа, клик внутри JFrame вне clip не попадает в Chromium; закрытие, flush anchor
+и завершение CEF проходят. Это локальное свидетельство для candidate, не результат пятихостового release gate.
 
 ## Производственное Compose-встраивание
 
@@ -170,14 +205,17 @@ Desktop `HbDialog` рисует scrim внутри полноразмерног�
 в `BufferedImage`, не захватывает экран и проверяет безопасное завершение очереди обновлений
 native view; количество вызовов записывается в JSON каждой итерации.
 
-Успех: exit `0`, `summary.json` с `passed: true`, `nativeExecuted: true`, все phase reports
+Успех полного набора: exit `0`, `summary.json` с `passed: true`, `nativeExecuted: true`,
+`fullSuitePassed: true`, все 13 phase reports
 успешны. Любая ошибка API, startup, storage, shutdown, очистки или координат даёт ненулевой exit.
 Отчёт содержит SHA-256 проверенных API/native библиотек. Это provenance результата;
 проверка ожидаемых release checksums остаётся задачей packaging pipeline.
 
-CI для этой проверки нет: harness запускается локально **после упаковки** на каждом из четырёх
-хостов, а `*.json`, `*.log`, `*.png` из output сохраняются для проверки релиза (в том числе при
-провале). Сборка на кросс-компиляторе не заменяет запуск на целевой архитектуре.
+`jcef-runtime.yml` запускает harness **после упаковки** на пяти нативных хостах: Windows и macOS
+двух архитектур и Linux x64. `*.json`, `*.log`, `*.png` из output сохраняются в артефактах
+`jcef-probe-<target>`, в том числе при провале. Полный локальный прогон на целевом хосте также
+поддерживается; кросс-компиляция и эмуляция полезны для диагностики, но не заменяют
+проверку на целевой архитектуре перед публикацией.
 Fatal JVM/native crashes сохраняют полный отчёт `hs_err_pid*.log` в том же output.
 
 Проверки самого harness без JCEF:
@@ -188,6 +226,6 @@ javac --release 21 -encoding UTF-8 -d build/probe-json native/jcef/verification/
 java -cp build/probe-json ProbeJsonTest
 ```
 
-На момент добавления harness прошли эти unit-проверки, синтаксис fixture JavaScript и
-компиляция SessionProbe против пропатченного Java API. Нативный прогон на всех четырёх хостах
-остаётся отдельным обязательным условием публикации; сама компиляция не считается проверкой persistence.
+Unit-проверки, синтаксис fixture JavaScript и компиляция SessionProbe против пропатченного
+Java API не заменяют нативный прогон на всех пяти хостах; сама компиляция не считается
+проверкой persistence.

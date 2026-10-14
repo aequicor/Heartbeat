@@ -43,7 +43,14 @@ internal class AppUpdateEffects(
             val release = releases.newer(installation.repository, installation.version, installation.platform)
             Internal.Checked(
                 release,
-                AppUpdateFailure.PreviousAttemptFailed.takeIf { previous == PreviousAttempt.Failed },
+                when {
+                    release != null && installation.platform.isManualInstallRequired ->
+                        AppUpdateFailure.ManualInstallRequired
+
+                    previous == PreviousAttempt.Failed -> AppUpdateFailure.PreviousAttemptFailed
+
+                    else -> null
+                },
             )
         } catch (e: AppUpdateException) {
             log.w(e) { "update check failed failure=${e.failure}" }

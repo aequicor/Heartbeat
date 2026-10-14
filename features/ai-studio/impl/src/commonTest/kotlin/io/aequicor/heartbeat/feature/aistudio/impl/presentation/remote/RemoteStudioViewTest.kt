@@ -135,7 +135,7 @@ class RemoteStudioViewTest {
     }
 
     @Test
-    fun `a host gets a snapshot, then deltas that acknowledge its intents`() = runTest {
+    fun `a host gets a snapshot then deltas that acknowledge its intents`() = runTest {
         val harness = Harness(this, ready)
         val frames = collect(harness)
         val mirror = StudioViewMirror()
@@ -166,7 +166,7 @@ class RemoteStudioViewTest {
     }
 
     @Test
-    fun `native surfaces, forged markers, repeats and garbage are refused or skipped`() = runTest {
+    fun `native surfaces forged markers repeats and garbage are refused or skipped`() = runTest {
         val harness = Harness(this, ready)
 
         val reply = harness.view.apply(

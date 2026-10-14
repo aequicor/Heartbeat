@@ -6,7 +6,6 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import build_runtime
 import publish_draft
 
 
@@ -15,14 +14,16 @@ class DraftReleaseTest(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
-        version = json.loads((build_runtime.HERE / "source-lock.json").read_text())["artifactVersion"]
+        # Legacy fixture matches the CLI default; the hb99 tests require explicit candidate selection.
+        version = "152.0.6-hb3"
         digest = hashlib.sha256(b"fixture").hexdigest()
         api = {"file": f"jcef-api-{version}.jar", "sha256": digest}
         natives = {target: {"file": f"jcef-natives-{target}-{version}.jar", "sha256": digest}
                    for target in ("windows-amd64", "windows-arm64", "macosx-amd64", "macosx-arm64")}
         for artifact in [api, *natives.values()]:
             (self.directory / artifact["file"]).write_bytes(b"fixture")
-        lock = {"artifactVersion": version, "apiArtifact": api, "nativeArtifacts": natives}
+        lock = {"artifactVersion": version, "apiArtifact": api, "nativeArtifacts": natives,
+                "cefDistributions": {target: {} for target in natives}}
         (self.directory / "source-lock.json").write_text(json.dumps(lock))
         (self.directory / "SHA256SUMS").write_text("fixture sums")
         (self.directory / "runtime-manifest.json").write_text("[]")
@@ -48,6 +49,27 @@ class DraftReleaseTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "does not match"):
                 publish_draft.main()
         gh.assert_not_called()
+
+    def test_linux_release_requires_its_native_jar_and_publishes_six_jars(self):
+        path = self.directory / "source-lock.json"
+        lock = json.loads(path.read_text())
+        lock["cefDistributions"]["linux-amd64"] = {}
+        path.write_text(json.dumps(lock))
+        with patch("sys.argv", self.arguments), patch.object(publish_draft, "gh") as gh:
+            with self.assertRaisesRegex(ValueError, "native targets"):
+                publish_draft.main()
+        gh.assert_not_called()
+        name = f"jcef-natives-linux-amd64-{lock['artifactVersion']}.jar"
+        (self.directory / name).write_bytes(b"fixture")
+        lock["nativeArtifacts"]["linux-amd64"] = {
+            "file": name, "sha256": hashlib.sha256(b"fixture").hexdigest(),
+        }
+        path.write_text(json.dumps(lock))
+        responses = [subprocess.CompletedProcess([], 1, "", "release not found"),
+                     subprocess.CompletedProcess([], 0, "linux release", "")]
+        with patch("sys.argv", self.arguments), patch.object(publish_draft, "gh", side_effect=responses) as gh:
+            publish_draft.main()
+        self.assertEqual(6, sum(str(value).endswith(".jar") for value in gh.call_args.args))
 
     def test_candidate_version_must_be_explicitly_selected(self):
         with patch("sys.argv", self.arguments + ["--version", "152.0.6-hb99"]), \

@@ -12,8 +12,9 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
  * goes to `:chromium-plugin:panel` and the modules it compiles, not to every library.
  *
  * Wasm modules share `commonTest`, which runs on the JVM (`jvmTest`). `check` still compiles the tests for wasm,
- * but the browser test task is off and detached from Node.js, Yarn and npm: Karma would need a local Chrome and
- * the network on every machine and runner.
+ * but the browser test task is off and detached from executable linking, Node.js, Yarn and npm: Karma would
+ * need a local Chrome and the network on every machine and runner. Compose's browser executable check is also
+ * disabled because these libraries only compile tests; they do not run Compose UI in a browser.
  */
 class KmpWasmConventionPlugin : Plugin<Project> {
 
@@ -27,13 +28,21 @@ class KmpWasmConventionPlugin : Plugin<Project> {
         extensions.configure<KotlinMultiplatformExtension> {
             @OptIn(ExperimentalWasmDsl::class)
             wasmJs {
+                val testCompilation = compilations.getByName("test")
                 browser {
                     testTask {
                         enabled = false
-                        setDependsOn(emptyList<Any>())
+                        setDependsOn(listOf(testCompilation.compileTaskProvider))
+                        // This input carries an implicit dependency on the test executable's linkSync task.
+                        // Clearing dependsOn alone still links a runner that will never execute.
+                        inputFileProperty.unset()
                     }
                 }
             }
+        }
+        // Compose adds this task and its browserTest dependency in afterEvaluate, after testTask above.
+        tasks.matching { it.name == "checkComposeUiTestConfigurationForWasmJs" }.configureEach {
+            enabled = false
         }
     }
 }

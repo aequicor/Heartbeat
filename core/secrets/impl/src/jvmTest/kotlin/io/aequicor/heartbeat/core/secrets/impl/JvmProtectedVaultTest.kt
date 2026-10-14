@@ -12,6 +12,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertFails
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class JvmProtectedVaultTest {
     @Test
@@ -19,8 +20,12 @@ class JvmProtectedVaultTest {
         // Native credential-store tests are explicit: ordinary development verification must not show OS prompts.
         assumeTrue(System.getProperty("heartbeat.test.nativeSecrets") == "true")
         val os = System.getProperty("os.name")
-        assumeTrue(os.startsWith("Windows") || os.startsWith("Mac"))
-        val host = if (os.startsWith("Windows")) HostPlatform.Windows else HostPlatform.MacOs
+        assumeTrue(os.startsWith("Windows") || os.startsWith("Mac") || os.startsWith("Linux"))
+        val host = when {
+            os.startsWith("Windows") -> HostPlatform.Windows
+            os.startsWith("Mac") -> HostPlatform.MacOs
+            else -> HostPlatform.Linux
+        }
         val platform = object : PlatformInfo {
             override val host = host
         }
@@ -43,6 +48,11 @@ class JvmProtectedVaultTest {
                 assertFails { vault.transaction(other) { VaultUpdate(null, false, Unit) } }
                 Files.write(file, byteArrayOf(1, 2, 3))
                 assertFails { vault.transaction(namespace) { VaultUpdate(null, false, Unit) } }
+            }
+            if (host == HostPlatform.Linux) {
+                Files.list(root).use { files ->
+                    assertTrue(files.allMatch { it.fileName.toString().endsWith(".lock") && Files.size(it) == 0L })
+                }
             }
             vault.transaction(namespace, erase = true) { VaultUpdate(null, true, Unit) }
             vault.transaction(namespace) {

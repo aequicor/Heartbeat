@@ -1,3 +1,4 @@
+import io.aequicor.heartbeat.buildlogic.PrepareChromiumPanelArtifact
 import io.aequicor.heartbeat.buildlogic.PrepareVerifiedFiles
 
 // Side panel of the Chromium extension (`chromium-plugin/`): the studio chat on Compose Multiplatform for Kotlin/Wasm.
@@ -88,9 +89,18 @@ compose.resources {
 
 // The unpacked extension loads the panel from `chromium-plugin/app/`; the desktop distribution copies it with the
 // rest of the extension folder (`collectAppResources`).
-tasks.register<Sync>("syncChromiumPanel") {
+val syncChromiumPanel = tasks.register<Sync>("syncChromiumPanel") {
     group = "build"
     description = "Builds the side panel and copies it into the extension folder (chromium-plugin/app)."
     from(tasks.named("wasmJsBrowserDistribution"))
     into(layout.settingsDirectory.dir("chromium-plugin/app"))
+}
+
+// Portable release input: the next desktop hosts verify and package these exact files without rebuilding Wasm.
+tasks.register<PrepareChromiumPanelArtifact>("prepareChromiumPanelArtifact") {
+    group = "distribution"
+    description = "Exports the production Chromium panel with a manifest for other release platforms."
+    dependsOn(syncChromiumPanel)
+    panelDirectory.set(layout.settingsDirectory.dir("chromium-plugin/app"))
+    outputDirectory.set(layout.buildDirectory.dir("release-panel"))
 }

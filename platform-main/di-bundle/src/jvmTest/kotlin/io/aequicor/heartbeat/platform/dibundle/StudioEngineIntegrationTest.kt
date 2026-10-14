@@ -87,7 +87,7 @@ class StudioEngineIntegrationTest {
     @BeforeTest
     fun setUp() {
         val os = System.getProperty("os.name")
-        assumeTrue(os.startsWith("Windows") || os.startsWith("Mac"))
+        assumeTrue(os.startsWith("Windows") || os.startsWith("Mac") || os.startsWith("Linux"))
         // Profile services share Main in production; real IO must resume them serially on the test scheduler.
         Dispatchers.setMain(StandardTestDispatcher())
         TestAdapter.runtimes.clear()

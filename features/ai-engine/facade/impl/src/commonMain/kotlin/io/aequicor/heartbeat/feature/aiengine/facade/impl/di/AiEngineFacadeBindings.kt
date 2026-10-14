@@ -131,5 +131,5 @@ private fun HostPlatform.enginePlatform(): EnginePlatform? = when (this) {
     HostPlatform.Ios -> EnginePlatform.Ios
     HostPlatform.MacOs -> EnginePlatform.DesktopMacOs
     HostPlatform.Windows -> EnginePlatform.DesktopWindows
-    HostPlatform.Linux -> null
+    HostPlatform.Linux -> EnginePlatform.DesktopLinux
 }

@@ -149,7 +149,9 @@ internal class DesktopPersistentBrowserProfile(
     }
 
     private suspend fun closeResources() {
+        log.v { "Closing persistent browser surfaces" }
         synchronized(monitor) { closeSurfaces }?.invoke()
+        log.v { "Persistent browser surfaces closed; releasing profile context" }
         contextLock.withLock {
             anchor?.let { context ->
                 suspendCancellableCoroutine { continuation ->
@@ -158,5 +160,6 @@ internal class DesktopPersistentBrowserProfile(
                 anchor = null
             }
         }
+        log.v { "Persistent browser context released" }
     }
 }

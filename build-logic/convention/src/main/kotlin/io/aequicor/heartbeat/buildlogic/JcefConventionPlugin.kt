@@ -35,16 +35,13 @@ class JcefConventionPlugin : Plugin<Project> {
 open class JcefRuntimeExtension(private val project: Project) {
     private val libs = project.extensions.getByType<VersionCatalogsExtension>().named("libs")
     private val osName = project.providers.systemProperty("os.name").get()
-    private val isArm = project.providers.systemProperty("os.arch").get().lowercase() in ARM_ARCHITECTURES
+    private val architecture = project.providers.systemProperty("os.arch").get()
+    private val isArm = architecture.lowercase() in ARM_ARCHITECTURES
     private val isMac = osName.startsWith("Mac")
     private val isWindows = osName.startsWith("Windows")
 
     /** jcefmaven platform of this host (`macosx-arm64`, `windows-amd64`…), `null` where no runtime is published. */
-    val hostPlatform: String? = when {
-        isMac -> if (isArm) "macosx-arm64" else "macosx-amd64"
-        isWindows -> if (isArm) "windows-arm64" else "windows-amd64"
-        else -> null
-    }
+    val hostPlatform: String? = jcefNativePlatform(osName, architecture)
 
     /** The checksum-pinned native jar for [hostPlatform]; the app never downloads a runtime at launch. */
     val nativeBundle: Provider<MinimalExternalModuleDependency>? =
@@ -129,6 +126,7 @@ open class JcefRuntimeExtension(private val project: Project) {
     /**
      * Registers an opt-in native test task: [testClass] of `jvmTest` with [enablingProperty] set to `true`, one
      * fresh JVM per class (a CefApp cannot restart in one process), never up to date and not part of `check`.
+     * All such tasks share exclusive desktop access across projects; compilation can still run in parallel.
      * Requires an interactive desktop session; the regular `jvmTest` skips the class through its assumption.
      */
     fun registerNativeTest(
@@ -139,6 +137,12 @@ open class JcefRuntimeExtension(private val project: Project) {
         configure: Action<Test> = Action { },
     ): TaskProvider<Test> {
         val regular = project.tasks.named<Test>("jvmTest")
+        val desktop = project.gradle.sharedServices.registerIfAbsent(
+            "heartbeatNativeDesktopTests",
+            NativeDesktopTestService::class.java,
+        ) {
+            maxParallelUsages.set(1)
+        }
         return project.tasks.register<Test>(name) {
             group = "verification"
             this.description = description
@@ -147,6 +151,7 @@ open class JcefRuntimeExtension(private val project: Project) {
             filter { includeTestsMatching("*.$testClass") }
             maxParallelForks = 1
             forkEvery = 1
+            usesService(desktop)
             outputs.upToDateWhen { false }
             outputs.doNotCacheIf("Native checks must execute in a fresh worker") { true }
             systemProperty(enablingProperty, "true")
@@ -163,6 +168,22 @@ open class JcefRuntimeExtension(private val project: Project) {
             "macosx-amd64" to "jcef-macos-x64",
             "windows-arm64" to "jcef-windows-arm64",
             "windows-amd64" to "jcef-windows-x64",
+            "linux-amd64" to "jcef-linux-x64",
         )
+    }
+}
+
+/** The Linux release currently ships only x64 JNI; unsupported hosts must not load another architecture. */
+internal fun jcefNativePlatform(osName: String, architecture: String): String? {
+    val arch = when (architecture.lowercase()) {
+        "aarch64", "arm64" -> "arm64"
+        "amd64", "x86_64" -> "amd64"
+        else -> return null
+    }
+    return when {
+        osName.startsWith("Mac") -> "macosx-$arch"
+        osName.startsWith("Windows") -> "windows-$arch"
+        osName.startsWith("Linux") && arch == "amd64" -> "linux-amd64"
+        else -> null
     }
 }

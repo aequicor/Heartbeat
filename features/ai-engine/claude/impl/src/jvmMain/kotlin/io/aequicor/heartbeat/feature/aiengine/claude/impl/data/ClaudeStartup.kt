@@ -117,7 +117,7 @@ internal fun claudeLaunchProblems(settings: LaunchSettings, host: ClaudeHost = C
         }
     }
 
-/** The release platform of this host (`darwin-arm64`, `win32-x64`…), or null where Claude Code publishes none. */
+/** The release platform on macOS, Windows or glibc Linux, or null where Claude Code publishes none. */
 internal fun claudeReleasePlatform(host: ClaudeHost = ClaudeHost()): String? {
     val arch = when (host.osArch.lowercase()) {
         "aarch64", "arm64" -> "arm64"
@@ -127,6 +127,7 @@ internal fun claudeReleasePlatform(host: ClaudeHost = ClaudeHost()): String? {
     return when {
         host.osName.startsWith("Mac") -> "darwin-$arch"
         host.isWindows -> "win32-$arch"
+        host.osName.startsWith("Linux") -> "linux-$arch"
         else -> null
     }
 }
@@ -138,7 +139,7 @@ private fun systemClaude(host: ClaudeHost): Triple<String, InstallSource, Boolea
     val name = if (host.isWindows) "claude.exe" else DEFAULT_COMMAND
     val directories = pathEntries(host) + listOfNotNull(
         File(File(host.userHome, ".local"), "bin").path,
-        "/opt/homebrew/bin".takeIf { !host.isWindows },
+        "/opt/homebrew/bin".takeIf { host.osName.startsWith("Mac") },
         "/usr/local/bin".takeIf { !host.isWindows },
     )
     val found = directories.map { File(it, name) }.firstOrNull(host.isExecutable)
