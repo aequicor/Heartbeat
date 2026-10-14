@@ -52,6 +52,9 @@ interface StudioSurfaces {
     /** Selected apps of this window, keyed by pane; stale or unbound contexts are absent. */
     val apps: Flow<Map<Int, StudioSurfaceApp>> get() = flowOf(emptyMap())
 
+    /** Nonempty context slots of this window, keyed by pane and guarded by the exact place. */
+    val contextPanels: Flow<Map<Int, StudioSurfacePlace>> get() = flowOf(emptyMap())
+
     /** Opens [app] only while the pane still owns its exact place and canonical surface. */
     suspend fun openApp(paneId: Int, app: StudioSurfaceApp) = Unit
 

@@ -30,6 +30,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.appFor
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.attachmentSupport
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.availableHarnesses
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.collapsed
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.contextPanelFor
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.isAttachmentPending
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.selectedNative
 import kotlinx.collections.immutable.ImmutableList
@@ -58,7 +59,7 @@ data class StudioExits(
     val onCloseChatArea: (() -> Unit)? = null,
     val questions: ImmutableMap<String, StudioEmbed> = persistentMapOf(),
     val checklists: ImmutableMap<String, StudioEmbed> = persistentMapOf(),
-    /** Interface slots and the single app host keyed by the shared composer/start/app helpers. */
+    /** Interface slots and the single app host keyed by the shared composer/start/context/app helpers. */
     val slots: ImmutableMap<String, StudioEmbed> = persistentMapOf(),
     /** Cards of interfaces shown in replies, keyed by `studioCardKey(pane, cardId)`. */
     val cards: ImmutableMap<String, StudioEmbed> = persistentMapOf(),
@@ -90,6 +91,7 @@ data class PaneContent(
     val models: ImmutableList<ModelUi> = persistentListOf(),
     val cardFocus: CardFocusRequestUi? = null,
     val app: StudioAppUi? = null,
+    val isContextPanelAvailable: Boolean = false,
     val permissions: ImmutableList<PermissionUi> = persistentListOf(),
     val isStopFailed: Boolean = false,
     val isStoppable: Boolean = true,
@@ -179,6 +181,7 @@ fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         pane = pane,
         cardFocus = cardFocusRequests[pane.id]?.takeIf { it.chatId == pane.sessionId },
         app = appFor(pane),
+        isContextPanelAvailable = contextPanelFor(pane) != null,
         session = session,
         project = project(pane.projectId ?: session?.projectId),
         projects = projects,

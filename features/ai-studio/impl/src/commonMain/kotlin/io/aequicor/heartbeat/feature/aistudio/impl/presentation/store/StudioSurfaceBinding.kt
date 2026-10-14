@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.CardFocusRequestUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioAppUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioContextPanelUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.appFor
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.isAttachmentPending
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.selectedNative
@@ -126,6 +127,13 @@ class StudioSurfaceBinding internal constructor(
                         log.v { "Selected interface apps updated" }
                         latestApps = apps
                         pipeline.updateState { withApps(apps, workspace) }
+                    }
+            }
+            launch {
+                combine(surfaces.contextPanels, latestWorkspace) { panels, workspace -> panels to workspace }
+                    .collect { (panels, workspace) ->
+                        log.v { "Context interface panels updated" }
+                        pipeline.updateState { withContextPanels(panels, workspace) }
                     }
             }
             surfaces.cardFocus.collect { request ->
@@ -265,6 +273,23 @@ internal fun AiStudioScreenState.withApps(
         }.toMap()
     }
     return copy(apps = apps.toImmutableMap())
+}
+
+/** Only presence for the exact displayed pane reserves room; a previous chat cannot narrow the next one. */
+internal fun AiStudioScreenState.withContextPanels(
+    selected: Map<Int, StudioSurfacePlace>,
+    workspace: StudioWorkspace?,
+): AiStudioScreenState {
+    val panels = if (workspace == null) {
+        emptyMap()
+    } else {
+        panes.mapNotNull { pane ->
+            selected[pane.id]?.takeIf { it == surfacePlace(pane.id, workspace) }?.let { place ->
+                pane.id to StudioContextPanelUi(pane.sessionId, pane.projectId, place.harnesses.toImmutableSet())
+            }
+        }.toMap()
+    }
+    return copy(contextPanels = panels.toImmutableMap())
 }
 
 /** Inputs of [StudioSurfaceBinding.onState] by identity: an unchanged state reuses its collections. */

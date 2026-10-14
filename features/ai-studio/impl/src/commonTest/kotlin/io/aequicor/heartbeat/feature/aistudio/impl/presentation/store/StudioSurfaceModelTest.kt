@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.TestClock
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModelTest.Fixture
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.contextPanelFor
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -235,12 +236,33 @@ class StudioSurfaceModelTest {
         assertEquals(listOf(0 to app), surfaces.opened)
     }
 
+    @Test
+    fun `context presence never narrows a different pane selection`() = runTest {
+        val surfaces = FakeStudioSurfaces()
+        val fixture = Fixture(this, ready(StudioPane(0)), surfaces = surfaces)
+        val screen = fixture.subscribe()
+        surfaces.contextPanels.value = mapOf(0 to StudioSurfacePlace())
+        runCurrent()
+        assertTrue(screen.states.value.contextPanelFor(screen.states.value.panes.single()) != null)
+
+        fixture.machine.state.value = ready(StudioPane(0, projectId = "other"))
+        runCurrent()
+        assertEquals(null, screen.states.value.contextPanelFor(screen.states.value.panes.single()))
+        surfaces.contextPanels.value = mapOf(0 to StudioSurfacePlace(workspace = WorkspaceRef("other")))
+        runCurrent()
+        assertTrue(screen.states.value.contextPanelFor(screen.states.value.panes.single()) != null)
+        surfaces.contextPanels.value = emptyMap()
+        runCurrent()
+        assertTrue(screen.states.value.contextPanels.isEmpty())
+    }
+
     private class FakeStudioSurfaces : StudioSurfaces {
         val places = mutableListOf<Map<Int, StudioSurfacePlace>>()
         override val availability: Flow<Boolean> = flowOf(true)
         override val prompts = MutableSharedFlow<StudioSurfacePrompt>(extraBufferCapacity = 4)
         override val cardFocus = MutableSharedFlow<StudioSurfaceCardFocus>(extraBufferCapacity = 4)
         override val apps = MutableStateFlow<Map<Int, StudioSurfaceApp>>(emptyMap())
+        override val contextPanels = MutableStateFlow<Map<Int, StudioSurfacePlace>>(emptyMap())
         val opened = mutableListOf<Pair<Int, StudioSurfaceApp>>()
 
         override suspend fun openApp(paneId: Int, app: StudioSurfaceApp) {

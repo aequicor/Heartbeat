@@ -15,6 +15,8 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -323,7 +325,7 @@ class StudioComposerUiTest {
             }
 
             onNodeWithContentDescription(harnessLabel).performClick()
-            onNodeWithText("Compose UI").performClick()
+            onNode(hasText("Compose UI") and isToggleable()).performClick()
             runOnIdle {
                 assertEquals(
                     listOf<StudioIntent>(StudioIntent.SelectHarness(0, "compose", false)),
@@ -348,7 +350,7 @@ class StudioComposerUiTest {
             }
 
             onNodeWithContentDescription(harnessLabel).performClick()
-            onNodeWithText("Compose UI").performClick()
+            onNode(hasText("Compose UI") and isToggleable()).performClick()
             runOnIdle {
                 assertEquals(
                     listOf<StudioIntent>(StudioIntent.SelectHarness(0, "compose", true)),

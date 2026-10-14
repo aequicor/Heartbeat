@@ -4,11 +4,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
@@ -28,9 +30,11 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessOptionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioAppUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioContextPanelUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioPhase
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioAppKey
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioComposerSlotKey
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioContextSlotKey
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioStartSlotKey
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
@@ -48,7 +52,7 @@ class StudioAppWorkspaceUiTest {
         panes = persistentListOf(PaneUi(0)),
         apps = persistentMapOf(0 to app),
         harnessChoices = HarnessChoicesUi(
-            options = persistentListOf(HarnessOptionUi("gym", "Orbit Gym"), HarnessOptionUi("notes", "Notes")),
+            options = persistentListOf(HarnessOptionUi("gym", "Training program"), HarnessOptionUi("notes", "Notes")),
             panes = persistentMapOf(0 to persistentSetOf("gym")),
         ),
     )
@@ -84,9 +88,11 @@ class StudioAppWorkspaceUiTest {
     }
 
     @Test
-    fun `one native chip opens the app and its compact picker still offers every harness`() = runSkikoComposeUiTest(
-        size = Size(900f, 700f),
-    ) {
+    fun `the selected harness keeps its name beside the launcher unless the composer is narrow`() {
+        for (width in listOf(420f, 900f)) checkHarnessLabel(width)
+    }
+
+    private fun checkHarnessLabel(width: Float) = runSkikoComposeUiTest(size = Size(width, 700f)) {
         val sent = mutableListOf<AiStudioScreenIntent>()
         setContent {
             HbTheme(darkTheme = true, dimensions = HbDimensions.Desktop) {
@@ -94,11 +100,63 @@ class StudioAppWorkspaceUiTest {
             }
         }
         onAllNodesWithText("Orbit Gym").assertCountEquals(1)
+        if (width > 420f) {
+            onNodeWithText("Training program").assertIsDisplayed()
+        } else {
+            onNodeWithText("Training program").assertDoesNotExist()
+        }
+        val picker = onNodeWithTag("harness-picker-0").fetchSemanticsNode().boundsInRoot
+        val launcher = onNodeWithTag("app-chip-0").fetchSemanticsNode().boundsInRoot
+        assertTrue(picker.right <= launcher.left || picker.bottom <= launcher.top)
+        assertTrue(picker.left >= 0 && launcher.right <= width)
         onNodeWithTag("app-chip-0").performClick()
         assertEquals(listOf<AiStudioScreenIntent>(AiStudioScreenIntent.OpenApp(0, app.surfaceId)), sent)
         onNodeWithTag("harness-picker-0").performClick()
         onNodeWithText("Notes").assertIsDisplayed().performClick()
         assertEquals(AiStudioScreenIntent.SelectHarness(0, "notes", true), sent.last())
+    }
+
+    @Test
+    fun `the start app has matching outer gutters without adding space above the document`() {
+        for (width in listOf(420f, 1280f)) {
+            for (dark in listOf(false, true)) checkStartGutters(width, dark)
+        }
+    }
+
+    private fun checkStartGutters(width: Float, dark: Boolean) = runSkikoComposeUiTest(size = Size(width, 900f)) {
+        val state = initial.copy(
+            contextPanels = persistentMapOf(0 to StudioContextPanelUi(null, null, persistentSetOf("gym"))),
+        )
+        var gutter = 0f
+        val compact = width == 420f
+        setContent {
+            HbTheme(darkTheme = dark, dimensions = HbDimensions.Desktop) {
+                val spacing = HbTheme.spacing
+                val density = LocalDensity.current
+                SideEffect { gutter = with(density) { (if (compact) spacing.m else spacing.l).toPx() } }
+                StudioPaneView(
+                    state.paneContent(state.panes.single()),
+                    {},
+                    layout.copy(isCompact = compact),
+                    Modifier.fillMaxSize(),
+                    slots = persistentMapOf(
+                        studioAppKey(0) to App(isStart = { true }),
+                        studioContextSlotKey(0) to Label("context-body"),
+                    ),
+                )
+            }
+        }
+        val pane = onNodeWithTag("pane-0").fetchSemanticsNode().boundsInRoot
+        val body = onNodeWithTag("app-body").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val header = onNodeWithTag("pane-header-0").fetchSemanticsNode().boundsInRoot
+        val boundary = if (compact) {
+            pane.right
+        } else {
+            onNodeWithTag("pane-context-panel-0").fetchSemanticsNode().boundsInRoot.left
+        }
+        assertEquals(gutter, body.left - pane.left, 1f)
+        assertEquals(gutter, boundary - body.right, 1f)
+        assertEquals(header.bottom, body.top, 1f, "The gutter must not reintroduce a header gap")
     }
 
     @Test

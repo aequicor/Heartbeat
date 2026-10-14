@@ -310,4 +310,5 @@
     <string name="harness_picker_one">Harness · %1$s</string>
     <string name="harness_picker_many">Harnesses · %1$d</string>
     <string name="attachments_page">Attach current page</string>
+    <string name="pane_context_panel">Context panel</string>
 </resources>

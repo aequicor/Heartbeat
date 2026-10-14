@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiCallContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiDockId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostId
+import io.aequicor.heartbeat.feature.serviceasui.api.UiSlot
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSurfaceId
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
@@ -80,6 +81,17 @@ internal class MachineStudioSurfaces(private val machines: MachineRegistry, togg
                         app.context.place(),
                     )
                 }
+            }?.toMap().orEmpty()
+        }.distinctUntilChanged()
+
+    override val contextPanels: Flow<Map<Int, StudioSurfacePlace>> = machines.observe(ServiceUiMachineKey)
+        .flatMapLatest { it?.state ?: flowOf(null) }
+        .map { state ->
+            val ready = state as? ServiceUiState.Ready
+            ready?.slots?.mapNotNull { (host, slots) ->
+                val pane = paneOf(host)
+                val context = ready.hosts[host]
+                if (pane != null && context != null && UiSlot.Context in slots) pane to context.place() else null
             }?.toMap().orEmpty()
         }.distinctUntilChanged()
 

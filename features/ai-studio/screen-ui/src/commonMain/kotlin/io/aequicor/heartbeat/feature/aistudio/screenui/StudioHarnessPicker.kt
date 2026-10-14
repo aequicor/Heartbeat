@@ -18,7 +18,6 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_picker_clea
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_picker_done
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_picker_empty
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_picker_many
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_picker_one
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_picker_search
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_picker_selected
 import kotlinx.collections.immutable.toImmutableList
@@ -36,18 +35,10 @@ internal fun StudioHarnessPicker(
     if (content.harnesses.isEmpty()) return
     var isExpanded by remember(content.pane.id, content.pane.sessionId, content.project?.id) { mutableStateOf(false) }
     val selected = content.harnesses.filter { it.isSelected }
-    // The canonical app already has its own launcher; all choices remain in the selection popup.
-    val labelSelected = selected.filter { it.id != content.app?.harnessId }
-    val label = when (labelSelected.size) {
+    val label = when (selected.size) {
         0 -> stringResource(Res.string.harness_menu_section)
-
-        1 -> if (isCompact) {
-            labelSelected.single().title
-        } else {
-            stringResource(Res.string.harness_picker_one, labelSelected.single().title)
-        }
-
-        else -> stringResource(Res.string.harness_picker_many, labelSelected.size)
+        1 -> selected.single().title
+        else -> stringResource(Res.string.harness_picker_many, selected.size)
     }
     val actions = content.harnesses.map {
         HbComposerAction(it.id, it.title, it.description.takeIf(String::isNotBlank), isSelected = it.isSelected)
@@ -76,6 +67,6 @@ internal fun StudioHarnessPicker(
         modifier = modifier.testTag("harness-picker-${content.pane.id}"),
         enabled = !content.pane.isCreating,
         icon = HbIcons.Layers,
-        isLabelVisible = content.app == null,
+        isLabelVisible = content.app == null || !isCompact,
     )
 }

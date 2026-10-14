@@ -30,6 +30,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiLibrary
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwner
 import io.aequicor.heartbeat.feature.serviceasui.api.UiPanel
 import io.aequicor.heartbeat.feature.serviceasui.api.UiPlacement
+import io.aequicor.heartbeat.feature.serviceasui.api.UiSlot
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSurface
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSurfaceContent
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSurfaceId
@@ -226,6 +227,33 @@ class MachineStudioSurfacesTest {
         )
         runCurrent()
         assertTrue(seen.last().isEmpty(), "Old app metadata must disappear before a new host resolves")
+        job.cancel()
+    }
+
+    @Test
+    fun `context presence is scoped to this window and disappears with its binding`() = runTest {
+        val machine = FakeSurfaceMachine()
+        val surfaces = MachineStudioSurfaces(Registry(machine), Toggles(true))
+        val host = UiHostId(surfaces.host(2))
+        val foreign = UiHostId("other.pane-2")
+        val unbound = UiHostId(surfaces.host(3))
+        val context = UiHostContext(UiCallContext(session = native))
+        val seen = mutableListOf<Map<Int, StudioSurfacePlace>>()
+        val job = launch { surfaces.contextPanels.toList(seen) }
+        runCurrent()
+        machine.state.value = ServiceUiState.Ready(
+            hosts = mapOf(host to context, foreign to context),
+            slots = mapOf(
+                host to setOf(UiSlot.Context),
+                foreign to setOf(UiSlot.Context),
+                unbound to setOf(UiSlot.Context),
+            ),
+        )
+        runCurrent()
+        assertEquals(mapOf(2 to StudioSurfacePlace(chat = native)), seen.last())
+        machine.state.value = (machine.state.value as ServiceUiState.Ready).copy(hosts = emptyMap())
+        runCurrent()
+        assertTrue(seen.last().isEmpty())
         job.cancel()
     }
 
