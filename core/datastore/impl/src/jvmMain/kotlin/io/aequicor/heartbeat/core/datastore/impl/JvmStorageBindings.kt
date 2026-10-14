@@ -16,14 +16,22 @@ import java.io.File
 internal class JvmStorageRoot(private val platform: PlatformInfo) : StorageRoot {
     override fun path(): String {
         val home = System.getProperty("user.home").orEmpty()
-        val linuxData = System.getenv("XDG_DATA_HOME") ?: "$home/.local/share"
         val dir = when (platform.host) {
             HostPlatform.Windows -> File(System.getenv("APPDATA") ?: "$home/AppData/Roaming", "Aequicor/Heartbeat")
+
             HostPlatform.MacOs -> File(home, "Library/Application Support/Heartbeat")
-            HostPlatform.Linux, HostPlatform.Android, HostPlatform.Ios -> File(linuxData, "heartbeat")
+
+            HostPlatform.Linux, HostPlatform.Android, HostPlatform.Ios ->
+                linuxStorageDirectory(home, System.getenv("XDG_DATA_HOME"))
         }
         return dir.absolutePath
     }
+}
+
+/** XDG requires an absolute data home; empty or relative values use the user's standard data directory. */
+internal fun linuxStorageDirectory(home: String, xdgDataHome: String?): File {
+    val dataHome = xdgDataHome?.takeIf { it.isNotBlank() && File(it).isAbsolute } ?: "$home/.local/share"
+    return File(dataHome, "heartbeat")
 }
 
 @ContributesBinding(AppScope::class)

@@ -12,6 +12,7 @@
 | Android | AES-256-GCM; ключ профиля в Android Keystore; ciphertext в noBackupFilesDir; AtomicFile |
 | Windows | DPAPI текущего пользователя через JNA; SHA-256 профиля как entropy; атомарная замена файла в LOCALAPPDATA |
 | macOS | Login Keychain через Security.framework/JNA, один generic-password item на профиль, системные ACL |
+| Linux | Secret Service через libsecret/JNA, один бинарный item на профиль в постоянном default keyring |
 | iOS | Security.framework SecItem, один generic-password item на профиль |
 | Desktop development | Локальный отдельный `development-secrets` каталог без Keychain/DPAPI; атомарная запись и POSIX-права 0700/0600 |
 
@@ -19,7 +20,10 @@ Apple: service `io.aequicor.heartbeat.secrets.v1`, account — SHA-256 ProfileId
 На iOS — `AfterFirstUnlockThisDeviceOnly`; на macOS — политика блокировки/ACL Login Keychain. Синхронизация iCloud выключена. Имя service нельзя менять без миграции.
 Desktop/Android используют блокировку отдельного файла, iOS — open(O_EXLOCK) в sandbox; lock-файл не содержит данных.
 Одновременные операции внутри графа сериализует Mutex. На JVM пересечение lock между разными графами
-может завершиться ошибкой блокировки; потери обновлений не допускаются. Production на Linux намеренно отклоняется без plaintext fallback.
+может завершиться ошибкой блокировки; потери обновлений не допускаются. На Linux файлы в
+`$XDG_DATA_HOME/Heartbeat/secrets` (или `~/.local/share/Heartbeat/secrets`) содержат только блокировки, не секреты.
+Нужны `libsecret-1-0`, пользовательская сессия D-Bus и Secret Service provider (например, GNOME Keyring).
+Отсутствующий или заблокированный default keyring даёт явную ошибку; session collection и plaintext fallback не используются.
 
 Обычные desktop `run`/`createDistributable` используют `DevelopmentMainKt` и явно передают `SecretsConfig.isDevelopment`.
 Release-задачи используют `MainKt`, который всегда оставляет системную защиту включённой; переменные окружения и
@@ -34,6 +38,8 @@ Release-задачи используют `MainKt`, который всегда 
 `SecretsConfig` позволяет хосту задать отдельный desktop-каталог и Keychain service для тестов.
 Нативные тесты используют временный каталог/уникальный service и искусственные значения; тест Keychain/DPAPI
 запускается только с JVM property `heartbeat.test.nativeSecrets=true`. Обычные интеграционные тесты используют dev backend.
+Задача `:core:secrets:impl:nativeSecretsTest` явно включает этот property и не кэширует результат; на Linux
+её запускают в отдельной сессии D-Bus с тестовым keyring, чтобы не затрагивать пользовательское хранилище.
 
 Проверки: commonTest (контракт/изоляция/ротация/ссылки/ошибки), JVM нативный round-trip,
 интеграционные тесты Metro и удаления профиля. Нативная компиляция проверяется Gradle; линковка и исполнение iOS, а также прогон macOS Keychain требуют macOS.

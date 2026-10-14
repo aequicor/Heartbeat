@@ -29,7 +29,9 @@ internal class JvmProtectedVault(
 
                     HostPlatform.MacOs -> MacKeychain(config.service).transaction(profile, erase, action)
 
-                    HostPlatform.Linux, HostPlatform.Android, HostPlatform.Ios -> error(
+                    HostPlatform.Linux -> LinuxKeyring(config.service).transaction(profile, erase, action)
+
+                    HostPlatform.Android, HostPlatform.Ios -> error(
                         "Protected storage is unsupported on this platform",
                     )
                 }
@@ -48,7 +50,13 @@ internal class JvmProtectedVault(
 
             HostPlatform.MacOs -> Path.of(home, "Library/Application Support/Heartbeat/secrets")
 
-            HostPlatform.Linux, HostPlatform.Android, HostPlatform.Ios -> error(
+            HostPlatform.Linux -> Path.of(
+                System.getenv("XDG_DATA_HOME")?.takeIf { it.isNotBlank() && Path.of(it).isAbsolute }
+                    ?: "$home/.local/share",
+                "Heartbeat/secrets",
+            )
+
+            HostPlatform.Android, HostPlatform.Ios -> error(
                 "Protected storage is unsupported on this platform",
             )
         }
