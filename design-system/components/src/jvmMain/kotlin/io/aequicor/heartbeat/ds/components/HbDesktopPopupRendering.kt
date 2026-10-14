@@ -20,19 +20,29 @@ import javax.swing.SwingUtilities
 private val log = Log.tag("DS/PopupRendering")
 
 /**
- * Keeps Compose WINDOW-layer popups of [window] visible on macOS Metal.
+ * Keeps Compose WINDOW-layer popups of [window] visible and able to receive keyboard input.
  *
  * A layer window opens at the owner's size and then shrinks to its popup. Skiko 0.150.1
  * `MetalRedrawer.syncBounds` derives the native layer origin from the JRootPane height, which
  * still holds the old size during that resize, so a small popup is drawn below its own window.
  * After the root pane is laid out, this re-runs the Skia layout once so the bounds are synced again.
- * Only showing popups owned by [window] are touched; other renderers need no repair.
+ * Only showing popups owned by [window] are touched; other renderers need no bounds repair.
+ * On Linux, a separate listener asks the window manager to hand native-child focus back to AWT
+ * when an owned popup opens. It preserves Compose's normal content focus and the WM's activation policy.
  */
 @Composable
 public fun HbDesktopPopupRendering(window: Window) {
     DisposableEffect(window) {
         val repair = HbPopupBoundsRepair(window).apply { install() }
-        onDispose { repair.close() }
+        val focus = if (System.getProperty("os.name").orEmpty().startsWith("Linux", ignoreCase = true)) {
+            HbLinuxPopupFocus(window).apply { install() }
+        } else {
+            null
+        }
+        onDispose {
+            focus?.close()
+            repair.close()
+        }
     }
 }
 

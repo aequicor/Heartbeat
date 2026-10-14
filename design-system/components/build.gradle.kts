@@ -30,6 +30,9 @@ kotlin {
             implementation(libs.compose.animation)
             implementation(libs.markdown)
         }
+        jvmMain.dependencies {
+            implementation(libs.jna.platform)
+        }
         jvmTest.dependencies {
             implementation(libs.compose.uiTest)
             implementation(compose.desktop.currentOs)
