@@ -243,6 +243,12 @@ private fun composerRegionAlignment(isCentered: Boolean): Alignment =
 private fun composerHeadingGap(isCentered: Boolean): Dp =
     if (isCentered) HbTheme.spacing.xxl + HbTheme.spacing.l else HbTheme.spacing.none
 
+/** A nested questionnaire owns its scroll and must receive the finite viewport captured above the outer scroll. */
+@Composable
+@ReadOnlyComposable
+private fun questionViewportHeight(maxHeight: Dp): Dp =
+    if (maxHeight == Dp.Infinity) HbTheme.dimensions.toolPayloadMaxHeight else maxHeight
+
 @Composable
 private fun PaneComposerRegion(
     content: PaneContent,
@@ -317,6 +323,7 @@ private fun PaneNotices(
     } else {
         HbTheme.dimensions.toolPayloadMaxHeight
     }
+    val questionMaxHeight = questionViewportHeight(maxHeight)
     val scroll = rememberScrollState()
     // All notices share the space left by the composer; the centered start page already has an outer scroll.
     val scrolling = if (constraints.hasBoundedHeight) Modifier.hbVerticalScroll(scroll) else Modifier
@@ -328,7 +335,9 @@ private fun PaneNotices(
     ) {
         PaneSessionNotices(content, descriptionMaxHeight, onIntent)
         val asked = content.session?.id?.let(questions::get)
-        asked?.Content(Modifier.padding(HbTheme.spacing.m).testTag("pane-questionnaire"))
+        asked?.Content(
+            Modifier.heightIn(max = questionMaxHeight).padding(HbTheme.spacing.m).testTag("pane-questionnaire"),
+        )
         content.permissions.takeIf { asked == null }.orEmpty().forEach { request ->
             key(request.requestId) {
                 HbColumn(

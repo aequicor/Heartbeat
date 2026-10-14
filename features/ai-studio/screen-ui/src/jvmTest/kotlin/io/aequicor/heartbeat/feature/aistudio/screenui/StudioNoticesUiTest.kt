@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.screenui
 
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -9,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SkikoComposeUiTest
@@ -25,6 +27,9 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
+import io.aequicor.heartbeat.ds.components.HbButton
+import io.aequicor.heartbeat.ds.layouts.HbColumn
+import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
@@ -33,6 +38,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.dismissNotice
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.noticeDismissal
+import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.persistentSetOf
@@ -224,6 +230,40 @@ class StudioNoticesUiTest {
             runOnIdle { assertEquals(RECOVERED_DRAFT, state.draft(0)) }
         }
 
+    @Test
+    fun `a scrolling questionnaire keeps answers reachable above the composer`() =
+        runSkikoComposeUiTest(size = Size(420f, 360f)) {
+            val draft = List(8) { "Recovered draft line" }.joinToString("\n")
+            val state = noticeWorkspace().copy(drafts = persistentMapOf("chat" to draft))
+            var answer: Int? = null
+            val questions = object : StudioEmbed {
+                @Composable
+                override fun Content(modifier: Modifier) {
+                    HbColumn(modifier.hbVerticalScroll(rememberScrollState())) {
+                        repeat(12) { index ->
+                            HbButton(
+                                "Answer $index",
+                                { answer = index },
+                                Modifier.testTag("embedded-question-answer-$index"),
+                            )
+                        }
+                    }
+                }
+            }
+            setContent {
+                NoticePane(state, compact = true, questions = persistentMapOf("chat" to questions), onIntent = {})
+            }
+
+            onNodeWithTag("embedded-question-answer-11").performScrollTo().assertIsDisplayed().performClick()
+            onNodeWithTag("dismiss-notice-AttachmentFailed-0").performScrollTo().assertIsDisplayed()
+            val send = onNodeWithContentDescription("Отправить").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            assertTrue(send.width >= 48f && send.height >= 48f, "Send needs a full mobile hit target: $send")
+            runOnIdle {
+                assertEquals(11, answer)
+                assertEquals(draft, state.draft(0))
+            }
+        }
+
     private fun renderNotices(width: Float, dark: Boolean) = runSkikoComposeUiTest(size = Size(width, 800f)) {
         var state by mutableStateOf(noticeWorkspace())
         setContent {
@@ -262,6 +302,7 @@ private fun NoticePane(
     state: AiStudioScreenState,
     compact: Boolean = false,
     dark: Boolean = false,
+    questions: ImmutableMap<String, StudioEmbed> = persistentMapOf(),
     onIntent: (StudioIntent) -> Unit,
 ) {
     HbTheme(darkTheme = dark, dimensions = if (compact) HbDimensions.Mobile else HbDimensions.Desktop) {
@@ -270,6 +311,7 @@ private fun NoticePane(
             onIntent,
             PaneLayout(isSplitAllowed = false, isCloseAllowed = false, isCompact = compact),
             Modifier.fillMaxSize(),
+            questions = questions,
         )
     }
 }
