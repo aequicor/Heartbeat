@@ -73,6 +73,9 @@ internal data class SurfaceState(
 
 /** User input of a surface. */
 internal sealed interface SurfaceIntent : MVIIntent {
+    /** The retained app changed authority; refresh facts and auto-source admission without replacing its DOM. */
+    data object BindingChanged : SurfaceIntent
+
     /** A button or a row was pressed (after its confirmation, if any). */
     data class Press(val press: UiPress) : SurfaceIntent
 
@@ -114,6 +117,9 @@ internal sealed interface SurfaceAction : MVIAction {
 
 /** The host side of a surface: the place it is drawn in. */
 internal interface SurfaceHost {
+    /** Current host authority, checked again before queued work and after suspended owner calls. */
+    fun isActive(): Boolean = true
+
     /** Puts [text] into the host's composer, or sends it when [isSubmitted]; false when no host can take it. */
     suspend fun prompt(text: String, isSubmitted: Boolean): Boolean
 

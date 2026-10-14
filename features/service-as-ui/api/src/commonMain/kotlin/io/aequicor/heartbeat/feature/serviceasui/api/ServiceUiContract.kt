@@ -102,6 +102,8 @@ public sealed interface ServiceUiState : MachineState {
         val purge: Set<UiOwner> = emptySet(),
         val writes: Long = 0,
         val panelSequence: Long = 0,
+        val apps: Map<UiHostId, UiApp> = emptyMap(),
+        val appSequence: Long = 0,
     ) : ServiceUiState
 }
 
@@ -114,6 +116,13 @@ public sealed interface ServiceUiIntent : MachineIntent {
 
         /** Forgets the place [host]; panels it opened close. */
         public data class UnbindHost(val host: UiHostId) : Public
+
+        /** Opens the selected app, including before a chat exists, only in the exact current host context. */
+        public data class OpenApp(val host: UiHostId, val surface: UiSurfaceId, val expectedContext: UiHostContext) :
+            Public
+
+        /** Closes only the opening identified by [sequence], preserving the selected app and its data. */
+        public data class CloseApp(val host: UiHostId, val sequence: Long) : Public
 
         /**
          * Opens [surface] in the dock of [host] with [args], replacing the panel open there. A surface supplies
@@ -151,6 +160,14 @@ public sealed interface ServiceUiIntent : MachineIntent {
 
         /** The provider of [kind] reported its [owners]. */
         public data class OwnersChanged(val kind: String, val owners: UiOwners) : Internal
+
+        /** Publishes an active owner's canonical app after resolving durable receipts in this exact snapshot. */
+        public data class ResolveApp(
+            val host: UiHostId,
+            val target: UiAppTarget?,
+            val expectedContext: UiHostContext,
+            val expectedLibraryRevision: Long,
+        ) : Internal
 
         /** Applies [write] to the library, saving it before the outcome is reported. */
         public data class Edit(val write: UiWrite) : Internal

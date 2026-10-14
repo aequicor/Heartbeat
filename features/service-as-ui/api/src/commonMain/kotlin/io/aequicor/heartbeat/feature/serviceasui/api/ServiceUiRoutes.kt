@@ -13,6 +13,14 @@ import kotlinx.serialization.Serializable
 @SerialName("service_ui_slot")
 public data class ServiceUiSlotRoute(public val host: String, public val slot: UiSlot) : Route
 
+/**
+ * One retained app host outside the lazy transcript. It draws the full app on a new-chat start, or its modal in
+ * an existing chat; compact cards and composer entries only open this host's selected app.
+ */
+@Serializable
+@SerialName("service_ui_app")
+public data class ServiceUiAppRoute(public val host: String) : Route
+
 /** The panel open in the dock [dock] (a `UiDockId` value), or nothing while none is open. */
 @Serializable
 @SerialName("service_ui_panel")
