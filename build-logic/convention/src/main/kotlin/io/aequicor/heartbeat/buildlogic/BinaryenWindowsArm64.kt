@@ -17,16 +17,20 @@ internal fun Project.configureBinaryenWindowsArm64(osName: String, osArch: Strin
     if (!osName.contains("windows", ignoreCase = true) || osArch.lowercase() !in setOf("aarch64", "arm64")) return
 
     plugins.withType<BinaryenPlugin> {
-        val binaryen = extensions.getByType<BinaryenEnvSpec>()
-        if (binaryen.downloadBaseUrl.isPresent) {
-            repositories.ivy {
-                name = "Binaryen Windows ARM64"
-                setUrl(binaryen.downloadBaseUrl)
-                patternLayout {
-                    artifact("version_[revision]/binaryen-version_[revision]-arm64-windows.[ext]")
+        // Build scripts configure the environment after applying the convention plugin.
+        afterEvaluate {
+            val binaryen = extensions.getByType<BinaryenEnvSpec>()
+            if (binaryen.downloadBaseUrl.isPresent) {
+                repositories.ivy {
+                    name = "Binaryen Windows ARM64"
+                    setUrl(binaryen.downloadBaseUrl)
+                    isAllowInsecureProtocol = binaryen.allowInsecureProtocol.get()
+                    patternLayout {
+                        artifact("version_[revision]/binaryen-version_[revision]-arm64-windows.[ext]")
+                    }
+                    metadataSources { artifact() }
+                    content { includeModule("com.github.webassembly", "binaryen") }
                 }
-                metadataSources { artifact() }
-                content { includeModule("com.github.webassembly", "binaryen") }
             }
         }
     }

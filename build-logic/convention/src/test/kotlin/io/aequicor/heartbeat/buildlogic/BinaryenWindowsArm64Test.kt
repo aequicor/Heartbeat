@@ -1,6 +1,8 @@
 package io.aequicor.heartbeat.buildlogic
 
 import org.gradle.api.Project
+import org.gradle.api.artifacts.repositories.IvyArtifactRepository
+import org.gradle.api.internal.project.ProjectInternal
 import org.gradle.kotlin.dsl.getByType
 import org.gradle.testfixtures.ProjectBuilder
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
@@ -29,6 +31,7 @@ class BinaryenWindowsArm64Test {
             archive.parentFile.mkdirs()
             archive.writeText("native Windows ARM64 archive")
             project.extensions.getByType<BinaryenEnvSpec>().downloadBaseUrl.set(repository.toURI().toString())
+            project.evaluateProject()
 
             assertEquals(archive, project.resolve("com.github.webassembly:binaryen:130:aarch64-windows@tar.gz"))
             assertFails { project.resolve("unrelated:binaryen:130:aarch64-windows@tar.gz") }
@@ -45,6 +48,7 @@ class BinaryenWindowsArm64Test {
             val project = project()
             project.configureBinaryenWindowsArm64(os, arch)
             project.plugins.apply(BinaryenPlugin::class.java)
+            project.evaluateProject()
 
             assertTrue(project.repositories.isEmpty(), "$os $arch")
         }
@@ -57,9 +61,39 @@ class BinaryenWindowsArm64Test {
         project.extensions.getByType<BinaryenEnvSpec>().downloadBaseUrl.set(null as String?)
 
         project.configureBinaryenWindowsArm64("Windows 11", "aarch64")
+        project.evaluateProject()
 
         assertTrue(project.repositories.isEmpty())
     }
+
+    @Test
+    fun `download URL can be disabled after the plugin is applied`() {
+        val project = project()
+        project.configureBinaryenWindowsArm64("Windows 11", "aarch64")
+        project.plugins.apply(BinaryenPlugin::class.java)
+        project.extensions.getByType<BinaryenEnvSpec>().downloadBaseUrl.set(null as String?)
+        project.evaluateProject()
+
+        assertTrue(project.repositories.isEmpty())
+    }
+
+    @Test
+    fun `a configured HTTP mirror retains explicit insecure protocol permission`() {
+        val project = project()
+        project.configureBinaryenWindowsArm64("Windows 11", "aarch64")
+        project.plugins.apply(BinaryenPlugin::class.java)
+        project.extensions.getByType<BinaryenEnvSpec>().apply {
+            downloadBaseUrl.set("http://localhost/binaryen")
+            allowInsecureProtocol.set(true)
+        }
+        project.evaluateProject()
+
+        val repository = project.repositories.single() as IvyArtifactRepository
+        assertEquals("http://localhost/binaryen", repository.url.toString())
+        assertTrue(repository.isAllowInsecureProtocol)
+    }
+
+    private fun Project.evaluateProject() = (this as ProjectInternal).evaluate()
 
     private fun project(): Project = ProjectBuilder.builder().withProjectDir(temporaryFolder.newFolder()).build()
 
