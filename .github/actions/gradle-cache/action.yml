@@ -13,13 +13,13 @@ runs:
     # Cache entries are immutable: each stage saves its own snapshot after success.
     # Prefer this run's upstream snapshot over an older snapshot of the consuming job.
     # Keep the same path list for every stage so the Actions cache version also matches.
+    # Archive whole directories after Gradle exits (--no-daemon in every consuming job).
+    # Child exclusions do not filter tar recursion when the parent directory is matched.
     - uses: actions/cache@v5
       with:
         path: |
           ~/.gradle/caches
           ~/.gradle/wrapper
-          !~/.gradle/caches/**/*.lock
-          !~/.gradle/caches/**/gc.properties
         key: release-gradle-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.stage }}
         restore-keys: |
           release-gradle-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.upstream }}
