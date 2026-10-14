@@ -71,9 +71,13 @@ internal class CodexExecution(
             session.route,
             areDetachedToolsEnabled,
         )
+        if (connection.isClosed) return reopen(request)
         return when {
-            !connection.isClosed && isConcreteScope && request.policy == applied -> true
+            isConcreteScope && request.policy == applied &&
+                runtime.threads.instructions(request) == instructions -> true
+
             canRebase(request) -> rebase(request)
+
             else -> reopen(request)
         }
     }

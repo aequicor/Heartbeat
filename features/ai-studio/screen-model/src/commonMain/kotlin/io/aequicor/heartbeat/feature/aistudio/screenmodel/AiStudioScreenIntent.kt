@@ -14,6 +14,11 @@ import pro.respawn.flowmvi.api.MVIIntent
 @Serializable
 @SerialName("AiStudioScreenIntent")
 sealed interface AiStudioScreenIntent : MVIIntent {
+    /** Hides a passive message only while its displayed context is still current. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.DismissNotice")
+    data class DismissNotice(val target: StudioNoticeDismissalUi) : AiStudioScreenIntent
+
     /** Requests a native app update after the UI confirms active agents. */
     @Serializable
     @SerialName("InstallAppUpdate")
@@ -367,6 +372,11 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     @SerialName("AiStudioScreenIntent.ToggleProject")
     data class ToggleProject(val projectId: String) : Sidebar
 
+    /** Switches a project between its five newest root chats and the complete session list. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.ToggleProjectSessions")
+    data class ToggleProjectSessions(val projectId: String) : Sidebar
+
     /** Expands or collapses the projects section. */
     @Serializable
     @SerialName("AiStudioScreenIntent.ToggleProjectsSection")
@@ -376,6 +386,11 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     @Serializable
     @SerialName("AiStudioScreenIntent.ToggleRecentSection")
     data object ToggleRecentSection : Sidebar
+
+    /** Expands or collapses the sessions without a project. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.ToggleNoProjectSection")
+    data object ToggleNoProjectSection : Sidebar
 
     /** Shows or hides the sidebar on wide windows. */
     @Serializable

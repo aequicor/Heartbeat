@@ -90,17 +90,17 @@ internal class SurfaceModel(
     // Only approved live library surfaces get a bridge, including cards; previews never execute owner code.
     private val documents = SurfaceWebDocuments(
         web,
-        callableOwner?.let { BrowserDocumentBridge(PageCalls(it)::call) },
+        callableOwner?.let(::PageCalls),
         session.title,
     )
 
     /** Route ids of the browser documents drawn for `web` nodes, by node key. */
     val webDocuments: StateFlow<ImmutableMap<String, String>> = documents.shown
 
-    val store: Store<SurfaceState, SurfaceIntent, SurfaceAction> =
+    private val pipelineStore: Store<SurfaceState, SurfaceIntent, SurfaceAction> =
         factory.create<SurfaceState, SurfaceIntent, SurfaceAction>(
             name = "Surface",
-            initial = rendered(SurfaceState(values = initialValues())),
+            initial = rendered(SurfaceState(values = initialValues(), inputBinding = executions.value.inputBinding)),
             onError = { copy(notice = NoticeUi.Broken) },
         ) {
             install {
@@ -113,8 +113,19 @@ internal class SurfaceModel(
                 onStop { documents.close() }
             }
             whileSubscribed { Work(this).observeMethods() }
-            reduce { intent -> Work(this).handle(intent) }
+            reduce { intent ->
+                val bound = intent as? SurfaceIntent.Bound ?: return@reduce
+                val execution = executions.value
+                if (bound.binding === execution.inputBinding &&
+                    (execution.isActive || bound.input == SurfaceIntent.BindingChanged)
+                ) {
+                    Work(this, execution).handle(bound.input)
+                }
+            }
         }
+
+    val store: Store<SurfaceState, SurfaceIntent, SurfaceAction> =
+        SurfaceInputStore(pipelineStore) { executions.value.inputBinding }
 
     init {
         store.start(scope)
@@ -141,14 +152,25 @@ internal class SurfaceModel(
     }
 
     /** Calls of a page into the methods of [owner]: JSON object arguments (or none), bounded with the surface's own. */
-    private inner class PageCalls(private val owner: UiOwner) {
-        suspend fun call(method: String, arguments: JsonElement): BrowserBridgeResult {
+    private inner class PageCalls(private val owner: UiOwner) : BrowserDocumentBridge {
+        override fun capture(): BrowserDocumentBridge {
+            val execution = executions.value
+            return BrowserDocumentBridge { method, arguments -> call(execution, method, arguments) }
+        }
+
+        override suspend fun call(method: String, arguments: JsonElement): BrowserBridgeResult =
+            call(executions.value, method, arguments)
+
+        private suspend fun call(
+            execution: SurfaceExecution,
+            method: String,
+            arguments: JsonElement,
+        ): BrowserBridgeResult {
             val objectArguments = when (arguments) {
                 is JsonObject -> arguments
                 JsonNull -> JsonObject(emptyMap())
                 is JsonPrimitive, is JsonArray -> return BrowserBridgeResult.Failure("Arguments must be a JSON object")
             }
-            val execution = executions.value
             val result = execution.execute {
                 pageCalling.withPermit {
                     if (execution.isActive) {
@@ -242,6 +264,7 @@ internal class SurfaceModel(
                             hasStarted = false,
                             loadedRevision = null,
                             loadedMethodsGeneration = null,
+                            inputBinding = execution.inputBinding,
                             values = values.copy(facts = session.facts, busy = emptySet()),
                         ),
                     )
@@ -251,6 +274,8 @@ internal class SurfaceModel(
 
         suspend fun handle(intent: SurfaceIntent) {
             when (intent) {
+                is SurfaceIntent.Bound -> error("Surface input binding must be checked before handling")
+
                 SurfaceIntent.BindingChanged -> pipeline.updateState {
                     if (executions.value.isActive) this else copy(isMethodsAvailable = false)
                 }
@@ -270,15 +295,17 @@ internal class SurfaceModel(
 
                 is SurfaceIntent.Pick -> pipeline.launch { execution.execute { pick(intent) } }
 
-                is SurfaceIntent.Reload -> {
-                    val sources = intent.source?.let { listOf(it) } ?: session.spec.data.keys.toList()
-                    sources.forEach { pipeline.launch { execution.execute { load(it) } } }
-                }
+                is SurfaceIntent.Reload -> reload(intent.source)
 
                 SurfaceIntent.DismissModal -> closeModal()
 
                 SurfaceIntent.DismissNotice -> pipeline.updateState { copy(notice = null) }
             }
+        }
+
+        private fun reload(source: String?) {
+            val sources = source?.let { listOf(it) } ?: session.spec.data.keys.toList()
+            sources.forEach { pipeline.launch { execution.execute { load(it) } } }
         }
 
         private suspend fun press(press: UiPress) {

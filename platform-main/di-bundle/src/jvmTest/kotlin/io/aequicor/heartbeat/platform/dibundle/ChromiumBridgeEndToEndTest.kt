@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.platform.dibundle
 
 import dev.zacsweers.metro.createGraphFactory
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.chromiumbridge.api.BridgeServerStatus
@@ -25,6 +26,7 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
+import java.net.SocketException
 import java.net.StandardProtocolFamily
 import java.net.UnixDomainSocketAddress
 import java.nio.ByteBuffer
@@ -37,6 +39,8 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -48,7 +52,8 @@ class ChromiumBridgeEndToEndTest {
     private val app = createGraphFactory<TestAppGraph.Factory>().create(persisted)
     private val toggles = app as TestToggleAccessors
     private val isSupported = System.getProperty("os.name").orEmpty().let {
-        it.startsWith("Mac", ignoreCase = true) || it.startsWith("Windows", ignoreCase = true)
+        it.startsWith("Mac", ignoreCase = true) || it.startsWith("Windows", ignoreCase = true) ||
+            it.startsWith("Linux", ignoreCase = true)
     }
 
     @BeforeTest
@@ -113,10 +118,11 @@ class ChromiumBridgeEndToEndTest {
 
         connect().use { foreign ->
             foreign.write("""{"kind":"host","origin":"chrome-extension://${"a".repeat(32)}/","hostVersion":1}""")
-            foreign.write(HELLO)
-
-            assertTrue(bounded("closed") { foreign.awaitEnd() })
+            // An unknown host is rejected before hello; a second write could race the peer closing its socket.
+            assertTrue(bounded("foreign host rejected") { foreign.awaitRejection() })
         }
+        val enabled = assertIs<ChromiumBridgeState.Enabled>(machine.state.value)
+        assertTrue(enabled.connections.isEmpty(), "A foreign extension must not be registered")
         app.profileSessions.close()
     }
 
@@ -166,10 +172,14 @@ class ChromiumBridgeEndToEndTest {
             Json.parseToJsonElement(payload.array().decodeToString()).jsonObject
         }
 
-        /** Reads until the app closes the connection. */
-        suspend fun awaitEnd(): Boolean {
-            while (readOrEnd() != null) continue
-            return true
+        /** Only a rejected host may end with a reset; normal protocol reads must still report socket errors. */
+        suspend fun awaitRejection(): Boolean = try {
+            assertNull(readOrEnd(), "A rejected host must not receive a protocol frame")
+            true
+        } catch (error: SocketException) {
+            // Unix sockets can report a peer's rejection as a reset instead of EOF on Linux.
+            Log.tag("ChromiumBridgeEndToEndTest").w(error) { "Foreign host connection ended with a socket error" }
+            true
         }
 
         private suspend fun next(matches: (JsonObject) -> Boolean): JsonObject {

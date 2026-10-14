@@ -96,7 +96,7 @@ class ProviderUsageCatalogTest {
             store,
             sources,
             FakeAuthChecks(context.clock),
-            { false },
+            {},
             context,
         )
         val catalog = ProviderUsageCatalogService(

@@ -4,6 +4,8 @@
 
 # --- Gradle / Kotlin -----------------------------------------
 .gradle/
+.gradle-build-cache/
+.release-panel/
 .kotlin/
 **/build/
 !src/**/build/

@@ -90,6 +90,7 @@ internal fun piReleaseTarget(
     return when {
         osName.startsWith("Mac") -> "darwin-$arch"
         osName.startsWith("Windows") -> "windows-$arch"
+        osName.startsWith("Linux") -> "linux-$arch"
         else -> null
     }
 }

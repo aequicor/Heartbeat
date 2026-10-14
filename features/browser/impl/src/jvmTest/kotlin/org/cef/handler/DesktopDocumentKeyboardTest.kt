@@ -1,6 +1,7 @@
 package org.cef.handler
 
 import io.aequicor.heartbeat.feature.browser.impl.presentation.DesktopDocumentDismissal
+import io.aequicor.heartbeat.feature.browser.impl.presentation.DesktopDocumentFocusExit
 import io.aequicor.heartbeat.feature.browser.impl.presentation.DesktopDocumentKeyboard
 import org.cef.browser.CefBrowser
 import org.cef.handler.CefKeyboardHandler.CefKeyEvent
@@ -18,6 +19,24 @@ class DesktopDocumentKeyboardTest {
         CefBrowser::class.java.classLoader,
         arrayOf(CefBrowser::class.java),
     ) { _, _, _ -> error("Keyboard handling must not access the native browser") } as CefBrowser
+
+    @Test
+    fun `forward and backward native focus boundaries return only to the current overlay`() {
+        val queued = mutableListOf<() -> Unit>()
+        val exit = DesktopDocumentFocusExit(queued::add)
+        val keyboard = DesktopDocumentKeyboard(DesktopDocumentDismissal(), focusExit = exit)
+        var focused = 0
+        exit.update { focused++ }
+        for (next in listOf(true, false)) {
+            keyboard.onTakeFocus(browser, next)
+            queued.removeAt(0).invoke()
+        }
+        assertEquals(2, focused)
+        keyboard.onTakeFocus(browser, true)
+        exit.update(null)
+        queued.removeAt(0).invoke()
+        assertEquals(2, focused)
+    }
 
     @Test
     fun `post-only native Escape in an editable field dismisses the current modal once`() {

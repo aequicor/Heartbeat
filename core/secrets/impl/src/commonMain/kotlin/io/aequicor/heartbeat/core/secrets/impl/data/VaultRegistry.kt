@@ -77,6 +77,10 @@ internal class VaultRegistry(private val backend: ProtectedVault, private val di
         log.e(error.withoutSensitiveData()) { "vault operation failed" }
         throw error.withoutSensitiveData()
     }
-    private fun Exception.withoutSensitiveData(): IllegalStateException =
-        IllegalStateException("Protected storage operation failed (${this::class.simpleName ?: "unknown"})")
+    private fun Exception.withoutSensitiveData(): IllegalStateException = when (this) {
+        // This final type only accepts an enum of fixed messages; it cannot contain native diagnostics or secrets.
+        is ProtectedVaultAccessException -> this
+
+        else -> IllegalStateException("Protected storage operation failed (${this::class.simpleName ?: "unknown"})")
+    }
 }

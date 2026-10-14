@@ -70,7 +70,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationChange
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionOrigin
@@ -414,7 +413,7 @@ class AiEngineFacadeIntegrationTest {
     @BeforeTest
     fun setUp() {
         val os = System.getProperty("os.name")
-        assumeTrue(os.startsWith("Windows") || os.startsWith("Mac"))
+        assumeTrue(os.startsWith("Windows") || os.startsWith("Mac") || os.startsWith("Linux"))
         Dispatchers.setMain(UnconfinedTestDispatcher())
         TestAdapter.runtimes.clear()
     }
@@ -513,9 +512,6 @@ class AiEngineFacadeIntegrationTest {
             turn,
             (session.state.first { it is ActiveSessionState.Running } as ActiveSessionState.Running).turn.id,
         )
-        val busy = assertFailsWith<EngineException> { facade.bindings.disconnect(binding.id) }
-        assertEquals(EngineFailure.Session(SessionFailureReason.Busy), busy.failure)
-
         TestAdapter.runtimes.single().natives.single().finish()
         val ready = session.state.first { it is ActiveSessionState.Ready && it.lastTurn != null }
         assertEquals(TurnOutcome.Completed, (ready as ActiveSessionState.Ready).lastTurn?.outcome)

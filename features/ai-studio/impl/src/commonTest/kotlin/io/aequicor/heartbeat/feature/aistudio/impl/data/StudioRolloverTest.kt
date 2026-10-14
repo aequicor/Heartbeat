@@ -100,6 +100,19 @@ class StudioRolloverTest {
     }
 
     @Test
+    fun `retained old and new context share one bounded budget`() {
+        val previous = "Earlier instruction" + "a".repeat(ROLLOVER_SEED_CHARS)
+        val next = "b".repeat(ROLLOVER_SEED_CHARS) + "Latest result"
+        val chat = StudioChatRecord("chat", "Chat", Instant.DISTANT_PAST, pendingSeed = previous)
+        val retained = chat.retainedRolloverSeed(listOf(message("new", 0)), next)
+
+        assertEquals(ROLLOVER_SEED_CHARS, retained.length)
+        assertTrue(retained.startsWith("Earlier instruction"))
+        assertTrue(retained.endsWith("Latest result"))
+        assertEquals(previous, chat.retainedRolloverSeed(listOf(message("old", 0)).frozen(1), next))
+    }
+
+    @Test
     fun `helpers organisms and chats without a session never roll over`() {
         val chat = StudioChatRecord("chat", "Chat", Instant.DISTANT_PAST, ref = Ref)
 

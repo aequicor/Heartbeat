@@ -19,9 +19,11 @@ internal data class NativeBrowserWindowOwnership(
         isVisibleOnMonitor && isOwnProcess && (isTestRoot || (areOwnedDialogsAllowed && isTestRootOwner))
 }
 
-/** AWT focus events may precede actual Windows foreground activation, so they cannot authorize Robot. */
+/** Native Chromium children can own X11 focus without AWT focus; Windows activation is also asynchronous. */
 internal fun ComposeWindow.nativeForegroundOwnership(): NativeBrowserWindowOwnership? {
-    if (!Platform.isWindows() || !isDisplayable) return null
+    if (!isDisplayable) return null
+    if (Platform.isLinux()) return linuxNativeForegroundOwnership()
+    if (!Platform.isWindows()) return null
     val users = User32.INSTANCE
     val foreground = users.GetForegroundWindow() ?: return NativeBrowserWindowOwnership(false, false, false, false)
     val process = IntByReference()

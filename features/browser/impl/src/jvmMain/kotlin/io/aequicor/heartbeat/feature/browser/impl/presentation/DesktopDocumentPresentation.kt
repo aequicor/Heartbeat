@@ -8,4 +8,5 @@ internal class DesktopDocumentPresentation {
     val theme = MutableStateFlow<DesktopDocumentTheme?>(null)
     val measurements = DesktopDocumentMeasurements { action -> SwingUtilities.invokeLater(action) }
     val dismissal = DesktopDocumentDismissal()
+    val focusExit = DesktopDocumentFocusExit()
 }

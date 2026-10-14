@@ -19,6 +19,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.aequicor.heartbeat.ds.components.LocalHbDialogDismissRequest
 import io.aequicor.heartbeat.ds.components.LocalHbDialogOverlayInsets
+import io.aequicor.heartbeat.ds.components.LocalHbDocumentFocusExit
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserDocumentSurface
 import io.aequicor.heartbeat.feature.browser.impl.presentation.DesktopDocumentAttachment
@@ -77,6 +78,7 @@ private fun RetainedDocumentPanel(
         overlay,
     )
     val dismiss = LocalHbDialogDismissRequest.current
+    val focusExit = LocalHbDocumentFocusExit.current
     val cornerRadius = if (overlay.width.value > 0 && overlay.height.value > 0) {
         HbTheme.shapes.large.topStart.toPx(Size.Zero, density).toDouble() / density.density
     } else {
@@ -87,6 +89,7 @@ private fun RetainedDocumentPanel(
     SideEffect {
         panel.updateTheme(theme)
         attachment.updateDismissRequest(dismiss)
+        attachment.updateFocusExitRequest(focusExit)
         attachment.updateCornerRadius(cornerRadius, cornerColor)
     }
     val intrinsicHeight = size?.logicalHeight(viewportWidth / density.density)?.dp ?: dimensions.webDocumentHeight

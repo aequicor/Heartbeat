@@ -42,7 +42,7 @@ class StudioScheduledWaitTest {
         val sleeping = working.copy(running = persistentSetOf())
         assertEquals(SessionWaitUi.Sleeping, sleeping.session("chat")?.scheduledWait)
         assertFalse(sleeping.session("chat")!!.isRunning)
-        assertEquals(SessionWaitUi.Sleeping, sidebarContent(sleeping).recent.first { it.id == "chat" }.scheduledWait)
+        assertEquals(SessionWaitUi.Sleeping, sidebarContent(sleeping).noProject.first { it.id == "chat" }.scheduledWait)
         assertNull(sleeping.session("other")?.scheduledWait)
         assertNull(sleeping.session("detached")?.scheduledWait)
     }

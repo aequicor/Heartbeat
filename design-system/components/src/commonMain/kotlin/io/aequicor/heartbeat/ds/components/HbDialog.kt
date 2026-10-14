@@ -64,6 +64,8 @@ public enum class HbDialogWidth {
  * non-focusable top-end overlay above native content. [title] remains accessible; [LocalHbDialogOverlayInsets]
  * tells the content which corner its own controls must avoid. The outer window margin and shape remain unchanged.
  * [isInWindow] uses the current desktop window's modal host when available, independently of content padding.
+ * [overlayCloseLabel] replaces edge-to-edge [headerActions] with one Close action, using [onDismissRequest] and
+ * a keyboard/accessibility target in the dialog's focus tree. Ordinary dialog headers are unchanged.
  */
 @Composable
 public fun HbDialog(
@@ -79,6 +81,7 @@ public fun HbDialog(
     isInWindow: Boolean = isContentEdgeToEdge,
     headerActions: @Composable RowScope.() -> Unit = {},
     actions: (@Composable RowScope.() -> Unit)? = null,
+    overlayCloseLabel: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val dismiss by rememberUpdatedState(onDismissRequest)
@@ -116,9 +119,20 @@ public fun HbDialog(
             propagateMinConstraints = true,
         ) {
             if (isContentEdgeToEdge) {
-                EdgeToEdgeDialogBody(isContentScrollable, isContentFill, headerActions, actions, content)
+                EdgeToEdgeDialogBody(
+                    isContentScrollable,
+                    isContentFill,
+                    headerActions,
+                    actions,
+                    overlayCloseLabel,
+                    dismiss,
+                    content,
+                )
             } else {
-                CompositionLocalProvider(LocalHbDialogOverlayInsets provides HbDialogOverlayInsets()) {
+                CompositionLocalProvider(
+                    LocalHbDialogOverlayInsets provides HbDialogOverlayInsets(),
+                    LocalHbDocumentFocusExit provides null,
+                ) {
                     HbColumn(Modifier.padding(inset), gap = gap) {
                         DialogHeader(title, isTitleVisible, headerActions)
                         DialogBody(isContentScrollable, isContentFill, content = content)
@@ -150,18 +164,30 @@ private fun Modifier.dismissDialogOnEscape(onDismissRequest: () -> Unit): Modifi
 }
 
 /** Documents share the same measured control overlay on the start surface and in the modal. */
+// Exactly one overlay branch mounts the body; a single action adds a host focus target above native content.
+@Suppress("ContentSlotReused")
 @Composable
 private fun EdgeToEdgeDialogBody(
     isScrollable: Boolean,
     isFill: Boolean,
     headerActions: @Composable RowScope.() -> Unit,
     actions: (@Composable RowScope.() -> Unit)?,
+    closeLabel: String?,
+    onDismissRequest: () -> Unit,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    HbDocumentOverlay(headerActions, Modifier.clip(HbTheme.shapes.large)) { body ->
-        HbColumn(body.fillMaxWidth(), gap = 0.dp) {
+    val body: @Composable (Modifier) -> Unit = { size ->
+        HbColumn(size.fillMaxWidth(), gap = 0.dp) {
             DialogBody(isScrollable, isFill, gap = 0.dp, content = content)
             DialogActions(actions)
+        }
+    }
+    val modifier = Modifier.clip(HbTheme.shapes.large)
+    if (closeLabel != null) {
+        HbDocumentOverlay(HbIcons.Close, closeLabel, onDismissRequest, modifier, body)
+    } else {
+        CompositionLocalProvider(LocalHbDocumentFocusExit provides null) {
+            HbDocumentOverlay(headerActions, modifier, body)
         }
     }
 }

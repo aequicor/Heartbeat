@@ -40,6 +40,19 @@ class ClaudeManagerTest {
     }
 
     @Test
+    fun `Linux installs the native binary for each supported architecture`() = runTest {
+        for (platform in listOf("linux-x64", "linux-arm64")) {
+            val plan = claudeInstallPlan(Feeds(manifest(platform = platform)), platform)
+
+            assertEquals("$base/2.1.285/$platform/claude", plan.url)
+            assertEquals(ArchiveKind.Raw("claude"), plan.archive)
+            assertEquals("claude", plan.executable)
+            assertEquals(digest, plan.sha256)
+            assertEquals(223_821_616, plan.size)
+        }
+    }
+
+    @Test
     fun `an unexpected channel or manifest is never installed`() = runTest {
         assertInstall(InstallFailureReason.NoRelease) {
             claudeInstallPlan(Feeds(manifest(), stable = "<html>unavailable</html>"), "darwin-arm64")
@@ -66,8 +79,7 @@ class ClaudeManagerTest {
         checksum: String = digest,
     ) = """
         {"version":"$version","buildDate":"2026-09-29T01:45:50Z","platforms":{
-          "$platform":{"binary":"$binary","checksum":"$checksum","size":223821616},
-          "linux-x64":{"binary":"claude","checksum":"$digest","size":1}
+          "$platform":{"binary":"$binary","checksum":"$checksum","size":223821616}
         }}
         """.trimIndent()
 

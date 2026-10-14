@@ -55,7 +55,7 @@ public object ClaudeBindings {
                 ClaudeEngine.Id,
                 "Claude Code",
                 EngineFamily.Vendor,
-                setOf(EnginePlatform.DesktopMacOs, EnginePlatform.DesktopWindows),
+                setOf(EnginePlatform.DesktopMacOs, EnginePlatform.DesktopWindows, EnginePlatform.DesktopLinux),
                 ClaudeEngine.Enabled,
                 requirements = listOf(
                     EngineRequirement("claude-cli", "Native Claude Code CLI with stream-json support"),

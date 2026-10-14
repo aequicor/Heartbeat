@@ -6,7 +6,7 @@ notofonts = "4e15001b9fb484cc871d7b2ad930cd2226edf260" # commit of notofonts/not
 koog = "1.3.0"
 jna = "5.19.1"
 jcefmaven = "152.0.6"
-jcef-native = "152.0.6-hb3"
+jcef-native = "152.0.6-hb4"
 jcef-jogl = "v2.4.0"
 agp = "9.1.1"
 android-compileSdk = "37"
@@ -61,6 +61,7 @@ jcef-macos-x64 = { module = "io.aequicor.heartbeat.jcef:jcef-natives-macosx-amd6
 jcef-macos-arm64 = { module = "io.aequicor.heartbeat.jcef:jcef-natives-macosx-arm64", version.ref = "jcef-native" }
 jcef-windows-x64 = { module = "io.aequicor.heartbeat.jcef:jcef-natives-windows-amd64", version.ref = "jcef-native" }
 jcef-windows-arm64 = { module = "io.aequicor.heartbeat.jcef:jcef-natives-windows-arm64", version.ref = "jcef-native" }
+jcef-linux-x64 = { module = "io.aequicor.heartbeat.jcef:jcef-natives-linux-amd64", version.ref = "jcef-native" }
 jcef-jogl = { module = "me.friwi:jogl-all", version.ref = "jcef-jogl" }
 jcef-gluegen = { module = "me.friwi:gluegen-rt", version.ref = "jcef-jogl" }
 jbr-api = { module = "org.jetbrains.runtime:jbr-api", version.ref = "jbr-api" }

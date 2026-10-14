@@ -21,7 +21,6 @@ import io.aequicor.heartbeat.ds.components.HbDialogWidth
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbInWindowDialogHost
-import io.aequicor.heartbeat.ds.components.hbSurface
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.browser.api.BrowserBridgeResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocument
@@ -121,9 +120,10 @@ private class NativeDocumentWorkspaceProbe(
     private var isDocumentOnly by mutableStateOf(false)
     private var isShown by mutableStateOf(true)
     private var overlayInset = 0.0
+    private var closeLabel = ""
     private val window = nativeEdt {
         ComposeWindow().apply {
-            title = "Heartbeat retained Compose workspace verification (no input)"
+            title = "Heartbeat retained Compose workspace verification (browser-local keys)"
             setSize(900, 720)
             val host = this
             setContent { HbInWindowDialogHost(host) { Content(host) } }
@@ -158,6 +158,26 @@ private class NativeDocumentWorkspaceProbe(
         handle.update(command(6, "check"))
         assertRetained(seeded, awaitReport(6))
         verifyIntrinsicHeight(seeded)
+        verifyCloseFocus()
+    }
+
+    private fun verifyCloseFocus() {
+        for (isBackward in listOf(false, true)) {
+            nativeEdt { isExpanded = true }
+            awaitClippedDocument()
+            awaitOverlayPosition(window)
+            val panel = nativeEdt { assertNotNull(panels.retain(surface.document)) }
+            verifyNativeDocumentCloseFocus(window, panel, nativeEdt { closeLabel }, isBackward)
+            val dismissed = CompletableFuture<Unit>()
+            val timer = nativeEdt {
+                Timer(20) { if (!isExpanded) dismissed.complete(Unit) }.apply { start() }
+            }
+            try {
+                dismissed.awaitNative()
+            } finally {
+                nativeEdt(timer::stop)
+            }
+        }
     }
 
     private fun verifyIntrinsicHeight(seeded: JsonObject) {
@@ -208,7 +228,11 @@ private class NativeDocumentWorkspaceProbe(
         }
         HbTheme(darkTheme = true) {
             val inset = with(LocalDensity.current) { HbTheme.spacing.s.toPx() }
-            SideEffect { overlayInset = inset / host.graphicsConfiguration.defaultTransform.scaleX }
+            val close = stringResource(Res.string.browser_close_tab, "Retained app")
+            SideEffect {
+                overlayInset = inset / host.graphicsConfiguration.defaultTransform.scaleX
+                closeLabel = close
+            }
             BrowserDocumentView(siblingSurface, Modifier.size(120.dp, 80.dp))
             if (isExpanded) {
                 HbDialog(
@@ -218,16 +242,12 @@ private class NativeDocumentWorkspaceProbe(
                     isContentScrollable = false,
                     isContentEdgeToEdge = isDocumentOnly,
                     isTitleVisible = !isDocumentOnly,
+                    overlayCloseLabel = close.takeIf { isDocumentOnly },
                     headerActions = {
                         HbIconButton(
                             HbIcons.Close,
-                            stringResource(Res.string.browser_close_tab, "Retained app"),
+                            close,
                             { isExpanded = false },
-                            modifier = if (isDocumentOnly) {
-                                Modifier.hbSurface(HbTheme.colors.surface, HbTheme.shapes.small)
-                            } else {
-                                Modifier
-                            },
                         )
                     },
                 ) {

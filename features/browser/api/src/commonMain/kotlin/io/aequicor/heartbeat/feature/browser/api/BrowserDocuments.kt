@@ -52,11 +52,19 @@ public enum class BrowserDocumentSizing {
 }
 
 /**
- * Calls of a page into its opener. Runs off the main thread with page input already bounded by
+ * Calls of a page into its opener. [call] runs off the main thread with page input already bounded by
  * [BrowserDocumentLimits]; cancelled when the page reloads or the document closes. Hiding a retained view does not
  * reload the page or cancel its work.
  */
 public fun interface BrowserDocumentBridge {
+    /**
+     * Captures authority when the native transport accepts a request, before parsing or dispatcher queues.
+     * Called synchronously on the transport thread: implementations must not block, perform IO or call owner
+     * methods. A retained opener returns a callback bound to its current context; revocation must reject that
+     * callback's later calls rather than grant a replacement context. Ordinary bridges keep this callback.
+     */
+    public fun capture(): BrowserDocumentBridge = this
+
     /** Handles `heartbeat.call([method], [arguments])` of the page. */
     public suspend fun call(method: String, arguments: JsonElement): BrowserBridgeResult
 }

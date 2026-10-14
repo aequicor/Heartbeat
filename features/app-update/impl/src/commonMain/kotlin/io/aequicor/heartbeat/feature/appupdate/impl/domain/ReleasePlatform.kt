@@ -11,7 +11,12 @@ internal enum class ReleasePlatform(val os: String, val arch: String, private va
     MacOsX64("macos", "x64", ".dmg"),
     WindowsX64("windows", "x64", "-setup.exe"),
     WindowsArm64("windows", "arm64", "-setup.exe"),
+    LinuxX64("linux", "x64", ".deb"),
     ;
+
+    /** System packages are installed by the user through their package manager. */
+    val isManualInstallRequired: Boolean
+        get() = this == LinuxX64
 
     /** The release asset of [version] for this platform, e.g. `Heartbeat-1.4.0-macos-arm64.dmg`. */
     fun assetName(version: AppVersion): String = "Heartbeat-$version-$os-$arch$suffix"

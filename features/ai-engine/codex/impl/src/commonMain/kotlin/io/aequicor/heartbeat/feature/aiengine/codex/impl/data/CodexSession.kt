@@ -61,6 +61,7 @@ internal class CodexSession(
     private val rpc get() = connection.rpc
     val contextUsage = CodexContextUsage()
     val contextRevision = CodexContextRevision()
+    val declaredHostedTools: Set<String> = opening?.hosted?.declared.orEmpty()
     private val log = Log.tag("CodexSession")
     val history = CodexHistory()
     private val journal = CodexTurnJournal(runtime.host.turns, ref, route, runtime.turnOwnership)

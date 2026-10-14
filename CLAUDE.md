@@ -1,7 +1,7 @@
 # Aequicor Heartbeat
 
 ИИ-студия на Kotlin Multiplatform + Compose Multiplatform.
-Платформы: **Android, iOS, Desktop macOS, Desktop Windows** (desktop = один JVM-таргет, выбор UI-кита — в рантайме по ОС).
+Платформы: **Android, iOS, Desktop macOS, Desktop Windows, Desktop Linux x64 (Ubuntu 24.04, X11/XWayland)** (desktop = один JVM-таргет, выбор UI-кита — в рантайме по ОС).
 Корневой пакет: `io.aequicor.heartbeat`. Язык общения в коде/доках: русский в документации, английский в идентификаторах и KDoc.
 
 ## Где правила
@@ -59,7 +59,7 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > `core:network:{api,impl}`,
 > `core:datastore:{api,impl}` (key-value + БД фич, владельцы app/profile, удержание записей),
 > `core:secrets:{api,impl}` (защищённые секреты профиля и ссылки), `core:feature-toggles:{api,impl}` (тоглы, реестр, локальные переопределения, `FeatureToggleControl`).
-> `features:ai-engine:{facade:{api,impl},pi:{api,impl}}` — встроенный движок Pi по умолчанию только на Desktop (Windows/macOS)
+> `features:ai-engine:{facade:{api,impl},pi:{api,impl}}` — встроенный движок Pi по умолчанию только на Desktop (Windows/macOS/Linux)
 > (бинарь Pi вшит в дистрибутив задачей `preparePiRuntime`, данные — в каталоге приложения `<app data>/engines/pi`; установщик Windows на Inno Setup (`packageInnoSetup`) при удалении чистит данные пользователя — `platform-main/desktop/packaging/windows/heartbeat.iss`)
 > за тоглами `ai.engines` + `ai.pi` (вендорные ключи и OpenAI-/Anthropic-совместимые серверы — `CompatibleProtocol` в `facade:api`).
 > Обычные ходы студии задают доверенный `AgentToolDecisionMode.AutomaticSafety`: нативные вызовы и поддержанные
@@ -121,9 +121,9 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > ошибочные источники исследования и добавляет ручное продолжение загрузки через Chromium после проверки доступа.
 > Оба дополнительных флага выключены по умолчанию. Desktop-вкладки разделяют постоянное Chromium-хранилище своего
 > профиля (cookies, localStorage, IndexedDB); очистка браузера и удаление профиля закрывают вкладки до удаления данных.
-> Согласованные Java/JNI-артефакты для Windows/macOS x64/ARM64 собираются из `native/jcef` локально или в CI (`jcef-runtime.yml`, вручную), проверяются
+> Согласованные Java/JNI-артефакты для Windows/macOS x64/ARM64 и Linux x64 собираются из `native/jcef` локально или в CI (`jcef-runtime.yml`, вручную), проверяются
 > по SHA-256 (`heartbeat.jcef`, `verifyBrowserRuntime`) и входят в дистрибутив. Нативные проверки с настоящим Chromium —
-> только локальные задачи `browserNativeTest`, `browserComposeNativeTest`, `browserRecoveryNativeTest`, `browserDocumentNativeTest` (нужен рабочий стол, вне `check`). Восстановление источника запускается только кнопкой пользователя и использует тот же профиль.
+> отдельные задачи `browserNativeTest`, `browserComposeNativeTest`, `browserViewportNativeTest`, `browserRecoveryNativeTest`, `browserDocumentNativeTest` (нужен рабочий стол, вне `check`); Linux-этап релиза запускает `browserNativeTest` и `browserDocumentNativeTest` под Xvfb. Восстановление источника запускается только кнопкой пользователя и использует тот же профиль.
 > Сервисный контракт `BrowserDocuments` (`browser:api`) — изолированные локальные HTML-документы, которые фича рисует
 > в своём экране маршрутом `BrowserDocumentRoute`: только Desktop, свой origin и контекст в памяти на документ, CSP без
 > соединений, все прочие запросы и навигация отклоняются, WebRTC без UDP и без конструкторов в окне страницы (TCP-TURN
@@ -131,7 +131,7 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > iOS — WKWebView с непостоянным хранилищем, Android — WebView без cookies и DOM storage; автоматизация только Desktop.
 > `features:chromium-bridge:{api,impl}` + `chromium-plugin/` — расширение для Chrome и других Chromium-браузеров
 > (MV3, Compose/Wasm-панель и JS service worker, `node --test chromium-plugin/tests/`) и мост к нему (тогл `chromium_bridge.enabled`, по умолчанию false;
-> только Desktop Windows/macOS). Транспорт — Native Messaging: браузер запускает лаунчер Heartbeat с `--heartbeat-chromium-host`,
+> только Desktop Windows/macOS/Linux). Транспорт — Native Messaging: браузер запускает лаунчер Heartbeat с `--heartbeat-chromium-host`,
 > хост ретранслирует кадры (JSON с 4-байтовым LE-префиксом, протокол v1) в Unix-сокет профиля; приложение принимает только
 > origin своего расширения (ID закреплён ключом в `manifest.json`). Раздел настроек «Браузер Chrome» регистрирует хост
 > в Chrome/Edge/Brave/Chromium/Vivaldi и показывает папку расширения (входит в ресурсы дистрибутива, `collectAppResources`).
@@ -151,6 +151,8 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > по умолчанию false): закрытый fence `plantuml`/`puml` ДС делает строкой `Diagram` и рисует через SPI `HbDiagramRenderer`;
 > только Desktop — встроенный `plantuml-mit` в отдельном процессе-воркере (свой малый heap, убивается по таймауту; SANDBOX,
 > Smetana, без сети), тема из токенов, ошибка — строка и исходник, клик — полный размер; на Android/iOS fence остаётся кодом.
+> Chromium-панель получает PNG через `diagram.render` (тот же локальный рендерер и флаг); клик открывает активную
+> вкладку расширения с масштабированием. При ошибке открытия остаётся общий просмотрщик панели.
 > `features:scheduler:{api,impl}` — сон и пробуждение сессий (тогл `scheduler.enabled`, по умолчанию false): агент
 > инструментами хоста `scheduler_sleep`/`signal`/`cancel`/`list` засыпает до события, времени или таймера и
 > просыпается новым ходом со своей заметкой. Единая профильная шина `SchedulerBus` и ключи `EventKey`
@@ -218,7 +220,8 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > проверяет последний релиз `vX.Y.Z` при запуске и раз в 6 ч; кнопка «Обновить» в шапке сайдбара студии скачивает сборку
 > с проверкой SHA-256, на macOS меняет бандл из DMG, на Windows тихо ставит установщик Inno Setup поверх, после выхода
 > приложения helper запускает новую версию (desktop выходит штатно по `Restarting`). Активно только в установленной
-> релизной сборке (`-Dheartbeat.app.update.repository` у release-лаунчера). Версия — `heartbeat.version` в
+> релизной сборке (`-Dheartbeat.app.update.repository` у release-лаунчера). На Linux кнопка сразу открывает страницу
+> DEB: установка и обновление — через системный пакетный менеджер. Версия — `heartbeat.version` в
 > `gradle.properties`; `.github/workflows/release.yml` запускается кнопкой Run workflow из `master` с уровнем
 > `patch` / `minor` / `major`, вычисляет следующую версию и публикует её тег и релиз после всех тестов и сборок.
 > `features:service-as-ui:{api,impl}` — интерфейсы агента (тогл `service_ui.enabled`, по умолчанию false): профильная

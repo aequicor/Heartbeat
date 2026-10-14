@@ -22,7 +22,9 @@ TARGETS = {
     "windows-arm64": ("windowsarm64", "arm64"),
     "macosx-amd64": ("macosx64", "x86_64"),
     "macosx-arm64": ("macosarm64", "arm64"),
+    "linux-amd64": ("linux64", "x86_64"),
 }
+LEGACY_TARGETS = frozenset(TARGETS) - {"linux-amd64"}
 SOURCE_LOCK = HERE / "source-lock.json"
 PATCH_FILE = HERE / "request-context-settings.patch"
 CEF_DOWNLOADS = "https://cef-builds.spotifycdn.com/"
@@ -59,6 +61,14 @@ def release_identity(data: dict) -> tuple[str, str]:
         raise ValueError("Artifact version must identify the locked CEF release and Heartbeat revision")
     tag = f"jcef-{data['jcefCommit'][:7]}+cef-{data['cefVersion']}+heartbeat-{version.rsplit('-', 1)[1]}"
     return version, tag
+
+
+def release_targets(data: dict) -> set[str]:
+    """Keep published four-host locks reproducible while the next release adds Linux."""
+    targets = set(data.get("cefDistributions", {}))
+    if targets not in (LEGACY_TARGETS, set(TARGETS)):
+        raise ValueError("The source lock must pin every supported release target")
+    return targets
 
 
 VERSION, RELEASE_TAG = release_identity(json.loads(SOURCE_LOCK.read_text()))
@@ -136,10 +146,13 @@ def prepare_formatter(source: Path, target: str) -> None:
     if target.startswith("windows"):
         output = directory / "win/clang-format.exe"
         hash_file = directory / "win/clang-format.exe.sha1"
-    else:
+    elif target.startswith("macosx"):
         output = directory / "mac/clang-format"
         arch = "arm64" if target.endswith("arm64") else "x64"
         hash_file = directory / f"mac/clang-format.{arch}.sha1"
+    else:
+        output = directory / "linux64/clang-format"
+        hash_file = directory / "linux64/clang-format.sha1"
     expected = hash_file.read_text().strip()
     if len(expected) != 40 or any(c not in "0123456789abcdef" for c in expected):
         raise ValueError("Invalid upstream formatter checksum")
@@ -223,6 +236,7 @@ def normalized_tar(info: tarfile.TarInfo) -> tarfile.TarInfo:
 
 def package(source: Path, target: str, destination: Path) -> None:
     data = lock()
+    cef_distribution(data, target)
     destination.mkdir(parents=True, exist_ok=True)
     stage = source / "heartbeat-native-stage"
     stage.mkdir()
@@ -235,7 +249,7 @@ def package(source: Path, target: str, destination: Path) -> None:
                 shutil.copy2(path, stage / path.name)
         shutil.copytree(output / "locales", stage / "locales")
         required = ["jcef.dll", "libcef.dll", "jcef_helper.exe", "icudtl.dat", "resources.pak"]
-    else:
+    elif target.startswith("macosx"):
         shutil.copy2(output / "libjcef.dylib", stage / "libjcef.dylib")
         shutil.copytree(cef / "Release/Chromium Embedded Framework.framework",
                         stage / "Chromium Embedded Framework.framework", symlinks=True)
@@ -246,6 +260,18 @@ def package(source: Path, target: str, destination: Path) -> None:
             shutil.copytree(helper, stage / helper.name, symlinks=True)
         required = ["libjcef.dylib", "jcef Helper.app/Contents/MacOS/jcef Helper",
                     "Chromium Embedded Framework.framework/Chromium Embedded Framework"]
+    else:
+        # CMake places CEF's shared libraries, data, locales and helper next to libjcef.so.
+        # Preserve modes: jcefmaven extracts the executable helper directly from this archive.
+        for path in sorted(output.iterdir()):
+            if path.is_file() and (".so" in path.suffixes or path.suffix in {".bin", ".dat", ".pak", ".json"}
+                                   or path.name in {"jcef_helper", "chrome-sandbox"}):
+                shutil.copy2(path, stage / path.name)
+        shutil.copytree(output / "locales", stage / "locales")
+        required = ["libjcef.so", "libcef.so", "jcef_helper", "icudtl.dat", "resources.pak",
+                    "v8_context_snapshot.bin", "locales/en-US.pak"]
+        if not os.access(stage / "jcef_helper", os.X_OK):
+            raise ValueError("Linux JCEF helper is not executable")
     for name in required:
         if not (stage / name).is_file():
             raise ValueError(f"Missing native runtime file: {name}")
@@ -289,8 +315,9 @@ def package(source: Path, target: str, destination: Path) -> None:
 def collect(artifacts: Path, destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=True)
     manifests = [json.loads(p.read_text()) for p in sorted(artifacts.rglob("manifest-*.json"))]
-    if {m["platform"] for m in manifests} != set(TARGETS) or len(manifests) != len(TARGETS):
-        raise ValueError("Exactly four platform manifests are required")
+    targets = release_targets(lock())
+    if {m["platform"] for m in manifests} != targets or len(manifests) != len(targets):
+        raise ValueError("Exactly one manifest for every locked platform is required")
     checksums = {}
     for manifest in manifests:
         data = lock()
@@ -319,7 +346,7 @@ def collect(artifacts: Path, destination: Path) -> None:
     release_lock["nativeArtifacts"] = {
         target: {"file": f"jcef-natives-{target}-{VERSION}.jar",
                  "sha256": checksums[f"jcef-natives-{target}-{VERSION}.jar"]}
-        for target in sorted(TARGETS)
+        for target in sorted(targets)
     }
     (destination / "source-lock.json").write_text(json.dumps(release_lock, indent=2) + "\n")
 

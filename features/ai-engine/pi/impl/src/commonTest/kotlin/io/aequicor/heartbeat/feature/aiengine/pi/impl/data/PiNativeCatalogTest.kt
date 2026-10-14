@@ -10,7 +10,12 @@ import kotlin.test.assertTrue
 class PiNativeCatalogTest {
     @Test
     fun `native defaults match each desktop shell and optional inspection stays off`() {
-        for ((host, shell) in listOf(HostPlatform.MacOs to "bash", HostPlatform.Windows to "powershell")) {
+        val shells = listOf(
+            HostPlatform.MacOs to "bash",
+            HostPlatform.Windows to "powershell",
+            HostPlatform.Linux to "bash",
+        )
+        for ((host, shell) in shells) {
             val catalog = piNativeCatalog(host)
             assertEquals(
                 setOf("read", "edit", "write", shell),

@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionWaitUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioPhase
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.pruneHarnessChoices
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.pruneNoticeDismissals
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
@@ -58,7 +59,7 @@ internal fun AiStudioScreenState.reflectMachine(machine: AiStudioState): AiStudi
         uncancellable = machine.uncancellable.toImmutableSet(),
         settings = machine.settings.toUi().copy(engineEfforts = settings.engineEfforts),
         configurations = machine.configurations.mapValues { it.value.toUi() }.toImmutableMap(),
-    ).pruneHarnessChoices()
+    ).pruneHarnessChoices().pruneNoticeDismissals()
 }
 
 /** Pending wakes remain visible until delivery settles, including while the next turn is being admitted. */
@@ -79,7 +80,7 @@ internal fun AiStudioScreenState.withWorkspace(
             },
         )
     }.toImmutableList(),
-)
+).pruneNoticeDismissals()
 
 /** Outputs can lag behind navigation and state reflection; restore only into the owning new-session draft. */
 internal fun AiStudioScreenState.restoreDraft(

@@ -13,7 +13,6 @@ import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.browser.impl.domain.DesktopBrowserResources
 import io.aequicor.heartbeat.feature.browser.impl.domain.DesktopDocumentTeardown
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.SupervisorJob
@@ -52,7 +51,7 @@ internal class DesktopDefaultBrowserResources(
     private val mutex = Mutex()
     private var initialization: Deferred<CefApp>? = null
     private var shutdown: Deferred<Unit>? = null
-    private val terminated = CompletableDeferred<Unit>()
+    private val lifecycle = DesktopBrowserRuntimeLifecycle()
 
     // Owned by this app singleton and never cancelled: DI cancels the app scope before close hooks run, while
     // native teardown must still finish. The process exit ends it.
@@ -92,14 +91,18 @@ internal class DesktopDefaultBrowserResources(
 
     /** Disposes the runtime even when documents or a profile fail to close, then reports all failures together. */
     private suspend fun teardown() {
+        log.v { "Closing document browsers before runtime shutdown" }
         val documentFailure = closeDocuments()
+        log.v { "Closing browser profiles before runtime shutdown" }
         val profileFailure = closeProfiles()
+        log.v { "Disposing browser runtime after resource closure" }
         // The runtime's own failure leads; the earlier ones are attached to it.
         val failures = listOfNotNull(disposeRuntime(), profileFailure, documentFailure)
         failures.firstOrNull()?.let { first ->
             failures.drop(1).forEach(first::addSuppressed)
             throw first
         }
+        log.v { "Browser runtime shutdown completed" }
     }
 
     private suspend fun closeDocuments(): Exception? = try {
@@ -126,9 +129,9 @@ internal class DesktopDefaultBrowserResources(
         // A cancelled initializer can still be finishing native startup on another thread.
         initialization?.join()
         nativeApp?.let { app ->
-            // CefApp.dispose ignores repeated calls once the runtime is shutting down or terminated.
-            withContext(dispatchers.main) { app.dispose() }
-            terminated.await()
+            lifecycle.shutdown(CefApp::getState) {
+                withContext(dispatchers.main) { app.dispose() }
+            }
         }
         null
     } catch (error: CancellationException) {
@@ -150,7 +153,11 @@ internal class DesktopDefaultBrowserResources(
             setProgressHandler { _, _ -> }
             setAppHandler(object : MavenCefAppHandlerAdapter() {
                 override fun stateHasChanged(state: CefApp.CefAppState) {
-                    if (state == CefApp.CefAppState.TERMINATED) terminated.complete(Unit)
+                    lifecycle.onStateChanged(state)
+                }
+
+                override fun onContextInitialized() {
+                    lifecycle.onContextInitialized()
                 }
             })
             cefSettings.useBundledBrowserPaths(directory, platform.os)
@@ -160,7 +167,12 @@ internal class DesktopDefaultBrowserResources(
             cefSettings.cache_path = ""
             cefSettings.persist_session_cookies = false
             cefSettings.log_severity = CefSettings.LogSeverity.LOGSEVERITY_DISABLE
-            addJcefArgs("--disable-extensions", "--disable-background-networking")
+            // Chrome's standalone first-run dialog otherwise blocks CefInitialize on fresh Linux profiles.
+            addJcefArgs("--disable-extensions", "--disable-background-networking", "--no-first-run")
+            if (platform.os == EnumOS.LINUX) {
+                // JCEF reparents the browser with XReparentWindow; Wayland sessions must use XWayland too.
+                addJcefArgs("--ozone-platform=x11")
+            }
         }
         val app = builder.build()
         nativeApp = app
@@ -172,13 +184,17 @@ internal class DesktopDefaultBrowserResources(
 }
 
 /**
- * Pins Windows subprocesses and resources to the same bundle as the loaded native libraries.
- * JCEF otherwise finds the first jcef.dll in java.library.path, which may belong to the JBR SDK.
+ * Pins Windows and Linux subprocesses and resources to the same bundle as the loaded native libraries.
+ * JCEF otherwise discovers paths relative to Java or another runtime on java.library.path.
  * On macOS jcefmaven already supplies the absolute helper and framework paths from its bundle.
  */
 internal fun CefSettings.useBundledBrowserPaths(directory: File, os: EnumOS) {
-    if (os != EnumOS.WINDOWS) return
-    browser_subprocess_path = File(directory, "jcef_helper.exe").absolutePath
+    val helper = when (os) {
+        EnumOS.WINDOWS -> "jcef_helper.exe"
+        EnumOS.LINUX -> "jcef_helper"
+        EnumOS.MACOSX -> return
+    }
+    browser_subprocess_path = File(directory, helper).absolutePath
     resources_dir_path = directory.absolutePath
     locales_dir_path = File(directory, "locales").absolutePath
 }

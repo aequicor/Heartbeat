@@ -49,7 +49,11 @@ public interface EngineBindings {
     /** Disabling prevents new executions; a previously accepted turn may finish. */
     public suspend fun setEnabled(binding: EngineBindingId, enabled: Boolean)
 
-    /** Removes only the binding. Active uses must first be released; external credentials remain intact. */
+    /**
+     * Removes the binding and forcibly stops its engine/source runtime, including accepted turns whose handles
+     * were already closed. Other sources keep running; external credentials remain intact. A failed runtime
+     * shutdown is reported after removal and can be retried with the same binding id.
+     */
     public suspend fun disconnect(binding: EngineBindingId)
 
     /** Checks authentication in an engine-derived context; source revision belongs to the returned observation. */

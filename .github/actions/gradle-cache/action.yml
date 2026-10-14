@@ -1,0 +1,111 @@
+name: Release Gradle cache
+description: Share portable Gradle task outputs between release stages and keep toolchains host-specific.
+inputs:
+  stage:
+    description: Unique stage name within this runner OS and architecture.
+    required: true
+  save-portable:
+    description: Save shared task outputs after a successful seed stage.
+    default: 'false'
+  native-outputs:
+    description: Preserve platform-specific task outputs between releases before overlaying the Linux seed.
+    default: 'false'
+  upstream:
+    description: Preferred completed stage in this release run.
+    required: true
+outputs:
+  apple-toolchain-fingerprint:
+    description: Hash of the active Xcode build and Apple SDK versions when native outputs are enabled.
+    value: ${{ steps.native-toolchain.outputs.fingerprint }}
+runs:
+  using: composite
+  steps:
+    - name: Configure portable build cache
+      id: cache-config
+      shell: bash
+      env:
+        TOOLCHAIN_FINGERPRINT: ${{ hashFiles('gradle/wrapper/gradle-wrapper.properties', 'gradle/gradle-daemon-jvm.properties', 'gradle/libs.versions.toml', 'gradle.properties', '**/*.gradle.kts') }}
+      run: |
+        echo "HEARTBEAT_BUILD_CACHE_DIR=$GITHUB_WORKSPACE/.gradle-build-cache" >> "$GITHUB_ENV"
+        echo "toolchains=$TOOLCHAIN_FINGERPRINT" >> "$GITHUB_OUTPUT"
+
+    - name: Fingerprint the active Apple toolchain
+      if: inputs.native-outputs == 'true'
+      id: native-toolchain
+      shell: bash
+      run: |
+        python3 - <<'PY'
+        import hashlib
+        import json
+        import os
+        import subprocess
+
+        commands = {"xcode": ["xcodebuild", "-version"]}
+        commands.update({sdk: ["xcrun", "--sdk", sdk, "--show-sdk-version"]
+                         for sdk in ("macosx", "iphoneos", "iphonesimulator")})
+        versions = {name: subprocess.check_output(command, text=True).strip()
+                    for name, command in commands.items()}
+        if not all(versions.values()):
+            raise ValueError("Every active Apple SDK must report its version")
+        identity = json.dumps(versions, sort_keys=True)
+        fingerprint = hashlib.sha256(identity.encode()).hexdigest()
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+            output.write(f"fingerprint={fingerprint}\n")
+        print(identity)
+        PY
+
+    # Keep iOS compile/link outputs from the previous release. Restoring Linux next overlays
+    # new JVM entries without removing native entries (Gradle cache files are content-addressed).
+    # Native binaries must not survive a runner's Xcode or SDK update through a broad fallback.
+    - name: Restore and save native task outputs
+      if: inputs.native-outputs == 'true'
+      uses: actions/cache@v5
+      with:
+        path: .gradle-build-cache
+        key: release-gradle-native-v3-${{ runner.os }}-${{ runner.arch }}-${{ steps.native-toolchain.outputs.fingerprint }}-${{ inputs.stage }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: |
+          release-gradle-native-v3-${{ runner.os }}-${{ runner.arch }}-${{ steps.native-toolchain.outputs.fingerprint }}-${{ inputs.stage }}-
+
+    # Only task outputs are portable. Gradle validates each entry against task inputs;
+    # JVM tests additionally declare the host OS/architecture in the build scripts.
+    # Keep this relative path identical across hosts: it also defines the cache version.
+    # Only JVM tests and Linux save snapshots; other hosts read the seed without duplicating it.
+    - name: Restore and save portable task outputs
+      if: inputs.save-portable == 'true'
+      uses: actions/cache@v5
+      with:
+        path: .gradle-build-cache
+        enableCrossOsArchive: true
+        key: release-gradle-build-v2-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.stage }}-${{ runner.os }}-${{ runner.arch }}
+        restore-keys: |
+          release-gradle-build-v2-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.upstream }}-
+          release-gradle-build-v2-${{ github.run_id }}-
+          release-gradle-build-v2-
+
+    - name: Restore portable task outputs
+      if: inputs.save-portable != 'true'
+      uses: actions/cache/restore@v5
+      with:
+        path: .gradle-build-cache
+        enableCrossOsArchive: true
+        key: release-gradle-build-v2-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.stage }}-${{ runner.os }}-${{ runner.arch }}
+        restore-keys: |
+          release-gradle-build-v2-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.upstream }}-
+          release-gradle-build-v2-${{ github.run_id }}-
+          release-gradle-build-v2-
+
+    # Dependencies and transforms remain host-local. Do not archive toolchain installs:
+    # unpacked JDKs/Kotlin Native can evict the useful compilation seeds from the cache quota.
+    # The portable cache lives outside ~/.gradle/caches, so it is not archived twice.
+    # Stable config keys retain one dependency snapshot per stage instead of one per release.
+    # Archive after Gradle exits (--no-daemon in every consuming job).
+    - uses: actions/cache@v5
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: release-gradle-host-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.cache-config.outputs.toolchains }}-${{ inputs.stage }}
+        restore-keys: |
+          release-gradle-host-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.cache-config.outputs.toolchains }}-${{ inputs.upstream }}
+          release-gradle-host-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.cache-config.outputs.toolchains }}-
+          release-gradle-host-v2-${{ runner.os }}-${{ runner.arch }}-

@@ -27,6 +27,7 @@ class ReleaseSelectionTest {
         assertEquals("Heartbeat-1.4.0-macos-x64.dmg", ReleasePlatform.MacOsX64.assetName(version))
         assertEquals("Heartbeat-1.4.0-windows-x64-setup.exe", ReleasePlatform.WindowsX64.assetName(version))
         assertEquals("Heartbeat-1.4.0-windows-arm64-setup.exe", ReleasePlatform.WindowsArm64.assetName(version))
+        assertEquals("Heartbeat-1.4.0-linux-x64.deb", ReleasePlatform.LinuxX64.assetName(version))
     }
 
     @Test

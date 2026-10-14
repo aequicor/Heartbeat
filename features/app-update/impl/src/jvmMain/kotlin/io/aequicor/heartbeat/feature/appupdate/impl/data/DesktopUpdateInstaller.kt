@@ -25,6 +25,8 @@ import java.nio.file.StandardCopyOption
  * then is the installation marked and the helper started. After this process quits, the macOS helper first stages
  * the complete bundle on the installation volume while preserving the installed app, then swaps it and relaunches.
  * The next launch compares its version with the mark ([previousAttempt]).
+ * Linux DEB installations belong to the system package manager: update offers lead to the release page for
+ * manual installation, without downloading or trying to replace root-owned files from the desktop process.
  */
 internal class DesktopUpdateInstaller(
     private val workspace: UpdateWorkspace,
@@ -46,6 +48,9 @@ internal class DesktopUpdateInstaller(
 
     override suspend fun install(installation: AppInstallation, release: AppRelease, progress: InstallProgressSink) {
         previousAttempt(installation.version)
+        if (installation.platform.isManualInstallRequired) {
+            updateFailure(AppUpdateFailure.ManualInstallRequired, "Linux updates use the system package manager")
+        }
         val launcher = launch.launcher ?: updateFailure(AppUpdateFailure.InstallFailed, "the launcher is unknown")
         val bundle = if (installation.platform.os == MAC_OS) {
             val bundle = mac.bundleOf(launcher)

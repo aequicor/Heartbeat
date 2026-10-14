@@ -39,10 +39,14 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.EffortUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedCollapseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.afterNavigation
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.dismissNotice
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.isAttachmentPending
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.pruneNoticeDismissals
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.reduce
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.revealNotice
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.startRename
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
@@ -219,7 +223,7 @@ class AiStudioModel(
                         updateState {
                             copy(
                                 models = models.map { it.toUi() }.toImmutableList(),
-                            )
+                            ).pruneNoticeDismissals()
                         }
                     }
                 }
@@ -436,6 +440,7 @@ class AiStudioModel(
         environment: StudioChatEnvironment?,
     ) {
         when (intent) {
+            is AiStudioScreenIntent.DismissNotice -> pipeline.updateState { dismissNotice(intent) }
             is AiStudioScreenIntent.CardFocusApplied -> pipeline.updateState { withCardFocusApplied(intent) }
             is AiStudioScreenIntent.OpenApp -> surfaceBinding.openApp(pipeline, intent)
             is AiStudioScreenIntent.Navigation -> navigate(pipeline, intent)
@@ -447,8 +452,12 @@ class AiStudioModel(
             is AiStudioScreenIntent.SelectHarness -> harnessSelection.select(pipeline, intent)
             is AiStudioScreenIntent.RemoteApplied -> pipeline.updateState { copy(remoteSeq = intent.seq) }
             is AiStudioScreenIntent.Embed -> embeddedScreens.handle(pipeline, intent, environment)
-            AiStudioScreenIntent.InstallAppUpdate -> if (host == StudioScreenHost.Window) appUpdate.install()
+            AiStudioScreenIntent.InstallAppUpdate -> installAppUpdate()
         }
+    }
+
+    private suspend fun installAppUpdate() {
+        if (host == StudioScreenHost.Window) appUpdate.install()
     }
 
     private suspend fun navigate(pipeline: StudioPipeline, intent: AiStudioScreenIntent.Navigation) = with(pipeline) {
@@ -533,7 +542,7 @@ class AiStudioModel(
 
             is AiStudioScreenIntent.Attachment -> attachmentInputs.handle(pipeline, intent)
 
-            is AiStudioScreenIntent.Stop -> sendTo(machine, AiStudioIntent.Public.Stop(intent.sessionId))
+            is AiStudioScreenIntent.Stop -> stop(pipeline, intent.sessionId)
 
             is AiStudioScreenIntent.SelectModel -> selectSetting(
                 pipeline,
@@ -554,6 +563,17 @@ class AiStudioModel(
                 log.i { "select approval: ${intent.approval}" }
                 val change = StudioSettingChange.Approval(intent.approval.toDomain())
                 selectSetting(pipeline, intent.paneId, change) { copy(approval = intent.approval.toDomain()) }
+            }
+        }
+    }
+
+    private suspend fun stop(pipeline: StudioPipeline, sessionId: String) = with(pipeline) {
+        val result = sendTo(machine, AiStudioIntent.Public.Stop(sessionId))
+        if (result == SendResult.Accepted) {
+            updateState {
+                panes.filter { it.sessionId == sessionId }.fold(this) { state, pane ->
+                    state.revealNotice(pane.id, StudioNoticeUi.StopFailed)
+                }
             }
         }
     }

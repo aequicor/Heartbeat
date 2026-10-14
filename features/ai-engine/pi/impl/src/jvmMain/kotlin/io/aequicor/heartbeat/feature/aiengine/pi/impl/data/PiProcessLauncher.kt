@@ -120,7 +120,7 @@ internal class PiProcessLauncher(
         plan: PiLaunchPlan?,
     ): PiConnection {
         // Fetched before the non-cancellable launch so a slow compatible server stays cancellable.
-        val modelsJson = compatibleModelsJson(source)
+        val modelsJson = modelsJson(source)
         return launch(source, workspace, modelsJson, event, failed, plan ?: discoveryPlan())
     }
 
@@ -130,10 +130,10 @@ internal class PiProcessLauncher(
         if (toggles.get(SearchEngineTools)) SearchTools else emptySet(),
     )
 
-    /** `models.json` for a compatible route, or null for vendor routes Pi knows natively. */
-    private suspend fun compatibleModelsJson(source: AuthSource.ManagedKey): String? {
+    /** Custom model declarations or a fixed vendor endpoint; otherwise Pi uses its native catalog. */
+    private suspend fun modelsJson(source: AuthSource.ManagedKey): String? {
         val provider = provider(source) ?: authenticationFailure(AuthFailureReason.AuthMismatch, source.info.id)
-        val protocol = provider.compatible ?: return null
+        val protocol = provider.compatible ?: return piVendorModelsJson(provider)
         val secret = withContext(dispatchers.io) { secrets.read(SecretKey(source.secret.value)) }
             ?: authenticationFailure(AuthFailureReason.NotAuthenticated, source.info.id)
         val key = secret.use { it.reveal { chars -> String(chars) } }
@@ -186,12 +186,7 @@ internal class PiProcessLauncher(
         // A harness can become active during this process's lifetime. Always gate inspection too, so live Off
         // and hooks take effect without a restart; ordinary reads are automatically allowed by the host.
         environment["HEARTBEAT_GATE_ALL"] = "true"
-        if (hosted != null) {
-            environment["HEARTBEAT_AGENT_TOOLS_URL"] = hosted.endpoint.url
-            environment["HEARTBEAT_AGENT_TOOLS_TOKEN"] = hosted.endpoint.token
-            environment["HEARTBEAT_AGENT_TOOL_SPECS"] = hosted.schemas()
-            environment["HEARTBEAT_AGENT_TOOL_INSTRUCTIONS"] = hosted.instructions
-        }
+        hosted?.applyEnvironment(environment)
         var process: Process? = null
         try {
             if (areSearchToolsEnabled) {

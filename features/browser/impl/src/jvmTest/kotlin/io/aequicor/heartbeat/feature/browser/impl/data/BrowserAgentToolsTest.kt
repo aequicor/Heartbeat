@@ -65,14 +65,17 @@ class BrowserAgentToolsTest {
         val scope = AgentToolScope(null, session = context.session)
         val lease = fixture.external.bindSession(Json.encodeToString(context.session), "browser")
         assertTrue(fixture.tools.specifications(scope).isEmpty())
+        assertEquals("", fixture.tools.instructions(scope.copy(declared = setOf("browser_tabs"))))
         assertTrue(fixture.tools.execute(context, "browser_tabs", JsonObject(emptyMap())).isError)
         assertEquals(0, fixture.registry.lookups)
         val otherScope = scope.copy(session = context.session.copy(nativeId = "other"))
         assertEquals(13, fixture.tools.specifications(otherScope).size)
+        assertTrue(fixture.tools.instructions(otherScope).contains("browser_tabs"))
         lease.close()
         assertEquals(13, fixture.tools.specifications(scope).size)
         val newScope = AgentToolScope(null, preselected = mapOf("external_browser" to setOf("1")))
         assertTrue(fixture.tools.specifications(newScope).isEmpty())
+        assertEquals("", fixture.tools.instructions(newScope))
     }
 
     @Test

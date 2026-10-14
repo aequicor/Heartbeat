@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
@@ -39,6 +41,8 @@ import kotlin.time.Instant
  * A runtime that shut itself down ([EngineRuntime.isClosed]: a crashed process, a changed account) can run nothing:
  * it is disposed without the Busy check and replaced on the next request, and [prune] disposes it on demand.
  * [retire] stops the idle runtimes of one engine (an engine switched off, changed launch settings, a restart).
+ * Explicit [disconnect] instead stops even accepted work of the removed binding's engine/source and revokes
+ * stale resolved routes, including a runtime whose creation was still in flight when removal began.
  */
 class RuntimePool(
     private val context: FacadeContext,
@@ -50,6 +54,8 @@ class RuntimePool(
     private val mutex = Mutex()
     private val runtimes = mutableMapOf<Pair<EngineId, AuthSourceId>, Pooled>()
     private val keyLocks = mutableMapOf<Pair<EngineId, AuthSourceId>, Mutex>()
+    private val disconnected = mutableSetOf<Pair<EngineId, EngineBindingId>>()
+    private val pendingDisconnects = mutableSetOf<Pair<EngineId, AuthSourceId>>()
     private val published = MutableStateFlow(emptyList<RuntimeEntry>())
     private val hasLiveRuntimes = MutableStateFlow(false)
     private var isClosed = false
@@ -87,6 +93,40 @@ class RuntimePool(
     }
 
     /**
+     * Stops the removed [binding]'s runtime even while a native turn runs without an open facade handle. The
+     * process stops before handle cleanup, so releasing a slow handle cannot keep the request running. Failed
+     * shutdown keeps the runtime for retry; unrelated engine/source pairs are neither closed nor blocked.
+     */
+    suspend fun disconnect(binding: EngineBinding) {
+        val key = binding.engine to binding.authSource
+        withContext(NonCancellable) {
+            mutex.withLock {
+                disconnected += binding.engine to binding.id
+                pendingDisconnects += key
+            }
+            locked(key) {
+                val current = mutex.withLock { runtimes[key] }
+                log.i { "disconnect runtime engine=${binding.engine.value} source=${binding.authSource.value}" }
+                try {
+                    if (current != null) {
+                        // Do not use quiet retirement: the caller must know if forced shutdown failed.
+                        current.runtime.close()
+                        mutex.withLock {
+                            if (runtimes[key] === current) {
+                                runtimes.remove(key)
+                                publish()
+                            }
+                        }
+                    }
+                    mutex.withLock { pendingDisconnects -= key }
+                } finally {
+                    withContext(NonCancellable) { retireHandles(key.first, key.second) }
+                }
+            }
+        }
+    }
+
+    /**
      * Retires every idle runtime of [engine]. A runtime with an accepted turn is kept and counted as busy: the
      * caller retries once it is idle. A runtime that shut itself down is disposed whatever its handles report.
      * When [expected] is supplied, live runtimes already using that context are preserved.
@@ -97,6 +137,10 @@ class RuntimePool(
         var busy = 0
         keys.forEach { key ->
             locked(key) {
+                if (mutex.withLock { key in pendingDisconnects }) {
+                    busy++
+                    return@locked
+                }
                 val current = mutex.withLock { runtimes[key] } ?: return@locked
                 if (expected != null && !current.runtime.isClosed && current.launch == expected) return@locked
                 if (current.runtime.isClosed) {
@@ -119,6 +163,7 @@ class RuntimePool(
         var disposed = 0
         closed.forEach { key ->
             locked(key) {
+                if (mutex.withLock { key in pendingDisconnects }) return@locked
                 val current = mutex.withLock { runtimes[key] }
                 if (current != null && current.runtime.isClosed) {
                     dispose(current, key)
@@ -139,6 +184,7 @@ class RuntimePool(
         val identity = resolved.identity
         val current = mutex.withLock {
             ensureOpen(identity.engine)
+            requireConnected(resolved)
             runtimes[key]
         }
         if (current != null && current.runtime.isClosed) {
@@ -175,6 +221,8 @@ class RuntimePool(
             withContext(NonCancellable) { closeQuietly(created) }
             fail(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
         }
+        // A disconnect waiting for this source lock owns its shutdown, including retry if close fails.
+        mutex.withLock { requireConnected(resolved) }
         return created
     }
 
@@ -270,20 +318,37 @@ class RuntimePool(
         }
     }
 
+    /** Called under [mutex]; a deleted binding id cannot acquire another runtime from an earlier route snapshot. */
+    private fun requireConnected(resolved: ResolvedRoute) {
+        val identity = resolved.identity
+        if ((identity.engine to resolved.binding.id) in disconnected ||
+            (identity.engine to identity.source) in pendingDisconnects
+        ) {
+            log.w { "runtime refused for disconnected binding=${resolved.binding.id.value}" }
+            fail(OperationNotAllowed)
+        }
+    }
+
     /** Closes every runtime at profile shutdown; later [runtime] calls fail with ProfileClosed. */
     suspend fun closeAll() {
-        val all = mutex.withLock {
+        val keys = mutex.withLock {
             isClosed = true
-            runtimes.values.map { it.runtime }.also {
-                runtimes.clear()
-                publish()
-            }
+            runtimes.keys.toList()
         }
-        log.i { "close runtimes count=${all.size}" }
-        // Already unregistered: every one is closed even if shutdown is cancelled midway. Each close runs in its own
-        // child, so a cancellation thrown by one adapter close does not skip the others.
+        log.i { "close runtimes count=${keys.size}" }
+        // Share retirement's source locks: an explicit disconnect may already be closing the same runtime.
+        // Each close has its own child, so a cancellation thrown by one adapter does not skip the others.
         withContext(NonCancellable) {
-            coroutineScope { all.forEach { runtime -> launch { closeQuietly(runtime) } } }
+            coroutineScope {
+                keys.forEach { key ->
+                    launch {
+                        locked(key) {
+                            val current = mutex.withLock { runtimes.remove(key).also { publish() } }
+                            current?.let { closeQuietly(it.runtime) }
+                        }
+                    }
+                }
+            }
         }
     }
 

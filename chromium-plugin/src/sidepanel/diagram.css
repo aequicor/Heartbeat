@@ -1,0 +1,74 @@
+:root {
+  color-scheme: light dark;
+  font: menu;
+  color: CanvasText;
+  background: Canvas;
+}
+
+body {
+  margin: 0;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+header, nav {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+header {
+  flex-wrap: wrap;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid GrayText;
+}
+
+h1 {
+  flex: 1;
+  font: inherit;
+  font-weight: bold;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+button {
+  font: inherit;
+  color: ButtonText;
+  background: ButtonFace;
+  border: 1px solid GrayText;
+  border-radius: 0.4rem;
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+}
+
+button:focus-visible, main:focus-visible {
+  outline: 2px solid Highlight;
+  outline-offset: -2px;
+}
+
+output {
+  min-width: 3.5rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+main {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+img {
+  display: block;
+  margin: auto;
+  max-width: none;
+}
+
+#status {
+  margin: 1rem;
+}
+
+[hidden] {
+  display: none;
+}

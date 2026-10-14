@@ -23,8 +23,12 @@ class MacBundleUpdateTest {
 
     @AfterTest
     fun cleanUp() {
-        root.toFile().walk().forEach { it.setWritable(true) }
         root.deleteRecursively()
+    }
+
+    @Test
+    fun `cleanup does not follow the image Applications link`() {
+        assertCleanupPreservesLinkedApplications(root, ::cleanUp)
     }
 
     @Test
@@ -43,7 +47,12 @@ class MacBundleUpdateTest {
         update.requireReplaceable(bundle)
 
         applications.toFile().setWritable(false)
-        assertUpdateFailure(AppUpdateFailure.ManualInstallRequired) { update.requireReplaceable(bundle) }
+        try {
+            assertUpdateFailure(AppUpdateFailure.ManualInstallRequired) { update.requireReplaceable(bundle) }
+        } finally {
+            // Restore only the directory changed by this test; image fixtures link to the real /Applications.
+            applications.toFile().setWritable(true)
+        }
     }
 
     @Test

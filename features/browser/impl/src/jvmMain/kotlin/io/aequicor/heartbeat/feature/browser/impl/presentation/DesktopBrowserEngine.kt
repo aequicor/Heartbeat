@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicReference
 import javax.swing.SwingUtilities
 
 /**
- * Windowed Swing embedding works on macOS and Windows (including ARM64 without JOGL). Each instance
+ * Windowed Swing embedding works on macOS, Windows (including ARM64 without JOGL), and Linux X11. Each instance
  * creates its own client and separately owned wrapper sharing the profile's persistent context.
  * Patched JCEF confirms wrapper disposal and registry cleanup before the client is released.
  */
@@ -55,6 +55,7 @@ internal class DesktopBrowserEngine(
     private val isBootstrap = AtomicBoolean(true)
     private val devToolsCalls = DesktopBrowserDevToolsCalls(log)
     private val client = app.createClient()
+    private val traceId = Integer.toHexString(System.identityHashCode(client))
     private var navigation: DesktopBrowserNavigation? = null
     private val pending = mutableListOf<BrowserViewCommand>()
     private val policy = DesktopBrowserPolicy(
@@ -109,12 +110,14 @@ internal class DesktopBrowserEngine(
                     }
 
                     override fun onBeforeClose(browser: CefBrowser) {
+                        log.v { "Browser $traceId received before-close (native=${browser.identifier})" }
                         isClosed.set(true)
                         downloads.cancel()
                         failDevToolsCalls()
                     }
 
                     override fun onAfterClose(browser: CefBrowser) {
+                        log.v { "Browser $traceId received after-close" }
                         // This hook follows JCEF's wrapper disposal and browser registry removal.
                         // A queued Swing callback alone cannot establish that barrier on AppKit.
                         client.dispose()
@@ -132,6 +135,7 @@ internal class DesktopBrowserEngine(
                     }
 
                     override fun onAfterCreated(browser: CefBrowser) {
+                        log.v { "Browser $traceId created (native=${browser.identifier})" }
                         isNativeCreated.set(true)
                         if (isClosed.get() || isReleased()) {
                             // Closing reentrantly here can run onBeforeClose before CEF has
@@ -278,6 +282,9 @@ internal class DesktopBrowserEngine(
         downloads.cancel()
         failDevToolsCalls()
         if (!isClosed.compareAndSet(false, true)) return
+        log.v {
+            "Releasing browser $traceId (requested=${isCreationRequested.get()}, created=${isNativeCreated.get()})"
+        }
         pending.clear()
         if (!isCreationRequested.get()) {
             // The component has never escaped and creation has never been queued: no native
@@ -293,8 +300,11 @@ internal class DesktopBrowserEngine(
     }
 
     override suspend fun awaitClosed() {
+        log.v { "Waiting for browser $traceId downloads to close" }
         downloads.awaitClosed()
+        log.v { "Waiting for browser $traceId native close callback" }
         closed.await()
+        log.v { "Browser $traceId native close completed" }
     }
 
     private fun creationFailed() {
@@ -315,7 +325,10 @@ internal class DesktopBrowserEngine(
     }
 
     private fun closeCreatedBrowser(browser: CefBrowser) {
-        if (isCloseIssued.compareAndSet(false, true)) browser.close(true)
+        if (isCloseIssued.compareAndSet(false, true)) {
+            log.v { "Closing browser $traceId (native=${browser.identifier})" }
+            browser.close(true)
+        }
     }
 
     private fun onSwing(action: () -> Unit) {

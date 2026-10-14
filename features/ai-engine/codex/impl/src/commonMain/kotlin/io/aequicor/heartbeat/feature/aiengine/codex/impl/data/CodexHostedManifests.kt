@@ -33,6 +33,7 @@ internal class HostedOpening(
     val manifest: String?,
     val parameters: Pair<List<JsonObject>, String>?,
     val isServed: Boolean,
+    val declared: Set<String>,
 )
 
 /**

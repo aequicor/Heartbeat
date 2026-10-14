@@ -20,10 +20,16 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.message_copied
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.message_copy
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.reasoning_title
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.run_failed
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.run_failed_access
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.run_failed_auth
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.run_failed_connection_changed
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.run_failed_context
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.run_failed_credentials_missing
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.run_failed_engine
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.run_failed_limit
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.run_failed_network
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.run_failed_quota
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.run_failed_request
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.stopped_after
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.tool_cancelled
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.tool_collapse
@@ -57,6 +63,12 @@ internal fun timelineLabels(section: String, calendar: StudioCalendar = StudioCa
             context = stringResource(Res.string.run_failed_context),
             authentication = stringResource(Res.string.run_failed_auth),
             network = stringResource(Res.string.run_failed_network),
+            quota = stringResource(Res.string.run_failed_quota),
+            credentialsMissing = stringResource(Res.string.run_failed_credentials_missing),
+            connectionChanged = stringResource(Res.string.run_failed_connection_changed),
+            access = stringResource(Res.string.run_failed_access),
+            requestRejected = stringResource(Res.string.run_failed_request),
+            engineUnavailable = stringResource(Res.string.run_failed_engine),
         ),
         durations = durationLabels(),
         promptAppearance = HbMessageAppearance(

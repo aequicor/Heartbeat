@@ -5,7 +5,6 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextCompaction
-import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
@@ -36,11 +35,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** The repository supplies persistence and native features; this executor owns a single accepted turn. */
-internal interface StudioTurnHost {
+internal interface StudioTurnHost : StudioSessionHost {
     suspend fun isWorktree(id: String): Boolean
 
-    /** [preselected] reaches only a session created now ([CreateSessionRequest.preselected]); a resume ignores it. */
-    suspend fun openTurn(id: String, settings: RunSettings, preselected: ToolChoices = emptyMap()): ActiveSession
     suspend fun submitTurn(active: ActiveSession, request: StudioTurnRequest): TurnId
     suspend fun shouldStop(id: String): Boolean
     suspend fun requestStop(id: String, active: ActiveSession, turn: TurnId)
@@ -119,7 +116,10 @@ internal data class StudioTurnRequest(
     override fun toString(): String = "StudioTurnRequest(id=$id, kind=$kind, attachments=${attachments.size})"
 }
 
-/** Confirms terminal native state and revokes tools before any worktree action lease is released. */
+/**
+ * Confirms terminal native state and revokes tools before any worktree action lease is released. A closed handle
+ * ends observation with an unknown outcome, retaining worktree ownership until fresh native reconciliation.
+ */
 @Inject
 internal class StudioTurnExecutor(
     private val worktrees: StudioWorktrees,
@@ -138,9 +138,11 @@ internal class StudioTurnExecutor(
                 request.environment?.preselected.orEmpty()
             progress.isIsolated = request.compaction == null && host.isWorktree(request.id)
             if (progress.isIsolated) prepare(host, request, progress, preselected)
-            val active = host.openTurn(request.id, request.settings, preselected)
-            environment = request.environment?.bind(active.ref)
-            val boundRequest = if (environment == null) request else request.copy(delivery = progress.delivery)
+            val opened = host.openEnvironmentSession(request, preselected)
+            val active = opened.active
+            progress.active = active
+            environment = opened.lease
+            val boundRequest = request.copy(delivery = progress.delivery)
             return runNative(host, boundRequest, active, progress)
         } catch (error: CancellationException) {
             throw error
@@ -213,21 +215,18 @@ internal class StudioTurnExecutor(
                 request.onOutcome(recovered.outcome)
                 return@supervisorScope host.outcome(request.id, recovered.outcome)
             }
-            val turn = if (recovered is GraphRecovery.Adopt) {
-                (request.submission as? StudioRunSubmission)?.adopt()
-                recovered.turn
-            } else {
-                connectHarnesses(request, active)
-                host.submitTurn(active, request)
-            }
-            progress.active = active
+            val turn = submitOrAdopt(host, request, active, recovered as? GraphRecovery.Adopt)
             progress.turn = turn
             observe("acceptance") { observer.acceptedTurn(request, active, turn) }
             request.onTurnAccepted(active, turn)
             notifyAccepted(request)
             if (progress.isIsolated) worktrees.accepted(request.id, request.request, active.ref, turn)
             if (host.shouldStop(request.id)) host.requestStop(request.id, active, turn)
-            val terminal = active.state.first { it.isTerminalFor(turn) }
+            val terminal = active.state.first { it.isTerminalFor(turn) || it == ActiveSessionState.Closed }
+            if (terminal == ActiveSessionState.Closed) {
+                closedObservation(request, active, turn, progress)
+                return@supervisorScope host.outcome(request.id, TurnOutcome.Unknown)
+            }
             progress.isTerminal = true
             tools.finishTurn(active.ref, turn)
             observation.cancelAndJoin()
@@ -247,6 +246,19 @@ internal class StudioTurnExecutor(
             observation.cancel()
             permissions.cancel()
         }
+    }
+
+    private suspend fun submitOrAdopt(
+        host: StudioTurnHost,
+        request: StudioTurnRequest,
+        active: ActiveSession,
+        recovered: GraphRecovery.Adopt?,
+    ): TurnId = if (recovered != null) {
+        (request.submission as? StudioRunSubmission)?.adopt()
+        recovered.turn
+    } else {
+        connectHarnesses(request, active)
+        host.submitTurn(active, request)
     }
 
     /** Only a confirmed stopped prior turn permits an automatic continuation in the same chat. */
@@ -343,16 +355,19 @@ internal class StudioTurnExecutor(
     }
 
     private suspend fun recover(host: StudioTurnHost, request: StudioTurnRequest, progress: Progress) {
-        val active = progress.active
-        val turn = progress.turn
-        if (active == null || turn == null) {
-            if (progress.isIsolated) worktrees.failed(request.id, request.request, active?.ref, turn)
-            return
-        }
+        if (recoverUnaccepted(request, progress)) return
+        val active = checkNotNull(progress.active)
+        val turn = checkNotNull(progress.turn)
         if (!progress.isTerminal) {
-            host.requestStop(request.id, active, turn)
-            val stopped = withTimeoutOrNull(RECOVERY_WAIT_MILLIS) { active.state.first { it.isTerminalFor(turn) } }
+            if (active.state.value != ActiveSessionState.Closed) host.requestStop(request.id, active, turn)
+            val stopped = withTimeoutOrNull(RECOVERY_WAIT_MILLIS) {
+                active.state.first { it.isTerminalFor(turn) || it == ActiveSessionState.Closed }
+            }
             if (stopped == null) observeInterrupted(host, request, active, turn, progress.isIsolated)
+            if (active.state.value == ActiveSessionState.Closed) {
+                closedObservation(request, active, turn, progress, isObservationLost = stopped == null)
+                return
+            }
         }
         tools.finishTurn(active.ref, turn)
         progress.isTerminal = true
@@ -363,6 +378,40 @@ internal class StudioTurnExecutor(
             observe("terminal") { observer.terminalTurn(request, active, turn, outcome, isHistoryCurrent = false) }
         }
         worktrees.failed(request.id.takeIf { progress.isIsolated }, request.request, active.ref, turn)
+    }
+
+    /** Returns whether recovery is done without an accepted turn or after closed observation was recorded. */
+    private suspend fun recoverUnaccepted(request: StudioTurnRequest, progress: Progress): Boolean {
+        if (progress.isObservationClosed) return true
+        val active = progress.active
+        val turn = progress.turn
+        if (active?.state?.value == ActiveSessionState.Closed && turn == null && progress.delivery.isPending) {
+            log.w { "Native handle closed during submission; retain pending worktree ownership" }
+            progress.isObservationClosed = true
+            if (progress.isIsolated) worktrees.submissionObservationLost(request.id, request.request, active.ref)
+            request.onOutcome(TurnOutcome.Unknown)
+            return true
+        }
+        if (active != null && turn != null) return false
+        if (progress.isIsolated) worktrees.failed(request.id, request.request, active?.ref, turn)
+        return true
+    }
+
+    /** Handle detachment is not native completion; never emit a terminal receipt or settle the worktree lease. */
+    private suspend fun closedObservation(
+        request: StudioTurnRequest,
+        active: ActiveSession,
+        turn: TurnId,
+        progress: Progress,
+        isObservationLost: Boolean = false,
+    ) {
+        log.w { "Native handle closed without a terminal outcome; retain worktree ownership" }
+        progress.isObservationClosed = true
+        if (!isObservationLost) {
+            worktrees.observationLost(request.id.takeIf { progress.isIsolated }, request.request, active, turn)
+        }
+        tools.finishTurn(active.ref, turn)
+        request.onOutcome(TurnOutcome.Unknown)
     }
 
     /** An unknown result keeps the runtime slot, approvals and merge lease until the process truly stops. */
@@ -378,7 +427,7 @@ internal class StudioTurnExecutor(
         supervisorScope {
             val permissions = launch { active.state.collect { host.updatePermissions(request.id, it) } }
             try {
-                active.state.first { it.isTerminalFor(turn) }
+                active.state.first { it.isTerminalFor(turn) || it == ActiveSessionState.Closed }
             } finally {
                 permissions.cancel()
             }
@@ -391,6 +440,7 @@ internal class StudioTurnExecutor(
         var active: ActiveSession? = null
         var turn: TurnId? = null
         var isTerminal = false
+        var isObservationClosed = false
         val delivery = StudioPromptDelivery()
         var isTerminalObserved = false
     }

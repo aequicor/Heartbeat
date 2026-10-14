@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineRequirement
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FrozenHostedTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
@@ -64,7 +65,7 @@ public object CodexBindings {
             CodexEngine.Id,
             "Codex",
             EngineFamily.Vendor,
-            setOf(EnginePlatform.DesktopMacOs, EnginePlatform.DesktopWindows),
+            setOf(EnginePlatform.DesktopMacOs, EnginePlatform.DesktopWindows, EnginePlatform.DesktopLinux),
             CodexEngine.Enabled,
             isLocalWorkspaceSupported = true,
             nativeTools = listOf(
@@ -95,6 +96,7 @@ public object CodexBindings {
                 AppliesTrustLevels.id,
                 ReconcilesSession.id,
                 SessionHistory.id,
+                FrozenHostedTools.id,
                 SessionTrees.id,
                 CompactsContext.id,
             ),

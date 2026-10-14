@@ -39,6 +39,8 @@ internal data class BridgeFeatureSet(
     @SerialName("agentControl") val isAgentControl: Boolean,
     /** The studio screen itself can be shown remotely (`studio.watch`). */
     @SerialName("studio") val isStudio: Boolean = false,
+    /** The app can render diagrams of the panel's Markdown locally (`diagram.render`). */
+    @SerialName("diagrams") val isDiagrams: Boolean = false,
 )
 
 /** Limits the extension must respect. */

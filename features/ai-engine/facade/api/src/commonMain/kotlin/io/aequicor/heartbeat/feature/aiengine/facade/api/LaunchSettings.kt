@@ -203,7 +203,7 @@ private fun environmentProblems(environment: List<EnvironmentEntry>, spec: Launc
 
 private fun Char.isControl(): Boolean = this == '\u0000' || this == '\n' || this == '\r'
 
-/** `/…` on macOS, `C:\…`, `C:/…` or `\\server\…` on Windows. */
+/** `/…` on macOS and Linux, `C:\…`, `C:/…` or `\\server\…` on Windows. */
 private fun isAbsolutePath(path: String): Boolean =
     path.startsWith('/') || path.startsWith("\\\\") || WindowsDrive.containsMatchIn(path)
 

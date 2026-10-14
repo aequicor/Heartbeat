@@ -16,6 +16,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Instant
 
 class ClaudeStartupTest {
@@ -60,6 +61,28 @@ class ClaudeStartupTest {
         }
         val wrapper = LaunchContext(LaunchSettings(executable = "C:\\claude.bat"))
         assertFalse(resolveClaudeStartup(wrapper, config, windows).isRunnable)
+    }
+
+    @Test
+    fun `Linux discovers the native installer location and prefers PATH`() {
+        val local = File("/home/test/.local/bin/claude").path
+        val custom = File("/custom/bin/claude").path
+        val linux = host(osName = "Linux", userHome = "/home/test", available = setOf(local, custom))
+        val installed = resolveClaudeStartup(LaunchContext(), config, linux)
+        assertEquals(local to InstallSource.System, installed.executable to installed.source)
+        assertTrue(installed.isRunnable)
+        assertEquals(
+            custom,
+            resolveClaudeStartup(LaunchContext(), config, linux.copy(path = "/custom/bin")).executable,
+        )
+        assertEquals(
+            InstallSource.Missing,
+            resolveClaudeStartup(
+                LaunchContext(),
+                config,
+                host(osName = "Linux", available = setOf(File("/opt/homebrew/bin/claude").path)),
+            ).source,
+        )
     }
 
     @Test
@@ -131,11 +154,13 @@ class ClaudeStartupTest {
     }
 
     @Test
-    fun `builds exist for macOS and Windows on arm64 and x64`() {
+    fun `builds exist for macOS Windows and glibc Linux on arm64 and x64`() {
         assertEquals("darwin-arm64", claudeReleasePlatform(host(osArch = "aarch64")))
         assertEquals("darwin-x64", claudeReleasePlatform(host(osArch = "x86_64")))
         assertEquals("win32-x64", claudeReleasePlatform(host(osName = "Windows 11", osArch = "amd64")))
-        assertNull(claudeReleasePlatform(host(osName = "Linux")))
+        assertEquals("linux-x64", claudeReleasePlatform(host(osName = "Linux", osArch = "amd64")))
+        assertEquals("linux-arm64", claudeReleasePlatform(host(osName = "Linux", osArch = "aarch64")))
+        assertNull(claudeReleasePlatform(host(osName = "FreeBSD")))
         assertNull(claudeReleasePlatform(host(osArch = "ppc64")))
     }
 

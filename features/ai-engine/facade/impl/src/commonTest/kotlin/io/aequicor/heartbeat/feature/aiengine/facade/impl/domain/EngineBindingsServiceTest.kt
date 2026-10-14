@@ -7,15 +7,16 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthVerdict
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthenticatorId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -32,7 +33,9 @@ class EngineBindingsServiceTest {
     private val store = FakeBindingStore()
     private val sources = FakeAuthSources()
     private val checks = FakeAuthChecks(clock)
-    private val busy = mutableSetOf<EngineBindingId>()
+    private val released = mutableListOf<EngineBinding>()
+    private var releaseFailure: Exception? = null
+    private var releaseGate: CompletableDeferred<Unit>? = null
 
     private fun TestScope.service(): EngineBindingsService {
         val registry = EngineRegistry(listOf(registration(factory)), EnginePlatform.DesktopMacOs)
@@ -41,7 +44,12 @@ class EngineBindingsServiceTest {
             store,
             sources,
             checks,
-            { it in busy },
+            {
+                assertTrue(store.bindings.value.none { saved -> saved.id == it.id })
+                released += it
+                releaseGate?.await()
+                releaseFailure?.let { failure -> throw failure }
+            },
             facadeContext(clock),
         )
     }
@@ -112,23 +120,67 @@ class EngineBindingsServiceTest {
     }
 
     @Test
-    fun `disabling keeps the binding and disconnect refuses active uses`() = runTest {
+    fun `disabling keeps the binding while disconnect removes it and releases execution`() = runTest {
         val service = service()
         val binding = service.connect(TestEngine, sources.add(managedKey()).info.id)
 
         service.setEnabled(binding.id, false)
         assertFalse(store.bindings.value.single().isEnabled)
 
-        busy += binding.id
-        val error = assertFailsWith<EngineException> { service.disconnect(binding.id) }
-        assertEquals(EngineFailure.Session(SessionFailureReason.Busy), error.failure)
-
-        busy.clear()
         assertTrue(binding.id in factory.routes)
         service.disconnect(binding.id)
         assertTrue(store.bindings.value.isEmpty())
         assertTrue(factory.routes.isEmpty())
+        assertEquals(listOf(binding.copy(isEnabled = false)), released)
         assertIs<EngineException>(assertFailsWith<EngineException> { service.setEnabled(binding.id, true) })
+    }
+
+    @Test
+    fun `failed runtime shutdown can be retried after the binding was removed`() = runTest {
+        val service = service()
+        val binding = service.connect(TestEngine, sources.add(managedKey()).info.id)
+        releaseFailure = IllegalStateException("shutdown failed")
+
+        assertFailsWith<IllegalStateException> { service.disconnect(binding.id) }
+        assertTrue(store.bindings.value.isEmpty())
+        assertTrue(factory.unbinds.isEmpty())
+
+        releaseFailure = null
+        service.disconnect(binding.id)
+        service.disconnect(binding.id)
+
+        assertEquals(listOf(binding, binding), released)
+        assertEquals(listOf(binding.id), factory.unbinds)
+    }
+
+    @Test
+    fun `runtime shutdown does not block route reads and survives caller cancellation`() = runTest {
+        val service = service()
+        val binding = service.connect(TestEngine, sources.add(managedKey()).info.id)
+        releaseGate = CompletableDeferred()
+        val removal = launch { service.disconnect(binding.id) }
+        runCurrent()
+
+        assertTrue(service.saved().isEmpty())
+        removal.cancel()
+        releaseGate?.complete(Unit)
+        removal.join()
+
+        assertEquals(listOf(binding.id), factory.unbinds)
+        assertTrue(factory.routes.isEmpty())
+    }
+
+    @Test
+    fun `failed removal does not stop execution or unbind the adapter`() = runTest {
+        val service = service()
+        val binding = service.connect(TestEngine, sources.add(managedKey()).info.id)
+        store.saveFailure = IllegalStateException("disk")
+
+        assertFailsWith<IllegalStateException> { service.disconnect(binding.id) }
+
+        assertEquals(listOf(binding), store.bindings.value)
+        assertTrue(released.isEmpty())
+        assertTrue(factory.unbinds.isEmpty())
     }
 
     @Test

@@ -263,6 +263,9 @@ internal class FakeNativeSession(
 internal class FakeRuntime(override val identity: RuntimeIdentity, supports: Boolean = true) : EngineRuntime {
     val sessions = mutableListOf<FakeNativeSession>()
     var closes = 0
+    var closeFailure: Exception? = null
+    var closeGate: CompletableDeferred<Unit>? = null
+    var sessionGate: CompletableDeferred<Unit>? = null
     override var isClosed = false
 
     override val features: EngineFeatures = if (!supports) {
@@ -272,8 +275,10 @@ internal class FakeRuntime(override val identity: RuntimeIdentity, supports: Boo
             mapOf(
                 CreatesSessions.id to available(
                     object : CreatesSessions {
-                        override suspend fun create(request: CreateSessionRequest): ActiveSession =
-                            FakeNativeSession(sessionRef("created-${sessions.size + 1}")).also { sessions += it }
+                        override suspend fun create(request: CreateSessionRequest): ActiveSession {
+                            sessionGate?.await()
+                            return FakeNativeSession(sessionRef("created-${sessions.size + 1}")).also { sessions += it }
+                        }
                     },
                 ),
                 AttachesSessions.id to available(
@@ -288,5 +293,8 @@ internal class FakeRuntime(override val identity: RuntimeIdentity, supports: Boo
 
     override suspend fun close() {
         closes++
+        closeGate?.await()
+        closeFailure?.let { throw it }
+        isClosed = true
     }
 }

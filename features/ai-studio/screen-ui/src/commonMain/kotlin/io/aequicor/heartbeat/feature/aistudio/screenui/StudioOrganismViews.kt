@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -34,7 +33,6 @@ import io.aequicor.heartbeat.ds.components.HbTooltip
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.layouts.HbRow
-import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_abort
@@ -209,8 +207,9 @@ private fun organismActions(organism: OrganismUi): List<HbMenuItem> = listOfNotN
 /**
  * The organism's state and its cells' permission requests in shared questionnaire cards. What a request approves is
  * shown whole within [descriptionMaxHeight], as the pane's own requests are. The bounded list scrolls so every
- * cell's answer remains reachable when several requests exceed the space above the composer. A chat whose organism
- * is out of view (organic AI is off or asleep, or the organism is no longer kept) says so instead of showing nothing.
+ * cell's answer remains reachable through the pane's shared notice scroll when requests exceed the space above the
+ * composer. A chat whose organism is out of view (organic AI is off or asleep, or the organism is no longer kept)
+ * says so instead of showing nothing.
  */
 @Composable
 internal fun OrganismNotices(content: PaneContent, descriptionMaxHeight: Dp, onIntent: (StudioIntent) -> Unit) {
@@ -219,8 +218,7 @@ internal fun OrganismNotices(content: PaneContent, descriptionMaxHeight: Dp, onI
     // While its organism is being conceived the chat runs; only one out of view afterwards is explained.
     if (organism == null && content.session.isRunning) return
     HbColumn(
-        Modifier.fillMaxWidth().hbVerticalScroll(rememberScrollState())
-            .testTag("organism-notices-${content.pane.id}"),
+        Modifier.fillMaxWidth().testTag("organism-notices-${content.pane.id}"),
         gap = HbTheme.spacing.none,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {

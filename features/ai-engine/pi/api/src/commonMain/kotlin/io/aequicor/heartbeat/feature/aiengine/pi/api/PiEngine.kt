@@ -43,13 +43,13 @@ public val PiEnabled: FeatureToggle.Flag = FeatureToggle.Flag("ai.pi", "Встр
  * Coding Plan origins, or for OpenAI-/Anthropic-compatible servers ([CompatibleProtocol]);
  * the native `zai` route uses `https://api.z.ai/api/coding/paas/v4`, not the pay-as-you-go API.
  * model ids are `provider/native-id`. Stored transcripts of the profile are resumed after a restart
- * ([AttachesSessions]). Desktop only (Windows, macOS).
+ * ([AttachesSessions]). Desktop only (Windows, macOS, Linux).
  */
 public val PiDescriptor: EngineDescriptor = EngineDescriptor(
     id = PiEngineId,
     title = "Pi",
     family = EngineFamily.BuiltIn,
-    platforms = setOf(EnginePlatform.DesktopWindows, EnginePlatform.DesktopMacOs),
+    platforms = setOf(EnginePlatform.DesktopWindows, EnginePlatform.DesktopMacOs, EnginePlatform.DesktopLinux),
     toggle = PiEnabled,
     declaredFeatures = setOf(
         CreatesSessions.id,

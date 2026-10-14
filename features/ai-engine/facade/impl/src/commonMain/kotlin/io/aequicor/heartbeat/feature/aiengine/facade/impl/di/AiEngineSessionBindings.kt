@@ -20,7 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.SessionHooks
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ActiveSessionAssembler
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ActiveSessionHost
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ActiveSessionRegistry
-import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.BindingUsage
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.BindingRelease
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EnabledEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.FacadeCapabilities
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.FacadeContext
@@ -41,9 +41,9 @@ object AiEngineSessionBindings {
     @SingleIn(ProfileScope::class)
     fun handles(): ActiveSessionRegistry = ActiveSessionRegistry()
 
-    /** Bindings in use cannot be disconnected. */
+    /** Explicit disconnection also stops accepted work; lazy access avoids a cycle through engine management. */
     @Provides
-    fun usage(handles: ActiveSessionRegistry): BindingUsage = handles
+    fun release(pool: Lazy<RuntimePool>): BindingRelease = BindingRelease { pool.value.disconnect(it) }
 
     /** Rules shared by every handle. */
     @Provides

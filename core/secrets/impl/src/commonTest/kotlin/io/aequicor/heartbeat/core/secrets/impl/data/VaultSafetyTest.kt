@@ -11,12 +11,24 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.job
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class VaultSafetyTest {
+    @Test
+    fun fixedKeyringDiagnosisReachesTheCallerWithoutNativeDetails() = runTest {
+        val env = VaultTestEnv(this)
+        env.backend.beforeRead = { throw ProtectedVaultAccessException(VaultAccessProblem.LinuxKeyringLocked) }
+
+        val failure = assertFailsWith<IllegalStateException> { env.store().read(SecretKey("key")) }
+
+        assertEquals(VaultAccessProblem.LinuxKeyringLocked.description, failure.message)
+        assertNull(failure.cause)
+    }
+
     @Test
     fun explicitWipeDoesNotDecodeCorruptedData() = runTest {
         val env = VaultTestEnv(this)

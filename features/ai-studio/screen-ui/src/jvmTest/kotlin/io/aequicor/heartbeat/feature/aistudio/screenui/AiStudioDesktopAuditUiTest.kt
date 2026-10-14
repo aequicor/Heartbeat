@@ -44,6 +44,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_send
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.jump_latest
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.dismissNotice
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.reduce
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
 import kotlinx.collections.immutable.persistentListOf
@@ -308,6 +309,8 @@ private fun SkikoComposeUiTest.focusedAuditNodes(): List<String> =
 
 /** Only presentation reducers are exercised; navigation in this fixture has no runtime side effects. */
 private fun AiStudioScreenState.auditIntent(intent: StudioIntent): AiStudioScreenState = when (intent) {
+    is StudioIntent.DismissNotice -> dismissNotice(intent)
+
     is StudioIntent.Sidebar -> copy(sidebar = sidebar.reduce(intent))
 
     is StudioIntent.Suggestions.DraftChanged -> withDraft(intent.paneId, intent.text)

@@ -98,6 +98,7 @@ internal class DefaultAgentToolsPolicyTest {
     fun `adapters declaring only allowed names still receive instructions that need no tool`() = runTest {
         val seen = mutableListOf<Set<String>?>()
         val owner = object : Owner() {
+            override val hasIndependentInstructions = true
             override suspend fun instructions(scope: AgentToolScope): String {
                 seen += scope.declared
                 return listOfNotNull(

@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FrozenHostedTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCheckpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
@@ -66,6 +67,8 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRun
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
+import io.aequicor.heartbeat.feature.worktreemode.api.runPrepared
+import io.aequicor.heartbeat.feature.worktreemode.api.transition
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
@@ -77,8 +80,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import kotlin.reflect.safeCast
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -87,6 +92,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Clock
+import kotlin.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioTurnExecutorTest {
@@ -343,7 +349,7 @@ class StudioTurnExecutorTest {
             val result = async { fixture.executor.execute(fixture.host, request) }
             runCurrent()
             assertEquals(1, acknowledgements)
-            assertEquals(request, fixture.host.submitted)
+            assertEquals(request, fixture.host.submitted?.copy(delivery = request.delivery))
             assertEquals(ExecutorAttachments, fixture.host.submitted?.attachments)
             assertEquals(request.request, fixture.host.submitted?.request)
             assertTrue(fixture.machine.sent.any { it is WorktreeIntent.Public.RunAccepted })
@@ -705,8 +711,215 @@ class StudioTurnExecutorTest {
     }
 }
 
+class StudioDeferredHarnessContextTest {
+    @Test
+    fun `deferred harnesses recreate frozen declarations once and reuse them after failed attachment`() = runTest {
+        val fixture = deferred()
+        val replacement = ExecutorSession(fixture.turn, "replacement").apply {
+            frozenNames = setOf("harness_list", "restricted_script", "ex_control_tabs")
+        }
+        fixture.host.replacement = replacement
+        var attempts = 0
+        val harnesses = object : StudioHarnessAttach by NoStudioHarnessAttach {
+            override suspend fun restore(harnesses: Set<String>, session: SessionRef) {
+                assertEquals(setOf("restricted"), harnesses)
+                assertEquals(replacement.ref, session)
+                attempts++
+                if (attempts == 1) error("Unconfirmed attachment")
+            }
+        }
+        fixture.host.beforeSubmit = {
+            checkNotNull(fixture.host.carriedRecord).restoreCarriedHarnesses(replacement.ref, harnesses) {
+                fixture.host.carriedRecord = fixture.host.carriedRecord?.copy(
+                    pendingHarnesses = null,
+                    pendingHarnessSource = null,
+                    pendingHarnessContext = null,
+                )
+            }
+        }
+        fixture.tools.release.complete(Unit)
+
+        assertEquals(RunOutcome.Failed, fixture.executor.execute(fixture.host, fixture.request))
+        assertNull(fixture.host.submitted)
+        assertEquals(listOf(fixture.active.ref), fixture.host.rollovers)
+        assertEquals(replacement.ref, fixture.host.carriedRecord?.pendingHarnessContext)
+        assertEquals(mapOf("harness" to setOf("restricted")), fixture.host.opened.last())
+        fixture.host.carriedRecord = Json.decodeFromString(
+            StudioChatRecord.serializer(),
+            Json.encodeToString(StudioChatRecord.serializer(), checkNotNull(fixture.host.carriedRecord)),
+        )
+
+        assertEquals(RunOutcome.Completed, fixture.executor.execute(fixture.host, fixture.request))
+        assertEquals(1, fixture.host.rollovers.size)
+        assertEquals(2, attempts)
+        assertNull(fixture.host.carriedRecord?.pendingHarnessContext)
+        assertNull(fixture.host.carriedRecord?.pendingHarnessSource)
+    }
+
+    @Test
+    fun `deferred declaration refresh refuses recovery and unknown or active native state`() = runTest {
+        val inspections = listOf(TurnInspection.Unknown, TurnInspection.Observed(RequestId("other"), null))
+        for (inspection in inspections) {
+            val fixture = deferred()
+            fixture.active.inspection = inspection
+            assertEquals(RunOutcome.Failed, fixture.executor.execute(fixture.host, fixture.request))
+            assertTrue(fixture.host.rollovers.isEmpty())
+            assertNull(fixture.host.submitted)
+        }
+        val fixture = deferred()
+        assertEquals(
+            RunOutcome.Failed,
+            fixture.executor.execute(fixture.host, fixture.request.copy(recoveryRequests = listOf(RequestId("old")))),
+        )
+        assertTrue(fixture.host.rollovers.isEmpty())
+        assertNull(fixture.host.submitted)
+    }
+
+    @Test
+    fun `empty deferred choices disabled harnesses and dynamic adapters keep the existing context`() = runTest {
+        for (case in listOf("empty", "disabled", "dynamic")) {
+            val fixture = deferred()
+            when (case) {
+                "empty" -> fixture.host.carriedRecord = fixture.host.carriedRecord?.copy(pendingHarnesses = emptySet())
+
+                "disabled" -> fixture.host.carriedHarnesses = object : StudioHarnessAttach by NoStudioHarnessAttach {
+                    override suspend fun attached(session: SessionRef): Set<String>? = null
+                }
+
+                "dynamic" -> fixture.active.frozenNames = null
+            }
+            fixture.tools.release.complete(Unit)
+            assertEquals(RunOutcome.Completed, fixture.executor.execute(fixture.host, fixture.request))
+            assertTrue(fixture.host.rollovers.isEmpty())
+            assertEquals(0, fixture.active.inspections)
+        }
+    }
+
+    private fun deferred(): TurnFixture = TurnFixture().apply {
+        host.isIsolated = false
+        active.frozenNames = setOf("ex_control_tabs")
+        active.inspection = TurnInspection.Idle
+        host.carriedRecord = StudioChatRecord(
+            "chat",
+            "Chat",
+            Instant.DISTANT_PAST,
+            ref = active.ref,
+            pendingHarnesses = setOf("restricted"),
+            pendingHarnessSource = active.ref.copy(nativeId = "original"),
+        )
+    }
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioBrowserEnvironmentTest {
+    @Test
+    fun `outside turn replaces frozen embedded declarations before sending and binds the new session`() = runTest {
+        val fixture = TurnFixture()
+        fixture.active.frozenNames = setOf("browser_tabs", "ex_control_tabs")
+        fixture.active.inspection = TurnInspection.Idle
+        val replacement = ExecutorSession(fixture.turn, "replacement").apply {
+            frozenNames = setOf("ex_control_tabs")
+        }
+        fixture.host.replacement = replacement
+        val environment = ExecutorEnvironment()
+        fixture.host.beforeSubmit = {
+            assertEquals(replacement.ref, environment.boundSession)
+            assertEquals(ActiveSessionState.Closed, fixture.active.state.value)
+        }
+        fixture.tools.release.complete(Unit)
+
+        assertEquals(
+            RunOutcome.Completed,
+            fixture.executor.execute(fixture.host, fixture.request.copy(environment = environment)),
+        )
+        assertEquals(listOf(fixture.active.ref), fixture.host.rollovers)
+        assertEquals(listOf(environment.preselected, environment.preselected), fixture.host.opened)
+        assertEquals(listOf(fixture.active.ref, replacement.ref), environment.bindings)
+        assertEquals(replacement.ref to fixture.turn.id, fixture.tools.finished)
+        assertFalse(environment.isBound)
+        val accepted = fixture.machine.sent.filterIsInstance<WorktreeIntent.Public.RunAccepted>().single()
+        assertEquals(replacement.ref, accepted.session)
+    }
+
+    @Test
+    fun `outside turn keeps an existing compatible frozen session`() = runTest {
+        val fixture = TurnFixture()
+        fixture.active.frozenNames = setOf("ex_control_tabs")
+        fixture.tools.release.complete(Unit)
+        val environment = ExecutorEnvironment()
+
+        assertEquals(
+            RunOutcome.Completed,
+            fixture.executor.execute(fixture.host, fixture.request.copy(environment = environment)),
+        )
+        assertTrue(fixture.host.rollovers.isEmpty())
+        assertEquals(1, fixture.host.openCount)
+        assertFalse(environment.isBound)
+    }
+
+    @Test
+    fun `outside declaration change never replaces active or uncertain native execution`() = runTest {
+        val fixture = TurnFixture()
+        fixture.host.isIsolated = false
+        fixture.active.frozenNames = setOf("browser_tabs")
+        val running = fixture.turn.copy(outcome = null)
+        val states = listOf(
+            ActiveSessionState.Running(running),
+            ActiveSessionState.Unavailable(EngineFailure.Unknown(), running),
+            ActiveSessionState.Ready(fixture.turn.copy(outcome = TurnOutcome.Unknown)),
+        )
+        for (state in states) {
+            fixture.active.state.value = state
+            val environment = ExecutorEnvironment()
+            assertEquals(
+                RunOutcome.Failed,
+                fixture.executor.execute(fixture.host, fixture.request.copy(environment = environment)),
+            )
+            assertEquals(state, fixture.active.state.value)
+            assertFalse(environment.isBound)
+        }
+        assertTrue(fixture.host.rollovers.isEmpty())
+        assertNull(fixture.host.submitted)
+    }
+
+    @Test
+    fun `failed history carry refuses outside turn without sending to the old declarations`() = runTest {
+        val fixture = TurnFixture()
+        fixture.host.isIsolated = false
+        fixture.active.frozenNames = setOf("browser_tabs")
+        fixture.active.inspection = TurnInspection.Idle
+        fixture.host.rolloverFailure = IllegalStateException("History unavailable")
+        val environment = ExecutorEnvironment()
+        assertEquals(
+            RunOutcome.Failed,
+            fixture.executor.execute(fixture.host, fixture.request.copy(environment = environment)),
+        )
+        assertEquals(ActiveSessionState.Ready(fixture.turn), fixture.active.state.value)
+        assertFalse(environment.isBound)
+        assertNull(fixture.host.submitted)
+        assertEquals(1, fixture.host.openCount)
+    }
+
+    @Test
+    fun `cached idle session cannot roll over when native inspection is unknown or running`() = runTest {
+        for (inspection in listOf(TurnInspection.Unknown, TurnInspection.Observed(RequestId("other"), null))) {
+            val fixture = TurnFixture()
+            fixture.host.isIsolated = false
+            fixture.active.frozenNames = setOf("browser_tabs")
+            fixture.active.inspection = inspection
+            val environment = ExecutorEnvironment()
+
+            assertEquals(
+                RunOutcome.Failed,
+                fixture.executor.execute(fixture.host, fixture.request.copy(environment = environment)),
+            )
+            assertEquals(1, fixture.active.inspections)
+            assertTrue(fixture.host.rollovers.isEmpty())
+            assertNull(fixture.host.submitted)
+            assertFalse(environment.isBound)
+        }
+    }
+
     @Test
     fun `closed sender before submission releases outside routing without waiting for reconciliation`() = runTest {
         val fixture = TurnFixture()
@@ -839,6 +1052,232 @@ class StudioBrowserEnvironmentTest {
     }
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
+class StudioClosedTurnExecutorTest {
+    @Test
+    fun `closing an accepted turn ends observation without confirming native completion or releasing its worktree`() =
+        runTest {
+            val fixture = TurnFixture()
+            fixture.active.state.value = ActiveSessionState.Running(fixture.turn.copy(outcome = null))
+            var outcome: TurnOutcome? = null
+            val run = async {
+                fixture.executor.execute(fixture.host, fixture.request.copy(onOutcome = { outcome = it }))
+            }
+            runCurrent()
+            fixture.active.state.value = ActiveSessionState.Closed
+            runCurrent()
+            assertFalse(run.isCompleted)
+            assertTrue(fixture.machine.sent.last() is WorktreeIntent.Public.RunObservationLost)
+            fixture.tools.release.complete(Unit)
+            assertEquals(RunOutcome.Failed, run.await())
+            assertEquals(TurnOutcome.Unknown, outcome)
+            assertEquals(fixture.active.ref to fixture.turn.id, fixture.tools.finished)
+            assertTrue(fixture.host.terminalReceipts.isEmpty())
+            assertTrue(fixture.machine.sent.none { it is WorktreeIntent.Public.RunSettled })
+            assertTrue(fixture.events.none { it == "refresh" || it == "cancel" })
+        }
+
+    @Test
+    fun `closing during cancellation recovery ends both bounded and continued observation without settlement`() =
+        runTest {
+            for (elapsed in listOf(0L, 30_001L)) {
+                val fixture = TurnFixture()
+                fixture.host.stopCheckFailure = IllegalStateException("Stop check failed")
+                fixture.active.state.value = ActiveSessionState.Running(fixture.turn.copy(outcome = null))
+                var outcome: TurnOutcome? = null
+                val run = async {
+                    fixture.executor.execute(fixture.host, fixture.request.copy(onOutcome = { outcome = it }))
+                }
+                runCurrent()
+                advanceTimeBy(elapsed)
+                runCurrent()
+                assertFalse(run.isCompleted)
+                fixture.active.state.value = ActiveSessionState.Closed
+                fixture.tools.release.complete(Unit)
+                assertEquals(RunOutcome.Failed, run.await())
+                assertEquals(TurnOutcome.Unknown, outcome)
+                assertEquals(fixture.active.ref to fixture.turn.id, fixture.tools.finished)
+                assertTrue(fixture.host.terminalReceipts.isEmpty())
+                assertEquals(1, fixture.machine.sent.count { it is WorktreeIntent.Public.RunObservationLost })
+                assertTrue(fixture.machine.sent.none { it is WorktreeIntent.Public.RunSettled })
+            }
+        }
+
+    @Test
+    fun `closing during uncertain submission ends the run without rejecting or settling pending worktree ownership`() =
+        runTest {
+            for (environment in listOf(null, ExecutorEnvironment())) {
+                val fixture = TurnFixture()
+                fixture.host.isNativeSubmissionEnabled = true
+                fixture.active.sendFailure = EngineException(
+                    EngineFailure.Request(RequestFailureReason.OutcomeUnknown, fixture.request.request),
+                )
+                var outcome: TurnOutcome? = null
+                val run = async {
+                    fixture.executor.execute(
+                        fixture.host,
+                        fixture.request.copy(environment = environment, onOutcome = { outcome = it }),
+                    )
+                }
+                runCurrent()
+                assertFalse(run.isCompleted)
+                fixture.active.state.value = ActiveSessionState.Closed
+                assertEquals(RunOutcome.Failed, run.await())
+                assertEquals(TurnOutcome.Unknown, outcome)
+                environment?.let { assertTrue(it.isBound) }
+                assertTrue(fixture.host.submitted?.delivery?.isPending == true)
+                assertNull(fixture.tools.finished)
+                assertTrue(fixture.host.acceptedReceipts.isEmpty())
+                assertTrue(fixture.host.terminalReceipts.isEmpty())
+                assertTrue(fixture.machine.sent.any { it is WorktreeIntent.Public.RunStarted })
+                val task = (fixture.machine.state.value as WorktreeState.Ready).tasks.getValue("chat")
+                assertEquals(WorktreePhase.RecoveryRequired, task.phase)
+                assertEquals(fixture.active.ref, task.run?.session)
+                assertNull(task.run?.turn)
+                assertNull(task.run?.outcome)
+                assertTrue(fixture.machine.sent.any { it is WorktreeIntent.Public.RunSubmissionObservationLost })
+                assertTrue(fixture.machine.sent.none { it is WorktreeIntent.Public.RunRejected })
+                assertTrue(fixture.machine.sent.none { it is WorktreeIntent.Public.RunSettled })
+            }
+        }
+}
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class StudioSubmissionRecoveryTest {
+    @Test
+    fun `closed uncertain submission reconciles its exact terminal turn before a new worktree request`() = runTest {
+        val request = RequestId("request")
+        val terminalEvidence = listOf(
+            TurnOutcome.Completed to TurnInspection.Observed(request, TurnOutcome.Completed),
+            TurnOutcome.Unknown to TurnInspection.Observed(request, TurnOutcome.Unknown),
+            TurnOutcome.Unknown to TurnInspection.Idle,
+        )
+        for ((priorOutcome, inspection) in terminalEvidence) {
+            val fixture = TurnFixture()
+            fixture.host.isNativeSubmissionEnabled = true
+            fixture.active.sendFailure = EngineException(
+                EngineFailure.Request(RequestFailureReason.OutcomeUnknown, fixture.request.request),
+            )
+            val first = async { fixture.executor.execute(fixture.host, fixture.request) }
+            runCurrent()
+            fixture.active.state.value = ActiveSessionState.Closed
+            assertEquals(RunOutcome.Failed, first.await())
+            val retry = fixture.request.copy(request = RequestId("retry"))
+            fixture.active.sendFailure = null
+            fixture.active.state.value = ActiveSessionState.Ready(fixture.turn.copy(outcome = priorOutcome))
+            fixture.active.inspection = inspection
+            fixture.host.beforeSubmit = {
+                fixture.active.state.value = ActiveSessionState.Ready(fixture.turn.copy(request = retry.request))
+            }
+            fixture.tools.release.complete(Unit)
+            assertEquals(RunOutcome.Completed, fixture.executor.execute(fixture.host, retry))
+            assertEquals(0L, testScheduler.currentTime)
+            assertTrue(fixture.machine.sent.none { it is WorktreeIntent.Public.RunRejected })
+            val settled = fixture.machine.sent.filterIsInstance<WorktreeIntent.Public.RunSettled>()
+            assertEquals(listOf(fixture.request.request, retry.request), settled.map { it.request })
+            assertEquals(priorOutcome, settled.first().outcome)
+            assertEquals(listOf(retry.request to fixture.turn.id), fixture.host.acceptedReceipts)
+        }
+    }
+
+    @Test
+    fun `fresh native idle permits a new request without a false submission receipt`() = runTest {
+        val fixture = TurnFixture()
+        val pending = fixture.mainTask().copy(
+            chatId = fixture.request.id,
+            phase = WorktreePhase.RecoveryRequired,
+            run = WorktreeRun(fixture.request.request, session = fixture.active.ref, isPrepared = true),
+            isIsolated = true,
+        )
+        fixture.machine.state.value = WorktreeState.Ready(mapOf(pending.chatId to pending))
+        fixture.active.state.value = ActiveSessionState.Ready()
+        fixture.active.inspection = TurnInspection.Idle
+        val retry = fixture.request.copy(request = RequestId("retry"))
+        fixture.host.beforeSubmit = {
+            fixture.active.state.value = ActiveSessionState.Ready(fixture.turn.copy(request = retry.request))
+        }
+        fixture.tools.release.complete(Unit)
+        assertEquals(RunOutcome.Completed, fixture.executor.execute(fixture.host, retry))
+        assertEquals(0L, testScheduler.currentTime)
+        assertEquals(1, fixture.active.inspections)
+        assertTrue(fixture.machine.sent.none { it is WorktreeIntent.Public.RunRejected })
+        assertEquals(
+            listOf(
+                WorktreeIntent.Public.RunSubmissionReconciled(
+                    pending.chatId,
+                    fixture.request.request,
+                    fixture.active.ref,
+                ),
+            ),
+            fixture.machine.sent.filterIsInstance<WorktreeIntent.Public.RunSubmissionReconciled>(),
+        )
+        assertEquals(
+            listOf(retry.request),
+            fixture.machine.sent.filterIsInstance<WorktreeIntent.Public.RunSettled>().map { it.request },
+        )
+    }
+
+    @Test
+    fun `recovery immediately refuses unrelated or unconfirmed native evidence`() = runTest {
+        val evidenceCases = listOf(
+            "foreign session",
+            "idle",
+            "other request",
+            "unknown outcome",
+            "unknown inspection",
+            "other inspected request",
+            "idle while running",
+            "idle while unavailable with active turn",
+        )
+        for (evidence in evidenceCases) {
+            val fixture = TurnFixture()
+            val session = if (evidence == "foreign session") {
+                SessionRef(EngineId("test"), SessionSourceId("local"), "other")
+            } else {
+                fixture.active.ref
+            }
+            val pending = fixture.mainTask().copy(
+                chatId = fixture.request.id,
+                phase = WorktreePhase.RecoveryRequired,
+                run = WorktreeRun(fixture.request.request, session = session, isPrepared = true),
+                isIsolated = true,
+            )
+            fixture.machine.state.value = WorktreeState.Ready(mapOf(pending.chatId to pending))
+            fixture.active.inspection = when (evidence) {
+                "idle while running", "idle while unavailable with active turn" -> TurnInspection.Idle
+                "unknown inspection" -> TurnInspection.Unknown
+                "other inspected request" -> TurnInspection.Observed(RequestId("other"), TurnOutcome.Completed)
+                else -> null
+            }
+            fixture.active.state.value = when (evidence) {
+                "idle while running" -> ActiveSessionState.Running(fixture.turn.copy(outcome = null))
+
+                "idle while unavailable with active turn" -> ActiveSessionState.Unavailable(
+                    EngineFailure.Request(RequestFailureReason.OutcomeUnknown, fixture.request.request),
+                    fixture.turn.copy(outcome = null),
+                )
+
+                "idle" -> ActiveSessionState.Ready()
+
+                "other request" -> ActiveSessionState.Ready(fixture.turn.copy(request = RequestId("other")))
+
+                "unknown outcome" -> ActiveSessionState.Ready(fixture.turn.copy(outcome = TurnOutcome.Unknown))
+
+                else -> ActiveSessionState.Ready(fixture.turn)
+            }
+            assertEquals(
+                RunOutcome.Failed,
+                fixture.executor.execute(fixture.host, fixture.request.copy(request = RequestId("retry"))),
+            )
+            assertEquals(0L, testScheduler.currentTime)
+            assertEquals(pending, (fixture.machine.state.value as WorktreeState.Ready).tasks.getValue(pending.chatId))
+            assertTrue(fixture.machine.sent.isEmpty())
+            assertNull(fixture.host.submitted)
+            assertNull(fixture.tools.finished)
+        }
+    }
+}
+
 private class TurnFixture(harnesses: StudioHarnessAttach = NoStudioHarnessAttach) {
     val events = mutableListOf<String>()
     val request = StudioTurnRequest(
@@ -880,6 +1319,8 @@ private class RecordingHarnessAttach : StudioHarnessAttach {
     override suspend fun beforeSubmit(submissionId: String, session: SessionRef) {
         calls += "connect $submissionId"
     }
+    override suspend fun attached(session: SessionRef): Set<String> = emptySet()
+    override suspend fun restore(harnesses: Set<String>, session: SessionRef) = Unit
     override fun release(submissionId: String) {
         calls += "release $submissionId"
     }
@@ -897,12 +1338,17 @@ private class ExecutorTools(private val events: MutableList<String>) : ProfileAg
 }
 
 private class ExecutorHost(
-    private val active: ExecutorSession,
+    private var active: ExecutorSession,
     private val turn: Turn,
     private val events: MutableList<String>,
 ) : StudioTurnHost,
     StudioTurnObserver {
     var openFailure: Exception? = null
+    var replacement: ExecutorSession? = null
+    var carriedRecord: StudioChatRecord? = null
+    var carriedHarnesses: StudioHarnessAttach = NoStudioHarnessAttach
+    var rolloverFailure: Exception? = null
+    val rollovers = mutableListOf<SessionRef>()
     var stopCheckFailure: Exception? = null
     var isNativeSubmissionEnabled = false
     var submitted: StudioTurnRequest? = null
@@ -940,9 +1386,16 @@ private class ExecutorHost(
         preselected: Map<String, Set<String>>,
     ): ActiveSession {
         openCount++
-        opened += preselected
+        opened += carriedRecord?.withCarriedHarnesses(preselected) ?: preselected
         events += "open"
         openFailure?.let { throw it }
+        carriedRecord?.takeIf { it.ref == null }?.let { record ->
+            carriedRecord = record.withNativeReference(
+                turn.target,
+                active.ref,
+                record.isHarnessCarryEnabled(carriedHarnesses),
+            )
+        }
         return active
     }
     override suspend fun submitTurn(active: ActiveSession, request: StudioTurnRequest): TurnId {
@@ -963,6 +1416,15 @@ private class ExecutorHost(
         request.delivery?.isPending = true
         return turn.id
     }
+    override suspend fun needsCarriedTools(id: String, active: ActiveSession): Boolean =
+        carriedRecord?.needsHarnessDeclarations(active.ref, carriedHarnesses) == true
+    override suspend fun rolloverTurn(request: StudioTurnRequest, active: ActiveSession) {
+        rolloverFailure?.let { throw it }
+        rollovers += active.ref
+        active.close()
+        this.active = checkNotNull(replacement)
+        carriedRecord = carriedRecord?.rolledOver("previous context")
+    }
     override suspend fun shouldStop(id: String): Boolean {
         stopCheckFailure?.let { throw it }
         return false
@@ -979,7 +1441,11 @@ private class ExecutorHost(
     }
     override suspend fun outcome(id: String, outcome: TurnOutcome?): RunOutcome {
         events += "outcome"
-        return RunOutcome.Completed
+        return when (outcome) {
+            TurnOutcome.Completed -> RunOutcome.Completed
+            TurnOutcome.Cancelled -> RunOutcome.Stopped
+            TurnOutcome.Unknown, is TurnOutcome.Failed, null -> RunOutcome.Failed
+        }
     }
     override suspend fun failedTurn(id: String, error: Exception): RunOutcome {
         events += "failure"
@@ -987,8 +1453,8 @@ private class ExecutorHost(
     }
 }
 
-private class ExecutorSession(private val turn: Turn) : ActiveSession {
-    override val ref = SessionRef(EngineId("test"), SessionSourceId("local"), "session")
+private class ExecutorSession(private val turn: Turn, nativeId: String = "session") : ActiveSession {
+    override val ref = SessionRef(EngineId("test"), SessionSourceId("local"), nativeId)
     override val route = ExecutionRoute(
         ref.engine,
         EngineBindingId("binding"),
@@ -1003,6 +1469,10 @@ private class ExecutorSession(private val turn: Turn) : ActiveSession {
     var inspection: TurnInspection? = null
     var inspections = 0
     var inspectedCheckpoint: String? = null
+    var frozenNames: Set<String>? = null
+    private val frozenTools = object : FrozenHostedTools {
+        override val names: Set<String> get() = frozenNames.orEmpty()
+    }
     private val inspector = object : RestoresSessionTurns {
         override suspend fun checkpoint(request: RequestId): String? = null
         override suspend fun inspect(checkpoint: String?): TurnInspection {
@@ -1042,11 +1512,14 @@ private class ExecutorSession(private val turn: Turn) : ActiveSession {
                 prompts,
                 reconciler,
                 inspector.takeIf { inspection != null },
+                frozenTools.takeIf { frozenNames != null },
             ).firstNotNullOfOrNull { key.type.safeCast(it) }
                 ?.let { FeatureAccess.Available(it) } ?: FeatureAccess.Unsupported
         }
     }
-    override suspend fun close() = Unit
+    override suspend fun close() {
+        state.value = ActiveSessionState.Closed
+    }
 }
 
 private class ExecutorMachine(private val events: MutableList<String>) :
@@ -1075,10 +1548,13 @@ private class ExecutorMachine(private val events: MutableList<String>) :
                 val task = (state.value as WorktreeState.Ready).tasks.getValue("chat")
                 state.value = WorktreeState.Ready(
                     mapOf(
-                        "chat" to task.copy(
-                            phase = if (isPrepared) WorktreePhase.Working else WorktreePhase.Failed,
-                            run = WorktreeRun(intent.request, intent.kind, isPrepared = isPrepared),
-                        ),
+                        "chat" to task.transition(intent).let { started ->
+                            if (isPrepared) {
+                                started.runPrepared(intent.request)
+                            } else {
+                                started.copy(phase = WorktreePhase.Failed)
+                            }
+                        },
                     ),
                 )
             }
@@ -1089,11 +1565,16 @@ private class ExecutorMachine(private val events: MutableList<String>) :
 
             is WorktreeIntent.Public.RunRejected -> events += "rejected"
 
+            is WorktreeIntent.Public.RunSubmissionObservationLost,
+            is WorktreeIntent.Public.RunSubmissionReconciled,
+            is WorktreeIntent.Public.RunObservationLost,
+            -> Unit
+
             is WorktreeIntent.Public.CancelBuild -> events += "cancel-build"
 
             WorktreeIntent.Public.Start, WorktreeIntent.Public.RetryLoad,
             is WorktreeIntent.Public.Prepare, is WorktreeIntent.Public.TrackMainSession,
-            is WorktreeIntent.Public.RunObservationLost, is WorktreeIntent.Public.TaskCompleteSignaled,
+            is WorktreeIntent.Public.TaskCompleteSignaled,
             is WorktreeIntent.Public.ChooseAction, is WorktreeIntent.Public.ActionDelivered,
             is WorktreeIntent.Public.ActionDeliveryFailed, is WorktreeIntent.Public.Recheck,
             is WorktreeIntent.Public.ProposeBuildPlan, is WorktreeIntent.Public.ApproveBuildPlan,
@@ -1101,6 +1582,10 @@ private class ExecutorMachine(private val events: MutableList<String>) :
             -> error(
                 "Unexpected intent $intent",
             )
+        }
+        if (intent !is WorktreeIntent.Public.RunStarted) {
+            val ready = state.value as WorktreeState.Ready
+            state.value = WorktreeState.Ready(ready.tasks.mapValues { (_, task) -> task.transition(intent) })
         }
         return SendResult.Accepted
     }
@@ -1137,9 +1622,18 @@ private class ExecutorProfile(override val coroutineScope: CoroutineScope) : Sco
 }
 
 private class ExecutorEnvironment : StudioChatEnvironment {
+    override val preselected = mapOf("external_browser" to setOf("browser"))
+    override fun acceptsTool(name: String): Boolean = !name.startsWith("browser_")
+    val bindings = mutableListOf<SessionRef>()
+    var boundSession: SessionRef? = null
     var isBound = false
     override fun bind(session: SessionRef): AutoCloseable {
+        bindings += session
+        boundSession = session
         isBound = true
-        return AutoCloseable { isBound = false }
+        return AutoCloseable {
+            boundSession = null
+            isBound = false
+        }
     }
 }

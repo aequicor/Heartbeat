@@ -20,6 +20,7 @@ import java.awt.event.KeyEvent
 internal class DesktopDocumentKeyboard(
     private val dismissal: DesktopDocumentDismissal,
     private val isMac: Boolean = OS.isMacintosh(),
+    private val focusExit: DesktopDocumentFocusExit = DesktopDocumentFocusExit(),
 ) : CefKeyboardHandlerAdapter(),
     CefFocusHandler {
     private var editingPress: EditingPress? = null
@@ -27,6 +28,8 @@ internal class DesktopDocumentKeyboard(
     /** Focus can leave before key-up; the next attachment must not inherit a half-finished press. */
     override fun onTakeFocus(browser: CefBrowser, next: Boolean) {
         editingPress = null
+        // JCEF has already bounded AWT traversal to this attachment; now restore its Compose overlay target.
+        focusExit.request()
     }
 
     /** Observe CEF focus without intercepting or requesting it. */

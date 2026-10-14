@@ -118,7 +118,13 @@ class HbDialogOverlayUiTest {
                     LocalHbDialogOverlayInsets provides HbDialogOverlayInsets(100.dp, 100.dp),
                 ) {
                     HbTheme(dimensions = HbDimensions.Desktop) {
-                        HbDialog("Ordinary dialog", {}, Modifier.testTag("dialog")) {
+                        HbDialog(
+                            "Ordinary dialog",
+                            {},
+                            Modifier.testTag("dialog"),
+                            headerActions = { HbIconButton(HbIcons.More, "Header action", {}) },
+                            overlayCloseLabel = "Overlay close",
+                        ) {
                             val occupied = LocalHbDialogOverlayInsets.current
                             SideEffect { seen = occupied }
                             Box(Modifier.fillMaxWidth().height(180.dp).testTag("page"))
@@ -127,6 +133,8 @@ class HbDialogOverlayUiTest {
                 }
             }
             onNodeWithText("Ordinary dialog").assertIsDisplayed()
+            onNodeWithContentDescription("Header action").assertIsDisplayed()
+            onNodeWithContentDescription("Overlay close").assertDoesNotExist()
             val page = onNodeWithTag("page").fetchSemanticsNode().boundsInRoot
             val dialog = onNodeWithTag("dialog").fetchSemanticsNode().boundsInRoot
             assertEquals(180f, page.height)

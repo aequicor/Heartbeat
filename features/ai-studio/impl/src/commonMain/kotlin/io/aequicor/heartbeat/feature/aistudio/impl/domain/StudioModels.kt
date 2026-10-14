@@ -162,7 +162,19 @@ sealed interface StudioMessage {
 enum class ContextNoticeKind { Compacted, RolledOver }
 
 /** User-facing class of a failed run; native error text is never shown. */
-enum class RunFailureKind { Limit, Context, Authentication, Network, Unknown }
+enum class RunFailureKind {
+    Limit,
+    Quota,
+    Context,
+    Authentication,
+    CredentialsMissing,
+    ConnectionChanged,
+    Network,
+    Access,
+    RequestRejected,
+    EngineUnavailable,
+    Unknown,
+}
 
 /** A model offered by the studio composer. */
 data class StudioModel(

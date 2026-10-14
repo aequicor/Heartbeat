@@ -10,6 +10,7 @@ import kotlinx.coroutines.ensureActive
 
 /** Revocable authority of a retained surface; cancellation never replaces its document registration. */
 internal class SurfaceExecution(val session: SurfaceSession, parent: CoroutineScope) {
+    val inputBinding = SurfaceInputBinding()
     private val job = SupervisorJob(parent.coroutineContext[Job])
     private val scope = CoroutineScope(parent.coroutineContext + job)
     val isActive: Boolean get() = job.isActive && session.host.isActive()

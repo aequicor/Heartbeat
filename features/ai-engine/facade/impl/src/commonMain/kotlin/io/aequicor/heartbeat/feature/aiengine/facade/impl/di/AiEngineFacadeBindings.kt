@@ -25,7 +25,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.EngineManagementS
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.EngineSettingsSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.ProfileEngineGate
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.ProfileLaunchConfig
-import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.BindingUsage
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.BindingRelease
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EnabledEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineBindingsService
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineGate
@@ -108,14 +108,14 @@ object AiEngineFacadeBindings {
         @ForScope(ProfileScope::class) stores: DataStores,
         sources: AuthSources,
         checks: AuthChecks,
-        usage: BindingUsage,
+        release: BindingRelease,
         context: FacadeContext,
     ): EngineBindingsService = EngineBindingsService(
         gate,
         BindingStorage(stores.keyValue(EngineSettingsSpec)),
         sources,
         checks,
-        usage,
+        release,
         context,
     )
 
@@ -131,5 +131,5 @@ private fun HostPlatform.enginePlatform(): EnginePlatform? = when (this) {
     HostPlatform.Ios -> EnginePlatform.Ios
     HostPlatform.MacOs -> EnginePlatform.DesktopMacOs
     HostPlatform.Windows -> EnginePlatform.DesktopWindows
-    HostPlatform.Linux -> null
+    HostPlatform.Linux -> EnginePlatform.DesktopLinux
 }

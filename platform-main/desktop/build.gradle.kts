@@ -1,5 +1,6 @@
 import io.aequicor.heartbeat.buildlogic.PackageInnoSetup
 import io.aequicor.heartbeat.buildlogic.PreparePiRuntime
+import io.aequicor.heartbeat.buildlogic.VerifyChromiumPanelArtifact
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
 import org.jetbrains.compose.desktop.application.tasks.AbstractCheckNativeDistributionRuntime
@@ -115,14 +116,38 @@ preparePiRuntime?.let { task -> tasks.named("processResources") { dependsOn(task
 
 // App resources of the distribution: the Pi runtime and the Chromium extension folder that settings offer for
 // "Load unpacked". Runs from a checkout use the repository's extension folder instead (DesktopExtensionFolder).
+// CI passes the artifact exported by prepareChromiumPanelArtifact from this release's Linux build.
+// Without the property, local packaging continues to build the panel from the checkout.
+val prebuiltChromiumPanel = providers.gradleProperty("heartbeat.chromiumPanelDir").orNull?.let { path ->
+    require(path.isNotBlank()) { "heartbeat.chromiumPanelDir must name a prebuilt Chromium panel directory" }
+    layout.settingsDirectory.dir(path)
+}
+val verifyChromiumPanelArtifact = if (prebuiltChromiumPanel != null) {
+    tasks.register<VerifyChromiumPanelArtifact>("verifyChromiumPanelArtifact") {
+        group = "verification"
+        description = "Checks the complete prebuilt Chromium panel before desktop packaging."
+        panelDirectory.set(prebuiltChromiumPanel)
+    }
+} else {
+    null
+}
 val collectAppResources = tasks.register<Sync>("collectAppResources") {
-    dependsOn(":chromium-plugin:panel:syncChromiumPanel")
+    if (verifyChromiumPanelArtifact != null) {
+        dependsOn(verifyChromiumPanelArtifact)
+        from(verifyChromiumPanelArtifact.flatMap { it.panelDirectory }) {
+            into("common/chromium-plugin/app")
+            exclude("SHA256SUMS")
+        }
+    } else {
+        dependsOn(":chromium-plugin:panel:syncChromiumPanel")
+    }
     preparePiRuntime?.let { task -> from(task.flatMap { it.outputDirectory }) }
     from(layout.settingsDirectory.dir("chromium-plugin")) {
         into("common/chromium-plugin")
         // Tests, editor typings, a private signing key and the Kotlin sources of the side panel (built into app/)
         // are not part of the extension.
         exclude("tests/**", "jsconfig.json", "src/types/**", "*.pem", "panel/**")
+        if (prebuiltChromiumPanel != null) exclude("app/**")
     }
     into(layout.buildDirectory.dir("generated/appResources"))
 }
@@ -172,6 +197,7 @@ compose.desktop {
             linux {
                 // Debian package names are lowercase.
                 packageName = "heartbeat"
+                shortcut = true
                 iconFile.set(layout.projectDirectory.file("icons/heartbeat.png"))
             }
             appResourcesRootDir.set(layout.dir(collectAppResources.map { it.destinationDir }))
@@ -222,6 +248,36 @@ afterEvaluate {
     tasks.withType<AbstractJPackageTask>().configureEach {
         dependsOn(verifyWindowRuntime)
         dependsOn(verifyBrowserRuntime)
+        if (targetFormat == TargetFormat.Deb) {
+            // jpackage cannot discover libraries loaded through JNA or from the JCEF native archive.
+            // Compose exposes extra jpackage options on the task, not in LinuxPlatformSettings.
+            // These package names target Ubuntu 24.04; no spaces keeps the value intact in Compose's argfile.
+            freeArgs.addAll(
+                "--linux-package-deps",
+                listOf(
+                    "libsecret-1-0",
+                    "libnss3",
+                    "libnspr4",
+                    "libatk1.0-0t64",
+                    "libatk-bridge2.0-0t64",
+                    "libcups2t64",
+                    "libdrm2",
+                    "libxkbcommon0",
+                    "libxcomposite1",
+                    "libxdamage1",
+                    "libxfixes3",
+                    "libxrandr2",
+                    "libgbm1",
+                    "libasound2t64",
+                    "libgtk-3-0t64",
+                    "libx11-6",
+                    "libxcb1",
+                    "libxext6",
+                    "libxrender1",
+                    "libxtst6",
+                ).joinToString(","),
+            )
+        }
         if (!name.contains("Release")) {
             launcherMainClass.set("io.aequicor.heartbeat.platform.desktop.DevelopmentMainKt")
         } else {

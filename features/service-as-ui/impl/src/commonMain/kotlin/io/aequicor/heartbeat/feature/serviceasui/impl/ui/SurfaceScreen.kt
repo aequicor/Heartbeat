@@ -37,6 +37,7 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.Surface
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceIntent
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceModel
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceState
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.inputsFor
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.Res
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_broken
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_cancel
@@ -122,7 +123,8 @@ internal fun SurfaceScreen(
             states.collect { value = it }
         }
     }
-    SurfaceContent(state, store::intent, modifier, webs, isApp, scrollState, isContentFill, isBodyInset)
+    val onIntent = remember(store, state.inputBinding) { store.inputsFor(state) }
+    SurfaceContent(state, onIntent, modifier, webs, isApp, scrollState, isContentFill, isBodyInset)
     link?.let { url ->
         HbDialog(
             title = stringResource(Res.string.service_ui_open_link_title),

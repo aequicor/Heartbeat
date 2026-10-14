@@ -15,6 +15,9 @@ internal class DesktopDocumentAttachment(private val panel: DesktopDocumentPanel
     var onDismissRequest: (() -> Unit)? = null
         private set
 
+    var onFocusExitRequest: (() -> Unit)? = null
+        private set
+
     var cornerRadius: Double = 0.0
         private set
 
@@ -53,11 +56,20 @@ internal class DesktopDocumentAttachment(private val panel: DesktopDocumentPanel
         return component
     }
 
+    fun updateFocusExitRequest(callback: (() -> Unit)?) {
+        check(SwingUtilities.isEventDispatchThread())
+        if (!isClosed) {
+            onFocusExitRequest = callback
+            panel.updateFocusExitRequest(this)
+        }
+    }
+
     fun close() {
         check(SwingUtilities.isEventDispatchThread())
         if (isClosed) return
         isClosed = true
         onDismissRequest = null
+        onFocusExitRequest = null
         focusCycle?.close()
         focusCycle = null
         host?.clearBackdrop()

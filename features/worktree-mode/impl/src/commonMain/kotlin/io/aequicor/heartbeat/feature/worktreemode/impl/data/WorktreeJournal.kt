@@ -162,6 +162,7 @@ internal class WorktreeJournal(
             WorktreeIntent.Public.Start, WorktreeIntent.Public.RetryLoad,
             is WorktreeIntent.Public.RunStarted, is WorktreeIntent.Public.RunSettled,
             is WorktreeIntent.Public.RunRejected, is WorktreeIntent.Public.RunAccepted,
+            is WorktreeIntent.Public.RunSubmissionObservationLost, is WorktreeIntent.Public.RunSubmissionReconciled,
             is WorktreeIntent.Public.RunObservationLost, is WorktreeIntent.Public.TaskCompleteSignaled,
             is WorktreeIntent.Public.ActionDelivered, is WorktreeIntent.Public.ActionDeliveryFailed,
             is WorktreeIntent.Public.ApproveBuildPlan,
@@ -185,20 +186,29 @@ internal class WorktreeJournal(
 
             is WorktreeIntent.Public.RunRejected -> rejectRun(command)?.let { emit(it.task) }
 
+            is WorktreeIntent.Public.RunSubmissionReconciled -> reconcileSubmission(command)?.let { emit(it.task) }
+
             is WorktreeIntent.Public.ActionDeliveryFailed -> deliveryFailed(command)?.let { emit(it.task) }
 
-            is WorktreeIntent.Public.TaskCompleteSignaled -> commitTransition(
-                command,
-            )?.let { emit(verifyAction(it).task) }
+            is WorktreeIntent.Public.TaskCompleteSignaled -> signalCompletion(command, emit)
 
             is WorktreeIntent.Public.Prepare, is WorktreeIntent.Public.TrackMainSession,
             is WorktreeIntent.Public.Recheck, is WorktreeIntent.Public.ChooseAction,
             is WorktreeIntent.Public.ProposeBuildPlan, is WorktreeIntent.Public.RunBuild,
             is WorktreeIntent.Public.CancelBuild, is WorktreeIntent.Public.RunAccepted,
-            is WorktreeIntent.Public.RunObservationLost, is WorktreeIntent.Public.ActionDelivered,
+            is WorktreeIntent.Public.RunSubmissionObservationLost, is WorktreeIntent.Public.RunObservationLost,
+            is WorktreeIntent.Public.ActionDelivered,
             is WorktreeIntent.Public.ApproveBuildPlan,
             -> commitTransition(command)?.let { emit(it.task) }
         }
+    }
+
+    private suspend fun signalCompletion(
+        command: WorktreeIntent.Public.TaskCompleteSignaled,
+        emit: suspend (WorktreeTask) -> Unit,
+    ) {
+        val changed = commitTransition(command) ?: return
+        emit(verifyAction(changed).task)
     }
 
     private suspend fun commitTransition(command: WorktreeIntent.Public): WorktreeRecord? {
@@ -265,6 +275,13 @@ internal class WorktreeJournal(
         } else {
             changed
         }
+    }
+
+    private suspend fun reconcileSubmission(command: WorktreeIntent.Public.RunSubmissionReconciled): WorktreeRecord? {
+        val before = record(command.chatId)
+        val changed = commitTransition(command) ?: return null
+        val isCleared = before?.task?.run?.request == command.request && changed.task.run == null
+        return if (isCleared && before.mergeLease?.id == command.request.value) releaseMerge(changed) else changed
     }
 
     private suspend fun deliveryFailed(command: WorktreeIntent.Public.ActionDeliveryFailed): WorktreeRecord? {
@@ -684,6 +701,10 @@ private fun WorktreeIntent.Public.chatId(): String? = when (this) {
 
     is WorktreeIntent.Public.RunRejected -> chatId
 
+    is WorktreeIntent.Public.RunSubmissionObservationLost -> chatId
+
+    is WorktreeIntent.Public.RunSubmissionReconciled -> chatId
+
     is WorktreeIntent.Public.RunObservationLost -> chatId
 
     is WorktreeIntent.Public.RunSettled -> chatId
@@ -718,7 +739,8 @@ private fun WorktreeIntent.Public.actionOrBuildChatId(): String? = when (this) {
     WorktreeIntent.Public.Start, WorktreeIntent.Public.RetryLoad,
     is WorktreeIntent.Public.TrackMainSession, is WorktreeIntent.Public.Prepare,
     is WorktreeIntent.Public.RunStarted, is WorktreeIntent.Public.RunAccepted,
-    is WorktreeIntent.Public.RunRejected, is WorktreeIntent.Public.RunObservationLost,
+    is WorktreeIntent.Public.RunRejected, is WorktreeIntent.Public.RunSubmissionObservationLost,
+    is WorktreeIntent.Public.RunSubmissionReconciled, is WorktreeIntent.Public.RunObservationLost,
     is WorktreeIntent.Public.RunSettled, is WorktreeIntent.Public.TaskCompleteSignaled,
     is WorktreeIntent.Public.Recheck,
     -> null

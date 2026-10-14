@@ -78,6 +78,8 @@ internal suspend fun fixture(
     areDetachedToolsEnabled: Boolean = false,
     turns: PiTurnRecords = MemoryPiTurnRecords(),
     nativeCalls: NativeCallClassifier = TestNativeClassifier,
+    preselected: Map<String, Set<String>> = emptyMap(),
+    areSessionHooksEnabled: Boolean = false,
     configure: (Int, FakeConnection) -> Unit = { _, _ -> },
 ): Fixture {
     val target = EngineTarget(PiEngineId, EngineBindingId("binding"), targetModel)
@@ -85,7 +87,7 @@ internal suspend fun fixture(
     val route = ExecutionRoute(PiEngineId, target.binding, AuthSourceId("source"), AuthRevision.Known("1"), workspace)
     val released = mutableListOf<PiSession>()
     val session = PiSession(
-        CreateSessionRequest(target, workspace, areDetachedToolsEnabled),
+        CreateSessionRequest(target, workspace, areDetachedToolsEnabled, areSessionHooksEnabled, preselected),
         route,
         piTestEnvironment(
             test,

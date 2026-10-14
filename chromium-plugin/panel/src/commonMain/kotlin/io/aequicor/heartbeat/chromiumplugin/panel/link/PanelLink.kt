@@ -50,13 +50,13 @@ internal class PanelLink(private val host: PanelHost, private val callTimeout: D
      * Calls the app method [method] and returns its result.
      * @throws PanelCallException with one of `BridgeErrorCode` when the app refuses or does not answer in time.
      */
-    suspend fun call(method: String, params: JsonElement): JsonElement {
+    suspend fun call(method: String, params: JsonElement, timeout: Duration = callTimeout): JsonElement {
         val id = ++nextCall
         val reply = CompletableDeferred<PanelInbound.Reply>()
         pending[id] = reply
         try {
             post(PanelOutbound.Call(id, method, params))
-            val answer = withTimeoutOrNull(callTimeout) { reply.await() }
+            val answer = withTimeoutOrNull(timeout) { reply.await() }
                 ?: throw PanelCallException(BridgeErrorCode.TIMEOUT)
             answer.error?.let { throw PanelCallException(it.code) }
             return answer.result ?: JsonNull

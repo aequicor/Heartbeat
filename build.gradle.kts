@@ -1,3 +1,5 @@
+import org.gradle.api.tasks.testing.Test
+
 plugins {
     // this is necessary to avoid the plugins to be loaded multiple times
     // in each subproject's classloader
@@ -12,4 +14,12 @@ plugins {
     alias(libs.plugins.metro) apply false
     alias(libs.plugins.ksp) apply false
     alias(libs.plugins.room) apply false
+}
+
+// Shared compilation outputs are portable; test results must still cover each host.
+allprojects {
+    tasks.withType<Test>().configureEach {
+        inputs.property("heartbeat.test.os", providers.systemProperty("os.name"))
+        inputs.property("heartbeat.test.arch", providers.systemProperty("os.arch"))
+    }
 }

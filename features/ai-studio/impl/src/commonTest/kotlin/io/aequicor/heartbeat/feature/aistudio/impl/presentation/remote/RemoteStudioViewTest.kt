@@ -135,7 +135,7 @@ class RemoteStudioViewTest {
     }
 
     @Test
-    fun `a host gets a snapshot, then deltas that acknowledge its intents`() = runTest {
+    fun `a host gets a snapshot then deltas that acknowledge its intents`() = runTest {
         val harness = Harness(this, ready)
         val frames = collect(harness)
         val mirror = StudioViewMirror()
@@ -144,20 +144,29 @@ class RemoteStudioViewTest {
         assertIs<StudioViewFrame.Snapshot>(snapshot)
         mirror.apply(snapshot)
 
-        val reply = harness.view.apply(harness.view.generation, listOf(intent(1, AiStudioScreenIntent.ToggleSearch)))
-        assertEquals(StudioRemoteReply.Applied(1, emptyList()), reply)
+        val reply = harness.view.apply(
+            harness.view.generation,
+            listOf(
+                intent(1, AiStudioScreenIntent.ToggleSearch),
+                intent(2, AiStudioScreenIntent.ToggleProjectSessions("p-heartbeat")),
+                intent(3, AiStudioScreenIntent.ToggleNoProjectSection),
+            ),
+        )
+        assertEquals(StudioRemoteReply.Applied(3, emptyList()), reply)
         advanceTimeBy(200.milliseconds)
         runCurrent()
 
         var state = mirror.apply(StudioViewJson.decodeFromJsonElement(StudioViewFrame.serializer(), frames.receive()))
-        while (state.remoteSeq < 1) {
+        while (state.remoteSeq < 3) {
             state = mirror.apply(StudioViewJson.decodeFromJsonElement(StudioViewFrame.serializer(), frames.receive()))
         }
         assertTrue(state.sidebar.isSearchVisible)
+        assertEquals(setOf("p-heartbeat"), state.sidebar.expandedProjectSessions)
+        assertEquals(false, state.sidebar.isNoProjectExpanded)
     }
 
     @Test
-    fun `native surfaces, forged markers, repeats and garbage are refused or skipped`() = runTest {
+    fun `native surfaces forged markers repeats and garbage are refused or skipped`() = runTest {
         val harness = Harness(this, ready)
 
         val reply = harness.view.apply(

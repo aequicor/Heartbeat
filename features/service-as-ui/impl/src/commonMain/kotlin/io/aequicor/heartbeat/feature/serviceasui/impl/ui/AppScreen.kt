@@ -102,16 +102,12 @@ internal fun AppHostView(
             isCompact = true,
             isContentEdgeToEdge = isDocumentOnly,
             isTitleVisible = !hasDocument,
+            overlayCloseLabel = stringResource(Res.string.service_ui_close).takeIf { isDocumentOnly },
             headerActions = {
                 HbIconButton(
                     HbIcons.Close,
                     stringResource(Res.string.service_ui_close),
                     { onIntent(AppHostIntent.Close(state.sequence)) },
-                    modifier = if (isDocumentOnly) {
-                        Modifier.hbSurface(HbTheme.colors.surface, HbTheme.shapes.small)
-                    } else {
-                        Modifier
-                    },
                 )
             },
         ) { body(Modifier.fillMaxWidth()) }

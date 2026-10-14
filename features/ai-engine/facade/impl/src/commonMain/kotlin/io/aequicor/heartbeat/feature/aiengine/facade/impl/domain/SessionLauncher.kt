@@ -146,13 +146,19 @@ class SessionLauncher(
         prepare: suspend () -> Unit,
     ): ActiveSession {
         var isOpened = false
+        var opened: ActiveSession? = null
         try {
+            routes.recheck(route, model)
             prepare()
-            return host.open(native, route, model, areSessionHooksEnabled).also { isOpened = true }
+            val handle = host.open(native, route, model, areSessionHooksEnabled).also { opened = it }
+            // Register before the recheck: a concurrent removal either closes this handle or is observed here.
+            routes.recheck(route, model)
+            isOpened = true
+            return handle
         } finally {
             if (!isOpened) {
                 log.w { "handle not opened, releasing native handle engine=${route.engine.value}" }
-                withContext(NonCancellable) { release(native) }
+                withContext(NonCancellable) { release(opened ?: native) }
             }
         }
     }

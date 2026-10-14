@@ -107,12 +107,12 @@ internal class WindowsExplorerDialogs : NativeDialogs {
     /** All COM calls, including interface release and apartment teardown, stay on the fresh STA thread. */
     private fun <T> inApartment(body: () -> T): T {
         val initialized = ole32.CoInitializeEx(null, COINIT_APARTMENTTHREADED)
-        val owned = COMUtils.SUCCEEDED(initialized)
-        check(owned) { "COM is unavailable (${initialized.code()})" }
+        val isOwned = COMUtils.SUCCEEDED(initialized)
+        check(isOwned) { "COM is unavailable (${initialized.code()})" }
         return try {
             body()
         } finally {
-            if (owned) ole32.CoUninitialize()
+            if (isOwned) ole32.CoUninitialize()
         }
     }
 

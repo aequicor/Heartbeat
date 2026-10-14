@@ -87,6 +87,9 @@ data class SidebarUi(
     val renaming: RenameUi? = null,
     val isVisible: Boolean = true,
     val isDrawerOpen: Boolean = false,
+    /** Projects whose session lists show all roots instead of the five newest. */
+    val expandedProjectSessions: ImmutableSet<String> = persistentSetOf(),
+    val isNoProjectExpanded: Boolean = true,
 )
 
 /** Apply this caret once, after the editor displays [text]; [id] is unique across this screen's drafts. */

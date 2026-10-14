@@ -40,7 +40,8 @@ internal data class DesktopDocumentCall(val method: String, val arguments: JsonE
 /**
  * Calls of one page into its document's [bridge], run in [scope] (the document view's lifetime) on [dispatcher], off
  * CEF's and Swing's UI threads. Each call is bounded before parsing ([BrowserDocumentLimits.CALL_BYTES],
- * [BrowserDocumentLimits.JSON_DEPTH]) and while running ([BrowserDocumentLimits.CALLS] at a time); results over
+ * [BrowserDocumentLimits.JSON_DEPTH]) and while running ([BrowserDocumentLimits.CALLS] at a time). Authority is
+ * captured synchronously at acceptance, before the dispatcher can defer the request; results over
  * [BrowserDocumentLimits.RESULT_BYTES] are refused. Every call started here gets exactly one reply: its outcome, or a
  * failure when [scope] ends first; a call the page cancels ([cancel], [cancelAll] on reload or close) gets none, as the
  * message router requires. The page decides how often it calls, so refusals are logged only at trace level; arguments,
@@ -67,8 +68,10 @@ internal class DesktopDocumentCalls(
             reply.failure(BUSY)
             return
         }
+        val captured = capture(reply) ?: return
         val job = scope.launch(dispatcher, CoroutineStart.LAZY) {
-            val outcome = parseDesktopDocumentCall(request)?.let { run(it) } ?: BrowserBridgeResult.Failure(MALFORMED)
+            val outcome = parseDesktopDocumentCall(request)?.let { run(it, captured) }
+                ?: BrowserBridgeResult.Failure(MALFORMED)
             if (pending.remove(id, coroutineContext.job)) outcome.deliver(reply)
         }
         pending[id] = job
@@ -86,8 +89,20 @@ internal class DesktopDocumentCalls(
         pending.keys.toList().forEach(::cancel)
     }
 
-    private suspend fun run(call: DesktopDocumentCall): BrowserBridgeResult = try {
-        bridge.call(call.method, call.arguments)
+    @HighFrequency
+    private fun capture(reply: DesktopDocumentReply): BrowserDocumentBridge? = try {
+        bridge.capture()
+    } catch (error: CancellationException) {
+        reply.failure(CLOSED)
+        throw error
+    } catch (error: Exception) {
+        log.w(error.redactedFailure()) { "Document bridge authority could not be captured" }
+        reply.failure(FAILED)
+        null
+    }
+
+    private suspend fun run(call: DesktopDocumentCall, captured: BrowserDocumentBridge): BrowserBridgeResult = try {
+        captured.call(call.method, call.arguments)
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {

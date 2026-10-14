@@ -14,10 +14,13 @@ import androidx.compose.runtime.NonRestartableComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
@@ -62,6 +65,15 @@ public fun HbDocumentOverlay(
     content: @Composable (Modifier) -> Unit,
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    val focus = remember { FocusRequester() }
+    val active = LocalHbActiveNativeModalOwner.current
+    val owner = LocalHbNativeModalOwner.current
+    val isAvailable by rememberUpdatedState(active == null || active === owner)
+    val focusExit: () -> Unit = remember(focus) {
+        {
+            if (isAvailable) focus.requestFocus()
+        }
+    }
     val inputMode = LocalInputModeManager.current
     val interactions = remember { MutableInteractionSource() }
     DocumentOverlay(
@@ -81,12 +93,16 @@ public fun HbDocumentOverlay(
         modifier = modifier,
         proxy = { target ->
             Box(
-                target.onFocusChanged { isFocused = it.isFocused }
+                target.focusRequester(focus).onFocusChanged { isFocused = it.isFocused }
                     .semantics { this.contentDescription = contentDescription }
                     .clickable(interactions, indication = null, role = Role.Button, onClick = onClick),
             )
         },
-        content = content,
+        content = { size ->
+            CompositionLocalProvider(LocalHbDocumentFocusExit provides focusExit.takeIf { isAvailable }) {
+                content(size)
+            }
+        },
     )
 }
 

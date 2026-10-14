@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -42,6 +44,39 @@ class ExternalBrowserToolsTest {
     private val browser = FakeBrowser()
     private val toggles = Toggles()
     private val tools = ExternalBrowserTools(lazyOf(control), lazyOf(browser), toggles)
+
+    @Test
+    fun `browser references mean the source browser before creation and throughout the bound turn`() = runTest {
+        val newScope = AgentToolScope(null, preselected = mapOf("external_browser" to setOf("connection")))
+        val instructions = tools.instructions(newScope)
+        assertTrue(instructions.contains("Any user reference to the browser"))
+        assertTrue(instructions.contains("external browser hosting this chat"))
+        assertTrue(instructions.contains("start with ex_control_active_tab"))
+        assertFalse(instructions.contains("browser_*"))
+
+        val scope = AgentToolScope(null, session = context.session)
+        val lease = browser.bindSession(Json.encodeToString(context.session), "connection")
+        assertEquals(instructions, tools.instructions(scope))
+        browser.state.value = ExternalBrowserState.Unavailable
+        assertEquals(instructions, tools.instructions(scope))
+        lease.close()
+        assertFalse(tools.instructions(scope).contains("external browser hosting this chat"))
+    }
+
+    @Test
+    fun `source browser context survives unavailable tools without advertising undeclared calls`() = runTest {
+        val scope = AgentToolScope(null, preselected = mapOf("external_browser" to setOf("connection")))
+        assertTrue(tools.hasIndependentInstructions)
+        for (declared in listOf(emptySet(), setOf("ex_control_tabs"))) {
+            val instructions = tools.instructions(scope.copy(declared = declared))
+            assertTrue(instructions.contains("external browser hosting this chat"))
+            assertFalse(instructions.contains("ex_control_"))
+        }
+        toggles.values[ChromiumBridgeAgentControl.key] = false
+        assertTrue(tools.instructions(scope).contains("external browser hosting this chat"))
+        assertFalse(tools.instructions(scope).contains("ex_control_"))
+        assertEquals("", tools.instructions(AgentToolScope(null)))
+    }
 
     @Test
     fun `tools are declared only with both bridge flags and keep their trust category`() = runTest {

@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.di.AiEngineFacadeBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ProfileEnginePreferences
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -22,6 +23,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class RegisteredEngineDefaultsTest {
     private val engineToggle = FeatureToggle.Flag("ai.desktop", "Desktop engine", default = true)
@@ -31,7 +33,7 @@ class RegisteredEngineDefaultsTest {
             id = EngineId("desktop"),
             title = "Desktop",
             family = EngineFamily.BuiltIn,
-            platforms = setOf(EnginePlatform.DesktopWindows, EnginePlatform.DesktopMacOs),
+            platforms = setOf(EnginePlatform.DesktopWindows, EnginePlatform.DesktopMacOs, EnginePlatform.DesktopLinux),
             toggle = engineToggle,
             isDefault = true,
         ),
@@ -46,15 +48,24 @@ class RegisteredEngineDefaultsTest {
 
     @Test
     fun `desktop hosts prefer the default registration without constructing its factory`() = runTest {
-        listOf(HostPlatform.Windows, HostPlatform.MacOs).forEach { host ->
+        listOf(HostPlatform.Windows, HostPlatform.MacOs, HostPlatform.Linux).forEach { host ->
             assertEquals(EngineId("desktop"), defaults(host).preferred())
         }
         assertFalse(factory.isInitialized())
     }
 
     @Test
+    fun `Linux registry retains its platform and supported registrations without creating factories`() {
+        val registry = AiEngineFacadeBindings.registry(setOf(desktop), Host(HostPlatform.Linux))
+
+        assertEquals(EnginePlatform.DesktopLinux, registry.platform)
+        assertTrue(registry.supportsPlatform(desktop))
+        assertFalse(factory.isInitialized())
+    }
+
+    @Test
     fun `hosts without a registered default engine have no preference`() = runTest {
-        listOf(HostPlatform.Linux, HostPlatform.Android, HostPlatform.Ios).forEach { host ->
+        listOf(HostPlatform.Android, HostPlatform.Ios).forEach { host ->
             assertNull(defaults(host).preferred())
         }
     }

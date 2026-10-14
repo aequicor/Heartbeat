@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 
 class StudioViewPredictionTest {
     @Test
-    fun `the draft, its caret and the sidebar are predicted like the app's store`() {
+    fun `the draft its caret and the sidebar are predicted like the app's store`() {
         val typed = AiStudioScreenState().predict(AiStudioScreenIntent.Suggestions.DraftChanged(paneId = 0, "hello"))
         assertEquals("hello", typed.draft(0))
         assertEquals(5, typed.draftCaret(0))
@@ -22,5 +22,7 @@ class StudioViewPredictionTest {
     fun `other intents wait for the app`() {
         val state = AiStudioScreenState()
         assertSame(state, state.predict(AiStudioScreenIntent.Retry))
+        assertSame(state, state.predict(AiStudioScreenIntent.ToggleProjectSessions("project")))
+        assertSame(state, state.predict(AiStudioScreenIntent.ToggleNoProjectSection))
     }
 }

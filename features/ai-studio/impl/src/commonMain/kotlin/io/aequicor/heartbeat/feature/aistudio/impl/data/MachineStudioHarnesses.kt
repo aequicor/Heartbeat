@@ -125,6 +125,29 @@ internal class MachineStudioHarnesses(private val machines: MachineRegistry, pri
         log.v { "Harness choice claim released" }
     }
 
+    override suspend fun attached(session: SessionRef): Set<String>? {
+        if (!toggles.get(HarnessEnabled)) return null
+        val library = checkNotNull(library()) { "Harness connections are unavailable" }
+        return library.readyForCarry().attachments[session].orEmpty().mapTo(mutableSetOf()) { it.value }
+    }
+
+    /** Unlike new-chat claims, a failed carry must never allow a prompt with fewer restrictions. */
+    override suspend fun restore(harnesses: Set<String>, session: SessionRef) {
+        if (harnesses.isEmpty()) return
+        val library = checkNotNull(library()) { "Carried harness connections are unavailable" }
+        for (harness in harnesses) {
+            val id = HarnessId(harness)
+            if (id in library.readyForCarry().attachments[session].orEmpty()) continue
+            check(write(library) { HarnessIntent.Public.Attach(it, id, session) } == Written.Confirmed) {
+                "Carried harness connection was not confirmed"
+            }
+        }
+        check(attached(session)?.containsAll(harnesses) == true) {
+            "Carried harness connections changed before submission"
+        }
+        log.i { "Restored carried chat harnesses count=${harnesses.size}" }
+    }
+
     /**
      * Failures leave the chat without the harness instead of failing the turn. The first prompt waits at most
      * [SUBMIT_DEADLINE] for all connections, and a library that leaves one write unanswered gets no further writes.
@@ -226,6 +249,16 @@ private fun Map<String, Set<String>>.newest(): Map<String, Set<String>> =
     if (size <= CLAIMS_KEPT) this else entries.drop(size - CLAIMS_KEPT).associate { it.key to it.value }
 
 private typealias Library = MachineRef<HarnessState, HarnessIntent.Public, HarnessOutput>
+
+/** A coherent connection snapshot cannot be inferred from a suspended, reloading or uncommitted library. */
+private fun Library.readyForCarry(): HarnessState.Ready {
+    val ready = state.value as? HarnessState.Ready
+    check(
+        ready != null && !ready.isSuspended && !ready.isReloading &&
+            ready.pending.isEmpty() && ready.attachmentWrite == null,
+    ) { "Harness connections have not settled" }
+    return ready
+}
 
 private val CONFIRMATION = 3.seconds
 private val SUBMIT_DEADLINE = 10.seconds

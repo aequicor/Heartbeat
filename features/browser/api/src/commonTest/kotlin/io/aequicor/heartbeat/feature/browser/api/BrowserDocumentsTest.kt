@@ -7,9 +7,16 @@ import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class BrowserDocumentsTest {
+    @Test
+    fun `ordinary bridges keep their callback when captured`() {
+        val bridge = BrowserDocumentBridge { _, arguments -> BrowserBridgeResult.Value(arguments) }
+        assertSame(bridge, bridge.capture())
+    }
+
     @Test
     fun `documents and bridge results never print their content`() {
         val secret = "secret-value"

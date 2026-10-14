@@ -204,6 +204,40 @@ class WorktreeJournalTest {
     }
 
     @Test
+    fun `lost pending merge submission persists recovery and holds its lease until native settlement`() = runTest {
+        for (isNativeIdle in listOf(false, true)) {
+            val fixture = Fixture()
+            fixture.completeCoding()
+            fixture.send(WorktreeIntent.Public.ChooseAction(CHAT, WorktreeAction.Merge))
+            val action = checkNotNull(fixture.task().actionRequest)
+            val request = RequestId(action.operation)
+            fixture.send(WorktreeIntent.Public.ActionDelivered(CHAT, action.operation))
+            fixture.send(WorktreeIntent.Public.RunStarted(CHAT, request, WorktreeRunKind.Merge))
+            fixture.send(WorktreeIntent.Public.RunSubmissionObservationLost(CHAT, request, SESSION, "ObservationLost"))
+            assertEquals(WorktreePhase.RecoveryRequired, fixture.task().phase)
+            assertEquals(SESSION, fixture.task().run?.session)
+            assertNull(fixture.task().run?.turn)
+            assertNull(fixture.task().run?.outcome)
+            assertEquals(0, fixture.builds.releaseCount)
+            val restored = checkNotNull(fixture.reopen().load()[CHAT])
+            assertEquals(WorktreePhase.RecoveryRequired, restored.phase)
+            assertEquals(fixture.task().run, restored.run)
+            assertEquals(0, fixture.builds.releaseCount)
+            fixture.send(WorktreeIntent.Public.RunStarted(CHAT, RequestId("replacement")))
+            assertEquals(request, fixture.task().run?.request)
+            if (isNativeIdle) {
+                fixture.send(WorktreeIntent.Public.RunSubmissionReconciled(CHAT, request, SESSION))
+                assertNull(fixture.task().run)
+            } else {
+                fixture.send(
+                    WorktreeIntent.Public.RunSettled(CHAT, request, SESSION, MERGE_TURN, TurnOutcome.Cancelled),
+                )
+            }
+            assertEquals(1, fixture.builds.releaseCount)
+        }
+    }
+
+    @Test
     fun `only verified PR metadata is exposed and a new coding turn clears it`() = runTest {
         val fixture = Fixture()
         fixture.completeCoding()

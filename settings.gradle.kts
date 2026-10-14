@@ -45,6 +45,15 @@ plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
 
+// Release stages transfer only task outputs across hosts, separately from native toolchains.
+buildCache {
+    local {
+        providers.environmentVariable("HEARTBEAT_BUILD_CACHE_DIR").orNull?.let {
+            directory = file(it)
+        }
+    }
+}
+
 include(":core:logging")
 include(":core:mvi")
 include(":features:welcome:api", ":features:welcome:impl")

@@ -115,7 +115,7 @@ internal class DesktopDocumentEngine(
             client.addRequestHandler(policy.requestHandler)
             client.addLifeSpanHandler(LifeSpan())
             client.addLoadHandler(Load())
-            val keyboard = DesktopDocumentKeyboard(presentation.dismissal)
+            val keyboard = DesktopDocumentKeyboard(presentation.dismissal, focusExit = presentation.focusExit)
             client.addKeyboardHandler(keyboard)
             client.addFocusHandler(keyboard)
             client.addDisplayHandler(

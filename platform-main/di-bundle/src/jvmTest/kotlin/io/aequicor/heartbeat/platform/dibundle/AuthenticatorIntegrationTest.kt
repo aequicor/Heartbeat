@@ -47,7 +47,7 @@ class AuthenticatorIntegrationTest {
     @BeforeTest
     fun setUp() {
         val os = System.getProperty("os.name")
-        assumeTrue(os.startsWith("Windows") || os.startsWith("Mac"))
+        assumeTrue(os.startsWith("Windows") || os.startsWith("Mac") || os.startsWith("Linux"))
         Dispatchers.setMain(UnconfinedTestDispatcher())
     }
 
