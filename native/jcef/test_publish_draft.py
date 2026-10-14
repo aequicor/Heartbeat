@@ -6,7 +6,6 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import build_runtime
 import publish_draft
 
 
@@ -15,7 +14,8 @@ class DraftReleaseTest(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
-        version = json.loads((build_runtime.HERE / "source-lock.json").read_text())["artifactVersion"]
+        # Legacy fixture matches the CLI default; the hb99 tests require explicit candidate selection.
+        version = "152.0.6-hb3"
         digest = hashlib.sha256(b"fixture").hexdigest()
         api = {"file": f"jcef-api-{version}.jar", "sha256": digest}
         natives = {target: {"file": f"jcef-natives-{target}-{version}.jar", "sha256": digest}

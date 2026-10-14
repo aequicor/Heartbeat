@@ -63,6 +63,10 @@ the regression probe concurrently reads browser handles until that callback to e
 Linux reparent operations also share ownership of their lock and wait condition between the EDT and the
 queued CEF callback. If the bounded EDT wait times out, the callback keeps that state alive until it returns,
 preventing `SetParentSync` from accessing a destroyed stack condition during visibility and resize work.
+Linux viewport updates keep the full browser size and apply an X11 bounding shape to the visible rectangle.
+This clips drawing and input without shrinking Chromium's DOM viewport; `libXext` supplies the shape API.
+The local Linux candidate passed a retained-viewport/input diagnostic and all 12 native lifecycle phases,
+including visual scales native/1/1.5/2. These checks do not replace the final five-host release gate.
 The embedder and probe also pass `--no-first-run` to prevent Chrome's standalone first-run dialog from
 blocking initialization. The current four-host hb3 lock and published assets remain unchanged until all
 five native builds and probes pass. The completed hb4 lock must contain six real jar hashes before Gradle's
