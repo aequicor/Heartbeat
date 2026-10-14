@@ -115,7 +115,7 @@
     <string name="run_failed">The run failed. Try again.</string>
     <string name="run_failed_limit">The provider temporarily limited request frequency. Wait and try again.</string>
     <string name="run_failed_context">The conversation exceeds the model context window. Start a new chat or pick a model with a larger context.</string>
-    <string name="run_failed_auth">Could not authenticate with the provider. In Settings → Models and engines, add a connection with a valid API key or sign in to the CLI again.</string>
+    <string name="run_failed_auth">Could not authenticate with the provider. In Settings → Models and engines, add a connection with a valid API key and select it for a new chat. If you use the CLI, sign in again.</string>
     <string name="run_failed_credentials_missing">Credentials for this connection are unavailable on this device. In Settings → Models and engines, add the connection again or sign in to the CLI, then select it for a new chat.</string>
     <string name="run_failed_connection_changed">The connection credentials changed or do not match the engine. Check the connection in Settings → Models and engines, then select a working connection for a new chat.</string>
     <string name="run_failed_quota">The provider quota is exhausted. Check your subscription and remaining allowance in the provider account, or choose another connection for a new chat.</string>
