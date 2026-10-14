@@ -65,8 +65,13 @@ queued CEF callback. If the bounded EDT wait times out, the callback keeps that 
 preventing `SetParentSync` from accessing a destroyed stack condition during visibility and resize work.
 Linux viewport updates keep the full browser size and apply an X11 bounding shape to the visible rectangle.
 This clips drawing and input without shrinking Chromium's DOM viewport; `libXext` supplies the shape API.
-The local Linux candidate passed a retained-viewport/input diagnostic and all 12 native lifecycle phases,
-including visual scales native/1/1.5/2. These checks do not replace the final five-host release gate.
+Linux windowed browsers still detach during a queued forced close: Swing's `removeNotify` must move the
+Chromium child to the temporary parent before AWT destroys its Canvas. Reattaching a closing browser remains
+forbidden. The close/remove regression closes inactive and active tabs together, removes the active peer in
+the same EDT turn, and requires both native callbacks, client cleanup, context flush, and runtime termination.
+The native suite requires all 13 phases, including `close-remove` and visual scales native/1/1.5/2, to set
+`fullSuitePassed`; focused diagnostics and compile-only runs do not replace the five-host release gate.
+
 The embedder and probe also pass `--no-first-run` to prevent Chrome's standalone first-run dialog from
 blocking initialization. The current four-host hb3 lock and published assets remain unchanged until all
 five native builds and probes pass. The completed hb4 lock must contain six real jar hashes before Gradle's

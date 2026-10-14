@@ -28,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.imageio.ImageIO;
 import javax.swing.JFrame;
+import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import org.cef.CefApp;
 import org.cef.CefClient;
@@ -160,6 +161,7 @@ public final class SessionProbe {
             case "visual" -> visual();
             case "visibility-close" -> visibilityClose();
             case "anchor-close" -> anchorClose();
+            case "close-remove" -> closeRemove();
             default -> throw new IllegalArgumentException("Unknown mode");
         }
     }
@@ -178,7 +180,11 @@ public final class SessionProbe {
     }
 
     private Tab tab(Anchor anchor, String name) throws Exception {
-        Tab result = new Tab(anchor, name);
+        return tab(anchor, name, null);
+    }
+
+    private Tab tab(Anchor anchor, String name, JFrame sharedFrame) throws Exception {
+        Tab result = new Tab(anchor, name, sharedFrame);
         tabs.add(result);
         await(result.loaded, "load " + name);
         result.assertSingleCreation();
@@ -348,6 +354,53 @@ public final class SessionProbe {
         passed("persistent-anchor-close-lifecycle", Map.of("freshAnchors", iterations, "remainingClients", 0));
     }
 
+    private void closeRemove() throws Exception {
+        final int iterations = 3;
+        for (int index = 0; index < iterations; index++) {
+            Anchor anchor = anchor("close-remove-" + index);
+            JFrame window = onEdt(() -> {
+                JFrame result = new JFrame("Heartbeat close/remove verification");
+                result.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+                result.setSize(800, 600);
+                result.setVisible(true);
+                return result;
+            });
+            Tab detached = tab(anchor, "close-remove-detached-" + index, window);
+            detached.evaluate("window.closeRemoveSentinel = 'retained'");
+            onEdt(() -> {
+                window.getContentPane().removeAll();
+                window.validate();
+                require(!detached.browser.getUIComponent().isDisplayable(), "Inactive tab did not detach");
+                return null;
+            });
+            Tab active = tab(anchor, "close-remove-active-" + index, window);
+            require(detached.client != active.client, "Each closing tab must own a separate client");
+            require("retained".equals(detached.evaluate("window.closeRemoveSentinel")),
+                "Detaching the inactive tab replaced its DOM");
+            onEdt(() -> {
+                require(active.browser.getUIComponent().isDisplayable(), "Active tab is not displayable");
+                // Removing Swing peers after close(true) must still reparent Chromium safely.
+                // No callback/CEF barrier is allowed between these operations: this is the race.
+                detached.closeRequested = true;
+                detached.browser.close(true);
+                active.closeRequested = true;
+                active.browser.close(true);
+                active.host.removeAll();
+                active.host.validate();
+                require(!active.browser.getUIComponent().isDisplayable(), "Active peer was not removed");
+                return null;
+            });
+            await(detached.closed, "detached tab onAfterClose after simultaneous close/remove");
+            await(active.closed, "active tab onAfterClose after simultaneous close/remove");
+            require(remainingClients() == 0, "Close/remove retained native clients");
+            anchor.close();
+            onEdt(() -> { window.dispose(); return null; });
+            passed("close-remove-iteration", Map.of("iteration", index, "closedTabs", 2,
+                "remainingClients", 0, "flushCompleted", true));
+        }
+        passed("simultaneous-close-remove-lifecycle", Map.of("tabPairs", iterations, "remainingClients", 0));
+    }
+
     private void close() throws Exception {
         // Do not claim graceful shutdown if any close/flush callback times out.
         for (Tab tab : tabs) tab.close();
@@ -394,10 +447,11 @@ public final class SessionProbe {
         final CefClient client;
         final CefBrowser browser;
         final JFrame frame;
+        final JPanel host;
         final List<Integer> createdIds = new CopyOnWriteArrayList<>();
         boolean closeRequested;
 
-        Tab(Anchor anchor, String name) throws Exception {
+        Tab(Anchor anchor, String name, JFrame sharedFrame) throws Exception {
             client = app.createClient();
             client.addLifeSpanHandler(new CefLifeSpanHandlerAdapter() {
                 @Override public void onAfterCreated(CefBrowser browser) {
@@ -430,11 +484,18 @@ public final class SessionProbe {
             CefRequestContext shared = onEdt(() -> CefRequestContext.createContext(anchor.context, null));
             require(shared != null && shared != anchor.context, "Shared context must have its own wrapper");
             browser = onEdt(() -> client.createBrowser(required("origin") + "/fixture", false, false, shared));
+            host = sharedFrame == null ? null : onEdt(() -> new JPanel(new BorderLayout()));
             frame = onEdt(() -> {
-                JFrame window = new JFrame("Heartbeat native verification: " + name);
+                JFrame window = sharedFrame == null ? new JFrame("Heartbeat native verification: " + name) : sharedFrame;
                 window.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
                 Component surface = browser.getUIComponent();
-                window.add(surface, BorderLayout.CENTER);
+                if (host == null) {
+                    window.add(surface, BorderLayout.CENTER);
+                } else {
+                    host.add(surface, BorderLayout.CENTER);
+                    window.add(host, BorderLayout.CENTER);
+                    window.validate();
+                }
                 window.setSize(800, 600);
                 window.setVisible(true);
                 browser.createImmediately();

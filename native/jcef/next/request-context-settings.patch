@@ -78,7 +78,7 @@ index 0000000..6d05f0b
 +    public boolean cookieable_schemes_exclude_defaults = false;
 +}
 diff --git a/java/org/cef/browser/CefBrowser_N.java b/java/org/cef/browser/CefBrowser_N.java
-index c89e296..dc812ca 100644
+index c89e296..48de931 100644
 --- a/java/org/cef/browser/CefBrowser_N.java
 +++ b/java/org/cef/browser/CefBrowser_N.java
 @@ -188,18 +188,31 @@ abstract class CefBrowser_N extends CefNativeAdapter implements CefBrowser {
@@ -114,6 +114,19 @@ index c89e296..dc812ca 100644
      /**
       * Called async from the (native) main UI thread.
       */
+@@ -771,7 +784,11 @@ abstract class CefBrowser_N extends CefNativeAdapter implements CefBrowser {
+     }
+ 
+     protected final void setParent(long windowHandle, Component canvas) {
+-        if (isClosing_ || isClosed_) return;
++        // Linux removeNotify must park the Chromium child before AWT destroys its
++        // Canvas, even when a forced native close has already been queued.
++        boolean closingDetach = org.cef.OS.isLinux() && this instanceof CefBrowserWr
++                && windowHandle == 0 && canvas == null;
++        if (isClosed_ || (isClosing_ && !closingDetach)) return;
+ 
+         try {
+             N_SetParent(windowHandle, canvas);
 diff --git a/java/org/cef/browser/CefDevToolsClient.java b/java/org/cef/browser/CefDevToolsClient.java
 index 3fed09f..14548be 100644
 --- a/java/org/cef/browser/CefDevToolsClient.java

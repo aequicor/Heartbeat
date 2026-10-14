@@ -197,6 +197,18 @@ def sha256(path: Path) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def full_suite_passed(summary: dict) -> bool:
+    """Focused, compile-only, failed, or reduced-scale runs cannot claim the full native suite."""
+    required = {"close-remove", "anchor-close", "write", "restart", "clear", "restart-after-clear",
+                "delete", "restart-after-delete", "visibility-close",
+                "visual-native", "visual-1", "visual-1.5", "visual-2"}
+    phases = summary.get("phases", [])
+    return (summary.get("passed") is True and summary.get("nativeExecuted") is True
+            and not summary.get("focusedPhase") and not summary.get("compileOnly")
+            and len(phases) == len(required) and {phase.get("label") for phase in phases} == required
+            and all(phase.get("passed") is True for phase in phases))
+
+
 def arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--java", default="java")
@@ -209,8 +221,11 @@ def arguments() -> argparse.Namespace:
     parser.add_argument("--scales", default="native,1,1.5,2", help="Native OS scale plus forced Chromium scale factors")
     parser.add_argument("--phase-timeout", type=float, default=240)
     parser.add_argument("--compile-only", action="store_true", help="Compile patched Java API usage without native startup")
-    parser.add_argument("--anchor-close-only", action="store_true",
-                        help="Run only the focused persistent-context teardown phase, without storage/visual phases")
+    focused = parser.add_mutually_exclusive_group()
+    focused.add_argument("--anchor-close-only", action="store_true",
+                         help="Run only the persistent-context teardown phase, without storage/visual phases")
+    focused.add_argument("--close-remove-only", action="store_true",
+                         help="Run only simultaneous tab close followed by Swing peer removal")
     return parser.parse_args()
 
 
@@ -223,7 +238,7 @@ def main() -> int:
     classes = output / "classes"
     classes.mkdir()
     sources = Path(__file__).resolve().parent
-    summary: dict = {"passed": False, "phases": [], "deletions": [], "apiSha256": sha256(api),
+    summary: dict = {"passed": False, "fullSuitePassed": False, "phases": [], "deletions": [], "apiSha256": sha256(api),
                      "platform": platform.platform(), "architecture": platform.machine()}
     try:
         command = [args.javac, "--release", "21", "-encoding", "UTF-8", "-classpath",
@@ -254,7 +269,8 @@ def main() -> int:
         summary["origin"] = origin
         seed = uuid.uuid4().hex
         marker_a, marker_b, marker_next = seed + "-a", seed + "-b", seed + "-after-clear"
-        phases = [("anchor-close", "anchor-close", "EMPTY"),
+        phases = [("close-remove", "close-remove", "EMPTY"),
+                  ("anchor-close", "anchor-close", "EMPTY"),
                   ("write", "write", marker_a), ("restart", "read", marker_a),
                   ("clear", "clear", marker_a), ("restart-after-clear", "read", marker_next),
                   ("delete", "delete", marker_next), ("restart-after-delete", "read", "EMPTY"),
@@ -264,9 +280,10 @@ def main() -> int:
             if scale != "native" and not 0.5 <= float(scale) <= 4:
                 raise ValueError("Scale must be native or a number from 0.5 to 4")
             phases.append(("visual-" + scale, "visual", "EMPTY"))
-        if args.anchor_close_only:
-            phases = [("anchor-close", "anchor-close", "EMPTY")]
-            summary["focusedPhase"] = "anchor-close"
+        focused_phase = "anchor-close" if args.anchor_close_only else "close-remove" if args.close_remove_only else None
+        if focused_phase:
+            phases = [(focused_phase, focused_phase, "EMPTY")]
+            summary["focusedPhase"] = focused_phase
         env = os.environ.copy()
         env["PATH"] = str(args.native_dir.resolve()) + os.pathsep + env.get("PATH", "")
         try:
@@ -294,12 +311,13 @@ def main() -> int:
             server.shutdown()
             server.server_close()
             worker.join(timeout=10)
-        expected_deletions = [] if args.anchor_close_only else ["/clear-profile", "/delete-profile"]
+        expected_deletions = [] if focused_phase else ["/clear-profile", "/delete-profile"]
         if [event["operation"] for event in summary["deletions"]] != expected_deletions:
             raise AssertionError("Not every required deletion was exercised")
         if any(not event["passed"] for event in summary["deletions"]):
             raise AssertionError("A deletion failed")
         summary.update(passed=True, nativeExecuted=True)
+        summary["fullSuitePassed"] = full_suite_passed(summary)
         return 0
     except Exception as failure:
         summary["error"] = str(failure)
