@@ -6,11 +6,15 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeEndpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -19,13 +23,14 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class PiToolPlanTest {
     @Test
-    fun `shrinking live policy denies inspection without restarting and growth waits until the next turn`() = runTest {
+    fun `policy changes deny inspection live and refresh declarations between turns`() = runTest {
         val tools = PlanTools()
         val fixture = fixture(
             this,
@@ -38,17 +43,159 @@ class PiToolPlanTest {
         assertEquals(listOf(answer("off", "confirmed", false)), fixture.connection.sent)
         assertEquals(1, fixture.connections.size)
         fixture.connection.event(record("""{"type":"agent_settled"}"""))
-        fixture.runningTurn()
-        assertEquals(1, fixture.connections.size)
-        tools.policy = ResolvedToolPolicy(nativeOn = setOf("read", "grep"))
-        assertEquals(1, fixture.connections.size)
-        fixture.connection.event(record("""{"type":"agent_settled"}"""))
-        fixture.session.send(prompt("grown"))
+        fixture.session.send(prompt("removed"))
         assertEquals(2, fixture.connections.size)
+        assertEquals(emptySet(), fixture.connections.last().plan?.names)
+        tools.policy = ResolvedToolPolicy(nativeOn = setOf("read", "grep"))
+        assertEquals(2, fixture.connections.size)
+        fixture.connections.last().event(record("""{"type":"agent_settled"}"""))
+        fixture.session.send(prompt("grown"))
+        assertEquals(3, fixture.connections.size)
         assertTrue(fixture.connection.isClosed)
         assertEquals(setOf("read", "grep"), fixture.connections.last().plan?.names)
         assertTrue("switch_session" in fixture.connections.last().commands)
         assertEquals("native", fixture.session.ref.nativeId)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `external turn removes embedded declarations and instructions from an existing process`() = runTest {
+        val tools = PlanTools().apply { names = listOf("browser_tabs", "ex_control_active_tab") }
+        val bridge = PlanBridge()
+        val fixture = fixture(this, tools = tools, bridge = bridge) { _, connection ->
+            connection.promptAck.complete(JsonObject(emptyMap()))
+        }
+        fixture.runningTurn()
+        fixture.connection.event(record("""{"type":"agent_settled"}"""))
+        tools.names = listOf("ex_control_active_tab")
+        fixture.session.send(prompt("external"))
+
+        assertEquals(2, fixture.connections.size)
+        val plan = checkNotNull(fixture.connections.last().plan)
+        assertEquals(listOf("ex_control_active_tab"), plan.hosted?.specifications?.map { it.name })
+        assertEquals("ex_control_active_tab", plan.hosted?.instructions)
+        assertEquals(setOf("ex_control_active_tab"), bridge.scopes.last().declared)
+        assertEquals(1, bridge.closed)
+        assertTrue("switch_session" in fixture.connections.last().commands)
+        assertEquals("native", fixture.session.ref.nativeId)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `external preselection hides embedded tools before native identity exists`() = runTest {
+        var externalSession: SessionRef? = null
+        val tools = PlanTools().apply {
+            scopedNames = { scope ->
+                if ("external_browser" in scope.preselected ||
+                    (scope.session != null && scope.session == externalSession)
+                ) {
+                    listOf("ex_control_active_tab")
+                } else {
+                    listOf("browser_tabs", "ex_control_active_tab")
+                }
+            }
+        }
+        val selected = mapOf("external_browser" to setOf("source-browser"))
+        val bridge = PlanBridge()
+        val fixture = fixture(this, tools = tools, bridge = bridge, preselected = selected) { _, connection ->
+            connection.promptAck.complete(JsonObject(emptyMap()))
+        }
+        assertEquals(null, bridge.scopes.single().session)
+        assertEquals(selected, bridge.scopes.single().preselected)
+        assertEquals(selected, tools.policies.single().preselected)
+        assertEquals(setOf("ex_control_active_tab"), bridge.scopes.single().declared)
+        externalSession = fixture.session.ref
+        fixture.session.send(prompt("external"))
+
+        assertEquals(1, fixture.connections.size)
+        assertEquals(externalSession, tools.policies.last().session)
+        assertTrue(tools.policies.last().preselected.isEmpty())
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `changed browser guidance refreshes the process even when tool names stay the same`() = runTest {
+        val tools = PlanTools().apply {
+            names = listOf("ex_control_active_tab")
+            guidance = "External browser is available"
+        }
+        val fixture = fixture(this, tools = tools, bridge = PlanBridge()) { _, connection ->
+            connection.promptAck.complete(JsonObject(emptyMap()))
+        }
+        tools.guidance = "Every browser reference means the browser hosting this chat"
+        fixture.session.send(prompt("external"))
+
+        assertEquals(2, fixture.connections.size)
+        assertEquals(tools.guidance, fixture.connections.last().plan?.hosted?.instructions)
+        assertEquals(fixture.connection.plan?.names, fixture.connections.last().plan?.names)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `browser origin guidance reaches hooked turns without tools or bridge`() = runTest {
+        val tools = PlanTools().apply { guidance = "Every browser reference means the browser hosting this chat" }
+        val fixture = fixture(
+            this,
+            tools = tools,
+            project = null,
+            areSessionHooksEnabled = true,
+        )
+        val hosted = checkNotNull(fixture.connection.plan?.hosted)
+
+        assertEquals(tools.guidance, hosted.instructions)
+        assertTrue(hosted.specifications.isEmpty())
+        assertEquals(null, hosted.endpoint)
+        assertEquals(emptySet(), tools.instructions.single().declared)
+        fixture.session.shutdown()
+        val unhooked = fixture(this, tools = tools, project = null)
+        assertEquals(null, unhooked.connection.plan?.hosted)
+        unhooked.session.shutdown()
+    }
+
+    @Test
+    fun `optional bridge attachment failure retains origin guidance without unavailable tool references`() = runTest {
+        val source = "Every browser reference means the browser hosting this chat"
+        val tools = PlanTools().apply {
+            names = listOf("ex_control_active_tab")
+            scopedGuidance = { scope ->
+                if (scope.declared.orEmpty().isEmpty()) source else "$source; use ex_control_active_tab"
+            }
+        }
+        val bridge = object : AgentToolBridge {
+            override val isAvailable = true
+            override suspend fun attach(workspace: WorkspaceRef?, context: suspend () -> AgentToolContext?) =
+                error("Bridge failed")
+        }
+        val fixture = fixture(
+            this,
+            tools = tools,
+            bridge = bridge,
+            project = null,
+            areDetachedToolsEnabled = true,
+            areSessionHooksEnabled = true,
+        )
+        val hosted = checkNotNull(fixture.connection.plan?.hosted)
+
+        assertEquals(source, hosted.instructions)
+        assertTrue(hosted.specifications.isEmpty())
+        assertEquals(null, hosted.endpoint)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `removed tools without a persisted transcript refuse the prompt without killing the process`() = runTest {
+        val tools = PlanTools().apply { names = listOf("browser_tabs", "ex_control_active_tab") }
+        val fixture = fixture(this, tools = tools, bridge = PlanBridge()) { _, connection ->
+            connection.isTranscriptPersisted = false
+            connection.promptAck.complete(JsonObject(emptyMap()))
+        }
+        tools.names = listOf("ex_control_active_tab")
+        val failure = assertFailsWith<EngineException> { fixture.session.send(prompt("external")) }
+
+        assertEquals(EngineFailure.Session(SessionFailureReason.NotResumable), failure.failure)
+        assertEquals(1, fixture.connections.size)
+        assertFalse(fixture.connection.isClosed)
+        assertFalse("prompt" in fixture.connection.commands)
         fixture.session.shutdown()
     }
 
@@ -87,15 +234,17 @@ class PiToolPlanTest {
     }
 
     @Test
-    fun `unavailable tool declarations keep the running process for the prompt`() = runTest {
-        val tools = PlanTools()
-        val fixture = fixture(this, tools = tools) { _, connection ->
+    fun `unavailable catalog refuses the external prompt before exposing embedded tools`() = runTest {
+        val tools = PlanTools().apply { names = listOf("browser_tabs", "ex_control_active_tab") }
+        val fixture = fixture(this, tools = tools, bridge = PlanBridge()) { _, connection ->
             connection.promptAck.complete(JsonObject(emptyMap()))
         }
+        tools.names = listOf("ex_control_active_tab")
         tools.isFailing = true
-        fixture.session.send(prompt("kept"))
+        assertFailsWith<EngineException> { fixture.session.send(prompt("refused")) }
         assertEquals(1, fixture.connections.size)
-        assertTrue("prompt" in fixture.connection.commands)
+        assertFalse("prompt" in fixture.connection.commands)
+        assertFalse(fixture.connection.isClosed)
         fixture.session.shutdown()
     }
 
@@ -121,16 +270,25 @@ class PiToolPlanTest {
 private class PlanTools : ProfileAgentTools by TestNativeTools {
     var policy = ResolvedToolPolicy(nativeOn = setOf("read"))
     var names = emptyList<String>()
+    var scopedNames: ((AgentToolScope) -> List<String>)? = null
+    var guidance: String? = null
+    var scopedGuidance: ((AgentToolScope) -> String)? = null
     var isFailing = false
     val instructions = mutableListOf<AgentToolScope>()
-    override suspend fun nativeTools(scope: ToolPolicyScope) = if (isFailing) error("Catalog unavailable") else policy
+    val policies = mutableListOf<ToolPolicyScope>()
+    override suspend fun nativeTools(scope: ToolPolicyScope): ResolvedToolPolicy {
+        policies += scope
+        return if (isFailing) error("Catalog unavailable") else policy
+    }
     override suspend fun specifications(workspace: WorkspaceRef?) = names.map {
         AgentToolSpec(it, "Tool $it", JsonObject(emptyMap()))
     }
-    override suspend fun specifications(scope: AgentToolScope) = specifications(scope.workspace)
+    override suspend fun specifications(scope: AgentToolScope) = scopedNames?.invoke(scope)?.map {
+        AgentToolSpec(it, "Tool $it", JsonObject(emptyMap()))
+    } ?: specifications(scope.workspace)
     override suspend fun instructions(scope: AgentToolScope): String {
         instructions += scope
-        return scope.declared.orEmpty().sorted().joinToString(",")
+        return scopedGuidance?.invoke(scope) ?: guidance ?: scope.declared.orEmpty().sorted().joinToString(",")
     }
     override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict =
         if (call.name in policy.nativeOff) NativeVerdict.Deny("Off") else NativeVerdict.Allow

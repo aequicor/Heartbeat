@@ -30,9 +30,12 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_av
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_back
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_failure_access
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_failure_authentication
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_failure_connection_changed
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_failure_credentials_missing
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_failure_engine
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_failure_limit
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_failure_network
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_failure_quota
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_failure_rejected
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_failure_unknown
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_kind_api_key
@@ -115,8 +118,11 @@ internal fun methodKindLabel(kind: MethodKindUi): String = stringResource(
 /** Localized, diagnostics-free explanation of a failure. */
 internal fun FailureUi.message(): StringResource = when (this) {
     FailureUi.Authentication -> Res.string.conn_failure_authentication
+    FailureUi.CredentialsMissing -> Res.string.conn_failure_credentials_missing
+    FailureUi.ConnectionChanged -> Res.string.conn_failure_connection_changed
     FailureUi.Network -> Res.string.conn_failure_network
     FailureUi.Limit -> Res.string.conn_failure_limit
+    FailureUi.Quota -> Res.string.conn_failure_quota
     FailureUi.EngineUnavailable -> Res.string.conn_failure_engine
     FailureUi.Access -> Res.string.conn_failure_access
     FailureUi.Rejected -> Res.string.conn_failure_rejected

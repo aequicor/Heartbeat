@@ -16,15 +16,16 @@ private val log = Log.tag("PiProviderFailure")
 
 /**
  * Pi 0.87.1 puts SDK failures in assistant.errorMessage, including HTTP bodies. Only a leading HTTP status
- * (SDK `401 ...` or Pi `401: ...`), known structured limit codes and exact SDK transport messages are recognized.
+ * (SDK `401 ...` or Pi `401: ...`), known structured provider codes and exact SDK transport messages are recognized.
+ * Provider-specific business codes are interpreted only for the assistant message's native provider identity.
  * A bare HTTP 413 proves only a rejected payload, not an exhausted model context. Native text never leaves
  * this boundary: it can contain credentials, request headers or the conversation. Unknown formats stay unknown.
  * This is a provisional attempt failure; the session still waits for agent_settled and may recover on retry.
  */
 @HighFrequency
-internal fun piProviderFailure(message: String?): EngineFailure {
+internal fun piProviderFailure(message: String?, provider: String? = null): EngineFailure {
     val status = message?.let { ProviderHttpStatus.find(it)?.groupValues?.get(1)?.toIntOrNull() }
-    val failure = piProviderLimit(status, message) ?: piHttpFailure(status, message)
+    val failure = piProviderLimit(status, message, provider) ?: piHttpFailure(status, message)
     log.w(EngineException(failure)) {
         "Pi provider attempt failed code=${failure.code} status=${status ?: "none"}"
     }

@@ -36,6 +36,8 @@
     <string name="sidebar_expanded">Развёрнуто</string>
     <string name="sidebar_collapsed">Свёрнуто</string>
     <string name="sidebar_project_empty">Сессий пока нет</string>
+    <string name="sidebar_show_more_sessions">Показать ещё (%1$d)</string>
+    <string name="sidebar_show_fewer_sessions">Скрыть</string>
 
     <string name="session_awaiting_permission">Ожидает разрешения</string>
     <string name="session_running">Агент работает</string>
@@ -106,9 +108,15 @@
     <string name="context_compacted">Контекст сжат: агент продолжает по выжимке</string>
     <string name="context_rolled_over">Продолжено в новой сессии с выжимкой этой</string>
     <string name="run_failed">Не удалось выполнить задачу. Попробуйте ещё раз.</string>
-    <string name="run_failed_limit">Исчерпан лимит использования движка. Повторите после сброса лимита или выберите другую модель.</string>
+    <string name="run_failed_limit">Провайдер временно ограничил частоту запросов. Подождите и повторите попытку.</string>
     <string name="run_failed_context">Беседа не помещается в контекст модели. Начните новый чат или выберите модель с большим контекстом.</string>
-    <string name="run_failed_auth">Движок отклонил учётные данные. Переподключите его в настройках.</string>
+    <string name="run_failed_auth">Не удалось авторизоваться у провайдера. В «Настройки → Модели и движки» добавьте подключение с действующим API-ключом и выберите его для нового чата. Если используете CLI, войдите заново.</string>
+    <string name="run_failed_credentials_missing">Учётные данные выбранного подключения недоступны на этом устройстве. В «Настройки → Модели и движки» добавьте подключение заново или войдите в CLI, затем выберите его для нового чата.</string>
+    <string name="run_failed_connection_changed">Данные выбранного подключения изменились или не подходят движку. Проверьте его в «Настройки → Модели и движки», затем выберите исправное подключение для нового чата.</string>
+    <string name="run_failed_quota">Квота провайдера исчерпана. Проверьте подписку и доступный лимит в кабинете провайдера или выберите другое подключение для нового чата.</string>
+    <string name="run_failed_access">Нет доступа к операции или модели. Проверьте права и подписку или выберите доступную модель. Если аккаунт ограничен, обратитесь к провайдеру для восстановления доступа.</string>
+    <string name="run_failed_request">Провайдер отклонил запрос. Проверьте модель и подключение в «Настройки → Модели и движки»; для своего сервера также проверьте базовый URL и путь API.</string>
+    <string name="run_failed_engine">Движок недоступен на этом устройстве. В «Настройки → Модели и движки» проверьте его установку и включение, затем перезапустите движок.</string>
     <string name="run_failed_network">Не удалось связаться с сервисом движка. Проверьте соединение и повторите попытку.</string>
     <string name="submit_failed">Не удалось создать сессию — текст запроса восстановлен.</string>
     <string name="duration_seconds">%1$d с</string>

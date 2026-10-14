@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.OllamaMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.engineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibleProtocol
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LimitScope
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -71,6 +72,25 @@ class ConnectWizardPresentationTest {
         val auth = EngineFailure.Authentication(AuthFailure(AuthFailureReason.CredentialsRejected))
         assertEquals(FailureUi.Authentication, auth.toUi())
         assertEquals(FailureUi.Unknown, EngineFailure.Unknown().toUi())
+    }
+
+    @Test
+    fun `local credential failures do not suggest that the provider rejected the key`() {
+        listOf(AuthFailureReason.NotAuthenticated, AuthFailureReason.SourceUnavailable).forEach { reason ->
+            assertEquals(FailureUi.CredentialsMissing, EngineFailure.Authentication(AuthFailure(reason)).toUi())
+        }
+        listOf(AuthFailureReason.AuthMismatch, AuthFailureReason.SourceChanged).forEach { reason ->
+            assertEquals(FailureUi.ConnectionChanged, EngineFailure.Authentication(AuthFailure(reason)).toUi())
+        }
+        listOf(AuthFailureReason.CredentialsExpired, AuthFailureReason.CredentialsRejected).forEach { reason ->
+            assertEquals(FailureUi.Authentication, EngineFailure.Authentication(AuthFailure(reason)).toUi())
+        }
+    }
+
+    @Test
+    fun `exhausted quota does not use temporary rate limit guidance`() {
+        assertEquals(FailureUi.Quota, EngineFailure.QuotaExceeded(LimitScope.Unknown).toUi())
+        assertEquals(FailureUi.Limit, EngineFailure.RateLimited(LimitScope.Unknown).toUi())
     }
 
     @Test

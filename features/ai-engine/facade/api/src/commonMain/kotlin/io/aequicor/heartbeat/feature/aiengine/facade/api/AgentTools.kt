@@ -68,8 +68,9 @@ public data class AgentToolContext(
 
 /**
  * What a session's instructions are built for. [workspace] is null for a session without a project; [target] is the
- * session's engine and model when the adapter knows it. [declared] limits instructions to contributions whose tools
- * are among these names — a resumed native thread that froze its tool set at creation; null means no limit.
+ * session's engine and model when the adapter knows it. [declared] limits tool-dependent instructions to these
+ * names — a resumed native thread that froze its tool set at creation; null means no limit. An explicitly empty
+ * set requests only [AgentToolContribution.hasIndependentInstructions] owners without enumerating declarations.
  */
 public data class AgentToolScope(
     val workspace: WorkspaceRef?,
@@ -141,9 +142,11 @@ public interface AgentToolContribution {
     public val isDetachedSupported: Boolean get() = false
 
     /**
-     * Provides session content even when this contribution has no allowed tool declarations. The scoped
-     * instructions override must honor the effective declared set and its own availability toggle. This does
-     * not expose any tool or bypass detached-session opt-in; it serves independent knowledge such as harnesses.
+     * Provides session content even when this contribution has no allowed tool declarations. With an explicitly
+     * empty [AgentToolScope.declared] set, only opted-in owners supply instructions and no declarations are queried.
+     * The scoped instructions override must honor the effective declared set and its own availability toggle.
+     * This does not expose any tool or bypass detached-session opt-in; it serves independent knowledge such as
+     * harnesses. Failures and cancellation while reading these instructions propagate to the caller.
      */
     public val hasIndependentInstructions: Boolean get() = false
 

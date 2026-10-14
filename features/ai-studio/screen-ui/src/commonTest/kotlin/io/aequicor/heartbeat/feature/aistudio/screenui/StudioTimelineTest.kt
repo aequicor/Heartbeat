@@ -84,6 +84,47 @@ class StudioTimelineTest {
     }
 
     @Test
+    fun `connection failures keep their recovery notice in the timeline`() {
+        val recovery = labels.copy(
+            failed = FailureLabels(
+                unknown = "Unknown",
+                authentication = "Sign in again",
+                credentialsMissing = "Add the key on this device",
+                connectionChanged = "Check the selected connection",
+                quota = "Check the subscription",
+                access = "Check model access",
+                requestRejected = "Check the server address",
+                engineUnavailable = "Install or restart the engine",
+            ),
+        )
+        val failures = listOf(
+            FailureUi.Authentication,
+            FailureUi.CredentialsMissing,
+            FailureUi.ConnectionChanged,
+            FailureUi.Quota,
+            FailureUi.Access,
+            FailureUi.RequestRejected,
+            FailureUi.EngineUnavailable,
+        )
+        val messages = TimelineCache().update(
+            failures.map { MessageUi.Failed(it.name, Instant.fromEpochSeconds(0), it) },
+            recovery,
+        ).messages
+        assertEquals(
+            listOf(
+                "Sign in again",
+                "Add the key on this device",
+                "Check the selected connection",
+                "Check the subscription",
+                "Check model access",
+                "Check the server address",
+                "Install or restart the engine",
+            ),
+            messages.map { it.text },
+        )
+    }
+
+    @Test
     fun `durations show seconds below a minute and minutes with seconds above`() {
         assertEquals("0 s", durations.format((-5).seconds))
         assertEquals("59 s", durations.format(59.seconds))

@@ -19,6 +19,8 @@ class StudioViewSyncTest {
             StudioIntent.ToggleProject("project"),
             StudioIntent.ToggleProjectsSection,
             StudioIntent.ToggleRecentSection,
+            StudioIntent.ToggleNoProjectSection,
+            StudioIntent.ToggleProjectSessions("p"),
             StudioIntent.ToggleSidebar,
         )
         for (toggle in toggles) {

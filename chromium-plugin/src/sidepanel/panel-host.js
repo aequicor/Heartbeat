@@ -2,6 +2,7 @@
 import { pendingAttachmentKey, takeSelection } from '../background/context-menu.js';
 import { PANEL_PORT } from '../background/panel-hub.js';
 import { capturePage } from '../shared/page-capture.js';
+import { createDiagramOpener } from './diagram-transfer.js';
 
 /**
  * The extension side of the Compose side panel (Kotlin/Wasm, `chromium-plugin/panel`): the port to the service
@@ -13,6 +14,7 @@ import { capturePage } from '../shared/page-capture.js';
 export function createPanelHost(chrome, locks = navigator.locks) {
   const port = chrome.runtime.connect({ name: PANEL_PORT });
   const panelWindow = chrome.windows.getCurrent();
+  const openDiagram = createDiagramOpener(chrome);
   /** @type {((json: string) => void) | null} */
   let listener = null;
   /** @type {string[]} */
@@ -33,6 +35,13 @@ export function createPanelHost(chrome, locks = navigator.locks) {
     /** @param {string} json A message for the service worker. */
     post(json) {
       port.postMessage(JSON.parse(json));
+    },
+
+    /** @param {string} json `{ png: base64 PNG, background: '#RRGGBB', title?: string }`, opened in this window. */
+    async openDiagram(json) {
+      const { id } = await panelWindow;
+      if (id === undefined) throw new Error('The panel window is unavailable');
+      await openDiagram(id, json);
     },
 
     /** The active tab as a page attachment (JSON), or `null` when it cannot be attached. */

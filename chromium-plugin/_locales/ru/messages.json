@@ -323,5 +323,29 @@
   },
   "chooseModelHint": {
     "message": "Выберите модель для нового чата."
+  },
+  "diagramTitle": {
+    "message": "Диаграмма PlantUML"
+  },
+  "diagramLoading": {
+    "message": "Открытие диаграммы…"
+  },
+  "diagramZoomIn": {
+    "message": "Увеличить"
+  },
+  "diagramZoomOut": {
+    "message": "Уменьшить"
+  },
+  "diagramActualSize": {
+    "message": "Исходный размер"
+  },
+  "diagramFit": {
+    "message": "Вписать в окно"
+  },
+  "diagramUnavailable": {
+    "message": "Диаграмма больше недоступна в этой вкладке. Откройте её снова из чата."
+  },
+  "diagramFailed": {
+    "message": "Не удалось показать диаграмму. Откройте её снова из чата."
   }
 }

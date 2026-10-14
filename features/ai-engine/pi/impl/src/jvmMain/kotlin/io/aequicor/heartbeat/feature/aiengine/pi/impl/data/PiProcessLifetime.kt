@@ -20,6 +20,8 @@ internal class PiProcessLifetime(
         private set
     var launchedTools: Set<String> = emptySet()
         private set
+    var launchedInstructions: String? = null
+        private set
     val contextRevision = PiContextRevision()
     var isShuttingDown = false
         private set
@@ -57,6 +59,7 @@ internal class PiProcessLifetime(
             // Shutdown must own the replacement before recovery can reject and close its transport.
             connection = fresh
             launchedTools = plan.requestedNames
+            launchedInstructions = plan.requestedInstructions
             return fresh
         } finally {
             opening = null

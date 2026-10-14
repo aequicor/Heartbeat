@@ -136,16 +136,15 @@ internal class DefaultAgentTools(
     override suspend fun instructions(workspace: WorkspaceRef?): String = instructions(AgentToolScope(workspace))
 
     override suspend fun instructions(scope: AgentToolScope): String {
+        val independent = owners(scope.workspace).filter { it.hasIndependentInstructions && !it.isAdapterOperated }
+        if (scope.declared?.isEmpty() == true) return independent.map { it.instructions(scope) }.joined()
         val declared = declared(scope)
         val scoped = scope.copy(declared = declared.allowed.map { it.second.name }.toSet())
         // Owners whose tools the policy removed still contribute what does not need them (learned rules), also
         // when the adapter already passes only the allowed names as declared; they honor the declared names
         // (allowed within the session's own), so disabled tools are never mentioned.
         val owners = declared.available.mapTo(linkedSetOf()) { it.first }
-        owners += contributions.filter {
-            it.hasIndependentInstructions && !it.isAdapterOperated &&
-                (scope.workspace != null || it.isDetachedSupported)
-        }
+        owners += independent
         return owners.map { it.instructions(scoped) }.joined()
     }
 

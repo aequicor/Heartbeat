@@ -72,15 +72,22 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
     }
 
     suspend fun prepare(request: CodexThreadRequest, connection: CodexConnection): CodexPreparedThread {
+        val hosted = hostedOpening(request)
+        val params = connection.rpc.threadParams(request, hosted.parameters)
+        return CodexPreparedThread(request, params, hosted)
+    }
+
+    /** Reads current host guidance without validating new process settings against the previous connection. */
+    suspend fun instructions(request: CodexThreadRequest): String = hostedOpening(request).parameters?.second.orEmpty()
+
+    private suspend fun hostedOpening(request: CodexThreadRequest): HostedOpening {
         val route = request.route
         val areDetachedToolsEnabled = request.areDetachedToolsEnabled
-        val hosted = if (route.workspace == null && areDetachedToolsEnabled) {
+        return if (route.workspace == null && areDetachedToolsEnabled) {
             detachedOpening(request)
         } else {
             hostedOpening(request, route.workspace, isEligible = route.workspace != null)
         }
-        val params = connection.rpc.threadParams(request, hosted.parameters)
-        return CodexPreparedThread(request, params, hosted)
     }
 
     suspend fun start(prepared: CodexPreparedThread, connection: CodexConnection): JsonObject {
@@ -152,13 +159,23 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
         val specs = if (isEligible) host.tools.specifications(scope) else emptyList()
         val manifest = hostedManifest(workspace, specs)
         val hosted = validateHostedResume(nativeId, workspace, manifest)
-        val parameters = hosted.takeIf { isEligible }?.let { hostedParameters(scope, specs, it) }
-        return HostedOpening(manifest, parameters, isServed = isEligible && hosted != null)
+        val parameters = if (isEligible || request.areDetachedToolsEnabled) {
+            // An old thread without declarations can still receive instructions independent of tools.
+            hostedParameters(scope, specs, hosted ?: HostedThread.Resumed(emptySet()))
+        } else {
+            null
+        }
+        val declared = when (hosted) {
+            HostedThread.New -> specs.mapTo(mutableSetOf()) { it.name }
+            is HostedThread.Resumed -> hosted.tools
+            null -> emptySet()
+        }
+        return HostedOpening(manifest, parameters, isServed = isEligible && hosted != null, declared)
     }
 
     /**
-     * Detached hosted tools are optional: a failing contribution opens the chat thread as if its caller had not
-     * opted in. Engine failures, such as a stored manifest incompatible with a resume, still fail the open.
+     * Detached hosted tools are optional: a failed attachment retries independent guidance without declarations.
+     * Failed guidance or engine failures, such as an incompatible stored manifest, still fail the open.
      */
     private suspend fun detachedOpening(request: CodexThreadRequest): HostedOpening = try {
         hostedOpening(request, workspace = null, isEligible = true)

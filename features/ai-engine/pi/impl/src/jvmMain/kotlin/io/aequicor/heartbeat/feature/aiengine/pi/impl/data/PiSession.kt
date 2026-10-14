@@ -192,7 +192,7 @@ internal class PiSession(
         val isActiveTurn = turn?.id == active.id && !isHandleClosed
         isSameProcess && isActiveTurn && state.value !is ActiveSessionState.Interrupting
     }, failed = ::failed)
-    private val toolPlans = PiToolPlans(environment, hostedTools, request.areDetachedToolsEnabled) {
+    private val toolPlans = PiToolPlans(environment, hostedTools, request) {
         AgentToolScope(route.workspace, target, session = nativeRef)
     }
     private val profileClose = profile.onClose {
@@ -458,15 +458,16 @@ internal class PiSession(
         plan
     }
 
-    /** Only growth needs a restart, between turns and under the send mutex, on the same saved transcript. */
+    /** Refresh frozen declarations between turns, under the send mutex, on the same saved transcript. */
     private suspend fun refreshTools() {
         val process = connection?.takeIf { it.isOpen } ?: return
-        if (!toolPlans.hasGrown(processLifetime.launchedTools)) return
         // get_state may advertise an allocated path before Pi writes its first assistant message.
         // Only a transcript found in profile storage is safe to reattach after closing this process.
-        val file = nativeRef?.nativeId?.let { persistedTranscript(it) } ?: return
+        val file = toolPlans.refreshedTranscript(processLifetime.launchedTools, processLifetime.launchedInstructions) {
+            nativeRef?.nativeId?.let { persistedTranscript(it) }
+        } ?: return
         sessionFile = file
-        log.i { "Restarting Pi between turns to expose additional tools" }
+        log.i { "Restarting Pi between turns to update tool declarations" }
         process.close()
         connected(isRecovery = false)
     }

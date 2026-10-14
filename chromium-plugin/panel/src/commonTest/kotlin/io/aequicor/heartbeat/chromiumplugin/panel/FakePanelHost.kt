@@ -28,6 +28,10 @@ internal class FakePanelHost : PanelHost {
 
     override suspend fun takeSelection(): String? = selection.also { selection = null }
 
+    var openDiagram: suspend (String) -> Unit = {}
+
+    override suspend fun openDiagram(json: String) = openDiagram.invoke(json)
+
     override fun onSelection(onArrival: () -> Unit) {
         selectionArrival = onArrival
     }

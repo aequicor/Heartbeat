@@ -65,9 +65,9 @@ internal fun isAllowedRemotely(intent: AiStudioScreenIntent): Boolean = when (in
     is AiStudioScreenIntent.ShowSidebarMode,
     is AiStudioScreenIntent.ToggleSearch,
     is AiStudioScreenIntent.SearchChanged,
-    is AiStudioScreenIntent.ToggleProject,
+    is AiStudioScreenIntent.ToggleProject, is AiStudioScreenIntent.ToggleProjectSessions,
     is AiStudioScreenIntent.ToggleProjectsSection,
-    is AiStudioScreenIntent.ToggleRecentSection,
+    is AiStudioScreenIntent.ToggleRecentSection, is AiStudioScreenIntent.ToggleNoProjectSection,
     is AiStudioScreenIntent.ToggleSidebar,
     is AiStudioScreenIntent.SetDrawerOpen,
     -> true

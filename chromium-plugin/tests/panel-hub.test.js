@@ -308,3 +308,25 @@ test('captured pages retain their sequence and generation while legacy chat call
   assert.equal(link.calls.length, 1);
   assert.equal(port.posted.filter((item) => item.error?.code === 'unknown_method').length, 3);
 });
+
+test('diagram rendering is relayed with enough time for the local queue and worker', async () => {
+  /** @type {any[]} */
+  const calls = [];
+  const link = {
+    status: 'ready',
+    hello: { features: { studio: true, diagrams: true } },
+    request: async (/** @type {string} */ method, /** @type {any} */ params, /** @type {number | undefined} */ timeout) => {
+      calls.push({ method, params, timeout });
+      return { kind: 'unsupported' };
+    },
+  };
+  const hub = createPanelHub({ link, extensionOrigin: ORIGIN });
+  const port = panelPort();
+  hub.attach(port);
+  const params = { source: '@startuml\nA -> B\n@enduml', scale: 2, style: {} };
+  port.deliver({ type: 'call', id: 4, method: 'diagram.render', params });
+  await flush();
+
+  assert.deepEqual(calls, [{ method: 'diagram.render', params, timeout: 45_000 }]);
+  assert.deepEqual(port.last(), { type: 'reply', id: 4, result: { kind: 'unsupported' } });
+});

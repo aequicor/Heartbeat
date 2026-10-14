@@ -9,18 +9,25 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 
 /** Bridge features the app offers to extensions, from the rollout toggles, studio views. */
-internal class ToggleBridgeFeatures(private val toggles: FeatureToggles, private val studio: StudioRemoteScreens) {
+internal class ToggleBridgeFeatures(
+    private val toggles: FeatureToggles,
+    private val studio: StudioRemoteScreens,
+    private val diagrams: Flow<Boolean> = flowOf(false),
+) {
     /** Current features; extensions receive changes as `app.features`. */
     fun observe(): Flow<BridgeFeatureSet> = combine(
         toggles.observe(ChromiumBridgeEnabled),
         toggles.observe(ChromiumBridgeAgentControl),
         studio.availability,
-    ) { isEnabled, isAgentControl, isStudio ->
+        diagrams,
+    ) { isEnabled, isAgentControl, isStudio, isDiagrams ->
         BridgeFeatureSet(
             isAgentControl = isEnabled && isAgentControl,
             isStudio = isEnabled && isStudio,
+            isDiagrams = isEnabled && isStudio && isDiagrams,
         )
     }.distinctUntilChanged()
 
