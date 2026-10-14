@@ -4,6 +4,8 @@ plugins {
 
 group = "io.aequicor.heartbeat.buildlogic"
 
+val functionalTestClasspath by configurations.creating
+
 dependencies {
     // compileOnly: сами плагины кладутся на classpath сборки через `apply false` в корневом build.gradle.kts.
     compileOnly(libs.detekt.gradlePlugin)
@@ -14,6 +16,12 @@ dependencies {
 
     testImplementation(libs.kotlin.gradlePlugin)
     testImplementation(libs.kotlin.testJunit)
+    testImplementation(gradleTestKit())
+    functionalTestClasspath(libs.kotlin.gradlePlugin)
+}
+
+tasks.pluginUnderTestMetadata {
+    pluginClasspath.from(functionalTestClasspath)
 }
 
 gradlePlugin {
