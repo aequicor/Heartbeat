@@ -134,8 +134,15 @@ def native_layout(directory: Path) -> dict[str, Path]:
                   "helper": helper_bundle / "Contents" / "MacOS" / "jcef Helper",
                   "framework": framework, "main-bundle": helper_bundle,
                   "resources": framework / "Resources", "locales": framework / "Resources"}
+    elif sys.platform == "linux":
+        result = {"library": directory / "libjcef.so", "helper": directory / "jcef_helper",
+                  "resources": directory, "locales": directory / "locales"}
+        if not (directory / "libcef.so").is_file():
+            raise ValueError("Missing matching libcef.so")
+        if not os.access(result["helper"], os.X_OK):
+            raise ValueError("Linux JCEF helper is not executable")
     else:
-        raise ValueError("Native lifecycle verification requires Windows or macOS")
+        raise ValueError("Native lifecycle verification requires Windows, macOS or Linux")
     for name, path in result.items():
         if not path.exists():
             raise ValueError(f"Missing {name}: {path}")

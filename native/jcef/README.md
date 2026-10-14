@@ -52,27 +52,35 @@ alive until request completion, then dispose the request before its context.
 
 ## Next release
 
+The prepared **152.0.6-hb4** release adds Linux x64. Its CEF archive digest is pinned in `next/source-lock.json`;
+the patch is unchanged from hb3. The current four-host hb3 lock and published assets remain unchanged until all
+five native builds and probes pass. The completed hb4 lock must contain six real jar hashes before Gradle's
+`jcef-native` version and `jcef-linux-x64` coordinate are enabled together. Do not publish the application with
+a missing Linux native jar or replace it with an unpatched upstream runtime.
+
 `next/` holds a prepared release while the application still uses the current one: `next/request-context-settings.patch`
 is its complete patch and `next/source-lock.json` its lock (the patch's SHA-256, `artifactVersion`, no artifacts yet).
 Build every target from it — in CI (below) or locally with `--patch native/jcef/next/request-context-settings.patch
 --source-lock native/jcef/next/source-lock.json` added to every `build_runtime.py` command — then collect and publish
 as below. The release commit moves the patch over `request-context-settings.patch`, replaces `source-lock.json` with
 the completed lock, removes `next/`, sets `jcef-native` in `gradle/libs.versions.toml` and pins the five jars in
-`gradle/verification-metadata.xml`.
+`gradle/verification-metadata.xml` (six jars for hb4).
 
 ## Build in CI
 
-`.github/workflows/jcef-runtime.yml` builds all four targets on native GitHub runners (Windows x64 and ARM64,
-macOS Intel and Apple silicon) with the same Python 3.13 and Microsoft JDK 21.0.10, runs the lifecycle probe on each
+`.github/workflows/jcef-runtime.yml` builds all five targets on native GitHub runners (Windows x64 and ARM64,
+macOS Intel and Apple silicon, Linux x64 on Ubuntu 24.04) with the same Python 3.13 and Microsoft JDK 21.0.10,
+runs the lifecycle probe on each
 host and collects the release directory into the `jcef-release` artifact. It builds `next/` when it exists, otherwise
 the current lock. It never runs on its own and never publishes: add the label `jcef-runtime` to a pull request (remove
 it by hand afterwards), or once the workflow is in `master` run `gh workflow run jcef-runtime.yml --ref <branch>`.
-The probe's result is reported per host and its reports are uploaded; a failed probe does not stop the release
-artifact, so the maintainer decides from the reports before running `publish_draft.py` on the downloaded release.
+The probe's result is reported per host and its reports are uploaded. Linux must pass before collection; existing
+macOS/Windows probes remain advisory. The maintainer inspects every report before running `publish_draft.py`
+on the downloaded release.
 
 ## Build and verify locally
 
-Each release can also be built, probed and collected locally, by the maintainer, on four native hosts.
+Each release can also be built, probed and collected locally, by the maintainer, on its locked native hosts.
 Cross-compilation is not used:
 
 | Target | Host | Toolchain |
@@ -81,11 +89,18 @@ Cross-compilation is not used:
 | Windows ARM64 | Windows ARM64 | MSVC native ARM64, Microsoft JDK 21 ARM64 |
 | macOS x64 | macOS on Intel | Xcode command-line tools, Microsoft JDK 21 x64 |
 | macOS ARM64 | macOS on Apple silicon | Xcode command-line tools, Microsoft JDK 21 ARM64 |
+| Linux x64 | Ubuntu 24.04 x64, X11/XWayland | GCC, X11/GTK development libraries, Microsoft JDK 21 x64 |
 
 Install Python 3.13, Git, JDK 21.0.10, CMake, Ninja and the native C++ SDK. macOS also
 requires Ant. Windows ARM64 uses the installed native Visual Studio toolchain (select it
 with `vswhere`); it does not link against an x64 JDK. Run Windows commands from the
 matching MSVC Developer Command Prompt. Use a fresh source directory for each build:
+
+Linux needs `build-essential`, `libx11-dev`, `libxext-dev`, `libxrender-dev`, `libxtst-dev`, `libgtk-3-dev`,
+`libnss3`, `libgbm1`, `libasound2t64`, `xvfb` and `xauth`. Run its lifecycle probe under
+`xvfb-run --auto-servernum` on a runner without a display. Its normalized native archive includes `libjcef.so`,
+`libcef.so`, CEF GPU libraries/data/locales and the executable `jcef_helper`, with original executable modes.
+Browser settings point to this extracted bundle; the application does not create resource links in the system JDK.
 
 ```shell
 python -m pip install six==1.17.0
@@ -103,7 +118,7 @@ target in `cefDistributions` of `source-lock.json` (the digest upstream publishe
 `https://cef-builds.spotifycdn.com/index.json`); CMake then only extracts the verified
 archive. An already present archive is checked the same way, and an earlier extracted tree
 is removed so CMake always extracts afresh (an interrupted extraction is never reused). Upgrading CEF means pinning
-the new four digests from that index together with `cefVersion`.
+the new digests for every locked target from that index together with `cefVersion`.
 Packaging records SHA-256 for every produced artifact and native runtime file.
 The Java API is compiled from the same patched source as JNI with `--release 8`.
 On macOS upstream Ant also compiles its private AWT bridge, shipped in that
@@ -130,8 +145,8 @@ of `jvmTest` or `check`.
 ## Artifacts and publication
 
 Each host produces `build/jcef-artifacts` with two jars and `manifest-<target>.json`.
-Copy the four outputs into one directory (for example `build/jcef-inputs/<target>/`) and
-collect them; collection requires all four targets, rejects inconsistent API jars and
+Copy the outputs into one directory (for example `build/jcef-inputs/<target>/`) and
+collect them; collection requires every target in the selected lock, rejects inconsistent API jars and
 mismatched checksums/source versions:
 
 ```shell
@@ -151,9 +166,9 @@ metadata use the unique release tag
 This prevents reuse of an unpatched extraction cache. Native archives include
 resources, locales, helper executables/apps and licenses. macOS symlinks and
 executable modes are preserved. Jar entries and archive timestamps are normalized;
-collection checks that all four shared API builds are byte-identical.
+collection checks that all shared API builds are byte-identical.
 
-After all four native probes pass, `publish_draft.py` creates a draft prerelease
+After every native probe passes, `publish_draft.py` creates a draft prerelease
 with the GitHub CLI; existing assets are never replaced and a retry must match the
 published checksums and manifests:
 
@@ -161,7 +176,7 @@ published checksums and manifests:
 python native/jcef/publish_draft.py --artifacts build/jcef-release --repository aequicor/Heartbeat --commit <sha> --version 152.0.6-hb3
 ```
 
-Publication follows inspection of the verified five jars and manifests as immutable
+Publication follows inspection of the verified jars and manifests as immutable
 assets of the GitHub release tag `152.0.6-hb3`. Copy the completed source lock into
 this directory, and pin actual jar hashes in Gradle verification metadata.
 Coordinates are `io.aequicor.heartbeat.jcef:<artifact>:152.0.6-hb3`;
@@ -169,5 +184,5 @@ Gradle consumes release assets using an Ivy artifact pattern. JOGL/gluegen Java
 API dependencies remain explicit dependencies of the application.
 
 Never substitute upstream JNI for this Java API. Never populate missing hashes
-with placeholders. Until all four native builds are collected, empty
+with placeholders. Until all locked native builds are collected, empty
 `nativeArtifacts` means publication and the native release gate are incomplete.

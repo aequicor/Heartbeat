@@ -6,6 +6,8 @@ from pathlib import Path
 import subprocess
 import tempfile
 
+from build_runtime import release_targets
+
 
 def gh(*arguments, check=True):
     return subprocess.run(["gh", *map(str, arguments)], text=True, capture_output=True, check=check)
@@ -21,7 +23,7 @@ def main():
     directory = options.artifacts.resolve()
     lock = json.loads((directory / "source-lock.json").read_text())
     version = lock["artifactVersion"]
-    targets = {"windows-amd64", "windows-arm64", "macosx-amd64", "macosx-arm64"}
+    targets = release_targets(lock)
     if version != options.version or set(lock["nativeArtifacts"]) != targets:
         raise ValueError("Unexpected release version or native targets")
     for artifact in [lock["apiArtifact"], *lock["nativeArtifacts"].values()]:
@@ -32,8 +34,8 @@ def main():
                 raise ValueError("Release asset does not match the verified source lock")
     expected = {lock["apiArtifact"]["file"], *(item["file"] for item in lock["nativeArtifacts"].values()),
                 "SHA256SUMS", "source-lock.json", "runtime-manifest.json"}
-    if len(expected) != 8 or any(not (directory / name).is_file() for name in expected):
-        raise ValueError("A complete verified five-jar release is required")
+    if len(expected) != len(targets) + 4 or any(not (directory / name).is_file() for name in expected):
+        raise ValueError("A complete verified release for every locked target is required")
     repository = options.repository
     existing = gh("release", "view", version, "--repo", repository, "--json", "assets,url", check=False)
     if existing.returncode == 0:

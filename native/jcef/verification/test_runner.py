@@ -11,11 +11,28 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
+from unittest.mock import patch
 
-from run_probe import handler_type, java_platform_options, launch, remove_owned_profile
+from run_probe import handler_type, java_platform_options, launch, native_layout, remove_owned_profile
 
 
 class LauncherTests(unittest.TestCase):
+    def test_linux_layout_requires_matching_cef_and_uses_bundled_resources(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            for name in ("libjcef.so", "jcef_helper"):
+                (directory / name).write_bytes(b"native fixture")
+            (directory / "jcef_helper").chmod(0o755)
+            (directory / "locales").mkdir()
+            with patch("run_probe.sys.platform", "linux"):
+                with self.assertRaisesRegex(ValueError, "libcef.so"):
+                    native_layout(directory)
+                (directory / "libcef.so").write_bytes(b"matching CEF")
+                result = native_layout(directory)
+            self.assertEqual(directory.resolve() / "jcef_helper", result["helper"])
+            self.assertEqual(directory.resolve(), result["resources"])
+            self.assertEqual([], java_platform_options("linux"))
+
     def test_mac_windowed_peer_packages_are_opened(self):
         options = java_platform_options("darwin")
         for package in ("sun.awt", "sun.lwawt", "sun.lwawt.macosx"):

@@ -1,14 +1,14 @@
 # Проверка нативного жизненного цикла JCEF
 
 Standalone harness для согласованных Java/native-артефактов Heartbeat. Нужны JDK 21,
-Python 3.11+, Windows или macOS с доступной графической сессией и бинарники **архитектуры
+Python 3.11+, Windows, macOS или Linux с доступной графической сессией и бинарники **архитектуры
 самого хоста**. Gradle, сеть для загрузки зависимостей и запущенный Heartbeat не нужны.
 Проверка открывает настоящие JFrame с windowed JCEF; headless-режим не подменяет результат.
 
 ## Запуск после сборки
 
 Из корня репозитория, заменив `<target>` на `windows-amd64`, `windows-arm64`,
-`macosx-amd64` или `macosx-arm64`:
+`macosx-amd64`, `macosx-arm64` или `linux-amd64` (Linux — начиная с hb4):
 
 ```text
 python native/jcef/verification/run_probe.py --jcef-api build/jcef-artifacts/jcef-api-152.0.6-hb3.jar --native-dir build/jcef-source/heartbeat-native-stage --extra-classpath build/jcef-artifacts/jcef-natives-<target>-152.0.6-hb3.jar --extra-classpath build/jcef-source/third_party/jogamp/jar/jogl-all.jar --extra-classpath build/jcef-source/third_party/jogamp/jar/gluegen-rt.jar --output build/jcef-verification
@@ -24,6 +24,9 @@ python native/jcef/verification/run_probe.py --jcef-api build/jcef-artifacts/jce
 - Windows: `jcef.dll`, `libcef.dll`, `chrome_elf.dll`, `jcef_helper.exe`, ресурсы CEF и `locales/`.
 - macOS: `libjcef.dylib`, `Chromium Embedded Framework.framework`, `jcef Helper.app`
   и остальные helper bundles. macOS bridge-классы должны быть в native JAR из команды выше.
+- Linux: `libjcef.so`, `libcef.so`, исполняемый `jcef_helper`, ресурсы CEF и `locales/`.
+  Нужны X11 или XWayland; в CI команду оборачивает `xvfb-run --auto-servernum`. Проба не заменяет
+  ресурсы системного JDK и использует helper/data paths только переданного bundle.
 
 Native loader привязан к переданному каталогу, включая subprocess/framework paths.
 Harness не использует другую JCEF-копию из JBR, не скачивает runtime и не подменяет
