@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.serviceasui.impl.presentation.place
 
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiState
+import io.aequicor.heartbeat.feature.serviceasui.api.UiApp
 import io.aequicor.heartbeat.feature.serviceasui.api.UiCallContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiDockId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostContext
@@ -37,6 +38,19 @@ class PlaceSelectionTest {
             ),
         ),
     )
+
+    @Test
+    fun `the canonical app absorbs only its own old start and composer surfaces`() {
+        val app = surface("app", UiPlacement.Card)
+        val selected = ready.copy(
+            library = ready.library.copy(surfaces = ready.library.surfaces + app),
+            apps = mapOf(host to UiApp(app.id, context)),
+        )
+        val startContent = PlaceTarget.Slot(host, UiSlot.Start).content(selected, setOf(PrMap, Other))
+        assertEquals(listOf("foreign"), startContent.surfaces.map { it.surface.content.name.value })
+        assertEquals(emptyList(), PlaceTarget.Slot(host, UiSlot.Composer).content(selected, setOf(PrMap)).surfaces)
+        assertEquals(listOf(map), startContent.launchers, "Unrelated explicit panel launchers keep their contract")
+    }
 
     @Test
     fun `a slot shows enabled surfaces of its placement and launchers of active owners oldest first`() {

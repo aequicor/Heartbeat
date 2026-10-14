@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store
 
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiIntent
+import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiState
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwner
@@ -19,8 +20,12 @@ internal suspend fun ServiceUiMachine.focusSurfaceCard(
     expectedContext: UiHostContext,
 ): Boolean {
     if (host == null || owner == null || !name.matches(SurfaceName)) return false
-    val chat = expectedContext.call.session ?: return false
     val surface = UiSurfaceId.of(owner, UiSurfaceName(name))
+    val app = (state.value as? ServiceUiState.Ready)?.apps?.get(host)
+    if (app?.surface == surface && app.context == expectedContext) {
+        return send(ServiceUiIntent.Public.OpenApp(host, surface, expectedContext)) == SendResult.Accepted
+    }
+    val chat = expectedContext.call.session ?: return false
     val card = cards.latest(chat, surface) ?: return false
     return send(
         ServiceUiIntent.Internal.RequestFocusCard(host, surface, owner, card.id, expectedContext),

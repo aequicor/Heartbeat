@@ -16,6 +16,7 @@ internal fun isAllowedRemotely(intent: AiStudioScreenIntent): Boolean = when (in
     is AiStudioScreenIntent.OpenBeside,
     is AiStudioScreenIntent.RemoteApplied,
     is AiStudioScreenIntent.CardFocusApplied,
+    is AiStudioScreenIntent.OpenApp,
     is AiStudioScreenIntent.SelectOrganism,
     -> false
 

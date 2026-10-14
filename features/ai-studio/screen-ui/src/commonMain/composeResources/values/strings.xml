@@ -1,4 +1,5 @@
 <resources>
+    <string name="miniapp_open">Open %1$s</string>
     <string name="session_tree_root">Root session</string>
     <string name="session_tree_unknown">unknown</string>
     <string name="session_tree_activity">Active descendants; + or ? means some activity is unknown</string>

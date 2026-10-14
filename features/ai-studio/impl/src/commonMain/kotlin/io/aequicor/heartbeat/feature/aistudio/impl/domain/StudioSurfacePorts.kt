@@ -30,6 +30,14 @@ data class StudioSurfacePrompt(
 /** Reveals a stored interface card only in the pane still showing its original [place]. */
 data class StudioSurfaceCardFocus(val paneId: Int, val cardId: String, val place: StudioSurfacePlace)
 
+/** The canonical app selected for one exact [place]; metadata never grants method-call authority. */
+data class StudioSurfaceApp(
+    val surfaceId: String,
+    val title: String,
+    val harnessId: String?,
+    val place: StudioSurfacePlace,
+)
+
 /** Interfaces the agent built, as the panes of one studio window use them. */
 interface StudioSurfaces {
     /** Whether interfaces are turned on. */
@@ -40,6 +48,12 @@ interface StudioSurfaces {
 
     /** Requests to reveal an existing card in its chat. */
     val cardFocus: Flow<StudioSurfaceCardFocus>
+
+    /** Selected apps of this window, keyed by pane; stale or unbound contexts are absent. */
+    val apps: Flow<Map<Int, StudioSurfaceApp>> get() = flowOf(emptyMap())
+
+    /** Opens [app] only while the pane still owns its exact place and canonical surface. */
+    suspend fun openApp(paneId: Int, app: StudioSurfaceApp) = Unit
 
     /** The place id of pane [paneId] for the slot routes of interfaces. */
     fun host(paneId: Int): String

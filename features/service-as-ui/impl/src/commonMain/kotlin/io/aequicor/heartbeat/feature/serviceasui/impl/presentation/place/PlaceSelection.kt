@@ -101,6 +101,7 @@ private fun library(state: ServiceUiState) = when (state) {
 
 private fun PlaceTarget.readyContent(state: ServiceUiState.Ready, active: Set<UiOwner>): PlaceContent {
     val (host, context) = host(state) ?: return PlaceContent()
+    val appOwner = state.apps[host]?.surface?.let { state.library[it]?.content?.owner }
     val shown = state.library.surfaces
         .filter { it.isEnabled && it.content.owner in active }
         .sortedWith(compareBy({ it.createdAt }, { it.id.value }))
@@ -108,7 +109,7 @@ private fun PlaceTarget.readyContent(state: ServiceUiState.Ready, active: Set<Ui
         is PlaceTarget.Slot -> PlaceContent(
             host = host,
             context = context,
-            surfaces = shown.filter { it.content.placement == slot.placement }
+            surfaces = shown.filter { it.content.placement == slot.placement && it.content.owner != appOwner }
                 .map { PlacedSurface(PlaceRole.Body, it, host, context) },
             launchers = shown.filter { slot in it.content.launchers },
         )

@@ -106,6 +106,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.paneCards
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioAppKey
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioComposerSlotKey
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioStartSlotKey
 import kotlinx.collections.immutable.ImmutableList
@@ -141,6 +142,7 @@ internal fun StudioPaneView(
     val pane = content.pane
     val composerSlot = slots[studioComposerSlotKey(pane.id)]
     val startSlot = slots[studioStartSlotKey(pane.id)]
+    val appHost = slots[studioAppKey(pane.id)]
     val ownCards = remember(cards, pane.id) { paneCards(cards, pane.id).toImmutableMap() }
     var headerHeight by remember { mutableIntStateOf(0) }
     var footerHeight by remember { mutableIntStateOf(0) }
@@ -153,18 +155,13 @@ internal fun StudioPaneView(
         }.focusGroup().focusOnPress(content.isFocused, pane.id) { onIntent(StudioIntent.FocusPane(pane.id)) }
             .background(HbTheme.surfaces.assistant).testTag("pane-${pane.id}"),
     ) {
-        val worktreeFeed = content.worktreeFeed()
-        val feedId = content.feedId() ?: worktreeFeed?.key
-        val worktree = if (worktreeFeed == null) {
-            NoWorktree
-        } else {
-            val labels = worktreeLabels()
-            val shownCards = timelineState.session(feedId ?: worktreeFeed.key).cards.keys
-            remember(worktreeFeed, labels, shownCards) { worktreeTimeline(worktreeFeed, labels, shownCards) }
-        }
-        val transcript = content.transcript ?: persistentListOf<MessageUi>().takeIf { worktree.messages.isNotEmpty() }
-        val isCenteredComposer = feedId == null && HbTheme.dimensions.isDesktop
-        if (feedId == null && !isCenteredComposer) {
+        val feed = paneFeed(content, timelineState)
+        val feedId = feed.id
+        val worktree = feed.worktree
+        val transcript = feed.messages
+        val hasStartApp = feedId == null && content.app != null
+        val isCenteredComposer = feedId == null && HbTheme.dimensions.isDesktop && !hasStartApp
+        if (feedId == null && !isCenteredComposer && !hasStartApp) {
             Box(
                 Modifier.fillMaxSize().padding(top = topInset, bottom = bottomInset),
             ) {
@@ -208,6 +205,13 @@ internal fun StudioPaneView(
                 )
             }
         }
+        // This mount stays outside the lazy feed and at the same position when a new chat starts.
+        PaneAppWorkspace(
+            appHost,
+            startSlot,
+            hasStartApp,
+            if (hasStartApp) Modifier.fillMaxSize().padding(top = topInset, bottom = bottomInset) else Modifier,
+        )
         Box(
             Modifier.align(Alignment.TopCenter).fillMaxWidth()
                 .onSizeChanged { headerHeight = it.height }
@@ -228,6 +232,39 @@ internal fun StudioPaneView(
                 Modifier.align(
                     composerRegionAlignment(isCenteredComposer),
                 ).onSizeChanged { footerHeight = it.height },
+            )
+        }
+    }
+}
+
+@Immutable
+private data class PaneFeed(val id: String?, val worktree: WorktreeTimeline, val messages: ImmutableList<MessageUi>?)
+
+/** Resolve the normal or preparing-worktree transcript independently of the pane's app placement. */
+@Composable
+private fun paneFeed(content: PaneContent, timelineState: StudioTimelineState): PaneFeed {
+    val worktreeFeed = content.worktreeFeed()
+    val feedId = content.feedId() ?: worktreeFeed?.key
+    val worktree = if (worktreeFeed == null) {
+        NoWorktree
+    } else {
+        val labels = worktreeLabels()
+        val shownCards = timelineState.session(feedId ?: worktreeFeed.key).cards.keys
+        remember(worktreeFeed, labels, shownCards) { worktreeTimeline(worktreeFeed, labels, shownCards) }
+    }
+    val transcript = content.transcript ?: persistentListOf<MessageUi>().takeIf { worktree.messages.isNotEmpty() }
+    return PaneFeed(feedId, worktree, transcript)
+}
+
+/** One full app body on start, a zero-layout modal host in a chat, and any unrelated legacy start blocks. */
+@Composable
+private fun PaneAppWorkspace(app: StudioEmbed?, start: StudioEmbed?, isStart: Boolean, modifier: Modifier = Modifier) {
+    HbColumn(modifier) {
+        app?.Content(if (isStart) Modifier.weight(1f).fillMaxWidth() else Modifier)
+        if (isStart) {
+            start?.Content(
+                Modifier.fillMaxWidth().heightIn(max = HbTheme.dimensions.toolPayloadMaxHeight)
+                    .hbVerticalScroll(rememberScrollState()),
             )
         }
     }

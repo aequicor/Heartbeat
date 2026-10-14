@@ -23,8 +23,10 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionTreeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SettingsUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioAppUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.appFor
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.attachmentSupport
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.availableHarnesses
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.collapsed
@@ -56,7 +58,7 @@ data class StudioExits(
     val onCloseChatArea: (() -> Unit)? = null,
     val questions: ImmutableMap<String, StudioEmbed> = persistentMapOf(),
     val checklists: ImmutableMap<String, StudioEmbed> = persistentMapOf(),
-    /** Interface slots keyed by the shared composer/start slot helpers. */
+    /** Interface slots and the single app host keyed by the shared composer/start/app helpers. */
     val slots: ImmutableMap<String, StudioEmbed> = persistentMapOf(),
     /** Cards of interfaces shown in replies, keyed by `studioCardKey(pane, cardId)`. */
     val cards: ImmutableMap<String, StudioEmbed> = persistentMapOf(),
@@ -87,6 +89,7 @@ data class PaneContent(
     val settings: SettingsUi,
     val models: ImmutableList<ModelUi> = persistentListOf(),
     val cardFocus: CardFocusRequestUi? = null,
+    val app: StudioAppUi? = null,
     val permissions: ImmutableList<PermissionUi> = persistentListOf(),
     val isStopFailed: Boolean = false,
     val isStoppable: Boolean = true,
@@ -175,6 +178,7 @@ fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
     return PaneContent(
         pane = pane,
         cardFocus = cardFocusRequests[pane.id]?.takeIf { it.chatId == pane.sessionId },
+        app = appFor(pane),
         session = session,
         project = project(pane.projectId ?: session?.projectId),
         projects = projects,

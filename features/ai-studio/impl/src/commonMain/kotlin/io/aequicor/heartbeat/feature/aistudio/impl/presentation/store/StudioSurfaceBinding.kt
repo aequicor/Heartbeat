@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaceApp
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaceCardFocus
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfacePlace
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfacePrompt
@@ -20,11 +21,15 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.CardFocusRequestUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioAppUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.appFor
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.isAttachmentPending
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.selectedNative
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.surfaceHarnesses
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraftCaret
 import kotlinx.collections.immutable.toImmutableMap
+import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -57,6 +62,7 @@ class StudioSurfaceBinding internal constructor(
     private var seen: SeenInputs? = null
     private var focusSequence = 0L
     private val latestWorkspace = MutableStateFlow<StudioWorkspace?>(null)
+    private var latestApps: Map<Int, StudioSurfaceApp> = emptyMap()
 
     /** The open panes, for the slot hosts of the component. */
     internal val openPanes: StateFlow<Map<Int, PaneSurfaceUi>> = panes.asStateFlow()
@@ -80,12 +86,12 @@ class StudioSurfaceBinding internal constructor(
     @HighFrequency
     internal fun onState(state: AiStudioScreenState) {
         if (seen?.isSameAs(state) == true) return
-        seen = SeenInputs(state.panes, state.harnessChoices, state.transcripts)
+        seen = SeenInputs(state.panes, state.harnessChoices, state.transcripts, state.submissions)
         val next = state.panes.associate { pane ->
             pane.id to PaneSurfaceUi(
                 chatId = pane.sessionId,
                 projectId = pane.projectId,
-                harnesses = if (pane.sessionId == null) state.harnessChoices.panes[pane.id].orEmpty() else emptySet(),
+                harnesses = state.surfaceHarnesses(pane),
             )
         }
         if (panes.value != next) {
@@ -114,11 +120,31 @@ class StudioSurfaceBinding internal constructor(
     ) {
         coroutineScope {
             launch { surfaces.prompts.collect { prompt -> applyPrompt(pipeline, prompt, submit) } }
+            launch {
+                combine(surfaces.apps, latestWorkspace) { apps, workspace -> apps to workspace }
+                    .collect { (apps, workspace) ->
+                        log.v { "Selected interface apps updated" }
+                        latestApps = apps
+                        pipeline.updateState { withApps(apps, workspace) }
+                    }
+            }
             surfaces.cardFocus.collect { request ->
                 val workspace = latestWorkspace.value ?: return@collect
                 val sequence = ++focusSequence
                 pipeline.updateState { withCardFocus(request, workspace, sequence) }
             }
+        }
+    }
+
+    /** A queued launcher gesture cannot open an app selected for the previous chat or new-chat choices. */
+    internal suspend fun openApp(pipeline: SurfacePipeline, intent: AiStudioScreenIntent.OpenApp) {
+        val app = latestApps[intent.paneId]?.takeIf { it.surfaceId == intent.surfaceId } ?: return
+        val workspace = latestWorkspace.value ?: return
+        pipeline.withState {
+            val pane = panes.firstOrNull { it.id == intent.paneId }
+            val isCurrent = pane != null && appFor(pane)?.surfaceId == intent.surfaceId &&
+                surfacePlace(pane.id, workspace) == app.place
+            if (isCurrent) surfaces.openApp(intent.paneId, app)
         }
     }
 
@@ -161,7 +187,7 @@ class StudioSurfaceBinding internal constructor(
     private fun AiStudioScreenState.accepts(prompt: StudioSurfacePrompt): Boolean {
         val pane = panes.firstOrNull { it.id == prompt.paneId } ?: return false
         val workspace = latestWorkspace.value ?: return false
-        val selected = if (pane.sessionId == null) harnessChoices.panes[pane.id].orEmpty() else emptySet()
+        val selected = surfaceHarnesses(pane)
         return PaneSurfaceUi(pane.sessionId, pane.projectId, selected).place(workspace) == prompt.place
     }
 }
@@ -200,18 +226,52 @@ internal fun AiStudioScreenState.withCardFocusApplied(
     copy(cardFocusRequests = (cardFocusRequests - intent.paneId).toImmutableMap())
 }
 
-private fun PaneSurfaceUi.place(workspace: StudioWorkspace): StudioSurfacePlace {
+internal fun PaneSurfaceUi.place(workspace: StudioWorkspace): StudioSurfacePlace {
     val session = workspace.session(chatId)
     val project = (session?.projectId ?: projectId)?.let(::WorkspaceRef)
     return StudioSurfacePlace(
         chat = session?.nativeSession,
         workspace = session?.treeAccess?.workspace ?: project,
-        harnesses = harnesses,
+        harnesses = harnesses.takeIf { session?.nativeSession == null }.orEmpty(),
     )
 }
 
+/** Context captured with the native app metadata; evaluated again by the caller and service-ui machine. */
+private fun AiStudioScreenState.surfacePlace(paneId: Int, workspace: StudioWorkspace): StudioSurfacePlace? {
+    val pane = panes.firstOrNull { it.id == paneId } ?: return null
+    val selected = surfaceHarnesses(pane)
+    return PaneSurfaceUi(pane.sessionId, pane.projectId, selected).place(workspace)
+}
+
+/** Only exact pane selections become UI metadata; changing a place removes its previous app immediately. */
+internal fun AiStudioScreenState.withApps(
+    selected: Map<Int, StudioSurfaceApp>,
+    workspace: StudioWorkspace?,
+): AiStudioScreenState {
+    val apps = if (workspace == null) {
+        emptyMap()
+    } else {
+        panes.mapNotNull { pane ->
+            selected[pane.id]?.takeIf { it.place == surfacePlace(pane.id, workspace) }?.let { app ->
+                pane.id to StudioAppUi(
+                    app.surfaceId,
+                    app.title,
+                    app.harnessId,
+                    pane.sessionId,
+                    pane.projectId,
+                    app.place.harnesses.toImmutableSet(),
+                )
+            }
+        }.toMap()
+    }
+    return copy(apps = apps.toImmutableMap())
+}
+
 /** Inputs of [StudioSurfaceBinding.onState] by identity: an unchanged state reuses its collections. */
-private class SeenInputs(val panes: Any, val choices: Any, val transcripts: Any) {
+private class SeenInputs(val panes: Any, val choices: Any, val transcripts: Any, val submissions: Any) {
     fun isSameAs(state: AiStudioScreenState): Boolean =
-        panes === state.panes && choices === state.harnessChoices && transcripts === state.transcripts
+        hasSameSelection(state) && transcripts === state.transcripts && submissions === state.submissions
+
+    private fun hasSameSelection(state: AiStudioScreenState): Boolean =
+        panes === state.panes && choices === state.harnessChoices
 }

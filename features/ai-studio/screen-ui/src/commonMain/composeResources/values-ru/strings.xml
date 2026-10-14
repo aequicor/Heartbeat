@@ -1,4 +1,5 @@
 <resources>
+    <string name="miniapp_open">Открыть %1$s</string>
     <string name="session_tree_root">Корневая сессия</string>
     <string name="session_tree_unknown">неизвестно</string>
     <string name="session_tree_activity">Активные потомки; + или ? означает, что часть состояний неизвестна</string>

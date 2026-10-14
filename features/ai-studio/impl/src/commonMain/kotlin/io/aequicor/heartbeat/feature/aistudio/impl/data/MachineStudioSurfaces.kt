@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineRef
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaceApp
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaceCardFocus
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfacePlace
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfacePrompt
@@ -22,6 +23,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiCallContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiDockId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostId
+import io.aequicor.heartbeat.feature.serviceasui.api.UiSurfaceId
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
@@ -60,6 +62,34 @@ internal class MachineStudioSurfaces(private val machines: MachineRegistry, togg
         .distinctUntilChanged()
 
     override val availability: Flow<Boolean> = toggles.observe(ServiceUiEnabled)
+
+    override val apps: Flow<Map<Int, StudioSurfaceApp>> = machines.observe(ServiceUiMachineKey)
+        .flatMapLatest { it?.state ?: flowOf(null) }
+        .map { state ->
+            val ready = state as? ServiceUiState.Ready
+            ready?.apps?.mapNotNull { (host, app) ->
+                val pane = paneOf(host)
+                val content = ready.library[app.surface]?.takeIf { it.isEnabled }?.content
+                if (pane == null || content == null || ready.hosts[host] != app.context) {
+                    null
+                } else {
+                    pane to StudioSurfaceApp(
+                        app.surface.value,
+                        content.title,
+                        content.owner.id.takeIf { content.owner.kind == HarnessTools.GROUP },
+                        app.context.place(),
+                    )
+                }
+            }?.toMap().orEmpty()
+        }.distinctUntilChanged()
+
+    override suspend fun openApp(paneId: Int, app: StudioSurfaceApp) {
+        log.i { "Open the selected app of pane $paneId" }
+        machines.send(
+            ServiceUiMachineKey,
+            ServiceUiIntent.Public.OpenApp(placeOf(paneId), UiSurfaceId(app.surfaceId), app.place.context()),
+        )
+    }
 
     override val prompts: Flow<StudioSurfacePrompt> = machines.observe(ServiceUiMachineKey)
         .flatMapLatest { machine ->
@@ -177,3 +207,10 @@ internal class MachineStudioSurfaces(private val machines: MachineRegistry, togg
         const val PREFIX_CHARS = 8
     }
 }
+
+/** Metadata carries the same authority context that the surface machine must recheck on every open. */
+private fun UiHostContext.place(): StudioSurfacePlace = StudioSurfacePlace(
+    chat = call.session,
+    workspace = call.workspace,
+    harnesses = call.preselected[HarnessTools.GROUP].orEmpty(),
+)

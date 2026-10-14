@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiIntent
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiOutput
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiState
+import io.aequicor.heartbeat.feature.serviceasui.api.UiApp
 import io.aequicor.heartbeat.feature.serviceasui.api.UiCallContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostId
@@ -75,6 +76,21 @@ class SurfaceCardFocusTest {
         assertTrue(machine.sent.isEmpty())
         machine.result = SendResult.Ignored
         assertFalse(machine.focusSurfaceCard(Cards(card), host, owner, "workout", context))
+    }
+
+    @Test
+    fun `focus of the selected app opens it before the first chat without a card lookup`() = runTest {
+        val machine = FakeMachine()
+        val cards = Cards(null)
+        val start = UiHostContext(UiCallContext(preselected = mapOf(owner.kind to setOf(owner.id))))
+        machine.state.value = ServiceUiState.Ready(
+            hosts = mapOf(host to start),
+            apps = mapOf(host to UiApp(surface, start)),
+        )
+        assertTrue(machine.focusSurfaceCard(cards, host, owner, "workout", start))
+        assertEquals(listOf<ServiceUiIntent>(ServiceUiIntent.Public.OpenApp(host, surface, start)), machine.sent)
+        assertTrue(cards.lookups.isEmpty())
+        assertFalse(machine.focusSurfaceCard(cards, host, owner, "workout", UiHostContext()))
     }
 
     private class Cards(private val card: UiCard?) : UiCardStorage {

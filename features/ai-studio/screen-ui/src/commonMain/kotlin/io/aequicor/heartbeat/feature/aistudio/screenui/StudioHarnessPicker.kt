@@ -36,16 +36,18 @@ internal fun StudioHarnessPicker(
     if (content.harnesses.isEmpty()) return
     var isExpanded by remember(content.pane.id, content.pane.sessionId, content.project?.id) { mutableStateOf(false) }
     val selected = content.harnesses.filter { it.isSelected }
-    val label = when (selected.size) {
+    // The canonical app already has its own launcher; all choices remain in the selection popup.
+    val labelSelected = selected.filter { it.id != content.app?.harnessId }
+    val label = when (labelSelected.size) {
         0 -> stringResource(Res.string.harness_menu_section)
 
         1 -> if (isCompact) {
-            selected.single().title
+            labelSelected.single().title
         } else {
-            stringResource(Res.string.harness_picker_one, selected.single().title)
+            stringResource(Res.string.harness_picker_one, labelSelected.single().title)
         }
 
-        else -> stringResource(Res.string.harness_picker_many, selected.size)
+        else -> stringResource(Res.string.harness_picker_many, labelSelected.size)
     }
     val actions = content.harnesses.map {
         HbComposerAction(it.id, it.title, it.description.takeIf(String::isNotBlank), isSelected = it.isSelected)
@@ -74,5 +76,6 @@ internal fun StudioHarnessPicker(
         modifier = modifier.testTag("harness-picker-${content.pane.id}"),
         enabled = !content.pane.isCreating,
         icon = HbIcons.Layers,
+        isLabelVisible = content.app == null,
     )
 }
