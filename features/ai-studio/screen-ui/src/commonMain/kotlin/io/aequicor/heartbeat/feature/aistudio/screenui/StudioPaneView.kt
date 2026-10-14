@@ -42,7 +42,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import io.aequicor.heartbeat.ds.components.HbActivityIndicator
-import io.aequicor.heartbeat.ds.components.HbBadge
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbChatTranscript
 import io.aequicor.heartbeat.ds.components.HbChip
@@ -105,6 +104,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.paneCards
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioComposerSlotKey
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioStartSlotKey
@@ -315,16 +315,22 @@ private fun PaneNotices(
         gap = HbTheme.spacing.none,
     ) {
         if (content.isNativeChild) {
-            HbText(stringResource(Res.string.session_child_view), Modifier.padding(HbTheme.spacing.m))
+            StudioNotice(content, StudioNoticeUi.NativeChild, stringResource(Res.string.session_child_view), onIntent)
         } else if (content.session?.isOrganism == true) {
             OrganismNotices(content, descriptionMaxHeight, onIntent)
         } else if (content.session?.isContinuable == false) {
-            HbText(stringResource(Res.string.session_read_only), Modifier.padding(HbTheme.spacing.m))
+            StudioNotice(content, StudioNoticeUi.ReadOnly, stringResource(Res.string.session_read_only), onIntent)
         } else if (content.session?.isRunning == true && !content.isStoppable) {
-            HbText(stringResource(Res.string.stop_unsupported), Modifier.padding(HbTheme.spacing.m))
+            StudioNotice(content, StudioNoticeUi.StopUnsupported, stringResource(Res.string.stop_unsupported), onIntent)
         }
         if (content.isStopFailed) {
-            HbText(stringResource(Res.string.stop_failed), Modifier.padding(HbTheme.spacing.m))
+            StudioNotice(
+                content,
+                StudioNoticeUi.StopFailed,
+                stringResource(Res.string.stop_failed),
+                onIntent,
+                tone = HbTone.Danger,
+            )
         }
         val asked = content.session?.id?.let(questions::get)
         asked?.Content(Modifier.padding(HbTheme.spacing.m).testTag("pane-questionnaire"))
@@ -710,30 +716,50 @@ private fun PaneFooter(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         val column = Modifier.widthIn(max = HbTheme.dimensions.composerMaxWidth).fillMaxWidth()
-        ModelConnectionHint(content, column)
+        ModelConnectionHint(content, onIntent, column)
         if (content.session?.isRunning == true) {
             RunStatus(content.isStopping, content.elapsed, column)
         } else if (content.session?.isWaiting == true) {
             SessionWaitStatus(content.session, column)
         }
-        DiagramDraftNotice(content.diagram.draftReason, column)
+        DiagramDraftNotice(content, onIntent, column)
         if (content.isSubmitFailed) {
-            HbBadge(stringResource(Res.string.submit_failed), column, tone = HbTone.Danger)
+            StudioNotice(
+                content,
+                StudioNoticeUi.SubmitFailed,
+                stringResource(Res.string.submit_failed),
+                onIntent,
+                column,
+                tone = HbTone.Danger,
+            )
         }
         if (content.isProjectFailed) {
-            HbBadge(stringResource(Res.string.project_add_failed), column, tone = HbTone.Danger)
+            StudioNotice(
+                content,
+                StudioNoticeUi.ProjectFailed,
+                stringResource(Res.string.project_add_failed),
+                onIntent,
+                column,
+                tone = HbTone.Danger,
+            )
         }
         if (content.isAttachmentFailed) {
-            HbBadge(
+            StudioNotice(
+                content,
+                StudioNoticeUi.AttachmentFailed,
                 stringResource(Res.string.attachments_failed),
+                onIntent,
                 column,
                 tone = HbTone.Danger,
             )
         }
         if (content.isHarnessFailed) {
-            HbBadge(
+            StudioNotice(
+                content,
+                StudioNoticeUi.HarnessFailed,
                 stringResource(Res.string.harness_connect_failed),
-                column.testTag("harness-failed-${content.pane.id}"),
+                onIntent,
+                column,
                 tone = HbTone.Danger,
             )
         }
@@ -759,16 +785,24 @@ private fun PaneFooter(
 }
 
 @Composable
-private fun ModelConnectionHint(content: PaneContent, modifier: Modifier = Modifier) {
-    val hint = when {
-        content.models.isEmpty() -> stringResource(Res.string.connect_model_hint)
+private fun ModelConnectionHint(content: PaneContent, onIntent: (StudioIntent) -> Unit, modifier: Modifier = Modifier) {
+    when {
+        content.models.isEmpty() -> StudioNotice(
+            content,
+            StudioNoticeUi.ConnectModel,
+            stringResource(Res.string.connect_model_hint),
+            onIntent,
+            modifier,
+        )
 
-        content.project != null && content.models.none { it.id == content.settings.modelId } ->
-            stringResource(Res.string.project_model_hint)
-
-        else -> null
+        content.project != null && content.models.none { it.id == content.settings.modelId } -> StudioNotice(
+            content,
+            StudioNoticeUi.ProjectModel,
+            stringResource(Res.string.project_model_hint),
+            onIntent,
+            modifier,
+        )
     }
-    if (hint != null) HbText(hint, modifier, style = HbTheme.typography.caption, color = HbTheme.colors.textSecondary)
 }
 
 @Composable
@@ -831,15 +865,11 @@ private fun PaneContent.diagramActionHandler(onIntent: (StudioIntent) -> Unit): 
     }
 
 @Composable
-private fun DiagramDraftNotice(reason: DiagramDraftReasonUi?, modifier: Modifier = Modifier) {
-    if (reason != null) {
-        val message = if (reason ==
-            DiagramDraftReasonUi.Busy
-        ) {
-            Res.string.diagram_draft_busy
-        } else {
-            Res.string.diagram_draft_rejected
-        }
-        HbText(stringResource(message), modifier, color = HbTheme.colors.textSecondary)
+private fun DiagramDraftNotice(content: PaneContent, onIntent: (StudioIntent) -> Unit, modifier: Modifier = Modifier) {
+    val reason = content.diagram.draftReason ?: return
+    val message = when (reason) {
+        DiagramDraftReasonUi.Busy -> Res.string.diagram_draft_busy
+        DiagramDraftReasonUi.Rejected -> Res.string.diagram_draft_rejected
     }
+    StudioNotice(content, StudioNoticeUi.DiagramDraft, stringResource(message), onIntent, modifier)
 }

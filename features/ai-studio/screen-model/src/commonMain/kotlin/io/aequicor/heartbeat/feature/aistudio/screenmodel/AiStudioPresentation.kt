@@ -39,6 +39,7 @@ fun AiStudioScreenState.afterNavigation(
     is AiStudioScreenIntent.NewSession, is AiStudioScreenIntent.OpenSession, is AiStudioScreenIntent.OpenBeside ->
         copy(
             sidebar = sidebar.copy(isDrawerOpen = false),
+            noticeDismissals = noticeDismissals.filterNot { it.paneId in replacedPanes }.toImmutableSet(),
             submissions = submissions.mapValues { (_, pending) ->
                 if (pending.paneId in replacedPanes) pending.copy(isDisplayed = false) else pending
             }.toImmutableMap(),
@@ -51,10 +52,12 @@ fun AiStudioScreenState.afterNavigation(
             if (pending.paneId == intent.paneId) pending.copy(isDisplayed = false) else pending
         }.toImmutableMap(),
         failedPanes = (failedPanes - intent.paneId).toImmutableSet(),
+        noticeDismissals = noticeDismissals.filterNot { it.paneId == intent.paneId }.toImmutableSet(),
     )
 
+    is AiStudioScreenIntent.AddProject -> revealNotice(intent.paneId, StudioNoticeUi.ProjectFailed)
+
     AiStudioScreenIntent.Retry, is AiStudioScreenIntent.SelectProject, is AiStudioScreenIntent.FocusPane,
-    is AiStudioScreenIntent.AddProject,
     -> this
 }
 

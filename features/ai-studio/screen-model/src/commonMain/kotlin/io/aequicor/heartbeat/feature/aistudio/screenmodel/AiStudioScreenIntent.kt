@@ -14,6 +14,11 @@ import pro.respawn.flowmvi.api.MVIIntent
 @Serializable
 @SerialName("AiStudioScreenIntent")
 sealed interface AiStudioScreenIntent : MVIIntent {
+    /** Hides one passive message without modifying the underlying operation or the composer draft. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.DismissNotice")
+    data class DismissNotice(val paneId: Int, val notice: StudioNoticeUi) : AiStudioScreenIntent
+
     /** Requests a native app update after the UI confirms active agents. */
     @Serializable
     @SerialName("InstallAppUpdate")

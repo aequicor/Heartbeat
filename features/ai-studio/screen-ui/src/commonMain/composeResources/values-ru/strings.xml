@@ -55,6 +55,7 @@
     <string name="action_restore">Восстановить</string>
 
     <string name="pane_split">Разделить экран</string>
+    <string name="notice_dismiss">Скрыть уведомление</string>
     <string name="pane_close">Закрыть панель</string>
     <string name="pane_open_sidebar">Открыть боковую панель</string>
     <string name="pane_general">Беседа</string>

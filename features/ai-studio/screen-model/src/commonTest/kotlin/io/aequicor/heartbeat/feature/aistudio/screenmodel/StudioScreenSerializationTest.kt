@@ -58,6 +58,9 @@ class StudioScreenSerializationTest {
         drafts = persistentMapOf("s1" to "черновик"),
         cardFocusRequests = persistentMapOf(1 to CardFocusRequestUi("s1", "m2", "card-2", 3)),
         diagramFocusRequests = persistentMapOf(1 to 2L),
+        noticeDismissals = persistentSetOf(
+            StudioNoticeDismissalUi(1, StudioNoticeUi.StopFailed, "s1", "p1", PRIMARY_SUB_SESSION),
+        ),
         attachmentPreviews = persistentMapOf("a1" to AttachmentPreviewUi(imageBytes = byteArrayOf(0, 1, -1, 127))),
         now = at,
     )
@@ -88,6 +91,7 @@ class StudioScreenSerializationTest {
             AiStudioScreenIntent.OpenSession("s1"),
             AiStudioScreenIntent.Submit(1),
             AiStudioScreenIntent.CardFocusApplied(1, 3),
+            AiStudioScreenIntent.DismissNotice(1, StudioNoticeUi.StopFailed),
             AiStudioScreenIntent.RespondPermission("s1", "r1", "allow"),
             AiStudioScreenIntent.ToggleSearch,
             AiStudioScreenIntent.ToggleProjectSessions("p1"),
