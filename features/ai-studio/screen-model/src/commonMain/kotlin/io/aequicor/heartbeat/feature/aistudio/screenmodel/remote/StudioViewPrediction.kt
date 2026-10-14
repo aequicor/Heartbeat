@@ -29,6 +29,7 @@ fun AiStudioScreenState.predict(intent: AiStudioScreenIntent): AiStudioScreenSta
         -> copy(sidebar = sidebar.reduce(intent))
 
         AiStudioScreenIntent.ToggleSearch, is AiStudioScreenIntent.ToggleProject,
+        is AiStudioScreenIntent.ToggleProjectSessions, AiStudioScreenIntent.ToggleNoProjectSection,
         AiStudioScreenIntent.ToggleProjectsSection, AiStudioScreenIntent.ToggleRecentSection,
         AiStudioScreenIntent.ToggleSidebar,
         -> this

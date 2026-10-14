@@ -33,9 +33,9 @@ class SidebarHelpersTest {
         )
         val content = sidebarContent(listOf(project), sessions, setOf("child"), SidebarUi())
         assertTrue(content.pinned.isEmpty())
-        assertEquals(listOf("parentless", "root", "child", "grandchild", "sibling"), content.recent.map { it.id })
-        assertEquals(listOf(0, 0, 1, 2, 1), content.recent.map { it.depth })
-        assertTrue(content.recent.single { it.id == "child" }.isRunning)
+        assertEquals(listOf("parentless", "root", "child", "grandchild", "sibling"), content.noProject.map { it.id })
+        assertEquals(listOf(0, 0, 1, 2, 1), content.noProject.map { it.depth })
+        assertTrue(content.noProject.single { it.id == "child" }.isRunning)
         val pinned = sidebarContent(
             listOf(project),
             sessions.map { if (it.id == "root") it.copy(isPinned = true) else it },
@@ -43,7 +43,7 @@ class SidebarHelpersTest {
             SidebarUi(),
         )
         assertEquals(listOf("root", "child", "grandchild", "sibling"), pinned.pinned.map { it.id })
-        assertEquals(listOf("parentless"), pinned.recent.map { it.id })
+        assertEquals(listOf("parentless"), pinned.noProject.map { it.id })
     }
 
     @Test
@@ -74,8 +74,8 @@ class SidebarHelpersTest {
             row("live-child", 2, "archived"),
         )
         val content = sidebarContent(emptyList(), sessions, emptySet(), SidebarUi())
-        assertEquals(sessions.filterNot { it.isArchived }.map { it.id }, content.recent.map { it.id })
-        assertTrue(content.recent.all { it.depth == 0 && !it.isNestedInSidebar })
+        assertEquals(sessions.filterNot { it.isArchived }.map { it.id }, content.noProject.map { it.id })
+        assertTrue(content.noProject.all { it.depth == 0 && !it.isNestedInSidebar })
         assertEquals(listOf("archived"), content.archived.map { it.id })
     }
 
@@ -108,11 +108,12 @@ class SidebarHelpersTest {
         ).withWorkspace(workspace)
         assertEquals("parent", screen.sessions.single().parentChatId)
         assertEquals(setOf("helper"), screen.sidebarInput().awaitingPermission)
-        val waiting = sidebarContent(screen).recent.single()
+        val waiting = sidebarContent(screen).noProject.single()
         assertTrue(waiting.isAwaitingPermission)
         assertTrue(waiting.isWaiting)
         assertTrue(waiting.isRunning)
-        assertFalse(sidebarContent(screen.copy(permissions = persistentListOf())).recent.single().isAwaitingPermission)
+        val answered = screen.copy(permissions = persistentListOf())
+        assertFalse(sidebarContent(answered).noProject.single().isAwaitingPermission)
     }
 
     private fun row(id: String, order: Long, parent: String? = null) = SessionUi(

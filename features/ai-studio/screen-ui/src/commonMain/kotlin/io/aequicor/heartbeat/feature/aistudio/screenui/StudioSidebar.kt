@@ -34,6 +34,7 @@ import io.aequicor.heartbeat.ds.layouts.HbLazyColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.no_project
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_sidebar_hide
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_archive_empty
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_collapsed
@@ -49,6 +50,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_results
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_search
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_search_clear
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_shortcut_hint
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_show_fewer_sessions
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_show_more_sessions
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_brand
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AppUpdateUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectGroupUi
@@ -273,13 +276,42 @@ private fun LazyListScope.workspaceSessions(
             content.projects.forEach { group -> projectGroup(group, rows, onIntent) }
         }
     }
+    if (content.noProject.isNotEmpty()) {
+        item(key = "no-project-header") {
+            SectionHeader(
+                title = Res.string.no_project,
+                isExpanded = input.sidebar.isNoProjectExpanded,
+                onToggle = { onIntent(StudioIntent.ToggleNoProjectSection) },
+                modifier = Modifier.padding(
+                    top = if (content.pinned.isEmpty() && content.projects.isEmpty()) {
+                        HbTheme.spacing.none
+                    } else {
+                        HbTheme.spacing.l
+                    },
+                ).testTag("sidebar-section-no-project"),
+            )
+        }
+        if (input.sidebar.isNoProjectExpanded) {
+            items(content.noProject, key = { "no-project-${it.id}" }) { rows.SessionRow(it, "no-project") }
+        }
+    }
+    recentSessions(content, input, rows, onIntent)
+}
+
+private fun LazyListScope.recentSessions(
+    content: SidebarContent,
+    input: SidebarInput,
+    rows: SessionRows,
+    onIntent: (StudioIntent) -> Unit,
+) {
+    if (content.recent.isEmpty()) return
     item(key = "recent-header") {
         SectionHeader(
             title = Res.string.sidebar_recent,
             isExpanded = input.sidebar.isRecentExpanded,
             onToggle = { onIntent(StudioIntent.ToggleRecentSection) },
             modifier = Modifier.padding(
-                top = if (content.pinned.isEmpty() && content.projects.isEmpty()) {
+                top = if (content.pinned.isEmpty() && content.projects.isEmpty() && content.noProject.isEmpty()) {
                     HbTheme.spacing.none
                 } else {
                     HbTheme.spacing.l
@@ -322,10 +354,32 @@ private fun LazyListScope.projectGroup(group: ProjectGroupUi, rows: SessionRows,
             }
         }
         items(
-            group.sessions,
+            group.visibleSessions,
             key = { "project-${group.project.id}-${it.id}" },
         ) { rows.SessionRow(it, "project", level = 1) }
+        if (group.hasMoreSessions) {
+            item(key = "project-${group.project.id}-sessions-toggle") {
+                ProjectSessionsToggle(group, onIntent)
+            }
+        }
     }
+}
+
+@Composable
+private fun ProjectSessionsToggle(group: ProjectGroupUi, onIntent: (StudioIntent) -> Unit) {
+    HbNavigationItem(
+        label = if (group.isShowingAllSessions) {
+            stringResource(Res.string.sidebar_show_fewer_sessions)
+        } else {
+            stringResource(Res.string.sidebar_show_more_sessions, group.hiddenSessionCount)
+        },
+        onClick = { onIntent(StudioIntent.ToggleProjectSessions(group.project.id)) },
+        modifier = Modifier.testTag("project-${group.project.id}-sessions-toggle"),
+        icon = if (group.isShowingAllSessions) HbIcons.ChevronUp else HbIcons.ChevronDown,
+        level = 1,
+        minHeight = HbTheme.dimensions.navigationRowHeight,
+        textStyle = HbTheme.typography.caption,
+    )
 }
 
 @Composable

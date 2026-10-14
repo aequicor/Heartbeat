@@ -362,6 +362,11 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     @SerialName("AiStudioScreenIntent.ToggleProject")
     data class ToggleProject(val projectId: String) : Sidebar
 
+    /** Switches a project between its five newest root chats and the complete session list. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.ToggleProjectSessions")
+    data class ToggleProjectSessions(val projectId: String) : Sidebar
+
     /** Expands or collapses the projects section. */
     @Serializable
     @SerialName("AiStudioScreenIntent.ToggleProjectsSection")
@@ -371,6 +376,11 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     @Serializable
     @SerialName("AiStudioScreenIntent.ToggleRecentSection")
     data object ToggleRecentSection : Sidebar
+
+    /** Expands or collapses the sessions without a project. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.ToggleNoProjectSection")
+    data object ToggleNoProjectSection : Sidebar
 
     /** Shows or hides the sidebar on wide windows. */
     @Serializable
