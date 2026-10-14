@@ -84,7 +84,7 @@ class RemoteStudioViewsTest {
     }
 
     @Test
-    fun `views are refused while off, for another schema and beyond the profile limit`() = runTest {
+    fun `views are refused while off for another schema and beyond the profile limit`() = runTest {
         val harness = Harness(this)
 
         repeat(4) { harness.attach("view-$it") }
@@ -101,7 +101,7 @@ class RemoteStudioViewsTest {
     }
 
     @Test
-    fun `a detached view waits for its host, then closes`() = runTest {
+    fun `a detached view waits for its host then closes`() = runTest {
         val harness = Harness(this)
         val first = harness.attach("view")
         first.cancel()

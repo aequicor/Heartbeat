@@ -74,7 +74,7 @@ class StudioViewCodecTest {
     }
 
     @Test
-    fun `removals, reordering, new and gone feeds and shell changes reach the panel`() {
+    fun `removals reordering new and gone feeds and shell changes reach the panel`() {
         val (_, first) = relay(screen("a" to listOf(prompt("1"), reply("2", "x")), "b" to listOf(prompt("3"))))
         relay(screen("a" to listOf(prompt("1"), prompt("4"), reply("2", "x")), "c" to listOf(prompt("5")), draft = "Ч"))
 
@@ -88,7 +88,7 @@ class StudioViewCodecTest {
     }
 
     @Test
-    fun `a delta for another revision asks for a snapshot, and reset sends one`() {
+    fun `a delta for another revision asks for a snapshot and reset sends one`() {
         relay(screen("a" to listOf(prompt("1"))))
 
         assertFailsWith<StudioViewGapException> { mirror.apply(StudioViewFrame.Delta(rev = 9, ack = 0, base = 8)) }
