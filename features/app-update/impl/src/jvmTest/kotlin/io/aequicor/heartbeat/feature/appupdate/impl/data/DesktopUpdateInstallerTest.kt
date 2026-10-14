@@ -33,8 +33,12 @@ class DesktopUpdateInstallerTest {
 
     @AfterTest
     fun cleanUp() {
-        root.toFile().walk().forEach { it.setWritable(true) }
         root.deleteRecursively()
+    }
+
+    @Test
+    fun `cleanup does not follow the image Applications link`() {
+        assertCleanupPreservesLinkedApplications(root, ::cleanUp)
     }
 
     @Test
@@ -70,19 +74,23 @@ class DesktopUpdateInstallerTest {
         if (!isMacHost) return@runTest
         val applications = Files.createDirectories(root.resolve("Applications"))
         val installed = fakeBundle(applications, "1.3.0")
-        applications.toFile().setWritable(false)
         val image = root.resolve("image.dmg").also { Files.write(it, byteArrayOf(1)) }
-
-        assertUpdateFailure(AppUpdateFailure.ManualInstallRequired) {
-            installer(image, launcher = installed.resolve("Contents/MacOS/Heartbeat"))
-                .install(
-                    installation(ReleasePlatform.MacOsArm64),
-                    release("1.4.0", image, ReleasePlatform.MacOsArm64),
-                    recording(mutableListOf()),
-                )
+        applications.toFile().setWritable(false)
+        try {
+            assertUpdateFailure(AppUpdateFailure.ManualInstallRequired) {
+                installer(image, launcher = installed.resolve("Contents/MacOS/Heartbeat"))
+                    .install(
+                        installation(ReleasePlatform.MacOsArm64),
+                        release("1.4.0", image, ReleasePlatform.MacOsArm64),
+                        recording(mutableListOf()),
+                    )
+            }
+            assertEquals(0, requests)
+            assertTrue(started.isEmpty())
+        } finally {
+            // Restore only the directory changed by this test; image fixtures link to the real /Applications.
+            applications.toFile().setWritable(true)
         }
-        assertEquals(0, requests)
-        assertTrue(started.isEmpty())
     }
 
     @Test
