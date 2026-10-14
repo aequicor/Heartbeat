@@ -95,7 +95,7 @@ jobs:
         run: >-
           xvfb-run --auto-servernum ./gradlew -Pheartbeat.version="$VERSION"
           -Porg.gradle.java.installations.auto-detect=false
-          -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_ARM64
+          -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64
           jvmTest :platform-main:desktop:test :lint:detekt-rules:test
           --no-daemon --continue --stacktrace --profile
 
@@ -138,7 +138,7 @@ jobs:
         run: >-
           xvfb-run --auto-servernum ./gradlew -Pheartbeat.version="$VERSION"
           -Porg.gradle.java.installations.auto-detect=false
-          -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_ARM64
+          -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64
           :platform-main:desktop:verifyReleaseHarnessCompiler :platform-main:desktop:packageReleaseDeb
           :chromium-plugin:panel:prepareChromiumPanelArtifact
           --no-daemon --stacktrace --profile
@@ -197,7 +197,7 @@ jobs:
         run: >-
           ./gradlew -Pheartbeat.version="$VERSION"
           -Porg.gradle.java.installations.auto-detect=false
-          -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_ARM64
+          -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64
           allTests :platform-main:desktop:test :lint:detekt-rules:test
           --no-daemon --continue --stacktrace --profile
 
@@ -242,7 +242,7 @@ jobs:
         run: >-
           ./gradlew -Pheartbeat.version="$VERSION"
           -Porg.gradle.java.installations.auto-detect=false
-          -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_ARM64
+          -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64
           -Dorg.gradle.jvmargs="-Xmx8g -Dfile.encoding=UTF-8"
           :platform-main:android:assembleRelease :platform-main:shared:linkReleaseFrameworkIosArm64
           --no-daemon --stacktrace --profile
@@ -312,7 +312,7 @@ jobs:
         run: >-
           ./gradlew -Pheartbeat.version="$VERSION"
           -Porg.gradle.java.installations.auto-detect=false
-          -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_ARM64
+          -Porg.gradle.java.installations.fromEnv=JAVA_HOME,JAVA_HOME_17_X64,JAVA_HOME_17_AARCH64
           -Pheartbeat.chromiumPanelDir=.release-panel
           :platform-main:desktop:verifyReleaseHarnessCompiler ":platform-main:desktop:$TASK"
           --no-daemon --stacktrace --profile
