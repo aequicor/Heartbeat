@@ -323,5 +323,29 @@
   },
   "chooseModelHint": {
     "message": "Choose a model for the new chat."
+  },
+  "diagramTitle": {
+    "message": "PlantUML diagram"
+  },
+  "diagramLoading": {
+    "message": "Opening diagram…"
+  },
+  "diagramZoomIn": {
+    "message": "Zoom in"
+  },
+  "diagramZoomOut": {
+    "message": "Zoom out"
+  },
+  "diagramActualSize": {
+    "message": "Actual size"
+  },
+  "diagramFit": {
+    "message": "Fit to window"
+  },
+  "diagramUnavailable": {
+    "message": "This diagram is no longer available here. Open it again from the chat."
+  },
+  "diagramFailed": {
+    "message": "Could not display the diagram. Open it again from the chat."
   }
 }

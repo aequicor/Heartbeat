@@ -17,6 +17,9 @@ internal interface PanelHost {
     /** A selection the context menu sent to this window (JSON), taken at most once; `null` when there is none. */
     suspend fun takeSelection(): String?
 
+    /** Opens a local PNG diagram in an active browser tab; throws if the host cannot open it. */
+    suspend fun openDiagram(json: String)
+
     /** Calls [onArrival] whenever the context menu sends a selection to this window. */
     fun onSelection(onArrival: () -> Unit)
 }

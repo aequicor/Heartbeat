@@ -14,6 +14,8 @@ internal external interface PanelHostJs : JsAny {
 
     fun takeSelection(): Promise<JsString?>
 
+    fun openDiagram(json: String): Promise<JsAny?>
+
     fun onSelection(callback: () -> Unit)
 }
 
@@ -30,6 +32,14 @@ internal class ChromePanelHost(private val js: PanelHostJs) : PanelHost {
 
     override suspend fun takeSelection(): String? = read { js.takeSelection() }
 
+    override suspend fun openDiagram(json: String) {
+        try {
+            js.openDiagram(json).await<JsAny?>()
+        } catch (e: JsException) {
+            throw DiagramOpenException(e)
+        }
+    }
+
     override fun onSelection(onArrival: () -> Unit) = js.onSelection(onArrival)
 
     private suspend fun read(call: () -> Promise<JsString?>): String? = try {
@@ -41,3 +51,6 @@ internal class ChromePanelHost(private val js: PanelHostJs) : PanelHost {
 
 /** A Chrome API or page script failed while reading a page; the JS message may carry the page address. */
 internal class PageReadException(cause: Throwable) : Exception("Page could not be read", cause)
+
+/** A browser tab or its local image handoff could not be opened. */
+internal class DiagramOpenException(cause: Throwable) : Exception("Diagram could not be opened", cause)
