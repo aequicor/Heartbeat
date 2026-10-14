@@ -17,13 +17,23 @@ public sealed interface HarnessIntent : MachineIntent {
 
     /** Commands any feature may send through the registry; none of them changes content, code or approval. */
     public sealed interface Public : Command {
-        /** Connects a session independently of the harness revision. */
-        public data class Attach(override val requestId: RequestId, val id: HarnessId, val session: SessionRef) :
-            Public
+        /** Connects a session; automatic review may fence the exact source revision and connection scope. */
+        public data class Attach(
+            override val requestId: RequestId,
+            val id: HarnessId,
+            val session: SessionRef,
+            val expectedRevision: Long? = null,
+            val expectedSessions: Set<SessionRef>? = null,
+        ) : Public
 
-        /** Removes an explicit session connection. */
-        public data class Detach(override val requestId: RequestId, val id: HarnessId, val session: SessionRef) :
-            Public
+        /** Removes a connection; optional expectations keep automatic review bound to its original scope. */
+        public data class Detach(
+            override val requestId: RequestId,
+            val id: HarnessId,
+            val session: SessionRef,
+            val expectedRevision: Long? = null,
+            val expectedSessions: Set<SessionRef>? = null,
+        ) : Public
 
         /** Refreshes the snapshot without leaving Ready or cancelling pending writes. */
         public data class Reload(override val requestId: RequestId) : Public
@@ -34,7 +44,7 @@ public sealed interface HarnessIntent : MachineIntent {
         /**
          * Edits of content, code, enabling and the approval level. Activation compiles and publishes saved code, and
          * the machine never checks approval: only this feature's stores (direct user edits) and agent tools (after
-         * the user's decision) hold the full machine that accepts them.
+         * automatic safety authorization) hold the full machine that accepts them.
          */
         public sealed interface Edit :
             Internal,
@@ -57,11 +67,16 @@ public sealed interface HarnessIntent : MachineIntent {
             val expectedRevision: Long,
             val author: HarnessAuthor,
             val at: Instant,
+            val expectedSessions: Set<SessionRef>? = null,
         ) : Edit
 
         /** Removes the harness through the durable cascade after revision validation. */
-        public data class Delete(override val requestId: RequestId, val id: HarnessId, val expectedRevision: Long) :
-            Edit
+        public data class Delete(
+            override val requestId: RequestId,
+            val id: HarnessId,
+            val expectedRevision: Long,
+            val expectedSessions: Set<SessionRef>? = null,
+        ) : Edit
 
         /** Persists the enabled flag; disabling cancels all runs owned by this harness. */
         public data class SetEnabled(
@@ -149,6 +164,7 @@ public sealed interface HarnessIntent : MachineIntent {
             val item: ItemId,
             val revision: Long,
             val generation: Long,
+            val reason: HarnessValidationCode? = null,
         ) : Runtime
 
         /** An exact published instance failed, possibly before its activation receipt reaches the machine. */

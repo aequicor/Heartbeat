@@ -56,5 +56,5 @@ internal suspend fun ServiceUiMachine.submit(write: UiWrite): WriteOutcome = cor
 private fun ServiceUiOutput.outcomeOf(id: String): WriteOutcome? = when (this) {
     is ServiceUiOutput.EditApplied -> WriteOutcome.Applied(surface).takeIf { writeId == id }
     is ServiceUiOutput.EditRejected -> WriteOutcome.Rejected(reason).takeIf { writeId == id }
-    is ServiceUiOutput.PromptRequested -> null
+    is ServiceUiOutput.PromptRequested, is ServiceUiOutput.CardFocusRequested -> null
 }

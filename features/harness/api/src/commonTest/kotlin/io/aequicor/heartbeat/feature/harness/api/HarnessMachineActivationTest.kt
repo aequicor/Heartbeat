@@ -12,6 +12,34 @@ class HarnessMachineActivationTest {
     )
 
     @Test
+    fun `safe validation reason belongs only to the exact pending revision and generation`() {
+        val failure = HarnessIntent.Internal.ItemActivationFailed(
+            harness.id,
+            code.id,
+            harness.revision,
+            1,
+            HarnessValidationCode.InvalidItemName,
+        )
+        val status = ItemStatus.Failed(1, false, HarnessValidationCode.InvalidItemName)
+        val failed = pending.copy(harnesses = listOf(HarnessEntry(harness, mapOf(code.id to status))))
+        HarnessMachineSpec.assertTransition(
+            pending,
+            failure,
+            failed,
+            outputs = listOf(HarnessOutput.ItemFailed(harness.id, code.id, harness.revision)),
+        )
+        HarnessMachineSpec.assertIgnored(pending, failure.copy(revision = harness.revision + 1))
+        HarnessMachineSpec.assertIgnored(pending, failure.copy(generation = 2))
+        HarnessMachineSpec.assertIgnored(pending, failure.copy(item = ItemId("other")))
+        HarnessMachineSpec.assertIgnored(failed, failure.copy(reason = null))
+        val newer = pending.copy(
+            harnesses = listOf(HarnessEntry(harness, mapOf(code.id to ItemStatus.Pending(2)))),
+            activationGeneration = 2,
+        )
+        HarnessMachineSpec.assertIgnored(newer, failure)
+    }
+
+    @Test
     fun `activation success and failure require exact revision item and generation`() {
         val activated = HarnessIntent.Internal.ItemActivated(harness.id, code.id, 0, 1)
         val active = pending.copy(harnesses = listOf(HarnessEntry(harness, mapOf(code.id to ItemStatus.Active(1)))))

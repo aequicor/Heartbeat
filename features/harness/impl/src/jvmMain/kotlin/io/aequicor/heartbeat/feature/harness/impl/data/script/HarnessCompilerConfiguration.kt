@@ -27,6 +27,8 @@ internal fun harnessCompilerConfiguration(kind: HarnessCodeKind, classpath: Harn
             "io.aequicor.heartbeat.feature.harness.api.script.on",
             "io.aequicor.heartbeat.feature.harness.api.workflow.AgentOptions",
             "io.aequicor.heartbeat.feature.harness.api.script.ScriptUiResult",
+            "io.aequicor.heartbeat.feature.harness.api.script.ScriptDataSnapshot",
+            "io.aequicor.heartbeat.feature.harness.api.script.ScriptDataWriteResult",
             "kotlinx.coroutines.launch",
             "kotlinx.serialization.json.JsonElement",
             "kotlinx.serialization.json.JsonObject",

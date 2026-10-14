@@ -17,12 +17,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.BiasAlignment
@@ -53,6 +55,7 @@ import io.aequicor.heartbeat.ds.components.HbMenuButton
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTone
 import io.aequicor.heartbeat.ds.components.HbTooltip
+import io.aequicor.heartbeat.ds.components.HbTranscriptFocus
 import io.aequicor.heartbeat.ds.components.HbWindowDragArea
 import io.aequicor.heartbeat.ds.layouts.HbBoxWithConstraints
 import io.aequicor.heartbeat.ds.layouts.HbColumn
@@ -96,6 +99,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_tests
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_tests_prompt
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.working_for
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentPreviewUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.CardFocusRequestUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.DiagramDraftReasonUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
@@ -176,6 +180,10 @@ internal fun StudioPaneView(
             key(feedId) {
                 SessionTranscript(
                     feedId = feedId,
+                    cardFocus = content.cardFocus,
+                    onCardFocus = { sequence ->
+                        onIntent(StudioIntent.CardFocusApplied(pane.id, sequence))
+                    },
                     onDiagramAction = content.diagramActionHandler(onIntent),
                     timelineState = timelineState,
                     messages = transcript,
@@ -602,6 +610,8 @@ private fun NewSessionStarters(onDraft: (String) -> Unit) {
 @Composable
 private fun SessionTranscript(
     feedId: String,
+    cardFocus: CardFocusRequestUi?,
+    onCardFocus: (Long) -> Unit,
     onDiagramAction: ((HbDiagramAction) -> Unit)?,
     timelineState: StudioTimelineState,
     messages: ImmutableList<MessageUi>,
@@ -617,6 +627,16 @@ private fun SessionTranscript(
     onIntent: (StudioIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var preparedFocus by remember { mutableStateOf<Long?>(null) }
+    val focusTarget = cardFocus?.takeIf { request ->
+        messages.any { it is MessageUi.Reply && it.id == request.messageId && request.cardId in it.cardIds }
+    }
+    val latestOnCardFocus by rememberUpdatedState(onCardFocus)
+    key(cardFocus, focusTarget) {
+        SideEffect {
+            if (cardFocus != null && focusTarget == null) latestOnCardFocus(cardFocus.sequence)
+        }
+    }
     val timeline = rememberStudioTimeline(
         feedId,
         timelineState,
@@ -632,6 +652,8 @@ private fun SessionTranscript(
             modifier = modifier.fillMaxSize().testTag("transcript-$feedId"),
             streamingLabel = stringResource(Res.string.streaming),
             jumpToLatestLabel = stringResource(Res.string.jump_latest),
+            focusRequest = focusTarget?.let { HbTranscriptFocus(it.messageId, it.sequence, isEmbedded = true) },
+            onFocus = { preparedFocus = it },
             toolLabels = studioToolLabels(),
             contentPadding = contentPadding,
             overlapInsets = overlapInsets,
@@ -643,7 +665,17 @@ private fun SessionTranscript(
                 val reply = messages.firstOrNull { it.id == rendered.id } as? MessageUi.Reply
                 HbColumn(gap = HbTheme.spacing.m) {
                     reply?.checklistIds?.forEach { id -> key(id) { checklists[id]?.Content(Modifier) } }
-                    reply?.cardIds?.forEach { id -> key("card:$id") { cards[id]?.Content(Modifier) } }
+                    reply?.cardIds?.forEach { id ->
+                        key("card:$id") {
+                            cards[id]?.let { card ->
+                                StudioEmbeddedCard(
+                                    card,
+                                    focusTarget?.takeIf { it.cardId == id && it.sequence == preparedFocus },
+                                    onCardFocus,
+                                )
+                            }
+                        }
+                    }
                 }
             },
             messageFooterContent = { rendered ->

@@ -1,5 +1,6 @@
-package io.aequicor.heartbeat.feature.harness.impl.data.authoring
+package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.safety
 
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
@@ -58,7 +59,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
-import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -76,26 +76,40 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-class FacadeHarnessCodeReviewerTest {
+class FacadeAgentSafetyReviewerTest {
     @Test
     fun `review uses a fresh isolated session and releases it after a complete verdict`() = runTest {
         val f = ReviewFixture(backgroundScope)
-        assertTrue(f.reviewer.review(f.target, "{\"source\":\"safe code\"}").isSafe)
+        assertTrue(f.reviewer.review(f.target, "Bounded local changes only", "{\"source\":\"safe code\"}").isSafe)
         val request = f.creations.single()
         assertNull(request.workspace)
         assertFalse(request.areDetachedToolsEnabled)
         assertTrue(request.areSessionHooksEnabled)
+        assertTrue(request.preselected.isEmpty())
         assertTrue(f.sawOffBeforeSend)
         assertTrue(f.closed)
         assertTrue(f.archived)
         assertNull(f.policy.policy(ToolPolicyScope(session = f.ref)))
         assertNull(f.policy.policy(ToolPolicyScope(session = f.ref.copy(nativeId = "other"))))
+        val text = (f.prompts.single().parts.single() as ContentPart.Text).text
+        assertTrue(text.contains("Trusted host policy:\nBounded local changes only"))
+        assertTrue(text.contains("Untrusted change (JSON):\n{\"source\":\"safe code\"}"))
+    }
+
+    @Test
+    fun `provider failure is uncertain without source leakage and releases the reviewer slot`() = runTest {
+        val f = ReviewFixture(backgroundScope).apply { failsOnCreate = true }
+        val review = f.reviewer.review(f.target, "Bounded local changes only", "{}")
+        assertFalse(review.isSafe)
+        assertFalse(review.reason.contains("private source"))
+        f.failsOnCreate = false
+        assertTrue(f.reviewer.review(f.target, "Bounded local changes only", "{}").isSafe)
     }
 
     @Test
     fun `review timeout cancels closes and returns uncertainty`() = runTest {
         val f = ReviewFixture(backgroundScope).apply { outcome = null }
-        assertFalse(f.reviewer.review(f.target, "{}").isSafe)
+        assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "{}").isSafe)
         assertEquals(1, f.cancels)
         assertTrue(f.closed)
     }
@@ -106,9 +120,9 @@ class FacadeHarnessCodeReviewerTest {
             outcome = null
             ignoresCancel = true
         }
-        assertFalse(f.reviewer.review(f.target, "{}").isSafe)
+        assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "{}").isSafe)
         assertFalse(f.closed)
-        assertFalse(f.reviewer.review(f.target, "second").isSafe)
+        assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "second").isSafe)
         assertEquals(1, f.creations.size)
         assertEquals(ToolSwitch.Off, f.policy.policy(ToolPolicyScope(session = f.ref))?.native?.get("shell"))
     }
@@ -119,11 +133,11 @@ class FacadeHarnessCodeReviewerTest {
             outcome = null
             ignoresCancel = true
         }
-        assertFalse(f.reviewer.review(f.target, "{}").isSafe)
+        assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "{}").isSafe)
         f.finish(TurnId("unrelated"))
         runCurrent()
         assertFalse(f.closed)
-        assertFalse(f.reviewer.review(f.target, "second").isSafe)
+        assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "second").isSafe)
         assertEquals(1, f.creations.size)
         f.finish()
         runCurrent()
@@ -131,7 +145,7 @@ class FacadeHarnessCodeReviewerTest {
         assertTrue(f.archived)
         assertNull(f.policy.policy(ToolPolicyScope(session = f.ref)))
         f.outcome = TurnOutcome.Completed
-        assertTrue(f.reviewer.review(f.target, "third").isSafe)
+        assertTrue(f.reviewer.review(f.target, "Bounded local changes only", "third").isSafe)
         assertEquals(2, f.creations.size)
     }
 
@@ -142,21 +156,21 @@ class FacadeHarnessCodeReviewerTest {
             outcome = null
             ignoresCancel = true
         }
-        assertFalse(f.reviewer.review(f.target, "{}").isSafe)
+        assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "{}").isSafe)
         assertFalse(f.closed)
         owner.cancel()
         runCurrent()
         assertTrue(f.closed)
-        assertFalse(f.reviewer.review(f.target, "second").isSafe)
+        assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "second").isSafe)
         assertEquals(1, f.creations.size)
     }
 
     @Test
     fun `unresponsive close is bounded and holds the reviewer slot`() = runTest {
         val f = ReviewFixture(backgroundScope).apply { hangsOnClose = true }
-        assertTrue(f.reviewer.review(f.target, "{}").isSafe)
+        assertTrue(f.reviewer.review(f.target, "Bounded local changes only", "{}").isSafe)
         assertFalse(f.closed)
-        assertFalse(f.reviewer.review(f.target, "second").isSafe)
+        assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "second").isSafe)
         assertEquals(1, f.creations.size)
         f.hangsOnClose = false
     }
@@ -164,7 +178,7 @@ class FacadeHarnessCodeReviewerTest {
     @Test
     fun `a permission request is never answered or interpreted as a safe verdict`() = runTest {
         val f = ReviewFixture(backgroundScope).apply { asks = true }
-        assertFalse(f.reviewer.review(f.target, "{}").isSafe)
+        assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "{}").isSafe)
         assertEquals(1, f.cancels)
         assertTrue(f.closed)
     }
@@ -172,7 +186,7 @@ class FacadeHarnessCodeReviewerTest {
     @Test
     fun `cancelling the parent cleans up and propagates`() = runTest {
         val f = ReviewFixture(backgroundScope).apply { outcome = null }
-        val task = async { f.reviewer.review(f.target, "{}") }
+        val task = async { f.reviewer.review(f.target, "Bounded local changes only", "{}") }
         runCurrent()
         task.cancelAndJoin()
         assertTrue(task.isCancelled)
@@ -184,7 +198,7 @@ class FacadeHarnessCodeReviewerTest {
 private class ReviewFixture(scope: CoroutineScope) {
     val target = EngineTarget(EngineId("test"), EngineBindingId("binding"), ModelId("model"))
     val ref = SessionRef(target.engine, SessionSourceId("source"), "review")
-    val policy = HarnessReviewToolPolicy()
+    val policy = AgentSafetyToolPolicy()
     var sawOffBeforeSend = false
     var closed = false
     var archived = false
@@ -193,11 +207,14 @@ private class ReviewFixture(scope: CoroutineScope) {
     var ignoresCancel = false
     var hangsOnClose = false
     var asks = false
+    var failsOnCreate = false
     val creations = mutableListOf<CreateSessionRequest>()
+    val prompts = mutableListOf<PromptRequest>()
     private val state = MutableStateFlow<ActiveSessionState>(ActiveSessionState.Ready())
     private val turn = TurnId("review-turn")
     private val sends = object : SendsPrompts {
         override suspend fun send(request: PromptRequest): TurnId {
+            prompts += request
             sawOffBeforeSend = policy.policy(ToolPolicyScope(session = ref))?.native?.get("shell") == ToolSwitch.Off
             assertEquals(TrustLevel.Ask, request.trust)
             val current = Turn(turn, request.id, target)
@@ -262,6 +279,7 @@ private class ReviewFixture(scope: CoroutineScope) {
     }
     private val creates = object : CreatesSessions {
         override suspend fun create(request: CreateSessionRequest): ActiveSession {
+            check(!failsOnCreate) { "private source and provider credentials" }
             creations += request
             state.value = ActiveSessionState.Ready()
             closed = false
@@ -278,7 +296,7 @@ private class ReviewFixture(scope: CoroutineScope) {
                             "Test",
                             EngineFamily.BuiltIn,
                             emptySet(),
-                            HarnessEnabled,
+                            FeatureToggle.Flag("ai.safety.test", "Safety reviewer test"),
                             nativeTools = listOf(NativeToolSpec("shell", AgentToolAction.Command, true, false)),
                         ),
                         EngineAvailability.Available,
@@ -309,7 +327,7 @@ private class ReviewFixture(scope: CoroutineScope) {
         override val models: ModelCatalog get() = error("unused")
         override val providerUsage: ProviderUsageCatalog get() = error("unused")
     }
-    val reviewer = FacadeHarnessCodeReviewer(lazyOf(facade), policy, scope)
+    val reviewer = FacadeAgentSafetyReviewer(lazyOf(facade), policy, scope)
 
     fun finish(turnId: TurnId = turn) {
         state.value = ActiveSessionState.Ready(Turn(turnId, null, target, TurnOutcome.Cancelled))

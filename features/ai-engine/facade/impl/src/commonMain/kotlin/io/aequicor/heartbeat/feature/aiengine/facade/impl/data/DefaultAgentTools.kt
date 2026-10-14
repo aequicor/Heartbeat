@@ -7,10 +7,14 @@ import dev.zacsweers.metro.Multibinds
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReview
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
@@ -72,9 +76,14 @@ internal class DefaultAgentTools(
     private val hooks: SessionHooks = NoSessionHooks,
     private val policies: ToolPolicyResolver = NoToolPolicyResolver,
     private val offloads: Lazy<Set<ToolOutputOffload>> = lazyOf(emptySet()),
+    safety: Lazy<AgentSafetyReviewer> = lazyOf(
+        AgentSafetyReviewer { _, _, _ ->
+            AgentSafetyReview("uncertain", "Native automatic safety review is unavailable")
+        },
+    ),
 ) : ProfileAgentTools {
     private val log = Log.tag("AgentTools")
-    private val nativeGate = NativeToolGate(policies, hooks) {
+    private val nativeGate = NativeToolGate(policies, hooks, safety) {
         catalog().flatMap { it.tools }.map { it.name }.toSet()
     }
     private val callsLock = Mutex()
@@ -85,13 +94,20 @@ internal class DefaultAgentTools(
     // Entries stay after the turn: a delayed call must still resolve to its finished facade turn.
     private val boundTurns = mutableMapOf<Pair<SessionRef, RequestId>, BoundTurn>()
 
-    override suspend fun bindTurn(session: SessionRef, request: RequestId, turn: TurnId, target: EngineTarget?) {
+    override suspend fun bindTurn(
+        session: SessionRef,
+        request: RequestId,
+        turn: TurnId,
+        target: EngineTarget?,
+        decisionMode: AgentToolDecisionMode,
+    ) {
         log.i { "Bind hosted execution to the facade turn" }
         callsLock.withLock {
             val key = session to request
             val previous = boundTurns[key]
-            check(previous == null || previous.turn == turn) { "Request already belongs to another turn" }
-            boundTurns[key] = BoundTurn(turn, target ?: previous?.target)
+            val next = BoundTurn(turn, target ?: previous?.target, decisionMode)
+            check(previous == null || previous == next) { "Request already has a different execution identity" }
+            boundTurns[key] = next
         }
     }
 
@@ -221,6 +237,7 @@ internal class DefaultAgentTools(
                     historyTurn = context.turn,
                     target = bound?.target ?: context.target,
                     authorization = null,
+                    decisionMode = bound?.decisionMode ?: context.decisionMode,
                 )
                 val key = trusted.session to trusted.turn
                 if (key in finishedTurns) false else calls.getOrPut(key) { mutableSetOf() }.add(invocation)
@@ -350,6 +367,45 @@ internal class DefaultAgentTools(
         approval: AgentToolApproval,
         verdict: ToolHookVerdict,
     ): AgentToolResult? {
+        val automatic = owner.automaticAuthorization(context, spec, arguments)
+        val operation = HostedApproval(owner, spec, arguments, approval)
+        return when {
+            automatic != null -> automaticRefusal(context, operation, automatic, verdict)
+
+            context.decisionMode == AgentToolDecisionMode.AutomaticSafety ->
+                unreviewedAutomaticRefusal(context, operation, verdict)
+
+            else -> interactiveRefusal(context, operation, verdict)
+        }
+    }
+
+    /** Automatic mode permits ordinary reads; a missing mutation reviewer is a refusal, never a prompt. */
+    private suspend fun unreviewedAutomaticRefusal(
+        context: AgentToolContext,
+        operation: HostedApproval,
+        verdict: ToolHookVerdict,
+    ): AgentToolResult? {
+        val (owner, spec, arguments) = operation
+        val refusal = verdict.automaticRefusal()
+            ?: if (spec.action != AgentToolAction.Read || owner.requiresDecision(context, spec, arguments)) {
+                "This tool has no independent automatic safety review; the action was refused"
+            } else {
+                null
+            }
+        return if (refusal != null) {
+            AgentToolResult(refusal, isError = true)
+        } else {
+            automaticRecheck(context, operation, isUnreviewedRead = true)
+        }
+    }
+
+    private suspend fun interactiveRefusal(
+        context: AgentToolContext,
+        operation: HostedApproval,
+        verdict: ToolHookVerdict,
+    ): AgentToolResult? {
+        val (owner, spec, arguments) = operation
+        val approval = operation.approval
         val isRequiredByTrust = requiresTrustDecision(spec.action, context.trust)
         // The owner may add a decision (its own approval policy); it can never remove one the table demands.
         val existing = owner.existingAuthorization(context, spec, arguments)
@@ -376,6 +432,47 @@ internal class DefaultAgentTools(
             AgentToolResult("Tool became unavailable", isError = true)
         } else if ((isDecisionRequired || isCovered) && owner.approval(context, spec, arguments) != approval) {
             AgentToolResult("The action changed while awaiting approval; request it again", isError = true)
+        } else {
+            null
+        }
+    }
+
+    /** Review never overrides a hook or a changed operation, and never opens an interactive permission path. */
+    private suspend fun automaticRefusal(
+        context: AgentToolContext,
+        operation: HostedApproval,
+        decision: AgentToolAutomaticAuthorization,
+        verdict: ToolHookVerdict,
+    ): AgentToolResult? {
+        val refusal = decision.refusal(operation.approval, verdict)
+        if (refusal != null) return AgentToolResult(refusal, isError = true)
+        return automaticRecheck(context, operation)
+    }
+
+    private suspend fun automaticRecheck(
+        context: AgentToolContext,
+        operation: HostedApproval,
+        isUnreviewedRead: Boolean = false,
+    ): AgentToolResult? {
+        val call = hooks.context(context.session, context.request, context.turn)?.let {
+            HookedToolCall(it, operation.spec.name, operation.spec.action, operation.arguments)
+        }
+        val currentHook = call?.let { hooks.beforeTool(it) } ?: ToolHookVerdict.Continue
+        val hookRefusal = currentHook.automaticRefusal()
+        if (hookRefusal != null) return AgentToolResult(hookRefusal, isError = true)
+        val (owner, spec, arguments) = operation
+        val approval = operation.approval
+        return if (declarations(
+                context.toolScope(),
+                isExecuting = true,
+                isAdapterOperated = owner.isAdapterOperated,
+            ).none { it.first === owner && it.second == spec }
+        ) {
+            AgentToolResult("Tool became unavailable after safety review", isError = true)
+        } else if (owner.approval(context, spec, arguments) != approval) {
+            AgentToolResult("The action changed during safety review; request it again", isError = true)
+        } else if (isUnreviewedRead && owner.requiresDecision(context, spec, arguments)) {
+            AgentToolResult("This read now requires a decision and has no automatic safety review", isError = true)
         } else {
             null
         }
@@ -432,7 +529,7 @@ internal class DefaultAgentTools(
 
     private fun List<String>.joined(): String = filter { it.isNotBlank() }.joinToString("\n\n")
 
-    private data class BoundTurn(val turn: TurnId, val target: EngineTarget?)
+    private data class BoundTurn(val turn: TurnId, val target: EngineTarget?, val decisionMode: AgentToolDecisionMode)
 
     /**
      * Declarations available to the session's workspace before its declared names and the effective policy, and

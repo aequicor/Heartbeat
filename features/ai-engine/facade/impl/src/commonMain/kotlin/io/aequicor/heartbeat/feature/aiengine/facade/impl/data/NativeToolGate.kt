@@ -1,11 +1,15 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HookedToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.SessionHooks
@@ -22,6 +26,7 @@ import kotlinx.serialization.json.put
 internal class NativeToolGate(
     private val policies: ToolPolicyResolver,
     private val hooks: SessionHooks,
+    private val safety: Lazy<AgentSafetyReviewer>,
     private val hostedNames: () -> Set<String>,
 ) {
     private val log = Log.tag("NativeToolGate")
@@ -42,9 +47,14 @@ internal class NativeToolGate(
         call: NativeToolCall,
         decidedBy: (String) -> Unit,
     ): NativePreflight {
-        if (!isEnabled(context, call)) return denied("Native tool is disabled or its policy is unavailable")
+        val policy = policy(context)
+        if (!policy.allows(call)) return denied("Native tool is disabled or its policy is unavailable")
         decidedBy("hook")
         val hook = beforeTool(context, call)
+        if (context.decisionMode == AgentToolDecisionMode.AutomaticSafety) {
+            decidedBy("safety")
+            return automatic(context, call, hook, checkNotNull(policy))
+        }
         if (hook !is ToolHookVerdict.Deny) {
             currentCoroutineContext().ensureActive()
             decidedBy("policy")
@@ -60,6 +70,49 @@ internal class NativeToolGate(
                 decidedBy("trust")
                 if (call.covered(context.trust)) NativePreflight.Ready(NativeVerdict.Allow) else approval(call, hook)
             }
+        }
+    }
+
+    private suspend fun automatic(
+        context: AgentToolContext,
+        call: NativeToolCall,
+        hook: ToolHookVerdict,
+        reviewedPolicy: ResolvedToolPolicy,
+    ): NativePreflight {
+        val restriction = hook.automaticRefusal() ?: call.automaticDenial
+            ?: "Automatic edits require a trusted workspace".takeIf {
+                call.action == AgentToolAction.Edit && context.workspace == null
+            }
+        if (restriction != null) return denied(restriction)
+        val target = context.target ?: return denied("Native safety review has no trusted model target")
+        val snapshot = nativeSafetySnapshot(context, call)
+            ?: return denied("Native action has no complete bounded safety snapshot")
+        val review = safety.value.review(target, NATIVE_SAFETY_POLICY, snapshot)
+        currentCoroutineContext().ensureActive()
+        return if (!review.isSafe) {
+            denied("Native safety review refused: ${review.reason.take(HOOK_CHARS)}")
+        } else {
+            recheckAutomatic(context, call, reviewedPolicy, snapshot)
+        }
+    }
+
+    /** Review suspension cannot preserve a grant across changed hooks, policy or invocation input. */
+    private suspend fun recheckAutomatic(
+        context: AgentToolContext,
+        call: NativeToolCall,
+        reviewedPolicy: ResolvedToolPolicy,
+        snapshot: String,
+    ): NativePreflight {
+        val currentHook = beforeTool(context, call)
+        currentHook.automaticRefusal()?.let { return denied(it) }
+        val currentPolicy = policy(context)
+        currentCoroutineContext().ensureActive()
+        return if (!currentPolicy.allows(call) || currentPolicy != reviewedPolicy ||
+            snapshot != nativeSafetySnapshot(context, call)
+        ) {
+            denied("Native action or policy changed during safety review; request it again")
+        } else {
+            NativePreflight.Ready(NativeVerdict.Allow)
         }
     }
 
@@ -125,15 +178,18 @@ internal class NativeToolGate(
         denied("Native tool authorization failed")
     }
 
-    private suspend fun isEnabled(context: AgentToolContext, call: NativeToolCall): Boolean {
-        val policy = policies.resolve(
-            ToolPolicyScope(context.session.engine, context.workspace, context.session, context.target),
-            hostedNames(),
-            isExecuting = true,
-        ) ?: return false
-        return call.name !in policy.nativeOff && call.name in policy.nativeOn
-    }
+    private suspend fun isEnabled(context: AgentToolContext, call: NativeToolCall): Boolean =
+        policy(context).allows(call)
+
+    private suspend fun policy(context: AgentToolContext): ResolvedToolPolicy? = policies.resolve(
+        ToolPolicyScope(context.session.engine, context.workspace, context.session, context.target),
+        hostedNames(),
+        isExecuting = true,
+    )
 }
+
+private fun ResolvedToolPolicy?.allows(call: NativeToolCall): Boolean =
+    this != null && call.name !in nativeOff && call.name in nativeOn
 
 private const val HOOK_CHARS = 2_000
 private const val APPROVAL_CHARS = 8_000

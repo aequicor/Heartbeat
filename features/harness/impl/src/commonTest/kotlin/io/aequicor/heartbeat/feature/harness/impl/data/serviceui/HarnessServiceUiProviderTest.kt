@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.harness.api.script.ScriptUiResult
 import io.aequicor.heartbeat.feature.harness.impl.data.services.SchedulerAccessMachine
 import io.aequicor.heartbeat.feature.harness.impl.data.services.SchedulerAccessRegistry
 import io.aequicor.heartbeat.feature.harness.impl.data.services.SchedulerAccessToggles
+import io.aequicor.heartbeat.feature.harness.impl.data.services.harnessTestData
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessDispatchFixture
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessUiDispatch
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.connectedAdmission
@@ -28,14 +29,20 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodResult
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethods
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwnerInfo
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwners
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 
 class HarnessServiceUiProviderTest {
     private val registry = SchedulerAccessRegistry()
@@ -89,10 +96,25 @@ class HarnessServiceUiProviderTest {
         }
 
         assertEquals(UiMethods(isAvailable = false), setup.provider.methods(id).first())
+        assertNull(setup.provider.review(id, "prs", chosen))
         setup.fixture.activate()
-        assertEquals(UiMethods(true, listOf(UiMethodInfo("prs", "Pull requests"))), setup.provider.methods(id).first())
+        val methods = setup.provider.methods(id).first()
+        assertNotNull(methods.generation)
+        assertEquals(UiMethods(true, listOf(UiMethodInfo("prs", "Pull requests")), methods.generation), methods)
 
         val args = JsonObject(mapOf("repo" to JsonPrimitive("a/b")))
+        val reviewed = assertNotNull(setup.provider.review(id, "prs", chosen))
+        assertEquals("fixture", reviewed.source)
+        assertNull(setup.provider.review(id, "prs", UiCallContext(session = dispatchSession)))
+        assertNull(setup.provider.review(id, "missing", chosen))
+        assertEquals(
+            UiMethodResult.Success(JsonPrimitive("a/b")),
+            setup.provider.call(id, UiMethodCall("prs", args, chosen, reviewed.binding)),
+        )
+        assertEquals(
+            UiMethodResult.Failure(UiMethodFailure.Unavailable),
+            setup.provider.call(id, UiMethodCall("prs", args, chosen, "obsolete-binding")),
+        )
         assertEquals(
             UiMethodResult.Success(JsonPrimitive("a/b")),
             setup.provider.call(id, UiMethodCall("prs", args, chosen)),
@@ -108,6 +130,45 @@ class HarnessServiceUiProviderTest {
     }
 
     @Test
+    fun `atomic script replacement emits a new generation with an unchanged catalog and durable revision`() = runTest {
+        val setup = setup()
+        val fixture = setup.fixture
+        val harness = fixture.request.harness
+        val owner = harness.id.value
+        val context = UiCallContext(preselected = mapOf(HarnessTools.GROUP to setOf(owner)))
+        library(HarnessState.Ready(listOf(HarnessEntry(harness))))
+        var value = "first"
+        fixture.onEvaluate = { script ->
+            val captured = value
+            script.ui.method(ItemName("record"), "Record") { ScriptUiResult.Value(JsonPrimitive(captured)) }
+        }
+        fixture.activate()
+        val snapshots = mutableListOf<UiMethods>()
+        backgroundScope.launch { setup.provider.methods(owner).collect { snapshots += it } }
+        runCurrent()
+        val first = snapshots.single()
+        assertNotNull(first.generation)
+        val revision = setup.provider.dataRevision(owner).first()
+
+        value = "second"
+        fixture.desired = fixture.request.copy(generation = fixture.request.generation + 1)
+        fixture.activate()
+        runCurrent()
+        val replacement = snapshots.last()
+        assertEquals(2, snapshots.size)
+        assertEquals(first.methods, replacement.methods)
+        assertEquals(true, replacement.isAvailable)
+        assertNotEquals(first.generation, replacement.generation)
+        assertEquals(revision, setup.provider.dataRevision(owner).first())
+        assertEquals(
+            UiMethodResult.Success(JsonPrimitive("second")),
+            setup.provider.call(owner, UiMethodCall("record", JsonObject(emptyMap()), context)),
+        )
+        runCurrent()
+        assertEquals(2, snapshots.size, "A read does not invalidate the published generation")
+    }
+
+    @Test
     fun `without a script host there are no methods`() = runTest {
         val setup = setup(isHostAvailable = false)
         val harness = setup.fixture.request.harness
@@ -115,6 +176,7 @@ class HarnessServiceUiProviderTest {
         library(HarnessState.Ready(listOf(HarnessEntry(harness))))
 
         assertEquals(UiMethods(isAvailable = false), setup.provider.methods(harness.id.value).first())
+        assertNull(setup.provider.review(harness.id.value, "prs", chosen))
         assertEquals(
             UiMethodResult.Failure(UiMethodFailure.Unavailable),
             setup.provider.call(harness.id.value, UiMethodCall("prs", JsonObject(emptyMap()), chosen)),
@@ -137,6 +199,7 @@ class HarnessServiceUiProviderTest {
             StaticHost(isHostAvailable),
             lazyOf(fixture.runtime),
             lazyOf(dispatch),
+            harnessTestData(),
         )
         return Setup(fixture, provider)
     }

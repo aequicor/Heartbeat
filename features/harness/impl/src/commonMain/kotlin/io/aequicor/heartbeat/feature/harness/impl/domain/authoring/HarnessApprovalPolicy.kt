@@ -1,29 +1,9 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.authoring
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
-import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.harness.api.Harness
-import io.aequicor.heartbeat.feature.harness.api.HarnessApproval
 import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
-
-/**
- * Full turn trust approves ordinary agent edits even when the profile defaults to Ask. Otherwise Ask and ByTrust
- * require a decision (including AutoEdits), while AcceptAll approves them. Code uses independent review.
- * Anything that can make a tool
- * usable again and membership changes of a harness with an enabled script always ask, whatever the level:
- * see [reEnabled], [hasEnabledScript] and the callers' membership checks.
- */
-internal fun HarnessApproval.requiresDecision(trust: TrustLevel, isAlwaysAsked: Boolean): Boolean =
-    isAlwaysAsked || (trust != TrustLevel.Full && this != HarnessApproval.AcceptAll)
-
-/** Wire name of the level inside opaque approval bindings. */
-internal val HarnessApproval.key: String
-    get() = when (this) {
-        HarnessApproval.Ask -> "ask"
-        HarnessApproval.ByTrust -> "by_trust"
-        HarnessApproval.AcceptAll -> "accept_all"
-    }
 
 /**
  * Tools that [next] may make usable again compared with [current]: native switches turned On, native switches
@@ -58,7 +38,7 @@ internal val ToolPolicySpec.hasRestrictions: Boolean
     get() = hostedOff.isNotEmpty() || native.values.any { ToolSwitch.Off in it.values }
 
 /**
- * Human-readable difference shown in the question, one line per change: hosted tools turned off or back on, then
+ * Human-readable safety assessment difference: hosted tools turned off or back on, then
  * native switches by engine. Defaults are spelled out so that removing a switch is visible.
  */
 internal fun policyDiff(current: ToolPolicySpec, next: ToolPolicySpec): List<String> = buildList {

@@ -11,6 +11,9 @@ import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocument
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentHandle
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiCardRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiIntent
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiOutput
@@ -24,6 +27,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodResult
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethods
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwner
 import io.aequicor.heartbeat.feature.serviceasui.api.UiPlacement
+import io.aequicor.heartbeat.feature.serviceasui.api.UiSurfaceId
 import io.aequicor.heartbeat.feature.serviceasui.impl.data.UnsupportedUiPlatform
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCard
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardAdded
@@ -49,8 +53,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
@@ -61,6 +67,8 @@ import pro.respawn.flowmvi.dsl.collect
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
 class CardModelTest {
@@ -159,6 +167,59 @@ class CardModelTest {
         assertEquals(CardPhase.Unavailable, card.states.value.phase)
     }
 
+    @Test
+    fun `detaching an owner closes the owned card until that owner is attached again`() = runTest {
+        val fixture = Fixture(this, ready(UiLibrary(listOf(map))))
+        fixture.cards.value = mapOf(ID to card(UiCardSource.Surface(map.id)))
+        val card = fixture.subscribe()
+        assertEquals(CardPhase.Drawn, card.states.value.phase)
+        val first = card.states.value.key
+        fixture.calls.active.value = emptySet()
+        runCurrent()
+        assertEquals(CardPhase.Unavailable, card.states.value.phase)
+        assertEquals(emptyMap(), fixture.model.surfaces.value)
+        fixture.calls.active.value = setOf(PrMap)
+        runCurrent()
+        assertEquals(CardPhase.Drawn, card.states.value.phase)
+        kotlin.test.assertNotEquals(first, card.states.value.key)
+    }
+
+    @Test
+    fun `unrelated owner updates preserve the card and its local state`() = runTest {
+        val fixture = Fixture(this, ready(UiLibrary(listOf(map))))
+        fixture.cards.value = mapOf(ID to card(UiCardSource.Surface(map.id)))
+        val card = fixture.subscribe()
+        val first = card.states.value.key
+        fixture.calls.active.value = setOf(PrMap, UiOwner("harness", "another"))
+        runCurrent()
+        assertEquals(first, card.states.value.key)
+    }
+
+    @Test
+    fun `hiding a transcript card closes its document and returning opens a fresh one`() = runTest {
+        val webSurface = map.copy(
+            content = map.content.copy(
+                placement = UiPlacement.Card,
+                spec = """{"version":1,"body":{"type":"web","html":"<p>Workout</p>","bridge":true}}""",
+            ),
+        )
+        val fixture = Fixture(this, ready(UiLibrary(listOf(webSurface))))
+        fixture.cards.value = mapOf(ID to card(UiCardSource.Surface(webSurface.id)))
+        val subscription = backgroundScope.launch { fixture.model.store.collect { awaitCancellation() } }
+        runCurrent()
+        assertEquals(1, fixture.web.opened.size)
+        subscription.cancel()
+        // FlowMVI keeps short-lived unsubscriptions alive for one second to avoid rebuilding on quick returns.
+        advanceTimeBy(1.seconds)
+        runCurrent()
+        assertTrue(fixture.web.opened.single().isClosed)
+        assertEquals(emptyMap(), fixture.model.surfaces.value)
+        fixture.subscribe()
+        runCurrent()
+        assertEquals(2, fixture.web.opened.size)
+        assertTrue(!fixture.web.opened.last().isClosed)
+    }
+
     private fun ready(library: UiLibrary = UiLibrary()) =
         ServiceUiState.Ready(hosts = mapOf(host to bound), library = library)
 
@@ -184,23 +245,27 @@ class CardModelTest {
             args = JsonObject(emptyMap()),
             createdAt = Instant.fromEpochSeconds(0),
         )
+        val calls = CardCalls()
+        val web = CardWeb()
         private val stores = HeartbeatStoreFactory(TestDispatchers(StandardTestDispatcher(scope.testScheduler)))
         private val storage = object : UiCardStorage {
+            override suspend fun latest(chat: SessionRef, surface: UiSurfaceId): UiCard? = null
             override suspend fun add(card: UiCard): UiCardAdded = error("unused")
             override fun observe(id: String): Flow<UiCard?> = cards.map { it[id] }
         }
         val model = CardModel(
             ServiceUiCardRoute(ID, place),
             storage,
+            calls,
             machine,
             { session, child ->
                 SurfaceModel(
                     session,
-                    NoCalls,
+                    calls,
                     UnsupportedUiPlatform,
                     stores,
                     child,
-                    UiWebDocuments.Off,
+                    web,
                 )
             },
             Desktop,
@@ -244,8 +309,24 @@ class CardModelTest {
         }
     }
 
-    private object NoCalls : UiMethodCalls {
-        override fun activeOwners(context: UiCallContext): Flow<Set<UiOwner>> = flowOf(setOf(PrMap))
+    private class CardWeb : UiWebDocuments {
+        override val availability: Flow<Boolean> = flowOf(true)
+        val opened = mutableListOf<CardDocument>()
+        override fun open(document: BrowserDocument): BrowserDocumentHandle =
+            CardDocument(BrowserDocumentRoute("doc-${opened.size}")).also { opened += it }
+    }
+
+    private class CardDocument(override val route: BrowserDocumentRoute) : BrowserDocumentHandle {
+        var isClosed = false
+        override fun update(data: JsonElement?) = Unit
+        override fun close() {
+            isClosed = true
+        }
+    }
+
+    private class CardCalls : UiMethodCalls {
+        val active = MutableStateFlow(setOf(PrMap))
+        override fun activeOwners(context: UiCallContext): Flow<Set<UiOwner>> = active
         override fun methods(owner: UiOwner): Flow<UiMethods> = flowOf(UiMethods(isAvailable = true))
         override suspend fun call(
             owner: UiOwner,

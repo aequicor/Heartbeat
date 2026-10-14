@@ -234,6 +234,7 @@ internal fun StudioMessage.Reply.apply(event: AgentEvent): StudioMessage.Reply {
                     hostedToolName(event.title),
                     output,
                 ).takeIf { event.isSuccess },
+                isLiveCard = event.isSuccess && ServiceUiTools.isLiveCard(hostedToolName(event.title), output),
             )
         }
 

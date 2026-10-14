@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.runtime
 import io.aequicor.heartbeat.feature.harness.api.HarnessActivationRequest
 import io.aequicor.heartbeat.feature.harness.api.script.HarnessScriptScope
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptAgent
+import io.aequicor.heartbeat.feature.harness.api.script.ScriptData
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptEvents
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptHooks
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptPrompts
@@ -20,9 +21,7 @@ internal class HarnessScriptContext(
     request: HarnessActivationRequest,
     access: HarnessInstanceAccess,
     origins: HarnessCallOrigins,
-    private val scheduler: HarnessScriptScheduler,
-    private val workflows: ScriptWorkflows,
-    private val sessions: HarnessScriptSessions,
+    private val services: HarnessScriptServices,
 ) : HarnessRuntimeContext {
     val registrations = HarnessScriptRegistrations(request.harness.name, access, origins)
     private val prompts = HarnessScriptPrompts(request, access)
@@ -35,11 +34,12 @@ internal class HarnessScriptContext(
         override val events: ScriptEvents get() = registrations
         override val hooks: ScriptHooks get() = registrations
         override val agent: ScriptAgent get() = registrations
-        override val sessions: ScriptSessions get() = this@HarnessScriptContext.sessions
-        override val scheduler: ScriptScheduler get() = this@HarnessScriptContext.scheduler
+        override val sessions: ScriptSessions get() = services.sessions
+        override val scheduler: ScriptScheduler get() = services.scheduler
         override val prompts: ScriptPrompts get() = this@HarnessScriptContext.prompts
-        override val workflows: ScriptWorkflows get() = this@HarnessScriptContext.workflows
+        override val workflows: ScriptWorkflows get() = services.workflows
         override val ui: ScriptUi get() = registrations
+        override val data: ScriptData get() = services.data
     })
 
     override fun sealForPublication(): Boolean {
@@ -47,11 +47,19 @@ internal class HarnessScriptContext(
         return true
     }
 
-    override fun tryCommitPublication(): Boolean = scheduler.tryCommitPublication()
+    override fun tryCommitPublication(): Boolean = services.scheduler.tryCommitPublication()
 
     override fun close() {
         registrations.close()
-        scheduler.close()
-        sessions.close()
+        services.scheduler.close()
+        services.sessions.close()
     }
 }
+
+/** Services scoped to one approved script activation, grouped for construction and disposal. */
+internal data class HarnessScriptServices(
+    val scheduler: HarnessScriptScheduler,
+    val workflows: ScriptWorkflows,
+    val sessions: HarnessScriptSessions,
+    val data: ScriptData,
+)

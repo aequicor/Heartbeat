@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.harness.impl.data.script
 
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
+import io.aequicor.heartbeat.feature.harness.api.HarnessValidationCode
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.script.HarnessWorkflowBase
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowDefinition
@@ -27,12 +28,47 @@ import kotlin.script.experimental.host.StringScriptSource
 import kotlin.script.experimental.jvm.JvmDependency
 import kotlin.script.experimental.jvmhost.BasicJvmScriptingHost
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 
 class HarnessK2SpikeTest {
+    @Test
+    fun `compiled invalid ItemName fails activation with safe actionable grammar`() = runTest {
+        val directory = Files.createTempDirectory("harness-validation-test")
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val dispatchers = object : DispatcherProvider {
+            override val main = dispatcher
+            override val default = dispatcher
+            override val io = dispatcher
+        }
+        val host = JvmHarnessScriptHost(directory, "test", backgroundScope, dispatchers)
+        val compiled = assertIs<HarnessCompilationResult.Success>(
+            host.compile(
+                HarnessCompilationRequest(
+                    HarnessId("validation"),
+                    ItemId("workflow"),
+                    HarnessCodeKind.Workflow,
+                    "ItemName(\"privateInvalidName\")\nworkflow { input -> input }",
+                ),
+            ),
+        )
+        try {
+            val result = assertIs<HarnessEvaluationResult.Failure>(
+                host.evaluate(compiled.code, HarnessEvaluationContext.Workflow(WorkflowRegistration {})),
+            )
+            assertEquals(HarnessValidationCode.InvalidItemName, result.reason)
+            assertEquals(HarnessValidationCode.InvalidItemName.message, result.diagnostics.single().message)
+            assertFalse(result.diagnostics.any { "privateInvalidName" in it.message })
+        } finally {
+            compiled.code.close()
+            directory.toFile().deleteRecursively()
+        }
+    }
+
     @Test
     fun `evaluation does not turn fatal initializer failure into a script diagnostic`() = runTest {
         val directory = Files.createTempDirectory("harness-fatal-test")

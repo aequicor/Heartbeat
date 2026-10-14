@@ -257,7 +257,7 @@ internal class PiSession(
         if (mutex.isLocked || isAdmissionBlocked || state.value !is ActiveSessionState.Ready) {
             piFailure(EngineFailure.Session(SessionFailureReason.Busy))
         }
-        val next = Turn(TurnId(UUID.randomUUID().toString()), request.id, target)
+        val next = Turn(TurnId(UUID.randomUUID().toString()), request.id, target, decisionMode = request.decisionMode)
         submissions.send(request, next) { entry -> prepareSubmission(request, entry) }
     }
 
@@ -615,8 +615,9 @@ internal class PiSession(
         message: String?,
         isResult: Boolean = false,
         timeoutMillis: Long? = null,
+        isStructuredReply: Boolean = false,
     ) {
-        val call = approvalCall(message, isResult) ?: return dismiss(id)
+        val call = approvalCall(message, isResult)?.copy(isStructuredReply = isStructuredReply) ?: return dismiss(id)
         val active = turn ?: return dismiss(id)
         val process = connection ?: return dismiss(id)
         if (isHandleClosed || !nativeApprovals.launch(id, call, active, process, generation, timeoutMillis)) dismiss(id)

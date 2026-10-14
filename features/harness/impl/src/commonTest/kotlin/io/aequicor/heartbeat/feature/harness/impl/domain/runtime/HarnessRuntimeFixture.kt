@@ -11,10 +11,12 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.api.HarnessName
 import io.aequicor.heartbeat.feature.harness.api.HarnessReceipt
 import io.aequicor.heartbeat.feature.harness.api.HarnessScope
+import io.aequicor.heartbeat.feature.harness.api.HarnessValidationCode
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRegistration
+import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessActivationResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.CompiledHarnessCode
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeKind
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCompilationRequest
@@ -40,6 +42,7 @@ internal class HarnessRuntimeFixture(
     private var removalCounter = 0L
     var isCompilationSuccessful = true
     var isEvaluationSuccessful = true
+    var evaluationFailure: HarnessValidationCode? = null
     var isContextReady = true
     var isPublicationCommitAllowed = true
     var publicationCommits = 0
@@ -77,7 +80,7 @@ internal class HarnessRuntimeFixture(
             return if (isEvaluationSuccessful) {
                 HarnessEvaluationResult.Success
             } else {
-                HarnessEvaluationResult.Failure(emptyList())
+                HarnessEvaluationResult.Failure(emptyList(), evaluationFailure)
             }
         }
         override suspend fun removeCached(harness: HarnessId, item: ItemId) {
@@ -174,3 +177,7 @@ internal class RuntimeTestCode : CompiledHarnessCode {
         closes++
     }
 }
+
+/** Convenience for lifecycle assertions; production callers retain the typed activation result. */
+internal suspend fun HarnessRuntime.activate(request: HarnessActivationRequest): Boolean =
+    activateResult(request) == HarnessActivationResult.Active

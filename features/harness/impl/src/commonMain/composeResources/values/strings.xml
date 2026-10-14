@@ -10,15 +10,8 @@
     <string name="harness_conflict">The harness changed meanwhile; the change was not applied.</string>
     <string name="harness_busy">Another change of this harness is still being saved. Try again.</string>
     <string name="harness_limit">The change exceeds the limits of the harness library.</string>
-    <string name="harness_approval_section">Approving agent edits</string>
-    <string name="harness_approval_section_hint">How harnesses, texts and tool switches the agent writes are accepted. Code is reviewed automatically; risk or uncertainty asks you. Enabling native tools always asks.</string>
-    <string name="harness_approval_ask">Ask for confirmation</string>
-    <string name="harness_approval_ask_hint">Agent edits wait for your decision unless the chat has full trust. Code is reviewed automatically; risk or uncertainty asks you. Changes that lift tool restrictions always ask.</string>
-    <string name="harness_approval_by_trust">By chat trust</string>
-    <string name="harness_approval_by_trust_hint">Full trust saves without asking; other trust levels ask.</string>
-    <string name="harness_approval_accept_all">Accept everything</string>
-    <string name="harness_approval_accept_all_hint">Texts, metadata and turning tools off are saved without asking.</string>
-    <string name="harness_approval_warning">The agent can change instructions of every chat where a harness is active without asking you.</string>
+    <string name="harness_approval_section">Automatic safety review</string>
+    <string name="harness_approval_section_hint">The safety system checks agent changes automatically. If refused, the agent receives the reason.</string>
     <string name="harness_no_code">Scripts and workflows run only on Desktop; skills, instructions, templates and tool policy work here.</string>
     <string name="harness_list_section">Harnesses</string>
     <string name="harness_empty">No harnesses yet</string>

@@ -78,9 +78,6 @@ internal sealed interface EditorIntent : MVIIntent {
     /** Deletes the surface; the screen asks the user first. */
     data object Delete : EditorIntent
 
-    /** Loads the data sources of the preview with the owner's methods. */
-    data object LoadPreview : EditorIntent
-
     /** Reads the library again after it failed to load. */
     data object Reload : EditorIntent
 

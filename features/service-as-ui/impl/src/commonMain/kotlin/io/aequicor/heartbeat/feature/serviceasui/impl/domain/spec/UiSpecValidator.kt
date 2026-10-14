@@ -59,7 +59,7 @@ private class SpecValidator(private val spec: UiSpec, private val rules: UiSpecR
 
     fun run(): List<UiSpecDiagnostic> {
         declarations()
-        val isWebInBody = !isInline && (rules.placement == UiPlacement.Panel || rules.placement == UiPlacement.Modal)
+        val isWebInBody = !isInline
         spec.title?.let { template(it, "$ROOT.title", Scope()) }
         node(spec.body, "$ROOT.body", Scope(isWebAllowed = isWebInBody))
         for ((name, modal) in spec.modals) {
@@ -240,6 +240,8 @@ private class SpecValidator(private val spec: UiSpec, private val rules: UiSpecR
                 action.into?.let { stateKey(it, "$path.into") }
             }
 
+            is UiAction.FocusCard -> focusCard(action, path)
+
             is UiAction.Reload -> {
                 forbiddenInline(path)
                 if (action.source !in spec.data) report("$path.source", UiSpecProblem.UnknownSource, action.source)
@@ -282,6 +284,14 @@ private class SpecValidator(private val spec: UiSpec, private val rules: UiSpecR
                 }
                 action.actions.forEachIndexed { index, step -> action(step, "$path.actions[$index]", scope) }
             }
+        }
+    }
+
+    private fun focusCard(action: UiAction.FocusCard, path: String) {
+        forbiddenInline(path)
+        name(action.surface, "$path.surface")
+        if (rules.surfaces?.contains(action.surface) == false) {
+            report("$path.surface", UiSpecProblem.UnknownSurface, action.surface)
         }
     }
 

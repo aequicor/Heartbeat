@@ -16,6 +16,10 @@ public enum class UiPlacement {
     @SerialName("start")
     Start,
 
+    /** In a chat response via `ui_show`, with live owner data and actions, without a slot launcher. */
+    @SerialName("card")
+    Card,
+
     /** In the side panel, opened by a launcher or by an action of another surface. */
     @SerialName("panel")
     Panel,
@@ -67,7 +71,9 @@ public data class UiSurfaceContent(
     init {
         require(title.isNotBlank() && title.length <= ServiceUiLimits.TITLE_CHARS) { "Invalid surface title" }
         require(description.length <= ServiceUiLimits.DESCRIPTION_CHARS) { "Surface description is too long" }
-        require(launchers.isEmpty() || !placement.isInline) { "Only panel and modal surfaces have launchers" }
+        require(launchers.isEmpty() || placement == UiPlacement.Panel || placement == UiPlacement.Modal) {
+            "Only panel and modal surfaces have launchers"
+        }
         require(spec.isNotBlank() && spec.encodeToByteArray().size <= ServiceUiLimits.SPEC_BYTES) {
             "Surface spec is empty or too large"
         }

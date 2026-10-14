@@ -5,8 +5,10 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocument
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentBridge
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentHandle
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentSizing
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiWebDocuments
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiNodeUi
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.WebHeightUi
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableMap
@@ -69,9 +71,9 @@ internal class SurfaceWebDocuments(
                     val document = opened(node)
                     if (document == null) refused[node.key] = node else open[node.key] = document
                 }
-            } else if (current.data != node.data) {
+            } else if (current.node.data != node.data) {
                 current.handle.update(node.data)
-                open[node.key] = current.copy(data = node.data)
+                open[node.key] = current.copy(node = node)
             }
         }
         val next = open.mapValues { it.value.handle.route.id }.toImmutableMap()
@@ -82,8 +84,14 @@ internal class SurfaceWebDocuments(
     }
 
     private fun opened(node: Drawn): Opened? {
-        val document = BrowserDocument(node.html, node.title, node.data, bridge.takeIf { node.hasBridge })
-        return documents.open(document)?.let { Opened(it, node.html, node.hasBridge, node.data) }
+        val document = BrowserDocument(
+            node.html,
+            node.title,
+            node.data,
+            bridge.takeIf { node.hasBridge },
+            node.sizing,
+        )
+        return documents.open(document)?.let { Opened(it, node) }
     }
 
     /** A `web` node as drawn: the document opens with [title] as its accessible name. */
@@ -93,25 +101,31 @@ internal class SurfaceWebDocuments(
         val hasBridge: Boolean,
         val data: JsonElement?,
         val title: String,
+        val sizing: BrowserDocumentSizing,
     ) {
         /** [node] needs the same document, whatever its data. */
-        fun isSameDocument(node: Drawn): Boolean = html == node.html && hasBridge == node.hasBridge
+        fun isSameDocument(node: Drawn): Boolean =
+            html == node.html && hasBridge == node.hasBridge && sizing == node.sizing
     }
 
-    private data class Opened(
-        val handle: BrowserDocumentHandle,
-        val html: String,
-        val hasBridge: Boolean,
-        val data: JsonElement?,
-    ) {
-        /** The same document still fits [node]; data alone is updated in place. */
-        fun isSame(node: Drawn): Boolean = html == node.html && hasBridge == node.hasBridge
+    private data class Opened(val handle: BrowserDocumentHandle, val node: Drawn) {
+        /** The same document still fits [next]; data alone is updated in place. */
+        fun isSame(next: Drawn): Boolean = node.isSameDocument(next)
     }
 
     private fun SurfaceState.webs(): List<Drawn> = root.webs(title) + modal?.body.webs(modal?.title ?: title)
 
     private fun UiNodeUi?.webs(title: String): List<Drawn> = when (this) {
-        is UiNodeUi.Web -> listOf(Drawn(key, html, hasBridge, data, title))
+        is UiNodeUi.Web -> listOf(
+            Drawn(
+                key,
+                html,
+                hasBridge,
+                data,
+                title,
+                if (height == WebHeightUi.Content) BrowserDocumentSizing.Content else BrowserDocumentSizing.Fixed,
+            ),
+        )
 
         is UiNodeUi.Column -> children.flatMap { it.webs(title) }
 

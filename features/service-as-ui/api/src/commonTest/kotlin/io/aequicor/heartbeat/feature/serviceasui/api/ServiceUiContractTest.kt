@@ -12,6 +12,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class ServiceUiContractTest {
     @Test
@@ -48,6 +49,12 @@ class ServiceUiContractTest {
         assertNull(ServiceUiTools.shownCardId(ServiceUiTools.PUT, result))
         assertNull(ServiceUiTools.shownCardId(ServiceUiTools.SHOW, "Card limit for this chat reached"))
         assertFailsWith<IllegalArgumentException> { ServiceUiTools.shown("Bad Id") }
+        val live = ServiceUiTools.shown("uc_live", isLive = true)
+        assertEquals("uc_live", ServiceUiTools.shownCardId(ServiceUiTools.SHOW, live))
+        assertTrue(ServiceUiTools.isLiveCard(ServiceUiTools.SHOW, live))
+        assertFalse(ServiceUiTools.isLiveCard(ServiceUiTools.SHOW, result))
+        assertFalse(ServiceUiTools.isLiveCard(ServiceUiTools.SHOW, "Result: $live"))
+        assertFalse(ServiceUiTools.isLiveCard(ServiceUiTools.PUT, live))
     }
 
     @Test
@@ -58,10 +65,11 @@ class ServiceUiContractTest {
             workspace = WorkspaceRef("/home/$secret"),
             preselected = mapOf("harness" to setOf(secret)),
         )
-        val call = UiMethodCall("prs", buildJsonObject { put("token", secret) }, context)
+        val call = UiMethodCall("prs", buildJsonObject { put("token", secret) }, context, expectedBinding = secret)
         val texts = listOf(
             context.toString(),
             call.toString(),
+            UiMethodReview(secret, secret).toString(),
             UiMethodResult.Success(JsonPrimitive(secret)).toString(),
             UiMethodResult.UserError(secret).toString(),
         )

@@ -26,8 +26,10 @@ public const val SERVICE_UI_LOAD_ATTEMPTS: Int = 3
  * | Ready | OpenPanel | matching expected context, dock, enabled surface, args and panel limits | open in the dock |
  * | Ready | ClosePanel | open dock | close it |
  * | Ready | RequestPrompt | bound place, matching expected context, bounded text | PromptRequested with context |
+ * | Ready | RequestFocusCard | matching chat context, enabled surface of the requesting owner | CardFocusRequested |
  *
- * Writes are serialized; callers retry on Busy. A commit closes the panels of surfaces it deleted or disabled. Purges
+ * Writes are serialized; callers retry on Busy. An expected library revision mismatch reports Conflict before applying
+ * the operation. A commit closes the panels of surfaces it deleted or disabled. Purges
  * of owners whose deletion a complete provider snapshot confirmed are the feature's own writes: they wait for the
  * write being saved and are not retried after a storage failure until the next snapshot. Stale storage responses and
  * other unexpected inputs are ignored.
@@ -102,6 +104,13 @@ private typealias ReadyBuilder =
     StateBuilder<ServiceUiState, ServiceUiState.Ready, ServiceUiIntent, ServiceUiEffect, ServiceUiOutput>
 
 private fun ReadyBuilder.ready() {
+    on<ServiceUiIntent.Internal.RequestFocusCard>(guard = {
+        intent.expectedContext.call.session != null && state.hosts[intent.host] == intent.expectedContext &&
+            intent.cardId.isNotBlank() &&
+            state.library[intent.surface]?.let { it.isEnabled && it.content.owner == intent.owner } == true
+    }) {
+        output { ServiceUiOutput.CardFocusRequested(intent.host, intent.cardId, intent.expectedContext) }
+    }
     on<ServiceUiIntent.Internal.Edit> {
         stay { state.edited(intent.write) }
         effect { persistOf(state, state.edited(intent.write)) }
@@ -171,7 +180,7 @@ private fun persistOf(previous: ServiceUiState.Ready?, next: ServiceUiState.Read
         ?.let { ServiceUiEffect.Persist(it.write.id, it.result.library) }
 
 private fun ServiceUiState.Ready.edited(write: UiWrite): ServiceUiState.Ready {
-    val result = library.apply(write.op)
+    val result = library.apply(write)
     return when {
         this.write != null || result !is UiWriteResult.Applied || result.library == library -> this
         else -> copy(write = UiPendingWrite(write, result))
@@ -180,11 +189,18 @@ private fun ServiceUiState.Ready.edited(write: UiWrite): ServiceUiState.Ready {
 
 private fun ServiceUiState.Ready.editOutcome(write: UiWrite): ServiceUiOutput? {
     if (this.write != null) return ServiceUiOutput.EditRejected(write.id, UiEditRejection.Busy)
-    return when (val result = library.apply(write.op)) {
+    return when (val result = library.apply(write)) {
         is UiWriteResult.Rejected -> ServiceUiOutput.EditRejected(write.id, result.reason.toEdit())
         is UiWriteResult.Applied -> ServiceUiOutput.EditApplied(write.id, null).takeIf { result.library == library }
     }
 }
+
+private fun UiLibrary.apply(write: UiWrite): UiWriteResult =
+    if (write.expectedLibraryRevision != null && write.expectedLibraryRevision != revision) {
+        UiWriteResult.Rejected(UiWriteRejection.Conflict)
+    } else {
+        apply(write.op)
+    }
 
 private fun ServiceUiState.Ready.committed(): ServiceUiState.Ready {
     val pending = write ?: return this
@@ -218,8 +234,9 @@ private fun ServiceUiState.Ready.checkedOwners(kinds: Set<String>): ServiceUiSta
     return copy(purge = purge + deleted).purged()
 }
 
-private fun UiLibrary.canOpen(id: UiSurfaceId): Boolean =
-    this[id]?.let { it.isEnabled && !it.content.placement.isInline } == true
+private fun UiLibrary.canOpen(id: UiSurfaceId): Boolean = this[id]?.let {
+    it.isEnabled && (it.content.placement == UiPlacement.Panel || it.content.placement == UiPlacement.Modal)
+} == true
 
 private fun ServiceUiState.Ready.canOpen(intent: ServiceUiIntent.Public.OpenPanel): Boolean {
     val context = hosts[intent.host] ?: return false

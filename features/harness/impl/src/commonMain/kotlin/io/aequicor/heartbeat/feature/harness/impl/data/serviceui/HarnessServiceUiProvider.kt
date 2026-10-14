@@ -17,11 +17,13 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRuntime
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessUiDispatch
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessUiOutcome
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessScriptHost
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDataStorage
 import io.aequicor.heartbeat.feature.serviceasui.api.UiCallContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodCall
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodFailure
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodInfo
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodResult
+import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodReview
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethods
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwnerInfo
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwners
@@ -50,6 +52,7 @@ internal class HarnessServiceUiProvider(
     private val host: HarnessScriptHost,
     private val runtime: Lazy<HarnessRuntime>,
     private val dispatch: Lazy<HarnessUiDispatch>,
+    private val data: HarnessDataStorage,
 ) : ServiceUiProvider {
     private val log = Log.tag("HarnessServiceUi")
 
@@ -71,12 +74,25 @@ internal class HarnessServiceUiProvider(
         if (!host.isAvailable) return flowOf(UiMethods(isAvailable = false))
         val harness = HarnessId(owner)
         return runtime.value.publishedInstances.mapLatest { instances ->
-            if (instances.none { it.request.harness.id == harness }) {
+            val published = instances.filter { it.request.harness.id == harness }
+            if (published.isEmpty()) {
                 UiMethods(isAvailable = false)
             } else {
-                UiMethods(true, dispatch.value.methods(harness).map { UiMethodInfo(it.name.value, it.description) })
+                UiMethods(
+                    true,
+                    dispatch.value.methods(harness).map { UiMethodInfo(it.name.value, it.description) },
+                    // Publication order also determines which script wins a duplicate method name.
+                    generation = published.joinToString(":") { it.reviewIdentity },
+                )
             }
         }.distinctUntilChanged()
+    }
+
+    override fun dataRevision(owner: String): Flow<Long> = data.revision(HarnessId(owner))
+
+    override suspend fun review(owner: String, method: String, context: UiCallContext): UiMethodReview? {
+        if (!host.isAvailable || owner !in library.first().active(context)) return null
+        return dispatch.value.review(HarnessId(owner), method)?.let { UiMethodReview(it.binding, it.source) }
     }
 
     override suspend fun call(owner: String, call: UiMethodCall): UiMethodResult {
@@ -90,6 +106,7 @@ internal class HarnessServiceUiProvider(
                 HarnessId(owner),
                 call.method,
                 ScriptUiCall(call.arguments, call.context.session, call.context.workspace),
+                call.expectedBinding,
             ).result()
         }
         log.v { "UI method ${call.method} of a harness: ${result::class.simpleName ?: "UiMethodResult"}" }

@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.browser.impl.presentation
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentSizing
 import io.aequicor.heartbeat.feature.browser.impl.domain.OpenBrowserDocument
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -11,6 +12,7 @@ import kotlinx.serialization.json.JsonElement
 import org.cef.CefApp
 import org.cef.CefRequestContextSettings
 import org.cef.CefSettings
+import org.cef.OS
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
 import org.cef.browser.CefRequestContext
@@ -21,6 +23,7 @@ import org.cef.handler.CefLoadHandlerAdapter
 import org.cef.network.CefRequest
 import java.awt.Component
 import java.util.concurrent.atomic.AtomicBoolean
+import javax.swing.JComponent
 import javax.swing.SwingUtilities
 
 /**
@@ -38,6 +41,7 @@ internal class DesktopDocumentEngine(
     callsDispatcher: CoroutineDispatcher,
     private val isReleased: () -> Boolean,
     private val unavailable: () -> Unit,
+    private val presentation: DesktopDocumentPresentation = DesktopDocumentPresentation(),
 ) {
     private val log = Log.tag("DesktopDocumentEngine")
     private val url = desktopDocumentUrl(document.id)
@@ -76,9 +80,11 @@ internal class DesktopDocumentEngine(
         throw error
     }
     private val browser: CefBrowser
+    private var nativeClipping: MacDocumentNativeClipping? = null
 
     /** Added to the client as soon as it exists, so disposing the client always disposes the native router. */
     private var router: DesktopDocumentRouter? = null
+    private var layoutRouter: DesktopDocumentLayoutRouter? = null
 
     /** Data the latest page response carried, written on CEF IO when the document is served. */
     @Volatile
@@ -96,6 +102,11 @@ internal class DesktopDocumentEngine(
             check(!context.isGlobal) { "Document request context must be isolated" }
             router = document.document.bridge?.let { bridge ->
                 DesktopDocumentRouter(url, DesktopDocumentCalls(bridge, callsScope, callsDispatcher)).also {
+                    client.addMessageRouter(it.router)
+                }
+            }
+            if (document.document.sizing == BrowserDocumentSizing.Content) {
+                layoutRouter = DesktopDocumentLayoutRouter(url, presentation.measurements).also {
                     client.addMessageRouter(it.router)
                 }
             }
@@ -132,18 +143,32 @@ internal class DesktopDocumentEngine(
             return browser.uiComponent
         }
 
+    /** Rearms native attachment clipping after a paint without doing AppKit work inside Swing painting. */
+    fun nativePainted() {
+        check(SwingUtilities.isEventDispatchThread())
+        if (!isClosed.get() && !isReleased()) nativeClipping?.nativePainted()
+    }
+
     /** Sends [data] to the loaded page unless it already holds it; a page still loading reads it when served. */
     fun deliver(data: JsonElement?) {
         check(SwingUtilities.isEventDispatchThread())
-        if (isClosed.get() || !isLoaded || delivered?.data == data) return
-        delivered = Delivered(data)
-        browser.mainFrame?.executeJavaScript(desktopDocumentDataScript(data), url, 0)
+        if (isClosed.get() || !isLoaded) return
+        val next = Delivered(data, presentation.theme.value)
+        if (delivered?.data != next.data) {
+            browser.mainFrame?.executeJavaScript(desktopDocumentDataScript(next.data), url, 0)
+        }
+        if (delivered?.theme != next.theme) {
+            next.theme?.let { browser.mainFrame?.executeJavaScript(desktopDocumentThemeScript(it), url, 0) }
+        }
+        delivered = next
     }
 
     /** Closes the native browser on EDT; native callbacks finish the closure for [awaitClosed]. */
     fun release() {
         check(SwingUtilities.isEventDispatchThread())
+        closeNativeClipping()
         if (!isClosed.compareAndSet(false, true)) return
+        presentation.measurements.close()
         if (!isCreationRequested.get()) {
             // Creation was never queued, so no native callback can race.
             browser.onBeforeClose()
@@ -159,9 +184,13 @@ internal class DesktopDocumentEngine(
     /** The page with the data of this moment: the API comes first, so the page's own scripts already read it. */
     private fun page(): ByteArray {
         val data = document.data.value
-        served = Delivered(data)
+        val theme = presentation.theme.value
+        served = Delivered(data, theme)
         val query = router?.let { desktopDocumentQueryFunction }
-        return desktopDocumentBody(desktopDocumentHtml(document.document.html, data, query))
+        val layout = layoutRouter?.let {
+            DesktopDocumentLayoutScript(desktopDocumentLayoutFunction, presentation.measurements.beginPage())
+        }
+        return desktopDocumentBody(desktopDocumentHtml(document.document.html, data, query, theme, layout))
     }
 
     private fun fail() {
@@ -169,8 +198,29 @@ internal class DesktopDocumentEngine(
         unavailable()
     }
 
+    /** Starts only after CEF creation; extraction or a hidden initial layout cannot exhaust attachment retries. */
+    private fun requestNativeClipping(isDocumentLoaded: Boolean) {
+        if (!OS.isMacintosh()) return
+        try {
+            val clipping = nativeClipping ?: MacDocumentNativeClipping(browser.uiComponent as JComponent, ::fail).also {
+                nativeClipping = it
+            }
+            if (isDocumentLoaded) clipping.documentLoaded() else clipping.request()
+        } catch (error: LinkageError) {
+            // Native linkage can fail while constructing the access object, before its guarded attempts exist.
+            log.e(error.redactedFailure()) { "Native document clipping is unavailable" }
+            fail()
+        }
+    }
+
+    private fun closeNativeClipping() {
+        nativeClipping?.close()
+        nativeClipping = null
+    }
+
     private fun dispose() {
         router?.close()
+        layoutRouter?.close()
         client.dispose()
         closed.complete(Unit)
     }
@@ -215,6 +265,7 @@ internal class DesktopDocumentEngine(
             if (rejected.isEmpty()) {
                 isBootstrap.set(false)
                 browser.loadURL(url)
+                onSwing { requestNativeClipping(isDocumentLoaded = false) }
             } else {
                 log.e(IllegalStateException("JCEF document preferences rejected: ${rejected.map { it.first }}")) {
                     "Desktop document initialization failed"
@@ -225,6 +276,7 @@ internal class DesktopDocumentEngine(
 
         override fun onBeforeClose(browser: CefBrowser) {
             isClosed.set(true)
+            SwingUtilities.invokeLater(::closeNativeClipping)
         }
 
         override fun onAfterClose(browser: CefBrowser) {
@@ -254,6 +306,7 @@ internal class DesktopDocumentEngine(
                     // The new page holds what it was served with; data that changed since then is sent now.
                     delivered = served
                     isLoaded = true
+                    requestNativeClipping(isDocumentLoaded = true)
                     deliver(document.data.value)
                 }
             }
@@ -274,7 +327,7 @@ internal class DesktopDocumentEngine(
     }
 
     /** Data a page holds, distinguishing a page without data from one that was never served. */
-    private data class Delivered(val data: JsonElement?)
+    private data class Delivered(val data: JsonElement?, val theme: DesktopDocumentTheme?)
 
     private companion object {
         const val BLANK_PAGE = "about:blank"

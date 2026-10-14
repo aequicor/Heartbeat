@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiMachine
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCard
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardSource
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardStorage
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiMethodCalls
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpecDecoding
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.decodeUiSpec
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiFacts
@@ -30,10 +31,12 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.platformFact
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceHost
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceModel
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceSession
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.focusSurfaceCard
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -41,6 +44,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.JsonObject
 import pro.respawn.flowmvi.api.PipelineContext
 import pro.respawn.flowmvi.api.Store
@@ -50,15 +56,17 @@ private typealias CardPipeline = PipelineContext<CardState, CardIntent, CardActi
 
 /**
  * One card the agent showed in a response: an inline spec without an owner, or a library surface drawn with the
- * card's arguments. A card loads no data by itself and only inserts prompts into the composer of the place it is
+ * card's arguments. Owned cards load live data; every card only inserts prompts into the composer of the place it is
  * drawn in, while that place shows its chat; an evicted card, a gone or disabled surface or a switched-off feature
- * shows a placeholder. The drawn surface restarts when its spec, owner, place or arguments change.
+ * shows a placeholder. The drawn surface restarts when its spec, owner, place or arguments change, and releases
+ * native documents while its transcript row is hidden. Reappearing loads durable state again.
  */
 @SingleIn(ServiceUiCardScope::class)
 @Inject
 internal class CardModel(
     route: ServiceUiCardRoute,
     private val cards: UiCardStorage,
+    private val calls: UiMethodCalls,
     private val machine: ServiceUiMachine,
     private val surfaceModels: SurfaceModel.Factory,
     platformInfo: PlatformInfo,
@@ -112,12 +120,32 @@ internal class CardModel(
     /** Work of the subscription on the store [pipeline]. */
     private inner class Work(private val pipeline: CardPipeline) {
         suspend fun observe() {
-            combine(cards.observe(id), machine.state) { card, state -> card to state }
-                .collect { (card, state) -> show(card, state) }
+            try {
+                observeCard()
+            } finally {
+                // Lazy transcript rows unsubscribe when hidden: release native documents and owner observers.
+                // Returning starts a fresh surface whose auto sources restore durable state.
+                keep(null)
+            }
         }
 
-        private suspend fun show(card: UiCard?, state: ServiceUiState) {
-            val drawn = card?.let { drawn(it, state) }
+        @OptIn(ExperimentalCoroutinesApi::class)
+        private suspend fun observeCard() {
+            combine(cards.observe(id), machine.state) { card, state -> card to state }
+                .flatMapLatest { (card, state) ->
+                    val drawn = card?.let { drawn(it, state) }
+                    val owner = drawn?.owner
+                    if (owner == null) {
+                        flowOf(Triple(card, state, drawn))
+                    } else {
+                        calls.activeOwners(drawn.context.call).map { active ->
+                            Triple(card, state, drawn.takeIf { owner in active })
+                        }
+                    }
+                }.collect { (card, state, drawn) -> show(card, state, drawn) }
+        }
+
+        private suspend fun show(card: UiCard?, state: ServiceUiState, drawn: DrawnCard?) {
             keep(drawn)
             val key = running?.key
             val shown = when {
@@ -178,6 +206,7 @@ internal class CardModel(
             facts = UiFacts(platform, hasSession = true),
             host = CardHost(drawn),
             isCard = true,
+            title = drawn.title,
         )
         return try {
             Running(drawn, surfaceModels.create(session, child), child, "card-${++drawings}")
@@ -202,6 +231,9 @@ internal class CardModel(
             )
             return machine.send(request) == SendResult.Accepted
         }
+
+        override suspend fun focusCard(name: String): Boolean =
+            machine.focusSurfaceCard(cards, drawn.host, drawn.owner, name, drawn.context)
 
         override suspend fun openPanel(name: String, args: JsonObject): Boolean {
             val host = drawn.host

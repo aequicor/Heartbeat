@@ -13,7 +13,7 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.card.CardMode
 
 /**
  * Navigation entry of one card in a response, embedded by the message that shows it. It hosts the browser documents
- * of the card's modals.
+ * of the card's body and modals.
  */
 @AssistedInject
 class CardComponent internal constructor(

@@ -8,7 +8,6 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -16,7 +15,6 @@ import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
-import io.aequicor.heartbeat.feature.harness.impl.presentation.ApprovalUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.DiagnosticUi
 import io.aequicor.heartbeat.feature.harness.impl.presentation.HarnessItemIntent
 import io.aequicor.heartbeat.feature.harness.impl.presentation.HarnessItemState
@@ -31,26 +29,22 @@ import kotlin.test.assertEquals
 @OptIn(ExperimentalTestApi::class)
 class HarnessScreensUiTest {
     @Test
-    fun `empty library offers approval levels as exclusive choices`() = runSkikoComposeUiTest(size = Size(900f, 700f)) {
+    fun `library explains safety without approval controls`() = runSkikoComposeUiTest(size = Size(900f, 700f)) {
         val intents = mutableListOf<HarnessLibraryIntent>()
         setContent {
             HbTheme {
                 HarnessLibraryContent(
-                    HarnessLibraryState(phase = PhaseUi.Ready, approval = ApprovalUi.Ask),
+                    HarnessLibraryState(phase = PhaseUi.Ready),
                     intents::add,
                     null,
                 )
             }
         }
         onNodeWithTag("harness-library-empty").assertExists()
-        onNodeWithTag("harness-approval-Ask").assertIsSelected()
-        onNodeWithTag("harness-approval-AcceptAll").performClick()
-        runOnIdle {
-            assertEquals(
-                listOf<HarnessLibraryIntent>(HarnessLibraryIntent.SelectApproval(ApprovalUi.AcceptAll)),
-                intents,
-            )
-        }
+        onNodeWithTag("harness-safety").assertExists()
+        onNodeWithTag("harness-approval-Ask").assertDoesNotExist()
+        onNodeWithTag("harness-approval-AcceptAll").assertDoesNotExist()
+        runOnIdle { assertEquals(emptyList(), intents) }
     }
 
     @Test

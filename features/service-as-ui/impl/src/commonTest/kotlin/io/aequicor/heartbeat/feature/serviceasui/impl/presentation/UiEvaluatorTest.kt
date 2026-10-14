@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.checkUiSpec
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.decodeUiSpec
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.ButtonStyleUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiNodeUi
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.WebHeightUi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -29,6 +30,19 @@ import kotlin.test.assertTrue
 
 class UiEvaluatorTest {
     private val evaluator = UiEvaluator(spec(PrMap))
+
+    @Test
+    fun `content sized web nodes retain their mode through evaluation`() {
+        val app =
+            UiEvaluator(
+                spec(
+                    """{"version":1,"body":{
+            "type":"web","html":"<main>App</main>","height":"content"}}""",
+                ),
+            )
+        val node = assertIs<UiNodeUi.Web>(app.body(UiValues()))
+        assertEquals(WebHeightUi.Content, node.height)
+    }
 
     @Test
     fun `a loading source shows progress and a ready one its table and diagram`() {

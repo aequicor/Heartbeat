@@ -186,6 +186,16 @@ class RemoteStudioViewTest {
     }
 
     @Test
+    fun `remote clients cannot acknowledge native inline card focus`() = runTest {
+        val harness = Harness(this, ready)
+        val reply = harness.view.apply(
+            harness.view.generation,
+            listOf(intent(1, AiStudioScreenIntent.CardFocusApplied(0, 1))),
+        )
+        assertEquals(StudioRemoteReply.Applied(1, listOf(1L)), reply)
+    }
+
+    @Test
     fun `a newer host detaches the older one and closing releases the scope`() = runTest {
         val harness = Harness(this, ready)
         var detached = 0

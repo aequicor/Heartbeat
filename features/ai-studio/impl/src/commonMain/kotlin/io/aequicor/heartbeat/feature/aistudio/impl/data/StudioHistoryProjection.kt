@@ -218,7 +218,14 @@ private class NativeAnswer(val id: String, initialTurn: String?) {
     private fun toolRun(item: SessionItem.ToolCall): StudioToolRun {
         val learning = learningCall(item.name, item.arguments)
         val output = if (learning == null) item.arguments else ""
-        return StudioToolRun(item.call.value, item.name, item.status.toStudio(), output, learning = learning)
+        return StudioToolRun(
+            item.call.value,
+            item.name,
+            item.status.toStudio(),
+            output,
+            learning = learning,
+            isLiveCard = isLibraryUiShow(item.name, item.arguments),
+        )
     }
 
     private fun updateToolResult(item: SessionItem.ToolResult) {
@@ -239,6 +246,10 @@ private class NativeAnswer(val id: String, initialTurn: String?) {
             learning = previous?.learning,
             createdChecklistId = item.createdChecklistId(previous) ?: previous?.createdChecklistId,
             shownCardId = item.shownCardId(previous) ?: previous?.shownCardId,
+            isLiveCard = previous?.isLiveCard == true || ServiceUiTools.isLiveCard(
+                hostedToolName(previous?.title.orEmpty()),
+                item.parts.text(),
+            ),
         )
         if (index >= 0) parts[index] = StudioReplyPart.Tool(updated) else parts += StudioReplyPart.Tool(updated)
     }

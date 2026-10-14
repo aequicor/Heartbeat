@@ -26,4 +26,5 @@ internal suspend fun koogHostedContext(
     AgentToolPermissions(approve),
     lifetime = currentCoroutineContext()[Job],
     target = turn.target,
+    decisionMode = turn.decisionMode,
 )

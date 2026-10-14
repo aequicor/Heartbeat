@@ -61,6 +61,8 @@ data class AiStudioScreenState(
     val submissions: ImmutableMap<String, SubmissionUi> = persistentMapOf(),
     /** Diagram messages awaiting native acceptance, independent of composer snapshots. */
     val diagramSubmissions: ImmutableMap<String, DiagramSubmissionUi> = persistentMapOf(),
+    /** Pending requests to reveal an exact inline card; consumed only by its owning pane and sequence. */
+    val cardFocusRequests: ImmutableMap<Int, CardFocusRequestUi> = persistentMapOf(),
     val diagramFocusRequests: ImmutableMap<Int, Long> = persistentMapOf(),
     val diagramDraftReasons: ImmutableMap<String, DiagramDraftReasonUi> = persistentMapOf(),
     val attachmentRequests: ImmutableMap<String, String> = persistentMapOf(),

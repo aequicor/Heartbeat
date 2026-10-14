@@ -30,7 +30,7 @@ private fun HarnessState.Ready.runtimeFeedback(intent: HarnessIntent.Internal.Ru
             intent.item,
             intent.revision,
             intent.generation,
-            false,
+            ItemStatus.Active(intent.generation),
         )
 
         is HarnessIntent.Internal.ItemActivationFailed -> activated(
@@ -38,7 +38,7 @@ private fun HarnessState.Ready.runtimeFeedback(intent: HarnessIntent.Internal.Ru
             intent.item,
             intent.revision,
             intent.generation,
-            true,
+            ItemStatus.Failed(intent.generation, false, intent.reason),
         )
 
         is HarnessIntent.Internal.ItemRuntimeFailed -> runtimeFailed(intent)

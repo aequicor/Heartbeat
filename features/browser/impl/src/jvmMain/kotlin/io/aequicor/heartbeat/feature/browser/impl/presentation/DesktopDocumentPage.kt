@@ -43,9 +43,15 @@ private val DOCTYPE = Regex("^\\s*<!doctype[^>]*>", RegexOption.IGNORE_CASE)
  * returns a promise of the parsed result, rejected with an `Error` of the failure message. The WebRTC constructors
  * are removed from the page's window.
  */
-internal fun desktopDocumentHtml(html: String, data: JsonElement?, queryFunction: String?): String {
+internal fun desktopDocumentHtml(
+    html: String,
+    data: JsonElement?,
+    queryFunction: String?,
+    theme: DesktopDocumentTheme? = null,
+    layout: DesktopDocumentLayoutScript? = null,
+): String {
     val source = html.removePrefix("\uFEFF")
-    val script = "<script>${pageApi(data, queryFunction)}</script>"
+    val script = "<script>${pageApi(data, queryFunction, theme)}${desktopDocumentLayoutBootstrap(layout)}</script>"
     val doctype = DOCTYPE.find(source)?.range?.last?.plus(1) ?: 0
     return source.substring(0, doctype) + script + source.substring(doctype)
 }
@@ -54,13 +60,14 @@ internal fun desktopDocumentHtml(html: String, data: JsonElement?, queryFunction
 internal fun desktopDocumentDataScript(data: JsonElement?): String =
     "window.$DATA_FUNCTION && window.$DATA_FUNCTION(${data.scriptLiteral()});"
 
-private fun pageApi(data: JsonElement?, queryFunction: String?): String = """
+private fun pageApi(data: JsonElement?, queryFunction: String?, theme: DesktopDocumentTheme?): String = """
 (() => {
   // A page has no network, and WebRTC bypasses the content security policy: its constructors are removed.
   for (const name of ['RTCPeerConnection', 'webkitRTCPeerConnection']) delete window[name];
   let data = ${data.scriptLiteral()};
   const query = ${queryFunction?.let { "window[${JsonPrimitive(it).scriptLiteral()}]" } ?: "null"};
   const api = {};
+${desktopDocumentThemeBootstrap(theme)}
   Object.defineProperty(api, 'data', { get: () => data, enumerable: true });
   if (typeof query === 'function') {
     api.call = (method, args) => new Promise((resolve, reject) => {
@@ -94,7 +101,7 @@ private fun pageApi(data: JsonElement?, queryFunction: String?): String = """
  * `</script>` and `<!--` in values from ending or changing the element; line and paragraph separators are escaped
  * for engines that predate them in string literals.
  */
-private fun JsonElement?.scriptLiteral(): String = (this ?: JsonNull).toString()
+internal fun JsonElement?.scriptLiteral(): String = (this ?: JsonNull).toString()
     .replace("<", "\\u003c")
     .replace("\u2028", "\\u2028")
     .replace("\u2029", "\\u2029")

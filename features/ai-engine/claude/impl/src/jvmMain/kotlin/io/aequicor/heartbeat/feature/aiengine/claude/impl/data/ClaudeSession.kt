@@ -256,7 +256,7 @@ internal class ClaudeSession(
             environment.resourceHistory.remember(ref, "request:" + request.id.value, request.parts)
             requireClaudeEnabled(toggles)
             account.validate(route.revision)
-            val turn = Turn(TurnId(UUID.randomUUID().toString()), request.id, target)
+            val turn = request.newTurn(target)
             environment.resourceHistory.remember(ref, turn.id.value, request.parts)
             synchronized(lock) {
                 lease.ensureAttached()
@@ -768,6 +768,14 @@ internal class ClaudeSession(
         }
     }
 }
+
+/** Captures the exact model and host decision mode before the native process can invoke tools. */
+private fun PromptRequest.newTurn(target: EngineTarget): Turn = Turn(
+    TurnId(UUID.randomUUID().toString()),
+    id,
+    target,
+    decisionMode = decisionMode,
+)
 
 private fun promptText(request: PromptRequest): String {
     request.compaction?.let { return claudeCompactPrompt(it) }

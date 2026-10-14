@@ -276,7 +276,7 @@ internal class KoogNativeSession(
             },
             ::closeClient,
         )
-        val turn = Turn(TurnId(Uuid.random().toString()), request.id, EngineTarget(route.engine, route.binding, model))
+        val turn = request.newTurn(EngineTarget(route.engine, route.binding, model))
         val user = userItems(request, turn)
         // The local runtime is the native authority: acceptance occurs only after its durable checkpoint.
         var isSaved = false
@@ -893,3 +893,11 @@ internal data class ToolRound(val text: String, val calls: List<StreamFrame.Tool
 
 private fun unknownOutcome(request: PromptRequest) =
     EngineException(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, request.id))
+
+/** Captures the exact model and host decision mode at durable native acceptance. */
+private fun PromptRequest.newTurn(target: EngineTarget): Turn = Turn(
+    TurnId(Uuid.random().toString()),
+    id,
+    target,
+    decisionMode = decisionMode,
+)

@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessOriginCo
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRequestOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessSessionProofs
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.MemoryHarnessRequestAncestry
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.activate
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi

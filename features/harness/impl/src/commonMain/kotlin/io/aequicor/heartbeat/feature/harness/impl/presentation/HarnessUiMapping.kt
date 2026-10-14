@@ -2,7 +2,6 @@ package io.aequicor.heartbeat.feature.harness.impl.presentation
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.harness.api.Harness
-import io.aequicor.heartbeat.feature.harness.api.HarnessApproval
 import io.aequicor.heartbeat.feature.harness.api.HarnessEntry
 import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
@@ -17,18 +16,6 @@ internal fun HarnessState.phase(): PhaseUi = when (this) {
     is HarnessState.Idle, is HarnessState.Loading -> PhaseUi.Loading
     is HarnessState.Failed -> PhaseUi.Failed
     is HarnessState.Ready -> PhaseUi.Ready
-}
-
-internal fun HarnessApproval.toUi(): ApprovalUi = when (this) {
-    HarnessApproval.Ask -> ApprovalUi.Ask
-    HarnessApproval.ByTrust -> ApprovalUi.ByTrust
-    HarnessApproval.AcceptAll -> ApprovalUi.AcceptAll
-}
-
-internal fun ApprovalUi.toDomain(): HarnessApproval = when (this) {
-    ApprovalUi.Ask -> HarnessApproval.Ask
-    ApprovalUi.ByTrust -> HarnessApproval.ByTrust
-    ApprovalUi.AcceptAll -> HarnessApproval.AcceptAll
 }
 
 internal fun HarnessEntry.toRow(): HarnessRowUi = HarnessRowUi(

@@ -27,6 +27,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.HarnessName
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.HarnessTools
+import io.aequicor.heartbeat.feature.harness.api.HarnessValidationCode
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.ItemStatus
@@ -119,6 +120,32 @@ class HarnessReadToolsTest {
         assertTrue(tools.execute(context, HarnessTools.GET, ref("nope")).isError)
         assertTrue(tools.execute(context, HarnessTools.GET, ref("test", item = "nope")).isError)
         assertTrue(tools.execute(context, HarnessTools.GET, JsonObject(emptyMap())).isError)
+    }
+
+    @Test
+    fun `get includes safe activation failure format for both harness and item reads`() = runTest {
+        val failed = ReadLibrary(
+            HarnessState.Ready(
+                listOf(
+                    HarnessEntry(
+                        owner,
+                        mapOf(code.id to ItemStatus.Failed(4, false, HarnessValidationCode.InvalidItemName)),
+                    ),
+                ),
+            ),
+        )
+        val reader = HarnessReadTools(
+            toggles,
+            lazyOf(failed),
+            lazyOf(ReadCatalogs),
+            lazyOf(HarnessActiveAccess { _, _ -> emptyList() }),
+        )
+        for (args in listOf(ref("test"), ref("test", item = code.name.value))) {
+            val text = reader.execute(context, HarnessTools.GET, args).text
+            assertTrue("failed [InvalidItemName]" in text, text)
+            assertTrue("[a-z][a-z0-9_]{0,31}" in text, text)
+            assertTrue("snake_case" in text, text)
+        }
     }
 
     @Test

@@ -55,19 +55,21 @@ internal class HarnessEffects(private val storage: HarnessLibraryStorage, privat
             )
 
             is HarnessEffect.Activate -> effect.items.forEach { request ->
-                val feedback = if (runtime.isAvailable && runtime.activate(request)) {
-                    HarnessIntent.Internal.ItemActivated(
+                val result = if (runtime.isAvailable) runtime.activate(request) else HarnessActivationResult.Failed()
+                val feedback = when (result) {
+                    HarnessActivationResult.Active -> HarnessIntent.Internal.ItemActivated(
                         request.harness.id,
                         request.item.id,
                         request.harness.revision,
                         request.generation,
                     )
-                } else {
-                    HarnessIntent.Internal.ItemActivationFailed(
+
+                    is HarnessActivationResult.Failed -> HarnessIntent.Internal.ItemActivationFailed(
                         request.harness.id,
                         request.item.id,
                         request.harness.revision,
                         request.generation,
+                        result.reason,
                     )
                 }
                 machine.send(feedback)

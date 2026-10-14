@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessStorageConflict
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessStorageCorrupt
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessStorageException
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessStorageUncertain
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDataStorage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -38,6 +39,7 @@ internal const val HARNESS_LIBRARY_INDEX = "index"
 internal class KeyValueHarnessLibrary(
     @ForScope(ProfileScope::class) stores: DataStores,
     clock: Clock,
+    private val data: HarnessDataStorage,
 ) : HarnessLibraryStorage {
     private val store = stores.keyValue(HarnessLibrarySpec)
     private val journal = HarnessKeyValueJournal(store, clock)
@@ -46,7 +48,7 @@ internal class KeyValueHarnessLibrary(
 
     override suspend fun load(): HarnessLibrarySnapshot = access {
         journal.recover()
-        snapshot()
+        snapshot().also { data.retainOwners(it.harnesses.mapTo(mutableSetOf()) { harness -> harness.id }) }
     }
 
     override suspend fun save(harness: Harness, receipt: HarnessReceipt): HarnessReceipt = access {
@@ -77,6 +79,7 @@ internal class KeyValueHarnessLibrary(
         val previous = current.harnesses.firstOrNull { it.id == harness.id }
         if (previous == null) {
             if (raw(harnessRecordKey(harness.id)) != null) throw HarnessStorageCorrupt()
+            data.retainOwners(current.harnesses.mapTo(mutableSetOf()) { it.id })
             return@access receipt
         }
         if (previous != harness) throw HarnessStorageConflict()
@@ -89,6 +92,7 @@ internal class KeyValueHarnessLibrary(
                 ATTACHMENTS to attachments.encodeAttachments(),
             ),
         )
+        data.retainOwners(current.harnesses.mapTo(mutableSetOf()) { it.id } - harness.id)
         receipt
     }
 

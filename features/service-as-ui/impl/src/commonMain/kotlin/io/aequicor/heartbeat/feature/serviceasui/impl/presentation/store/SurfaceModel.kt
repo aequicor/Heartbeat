@@ -29,9 +29,13 @@ import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
@@ -47,7 +51,7 @@ import pro.respawn.flowmvi.plugins.whileSubscribed
 private typealias SurfacePipeline = PipelineContext<SurfaceState, SurfaceIntent, SurfaceAction>
 
 /**
- * One drawn surface: loads its automatic data sources once the owner's methods are available, keeps local state
+ * One drawn surface: loads automatic sources when methods become available and durable owner data changes, keeps state
  * typed by inputs and runs actions. Calls run beside intent processing, at most [UiSpecLimits.CALLS] at a time, and
  * are cancelled with the store. Every change re-evaluates the spec, so the screen only draws resolved models.
  */
@@ -69,14 +73,16 @@ internal class SurfaceModel(
     private val log = Log.tag("ServiceUiSurface")
     private val evaluator = UiEvaluator(session.spec)
     private val calling = Semaphore(UiSpecLimits.CALLS)
+    private val sourceLoads = session.spec.data.mapValues { Mutex() }
+    private val callableOwner = session.owner.takeUnless { session.isPreview }
 
     // Pages call on their own; their own permit keeps the user's buttons and data sources free.
     private val pageCalling = Semaphore(1)
 
-    // Pages call methods on their own, so only surfaces that load data by themselves get a bridge: never a card.
+    // Only approved live library surfaces get a bridge, including cards; previews never execute owner code.
     private val documents = SurfaceWebDocuments(
         web,
-        session.owner?.takeUnless { session.isCard }?.let { BrowserDocumentBridge(PageCalls(it)::call) },
+        callableOwner?.let { BrowserDocumentBridge(PageCalls(it)::call) },
         session.title,
     )
 
@@ -143,18 +149,33 @@ internal class SurfaceModel(
     /** Work of one intent or subscription on the store [pipeline]. */
     private inner class Work(private val pipeline: SurfacePipeline) {
         suspend fun observeMethods() {
-            val owner = session.owner ?: return
-            calls.methods(owner).collect { methods ->
-                var isStarting = false
-                pipeline.updateState {
-                    isStarting = methods.isAvailable && !hasStarted
-                    copy(isMethodsAvailable = methods.isAvailable, hasStarted = hasStarted || methods.isAvailable)
+            val owner = callableOwner ?: return
+            combine(calls.methods(owner), calls.dataRevision(owner)) { methods, revision -> methods to revision }
+                .collect { (methods, revision) ->
+                    var isLoadNeeded = false
+                    pipeline.updateState {
+                        isLoadNeeded = methods.isAvailable && (
+                            !hasStarted || loadedRevision != revision || loadedMethodsGeneration != methods.generation
+                        )
+                        copy(isMethodsAvailable = methods.isAvailable)
+                    }
+                    if (isLoadNeeded) {
+                        // Wait for this snapshot before accepting the next revision. StateFlow conflates rapid writes;
+                        // each source is serialized with manual reloads so an old result cannot overtake a fresh one.
+                        coroutineScope {
+                            session.spec.data.filterValues { it.load == UiLoad.Auto }.keys.forEach { name ->
+                                launch { load(name) }
+                            }
+                        }
+                        pipeline.updateState {
+                            copy(
+                                hasStarted = true,
+                                loadedRevision = revision,
+                                loadedMethodsGeneration = methods.generation,
+                            )
+                        }
+                    }
                 }
-                if (isStarting && !session.isCard) {
-                    val sources = session.spec.data.filterValues { it.load == UiLoad.Auto }.keys
-                    sources.forEach { pipeline.launch { load(it) } }
-                }
-            }
         }
 
         suspend fun handle(intent: SurfaceIntent) {
@@ -201,6 +222,14 @@ internal class SurfaceModel(
             return when (action) {
                 is UiAction.Call -> call(action, bindings.arguments(action.args, scope))
 
+                is UiAction.FocusCard -> {
+                    if (callableOwner == null) {
+                        notice(NoticeUi.Unsupported)
+                    } else {
+                        session.host.focusCard(action.surface) || notice(NoticeUi.Unsupported)
+                    }
+                }
+
                 is UiAction.Reload -> load(action.source)
 
                 is UiAction.SetState -> {
@@ -217,7 +246,7 @@ internal class SurfaceModel(
                 }
 
                 is UiAction.Prompt -> {
-                    val isSubmitted = action.isSubmitted && session.owner != null && !session.isCard
+                    val isSubmitted = action.isSubmitted && callableOwner != null && !session.isCard
                     session.host.prompt(bindings.text(action.text, scope), isSubmitted) || notice(NoticeUi.Unsupported)
                 }
 
@@ -231,7 +260,7 @@ internal class SurfaceModel(
                 is UiAction.SaveFile ->
                     finished(platform.save(bindings.text(action.text, scope), action.name, action.extensions))
 
-                is UiAction.Reveal -> if (session.owner == null) {
+                is UiAction.Reveal -> if (callableOwner == null) {
                     notice(NoticeUi.Unsupported)
                 } else {
                     finished(platform.reveal(bindings.text(action.path, scope)))
@@ -242,7 +271,7 @@ internal class SurfaceModel(
         }
 
         private suspend fun call(action: UiAction.Call, arguments: JsonObject): Boolean {
-            val owner = session.owner ?: return notice(NoticeUi.Unsupported)
+            val owner = callableOwner ?: return notice(NoticeUi.Unsupported)
             val result = calling.withPermit { calls.call(owner, action.method, arguments, session.context) }
             val into = action.into
             if (result is UiMethodResult.Success && into != null) update { it.withInput(into, result.value) }
@@ -284,7 +313,13 @@ internal class SurfaceModel(
 
         /** Runs the data source [name] and stores its value and status. */
         private suspend fun load(name: String): Boolean {
-            val owner = session.owner ?: return false
+            if (callableOwner == null) return false
+            val lock = sourceLoads[name] ?: return false
+            return lock.withLock { loadSource(name) }
+        }
+
+        private suspend fun loadSource(name: String): Boolean {
+            val owner = callableOwner ?: return false
             val source = session.spec.data[name] ?: return false
             update { it.copy(status = it.status + (name to UiSourceStatus.Loading)) }
             val arguments = bindings().arguments(source.args, UiScope())

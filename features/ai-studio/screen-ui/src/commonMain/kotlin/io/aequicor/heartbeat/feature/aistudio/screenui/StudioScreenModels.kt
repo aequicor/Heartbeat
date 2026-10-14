@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentPreviewUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.CardFocusRequestUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ComposerCaretRequestUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextUsageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoiceUi
@@ -85,6 +86,7 @@ data class PaneContent(
     val renaming: RenameUi?,
     val settings: SettingsUi,
     val models: ImmutableList<ModelUi> = persistentListOf(),
+    val cardFocus: CardFocusRequestUi? = null,
     val permissions: ImmutableList<PermissionUi> = persistentListOf(),
     val isStopFailed: Boolean = false,
     val isStoppable: Boolean = true,
@@ -172,6 +174,7 @@ fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
     val effectiveSettings = paneSettings(session, configuration).forOrganism(organism)
     return PaneContent(
         pane = pane,
+        cardFocus = cardFocusRequests[pane.id]?.takeIf { it.chatId == pane.sessionId },
         session = session,
         project = project(pane.projectId ?: session?.projectId),
         projects = projects,
@@ -213,17 +216,17 @@ fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         isProjectFailed = projectErrorPane == pane.id,
         permissions = permissions.filter { it.sessionId == pane.sessionId }.toImmutableList(),
         calendar = studioCalendar(now),
-        contextUsage = if (session?.isOrganism == true) {
-            organismObservation(pane.sessionId)?.context
-        } else {
-            contexts[pane.sessionId]
-        },
+        contextUsage = contextOf(pane.sessionId, session),
         providerUsage = providerUsage[effectiveSettings.modelId],
         isWorktreeAvailable = isWorktreeAvailable && worktreeJournal == WorktreeJournalUi.Ready,
         worktree = worktrees[pane.sessionId],
         worktreeJournal = worktreeJournal,
     )
 }
+
+/** Context belongs to the selected organism cell or to the native session. */
+private fun AiStudioScreenState.contextOf(sessionId: String?, session: SessionUi?): ContextUsageUi? =
+    if (session?.isOrganism == true) organismObservation(sessionId)?.context else contexts[sessionId]
 
 private fun paneModelId(session: SessionUi?, configuration: SessionConfigurationUi?, organism: OrganismUi?): String? =
     organism?.modelId ?: configuration?.modelId ?: session?.modelId?.takeIf(String::isNotBlank)

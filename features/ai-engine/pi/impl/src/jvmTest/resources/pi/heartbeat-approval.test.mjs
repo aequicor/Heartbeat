@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 let generation = 0;
-async function extension({ gate = "true", specs = "[]", allowed = true, note } = {}) {
+async function extension({ gate = "true", specs = "[]", allowed = true, note, reply = JSON.stringify(allowed ? { allowed: true } : { allowed: false, reason: "Policy denied" }) } = {}) {
     process.env.HEARTBEAT_GATE_ALL = gate;
     process.env.HEARTBEAT_AGENT_TOOL_SPECS = specs;
     const handlers = new Map();
@@ -11,8 +11,10 @@ async function extension({ gate = "true", specs = "[]", allowed = true, note } =
     const module = await import(new URL(`../../../jvmMain/resources/pi/heartbeat-approval.ts?test=${generation++}`, import.meta.url));
     module.default({ on: (event, handler) => handlers.set(event, handler) });
     const ctx = { hasUI: true, cwd: "/workspace", ui: {
-        confirm: async (title, message) => { requests.push({ title, ...JSON.parse(message) }); return allowed; },
-        input: async (title, message, options) => { requests.push({ title, ...JSON.parse(message), options }); return note; },
+        input: async (title, message, options) => {
+            requests.push({ title, ...JSON.parse(message), options });
+            return title === "heartbeat.tool-approval" ? reply : note;
+        },
     } };
     return { requests, ctx, call: event => handlers.get("tool_call")(event, ctx),
         result: event => handlers.get("tool_result")(event, ctx), end: () => handlers.get("agent_end")() };
@@ -85,4 +87,32 @@ test("hook timeout adds nothing and oversized hook input never truncates actual 
     assert.ok(api.requests[1].result.length <= 32768);
     assert.ok(api.requests[1].result.endsWith("[Result truncated for hook]"));
     assert.equal(result.content[0].text.length, 40000);
+});
+
+
+test("automatic refusal preserves the host reason instead of attributing it to the user", async () => {
+    const reason = 'Automatic safety is uncertain: inspect "config" before editing.\nRetry with a bounded change.';
+    const api = await extension({ reply: JSON.stringify({ allowed: false, reason }) });
+    assert.deepEqual(await api.call(call("write", { path: "config" })), { block: true, reason });
+    assert.equal(api.requests[0].title, "heartbeat.tool-approval");
+    assert.equal(api.requests[0].toolCallId, "call");
+    const allowed = await extension({ reply: '{"allowed":true}' });
+    assert.equal(await allowed.call(call("write", { path: "config" })), undefined);
+});
+
+test("missing malformed and ambiguous verdicts never authorize a native call", async () => {
+    for (const reply of [undefined, null, true, {}, "", "not-json", "null", "[]", "true", "{}",
+        '{"allowed":"true"}', '{"allowed":1}', '{"allowed":true,"reason":"denied"}',
+        '{"allowed":true,"extra":1}', '{"allowed":false}', '{"allowed":false,"reason":""}',
+        '{"allowed":false,"reason":42}', '{"allowed":false,"reason":"denied","extra":1}']) {
+        const api = await extension();
+        api.ctx.ui.input = async () => reply;
+        assert.deepEqual(await api.call(call("bash", { command: "touch result" })), {
+            block: true, reason: "Heartbeat did not return a valid tool authorization",
+        });
+    }
+    const noUi = await extension();
+    noUi.ctx.hasUI = false;
+    assert.equal((await noUi.call(call("bash"))).block, true);
+    assert.equal(noUi.requests.length, 0);
 });

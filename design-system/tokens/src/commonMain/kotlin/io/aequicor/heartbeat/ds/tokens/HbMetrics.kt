@@ -138,10 +138,18 @@ data class HbDimensions(
     /** Inline diagram preview in a conversation; the full-size viewer shows the rest. */
     val diagramPreviewMaxHeight: Dp = 480.dp,
     /**
-     * An embedded web document in a scrolling surface: native views need a fixed height and scroll inside. The same
-     * in every preset; a host shorter than it scrolls the surface around the document.
+     * Regular embedded web viewport, also the fallback while intrinsic content height is unavailable.
+     * The same in every preset; a host shorter than it scrolls the surface around the document.
      */
     val webDocumentHeight: Dp = 480.dp,
+    /** Compact mini-app status strip above the composer, leaving space for the conversation and input. */
+    val webDocumentCompactHeight: Dp = 56.dp,
+    /** Expanded mini-app body in a transcript card, with its own bounded scroll viewport. */
+    val webDocumentTallHeight: Dp = 640.dp,
+    /** Smallest content-sized embedded document, including an empty or loading page. */
+    val webDocumentMinHeight: Dp = 56.dp,
+    /** Largest content-sized embedded document; longer pages scroll inside this bounded viewport. */
+    val webDocumentMaxHeight: Dp = 640.dp,
     /** One arrow-key step of a keyboard-scrolled viewport, such as the full-size diagram viewer. */
     val keyboardScrollStep: Dp = 40.dp,
     /** Height of a code editor holding a whole source file, such as a harness script. */

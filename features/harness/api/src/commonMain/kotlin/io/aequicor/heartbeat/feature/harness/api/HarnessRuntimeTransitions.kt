@@ -56,13 +56,12 @@ internal fun HarnessState.Ready.activated(
     item: ItemId,
     revision: Long,
     generation: Long,
-    hasFailed: Boolean,
+    status: ItemStatus,
 ): LibraryTransition? {
     val entry = harnesses.firstOrNull { it.harness.id == id && it.harness.revision == revision } ?: return null
     if (entry.itemStatus[item] != ItemStatus.Pending(generation)) return null
-    val status = if (hasFailed) ItemStatus.Failed(generation, false) else ItemStatus.Active(generation)
     val next = replaceStatus(id, item, status)
-    val output = if (hasFailed) {
+    val output = if (status is ItemStatus.Failed) {
         HarnessOutput.ItemFailed(
             id,
             item,
@@ -78,9 +77,9 @@ internal fun HarnessState.Ready.runtimeFailed(intent: HarnessIntent.Internal.Ite
     val entry =
         harnesses.firstOrNull { it.harness.id == intent.id && it.harness.revision == intent.revision } ?: return null
     val status = entry.itemStatus[intent.item]
-    val isMatching = status == ItemStatus.Active(
-        intent.generation,
-    ) || status == ItemStatus.Pending(intent.generation) || status == ItemStatus.Failed(intent.generation, false)
+    val isMatching = status == ItemStatus.Active(intent.generation) ||
+        status == ItemStatus.Pending(intent.generation) ||
+        (status is ItemStatus.Failed && status.generation == intent.generation && !status.isDisabled)
     if (!isMatching || isSuspended) return null
     val next = replaceStatus(intent.id, intent.item, ItemStatus.Failed(intent.generation, intent.isDisabled))
     val item = entry.harness.items.first { it.id == intent.item }
@@ -171,7 +170,13 @@ private fun ItemStatus?.generationOr(fallback: Long): Long = when (this) {
 internal fun HarnessState.Ready.activationBatchFailed(items: List<HarnessActivationRequest>): LibraryTransition? {
     var next = this
     val failed = items.filter { item ->
-        val transition = next.activated(item.harness.id, item.item.id, item.harness.revision, item.generation, true)
+        val transition = next.activated(
+            item.harness.id,
+            item.item.id,
+            item.harness.revision,
+            item.generation,
+            ItemStatus.Failed(item.generation, false),
+        )
         if (transition != null) next = transition.state
         transition != null
     }

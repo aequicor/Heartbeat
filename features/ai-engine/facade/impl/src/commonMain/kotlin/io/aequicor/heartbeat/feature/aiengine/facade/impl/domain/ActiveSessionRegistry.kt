@@ -192,7 +192,7 @@ class SessionPolicy(
 ) {
     /** Registers the canonical identity before the native adapter can call hosted tools. */
     suspend fun bindTurn(session: SessionRef, request: RequestId, turn: Turn) {
-        tools.bindTurn(session, request, turn.id, turn.target)
+        tools.bindTurn(session, request, turn.id, turn.target, turn.decisionMode)
     }
 
     /**

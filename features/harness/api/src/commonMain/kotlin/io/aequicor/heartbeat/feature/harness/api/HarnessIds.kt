@@ -30,11 +30,17 @@ public value class ItemId(public val value: String) {
     }
 }
 
-/** Immutable item slug; unique within its harness. */
+/**
+ * Immutable slug for items, UI methods, tools and custom events: `[a-z][a-z0-9_]{0,31}`.
+ * Use lowercase snake_case; camelCase is invalid. Invalid values throw [HarnessValidationException] without
+ * retaining the rejected value. Item names are unique within their harness.
+ */
 @Serializable
 @JvmInline
 public value class ItemName(public val value: String) {
     init {
-        require(value.matches(Regex("[a-z][a-z0-9_]{0,31}")))
+        if (!value.matches(Regex("[a-z][a-z0-9_]{0,31}"))) {
+            throw HarnessValidationException(HarnessValidationCode.InvalidItemName)
+        }
     }
 }

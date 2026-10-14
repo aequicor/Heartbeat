@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.runtime
 import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessActivationRequest
 import io.aequicor.heartbeat.feature.harness.api.HarnessEffect
+import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessActivationResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRemovalResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRuntimeControl
@@ -22,7 +23,8 @@ internal class ProfileHarnessRuntimeControl(
 ) : HarnessRuntimeControl {
     override val isAvailable: Boolean get() = runtime.isAvailable
 
-    override suspend fun activate(request: HarnessActivationRequest): Boolean = runtime.activate(request)
+    override suspend fun activate(request: HarnessActivationRequest): HarnessActivationResult =
+        runtime.activateResult(request)
 
     override suspend fun deactivate(effect: HarnessEffect.Deactivate): Boolean {
         val isCodeDrained = runtime.deactivate(effect)

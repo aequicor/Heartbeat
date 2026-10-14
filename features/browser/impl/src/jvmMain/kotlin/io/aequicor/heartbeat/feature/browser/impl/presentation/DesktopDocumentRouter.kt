@@ -16,7 +16,11 @@ import kotlin.uuid.Uuid
  * a website can see an unexplained global function, but nothing in its name points to Heartbeat. Queries from other
  * browsers reach only their own client's routers.
  */
-private val queryNames = CefMessageRouter.CefMessageRouterConfig(randomName(), randomName())
+private val queryNames = desktopDocumentRouterConfig()
+
+/** Separate anonymous renderer function names for each private channel. */
+internal fun desktopDocumentRouterConfig(): CefMessageRouter.CefMessageRouterConfig =
+    CefMessageRouter.CefMessageRouterConfig(randomName(), randomName())
 
 /** 32 random lowercase letters, a valid global name. */
 @OptIn(ExperimentalUuidApi::class)

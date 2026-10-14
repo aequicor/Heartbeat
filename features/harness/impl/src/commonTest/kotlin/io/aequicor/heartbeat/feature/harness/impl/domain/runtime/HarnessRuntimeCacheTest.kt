@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.runtime
 
 import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
+import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessActivationResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRemovalResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
 import kotlinx.coroutines.CompletableDeferred
@@ -78,7 +79,7 @@ class HarnessRuntimeCacheTest {
         runCurrent()
         val removal = async { control.remove(fixture.removal()) }
         runCurrent()
-        assertFalse(activation.await())
+        assertEquals(HarnessActivationResult.Failed(), activation.await())
         assertFalse(removal.isCompleted)
         assertTrue(fixture.removedCache.isEmpty())
         gate.complete(Unit)
@@ -99,7 +100,7 @@ class HarnessRuntimeCacheTest {
         }
         assertEquals(HarnessRemovalResult.Retry, control.remove(fixture.removal(fixture.desired.harness)))
         assertTrue(fixture.removedCache.isEmpty())
-        assertFalse(control.activate(fixture.desired))
+        assertEquals(HarnessActivationResult.Failed(), control.activate(fixture.desired))
         assertEquals(HarnessRemovalResult.Ready, control.remove(fixture.removal(fixture.desired.harness)))
         assertEquals(2, attempts)
         assertEquals(listOf(fixture.desired.item.id), fixture.removedCache)

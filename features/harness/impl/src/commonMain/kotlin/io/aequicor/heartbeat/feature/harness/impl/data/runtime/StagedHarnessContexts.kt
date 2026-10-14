@@ -14,7 +14,10 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstance
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRuntimeContext
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRuntimeContextFactory
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessScriptContext
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessScriptServices
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationContext
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDataStorage
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptData
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptSchedulerFactory
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptSessionsFactory
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptWorkflowsFactory
@@ -28,6 +31,7 @@ internal class StagedHarnessContexts(
     override val origins: HarnessCallOrigins,
     private val schedulers: HarnessScriptSchedulerFactory,
     private val workflows: HarnessScriptWorkflowsFactory,
+    private val data: HarnessDataStorage,
     private val sessions: HarnessScriptSessionsFactory,
 ) : HarnessRuntimeContextFactory {
     override fun create(request: HarnessActivationRequest, access: HarnessInstanceAccess): HarnessRuntimeContext =
@@ -36,9 +40,12 @@ internal class StagedHarnessContexts(
                 request,
                 access,
                 origins,
-                schedulers.create(request, access),
-                workflows.create(request, access),
-                sessions.create(request, access),
+                HarnessScriptServices(
+                    schedulers.create(request, access),
+                    workflows.create(request, access),
+                    sessions.create(request, access),
+                    HarnessScriptData(request.harness.id, access, data),
+                ),
             )
 
             is HarnessItem.Workflow -> HarnessWorkflowContext()

@@ -108,6 +108,11 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     @SerialName("AiStudioScreenIntent.RemoteApplied")
     data class RemoteApplied(val seq: Long) : AiStudioScreenIntent
 
+    /** The owning pane revealed this exact pending card request. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.CardFocusApplied")
+    data class CardFocusApplied(val paneId: Int, val sequence: Long) : AiStudioScreenIntent
+
     /** Local sidebar presentation. */
     @Serializable
     @SerialName("AiStudioScreenIntent.Sidebar")

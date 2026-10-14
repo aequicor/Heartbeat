@@ -25,9 +25,8 @@ internal fun referenceText(topic: HarnessApiReference): String = when (topic) {
 private val GUIDE = """
     Harness authoring guide (API v$HARNESS_API_VERSION).
 
-    A harness is a reusable environment for a task or project. Build it when the user asks, e.g. "set up a harness
-    for native Compose UI work". Steps:
-    1. Read harness_tools_catalog to see Heartbeat and native tools; decide what the task needs.
+    A harness is a reusable environment for a task or project, including an embedded mini-app. Steps:
+    1. For scripts, read harness_api_reference(topic="api") and topic="examples" before writing code.
     2. harness_create(name, title, description, attach). The harness is connected only to chats selected
        from the composer’s + menu or by the agent with harness_attach.
     3. harness_item_put for each item:
@@ -37,19 +36,37 @@ private val GUIDE = """
        - template: a step prompt with {{argument}} placeholders, rendered by harness_prompt_get or workflows;
        - script: Kotlin hooks, event handlers and own tools (Desktop only);
        - workflow: Kotlin orchestration of helper agents (Desktop only).
-    4. harness_tools_set to turn Heartbeat tools off or switch native engine tools on/off. Turning a tool off is
-       better than a Deny hook. Enabled native tools still go through the trust level of the chat.
+       Submit changes to the same harness sequentially. If a mutation reports a stale snapshot/scope, read
+       harness_get again, reconcile the change with the current state, then retry it.
+    4. If the task needs a tool policy, read harness_tools_catalog, then use harness_tools_set to turn Heartbeat
+       tools off or switch native engine tools on/off. Enabling a tool never bypasses the host safety checks.
     5. Check with harness_get, then tell the user what was set up.
 
-    Approval: code is compiled and independently reviewed; only a safe verdict saves automatically. Risk,
-    uncertainty or unavailable review asks the user with a reason. Texts follow the profile approval level;
-    switching a tool on and giving a turned-off tool
-    back (removing an off switch, disconnecting or deleting a harness that turns tools off, connecting one that
-    switches native tools on) always ask the user. A harness with an enabled script asks for every
-    connection, disconnection and deletion, and deleting an enabled script asks too.
+    Embedded mini-app path:
+    - Create the harness with attach=true (or harness_attach an existing harness to this chat).
+    - Read the local mini-app in topic="examples" and ui_reference. Save its methods with
+      harness_item_put(kind="script").
+      This tool compiles Kotlin before saving. On "compilation failed", fix the reported source line and submit
+      the complete corrected source with the SAME harness and item name. A failed compile does not save the item.
+      Do not create another harness/item for a syntax fix. No shell, Gradle, project files or native tools are
+      needed for this loop; enabling bash cannot fix a Kotlin type error. Resolve the first error before chasing
+      follow-up errors on expressions that depend on it.
+    - Check harness_get and ui_list for the published owner and methods. Use data for durable runtime values;
+      the snapshot method only reads and supplies defaults. The examples topic includes a bounded record list.
+    - Create an owner-backed surface with ui_put and placement="card", then
+      ui_show(title="Records", surface=returned_id).
+      Keep the existing chat and input. An optional placement="composer" surface shows compact shared status.
+      See ui_reference for the exact spec, data sources and web bridge. A saved surface alone is not visible.
+
+    Safety: every agent mutation passes independent automatic review of the exact caller, content, previous
+    source and affected chats. Code also compiles before review. Only a safe verdict permits execution;
+    risk, uncertainty or unavailable review returns a tool error with a reason, without asking the user.
+    Fix the concrete issue before retrying; profile approval levels and full trust never bypass this gate.
     Off switches and Deny/Ask hooks apply in every chat a harness is connected to; everything else comes from the
     first ${HarnessLimits.ACTIVE_PER_SESSION} connected harnesses of a chat by name.
-    Never store secrets, tokens or personal data in a harness. Keep instructions short: the whole harness block
+    Never put secrets, tokens or personal data in harness source, instructions or templates. Runtime mini-app
+    values belong in data (the protected profile store); do not use script fields or browser localStorage for
+    persistent state. Keep instructions short: the whole harness block
     shares $HARNESS_CONTEXT_CHARS characters per chat; skills are not in the block, only their index.
     Limits: ${HarnessLimits.HARNESSES} harnesses, ${HarnessLimits.ITEMS} items each, ${HarnessLimits.SCRIPT_TOOLS}
     script tools, ${HarnessLimits.TIMERS} timers (≥ ${HarnessLimits.MIN_TIMER}), ${HarnessLimits.RUNS} concurrent
@@ -59,10 +76,31 @@ private val GUIDE = """
 
 private val API = """
     Kotlin API (scripts: base class HarnessScriptBase; workflows: HarnessWorkflowBase). Imported by default:
-    ItemName, events.on<…>, AgentOptions, ScriptUiResult, launch, JsonElement/JsonObject/JsonArray/JsonPrimitive/
-    JsonNull, buildJsonObject/buildJsonArray, put/add/addJsonObject/putJsonArray/putJsonObject, seconds/minutes/hours.
+    ItemName, events.on<…>, AgentOptions, ScriptUiResult, ScriptDataSnapshot, ScriptDataWriteResult, launch,
+    JsonElement/JsonObject/JsonArray/JsonPrimitive/JsonNull, buildJsonObject/buildJsonArray, put/add/addJsonObject/putJsonArray/putJsonObject, seconds/minutes/hours.
     Import other types explicitly (package io.aequicor.heartbeat.feature.harness.api.*
     and io.aequicor.heartbeat.feature.aiengine.facade.api.*).
+
+    Every ItemName, including ui.method, agent.tool and scheduler.publish names, must match
+    [a-z][a-z0-9_]{0,31}: lowercase snake_case only, never camelCase. Use ItemName("save_record"), not
+    ItemName("saveRecord"). Invalid names compile but fail during activation with InvalidItemName.
+    harness_item_put confirms storage; activation is asynchronous. Read harness_get and require active before
+    calling methods. A failed status includes known host validation reasons; correct the script and put it again.
+
+    JSON recipes (Kotlin, not JavaScript):
+    - Builders always take a lambda: buildJsonArray { } and buildJsonObject { }. buildJsonArray() is invalid.
+      Constructor alternatives are JsonArray(emptyList()) and JsonObject(emptyMap()).
+    - put("count", 0), put("title", "Ready"), put("enabled", true) use primitive overloads.
+      put("items", JsonArray(emptyList())) and put("selection", JsonNull) insert JSON values.
+      For nullable or mixed branches, choose JsonElement explicitly before put, for example:
+        val selection: JsonElement = call.arguments["selection"] ?: JsonNull
+        val state = buildJsonObject { put("selection", selection) }
+      Use JsonNull for a JSON null, not put("selection", null), which is ambiguous between primitive overloads.
+    - Read untrusted values with safe casts: (call.arguments["label"] as? JsonPrimitive)?.contentOrNull.
+      Import kotlinx.serialization.json.contentOrNull, intOrNull, longOrNull or doubleOrNull explicitly as needed;
+      these accessors are not default imports. data.read("state") returns a snapshot: JSON is in snapshot.value.
+      ScriptDataSnapshot.value is nullable, including after write/update. For a JSON field use
+      put("state", snapshot.value ?: JsonNull), and for a result use ScriptUiResult.Value(snapshot.value ?: JsonNull).
 
     Script top level runs once per activation (≤ ${HarnessInvocationBudget.Evaluation}) and only registers handlers:
     - script.harness / script.name / script.item / script.revision; script.scope for launch { } work.
@@ -82,6 +120,17 @@ private val API = """
       ${HarnessLimits.UI_RESULT_BYTES} bytes; at most ${HarnessLimits.UI_METHODS} methods. Return ScriptUiResult.Error
       for expected problems (missing login, bad input): thrown exceptions count as failures. Put UI methods in their
       own script item: an activation runs its callbacks one at a time, so a slow method delays hooks of its item.
+    - data.read("state"): ScriptDataSnapshot(value: JsonElement?, revision: Long) — durable JSON shared by all
+      script items of this harness. Source/item replacement, detach, disable and restart keep data; deleting the
+      harness removes it. Each call requires the current published activation; evaluation cannot read or write.
+    - data.write("state", jsonOrNull, expectedRevision): ScriptDataWriteResult.Written(snapshot) or Conflict(current).
+      Revision is namespace-wide; Conflict does not write. Null deletes a key; JsonNull stores JSON null.
+    - data.update("state") { old -> newJsonOrNull }: ScriptDataSnapshot — atomic optimistic read/modify/write.
+      The transform must be pure and quick, because concurrent changes can run it again. Never perform IO inside.
+      Keys: [a-z][a-z0-9_]{0,63}, at most ${HarnessLimits.DATA_KEYS} keys / ${HarnessLimits.DATA_BYTES} UTF-8 bytes
+      per harness including metadata. Invalid keys/quotas throw IllegalArgumentException before changing data.
+      Only successful changed writes invalidate the owner's surfaces; a snapshot/read method must not initialize
+      data by writing on every load. Use defaults on read, initialize through an explicit user action.
     - sessions.list(), sessions.history(session) — only chats where this harness is active.
     - sessions.send(session, text) — a visible message to that chat (quota ${HarnessLimits.SENDS_PER_MINUTE}/min).
     - sessions.spawn(parent, title, prompt) — a helper chat with Ask trust.
@@ -221,6 +270,55 @@ internal val EXAMPLE_UI_SCRIPT = """
     }
 """.trimIndent()
 
+/** Local mini-app methods: read-only snapshots, bounded record history and revision-checked reset. */
+internal val EXAMPLE_MINIAPP_SCRIPT = """
+    import kotlinx.serialization.json.contentOrNull
+    import kotlinx.serialization.json.longOrNull
+
+    fun records(value: JsonElement?): JsonArray {
+        val state = value as? JsonObject
+        return state?.get("records") as? JsonArray ?: JsonArray(emptyList())
+    }
+
+    fun view(snapshot: ScriptDataSnapshot): JsonObject = buildJsonObject {
+        put("records", records(snapshot.value))
+        put("count", records(snapshot.value).size)
+        put("revision", snapshot.revision)
+    }
+
+    ui.method(ItemName("snapshot"), "Read the saved progress without changing it") {
+        ScriptUiResult.Value(view(data.read("progress")))
+    }
+    ui.method(ItemName("record"), "Append {label: string, note?: string}; keep the latest 20 records") { call ->
+        val label = (call.arguments["label"] as? JsonPrimitive)?.contentOrNull.orEmpty().trim()
+        val note = (call.arguments["note"] as? JsonPrimitive)?.contentOrNull
+        if (label.isEmpty() || label.length > 80 || (note?.length ?: 0) > 160) {
+            ScriptUiResult.Error("Use a label of 1-80 characters and an optional note of at most 160")
+        } else {
+            val noteJson: JsonElement = note?.let { JsonPrimitive(it) } ?: JsonNull
+            val entry = buildJsonObject {
+                put("label", label)
+                put("note", noteJson)
+            }
+            val saved = data.update("progress") { previous ->
+                buildJsonObject { put("records", JsonArray(records(previous).takeLast(19) + entry)) }
+            }
+            ScriptUiResult.Value(view(saved))
+        }
+    }
+    ui.method(ItemName("reset"), "Reset only the revision the user reviewed") { call ->
+        val expected = (call.arguments["revision"] as? JsonPrimitive)?.longOrNull
+        if (expected == null || expected < 0) {
+            ScriptUiResult.Error("Reload progress before resetting it")
+        } else {
+            when (val result = data.write("progress", null, expected)) {
+                is ScriptDataWriteResult.Written -> ScriptUiResult.Value(view(result.snapshot))
+                is ScriptDataWriteResult.Conflict -> ScriptUiResult.Error("Progress changed; review it again")
+            }
+        }
+    }
+""".trimIndent()
+
 /** Desktop workflow of the example harness: a design pass and an implementation pass by helper chats. */
 internal val EXAMPLE_SCREEN_WORKFLOW = """
     workflow { input ->
@@ -248,7 +346,20 @@ internal val EXAMPLE_SCREEN_WORKFLOW = """
 """.trimIndent()
 
 private val EXAMPLES = """
-    Worked example: harness compose_ui for native Compose UI.
+    Local mini-app: a durable record list. Create and attach a harness, then save this as a script item "methods".
+    It needs no project, shell, files, network or extra native tools. Input values arrive in call.arguments and
+    stay in the protected data store; do not embed the user's personal values in the source.
+    Use snapshot as the surface's auto data source, record for its action button, and pass the displayed revision
+    to reset. A web card calls heartbeat.call("record", {label: "Example", note: null}); native buttons call the
+    same method. The example retains only the latest 20 entries. Visible owner surfaces reload after a changed
+    durable write. Reading an empty store returns defaults without writing.
+
+${EXAMPLE_MINIAPP_SCRIPT.prependIndent("    ")}
+
+    Next: ui_put with this harness as owner and placement="card", then ui_show with the returned surface id.
+    Follow ui_reference for the surface JSON and bridge; add a compact composer status only if useful.
+
+    Advanced project workflow: harness compose_ui for native Compose UI.
 
     harness_create(name="compose_ui", title="Compose UI", description="Native Compose screens with the design
     system")
@@ -268,12 +379,14 @@ ${EXAMPLE_VERIFY_SCRIPT.prependIndent("    ")}
 
     harness_tools_set(harness="compose_ui", hosted_off=["web_search"], native={"claude": {"WebFetch": "off"}})
 
-    Interfaces: harness pr_map gets script "methods" with a UI method, then a surface built with ui_put calls it from
-    a button; next time the user selects the harness and presses the button without asking the agent:
-
-${EXAMPLE_UI_SCRIPT.prependIndent("    ")}
-
     Why: the instruction keeps every chat on tokens; the skill carries detail without filling the prompt; the
     workflow splits design and implementation into helper chats; the script tightens destructive commands and
     adds a reminder after edits; the policy removes tools the task does not need.
+
+    Advanced external integration: only when the task actually needs repository data and gh is already available
+    and authenticated. This example runs an external command and receives its own automatic safety review;
+    it is not a prerequisite or a setup step for local mini-apps. Harness pr_map gets script "methods", then a
+    surface built with ui_put calls it from a button without another agent turn:
+
+${EXAMPLE_UI_SCRIPT.prependIndent("    ")}
 """.trimIndent()

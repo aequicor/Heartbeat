@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.serialization.SerializationException
@@ -26,6 +27,8 @@ internal data class PiApprovalCall(
     val path: String? = null,
     val arguments: JsonObject = JsonObject(emptyMap()),
     val result: AgentToolResult? = null,
+    val toolCallId: ToolCallId? = null,
+    val isStructuredReply: Boolean = false,
 ) {
     override fun toString(): String = "PiApprovalCall"
 }
@@ -43,6 +46,7 @@ private const val DENY_TITLE = "Запретить"
 private const val ALLOW_HOST_TITLE = "Завершить Heartbeat и выполнить"
 private const val APPROVAL_TARGET_LIMIT = 4_000
 private const val RESULT_CHARS = 32_768
+private const val MAX_TOOL_CALL_ID_CHARS = 256
 private const val HEX_RADIX = 16
 private const val HEX_DIGITS = 4
 private val log = Log.tag("PiApproval")
@@ -75,6 +79,9 @@ internal fun approvalCall(message: String?, isResult: Boolean = false): PiApprov
         } else {
             null
         },
+        fields.string("toolCallId")
+            ?.takeIf { it.isNotBlank() && it.length <= MAX_TOOL_CALL_ID_CHARS }
+            ?.let(::ToolCallId),
     )
 }
 

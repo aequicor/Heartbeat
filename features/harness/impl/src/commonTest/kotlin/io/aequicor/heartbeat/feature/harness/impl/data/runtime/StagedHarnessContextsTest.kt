@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessActivationRequest
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.event.HarnessEvent
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowDefinition
+import io.aequicor.heartbeat.feature.harness.impl.data.services.harnessTestData
 import io.aequicor.heartbeat.feature.harness.impl.domain.code
 import io.aequicor.heartbeat.feature.harness.impl.domain.harness
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
@@ -62,6 +63,7 @@ class StagedHarnessContextsTest {
             origins,
             schedulers,
             workflowTestFactory(origins),
+            harnessTestData(),
             { request, owner -> unusedScriptSessions(HarnessInstanceTarget(request, owner), origins) },
         ).create(HarnessActivationRequest(harness, code, 1), access)
         val script = assertIs<HarnessEvaluationContext.Script>(context.evaluation).scope

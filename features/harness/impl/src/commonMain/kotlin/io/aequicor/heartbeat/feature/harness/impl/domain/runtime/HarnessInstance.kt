@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.uuid.Uuid
 
 /** One immutable code generation. All lifecycle mutations except job completion are serialized by the runtime. */
 internal class HarnessInstance(
@@ -24,6 +25,9 @@ internal class HarnessInstance(
     private val environment: HarnessRuntimeEnvironment,
     onBackgroundFailure: suspend (HarnessInstance) -> Unit,
 ) : HarnessInstanceAccess {
+    /** Opaque lifetime identity: reviewed calls cannot cross a restart or an identical-source reactivation. */
+    val reviewIdentity: String = Uuid.random().toHexString()
+
     private val phase = MutableStateFlow(HarnessInstancePhase.Preparing)
     private val reservations = MutableStateFlow(0)
     private val root = SupervisorJob(environment.scope.coroutineContext[Job])

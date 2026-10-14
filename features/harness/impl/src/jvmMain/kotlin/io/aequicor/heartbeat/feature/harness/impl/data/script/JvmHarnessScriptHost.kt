@@ -224,21 +224,20 @@ internal class JvmHarnessScriptHost(
             failure?.error?.rethrowFatalHarnessFailure()
             result.reports.forEach { it.exception?.rethrowFatalHarnessFailure() }
             currentCoroutineContext().ensureActive()
-            return when (result) {
-                is ResultWithDiagnostics.Failure -> HarnessEvaluationResult.Failure(result.reports.harnessDiagnostics())
+            return when {
+                result is ResultWithDiagnostics.Failure ->
+                    harnessEvaluationFailure(result.reports.mapNotNull { it.exception })
 
-                is ResultWithDiagnostics.Success -> if (result.value.returnValue is ResultValue.Error) {
-                    HarnessEvaluationResult.Failure(harnessHostFailure())
-                } else {
-                    HarnessEvaluationResult.Success
-                }
+                failure != null -> harnessEvaluationFailure(listOf(failure.error))
+
+                else -> HarnessEvaluationResult.Success
             }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
             error.rethrowFatalHarnessFailure()
             log.w(error.safeHarnessFailure()) { "evaluation operation failed" }
-            return HarnessEvaluationResult.Failure(harnessHostFailure())
+            return harnessEvaluationFailure(listOf(error))
         } finally {
             borrowed.close()
         }

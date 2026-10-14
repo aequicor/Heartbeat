@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiSurfaceId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSurfaceName
 import io.aequicor.heartbeat.feature.serviceasui.impl.di.scope.ServiceUiPlaceScope
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiMachine
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardStorage
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiMethodCalls
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpecDecoding
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.decodeUiSpec
@@ -28,6 +29,7 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.platformFact
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceHost
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceModel
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceSession
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.focusSurfaceCard
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableList
@@ -70,6 +72,7 @@ internal class PlaceModel(
     place: ServiceUiPlace,
     private val machine: ServiceUiMachine,
     private val calls: UiMethodCalls,
+    private val cards: UiCardStorage,
     private val surfaceModels: SurfaceModel.Factory,
     platformInfo: PlatformInfo,
     factory: HeartbeatStoreFactory,
@@ -269,6 +272,9 @@ internal class PlaceModel(
             val request = ServiceUiIntent.Internal.RequestPrompt(placed.host, text, isSubmitted, placed.context)
             return machine.send(request) == SendResult.Accepted
         }
+
+        override suspend fun focusCard(name: String): Boolean = isCurrent(placed) &&
+            machine.focusSurfaceCard(cards, placed.host, placed.surface.content.owner, name, placed.context)
 
         override suspend fun openPanel(name: String, args: JsonObject): Boolean {
             if (!isCurrent(placed)) return false

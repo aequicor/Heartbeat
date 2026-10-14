@@ -51,7 +51,8 @@ internal data class OpenModal(val name: String, val args: JsonObject) {
 
 /**
  * The drawn surface: [root] and the top [modal] are evaluated from [values]; [isMethodsAvailable] tells whether the
- * owner's code runs here, [hasStarted] whether the automatic data sources were loaded.
+ * owner's code runs here, [hasStarted] whether the automatic data sources were loaded. [loadedRevision] and
+ * [loadedMethodsGeneration] identify the durable data and published code last read by automatic sources.
  */
 @Immutable
 internal data class SurfaceState(
@@ -62,6 +63,8 @@ internal data class SurfaceState(
     val notice: NoticeUi? = null,
     val isMethodsAvailable: Boolean = false,
     val hasStarted: Boolean = false,
+    val loadedRevision: Long? = null,
+    val loadedMethodsGeneration: String? = null,
 ) : MVIState {
     override fun toString(): String =
         "SurfaceState(modals=${modals.size}, notice=${notice?.let { it::class.simpleName } ?: "none"}, " +
@@ -114,6 +117,9 @@ internal interface SurfaceHost {
     /** Puts [text] into the host's composer, or sends it when [isSubmitted]; false when no host can take it. */
     suspend fun prompt(text: String, isSubmitted: Boolean): Boolean
 
+    /** Scrolls the conversation to the latest card of the owner's surface [name], if one exists in this chat. */
+    suspend fun focusCard(name: String): Boolean = false
+
     /** Opens the owner's surface [name] in the host's dock with [args]; false when it cannot. */
     suspend fun openPanel(name: String, args: JsonObject): Boolean
 
@@ -124,8 +130,9 @@ internal interface SurfaceHost {
 /**
  * What a surface store works with: the decoded [spec], its [owner] (null for a card without one, which cannot call
  * methods), the call [context] of the place, the [args] it was opened with and the [host]. A card in a response
- * ([isCard]) loads no data by itself and only inserts prompts, whoever owns its surface. [title] names the surface,
- * also for the web documents it shows.
+ * ([isCard]) only inserts prompts, but a library card loads data and calls its owner like other live surfaces.
+ * [isPreview] disables every owner call, automatic load and web bridge even when [owner] is present. [title] names
+ * the surface, also for the web documents it shows.
  */
 internal data class SurfaceSession(
     val spec: UiSpec,
@@ -136,6 +143,7 @@ internal data class SurfaceSession(
     val host: SurfaceHost,
     val isCard: Boolean = false,
     val title: String = spec.title.orEmpty(),
+    val isPreview: Boolean = false,
 ) {
     override fun toString(): String = "SurfaceSession(owner=${owner?.id ?: "none"}, isCard=$isCard)"
 }

@@ -8,7 +8,7 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRegistration
 import kotlinx.coroutines.CoroutineScope
 
 /** Script ABI revision included in compiled artifact cache keys; change it when this public contract changes. */
-public const val HARNESS_API_VERSION: Int = 2
+public const val HARNESS_API_VERSION: Int = 3
 
 /**
  * Host-issued services of one approved item revision. Its scope, subscriptions and registrations belong to that
@@ -52,6 +52,9 @@ public interface HarnessScriptScope {
     /** Starts workflows using the script's approved authority. */
     public val workflows: ScriptWorkflows
 
+    /** Durable private JSON shared by this harness's approved scripts. */
+    public val data: ScriptData
+
     /** Methods for this harness's interfaces, called by user actions. */
     public val ui: ScriptUi
 }
@@ -83,6 +86,9 @@ public abstract class HarnessScriptBase(public val script: HarnessScriptScope) {
 
     /** Approved workflow starts. */
     public val workflows: ScriptWorkflows get() = script.workflows
+
+    /** Durable private JSON of this harness. */
+    public val data: ScriptData get() = script.data
 
     /** Methods for this harness's interfaces. */
     public val ui: ScriptUi get() = script.ui

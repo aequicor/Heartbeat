@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.di.ScopeSavedState
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiIntent
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiOutput
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiPanelRoute
@@ -25,7 +26,11 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiPanel
 import io.aequicor.heartbeat.feature.serviceasui.api.UiPlacement
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSlot
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSurface
+import io.aequicor.heartbeat.feature.serviceasui.api.UiSurfaceId
 import io.aequicor.heartbeat.feature.serviceasui.impl.data.UnsupportedUiPlatform
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCard
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardAdded
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardStorage
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiMethodCalls
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiWebDocuments
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiNodeUi
@@ -289,6 +294,11 @@ class PlaceModelTest {
             place,
             machine,
             calls,
+            object : UiCardStorage {
+                override suspend fun latest(chat: SessionRef, surface: UiSurfaceId): UiCard? = null
+                override suspend fun add(card: UiCard): UiCardAdded = error("unused")
+                override fun observe(id: String): Flow<UiCard?> = flowOf(null)
+            },
             { session, child ->
                 drawings += session to child
                 SurfaceModel(

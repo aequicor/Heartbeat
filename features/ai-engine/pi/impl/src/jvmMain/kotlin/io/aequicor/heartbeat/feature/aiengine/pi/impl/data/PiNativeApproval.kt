@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -17,6 +18,8 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /** An immutable approval bound to the originating native turn and connection. Never runs on the RPC reader. */
 internal class PiNativeApproval(
@@ -36,7 +39,7 @@ internal class PiNativeApproval(
                 val note = environment.tools.afterHosted(context, call.tool, call.arguments, result)
                 "value" to JsonPrimitive(note.orEmpty())
             } else {
-                "confirmed" to JsonPrimitive(checkNotNull(decision).verdict.isAllowed)
+                checkNotNull(decision).verdict.response(call.isStructuredReply)
             }
             currentCoroutineContext().ensureActive()
             // Recheck after the gate, before sending Allow to the captured process.
@@ -50,7 +53,12 @@ internal class PiNativeApproval(
             throw e
         } catch (e: Exception) {
             log.w(e.withoutDetails()) { "Pi native approval failed; the call stays blocked" }
-            reply(id, if (call.result == null) "confirmed" to JsonPrimitive(false) else "value" to JsonPrimitive(""))
+            val response = if (call.result == null) {
+                NativeVerdict.Deny("Heartbeat could not complete tool authorization").response(call.isStructuredReply)
+            } else {
+                "value" to JsonPrimitive("")
+            }
+            reply(id, response)
         }
     }
 
@@ -75,10 +83,12 @@ internal class PiNativeApproval(
     }
 
     private suspend fun authorize(id: String, call: PiApprovalCall, turn: Turn, context: AgentToolContext): Decision {
-        val classified = classify(call) ?: return Decision(NativeVerdict.Deny("Unknown native tool"), false, false)
+        val classified = classify(call, isWorkspaceAttached = context.workspace != null)
+            ?: return Decision(NativeVerdict.Deny("Unknown native tool"), false, false)
         val (native, isHostTermination) = classified
         var isAsked = false
         val bound = context.copy(
+            callId = call.toolCallId,
             permissions = AgentToolPermissions { approval ->
                 if (!isCurrent()) return@AgentToolPermissions false
                 val request = approvalRequest(id, turn.id, call, isHostTermination)
@@ -92,7 +102,19 @@ internal class PiNativeApproval(
         } else {
             environment.tools.authorizeNative(bound, native)
         }
-        return Decision(verdict, isAsked, native.action == AgentToolAction.Read)
+        val checked = if (verdict == NativeVerdict.Allow &&
+            bound.decisionMode == AgentToolDecisionMode.AutomaticSafety
+        ) {
+            val current = classify(call, isWorkspaceAttached = bound.workspace != null)?.first
+            when {
+                current == null -> NativeVerdict.Deny("Native action can no longer be classified")
+                current.automaticDenial != null -> NativeVerdict.Deny(checkNotNull(current.automaticDenial))
+                else -> verdict
+            }
+        } else {
+            verdict
+        }
+        return Decision(checked, isAsked, native.action == AgentToolAction.Read)
     }
 
     /**
@@ -110,7 +132,7 @@ internal class PiNativeApproval(
     }
 
     private data class Decision(val verdict: NativeVerdict, val isAsked: Boolean, val isRead: Boolean)
-    private suspend fun classify(call: PiApprovalCall): Pair<NativeToolCall, Boolean>? {
+    private suspend fun classify(call: PiApprovalCall, isWorkspaceAttached: Boolean): Pair<NativeToolCall, Boolean>? {
         val action = if (call.tool in SearchTools) {
             AgentToolAction.Read
         } else {
@@ -127,15 +149,45 @@ internal class PiNativeApproval(
             action,
             paths = if (action == AgentToolAction.Command) emptyList() else listOf(call.path ?: call.target),
             command = call.target.takeIf { action == AgentToolAction.Command },
-            covered = { trust ->
-                !isHostTermination && (
-                    action == AgentToolAction.Read || trust == TrustLevel.Full ||
-                        (trust == TrustLevel.AutoEdits && isEdit)
-                )
-            },
+            arguments = call.arguments,
+            workingDirectory = workspace,
+            automaticDenial = automaticDenial(action, isHostTermination, isWorkspaceAttached && isEdit),
+            covered = { trust -> isCovered(trust, action, isHostTermination, isEdit) },
         )
         return native to isHostTermination
     }
 }
 
+/** Input RPC carries the denial unchanged; legacy confirm requests still receive their Boolean contract. */
+private fun NativeVerdict.response(isStructured: Boolean): Pair<String, JsonElement> = if (isStructured) {
+    val decision = buildJsonObject {
+        put("allowed", isAllowed)
+        if (this@response is NativeVerdict.Deny) put("reason", reason)
+    }
+    "value" to JsonPrimitive(decision.toString())
+} else {
+    "confirmed" to JsonPrimitive(isAllowed)
+}
+
 private val NativeVerdict.isAllowed: Boolean get() = this == NativeVerdict.Allow
+
+/** Legacy trust preserves its read/edit rules and never covers host termination. */
+private fun isCovered(
+    trust: TrustLevel,
+    action: AgentToolAction,
+    isHostTermination: Boolean,
+    isEdit: Boolean,
+): Boolean = !isHostTermination && (
+    action == AgentToolAction.Read || trust == TrustLevel.Full || (trust == TrustLevel.AutoEdits && isEdit)
+)
+
+/** Deterministic host and filesystem restrictions cannot be overruled by model review. */
+private fun automaticDenial(action: AgentToolAction, isHostTermination: Boolean, isProjectEdit: Boolean): String? =
+    when {
+        isHostTermination -> "Automatic execution cannot terminate Heartbeat"
+
+        action == AgentToolAction.Edit && !isProjectEdit ->
+            "Automatic edits require a pinned path inside the trusted workspace"
+
+        else -> null
+    }

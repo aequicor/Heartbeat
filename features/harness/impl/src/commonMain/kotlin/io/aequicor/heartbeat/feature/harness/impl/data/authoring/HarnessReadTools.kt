@@ -103,7 +103,8 @@ internal class HarnessReadTools(
         } else {
             val found = entry.harness.items.singleOrNull { it.name.value == item }
                 ?: return failure("No item $item in $name")
-            AgentToolResult(found.content())
+            val status = entry.itemStatus[found.id]?.statusLabel()
+            AgentToolResult(found.content() + status?.let { "\n\nActivation: $it" }.orEmpty())
         }
     }
 
@@ -172,10 +173,17 @@ private fun Harness.policyText(): String {
 
 private fun ItemStatus.statusLabel(): String? = when (this) {
     ItemStatus.Disabled -> null
+
     ItemStatus.Unsupported -> "not supported on this platform"
+
     is ItemStatus.Pending -> "activating"
+
     is ItemStatus.Active -> "active"
-    is ItemStatus.Failed -> if (isDisabled) "failed and disabled" else "failed"
+
+    is ItemStatus.Failed -> buildString {
+        append(if (isDisabled) "failed and disabled" else "failed")
+        reason?.let { append(" [").append(it.name).append("]: ").append(it.message) }
+    }
 }
 
 private fun HarnessItem.description(): String? = when (this) {

@@ -6,9 +6,6 @@ import kotlinx.collections.immutable.ImmutableList
 /** Loading progress shared by the harness screens; NotFound means the addressed harness or item is gone. */
 internal enum class PhaseUi { Loading, Failed, NotFound, Ready }
 
-/** How agent edits of texts and metadata are accepted. Code and native enabling always ask. */
-internal enum class ApprovalUi { Ask, ByTrust, AcceptAll }
-
 /** Item kinds, in the order of the detail screen groups. */
 internal enum class ItemKindUi { Instruction, Skill, Template, Script, Workflow }
 

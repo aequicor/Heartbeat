@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -31,6 +32,7 @@ import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.TextStyleUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiNodeUi
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.WebHeightUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceIntent
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.Res
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_more
@@ -125,20 +127,32 @@ private fun ContentView(
 
         is UiNodeUi.More -> Note(stringResource(Res.string.service_ui_more, node.count), modifier)
 
-        is UiNodeUi.Web -> WebView(webs[node.key], modifier)
+        is UiNodeUi.Web -> WebView(webs[node.key], node.height, modifier)
     }
 }
 
 /**
- * A web node's embedded browser document at a fixed height (native views cannot size to their content), or a note
- * while web documents are off or cannot be shown here.
+ * A web node's document at a viewport preset or bounded intrinsic height, or a note when it cannot be shown.
+ * Content-sized document routes measure their own page, while this parent enforces the host's outer bounds.
  */
 @Composable
-private fun WebView(document: ComposableComponent?, modifier: Modifier = Modifier) {
+private fun WebView(document: ComposableComponent?, height: WebHeightUi, modifier: Modifier = Modifier) {
     if (document == null) {
         Note(stringResource(Res.string.service_ui_web_unavailable), modifier)
     } else {
-        document.Content(modifier.fillMaxWidth().height(HbTheme.dimensions.webDocumentHeight))
+        val sized = when (height) {
+            WebHeightUi.Compact -> modifier.height(HbTheme.dimensions.webDocumentCompactHeight)
+
+            WebHeightUi.Regular -> modifier.height(HbTheme.dimensions.webDocumentHeight)
+
+            WebHeightUi.Tall -> modifier.height(HbTheme.dimensions.webDocumentTallHeight)
+
+            WebHeightUi.Content -> modifier.heightIn(
+                min = HbTheme.dimensions.webDocumentMinHeight,
+                max = HbTheme.dimensions.webDocumentMaxHeight,
+            )
+        }
+        document.Content(sized.fillMaxWidth())
     }
 }
 

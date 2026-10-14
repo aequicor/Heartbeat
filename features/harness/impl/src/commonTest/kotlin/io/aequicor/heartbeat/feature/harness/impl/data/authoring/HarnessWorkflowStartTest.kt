@@ -6,7 +6,11 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
@@ -29,6 +33,8 @@ import io.aequicor.heartbeat.feature.harness.impl.data.RunDeliveryTestStore
 import io.aequicor.heartbeat.feature.harness.impl.data.run.HarnessWorkflowLaunches
 import io.aequicor.heartbeat.feature.harness.impl.data.run.KeyValueHarnessRunStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.CodeReview
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeReviews
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.LibraryOutcome
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessActiveAccess
@@ -74,11 +80,14 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 import kotlin.time.Clock
 import kotlin.time.Instant
 
 class HarnessWorkflowStartTest {
+    private var verdict = "safe"
+    private val changes = mutableListOf<String>()
     private val schema = buildJsonObject {
         put("type", "object")
         putJsonObject("properties") { putJsonObject("screen") { put("type", "string") } }
@@ -96,7 +105,9 @@ class HarnessWorkflowStartTest {
     fun `an approved start pins the approved workflow and reports the run`() = runTest {
         val tools = tools()
         val approval = tools.approval(context(), spec, arguments())
-        assertEquals("harness=${owner.id.value}@${owner.revision};workflow=${workflow.id.value}", approval.binding)
+        assertTrue(changes.isEmpty())
+        assertEquals(approval, allow(tools, arguments()))
+        assertTrue(approval.binding.orEmpty().startsWith("safety="))
         val result = tools.execute(context(authorization = approval), HarnessTools.WORKFLOW_START, arguments())
         assertFalse(result.isError, result.text)
         assertTrue(result.text.startsWith("Started run wf_"), result.text)
@@ -108,18 +119,16 @@ class HarnessWorkflowStartTest {
     @Test
     fun `a start is refused without its approval an accepted turn or a host for helpers`() = runTest {
         val tools = tools()
-        val approval = tools.approval(context(), spec, arguments())
+        val approval = allow(tools, arguments())
         val unapproved = tools.execute(context(), HarnessTools.WORKFLOW_START, arguments())
-        assertTrue(unapproved.isError && unapproved.text.contains("changed while awaiting approval"), unapproved.text)
+        assertTrue(unapproved.isError && unapproved.text.contains("changed after safety review"), unapproved.text)
         val detached = tools.execute(
             context(authorization = approval, request = null),
             HarnessTools.WORKFLOW_START,
             arguments(),
         )
-        assertTrue(detached.isError && detached.text.contains("accepted turn"), detached.text)
+        assertTrue(detached.isError, detached.text)
         helpers.isHostable = false
-        val described = tools.approval(context(), spec, arguments()).description.orEmpty()
-        assertTrue(described.startsWith("Helper chats cannot be hosted"), described)
         val unhosted = tools.execute(context(authorization = approval), HarnessTools.WORKFLOW_START, arguments())
         assertTrue(unhosted.isError && unhosted.text.contains("cannot be hosted"), unhosted.text)
         assertTrue(runs.sent.isEmpty())
@@ -129,8 +138,7 @@ class HarnessWorkflowStartTest {
     fun `input outside the schema is refused before admission`() = runTest {
         val tools = tools()
         val wrong = arguments(JsonPrimitive(5))
-        val approval = tools.approval(context(), spec, wrong)
-        val result = tools.execute(context(authorization = approval), HarnessTools.WORKFLOW_START, wrong)
+        val result = tools.execute(context(), HarnessTools.WORKFLOW_START, wrong)
         assertTrue(result.isError && result.text.contains("does not match the workflow schema"), result.text)
         assertTrue(runs.sent.isEmpty())
     }
@@ -138,7 +146,7 @@ class HarnessWorkflowStartTest {
     @Test
     fun `a revision committed after the approved snapshot is never started`() = runTest {
         val tools = tools()
-        val approval = tools.approval(context(), spec, arguments())
+        val approval = allow(tools, arguments())
         // The tools still read the approved snapshot while the library already holds replaced code.
         client.snapshot = library.state.value as HarnessState.Ready
         val replaced = owner.copy(revision = 1, items = listOf(workflow.copy(source = "workflow { JsonNull }")))
@@ -146,12 +154,12 @@ class HarnessWorkflowStartTest {
         val result = tools.execute(context(authorization = approval), HarnessTools.WORKFLOW_START, arguments())
         assertTrue(result.isError, result.text)
         // A stale approval is its own outcome: the agent asks again instead of reading it as a capacity failure.
-        assertEquals("The workflow changed while awaiting approval; request it again", result.text)
+        assertEquals("The workflow changed after safety review; request it again", result.text)
         assertTrue(runs.sent.isEmpty())
     }
 
     @Test
-    fun `a host precondition failing after the input check is a request mismatch not an input error`() = runTest {
+    fun `even a same-revision source snapshot mismatch is refused`() = runTest {
         val tools = tools()
         // The tools read a snapshot whose schema accepts the input; the library at the same revision does not.
         val numeric = buildJsonObject {
@@ -163,12 +171,37 @@ class HarnessWorkflowStartTest {
             isRuntimeAvailable = true,
         )
         val wrong = arguments(JsonPrimitive(5))
-        val approval = tools.approval(context(), spec, wrong)
+        val approval = allow(tools, wrong)
         val result = tools.execute(context(authorization = approval), HarnessTools.WORKFLOW_START, wrong)
         assertTrue(result.isError, result.text)
-        assertTrue(result.text.startsWith("The workflow cannot start: the request no longer matches"), result.text)
+        assertTrue(result.text.contains("changed after safety review"), result.text)
         assertFalse(result.text.contains("schema"), result.text)
         assertTrue(runs.sent.isEmpty())
+    }
+
+    @Test
+    fun `unsafe workflow and changed input never reach launch or start a second review`() = runTest {
+        val tools = tools()
+        verdict = "risk"
+        assertIs<AgentToolAutomaticAuthorization.Denied>(
+            tools.automaticAuthorization(context(), spec, arguments()),
+        )
+        assertTrue(tools.execute(context(), HarnessTools.WORKFLOW_START, arguments()).isError)
+        assertTrue(runs.sent.isEmpty())
+        assertEquals(1, changes.size)
+        assertTrue(changes.single().contains(workflow.source))
+    }
+
+    @Test
+    fun `safe assessment cannot be replayed with different valid workflow input`() = runTest {
+        val tools = tools()
+        val approval = allow(tools, arguments())
+        val changed = arguments(JsonPrimitive("changed"))
+        assertNotEquals(approval.binding, tools.approval(context(), spec, changed).binding)
+        val result = tools.execute(context(authorization = approval), HarnessTools.WORKFLOW_START, changed)
+        assertTrue(result.isError)
+        assertTrue(runs.sent.isEmpty())
+        assertEquals(1, changes.size)
     }
 
     private fun TestScope.tools(): HarnessWorkflowTools {
@@ -199,13 +232,41 @@ class HarnessWorkflowStartTest {
             lazyOf(client),
             lazyOf(launches),
             lazyOf(runs),
-            lazyOf(helpers),
-            lazyOf(HarnessRequestOrigins(MemoryHarnessRequestAncestry())),
+            HarnessWorkflowToolServices(
+                lazyOf(helpers),
+                lazyOf(HarnessRequestOrigins(MemoryHarnessRequestAncestry())),
+                lazyOf(
+                    HarnessCodeReviews { _, change ->
+                        changes += change
+                        CodeReview(verdict, "Workflow assessment")
+                    },
+                ),
+            ),
         )
     }
 
+    private suspend fun allow(tools: HarnessWorkflowTools, arguments: JsonObject): AgentToolApproval {
+        val snapshot = tools.approval(context(), spec, arguments)
+        val allowed = assertIs<AgentToolAutomaticAuthorization.Allowed>(
+            tools.automaticAuthorization(context(), spec, arguments),
+        )
+        assertEquals(snapshot, allowed.approval)
+        return snapshot
+    }
+
     private fun context(authorization: AgentToolApproval? = null, request: RequestId? = RequestId("request")) =
-        AgentToolContext(dispatchSession, WORKSPACE, TurnId("turn"), request, authorization = authorization)
+        AgentToolContext(
+            dispatchSession,
+            WORKSPACE,
+            TurnId("turn"),
+            request,
+            authorization = authorization,
+            target = EngineTarget(
+                dispatchSession.engine,
+                EngineBindingId("binding"),
+                ModelId("model"),
+            ),
+        )
 
     private fun arguments(screen: JsonPrimitive = JsonPrimitive("home")): JsonObject = buildJsonObject {
         put("harness", owner.name.value)

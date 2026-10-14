@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.runtime
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
+import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.ItemName
@@ -16,6 +17,11 @@ import kotlinx.serialization.json.JsonElement
 /** A method a harness publishes for its interfaces. */
 internal data class HarnessUiMethod(val name: ItemName, val description: String) {
     override fun toString(): String = "HarnessUiMethod(name=${name.value})"
+}
+
+/** Private immutable code and exact callback lifetime selected for an independent method review. */
+internal data class HarnessUiReview(val binding: String, val source: String) {
+    override fun toString(): String = "HarnessUiReview(***)"
 }
 
 /** Outcome of [HarnessUiDispatch.call]; values and messages are user data and never logged. */
@@ -36,7 +42,7 @@ internal sealed interface HarnessUiOutcome {
     /** The harness is not active in the caller's chat. */
     data object Inactive : HarnessUiOutcome
 
-    /** The activation is gone or its code is not running. */
+    /** The activation is gone, its code is not running, or its reviewed binding is no longer current. */
     data object Unavailable : HarnessUiOutcome
 
     /** The method ran longer than its budget. */
@@ -50,8 +56,8 @@ internal sealed interface HarnessUiOutcome {
 }
 
 /**
- * Runs UI methods for user actions, outside agent turns. A call in a chat requires the harness to be active there
- * (see [connectedAdmission]); a call without a chat (a new chat or settings) requires only a running activation.
+ * Runs UI methods for surface actions and bound, independently reviewed agent calls. A call in a chat requires the
+ * harness to be active there (see [connectedAdmission]); without a chat, only a running activation is required.
  * Each call is admitted again immediately before author code runs and is cancelled together with its caller.
  */
 internal class HarnessUiDispatch(private val runtime: HarnessRuntime, private val sessions: HarnessSessionAdmission) {
@@ -63,16 +69,35 @@ internal class HarnessUiDispatch(private val runtime: HarnessRuntime, private va
         HarnessUiMethod(method.name, method.description)
     }
 
-    /** Runs the method [name] of [harness] for a user action. */
-    suspend fun call(harness: HarnessId, name: String, call: ScriptUiCall): HarnessUiOutcome {
+    /** Reads only the selected published registration; replacement invalidates the binding, even with equal source. */
+    suspend fun review(harness: HarnessId, name: String): HarnessUiReview? {
+        val (instance, method) = binding(harness, name) ?: return null
+        val script = instance.request.item as? HarnessItem.Script ?: return null
+        return HarnessUiReview(instance.binding(method), script.source)
+    }
+
+    /** Runs [name]; a reviewed call additionally pins the exact activation and callback until acquisition. */
+    suspend fun call(
+        harness: HarnessId,
+        name: String,
+        call: ScriptUiCall,
+        expectedBinding: String? = null,
+    ): HarnessUiOutcome {
         log.v { "dispatch harness ui method" }
         val session = call.session
-        val binding = bindings(harness).firstOrNull { (_, method) -> method.name.value == name }
-        val isAdmitted = { session == null || sessions.allows(harness, session) }
+        val selectedBinding = binding(harness, name)
+        val isConnected = { session == null || sessions.allows(harness, session) }
         return when {
-            binding == null -> HarnessUiOutcome.NotFound
-            !isAdmitted() -> HarnessUiOutcome.Inactive
-            else -> invoke(binding.first, binding.second, call, isAdmitted)
+            selectedBinding == null -> HarnessUiOutcome.NotFound
+
+            !isConnected() -> HarnessUiOutcome.Inactive
+
+            expectedBinding != null && selectedBinding.first.binding(selectedBinding.second) != expectedBinding ->
+                HarnessUiOutcome.Unavailable
+
+            else -> invoke(selectedBinding.first, selectedBinding.second, call) {
+                matchesReview(selectedBinding, expectedBinding) && isConnected()
+            }
         }
     }
 
@@ -80,7 +105,7 @@ internal class HarnessUiDispatch(private val runtime: HarnessRuntime, private va
         instance: HarnessInstance,
         method: HarnessUiMethodRegistration,
         call: ScriptUiCall,
-        isAdmitted: () -> Boolean,
+        isAdmitted: suspend () -> Boolean,
     ): HarnessUiOutcome {
         val lifetime = currentCoroutineContext()[Job]
         val options = HarnessInvocationOptions(method.callback.origin, lifetime)
@@ -105,7 +130,26 @@ internal class HarnessUiDispatch(private val runtime: HarnessRuntime, private va
             val context = instance.runtimeContext as? HarnessScriptContext
             context?.registrations?.methods().orEmpty().map { instance to it }
         }
+
+    private suspend fun binding(harness: HarnessId, name: String) =
+        bindings(harness).firstOrNull { (_, method) -> method.name.value == name }
+
+    /** Resolve again after queueing: another script may now win the same method name. */
+    private suspend fun matchesReview(
+        reviewed: Pair<HarnessInstance, HarnessUiMethodRegistration>,
+        expected: String?,
+    ): Boolean {
+        if (expected == null) return true
+        val (instance, method) = reviewed
+        val selected = binding(instance.request.harness.id, method.name.value) ?: return false
+        return selected.first === instance && selected.second === method && instance.isActive &&
+            instance.binding(method) == expected
+    }
 }
+
+/** Instance requests (including source/revision/generation) are immutable; registration ids are never reused. */
+private fun HarnessInstance.binding(method: HarnessUiMethodRegistration): String =
+    "$reviewIdentity:${method.callback.id}"
 
 private fun ScriptUiResult.outcome(): HarnessUiOutcome = when (this) {
     is ScriptUiResult.Value ->

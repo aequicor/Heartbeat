@@ -12,7 +12,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 
-/** Declarations of the interface tools; library edits are `Edit` in the trust table. */
+/** Interface tool declarations; mutations, display and agent calls use contribution-owned automatic review. */
 internal val ServiceUiToolSpecs: List<AgentToolSpec> = listOf(
     AgentToolSpec(
         ServiceUiTools.REFERENCE,
@@ -36,7 +36,11 @@ internal val ServiceUiToolSpecs: List<AgentToolSpec> = listOf(
         schema(listOf("owner", "name", "placement", "title", "spec")) {
             text("owner", "Owner from ui_list: its ref (harness:<id>) or its name.")
             text("name", "Short lowercase slug, unique for the owner; other interfaces open it by this name.")
-            choice("placement", "Where it appears.", listOf("composer", "start", "panel", "modal"))
+            choice(
+                "placement",
+                "Use card for a mini-app inside the conversation; composer for compact status.",
+                listOf("card", "composer", "start", "panel", "modal"),
+            )
             text("title", "Title for people, at most 80 characters.")
             text("description", "What it is for, at most 500 characters.")
             putJsonObject("launchers") {
@@ -75,8 +79,8 @@ internal val ServiceUiToolSpecs: List<AgentToolSpec> = listOf(
     ),
     AgentToolSpec(
         ServiceUiTools.SHOW,
-        "Shows an interface as a card in your reply: an inline spec without an owner, or an interface of the " +
-            "library with arguments. Inline cards cannot call methods; their prompts only fill the chat input.",
+        "Shows the chat's single live library app with arguments; repeated shows replace that same app. " +
+            "An inline spec instead adds an anonymous snapshot without methods or a web bridge.",
         schema(listOf("title")) {
             text("title", "Card title, at most 80 characters.")
             putJsonObject("spec") {

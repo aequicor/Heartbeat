@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
+import io.aequicor.heartbeat.feature.harness.impl.data.services.harnessTestData
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlin.time.Clock
@@ -49,7 +50,8 @@ internal class HarnessTestStores : DataStores {
     override fun filesDirectory(name: String): String = error("No files")
     override fun <T : RoomDatabase> database(spec: DatabaseSpec<T>): T = error("No database")
     override suspend fun fire(event: DataEvent) = Unit
-    fun library() = KeyValueHarnessLibrary(this, storageClock)
+    val scriptData = harnessTestData()
+    fun library() = KeyValueHarnessLibrary(this, storageClock, scriptData)
     val libraryValues get() = keyValue(HarnessLibrarySpec)
 }
 

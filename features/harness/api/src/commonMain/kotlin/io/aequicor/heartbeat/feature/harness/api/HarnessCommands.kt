@@ -9,13 +9,33 @@ internal fun HarnessState.Ready.reject(request: RequestId, reason: HarnessReject
 
 internal fun HarnessState.Ready.command(intent: HarnessIntent.Command): LibraryTransition = when (intent) {
     is HarnessIntent.Internal.Create -> create(intent)
+
     is HarnessIntent.Internal.Update -> update(intent)
+
     is HarnessIntent.Internal.Delete -> remove(intent)
+
     is HarnessIntent.Internal.SetEnabled -> enable(intent)
+
     is HarnessIntent.Internal.SetItemEnabled -> enableItem(intent)
-    is HarnessIntent.Public.Attach -> attach(intent.requestId, intent.id, intent.session, true)
-    is HarnessIntent.Public.Detach -> attach(intent.requestId, intent.id, intent.session, false)
+
+    is HarnessIntent.Public.Attach -> attach(
+        intent.requestId,
+        intent.id,
+        intent.session,
+        true,
+        AttachmentExpectation(intent.expectedRevision, intent.expectedSessions),
+    )
+
+    is HarnessIntent.Public.Detach -> attach(
+        intent.requestId,
+        intent.id,
+        intent.session,
+        false,
+        AttachmentExpectation(intent.expectedRevision, intent.expectedSessions),
+    )
+
     is HarnessIntent.Internal.SetApproval -> approve(intent)
+
     is HarnessIntent.Public.Reload -> reload(intent)
 }
 
@@ -35,7 +55,9 @@ private fun HarnessState.Ready.create(intent: HarnessIntent.Internal.Create): Li
 }
 
 private fun HarnessState.Ready.update(intent: HarnessIntent.Internal.Update): LibraryTransition {
-    mutationRejection(intent.id, intent.expectedRevision)?.let { return reject(intent.requestId, it) }
+    val rejection = mutationRejection(intent.id, intent.expectedRevision)
+        ?: connectionRejection(intent.id, intent.expectedSessions)
+    if (rejection != null) return reject(intent.requestId, rejection)
     val old = harnesses.first { it.harness.id == intent.id }.harness
     val invalid = old.changeRejection(intent.change)
     return if (invalid != null) {
@@ -111,7 +133,9 @@ private fun HarnessState.Ready.save(request: RequestId, harness: Harness, isCrea
 }
 
 private fun HarnessState.Ready.remove(intent: HarnessIntent.Internal.Delete): LibraryTransition {
-    mutationRejection(intent.id, intent.expectedRevision)?.let { return reject(intent.requestId, it) }
+    val rejection = mutationRejection(intent.id, intent.expectedRevision)
+        ?: connectionRejection(intent.id, intent.expectedSessions)
+    if (rejection != null) return reject(intent.requestId, rejection)
     return if (attachmentWrite != null || pending.values.any { it is HarnessMutation.Remove }) {
         reject(intent.requestId, HarnessRejection.Busy)
     } else {
@@ -147,25 +171,53 @@ private fun HarnessState.Ready.reservedHarnesses(): List<Harness> {
 internal fun List<HarnessItem>.haveUniqueIdentity(): Boolean =
     map { it.id }.distinct().size == size && map { it.name }.distinct().size == size
 
+/** Optional source and connection scope captured by automatic review. */
+private data class AttachmentExpectation(val revision: Long?, val sessions: Set<SessionRef>?)
+
 private fun HarnessState.Ready.attach(
     request: RequestId,
     id: HarnessId,
     session: SessionRef,
     isAttached: Boolean,
+    expected: AttachmentExpectation,
 ): LibraryTransition {
-    if (harnesses.none { it.harness.id == id }) return reject(request, HarnessRejection.NotFound)
-    if (attachmentWrite != null || pending.values.any { it is HarnessMutation.Remove }) {
-        return reject(request, HarnessRejection.Busy)
-    }
+    attachmentRejection(id, expected.revision, expected.sessions)?.let { return reject(request, it) }
     val ids = if (isAttached) attachments[session].orEmpty() + id else attachments[session].orEmpty() - id
     val next = (attachments + (session to ids)).filterValues { it.isNotEmpty() }
-    if (!validAttachments(harnesses.map { it.harness }, next)) return reject(request, HarnessRejection.Limit)
-    val write = HarnessAttachmentWrite(request, id, session, isAttached, next, writeGeneration + 1)
-    return LibraryTransition(
-        copy(attachmentWrite = write, writeGeneration = write.generation),
-        listOf(HarnessEffect.SaveAttachments(write)),
-    )
+    return if (!validAttachments(harnesses.map { it.harness }, next)) {
+        reject(request, HarnessRejection.Limit)
+    } else {
+        val write = HarnessAttachmentWrite(request, id, session, isAttached, next, writeGeneration + 1)
+        LibraryTransition(
+            copy(attachmentWrite = write, writeGeneration = write.generation),
+            listOf(HarnessEffect.SaveAttachments(write)),
+        )
+    }
 }
+
+private fun HarnessState.Ready.attachmentRejection(
+    id: HarnessId,
+    expectedRevision: Long?,
+    expectedSessions: Set<SessionRef>?,
+): HarnessRejection? = expectedRevision?.let { mutationRejection(id, it) }
+    ?: connectionRejection(id, expectedSessions)
+    ?: when {
+        harnesses.none { it.harness.id == id } -> HarnessRejection.NotFound
+
+        attachmentWrite != null || id in pending || pending.values.any { it is HarnessMutation.Remove } ->
+            HarnessRejection.Busy
+
+        else -> null
+    }
+
+/** Connection writes and source edits with reviewed scope cannot cross each other's admission. */
+private fun HarnessState.Ready.connectionRejection(id: HarnessId, expected: Set<SessionRef>?): HarnessRejection? =
+    when {
+        expected == null -> null
+        attachmentWrite != null -> HarnessRejection.Busy
+        attachments.filterValues { id in it }.keys != expected -> HarnessRejection.Conflict
+        else -> null
+    }
 
 private fun HarnessState.Ready.approve(intent: HarnessIntent.Internal.SetApproval): LibraryTransition = when {
     intent.expectedRevision != approvalRevision -> reject(intent.requestId, HarnessRejection.Conflict)

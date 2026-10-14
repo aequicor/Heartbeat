@@ -5,6 +5,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
@@ -20,6 +21,7 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
  * The desktop host uses WINDOW Compose layers. Their normal scrim is drawn below native children,
  * and they cannot intercept input outside their own window. Cover the whole client area with the
  * owned layer instead. The upstream transition must not shrink or move this input barrier.
+ * Native clipping starts afresh in this layer; a transcript's viewport belongs to its original window.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -33,7 +35,9 @@ internal actual fun HbPlatformDialog(onDismissRequest: () -> Unit, content: @Com
             animateTransition = false,
         ),
     ) {
-        HbDesktopDialogContent(onDismissRequest, content = content)
+        CompositionLocalProvider(LocalHbNativeContentViewport provides null) {
+            HbDesktopDialogContent(onDismissRequest, content = content)
+        }
     }
 }
 

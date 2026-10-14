@@ -21,8 +21,12 @@ public sealed interface ItemStatus {
     /** This runtime generation is available. */
     public data class Active(val generation: Long) : ItemStatus
 
-    /** A failed activation or execution; isDisabled excludes further runtime use. */
-    public data class Failed(val generation: Long, val isDisabled: Boolean) : ItemStatus
+    /** A failed activation or execution; only allowlisted host validation is exposed in [reason]. */
+    public data class Failed(
+        val generation: Long,
+        val isDisabled: Boolean,
+        val reason: HarnessValidationCode? = null,
+    ) : ItemStatus
 }
 
 /** A load token captures the library version; concurrent writes make its snapshot inapplicable. */

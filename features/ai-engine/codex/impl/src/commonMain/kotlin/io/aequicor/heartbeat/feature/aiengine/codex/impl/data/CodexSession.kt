@@ -613,6 +613,7 @@ internal class CodexSession(
         params.text("callId")?.let(::ToolCallId),
         lifetime = hostedJobs.lifetime(turn.id),
         target = turn.target,
+        decisionMode = turn.decisionMode,
     )
 
     private suspend fun userInput(message: JsonObject, turn: Turn?) {

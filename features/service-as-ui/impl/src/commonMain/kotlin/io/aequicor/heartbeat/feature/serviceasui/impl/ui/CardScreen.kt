@@ -28,7 +28,7 @@ import pro.respawn.flowmvi.dsl.collect
 
 /**
  * A card in a response, framed with its title, or a placeholder telling why it cannot be drawn; [documents] are the
- * browser documents of its modals by route id.
+ * browser documents of its body and modals by route id.
  */
 @Composable
 internal fun CardScreen(

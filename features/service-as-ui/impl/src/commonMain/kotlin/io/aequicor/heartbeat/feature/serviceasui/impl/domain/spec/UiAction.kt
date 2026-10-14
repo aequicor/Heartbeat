@@ -19,6 +19,11 @@ internal sealed interface UiAction {
     @SerialName("reload")
     data class Reload(val source: String) : UiAction
 
+    /** Reveals the latest card of the owner's [surface] in the current chat without opening another panel. */
+    @Serializable
+    @SerialName("focusCard")
+    data class FocusCard(val surface: String) : UiAction
+
     /** Writes [value] (strings may hold bindings) into state key [key]. */
     @Serializable
     @SerialName("set")

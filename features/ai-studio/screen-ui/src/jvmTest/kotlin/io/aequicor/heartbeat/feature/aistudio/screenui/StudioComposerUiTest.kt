@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_auto
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_edits
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_safety
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_effort_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_default
@@ -205,31 +206,35 @@ class StudioComposerUiTest {
         }
 
     @Test
-    fun `native model with trust levels offers the approval modes`() = runSkikoComposeUiTest(size = Size(900f, 700f)) {
-        val events = mutableListOf<StudioIntent>()
-        val pane = PaneUi(0)
-        val native = ModelUi("native-route", "Native model", isTrustSupported = true)
-        val initial = AiStudioScreenState(panes = persistentListOf(pane))
-        val state = initial.copy(
-            models = persistentListOf(native),
-            settings = initial.settings.copy(modelId = native.id),
-        )
-        var editsLabel = ""
-        var addLabel = ""
-        setContent {
-            editsLabel = stringResource(Res.string.approval_edits)
-            addLabel = stringResource(Res.string.composer_add)
-            NativeComposerFixture(state.paneContent(pane), events::add)
-        }
-        onNodeWithContentDescription(addLabel).performClick()
-        onNodeWithText(editsLabel).performClick()
-        runOnIdle {
-            assertEquals(
-                listOf<StudioIntent>(StudioIntent.SelectApproval(ApprovalUi.AutoEdits, 0)),
-                events,
+    fun `native model shows automatic safety without offering a trust bypass`() =
+        runSkikoComposeUiTest(size = Size(900f, 700f)) {
+            val events = mutableListOf<StudioIntent>()
+            val pane = PaneUi(0)
+            val native = ModelUi("native-route", "Native model", isTrustSupported = true)
+            val initial = AiStudioScreenState(panes = persistentListOf(pane))
+            val state = initial.copy(
+                models = persistentListOf(native),
+                settings = initial.settings.copy(modelId = native.id),
             )
+            var editsLabel = ""
+            var safetyLabel = ""
+            var autoLabel = ""
+            var addLabel = ""
+            setContent {
+                editsLabel = stringResource(Res.string.approval_edits)
+                safetyLabel = stringResource(Res.string.approval_safety)
+                autoLabel = stringResource(Res.string.approval_auto)
+                addLabel = stringResource(Res.string.composer_add)
+                NativeComposerFixture(state.paneContent(pane), events::add)
+            }
+            onNodeWithContentDescription(addLabel).performClick()
+            onNodeWithText(editsLabel).assertDoesNotExist()
+            onNodeWithText(autoLabel).assertDoesNotExist()
+            onNodeWithText(safetyLabel).assertIsDisplayed().assertIsNotEnabled()
+            runOnIdle {
+                assertEquals(emptyList(), events)
+            }
         }
-    }
 
     @Test
     fun `running native session offers model changes and a default effort is not replaced by its preference`() =
@@ -287,7 +292,7 @@ class StudioComposerUiTest {
             var effortLabel = ""
             setContent {
                 addLabel = stringResource(Res.string.composer_add)
-                autoLabel = stringResource(Res.string.approval_auto)
+                autoLabel = stringResource(Res.string.approval_safety)
                 planLabel = stringResource(Res.string.template_plan)
                 effortLabel = stringResource(Res.string.composer_effort_menu)
                 NativeComposerFixture(state.paneContent(pane), {})

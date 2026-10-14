@@ -41,6 +41,7 @@ class StudioScreenSerializationTest {
                     persistentListOf(tool),
                     isStreaming = true,
                     cardIds = persistentListOf("card-1", "card-2"),
+                    liveCardAliases = persistentListOf("old-card-1", "card-1"),
                     parts = persistentListOf(
                         ReplyPartUi.Reasoning("r1", "думаю"),
                         ReplyPartUi.Tool(tool),
@@ -54,6 +55,7 @@ class StudioScreenSerializationTest {
             ),
         ),
         drafts = persistentMapOf("s1" to "черновик"),
+        cardFocusRequests = persistentMapOf(1 to CardFocusRequestUi("s1", "m2", "card-2", 3)),
         diagramFocusRequests = persistentMapOf(1 to 2L),
         attachmentPreviews = persistentMapOf("a1" to AttachmentPreviewUi(imageBytes = byteArrayOf(0, 1, -1, 127))),
         now = at,
@@ -78,6 +80,7 @@ class StudioScreenSerializationTest {
             AiStudioScreenIntent.InstallAppUpdate,
             AiStudioScreenIntent.OpenSession("s1"),
             AiStudioScreenIntent.Submit(1),
+            AiStudioScreenIntent.CardFocusApplied(1, 3),
             AiStudioScreenIntent.RespondPermission("s1", "r1", "allow"),
             AiStudioScreenIntent.ToggleSearch,
         )

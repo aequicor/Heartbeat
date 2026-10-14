@@ -32,17 +32,20 @@ internal class RoomUiCards(
     private val dao by lazy { stores.database(ServiceUiDatabaseSpec).cards() }
 
     override suspend fun add(card: UiCard): UiCardAdded {
-        val evicted = dao.add(card.row(), UiCardLimits.PER_CHAT, UiCardLimits.PER_PROFILE)
-        return if (evicted == null) {
+        val stored = dao.add(card.row(), UiCardLimits.PER_CHAT, UiCardLimits.PER_PROFILE)
+        return if (stored == null) {
             log.i { "Card ${card.id} not stored: its chat holds ${UiCardLimits.PER_CHAT} cards" }
             UiCardAdded.ChatFull
         } else {
-            log.i { "Card ${card.id} stored, $evicted oldest evicted" }
-            UiCardAdded.Stored(evicted)
+            log.i { "Card ${stored.id} stored, ${stored.evicted} oldest evicted" }
+            UiCardAdded.Stored(stored.id, stored.evicted)
         }
     }
 
     override fun observe(id: String): Flow<UiCard?> = dao.observe(id).map { it?.card() }
+
+    override suspend fun latest(chat: SessionRef, surface: UiSurfaceId): UiCard? =
+        dao.latest(Json.encodeToString(SessionRef.serializer(), chat), surface.value)?.card()
 
     private fun UiCard.row() = CardEntity(
         id = id,

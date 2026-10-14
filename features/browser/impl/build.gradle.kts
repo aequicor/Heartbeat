@@ -28,6 +28,8 @@ kotlin {
         commonTest.dependencies { implementation(libs.flowmvi.test) }
         jvmMain.dependencies {
             implementation(projects.core.datastore.api)
+            // Scoped macOS content-view clipping through public JCEF/AppKit APIs.
+            implementation(libs.jna.platform)
             // Agent navigation without approval is limited to the same public URLs as web_fetch.
             implementation(projects.features.searchEngine.api)
             // External Chromium browser driven through the Heartbeat extension (ex_control_* tools).
@@ -39,7 +41,6 @@ kotlin {
             implementation(libs.jcef.gluegen)
         }
         jvmTest.dependencies {
-            implementation(libs.jna.platform)
             implementation(libs.kotlinx.coroutinesSwing)
             heartbeatJcef.nativeBundle?.let { runtimeOnly(it) }
             implementation(libs.compose.uiTest)
@@ -84,4 +85,23 @@ heartbeatJcef.registerNativeTest(
     dependsOn(prepareComposeNativeRoot)
     finalizedBy(cleanComposeNativeRoot)
     systemProperty("heartbeat.browser.composeNativeRoot", composeNativeRoot.get().asFile.absolutePath)
+}
+
+// No OS input or capture: checks first native mount, clipping geometry and DOM retention in Compose.
+val viewportNativeRoot = layout.buildDirectory.dir("native-document-viewport")
+val prepareViewportNativeRoot = tasks.register<Delete>("prepareBrowserViewportNativeRoot") {
+    delete(viewportNativeRoot)
+}
+val cleanViewportNativeRoot = tasks.register<Delete>("cleanBrowserViewportNativeRoot") {
+    delete(viewportNativeRoot)
+}
+heartbeatJcef.registerNativeTest(
+    name = "browserViewportNativeTest",
+    description = "Checks real Chromium document viewport geometry and retention without OS input or capture.",
+    testClass = "DesktopDocumentViewportNativeTest",
+    enablingProperty = "heartbeat.browser.viewportNativeTest",
+) {
+    dependsOn(prepareViewportNativeRoot)
+    finalizedBy(cleanViewportNativeRoot)
+    systemProperty("heartbeat.browser.composeNativeRoot", viewportNativeRoot.get().asFile.absolutePath)
 }

@@ -68,7 +68,7 @@ internal class DesktopBrowserPanel(
         container?.let {
             return it
         }
-        val panel = JPanel(BorderLayout()).apply { isOpaque = false }
+        val panel = DesktopBrowserContainer()
         container = panel
         if (!isReleased.get()) {
             isAttached = true
