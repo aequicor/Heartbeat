@@ -19,6 +19,11 @@ class KmpWasmConventionPlugin : Plugin<Project> {
 
     override fun apply(target: Project) = with(target) {
         pluginManager.apply("org.jetbrains.kotlin.multiplatform")
+        rootProject.pluginManager.apply(WindowsNpmInstallConventionPlugin::class.java)
+        configureBinaryenWindowsArm64(
+            providers.systemProperty("os.name").get(),
+            providers.systemProperty("os.arch").get(),
+        )
         extensions.configure<KotlinMultiplatformExtension> {
             @OptIn(ExperimentalWasmDsl::class)
             wasmJs {
