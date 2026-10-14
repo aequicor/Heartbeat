@@ -1,7 +1,5 @@
 package io.aequicor.heartbeat.feature.browser.impl.ui
 
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.RememberObserver
 import androidx.compose.runtime.SideEffect
@@ -13,12 +11,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.SwingPanel
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.aequicor.heartbeat.ds.components.LocalHbDialogDismissRequest
+import io.aequicor.heartbeat.ds.components.LocalHbDialogOverlayInsets
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserDocumentSurface
 import io.aequicor.heartbeat.feature.browser.impl.presentation.DesktopDocumentAttachment
@@ -68,25 +68,27 @@ private fun RetainedDocumentPanel(
     var viewportWidth by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     val dimensions = HbTheme.dimensions
-    val theme = browserDocumentTheme(
-        HbTheme.colors,
+    val overlay = LocalHbDialogOverlayInsets.current
+    val theme = HbTheme.colors.browserDocumentTheme(
         HbTheme.typography,
         HbTheme.spacing,
         dimensions,
         density.fontScale,
+        overlay,
     )
     val dismiss = LocalHbDialogDismissRequest.current
+    val cornerRadius = if (overlay.width.value > 0 && overlay.height.value > 0) {
+        HbTheme.shapes.large.topStart.toPx(Size.Zero, density).toDouble() / density.density
+    } else {
+        0.0
+    }
     SideEffect {
         panel.updateTheme(theme)
         attachment.updateDismissRequest(dismiss)
+        attachment.updateCornerRadius(cornerRadius)
     }
-    val height = (size?.logicalHeight(viewportWidth / density.density)?.dp ?: dimensions.webDocumentHeight)
-        .coerceIn(dimensions.webDocumentMinHeight, dimensions.webDocumentMaxHeight)
-    val sized = when {
-        surface.isFill -> modifier.fillMaxSize()
-        surface.isContentSized -> modifier.height(height)
-        else -> modifier
-    }
+    val intrinsicHeight = size?.logicalHeight(viewportWidth / density.density)?.dp ?: dimensions.webDocumentHeight
+    val sized = modifier.documentSize(surface, intrinsicHeight, dimensions)
     if (isUnavailable) {
         BrowserDocumentNote(stringResource(Res.string.browser_engine_unavailable), sized)
     } else {

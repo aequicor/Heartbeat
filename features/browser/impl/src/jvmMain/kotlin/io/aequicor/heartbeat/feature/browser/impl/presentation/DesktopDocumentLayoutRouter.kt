@@ -9,7 +9,7 @@ import org.cef.handler.CefMessageRouterHandlerAdapter
 
 private val layoutQueryNames = desktopDocumentRouterConfig()
 
-/** A presentation channel, separate from owner calls and available only for content-sized documents. */
+/** A presentation-only size channel, separate from owner calls, including on pages without a method bridge. */
 internal val desktopDocumentLayoutFunction: String get() = layoutQueryNames.jsQueryFunction
 
 /**

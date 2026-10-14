@@ -139,6 +139,7 @@ internal class DesktopDocumentPanel(
         host.add(content, BorderLayout.CENTER)
         content.isVisible = true
         updateDismissRequest(next)
+        updateCornerRadius(next)
         host.revalidate()
         host.repaint()
     }
@@ -148,6 +149,7 @@ internal class DesktopDocumentPanel(
         check(SwingUtilities.isEventDispatchThread())
         if (attachment !== previous) return
         presentation.dismissal.update(null)
+        engine?.updateCornerRadius(0.0)
         attachment = null
         val content = container ?: return
         content.isVisible = false
@@ -162,6 +164,11 @@ internal class DesktopDocumentPanel(
     internal fun updateDismissRequest(owner: DesktopDocumentAttachment) {
         check(SwingUtilities.isEventDispatchThread())
         if (attachment === owner && !isReleased) presentation.dismissal.update(owner.onDismissRequest)
+    }
+
+    internal fun updateCornerRadius(owner: DesktopDocumentAttachment) {
+        check(SwingUtilities.isEventDispatchThread())
+        if (attachment === owner && !isReleased) engine?.updateCornerRadius(owner.cornerRadius)
     }
 
     fun release() {
@@ -201,6 +208,7 @@ internal class DesktopDocumentPanel(
                 )
                 engine = runtime
                 engines += runtime
+                runtime.updateCornerRadius(attachment?.cornerRadius ?: 0.0)
                 container?.apply {
                     add(runtime.component, BorderLayout.CENTER)
                     revalidate()

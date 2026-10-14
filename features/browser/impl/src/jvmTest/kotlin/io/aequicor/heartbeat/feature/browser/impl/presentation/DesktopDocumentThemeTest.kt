@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
+import androidx.compose.ui.unit.dp
+import io.aequicor.heartbeat.ds.components.HbDialogOverlayInsets
 import io.aequicor.heartbeat.ds.tokens.HbColors
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.ds.tokens.HbSpacing
@@ -13,6 +15,18 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class DesktopDocumentThemeTest {
+    @Test
+    fun `modal overlay updates only presentation tokens and resets on returning to the start host`() {
+        val start = theme(HbColors.DesktopLight)
+        val modal = theme(HbColors.DesktopLight, HbDialogOverlayInsets(44.dp, 40.dp))
+        assertEquals("0.0px", start.variables["--hb-overlay-width"])
+        assertEquals("0.0px", start.variables["--hb-overlay-height"])
+        assertEquals("44.0px", modal.variables["--hb-overlay-width"])
+        assertEquals("40.0px", modal.variables["--hb-overlay-height"])
+        assertEquals(start, theme(HbColors.DesktopLight))
+        assertFalse("__heartbeatData" in desktopDocumentThemeScript(modal))
+    }
+
     @Test
     fun `the host palette and scaled typography are reflected without changing app data`() {
         val light = theme(HbColors.DesktopLight)
@@ -48,6 +62,20 @@ class DesktopDocumentThemeTest {
     }
 
     @Test
+    fun `passive fixed-page measurement changes no CSS and grants no owner call bridge`() {
+        val page = desktopDocumentHtml(
+            "<main>App</main>",
+            null,
+            null,
+            layout = DesktopDocumentLayoutScript("layoutOnly", 8, hasContentStyles = false),
+        )
+        assertTrue("ResizeObserver" in page)
+        assertTrue("const query = null;" in page)
+        assertFalse("display:flow-root" in page)
+        assertFalse("scrollbar-gutter" in page)
+    }
+
+    @Test
     fun `theme values cannot escape the bootstrap script`() {
         val hostile = DesktopDocumentTheme(false, mapOf("--hb-font-family" to "</script>\u2028<!--"))
         val page = desktopDocumentHtml("<p/>", null, null, hostile)
@@ -56,11 +84,14 @@ class DesktopDocumentThemeTest {
         assertFalse('\u2028' in page)
     }
 
-    private fun theme(colors: HbColors): DesktopDocumentTheme = browserDocumentTheme(
-        colors,
+    private fun theme(
+        colors: HbColors,
+        overlay: HbDialogOverlayInsets = HbDialogOverlayInsets(),
+    ): DesktopDocumentTheme = colors.browserDocumentTheme(
         HbTypography.Desktop,
         HbSpacing(),
         HbDimensions.Desktop,
         fontScale = 1.5f,
+        overlay = overlay,
     )
 }

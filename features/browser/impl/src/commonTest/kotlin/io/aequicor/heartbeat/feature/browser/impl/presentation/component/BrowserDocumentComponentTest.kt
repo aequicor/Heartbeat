@@ -21,6 +21,27 @@ class BrowserDocumentComponentTest {
     private val documents = ProfileBrowserDocuments()
 
     @Test
+    fun `content presentation measures a fixed registration without replacing its document`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val handle = assertNotNull(documents.open(BrowserDocument("<p/>", "Fixed page")))
+            val component = BrowserDocumentComponent(
+                DefaultComponentContext(LifecycleRegistry()),
+                handle.route.id,
+                documents,
+                backgroundScope,
+                presentation = BrowserDocumentPresentation.Content,
+            )
+            val content = assertNotNull(component.surface.value)
+            assertSame(documents.documents.value.getValue(handle.route.id), content.document)
+            assertTrue(content.isContentSized)
+            assertTrue(content.isHostContentSized)
+            assertFalse(content.isFill)
+            assertEquals(BrowserDocumentSizing.Fixed, content.document.document.sizing)
+            assertEquals(BrowserDocumentPresentation.Document, handle.route.presentation)
+            assertEquals(1, documents.documents.value.size)
+        }
+
+    @Test
     fun `fill keeps an intrinsically sized registration while overriding only its host layout`() =
         runTest(UnconfinedTestDispatcher()) {
             val handle = assertNotNull(

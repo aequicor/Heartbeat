@@ -112,6 +112,13 @@ public enum class BrowserDocumentPresentation {
 
     /** Fill the bounded host viewport, including for an intrinsically sized registration. */
     Fill,
+
+    /**
+     * Follow intrinsic content height, limited only by the host's incoming minimum and maximum constraints.
+     * Tight constraints still fill a host such as a start screen; loose constraints let a modal shrink or grow.
+     * Works with either registration sizing mode and uses a regular viewport until its first measurement.
+     */
+    Content,
 }
 
 /** Bounds of documents and of what their pages send and receive. */

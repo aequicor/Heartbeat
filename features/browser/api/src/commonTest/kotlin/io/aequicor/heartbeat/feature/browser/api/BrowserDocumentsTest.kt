@@ -38,12 +38,14 @@ class BrowserDocumentsTest {
     }
 
     @Test
-    fun `fill is a route presentation of the same registration and round trips`() {
+    fun `fill and content are route presentations of the same registration and round trip`() {
         val original = BrowserDocumentRoute("document")
-        val fill = original.copy(presentation = BrowserDocumentPresentation.Fill)
-        assertEquals(original.id, fill.id)
-        val json = Json.encodeToString(BrowserDocumentRoute.serializer(), fill)
-        assertEquals(fill, Json.decodeFromString(BrowserDocumentRoute.serializer(), json))
+        for (presentation in listOf(BrowserDocumentPresentation.Fill, BrowserDocumentPresentation.Content)) {
+            val route = original.copy(presentation = presentation)
+            assertEquals(original.id, route.id)
+            val json = Json.encodeToString(BrowserDocumentRoute.serializer(), route)
+            assertEquals(route, Json.decodeFromString(BrowserDocumentRoute.serializer(), json))
+        }
         assertEquals(BrowserDocumentPresentation.Document, original.presentation)
     }
 }

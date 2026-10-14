@@ -23,7 +23,9 @@ internal class NativeDocumentClipSnapshot {
     private val bridge = Class.forName("org.cef.browser.mac.CefBrowserWindowMac")
         .getConstructor().newInstance() as CefBrowserWindow
 
-    fun read(component: JComponent): List<Boolean> {
+    fun read(component: JComponent): List<Boolean> = shapes(component).map { it.isClipped }
+
+    fun shapes(component: JComponent): List<NativeDocumentShape> {
         check(SwingUtilities.isEventDispatchThread())
         val owner = SwingUtilities.getWindowAncestor(component) ?: return emptyList()
         check(owner.isDisplayable)
@@ -67,16 +69,22 @@ internal class NativeDocumentClipSnapshot {
         }
     }
 
-    private fun readViews(root: Pointer?): List<Boolean> {
+    private fun readViews(root: Pointer?): List<NativeDocumentShape> {
         val kind = getClass.invokePointer(arrayOf("CefBrowserContentView"))
         val pending = ArrayDeque<Pointer>()
         root?.let(pending::add)
-        val result = mutableListOf<Boolean>()
+        val result = mutableListOf<NativeDocumentShape>()
         while (pending.isNotEmpty()) {
             val view = pending.removeFirst()
             if (objectClass.invokePointer(arrayOf(view)) == kind) {
                 val value = message.invokeInt(arrayOf(view, selector.invokePointer(arrayOf("clipsToBounds"))))
-                result += value and 0xff != 0
+                val layer = checkNotNull(pointer(view, "layer"))
+                result += NativeDocumentShape(
+                    Pointer.nativeValue(view),
+                    value and 0xff != 0,
+                    message.invokeDouble(arrayOf(layer, selector.invokePointer(arrayOf("cornerRadius")))),
+                    message.invokeInt(arrayOf(layer, selector.invokePointer(arrayOf("masksToBounds")))) and 0xff != 0,
+                )
             }
             val children = pointer(view, "subviews") ?: continue
             val count = message.invokeLong(arrayOf(children, selector.invokePointer(arrayOf("count"))))
@@ -90,3 +98,6 @@ internal class NativeDocumentClipSnapshot {
     private fun pointer(receiver: Pointer, name: String, vararg args: Any): Pointer? =
         message.invokePointer(arrayOf(receiver, selector.invokePointer(arrayOf(name)), *args))
 }
+
+/** Exact-group identity and read-only AppKit layer state, used to detect mask leakage after reparenting. */
+internal data class NativeDocumentShape(val id: Long, val isClipped: Boolean, val radius: Double, val isMasked: Boolean)

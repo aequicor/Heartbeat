@@ -81,6 +81,7 @@ internal class DesktopDocumentEngine(
     }
     private val browser: CefBrowser
     private var nativeClipping: MacDocumentNativeClipping? = null
+    private var nativeRounding: MacDocumentNativeRounding? = null
 
     /** Added to the client as soon as it exists, so disposing the client always disposes the native router. */
     private var router: DesktopDocumentRouter? = null
@@ -105,10 +106,9 @@ internal class DesktopDocumentEngine(
                     client.addMessageRouter(it.router)
                 }
             }
-            if (document.document.sizing == BrowserDocumentSizing.Content) {
-                layoutRouter = DesktopDocumentLayoutRouter(url, presentation.measurements).also {
-                    client.addMessageRouter(it.router)
-                }
+            // Every retained page can later be mounted with Content presentation without being reloaded.
+            layoutRouter = DesktopDocumentLayoutRouter(url, presentation.measurements).also {
+                client.addMessageRouter(it.router)
             }
             client.addRequestHandler(policy.requestHandler)
             client.addLifeSpanHandler(LifeSpan())
@@ -150,6 +150,19 @@ internal class DesktopDocumentEngine(
         if (!isClosed.get() && !isReleased()) nativeClipping?.nativePainted()
     }
 
+    /** Restores the previous modal mask synchronously before the retained page moves to a different host. */
+    fun updateCornerRadius(radius: Double) {
+        check(SwingUtilities.isEventDispatchThread())
+        if (!OS.isMacintosh() || isClosed.get() || isReleased()) return
+        val rounding = nativeRounding ?: if (radius > 0) {
+            MacDocumentNativeRounding().also { nativeRounding = it }
+        } else {
+            null
+        }
+        rounding?.update(radius)
+        if (radius > 0 && isNativeCreated.get()) nativeClipping?.request()
+    }
+
     /** Sends [data] to the loaded page unless it already holds it; a page still loading reads it when served. */
     fun deliver(data: JsonElement?) {
         check(SwingUtilities.isEventDispatchThread())
@@ -189,7 +202,11 @@ internal class DesktopDocumentEngine(
         served = Delivered(data, theme)
         val query = router?.let { desktopDocumentQueryFunction }
         val layout = layoutRouter?.let {
-            DesktopDocumentLayoutScript(desktopDocumentLayoutFunction, presentation.measurements.beginPage())
+            DesktopDocumentLayoutScript(
+                desktopDocumentLayoutFunction,
+                presentation.measurements.beginPage(),
+                hasContentStyles = document.document.sizing == BrowserDocumentSizing.Content,
+            )
         }
         return desktopDocumentBody(desktopDocumentHtml(document.document.html, data, query, theme, layout))
     }
@@ -203,7 +220,11 @@ internal class DesktopDocumentEngine(
     private fun requestNativeClipping(isDocumentLoaded: Boolean) {
         if (!OS.isMacintosh()) return
         try {
-            val clipping = nativeClipping ?: MacDocumentNativeClipping(browser.uiComponent as JComponent, ::fail).also {
+            val clipping = nativeClipping ?: MacDocumentNativeClipping(
+                browser.uiComponent as JComponent,
+                ::fail,
+                onClipped = { nativeRounding?.apply(browser.uiComponent as JComponent) },
+            ).also {
                 nativeClipping = it
             }
             if (isDocumentLoaded) clipping.documentLoaded() else clipping.request()
@@ -217,6 +238,8 @@ internal class DesktopDocumentEngine(
     private fun closeNativeClipping() {
         nativeClipping?.close()
         nativeClipping = null
+        nativeRounding?.close()
+        nativeRounding = null
     }
 
     private fun dispose() {

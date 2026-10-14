@@ -21,7 +21,10 @@ internal data class BrowserDocumentSurface(
 
     /** Whether this route may follow the page's intrinsic height inside host bounds. */
     val isContentSized: Boolean
-        get() = !isFill && document.document.sizing == BrowserDocumentSizing.Content
+        get() = isHostContentSized || (!isFill && document.document.sizing == BrowserDocumentSizing.Content)
+
+    /** Intrinsic height follows this host's constraints without applying the registration's viewport presets. */
+    val isHostContentSized: Boolean get() = presentation == BrowserDocumentPresentation.Content
 
     /** Whether this host fills its viewport instead of following the registration's intrinsic height. */
     val isFill: Boolean get() = presentation == BrowserDocumentPresentation.Fill

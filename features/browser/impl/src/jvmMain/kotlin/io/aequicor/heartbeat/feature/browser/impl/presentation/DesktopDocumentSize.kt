@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /** Intrinsic page height and the CSS viewport width at which it was measured, independent of screen density. */
 internal data class DesktopDocumentSize(val width: Int, val height: Int) {
-    /** Scale CSS pixels to the caller's logical width; final layout still clamps to design-system bounds. */
+    /** Scale CSS pixels to the caller's logical width; the current host still applies its layout constraints. */
     fun logicalHeight(viewportWidth: Float): Float? =
         viewportWidth.takeIf { it.isFinite() && it > 0 }?.let { height.toFloat() * it / width }
 }
@@ -99,7 +99,7 @@ internal class DesktopDocumentMeasurements(private val dispatch: (() -> Unit) ->
         const val MESSAGE_CHARS = 48
         const val FIELDS = 3
 
-        // Protocol bound, not a viewport size: UI always clamps to the host's much smaller height tokens.
+        // Protocol bound, not a viewport size: UI always clamps to the current host's layout constraints.
         const val MAX_DIMENSION = 100_000
     }
 }
