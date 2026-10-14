@@ -65,6 +65,27 @@ public sealed interface WorktreeIntent : MachineIntent {
         /** Proven submission rejection before native acceptance; no synthetic native turn is invented. */
         public data class RunRejected(val chatId: String, val request: RequestId, val reason: String) : Public
 
+        /**
+         * Submission observation ended before acceptance was confirmed. Retains the request and session without
+         * inventing a turn or a rejection; native reconciliation is required before releasing any merge lease.
+         */
+        public data class RunSubmissionObservationLost(
+            val chatId: String,
+            val request: RequestId,
+            val session: SessionRef,
+            val reason: String,
+        ) : Public
+
+        /**
+         * A fresh native inspection proved the same session idle after uncertain submission. Clears only the
+         * matching unaccepted recovery request and releases its lease without claiming rejection or completion.
+         */
+        public data class RunSubmissionReconciled(
+            val chatId: String,
+            val request: RequestId,
+            val session: SessionRef,
+        ) : Public
+
         /** Native supervision was lost; identity is retained and an active merge lease must remain held. */
         public data class RunObservationLost(
             val chatId: String,

@@ -66,6 +66,8 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRun
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
+import io.aequicor.heartbeat.feature.worktreemode.api.runPrepared
+import io.aequicor.heartbeat.feature.worktreemode.api.transition
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
@@ -918,10 +920,152 @@ class StudioClosedTurnExecutorTest {
                 assertTrue(fixture.host.acceptedReceipts.isEmpty())
                 assertTrue(fixture.host.terminalReceipts.isEmpty())
                 assertTrue(fixture.machine.sent.any { it is WorktreeIntent.Public.RunStarted })
+                val task = (fixture.machine.state.value as WorktreeState.Ready).tasks.getValue("chat")
+                assertEquals(WorktreePhase.RecoveryRequired, task.phase)
+                assertEquals(fixture.active.ref, task.run?.session)
+                assertNull(task.run?.turn)
+                assertNull(task.run?.outcome)
+                assertTrue(fixture.machine.sent.any { it is WorktreeIntent.Public.RunSubmissionObservationLost })
                 assertTrue(fixture.machine.sent.none { it is WorktreeIntent.Public.RunRejected })
                 assertTrue(fixture.machine.sent.none { it is WorktreeIntent.Public.RunSettled })
             }
         }
+}
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class StudioSubmissionRecoveryTest {
+    @Test
+    fun `closed uncertain submission reconciles its exact terminal turn before a new worktree request`() = runTest {
+        val request = RequestId("request")
+        val terminalEvidence = listOf(
+            TurnOutcome.Completed to TurnInspection.Observed(request, TurnOutcome.Completed),
+            TurnOutcome.Unknown to TurnInspection.Observed(request, TurnOutcome.Unknown),
+            TurnOutcome.Unknown to TurnInspection.Idle,
+        )
+        for ((priorOutcome, inspection) in terminalEvidence) {
+            val fixture = TurnFixture()
+            fixture.host.isNativeSubmissionEnabled = true
+            fixture.active.sendFailure = EngineException(
+                EngineFailure.Request(RequestFailureReason.OutcomeUnknown, fixture.request.request),
+            )
+            val first = async { fixture.executor.execute(fixture.host, fixture.request) }
+            runCurrent()
+            fixture.active.state.value = ActiveSessionState.Closed
+            assertEquals(RunOutcome.Failed, first.await())
+            val retry = fixture.request.copy(request = RequestId("retry"))
+            fixture.active.sendFailure = null
+            fixture.active.state.value = ActiveSessionState.Ready(fixture.turn.copy(outcome = priorOutcome))
+            fixture.active.inspection = inspection
+            fixture.host.beforeSubmit = {
+                fixture.active.state.value = ActiveSessionState.Ready(fixture.turn.copy(request = retry.request))
+            }
+            fixture.tools.release.complete(Unit)
+            assertEquals(RunOutcome.Completed, fixture.executor.execute(fixture.host, retry))
+            assertEquals(0L, testScheduler.currentTime)
+            assertTrue(fixture.machine.sent.none { it is WorktreeIntent.Public.RunRejected })
+            val settled = fixture.machine.sent.filterIsInstance<WorktreeIntent.Public.RunSettled>()
+            assertEquals(listOf(fixture.request.request, retry.request), settled.map { it.request })
+            assertEquals(priorOutcome, settled.first().outcome)
+            assertEquals(listOf(retry.request to fixture.turn.id), fixture.host.acceptedReceipts)
+        }
+    }
+
+    @Test
+    fun `fresh native idle permits a new request without a false submission receipt`() = runTest {
+        val fixture = TurnFixture()
+        val pending = fixture.mainTask().copy(
+            chatId = fixture.request.id,
+            phase = WorktreePhase.RecoveryRequired,
+            run = WorktreeRun(fixture.request.request, session = fixture.active.ref, isPrepared = true),
+            isIsolated = true,
+        )
+        fixture.machine.state.value = WorktreeState.Ready(mapOf(pending.chatId to pending))
+        fixture.active.state.value = ActiveSessionState.Ready()
+        fixture.active.inspection = TurnInspection.Idle
+        val retry = fixture.request.copy(request = RequestId("retry"))
+        fixture.host.beforeSubmit = {
+            fixture.active.state.value = ActiveSessionState.Ready(fixture.turn.copy(request = retry.request))
+        }
+        fixture.tools.release.complete(Unit)
+        assertEquals(RunOutcome.Completed, fixture.executor.execute(fixture.host, retry))
+        assertEquals(0L, testScheduler.currentTime)
+        assertEquals(1, fixture.active.inspections)
+        assertTrue(fixture.machine.sent.none { it is WorktreeIntent.Public.RunRejected })
+        assertEquals(
+            listOf(
+                WorktreeIntent.Public.RunSubmissionReconciled(
+                    pending.chatId,
+                    fixture.request.request,
+                    fixture.active.ref,
+                ),
+            ),
+            fixture.machine.sent.filterIsInstance<WorktreeIntent.Public.RunSubmissionReconciled>(),
+        )
+        assertEquals(
+            listOf(retry.request),
+            fixture.machine.sent.filterIsInstance<WorktreeIntent.Public.RunSettled>().map { it.request },
+        )
+    }
+
+    @Test
+    fun `recovery immediately refuses unrelated or unconfirmed native evidence`() = runTest {
+        val evidenceCases = listOf(
+            "foreign session",
+            "idle",
+            "other request",
+            "unknown outcome",
+            "unknown inspection",
+            "other inspected request",
+            "idle while running",
+            "idle while unavailable with active turn",
+        )
+        for (evidence in evidenceCases) {
+            val fixture = TurnFixture()
+            val session = if (evidence == "foreign session") {
+                SessionRef(EngineId("test"), SessionSourceId("local"), "other")
+            } else {
+                fixture.active.ref
+            }
+            val pending = fixture.mainTask().copy(
+                chatId = fixture.request.id,
+                phase = WorktreePhase.RecoveryRequired,
+                run = WorktreeRun(fixture.request.request, session = session, isPrepared = true),
+                isIsolated = true,
+            )
+            fixture.machine.state.value = WorktreeState.Ready(mapOf(pending.chatId to pending))
+            fixture.active.inspection = when (evidence) {
+                "idle while running", "idle while unavailable with active turn" -> TurnInspection.Idle
+                "unknown inspection" -> TurnInspection.Unknown
+                "other inspected request" -> TurnInspection.Observed(RequestId("other"), TurnOutcome.Completed)
+                else -> null
+            }
+            fixture.active.state.value = when (evidence) {
+                "idle while running" -> ActiveSessionState.Running(fixture.turn.copy(outcome = null))
+
+                "idle while unavailable with active turn" -> ActiveSessionState.Unavailable(
+                    EngineFailure.Request(RequestFailureReason.OutcomeUnknown, fixture.request.request),
+                    fixture.turn.copy(outcome = null),
+                )
+
+                "idle" -> ActiveSessionState.Ready()
+
+                "other request" -> ActiveSessionState.Ready(fixture.turn.copy(request = RequestId("other")))
+
+                "unknown outcome" -> ActiveSessionState.Ready(fixture.turn.copy(outcome = TurnOutcome.Unknown))
+
+                else -> ActiveSessionState.Ready(fixture.turn)
+            }
+            assertEquals(
+                RunOutcome.Failed,
+                fixture.executor.execute(fixture.host, fixture.request.copy(request = RequestId("retry"))),
+            )
+            assertEquals(0L, testScheduler.currentTime)
+            assertEquals(pending, (fixture.machine.state.value as WorktreeState.Ready).tasks.getValue(pending.chatId))
+            assertTrue(fixture.machine.sent.isEmpty())
+            assertNull(fixture.host.submitted)
+            assertNull(fixture.tools.finished)
+        }
+    }
 }
 
 private class TurnFixture(harnesses: StudioHarnessAttach = NoStudioHarnessAttach) {
@@ -1164,10 +1308,13 @@ private class ExecutorMachine(private val events: MutableList<String>) :
                 val task = (state.value as WorktreeState.Ready).tasks.getValue("chat")
                 state.value = WorktreeState.Ready(
                     mapOf(
-                        "chat" to task.copy(
-                            phase = if (isPrepared) WorktreePhase.Working else WorktreePhase.Failed,
-                            run = WorktreeRun(intent.request, intent.kind, isPrepared = isPrepared),
-                        ),
+                        "chat" to task.transition(intent).let { started ->
+                            if (isPrepared) {
+                                started.runPrepared(intent.request)
+                            } else {
+                                started.copy(phase = WorktreePhase.Failed)
+                            }
+                        },
                     ),
                 )
             }
@@ -1178,11 +1325,16 @@ private class ExecutorMachine(private val events: MutableList<String>) :
 
             is WorktreeIntent.Public.RunRejected -> events += "rejected"
 
+            is WorktreeIntent.Public.RunSubmissionObservationLost,
+            is WorktreeIntent.Public.RunSubmissionReconciled,
+            is WorktreeIntent.Public.RunObservationLost,
+            -> Unit
+
             is WorktreeIntent.Public.CancelBuild -> events += "cancel-build"
 
             WorktreeIntent.Public.Start, WorktreeIntent.Public.RetryLoad,
             is WorktreeIntent.Public.Prepare, is WorktreeIntent.Public.TrackMainSession,
-            is WorktreeIntent.Public.RunObservationLost, is WorktreeIntent.Public.TaskCompleteSignaled,
+            is WorktreeIntent.Public.TaskCompleteSignaled,
             is WorktreeIntent.Public.ChooseAction, is WorktreeIntent.Public.ActionDelivered,
             is WorktreeIntent.Public.ActionDeliveryFailed, is WorktreeIntent.Public.Recheck,
             is WorktreeIntent.Public.ProposeBuildPlan, is WorktreeIntent.Public.ApproveBuildPlan,
@@ -1190,6 +1342,10 @@ private class ExecutorMachine(private val events: MutableList<String>) :
             -> error(
                 "Unexpected intent $intent",
             )
+        }
+        if (intent !is WorktreeIntent.Public.RunStarted) {
+            val ready = state.value as WorktreeState.Ready
+            state.value = WorktreeState.Ready(ready.tasks.mapValues { (_, task) -> task.transition(intent) })
         }
         return SendResult.Accepted
     }

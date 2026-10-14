@@ -390,6 +390,7 @@ internal class StudioTurnExecutor(
         if (active?.state?.value == ActiveSessionState.Closed && turn == null && progress.delivery.isPending) {
             log.w { "Native handle closed during submission; retain pending worktree ownership" }
             progress.isObservationClosed = true
+            if (progress.isIsolated) worktrees.submissionObservationLost(request.id, request.request, active.ref)
             request.onOutcome(TurnOutcome.Unknown)
             return true
         }

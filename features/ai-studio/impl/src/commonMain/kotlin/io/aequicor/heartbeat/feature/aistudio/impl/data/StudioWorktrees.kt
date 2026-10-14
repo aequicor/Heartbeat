@@ -10,8 +10,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RestoresSessionTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
@@ -73,7 +76,13 @@ internal class StudioWorktrees(private val machines: MachineRegistry, private va
         val run = previous.run ?: return
         if (previous.phase != WorktreePhase.RecoveryRequired || run.outcome != null) return
         val active = open()
+        check(run.session == null || run.session == active.ref) { "The interrupted request belongs to another session" }
         (active.features.resolve(ReconcilesSession) as? FeatureAccess.Available)?.feature?.synchronize()
+        if (run.turn == null && run.session != null) {
+            reconcileSubmission(id, run.request, active)
+            await(id, failOnTaskError = false) { it.run?.outcome != null || it.run == null }
+            return
+        }
         val native = active.state.value
         check(
             native is ActiveSessionState.Ready ||
@@ -100,6 +109,28 @@ internal class StudioWorktrees(private val machines: MachineRegistry, private va
         await(id, failOnTaskError = false) { it.run?.outcome != null || it.run == null }
     }
 
+    /** Fresh idle releases unknown ownership; a terminal receipt must belong to this exact pending request. */
+    private suspend fun reconcileSubmission(id: String, request: RequestId, active: ActiveSession) {
+        val inspector = (active.features.resolve(RestoresSessionTurns) as? FeatureAccess.Available)?.feature
+        val inspection = inspector?.inspect(null)
+        check(inspection.allowsSubmissionRecovery(request)) {
+            "The interrupted submission's native outcome is still unknown"
+        }
+        val native = active.state.value
+        check(
+            native is ActiveSessionState.Ready ||
+                (native is ActiveSessionState.Unavailable && native.activeTurn == null),
+        ) { "The interrupted native turn is still active" }
+        val terminal = native.submissionTerminal(request, inspection)
+        if (terminal != null) {
+            tools.finishTurn(active.ref, terminal.id)
+            send(WorktreeIntent.Public.RunSettled(id, request, active.ref, terminal.id, checkNotNull(terminal.outcome)))
+        } else {
+            check(inspection == TurnInspection.Idle) { "The interrupted submission's native outcome is still unknown" }
+            send(WorktreeIntent.Public.RunSubmissionReconciled(id, request, active.ref))
+        }
+    }
+
     /** Acceptance delivery failure does not abandon an already accepted native request. */
     suspend fun accepted(id: String, request: RequestId, session: SessionRef, turn: TurnId) {
         safely("Could not record acceptance; continue observing the native turn") {
@@ -120,6 +151,12 @@ internal class StudioWorktrees(private val machines: MachineRegistry, private va
             } else {
                 settled(id, request, checkNotNull(session), turn, TurnOutcome.Unknown)
             }
+        }
+    }
+
+    suspend fun submissionObservationLost(id: String, request: RequestId, session: SessionRef) {
+        safely("Could not record submission observation loss; pending ownership is retained") {
+            send(WorktreeIntent.Public.RunSubmissionObservationLost(id, request, session, "NativeOutcomeUnknown"))
         }
     }
 
@@ -179,3 +216,19 @@ internal fun ActiveSessionState.lastCompletedTurn() = when (this) {
 internal fun ActiveSessionState.isTerminalFor(turn: TurnId): Boolean =
     (this is ActiveSessionState.Ready && lastTurn?.id == turn) ||
         (this is ActiveSessionState.Unavailable && activeTurn == null && lastTurn?.id == turn)
+
+/** Unknown inspection or an unrelated/running receipt cannot release an uncertain submission. */
+private fun TurnInspection?.allowsSubmissionRecovery(request: RequestId): Boolean = when (this) {
+    null, TurnInspection.Idle -> true
+    TurnInspection.Unknown -> false
+    is TurnInspection.Observed -> this.request == request && outcome != null
+}
+
+/** A synthetic Unknown needs fresh inspection; a receipt and local terminal state must agree. */
+private fun ActiveSessionState.submissionTerminal(request: RequestId, inspection: TurnInspection?): Turn? {
+    val terminal = lastCompletedTurn() ?: return null
+    val isRequestTerminal = activeTurn() == null && terminal.request == request && terminal.outcome != null
+    val isOutcomeConfirmed = terminal.outcome != TurnOutcome.Unknown || inspection != null
+    val isInspectionMatching = inspection !is TurnInspection.Observed || inspection.outcome == terminal.outcome
+    return terminal.takeIf { isRequestTerminal && isOutcomeConfirmed && isInspectionMatching }
+}

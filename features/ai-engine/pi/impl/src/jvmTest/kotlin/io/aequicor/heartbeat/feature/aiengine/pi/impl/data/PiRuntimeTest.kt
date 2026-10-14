@@ -249,9 +249,12 @@ class PiRuntimeTest {
             assertFailsWith<EngineException> { fixture.runtime.attach(RuntimeRef, RuntimeRequest) }
         }
         runCurrent()
-        fixture.runtime.close()
+        val shutdown = async { fixture.runtime.close() }
+        runCurrent()
+        assertFalse(shutdown.isCompleted)
         startup.complete(Unit)
         assertEquals(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed), pending.await().failure)
+        shutdown.await()
         assertTrue(fixture.processes.connections.single().isClosed)
     }
 
