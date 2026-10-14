@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolImage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
@@ -72,7 +73,7 @@ class CodexHostedToolsTest {
         fixture.workspacePaths[workspace] = "/project"
         val session = fixture.runtime.attach(fixture.storedRef(), ResumeSessionRequest(fixture.target, workspace))
         val params = fixture.wire.written.single { it.text("method") == "thread/resume" }.obj("params")
-        assertFalse("developerInstructions" in params)
+        assertEquals("", params.text("developerInstructions"))
         session.feature(SendsPrompts).send(Prompt)
         fixture.callHosted()
         runCurrent()
@@ -217,6 +218,8 @@ internal class HostedFixture(description: String = "Run command") : ProfileAgent
     var context: AgentToolContext? = null
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> = listOf(spec)
     override suspend fun instructions(workspace: WorkspaceRef?): String = "Use hosted commands"
+    override suspend fun instructions(scope: AgentToolScope): String =
+        if (scope.declared?.contains(spec.name) == false) "" else instructions(scope.workspace)
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
         this.context = context
         if (!context.permissions.request(AgentToolApproval(name, "Run command"))) return AgentToolResult("Denied", true)

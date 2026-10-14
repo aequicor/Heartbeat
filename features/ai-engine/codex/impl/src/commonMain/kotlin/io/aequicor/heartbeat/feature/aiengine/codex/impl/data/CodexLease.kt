@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FrozenHostedTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCheckpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
@@ -53,6 +54,9 @@ internal class CodexLease(private val session: CodexSession) :
         this,
         session.contextUsage,
         session.contextRevision,
+        object : FrozenHostedTools {
+            override val names = session.declaredHostedTools
+        },
         CodexCompactsContext,
         object : AcceptsImages {
             override val mediaTypes: Set<String> get() = session.runtime.inputSupport(

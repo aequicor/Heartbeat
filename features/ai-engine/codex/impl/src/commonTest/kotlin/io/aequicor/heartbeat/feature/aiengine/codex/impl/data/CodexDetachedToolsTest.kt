@@ -19,6 +19,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -62,24 +63,36 @@ class CodexDetachedToolsTest {
     }
 
     @Test
-    fun `chat thread opens without detached tools when a contribution fails`() = runTest {
+    fun `failed detached declarations retain independent source guidance without advertising tools`() = runTest {
         val failingSpecifications = object : ProfileAgentTools by ScopedTools(listOf("remember")) {
             override suspend fun specifications(scope: AgentToolScope): List<AgentToolSpec> =
                 error("Contribution failed")
+            override suspend fun instructions(scope: AgentToolScope): String {
+                assertEquals(emptySet(), scope.declared)
+                return "The browser means the external browser hosting this chat"
+            }
         }
+        val manifests = MemoryCodexToolManifests()
+        val fixture = Fixture(this, tools = failingSpecifications, manifests = manifests)
+        val chat = fixture.runtime.create(CreateSessionRequest(fixture.target, areDetachedToolsEnabled = true))
+        val params = fixture.wire.written.single { it.text("method") == "thread/start" }.obj("params")
+        assertFalse("remember" in params.declaredTools())
+        assertEquals("The browser means the external browser hosting this chat", params.text("developerInstructions"))
+        assertFalse(manifests.isRequired(chat.ref.nativeId))
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `failed independent guidance refuses opening instead of losing the source context`() = runTest {
         val failingInstructions = object : ProfileAgentTools by ScopedTools(listOf("remember")) {
             override suspend fun instructions(scope: AgentToolScope): String = error("Contribution failed")
         }
-        listOf(failingSpecifications, failingInstructions).forEach { tools ->
-            val manifests = MemoryCodexToolManifests()
-            val fixture = Fixture(this, tools = tools, manifests = manifests)
-            val chat = fixture.runtime.create(CreateSessionRequest(fixture.target, areDetachedToolsEnabled = true))
-            val params = fixture.wire.written.single { it.text("method") == "thread/start" }.obj("params")
-            assertFalse("remember" in params.declaredTools())
-            assertFalse("developerInstructions" in params)
-            assertFalse(manifests.isRequired(chat.ref.nativeId))
-            fixture.runtime.close()
+        val fixture = Fixture(this, tools = failingInstructions)
+        assertFailsWith<IllegalStateException> {
+            fixture.runtime.create(CreateSessionRequest(fixture.target, areDetachedToolsEnabled = true))
         }
+        assertFalse(fixture.wire.written.any { it.text("method") == "thread/start" })
+        fixture.runtime.close()
     }
 
     @Test
