@@ -12,8 +12,7 @@ import javax.swing.JFileChooser
  * the GTK chooser on Linux — so it is the native backend wherever the Explorer COM dialog does not apply.
  *
  * AWT has no folder dialog: on macOS Apple's `apple.awt.fileDialogForDirectories` property turns the open
- * panel into a folder chooser ([directoriesThroughAwtProperty]), on other hosts the Swing chooser remains
- * as a development fallback (Linux is not a shipping platform).
+ * panel into a folder chooser ([directoriesThroughAwtProperty]); Linux uses the Swing folder chooser.
  *
  * [pickSaveLocation] ignores the requested extensions: the panel takes the file type from the suggested
  * name, and filtering a save panel by name would block names the user still has to complete.

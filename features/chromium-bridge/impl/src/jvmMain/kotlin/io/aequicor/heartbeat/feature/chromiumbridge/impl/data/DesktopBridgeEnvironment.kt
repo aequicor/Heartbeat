@@ -26,7 +26,9 @@ internal class DesktopBridgeEnvironment(private val stores: Lazy<DataStores>, pr
                 System.getenv("LOCALAPPDATA")?.let(Path::of) ?: home.resolve("AppData/Local"),
             )
 
-            HostPlatform.Android, HostPlatform.Ios, HostPlatform.Linux -> emptyList()
+            HostPlatform.Linux -> BrowserLocations.linux(home, System.getenv("XDG_CONFIG_HOME"))
+
+            HostPlatform.Android, HostPlatform.Ios -> emptyList()
         }
         return HostEnvironment(locations, isWindows, directory, socket(), HostLauncher.current(isWindows))
     }

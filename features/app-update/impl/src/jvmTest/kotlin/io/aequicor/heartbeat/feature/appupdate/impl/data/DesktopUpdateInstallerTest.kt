@@ -121,6 +121,30 @@ class DesktopUpdateInstallerTest {
     }
 
     @Test
+    fun `Linux offers a package-manager update without downloading or launching helpers`() = runTest {
+        val file = root.resolve("unused.deb")
+        val launcher = root.resolve("heartbeat/bin/heartbeat")
+        val update = AppRelease(
+            "1.4.0",
+            "Heartbeat-1.4.0-linux-x64.deb",
+            "https://example.com/a.deb",
+            "ab",
+            null,
+            "",
+        )
+
+        assertUpdateFailure(AppUpdateFailure.ManualInstallRequired) {
+            installer(
+                file,
+                launcher,
+            ).install(installation(ReleasePlatform.LinuxX64), update, recording(mutableListOf()))
+        }
+        assertEquals(0, requests)
+        assertTrue(started.isEmpty())
+        assertEquals(PreviousAttempt.None, workspace.takeOutcome(AppVersion(1, 3, 0)))
+    }
+
+    @Test
     fun `the outcome of an earlier attempt is read once per launch`() = runTest {
         workspace.releaseDirectory("1.4.0")
         workspace.markStarted("1.4.0")

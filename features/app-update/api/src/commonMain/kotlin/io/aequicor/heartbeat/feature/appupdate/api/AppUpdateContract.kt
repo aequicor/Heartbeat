@@ -18,8 +18,8 @@ public sealed interface AppUpdateState : MachineState {
     /** This launch cannot replace itself (a development launch, an OS without an installer); fixed for the launch. */
     public data class Unsupported(val reason: UnsupportedReason) : AppUpdateState
 
-    /** Asking for the newest release; a release found before stays [offered] and can still be installed. */
-    public data class Checking(val offered: AppRelease? = null) : AppUpdateState
+    /** Asking for the newest release; [offered] stays available with its existing installation [failure]. */
+    public data class Checking(val offered: AppRelease? = null, val failure: AppUpdateFailure? = null) : AppUpdateState
 
     /** The installed version is the newest release. */
     public data object UpToDate : AppUpdateState
@@ -27,7 +27,7 @@ public sealed interface AppUpdateState : MachineState {
     /** The newest release is unknown; the next check retries. */
     public data class CheckFailed(val failure: AppUpdateFailure) : AppUpdateState
 
-    /** A newer [release] can be installed; [failure] tells why the last attempt to install it ended. */
+    /** A newer [release] can be installed; [failure] explains a failed attempt or the need for a manual install. */
     public data class Available(val release: AppRelease, val failure: AppUpdateFailure? = null) : AppUpdateState
 
     /** The user asked to install [release]: it is being downloaded, verified and prepared. */
@@ -91,7 +91,7 @@ public enum class AppUpdateFailure {
     /** The download or the unpacked copy could not be written. */
     Storage,
 
-    /** The app cannot replace its own files (a read-only or translocated location): the user installs it by hand. */
+    /** System packages and apps in read-only or translocated locations require manual installation. */
     ManualInstallRequired,
 
     /** The update could not be prepared or the installer could not be started. */
@@ -122,7 +122,8 @@ public sealed interface AppUpdateIntent : MachineIntent {
 
         /**
          * The newest release is [release] when it is newer than the installed version, null otherwise. [failure] is
-         * [AppUpdateFailure.PreviousAttemptFailed] when an installation of an earlier launch did not finish.
+         * [AppUpdateFailure.ManualInstallRequired] for system packages or [AppUpdateFailure.PreviousAttemptFailed]
+         * when an installation of an earlier launch did not finish.
          */
         public data class Checked(val release: AppRelease?, val failure: AppUpdateFailure? = null) : Internal
 

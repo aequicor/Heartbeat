@@ -44,6 +44,38 @@ class AppUpdateEffectsTest {
     }
 
     @Test
+    fun `a Linux update offers manual installation before the user clicks`() = runTest {
+        val linux = installation.copy(platform = ReleasePlatform.LinuxX64)
+        val linuxRelease = release.copy(
+            assetName = "Heartbeat-1.4.0-linux-x64.deb",
+            url = "https://github.com/aequicor/Heartbeat/releases/download/v1.4.0/Heartbeat-1.4.0-linux-x64.deb",
+        )
+        listOf(PreviousAttempt.None, PreviousAttempt.Failed).forEach { previous ->
+            val machine = RecordingScope()
+            val installer = FakeInstaller(previous = previous)
+
+            effects(InstallationCheck.Supported(linux), FakeReleases(linuxRelease), installer)
+                .handle(AppUpdateEffect.FetchLatest, machine)
+
+            assertEquals(
+                listOf<AppUpdateIntent>(Internal.Checked(linuxRelease, AppUpdateFailure.ManualInstallRequired)),
+                machine.sent,
+            )
+            assertTrue(installer.installed.isEmpty())
+        }
+    }
+
+    @Test
+    fun `a Linux installation without a newer release does not need a manual update`() = runTest {
+        val machine = RecordingScope()
+        val linux = installation.copy(platform = ReleasePlatform.LinuxX64)
+
+        effects(InstallationCheck.Supported(linux)).handle(AppUpdateEffect.FetchLatest, machine)
+
+        assertEquals(listOf<AppUpdateIntent>(Internal.Checked(null)), machine.sent)
+    }
+
+    @Test
     fun `the newest release is reported with a failed earlier attempt`() = runTest {
         val machine = RecordingScope()
         val installer = FakeInstaller(previous = PreviousAttempt.Failed)

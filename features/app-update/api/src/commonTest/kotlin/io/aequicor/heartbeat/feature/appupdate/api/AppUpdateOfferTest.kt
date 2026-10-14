@@ -28,6 +28,15 @@ class AppUpdateOfferTest {
     }
 
     @Test
+    fun `rechecking a manual update keeps the release page action`() {
+        val manual = AppUpdateState.Checking(release, AppUpdateFailure.ManualInstallRequired).appUpdateOffer()
+
+        assertEquals(AppUpdateFailure.ManualInstallRequired, manual?.failure)
+        assertEquals(release.pageUrl, manual?.pageUrl)
+        assertFalse(manual?.isInstallable == true)
+    }
+
+    @Test
     fun `an available or rechecked release is ready to install`() {
         val ready = AppUpdateOffer(release.version, release.pageUrl, AppUpdatePhase.Ready)
         assertEquals(ready, AppUpdateState.Available(release).appUpdateOffer())

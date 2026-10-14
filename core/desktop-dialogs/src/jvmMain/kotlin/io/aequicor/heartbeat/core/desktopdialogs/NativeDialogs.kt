@@ -18,7 +18,7 @@ internal interface NativeDialogs {
 /**
  * Dialogs of the host operating system. Windows shows the Explorer COM dialog, macOS shows the Finder
  * panels through AWT — whose open panel becomes a folder chooser only with an Apple system property.
- * Linux is not a shipping host: GTK has no AWT folder dialog, so Swing remains its development fallback.
+ * Linux uses the GTK file chooser through AWT and the Swing folder chooser.
  */
 internal fun nativeDialogsFor(host: HostPlatform): NativeDialogs = when (host) {
     HostPlatform.Windows -> WindowsExplorerDialogs()
