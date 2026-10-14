@@ -55,7 +55,7 @@ public enum class HbDialogWidth {
  * so content with its own scrolling (for example on both axes) is not nested inside a vertical scroll.
  * [isContentFill] gives an application workspace all available height. Its fixed [headerActions] remain reachable
  * while the body scrolls. [isTitleVisible] may hide a title already drawn by the document; the accessible pane name
- * stays available.
+ * stays available. Workspace chrome uses compact insets; an absent [actions] slot reserves no footer space.
  */
 @Composable
 public fun HbDialog(
@@ -67,7 +67,7 @@ public fun HbDialog(
     isContentFill: Boolean = false,
     isTitleVisible: Boolean = true,
     headerActions: @Composable RowScope.() -> Unit = {},
-    actions: @Composable RowScope.() -> Unit = {},
+    actions: (@Composable RowScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val dismiss by rememberUpdatedState(onDismissRequest)
@@ -76,6 +76,8 @@ public fun HbDialog(
     val isSheet = windowWidth < dimensions.compactBreakpoint
     val maxWidth = dialogMaxWidth(width, windowWidth)
     val focus = remember { FocusRequester() }
+    val inset = if (isContentFill) HbTheme.spacing.s else HbTheme.spacing.xl
+    val gap = if (isContentFill) HbTheme.spacing.s else HbTheme.spacing.l
     LaunchedEffect(focus) {
         // Wait until the focus target is attached and laid out.
         withFrameNanos { }
@@ -107,22 +109,34 @@ public fun HbDialog(
                 // The panel takes focus on open so Esc and Tab work before any control is focused.
                 .focusRequester(focus)
                 .focusable()
-                .padding(HbTheme.spacing.xl),
-            gap = HbTheme.spacing.l,
+                .padding(inset),
+            gap = gap,
         ) {
             DialogHeader(title, isTitleVisible, headerActions)
-            val body = Modifier.weight(1f, fill = isContentFill)
-            HbColumn(
-                if (isContentScrollable) body.hbVerticalScroll(rememberScrollState()) else body,
-                gap = HbTheme.spacing.m,
-                content = content,
-            )
-            HbRow(
-                Modifier.align(Alignment.End),
-                gap = HbTheme.spacing.s,
-                content = actions,
-            )
+            DialogBody(isContentScrollable, isContentFill, content)
+            DialogActions(actions)
         }
+    }
+}
+
+@Composable
+private fun ColumnScope.DialogBody(
+    isScrollable: Boolean,
+    isFill: Boolean,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val body = Modifier.weight(1f, fill = isFill)
+    HbColumn(
+        if (isScrollable) body.hbVerticalScroll(rememberScrollState()) else body,
+        gap = HbTheme.spacing.m,
+        content = content,
+    )
+}
+
+@Composable
+private fun ColumnScope.DialogActions(actions: (@Composable RowScope.() -> Unit)?) {
+    if (actions != null) {
+        HbRow(Modifier.align(Alignment.End), gap = HbTheme.spacing.s, content = actions)
     }
 }
 

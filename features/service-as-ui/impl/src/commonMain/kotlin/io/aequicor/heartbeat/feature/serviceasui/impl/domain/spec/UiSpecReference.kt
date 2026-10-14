@@ -169,6 +169,11 @@ read the same data after every successful call. Use inline SVG or CSS for artwor
   Flat rows, subtle dividers and calm selection states should carry the working interface.
 - Show the next useful task first. Avoid hero-sized headings, decorative metrics, nested cards and empty dashboard
   space. Empty history should explain that there are no records and offer the relevant action, without fake progress.
+- Use width before adding height: align a row's title and summary on the left, related inputs and actions on the
+  right. Keep tags and details on a compact secondary line; stack these groups at narrow widths.
+- Keep headers, tabs and toolbars compact. Content determines row height: no empty spacers, stretched rows or
+  vertical space-between layouts. Fit the usual worklist in view through layout and spacing, while preserving
+  readable text and comfortable touch targets. Longer lists scroll naturally; never clip records to make them fit.
 - Collapse multi-column layouts at narrow widths; no horizontal page scroll. Buttons have visible labels,
   :focus-visible states and sufficient contrast. Do not communicate state only by color; respect reduced motion.
 - Use the available viewport, with one page scroll. Loading, empty, success and error states must fit naturally.
