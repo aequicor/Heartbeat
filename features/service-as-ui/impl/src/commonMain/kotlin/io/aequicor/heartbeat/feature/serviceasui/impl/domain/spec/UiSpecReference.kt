@@ -35,7 +35,8 @@ Safe proposals execute without a user permission dialog. Risk, uncertainty or un
 to you; inspect the reason and correct the operation. Do not ask the user to bypass a safety refusal.
 
 ## Places (`placement`)
-- `card`: a live mini-app inside an ordinary chat reply, shown with `ui_show(surface: id)`. No launcher.
+- `card`: the canonical mini-app. `ui_show(surface: id)` adds one compact entry to the chat; its Open button
+  and the native composer chip open a spacious modal. The selected harness also shows the full app on new-chat start.
 - `composer`: inline in a compact row above the chat input while the owner is connected to the chat.
 - `start`: inline in the start window of a new chat for which the owner is selected.
 - `panel`: in the side panel, opened by a launcher or by an `open` action with `presentation: "panel"`.
@@ -88,10 +89,10 @@ private fun nodesAndActions(): String = """
   `card` and `composer`) and in modals, one per surface, desktop only while web documents are enabled. Anonymous
   cards may show it only inside modals and never get a bridge; editor previews never execute owner methods.
   Saving a web surface or showing an anonymous web spec uses automatic safety review. `height` is a bounded viewport:
-  compact for a status strip above the composer; regular (default) and tall are fixed presets. Prefer content for
-  a mini-app body: it grows AND shrinks to its body or `[data-heartbeat-root]`, within host minimum/maximum bounds;
-  longer pages scroll inside. Keep that root in normal flow; never use body/root height:100%, min-height:100vh or a
-  fixed full-screen height. Use responsive CSS; regular is the fallback until measurements are available.
+  compact for a standalone status strip; regular (default) and tall are fixed presets. Content grows and shrinks to
+  its body or `[data-heartbeat-root]` within host bounds. The full mini-app on start or in its modal uses the available
+  viewport regardless of this preset, with one page scroll and no outer chat scroll. Keep the page responsive and
+  its content in normal flow; avoid fixed pixel page heights and nested overflow containers.
   The page has its own origin and no network: inline scripts and styles, `data:` images and fonts; no fetch, sockets, WebRTC, frames, workers, forms or links away. It reads `data` (a binding) as
   `heartbeat.data` and later values from the `heartbeat:data` event on `window` (`event.detail`). With `bridge: true`
   (library surfaces), `await heartbeat.call(method, args)` calls the owner's method with object `args` and returns
@@ -111,8 +112,8 @@ Icons draw an icon button whose label is its tooltip and accessible name: ${UiIc
 
 ## Actions (`type`)
 `call` {method, args?, into? (state key for the result)}, `reload` {source}, `set` {key, value},
-`focusCard` {surface: owner-local name} (scroll to the latest shown card of this surface in the current chat;
-use a native button next to the compact web status; unavailable to anonymous cards and editor previews),
+`focusCard` {surface: owner-local name} (opens the canonical app of this surface, or focuses its chat card as a fallback;
+unavailable to anonymous cards and editor previews),
 `open` {modal? | surface? (another surface of the same owner, by name), presentation?: modal | panel, args?},
 `close` (closes the modal it runs in), `prompt` {text, submit?} (surfaces of the library may send the prompt; cards
 only put it into the chat input), `openUrl` {url: http or https}, `copy` {text}, `saveFile` {text, name?,
@@ -137,18 +138,19 @@ characters fall back to positions.
 ## Cards (`ui_show`)
 A card shows a surface in your reply. An inline card has no owner: no `call`, `reload`, data sources, `reveal`,
 sent prompts or web bridge; the user confirms its links. A card of a library surface may call the owner's methods
-when the user presses its buttons or its web page calls the bridge. Its automatic sources also load when it appears.
-Turning the owner off or detaching it removes its live card until the owner is available again. Hidden transcript
-cards release their web documents; returning to them loads durable state again.
+when the user presses its buttons or its web page calls the bridge. The full application belongs to its chat pane,
+not to the transcript row: hiding, reopening and moving it between start and modal keep the same document and drafts.
+Turning the owner off, switching to another context or replacing its spec revokes the previous execution.
 
     """.trimIndent()
 
 private fun miniAppsAndWorkflow(): String = """
 ## Mini-apps inside the conversation
-Build a full app as one owner-backed `card` surface with internal tabs, forms and history, plus an optional compact
-`composer` status surface backed by the same read-only method. Keep the existing chat, sidebar and input intact.
+Build a full app as one owner-backed `card` surface with internal tabs, forms and history. The host supplies its
+compact chat entry, composer button, full start view and modal. Do not create duplicate `composer` or `start`
+surfaces for that app; existing mirrors from the same owner are hidden. Keep the chat, sidebar and input intact.
 Prefer native nodes for straightforward lists, forms and status. Use `web` with inline HTML/CSS/JS when the task
-needs a custom view, with host theme variables and height: content. Keep styles inside the document; do not create another
+needs a custom view, with host theme variables. Keep styles inside the document; do not create another
 sidebar or open a panel for this workflow. Declare `data` auto sources, bind `web.data` to `{{data.snapshot}}`, render
 `heartbeat.data` on startup and listen for `heartbeat:data` updates. Handle missing data and rejected bridge calls.
 Buttons call approved harness `ui.method` methods; persist changed values using harness `data` before returning.
@@ -169,8 +171,9 @@ read the same data after every successful call. Use inline SVG or CSS for artwor
   space. Empty history should explain that there are no records and offer the relevant action, without fake progress.
 - Collapse multi-column layouts at narrow widths; no horizontal page scroll. Buttons have visible labels,
   :focus-visible states and sufficient contrast. Do not communicate state only by color; respect reduced motion.
-- Size to real content. Loading, empty, success and error states must all fit naturally; do not reserve full-screen
-  space. Preserve durable records when redesigning. Update the existing surface rather than adding another card.
+- Use the available viewport, with one page scroll. Loading, empty, success and error states must fit naturally.
+  Render one visible app heading; the native host does not repeat web-document headings. Preserve durable records
+  when redesigning. Update the existing surface rather than adding another card.
 
 ## Workflow
 1. Publish the methods in a harness script item: `ui.method(ItemName("prs"), "Open pull requests") { call ->
@@ -180,7 +183,7 @@ read the same data after every successful call. Use inline SVG or CSS for artwor
 2. `ui_list` shows owners and their methods; `ui_call` checks what a method returns.
 3. `ui_put` creates or replaces the surface and returns diagnostics with JSON paths to fix.
 4. For an embedded mini-app use `placement: "card"`, then `ui_show` with the returned surface id. A saved surface
-   alone is not a visible app. Optionally add `placement: "composer"` with a compact status and `focusCard` button.
+   is also shown on new-chat start when its owner is selected. The host creates the compact composer button.
    To fix an already shown app, replace its existing surface with `ui_put`: live cards update automatically.
    Repeating `ui_show` updates or switches the conversation's single live app slot and its arguments;
    it never creates another copy.

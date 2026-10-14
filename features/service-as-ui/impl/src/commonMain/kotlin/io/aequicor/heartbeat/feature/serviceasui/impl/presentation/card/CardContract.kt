@@ -26,12 +26,18 @@ internal data class CardState(
     val phase: CardPhase = CardPhase.Loading,
     val title: String = "",
     val key: String? = null,
+    val isApp: Boolean = false,
+    val description: String = "",
+    val isOpenEnabled: Boolean = false,
 ) : MVIState {
     override fun toString(): String = "CardState(phase=$phase)"
 }
 
 /** A card has no input of its own; its surface has. */
-internal sealed interface CardIntent : MVIIntent
+internal sealed interface CardIntent : MVIIntent {
+    /** Opens the canonical app of this card's bound chat; it never mounts another full surface in the receipt. */
+    data object OpenApp : CardIntent
+}
 
 /** A card has no one-shot effects of its own; its surface has. */
 internal sealed interface CardAction : MVIAction

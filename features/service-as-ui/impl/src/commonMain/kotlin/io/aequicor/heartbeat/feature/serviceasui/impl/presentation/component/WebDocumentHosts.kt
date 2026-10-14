@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.core.navigation.GlobalRoutes
 import io.aequicor.heartbeat.core.navigation.NavHostFactory
 import io.aequicor.heartbeat.core.navigation.Navigator
 import io.aequicor.heartbeat.core.navigation.StackHost
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPresentation
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentRoute
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceModel
 import kotlinx.collections.immutable.ImmutableMap
@@ -42,6 +43,7 @@ internal class WebDocumentHosts(
     hosts: NavHostFactory,
     scope: CoroutineScope,
     surfaces: StateFlow<Map<String, SurfaceModel>>,
+    isFill: Boolean = false,
 ) {
     private val log = Log.tag("ServiceUiWebHosts")
     private val navigation = ItemsNavigation<String>()
@@ -55,7 +57,12 @@ internal class WebDocumentHosts(
             context = child,
             parent = navigator,
             name = "web-document-$id",
-            initial = listOf(BrowserDocumentRoute(id)),
+            initial = listOf(
+                BrowserDocumentRoute(
+                    id,
+                    if (isFill) BrowserDocumentPresentation.Fill else BrowserDocumentPresentation.Document,
+                ),
+            ),
             global = GlobalRoutes.Only(setOf(BrowserDocumentRoute::class)),
         )
     }
