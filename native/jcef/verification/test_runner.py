@@ -5,13 +5,15 @@ import http.server
 import json
 import os
 from pathlib import Path
+import signal
+import subprocess
 import tempfile
 import sys
 import threading
 import unittest
 import urllib.error
 import urllib.request
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from run_probe import handler_type, java_platform_options, launch, native_layout, remove_owned_profile
 
@@ -45,6 +47,20 @@ class LauncherTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "synthetic native diagnostic"):
                 launch([sys.executable, "-c", "print('synthetic native diagnostic'); exit(7)"],
                        log, 10, os.environ.copy())
+
+    @unittest.skipUnless(hasattr(signal, "SIGQUIT"), "HotSpot thread dumps use a POSIX signal")
+    def test_java_timeout_captures_threads_then_terminates_and_fails(self):
+        process = MagicMock()
+        process.wait.side_effect = [subprocess.TimeoutExpired("java", 240),
+                                    subprocess.TimeoutExpired("java", 3)]
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch("run_probe.sys.platform", "linux"), \
+                    patch("run_probe.subprocess.Popen", return_value=process), \
+                    patch("run_probe.terminate_tree") as terminate:
+                with self.assertRaisesRegex(RuntimeError, "Native phase timed out"):
+                    launch(["/jdk/bin/java", "SessionProbe"], Path(temporary) / "timeout.log", 240, {})
+        process.send_signal.assert_called_once_with(signal.SIGQUIT)
+        terminate.assert_called_once_with(process)
 
 
 class FixtureTests(unittest.TestCase):

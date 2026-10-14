@@ -160,7 +160,12 @@ internal class DesktopDefaultBrowserResources(
             cefSettings.cache_path = ""
             cefSettings.persist_session_cookies = false
             cefSettings.log_severity = CefSettings.LogSeverity.LOGSEVERITY_DISABLE
-            addJcefArgs("--disable-extensions", "--disable-background-networking")
+            // Chrome's standalone first-run dialog otherwise blocks CefInitialize on fresh Linux profiles.
+            addJcefArgs("--disable-extensions", "--disable-background-networking", "--no-first-run")
+            if (platform.os == EnumOS.LINUX) {
+                // JCEF reparents the browser with XReparentWindow; Wayland sessions must use XWayland too.
+                addJcefArgs("--ozone-platform=x11")
+            }
         }
         val app = builder.build()
         nativeApp = app
@@ -172,13 +177,17 @@ internal class DesktopDefaultBrowserResources(
 }
 
 /**
- * Pins Windows subprocesses and resources to the same bundle as the loaded native libraries.
- * JCEF otherwise finds the first jcef.dll in java.library.path, which may belong to the JBR SDK.
+ * Pins Windows and Linux subprocesses and resources to the same bundle as the loaded native libraries.
+ * JCEF otherwise discovers paths relative to Java or another runtime on java.library.path.
  * On macOS jcefmaven already supplies the absolute helper and framework paths from its bundle.
  */
 internal fun CefSettings.useBundledBrowserPaths(directory: File, os: EnumOS) {
-    if (os != EnumOS.WINDOWS) return
-    browser_subprocess_path = File(directory, "jcef_helper.exe").absolutePath
+    val helper = when (os) {
+        EnumOS.WINDOWS -> "jcef_helper.exe"
+        EnumOS.LINUX -> "jcef_helper"
+        else -> return
+    }
+    browser_subprocess_path = File(directory, helper).absolutePath
     resources_dir_path = directory.absolutePath
     locales_dir_path = File(directory, "locales").absolutePath
 }

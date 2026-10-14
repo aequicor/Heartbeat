@@ -168,6 +168,14 @@ def launch(command: list[str], log: Path, timeout: float, env: dict[str, str]) -
         try:
             code = process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
+            # HotSpot writes every Java thread's stack to this phase's log on SIGQUIT. Capture the
+            # blocked startup/callback before killing the process tree; the phase still fails.
+            if sys.platform != "win32" and Path(command[0]).name == "java":
+                try:
+                    process.send_signal(signal.SIGQUIT)
+                    process.wait(timeout=3)
+                except (ProcessLookupError, subprocess.TimeoutExpired):
+                    pass
             terminate_tree(process)
             raise RuntimeError(f"Native phase timed out; process tree terminated; see {log}") from None
         if code != 0:

@@ -63,7 +63,7 @@ jobs:
           if [ "$RUNNER_OS" = Linux ]; then
             sudo apt-get update
             sudo apt-get install -y ant build-essential libx11-dev libxext-dev libxrender-dev libxtst-dev \
-              libgtk-3-dev libnss3 libgbm1 libasound2t64 xvfb xauth
+              libgtk-3-dev libnss3 libgbm1 libasound2t64 xvfb xauth libsecret-1-0 gnome-keyring dbus-x11
           fi
       - name: Select the release inputs
         shell: bash
@@ -105,15 +105,25 @@ jobs:
           SOURCE: ${{ runner.temp }}/jcef
         run: |
           version=$(python -c "import json, sys; print(json.load(open(sys.argv[1]))['artifactVersion'])" "$JCEF_LOCK")
-          display=()
-          if [ "$RUNNER_OS" = Linux ]; then display=(xvfb-run --auto-servernum); fi
-          "${display[@]}" python native/jcef/verification/run_probe.py \
-            --jcef-api "build/jcef-artifacts/jcef-api-$version.jar" \
-            --native-dir "$SOURCE/heartbeat-native-stage" \
-            --extra-classpath "build/jcef-artifacts/jcef-natives-$TARGET-$version.jar" \
-            --extra-classpath "$SOURCE/third_party/jogamp/jar/jogl-all.jar" \
-            --extra-classpath "$SOURCE/third_party/jogamp/jar/gluegen-rt.jar" \
-            --output build/jcef-probe
+          probe=(python native/jcef/verification/run_probe.py
+            --jcef-api "build/jcef-artifacts/jcef-api-$version.jar"
+            --native-dir "$SOURCE/heartbeat-native-stage"
+            --extra-classpath "build/jcef-artifacts/jcef-natives-$TARGET-$version.jar"
+            --extra-classpath "$SOURCE/third_party/jogamp/jar/jogl-all.jar"
+            --extra-classpath "$SOURCE/third_party/jogamp/jar/gluegen-rt.jar"
+            --output build/jcef-probe)
+          if [ "$RUNNER_OS" = Linux ]; then
+            export XDG_DATA_HOME="$RUNNER_TEMP/heartbeat-jcef-keyring-data"
+            export XDG_RUNTIME_DIR="$RUNNER_TEMP/heartbeat-jcef-keyring-runtime"
+            mkdir -p "$XDG_DATA_HOME" "$XDG_RUNTIME_DIR"
+            chmod 700 "$XDG_DATA_HOME" "$XDG_RUNTIME_DIR"
+            dbus-run-session -- bash -euo pipefail -c '
+              printf "%s\n" "heartbeat-ci-synthetic-keyring" | gnome-keyring-daemon --unlock --components=secrets
+              exec xvfb-run --auto-servernum "$@"
+            ' bash "${probe[@]}"
+          else
+            "${probe[@]}"
+          fi
       - name: Report the probe
         if: always()
         shell: bash

@@ -112,7 +112,9 @@ public final class SessionProbe {
             else System.load(nativeDirectory.resolve(System.mapLibraryName(name)).toString());
         });
         List<String> cefArguments = new ArrayList<>(List.of(
-            "--disable-extensions", "--disable-background-networking", "--disable-component-update"));
+            "--disable-extensions", "--disable-background-networking", "--disable-component-update",
+            // Embedded CEF must not block initialization on Chrome's standalone first-run dialog.
+            "--no-first-run"));
         if (arguments.containsKey("framework")) {
             cefArguments.add("--framework-dir-path=" + required("framework"));
         }
@@ -127,6 +129,7 @@ public final class SessionProbe {
                 if (state == CefApp.CefAppState.TERMINATED) terminated.complete(null);
             }
         });
+        System.out.println("START CefApp.startup");
         require(CefApp.startup(commandLine), "CefApp.startup failed");
         CefSettings settings = new CefSettings();
         settings.root_cache_path = profileRoot.toString();
@@ -138,8 +141,11 @@ public final class SessionProbe {
         settings.locales_dir_path = required("locales");
         settings.log_severity = CefSettings.LogSeverity.LOGSEVERITY_WARNING;
         settings.log_file = required("result") + ".cef.log";
+        System.out.println("START CefApp.getInstance");
         app = CefApp.getInstance(commandLine, settings);
+        System.out.println("START bootstrap createClient state=" + CefApp.getState());
         CefClient bootstrap = app.createClient();
+        System.out.println("START bootstrap dispose state=" + CefApp.getState());
         bootstrap.dispose();
         require(CefApp.getState() == CefApp.CefAppState.INITIALIZED, "CEF did not initialize");
         passed("native-startup", Map.of("api", CefApp.class.getProtectionDomain().getCodeSource().toString()));

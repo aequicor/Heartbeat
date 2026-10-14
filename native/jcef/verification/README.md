@@ -30,7 +30,10 @@ python native/jcef/verification/run_probe.py --jcef-api build/jcef-artifacts/jce
 
 Native loader привязан к переданному каталогу, включая subprocess/framework paths.
 Harness не использует другую JCEF-копию из JBR, не скачивает runtime и не подменяет
-пропатченный API исходным. Компиляция требует:
+пропатченный API исходным. Как и приложение, он передаёт `--no-first-run`: standalone-диалог
+первого запуска Chrome не должен блокировать `CefInitialize` встроенного браузера на новом
+Linux-профиле. Linux использует `--ozone-platform=x11`, включая сессии Wayland через XWayland.
+Компиляция требует:
 
 ```java
 CefRequestContext.createContext(CefRequestContextSettings settings, CefRequestContextHandler handler);
@@ -84,6 +87,8 @@ Python-процесс один раз запускает HTTP server на `127.0
 освобождения anchor, DOM-операции — CDP futures и browser events. `Thread.sleep`, задержек
 для «успевания записи», повторов удаления до успеха и автоматического пропуска ошибок нет.
 Таймаут этапа по умолчанию 240 секунд завершает всё дерево процесса и проваливает прогон.
+Перед завершением зависшей JVM на POSIX harness отправляет `SIGQUIT`, чтобы сохранить
+Java thread dump в логе этапа; на вывод диагностики отводятся ещё три секунды.
 
 На macOS callback `onBeforeClose` идёт с AppKit thread, а Swing — с EDT. Harness освобождает
 клиент по patched `onAfterClose`, после освобождения wrapper и удаления браузера из registry JCEF.
@@ -178,9 +183,11 @@ native view; количество вызовов записывается в JSO
 Отчёт содержит SHA-256 проверенных API/native библиотек. Это provenance результата;
 проверка ожидаемых release checksums остаётся задачей packaging pipeline.
 
-CI для этой проверки нет: harness запускается локально **после упаковки** на каждом из четырёх
-хостов, а `*.json`, `*.log`, `*.png` из output сохраняются для проверки релиза (в том числе при
-провале). Сборка на кросс-компиляторе не заменяет запуск на целевой архитектуре.
+`jcef-runtime.yml` запускает harness **после упаковки** на пяти нативных хостах: Windows и macOS
+двух архитектур и Linux x64. `*.json`, `*.log`, `*.png` из output сохраняются в артефактах
+`jcef-probe-<target>`, в том числе при провале. Полный локальный прогон на целевом хосте также
+поддерживается; кросс-компиляция и эмуляция полезны для диагностики, но не заменяют
+проверку на целевой архитектуре перед публикацией.
 Fatal JVM/native crashes сохраняют полный отчёт `hs_err_pid*.log` в том же output.
 
 Проверки самого harness без JCEF:
@@ -191,6 +198,6 @@ javac --release 21 -encoding UTF-8 -d build/probe-json native/jcef/verification/
 java -cp build/probe-json ProbeJsonTest
 ```
 
-На момент добавления harness прошли эти unit-проверки, синтаксис fixture JavaScript и
-компиляция SessionProbe против пропатченного Java API. Нативный прогон на всех четырёх хостах
-остаётся отдельным обязательным условием публикации; сама компиляция не считается проверкой persistence.
+Unit-проверки, синтаксис fixture JavaScript и компиляция SessionProbe против пропатченного
+Java API не заменяют нативный прогон на всех пяти хостах; сама компиляция не считается
+проверкой persistence.

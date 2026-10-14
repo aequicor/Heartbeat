@@ -52,8 +52,11 @@ alive until request completion, then dispose the request before its context.
 
 ## Next release
 
-The prepared **152.0.6-hb4** release adds Linux x64. Its CEF archive digest is pinned in `next/source-lock.json`;
-the patch is unchanged from hb3. The current four-host hb3 lock and published assets remain unchanged until all
+The prepared **152.0.6-hb4** release adds Linux x64. Its CEF archive digest is pinned in `next/source-lock.json`.
+The Linux patch synchronizes creation of JCEF's temporary X11 parent before Chromium uses its window ID
+on a separate connection, preventing the first embedded browser from losing its native window and close callback.
+The embedder and probe also pass `--no-first-run` to prevent Chrome's standalone first-run dialog from
+blocking initialization. The current four-host hb3 lock and published assets remain unchanged until all
 five native builds and probes pass. The completed hb4 lock must contain six real jar hashes before Gradle's
 `jcef-native` version and `jcef-linux-x64` coordinate are enabled together. Do not publish the application with
 a missing Linux native jar or replace it with an unpatched upstream runtime.
