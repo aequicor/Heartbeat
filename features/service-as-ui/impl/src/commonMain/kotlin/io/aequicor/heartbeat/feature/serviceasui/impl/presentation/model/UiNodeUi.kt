@@ -192,4 +192,4 @@ internal data class UiModalUi(val name: String, val title: String, val body: UiN
 internal val NoNodes: ImmutableList<UiNodeUi> = persistentListOf()
 
 /** Host viewport preset for an isolated page, independent of the page's own CSS. */
-internal enum class WebHeightUi { Compact, Regular, Tall }
+internal enum class WebHeightUi { Compact, Regular, Tall, Content }

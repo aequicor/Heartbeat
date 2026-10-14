@@ -325,4 +325,5 @@ private fun UiWebHeight.ui(): WebHeightUi = when (this) {
     UiWebHeight.Compact -> WebHeightUi.Compact
     UiWebHeight.Regular -> WebHeightUi.Regular
     UiWebHeight.Tall -> WebHeightUi.Tall
+    UiWebHeight.Content -> WebHeightUi.Content
 }

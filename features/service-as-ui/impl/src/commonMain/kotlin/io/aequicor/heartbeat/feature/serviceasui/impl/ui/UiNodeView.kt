@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -131,20 +132,27 @@ private fun ContentView(
 }
 
 /**
- * A web node's embedded browser document at a fixed height (native views cannot size to their content), or a note
- * while web documents are off or cannot be shown here.
+ * A web node's document at a viewport preset or bounded intrinsic height, or a note when it cannot be shown.
+ * Content-sized document routes measure their own page, while this parent enforces the host's outer bounds.
  */
 @Composable
 private fun WebView(document: ComposableComponent?, height: WebHeightUi, modifier: Modifier = Modifier) {
     if (document == null) {
         Note(stringResource(Res.string.service_ui_web_unavailable), modifier)
     } else {
-        val viewport = when (height) {
-            WebHeightUi.Compact -> HbTheme.dimensions.webDocumentCompactHeight
-            WebHeightUi.Regular -> HbTheme.dimensions.webDocumentHeight
-            WebHeightUi.Tall -> HbTheme.dimensions.webDocumentTallHeight
+        val sized = when (height) {
+            WebHeightUi.Compact -> modifier.height(HbTheme.dimensions.webDocumentCompactHeight)
+
+            WebHeightUi.Regular -> modifier.height(HbTheme.dimensions.webDocumentHeight)
+
+            WebHeightUi.Tall -> modifier.height(HbTheme.dimensions.webDocumentTallHeight)
+
+            WebHeightUi.Content -> modifier.heightIn(
+                min = HbTheme.dimensions.webDocumentMinHeight,
+                max = HbTheme.dimensions.webDocumentMaxHeight,
+            )
         }
-        document.Content(modifier.fillMaxWidth().height(viewport))
+        document.Content(sized.fillMaxWidth())
     }
 }
 

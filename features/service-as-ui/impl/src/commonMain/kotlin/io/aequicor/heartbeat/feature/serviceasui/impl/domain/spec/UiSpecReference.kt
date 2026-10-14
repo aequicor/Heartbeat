@@ -16,9 +16,13 @@ internal val UiIconNames: List<String> = listOf(
  * limits and the workflow with harness methods. [methodResultBytes] and [callSeconds] come from the data layer that
  * enforces them.
  */
-internal fun uiSpecReference(methodResultBytes: Int, callSeconds: Int): String =
-    listOf(placesAndDocument(), nodesAndActions(), limitsAndWorkflow(methodResultBytes, callSeconds))
-        .joinToString("\n\n")
+internal fun uiSpecReference(methodResultBytes: Int, callSeconds: Int): String = listOf(
+    placesAndDocument(),
+    nodesAndActions(),
+    limitsAndCards(methodResultBytes, callSeconds),
+    miniAppsAndWorkflow(),
+)
+    .joinToString("\n\n")
 
 private fun placesAndDocument(): String = """
 # Heartbeat interface spec, version $UI_SPEC_VERSION
@@ -80,15 +84,27 @@ private fun nodesAndActions(): String = """
   multiline?}; `toggle` {bind, label}; `select` {bind, options: [{value, label}], label?}; `native` {widget: date |
   file | folder, bind, label?, extensions?}: a date is written as YYYY-MM-DD, a file or folder as an absolute path
   (desktop only).
-- `web` {html, bridge?, data?, height?: compact | regular | tall}: an isolated page in library surfaces (including
+- `web` {html, bridge?, data?, height?: compact | regular | tall | content}: an isolated page in library surfaces (including
   `card` and `composer`) and in modals, one per surface, desktop only while web documents are enabled. Anonymous
   cards may show it only inside modals and never get a bridge; editor previews never execute owner methods.
   Saving a web surface or showing an anonymous web spec uses automatic safety review. `height` is a bounded viewport:
-  compact for a status strip above the composer, regular (default) or tall for the mini-app body; use responsive CSS.
+  compact for a status strip above the composer; regular (default) and tall are fixed presets. Prefer content for
+  a mini-app body: it grows AND shrinks to its body or `[data-heartbeat-root]`, within host minimum/maximum bounds;
+  longer pages scroll inside. Keep that root in normal flow; never use body/root height:100%, min-height:100vh or a
+  fixed full-screen height. Use responsive CSS; regular is the fallback until measurements are available.
   The page has its own origin and no network: inline scripts and styles, `data:` images and fonts; no fetch, sockets, WebRTC, frames, workers, forms or links away. It reads `data` (a binding) as
   `heartbeat.data` and later values from the `heartbeat:data` event on `window` (`event.detail`). With `bridge: true`
   (library surfaces), `await heartbeat.call(method, args)` calls the owner's method with object `args` and returns
   its value, or rejects with an `Error` of the owner's message.
+  The host supplies semantic CSS variables, a default system-sans body and inherited form fonts. Use
+  `--hb-surface`, `--hb-surface-raised`, `--hb-text`, `--hb-text-muted`, `--hb-border`, `--hb-accent`,
+  `--hb-on-accent`, `--hb-accent-muted`, `--hb-control`, `--hb-input`, `--hb-focus`, `--hb-danger`,
+  `--hb-on-danger`, `--hb-success`, `--hb-on-success`; typography: `--hb-font-family`, `--hb-font-size`,
+  `--hb-line-height`, `--hb-body-size`, `--hb-body-line-height`, `--hb-title-size`, `--hb-caption-size`;
+  spacing: `--hb-space-xs`, `--hb-space-s`, `--hb-space-m`, `--hb-space-l`, `--hb-space-xl`, `--hb-control-height`.
+  `heartbeat.theme` has `colorScheme` (light/dark) and `variables`; `heartbeat:theme` announces changes. CSS variables
+  update without reloading the page, changing `heartbeat.data`, or granting method access. Follow host colors;
+  do not infer the application theme only from prefers-color-scheme or hardcode a dark background.
   Native JavaScript dialogs (`alert`, `confirm`, `prompt`) and pop-ups are blocked. Show feedback inside the page;
   call methods directly for ordinary actions. Never gate a working button on `window.confirm`.
 Icons draw an icon button whose label is its tooltip and accessible name: ${UiIconNames.joinToString(", ")}.
@@ -103,7 +119,7 @@ only put it into the chat input), `openUrl` {url: http or https}, `copy` {text},
 extensions?}, `reveal` {path: absolute; library surfaces only}, `sequence` {actions} (stops at the first failure).
     """.trimIndent()
 
-private fun limitsAndWorkflow(methodResultBytes: Int, callSeconds: Int): String = """
+private fun limitsAndCards(methodResultBytes: Int, callSeconds: Int): String = """
 ## Limits
 ${UiSpecLimits.NODES} nodes, nesting ${UiSpecLimits.DEPTH}, ${UiSpecLimits.SOURCES} data sources,
 ${UiSpecLimits.MODALS} modals, ${UiSpecLimits.SEQUENCE} steps in a sequence, ${UiSpecLimits.COLUMNS} table columns,
@@ -125,10 +141,14 @@ when the user presses its buttons or its web page calls the bridge. Its automati
 Turning the owner off or detaching it removes its live card until the owner is available again. Hidden transcript
 cards release their web documents; returning to them loads durable state again.
 
+    """.trimIndent()
+
+private fun miniAppsAndWorkflow(): String = """
 ## Mini-apps inside the conversation
 Build a full app as one owner-backed `card` surface with internal tabs, forms and history, plus an optional compact
 `composer` status surface backed by the same read-only method. Keep the existing chat, sidebar and input intact.
-Use `web` with inline HTML/CSS/JS for a custom visual theme. Keep styles inside the document; do not create another
+Prefer native nodes for straightforward lists, forms and status. Use `web` with inline HTML/CSS/JS when the task
+needs a custom view, with host theme variables and height: content. Keep styles inside the document; do not create another
 sidebar or open a panel for this workflow. Declare `data` auto sources, bind `web.data` to `{{data.snapshot}}`, render
 `heartbeat.data` on startup and listen for `heartbeat:data` updates. Handle missing data and rejected bridge calls.
 Buttons call approved harness `ui.method` methods; persist changed values using harness `data` before returning.
@@ -136,6 +156,21 @@ Resume controls must keep existing records. Check the current state inside `data
 session so repeated clicks cannot reset active progress; separate starting, resuming and clearing actions.
 The host updates other drawn surfaces after a durable write, without a model turn or a page reload. Do not poll or
 read the same data after every successful call. Use inline SVG or CSS for artwork; isolated pages have no network.
+
+## Embedded app design
+- Preserve the chat shell. One concise app header, a useful current state and one primary action; secondary actions
+  stay quiet. Use compact internal tabs only when they organize real content. No second sidebar or navigation shell.
+- Use the host's proportional sans font for labels, buttons, prose and numbers; monospace is for source code only.
+  Use tabular figures for aligned numeric columns. Hierarchy comes from 400/500/600 weights and spacing, not all-caps.
+- Honor a requested visual style through a restrained accent or small illustration. A space theme can use an orbit
+  motif; it does not require neon glows, a starfield background, glowing pills, gradients or a terminal typeface.
+  Flat rows, subtle dividers and calm selection states should carry the working interface.
+- Show the next useful task first. Avoid hero-sized headings, decorative metrics, nested cards and empty dashboard
+  space. Empty history should explain that there are no records and offer the relevant action, without fake progress.
+- Collapse multi-column layouts at narrow widths; no horizontal page scroll. Buttons have visible labels,
+  :focus-visible states and sufficient contrast. Do not communicate state only by color; respect reduced motion.
+- Size to real content. Loading, empty, success and error states must all fit naturally; do not reserve full-screen
+  space. Preserve durable records when redesigning. Update the existing surface rather than adding another card.
 
 ## Workflow
 1. Publish the methods in a harness script item: `ui.method(ItemName("prs"), "Open pull requests") { call ->

@@ -142,7 +142,7 @@ class UiSpecValidatorTest {
 
     @Test
     fun `web documents work in library placements but anonymous cards cannot obtain a bridge`() {
-        val web = """{"type":"web","html":"<p>x</p>","bridge":true}"""
+        val web = """{"type":"web","html":"<p>x</p>","bridge":true,"height":"content"}"""
         val inline = spec(web)
         val inModal = spec("""{"type":"divider"}""", modals = """{"view":{"title":"V","body":$web}}""")
         val twice = spec("""{"type":"column","children":[$web,$web]}""")

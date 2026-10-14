@@ -156,4 +156,7 @@ internal enum class UiWebHeight {
 
     @SerialName("tall")
     Tall,
+
+    @SerialName("content")
+    Content,
 }

@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserBridgeResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocument
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentHandle
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentRoute
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentSizing
 import io.aequicor.heartbeat.feature.serviceasui.api.UiCallContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodFailure
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodInfo
@@ -17,6 +18,7 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpecDecoding
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.decodeUiSpec
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiFacts
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiNodeUi
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.WebHeightUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.subscribe
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.testStores
 import kotlinx.coroutines.CoroutineScope
@@ -203,6 +205,27 @@ class SurfaceWebDocumentsTest {
         assertEquals(1, fixture.web.opened.size)
         assertTrue(!document.isClosed)
         assertNotNull(document.document.bridge)
+    }
+
+    @Test
+    fun `content sizing is presentation only and changing its mode replaces the document`() {
+        val web = FakeWeb(true)
+        val documents = SurfaceWebDocuments(web, bridge = null, title = "App")
+        val content = UiNodeUi.Web("app", "<p>App</p>", hasBridge = true, JsonNull, WebHeightUi.Content)
+        documents.enable(true)
+        documents.show(SurfaceState(root = content))
+        val first = web.opened.single()
+        assertEquals(BrowserDocumentSizing.Content, first.document.sizing)
+        assertNull(first.document.bridge, "Content measurement must not create method authority")
+
+        documents.show(SurfaceState(root = content.copy(data = JsonPrimitive(1))))
+        assertEquals(1, web.opened.size)
+        assertEquals(listOf<JsonElement?>(JsonPrimitive(1)), first.updates)
+        documents.show(SurfaceState(root = content.copy(height = WebHeightUi.Regular)))
+        assertTrue(first.isClosed)
+        assertEquals(BrowserDocumentSizing.Fixed, web.opened.last().document.sizing)
+        documents.close()
+        assertTrue(web.opened.last().isClosed)
     }
 
     private fun column(screen: SurfaceProviderOf) = assertIs<UiNodeUi.Column>(screen.states.value.root)
