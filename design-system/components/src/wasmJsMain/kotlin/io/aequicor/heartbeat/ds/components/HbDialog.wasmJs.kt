@@ -7,7 +7,7 @@ import androidx.compose.ui.window.DialogProperties
 @Composable
 internal actual fun HbPlatformDialog(
     onDismissRequest: () -> Unit,
-    hasOverlay: Boolean,
+    isInWindow: Boolean,
     content: @Composable () -> Unit,
 ) {
     Dialog(onDismissRequest, DialogProperties(usePlatformDefaultWidth = false), content)

@@ -15,6 +15,7 @@ import androidx.compose.ui.semantics.semantics
 import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.ds.components.HbDialog
 import io.aequicor.heartbeat.ds.components.HbDialogWidth
+import io.aequicor.heartbeat.ds.components.HbDocumentOverlay
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbLoadingState
@@ -114,6 +115,14 @@ internal fun AppHostView(
                 )
             },
         ) { body(Modifier.fillMaxWidth()) }
+    } else if (state.isStart && isDocumentOnly) {
+        HbDocumentOverlay(
+            icon = HbIcons.Maximize,
+            contentDescription = stringResource(Res.string.service_ui_app_expand),
+            onClick = { onIntent(AppHostIntent.Open) },
+            modifier = modifier.fillMaxSize().hbSurface(HbTheme.colors.surface, HbTheme.shapes.large)
+                .clip(HbTheme.shapes.large).semantics { paneTitle = state.title },
+        ) { size -> body(size.fillMaxSize()) }
     } else if (state.isStart) {
         HbColumn(
             modifier.fillMaxSize().hbSurface(HbTheme.colors.surface, HbTheme.shapes.large)

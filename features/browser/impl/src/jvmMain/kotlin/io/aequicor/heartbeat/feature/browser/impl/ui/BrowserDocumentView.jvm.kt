@@ -82,11 +82,12 @@ private fun RetainedDocumentPanel(
     } else {
         0.0
     }
-    val scrim = java.awt.Color(HbTheme.colors.scrim.toArgb(), true)
+    val backdrop = if (dismiss != null) HbTheme.colors.scrim else HbTheme.surfaces.assistant
+    val cornerColor = java.awt.Color(backdrop.toArgb(), true)
     SideEffect {
         panel.updateTheme(theme)
         attachment.updateDismissRequest(dismiss)
-        attachment.updateCornerRadius(cornerRadius, scrim)
+        attachment.updateCornerRadius(cornerRadius, cornerColor)
     }
     val intrinsicHeight = size?.logicalHeight(viewportWidth / density.density)?.dp ?: dimensions.webDocumentHeight
     val sized = modifier.documentSize(surface, intrinsicHeight, dimensions)

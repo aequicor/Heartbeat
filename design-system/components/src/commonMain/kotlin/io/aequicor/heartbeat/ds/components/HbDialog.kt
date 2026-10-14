@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -16,10 +15,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,7 +28,6 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.heading
@@ -39,11 +35,7 @@ import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
@@ -71,6 +63,7 @@ public enum class HbDialogWidth {
  * no footer space. [isContentEdgeToEdge] removes the inner chrome and padding, placing [headerActions] in a
  * non-focusable top-end overlay above native content. [title] remains accessible; [LocalHbDialogOverlayInsets]
  * tells the content which corner its own controls must avoid. The outer window margin and shape remain unchanged.
+ * [isInWindow] uses the current desktop window's modal host when available, independently of content padding.
  */
 @Composable
 public fun HbDialog(
@@ -83,6 +76,7 @@ public fun HbDialog(
     isTitleVisible: Boolean = true,
     isCompact: Boolean = isContentFill,
     isContentEdgeToEdge: Boolean = false,
+    isInWindow: Boolean = isContentEdgeToEdge,
     headerActions: @Composable RowScope.() -> Unit = {},
     actions: (@Composable RowScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
@@ -96,7 +90,7 @@ public fun HbDialog(
     val inset = if (isCompact) HbTheme.spacing.s else HbTheme.spacing.xl
     val gap = if (isCompact) HbTheme.spacing.s else HbTheme.spacing.l
     HbPlatformDialog(
-        hasOverlay = isContentEdgeToEdge,
+        isInWindow = isInWindow,
         onDismissRequest = {
             log.i { "dialog dismissed" }
             dismiss()
@@ -155,7 +149,7 @@ private fun Modifier.dismissDialogOnEscape(onDismissRequest: () -> Unit): Modifi
     }
 }
 
-/** A small separate window keeps the controls above heavyweight children without covering the rest of the page. */
+/** Documents share the same measured control overlay on the start surface and in the modal. */
 @Composable
 private fun EdgeToEdgeDialogBody(
     isScrollable: Boolean,
@@ -164,34 +158,10 @@ private fun EdgeToEdgeDialogBody(
     actions: (@Composable RowScope.() -> Unit)?,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val density = LocalDensity.current
-    val inset = HbTheme.spacing.s
-    var overlaySize by remember { mutableStateOf(IntSize.Zero) }
-    val occupied = with(density) {
-        if (overlaySize == IntSize.Zero) {
-            HbDialogOverlayInsets()
-        } else {
-            HbDialogOverlayInsets(overlaySize.width.toDp() + inset, overlaySize.height.toDp() + inset)
-        }
-    }
-    Box(Modifier.clip(HbTheme.shapes.large), propagateMinConstraints = true) {
-        CompositionLocalProvider(LocalHbDialogOverlayInsets provides occupied) {
-            HbColumn(Modifier.fillMaxWidth().heightIn(min = occupied.height), gap = 0.dp) {
-                DialogBody(isScrollable, isFill, gap = 0.dp, content = content)
-                DialogActions(actions)
-            }
-        }
-        val insetPx = with(density) { inset.roundToPx() }
-        Popup(
-            alignment = Alignment.TopEnd,
-            offset = IntOffset(-insetPx, insetPx),
-            properties = PopupProperties(
-                focusable = false,
-                dismissOnBackPress = false,
-                dismissOnClickOutside = false,
-            ),
-        ) {
-            HbRow(Modifier.onSizeChanged { overlaySize = it }, gap = HbTheme.spacing.s, content = headerActions)
+    HbDocumentOverlay(headerActions, Modifier.clip(HbTheme.shapes.large)) { body ->
+        HbColumn(body.fillMaxWidth(), gap = 0.dp) {
+            DialogBody(isScrollable, isFill, gap = 0.dp, content = content)
+            DialogActions(actions)
         }
     }
 }
@@ -247,6 +217,6 @@ private fun DialogHeader(title: String, isTitleVisible: Boolean, actions: @Compo
 @Composable
 internal expect fun HbPlatformDialog(
     onDismissRequest: () -> Unit,
-    hasOverlay: Boolean = false,
+    isInWindow: Boolean = false,
     content: @Composable () -> Unit,
 )

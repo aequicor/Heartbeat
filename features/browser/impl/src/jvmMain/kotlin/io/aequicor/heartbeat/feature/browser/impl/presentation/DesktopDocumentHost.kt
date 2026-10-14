@@ -12,9 +12,9 @@ import java.awt.geom.RoundRectangle2D
 import javax.swing.JPanel
 
 /**
- * Compose punches a rectangular hole for a heavyweight Swing view, including the dialog scrim at its corners.
- * The native page's mask exposes that hole. Restore only the missing scrim outside the rounded page; the page
- * itself and its inner spacing remain untouched. The color comes from the owning dialog's current theme.
+ * Compose punches a rectangular hole for a heavyweight Swing view, including its surrounding surface at the corners.
+ * The native page's mask exposes that hole. Restore only the missing backdrop outside the rounded page; the page
+ * itself and its inner spacing remain untouched. The host supplies its surface color or the owning dialog's scrim.
  */
 internal class DesktopDocumentHost : JPanel(BorderLayout()) {
     private var radius = 0.0

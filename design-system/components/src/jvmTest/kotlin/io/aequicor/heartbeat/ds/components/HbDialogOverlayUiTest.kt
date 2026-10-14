@@ -8,6 +8,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
@@ -132,5 +133,38 @@ class HbDialogOverlayUiTest {
             assertTrue(dialog.height > page.height + 50f)
             assertTrue(page.left - dialog.left > 20f)
             assertEquals(HbDialogOverlayInsets(), seen)
+        }
+
+    @Test
+    fun `document controls hide with their background owner and return without changing body geometry`() =
+        runSkikoComposeUiTest(size = Size(1000f, 700f)) {
+            val modal = HbNativeModalOwner()
+            var active by mutableStateOf<HbNativeModalOwner?>(null)
+            var owner by mutableStateOf<HbNativeModalOwner?>(null)
+            setContent {
+                HbTheme(dimensions = HbDimensions.Desktop) {
+                    CompositionLocalProvider(
+                        LocalHbActiveNativeModalOwner provides active,
+                        LocalHbNativeModalOwner provides owner,
+                    ) {
+                        HbDocumentOverlay(controls = { HbIconButton(HbIcons.Maximize, "Expand", {}) }) { body ->
+                            Box(body.fillMaxWidth().height(240.dp).testTag("page"))
+                        }
+                    }
+                }
+            }
+            onNodeWithContentDescription("Expand").assertIsDisplayed()
+            val bounds = onNodeWithTag("page").fetchSemanticsNode().boundsInRoot
+            runOnIdle { active = modal }
+            onNodeWithContentDescription("Expand").assertDoesNotExist()
+            assertEquals(bounds, onNodeWithTag("page").fetchSemanticsNode().boundsInRoot)
+            runOnIdle { owner = modal }
+            onNodeWithContentDescription("Expand").assertIsDisplayed()
+            runOnIdle {
+                active = null
+                owner = null
+            }
+            onNodeWithContentDescription("Expand").assertIsDisplayed()
+            assertEquals(bounds, onNodeWithTag("page").fetchSemanticsNode().boundsInRoot)
         }
 }

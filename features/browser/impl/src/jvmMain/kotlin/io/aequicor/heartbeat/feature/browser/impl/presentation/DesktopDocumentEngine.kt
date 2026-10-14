@@ -115,7 +115,9 @@ internal class DesktopDocumentEngine(
             client.addRequestHandler(policy.requestHandler)
             client.addLifeSpanHandler(LifeSpan())
             client.addLoadHandler(Load())
-            client.addKeyboardHandler(DesktopDocumentKeyboard(presentation.dismissal))
+            val keyboard = DesktopDocumentKeyboard(presentation.dismissal)
+            client.addKeyboardHandler(keyboard)
+            client.addFocusHandler(keyboard)
             client.addDisplayHandler(
                 object : CefDisplayHandlerAdapter() {
                     @HighFrequency

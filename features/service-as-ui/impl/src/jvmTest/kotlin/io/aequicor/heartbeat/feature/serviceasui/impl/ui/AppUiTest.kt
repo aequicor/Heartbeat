@@ -7,13 +7,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -21,14 +25,24 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performMouseInput
+import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
+import androidx.compose.ui.test.withKeyDown
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
+import io.aequicor.heartbeat.ds.components.HbButton
+import io.aequicor.heartbeat.ds.components.HbDialogOverlayInsets
+import io.aequicor.heartbeat.ds.components.LocalHbDialogOverlayInsets
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.app.AppHostIntent
@@ -63,6 +77,50 @@ class AppUiTest {
     fun restoreLanguage() {
         Locale.setDefault(previousLocale)
     }
+
+    @Test
+    fun `start expand has one host Tab target and document Enter stays with the document`() =
+        runSkikoComposeUiTest(size = Size(1000f, 700f)) {
+            val documentFocus = FocusRequester()
+            val intents = mutableListOf<AppHostIntent>()
+            var documentActions = 0
+            setContent {
+                Themed {
+                    AppHostView(
+                        expanded.copy(isExpanded = false, isStart = true),
+                        hasDocument = true,
+                        intents::add,
+                        Modifier.testTag("app-frame"),
+                        isDocumentOnly = true,
+                    ) { body ->
+                        Box(body) {
+                            HbButton("Document action", { documentActions++ }, Modifier.focusRequester(documentFocus))
+                        }
+                    }
+                }
+            }
+            val frame = onNodeWithTag("app-frame").fetchSemanticsNode().boundsInRoot
+            val button = onNodeWithContentDescription("Expand app").fetchSemanticsNode().boundsInRoot
+            assertTrue(button.width < frame.width / 4 && button.height < frame.height / 4)
+            assertTrue(button.left > frame.center.x && button.bottom < frame.center.y)
+            onNodeWithText("Document action").performMouseInput { click() }
+            assertEquals(1, documentActions)
+            assertTrue(intents.isEmpty())
+            runOnIdle { documentFocus.requestFocus() }
+            onNodeWithText("Document action").assertIsFocused().performKeyInput { pressKey(Key.Enter) }
+            assertEquals(2, documentActions)
+            assertTrue(intents.isEmpty())
+            onNodeWithText("Document action").performKeyInput { pressKey(Key.Tab) }
+            onAllNodesWithContentDescription("Expand app").assertCountEquals(1)
+            val expand = onNodeWithContentDescription("Expand app").assertIsFocused()
+            expand.performKeyInput { pressKey(Key.Enter) }
+            expand.performKeyInput { pressKey(Key.Spacebar) }
+            assertEquals(listOf<AppHostIntent>(AppHostIntent.Open, AppHostIntent.Open), intents)
+            expand.performKeyInput { withKeyDown(Key.ShiftLeft) { pressKey(Key.Tab) } }
+            onNodeWithText("Document action").assertIsFocused().performKeyInput { pressKey(Key.Enter) }
+            assertEquals(3, documentActions)
+            assertEquals(2, intents.size)
+        }
 
     @Test
     fun `full web app uses remaining height without a host scroll in both themes and widths`() {
@@ -296,15 +354,29 @@ class AppUiTest {
     ) {
         var state by mutableStateOf(AppHostState(title = "Orbit Gym", isStart = true, sequence = 7))
         val intents = mutableListOf<AppHostIntent>()
+        var occupied = HbDialogOverlayInsets()
         setContent {
             Themed {
-                AppHostView(state, hasDocument = true, { intents += it }, isDocumentOnly = true) { body ->
+                AppHostView(
+                    state,
+                    hasDocument = true,
+                    { intents += it },
+                    Modifier.testTag("app-frame"),
+                    isDocumentOnly = true,
+                ) { body ->
+                    val overlay = LocalHbDialogOverlayInsets.current
+                    SideEffect { occupied = overlay }
                     SizedDocument { 180f }.Content(body)
                 }
             }
         }
         onAllNodes(SemanticsMatcher.expectValue(SemanticsProperties.TestTag, "document")).assertCountEquals(1)
-        assertTrue(onNodeWithTag("document").fetchSemanticsNode().boundsInRoot.height > 700f)
+        val frame = onNodeWithTag("app-frame").fetchSemanticsNode().boundsInRoot
+        val document = onNodeWithTag("document").fetchSemanticsNode().boundsInRoot
+        assertEquals(frame, document, "The Start document must occupy its whole frame without a host header")
+        assertTrue(occupied.width > 0.dp && occupied.height > 0.dp, "The document must know the expand corner")
+        onNodeWithText("Orbit Gym").assertDoesNotExist()
+        onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).assertCountEquals(0)
         onNodeWithContentDescription("Expand app").performClick()
         assertEquals(AppHostIntent.Open, intents.last())
         state = state.copy(isExpanded = true)
@@ -313,6 +385,27 @@ class AppUiTest {
         assertEquals(AppHostIntent.Close(7), intents.last())
         val bounds = onNodeWithTag("document").fetchSemanticsNode().boundsInRoot
         assertEquals(180f, bounds.height)
+    }
+
+    @Test
+    fun `native start content retains its title and ordinary expand header`() = runSkikoComposeUiTest(
+        size = Size(420f, 600f),
+    ) {
+        var occupied = HbDialogOverlayInsets(10.dp, 10.dp)
+        setContent {
+            Themed {
+                AppHostView(AppHostState(title = "Native app", isStart = true), hasDocument = false, {}) { body ->
+                    val overlay = LocalHbDialogOverlayInsets.current
+                    SideEffect { occupied = overlay }
+                    Box(body.testTag("native-body"))
+                }
+            }
+        }
+        val title = onNodeWithText("Native app").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val body = onNodeWithTag("native-body").fetchSemanticsNode().boundsInRoot
+        assertTrue(body.top >= title.bottom)
+        assertEquals(HbDialogOverlayInsets(), occupied)
+        onNodeWithContentDescription("Expand app").assertIsDisplayed()
     }
 
     @Composable

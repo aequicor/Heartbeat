@@ -26,10 +26,10 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 @Composable
 internal actual fun HbPlatformDialog(
     onDismissRequest: () -> Unit,
-    hasOverlay: Boolean,
+    isInWindow: Boolean,
     content: @Composable () -> Unit,
 ) {
-    val isInline = hasOverlay && hbInWindowDialog(onDismissRequest, content)
+    val isInline = isInWindow && hbInWindowDialog(onDismissRequest, content)
     if (!isInline) {
         HbLayerDialog(onDismissRequest, content)
     }

@@ -17,7 +17,7 @@ import javax.swing.RootPaneContainer
 private val LocalHbInWindowDialogs = compositionLocalOf<InWindowDialogs?> { null }
 
 /**
- * The window's modal portal: edge-to-edge dialogs share its existing Compose canvas and native window.
+ * The window's modal portal: dialogs opting into in-window presentation share its Compose canvas and native window.
  * Place once around the application content. Other popups keep their normal rendering strategy.
  * [onActiveChange] lets the window defer global shortcuts while a modal owns keyboard input.
  */
@@ -41,6 +41,17 @@ public fun HbInWindowDialogHost(
             }
         }
     }
+    HbInWindowDialogPortal(dialogs, modifier, content)
+}
+
+/** Window-independent portal composition shared by the real host and focus/lifecycle tests. */
+@Composable
+internal fun HbInWindowDialogPortal(
+    dialogs: InWindowDialogs,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val active = dialogs.entries.lastOrNull()
     CompositionLocalProvider(
         LocalHbInWindowDialogs provides dialogs,
         LocalHbActiveNativeModalOwner provides active?.owner,
@@ -82,8 +93,8 @@ internal fun hbInWindowDialog(onDismissRequest: () -> Unit, content: @Composable
     return true
 }
 
-private class InWindowDialogs {
+internal class InWindowDialogs {
     val entries = mutableStateListOf<InWindowDialog>()
 }
 
-private data class InWindowDialog(val owner: HbNativeModalOwner, val render: @Composable () -> Unit)
+internal data class InWindowDialog(val owner: HbNativeModalOwner, val render: @Composable () -> Unit)
