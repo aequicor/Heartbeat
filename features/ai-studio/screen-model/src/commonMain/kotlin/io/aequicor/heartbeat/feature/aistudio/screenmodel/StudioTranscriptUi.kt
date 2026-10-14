@@ -76,7 +76,19 @@ sealed interface ReplyPartUi {
 /** Screen-level class of a failed run, mirroring the domain failure kind. */
 @Serializable
 @SerialName("FailureUi")
-enum class FailureUi { Limit, Context, Authentication, Network, Unknown }
+enum class FailureUi {
+    Limit,
+    Quota,
+    Context,
+    Authentication,
+    CredentialsMissing,
+    ConnectionChanged,
+    Network,
+    Access,
+    RequestRejected,
+    EngineUnavailable,
+    Unknown,
+}
 
 /** One transcript entry as the screen shows it. */
 @Serializable

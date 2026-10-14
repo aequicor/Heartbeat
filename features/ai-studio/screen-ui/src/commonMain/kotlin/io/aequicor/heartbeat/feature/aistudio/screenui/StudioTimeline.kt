@@ -63,12 +63,24 @@ internal data class FailureLabels(
     val context: String = unknown,
     val authentication: String = unknown,
     val network: String = unknown,
+    val quota: String = unknown,
+    val credentialsMissing: String = unknown,
+    val connectionChanged: String = unknown,
+    val access: String = unknown,
+    val requestRejected: String = unknown,
+    val engineUnavailable: String = unknown,
 ) {
     fun of(kind: FailureUi): String = when (kind) {
         FailureUi.Limit -> limit
+        FailureUi.Quota -> quota
         FailureUi.Context -> context
         FailureUi.Authentication -> authentication
+        FailureUi.CredentialsMissing -> credentialsMissing
+        FailureUi.ConnectionChanged -> connectionChanged
         FailureUi.Network -> network
+        FailureUi.Access -> access
+        FailureUi.RequestRejected -> requestRejected
+        FailureUi.EngineUnavailable -> engineUnavailable
         FailureUi.Unknown -> unknown
     }
 }
