@@ -22,13 +22,17 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.NoStudioHarnessAttach
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.RunFailureKind
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessAttach
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -117,6 +121,81 @@ class StudioContextCarryTest {
     fun `a chat without a native session does not roll over`() = runTest {
         assertEquals(RunOutcome.Failed, carry { stored }.rollover(rollover()))
         assertTrue(record.previousRefs.isEmpty())
+    }
+
+    @Test
+    fun `outside rollover preserves the transcript and seeds the next native session`() = runTest {
+        record = StudioChatRecord("chat", "Chat", Instant.DISTANT_PAST, ref = old)
+        val session = Session()
+        handle = session
+
+        assertEquals(RunOutcome.Completed, carry { stored }.rollover(rollover(), session, setOf("restricted")))
+        assertTrue(stored.all { it.isFrozenSegment })
+        assertTrue("Fix the parser" in record.pendingSeed.orEmpty())
+        assertEquals(listOf(old), record.previousRefs)
+        assertEquals(setOf("restricted"), record.pendingHarnesses)
+        assertEquals(ActiveSessionState.Closed, session.state.value)
+    }
+
+    @Test
+    fun `outside rollover rechecks ownership and idle state after reading history`() = runTest {
+        record = StudioChatRecord("chat", "Chat", Instant.DISTANT_PAST, ref = old)
+        val session = Session()
+        handle = session
+        val before = stored
+        val carry = carry {
+            session.state.value = ActiveSessionState.Unavailable(EngineFailure.Unknown())
+            stored
+        }
+
+        assertFailsWith<IllegalStateException> { carry.rollover(rollover(), session) }
+        assertEquals(before, stored)
+        assertEquals(old, record.ref)
+        assertTrue(record.previousRefs.isEmpty())
+        assertSame(session, handle)
+    }
+
+    @Test
+    fun `globally disabled harness carry keeps its source through restart until the next enabled prompt`() = runTest {
+        record = StudioChatRecord("chat", "Chat", Instant.DISTANT_PAST, ref = old)
+        val session = Session()
+        handle = session
+        var isEnabled = false
+        val restored = mutableListOf<Set<String>>()
+        val harnesses = object : StudioHarnessAttach by NoStudioHarnessAttach {
+            override suspend fun attached(session: SessionRef): Set<String>? {
+                assertEquals(old, session)
+                return setOf("restricted").takeIf { isEnabled }
+            }
+            override suspend fun restore(harnesses: Set<String>, session: SessionRef) {
+                restored += harnesses
+            }
+        }
+        val carry = carry { stored }
+        carry.environment(rollover(), session, harnesses) { }
+        assertEquals(old, record.pendingHarnessSource)
+        assertNull(record.pendingHarnesses)
+        record = Json.decodeFromString(
+            StudioChatRecord.serializer(),
+            Json.encodeToString(StudioChatRecord.serializer(), record),
+        )
+        // A later manual rollover must not discard the unresolved source either.
+        record = record.rolledOver("another seed")
+        val replacement = old.copy(nativeId = "replacement")
+        record = record.copy(ref = replacement)
+        carry.restoreHarnesses("chat", replacement, harnesses)
+        assertTrue(restored.isEmpty())
+        assertEquals(old, record.pendingHarnessSource)
+
+        isEnabled = true
+        assertEquals(
+            mapOf("harness" to setOf("restricted")),
+            carry.prepareHarnesses("chat", harnesses).withCarriedHarnesses(emptyMap()),
+        )
+        carry.restoreHarnesses("chat", replacement, harnesses)
+        assertEquals(listOf(setOf("restricted")), restored)
+        assertNull(record.pendingHarnesses)
+        assertNull(record.pendingHarnessSource)
     }
 
     private fun carry(items: suspend (String) -> List<SessionItem>) = StudioContextCarry(

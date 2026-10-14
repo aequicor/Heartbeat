@@ -74,6 +74,7 @@ public object JvmChromiumBridgeBindings {
     ): BridgeRequestHandler = SidePanelStudioHandlers(studio, watches) { session ->
         object : StudioChatEnvironment {
             override val preselected = mapOf("external_browser" to setOf(session.id.toString()))
+            override fun acceptsTool(name: String): Boolean = !name.startsWith("browser_")
             override fun bind(sessionRef: SessionRef): AutoCloseable = browser.value.bindSession(
                 Json.encodeToString(SessionRef.serializer(), sessionRef),
                 session.id.toString(),

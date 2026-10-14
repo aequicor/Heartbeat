@@ -44,13 +44,65 @@ import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 
 class MachineStudioHarnessesTest {
     private val session = SessionRef(EngineId("test"), SessionSourceId("local"), "native")
     private val other = SessionRef(EngineId("test"), SessionSourceId("local"), "other")
+
+    @Test
+    fun `only a globally disabled feature defers reading carried connections`() = runTest {
+        val library = SpecHarnessLibrary(backgroundScope)
+        val disabled = object : FeatureToggles by HarnessToggleOn {
+            @Suppress("UNCHECKED_CAST") // This test reads only the Boolean harness toggle.
+            override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = false as T
+        }
+        val harnesses = MachineStudioHarnesses(HarnessRegistry(library), disabled)
+        assertNull(harnesses.attached(session))
+        assertTrue(library.sent.isEmpty())
+    }
+
+    @Test
+    fun `outside carry restores every committed harness including disabled ones`() = runTest {
+        val library = SpecHarnessLibrary(backgroundScope)
+        val ready = library.state.value as HarnessState.Ready
+        library.state.value = ready.copy(
+            harnesses = ready.harnesses.map { it.copy(harness = it.harness.copy(isEnabled = false)) },
+            attachments = mapOf(session to setOf(HarnessId("compose"), HarnessId("verify"))),
+        )
+        val harnesses = MachineStudioHarnesses(HarnessRegistry(library), HarnessToggleOn)
+        val selected = checkNotNull(harnesses.attached(session))
+        assertEquals(setOf("compose", "verify"), selected)
+
+        harnesses.restore(selected, other)
+        assertEquals(library.attached(session), library.attached(other))
+        library.sent.clear()
+        harnesses.restore(selected, other)
+        assertTrue(library.sent.isEmpty())
+    }
+
+    @Test
+    fun `outside carry fails on unavailable state and retries unconfirmed attachment`() = runTest {
+        val library = SpecHarnessLibrary(backgroundScope)
+        val ready = library.state.value as HarnessState.Ready
+        val harnesses = MachineStudioHarnesses(HarnessRegistry(library), HarnessToggleOn)
+        library.state.value = ready.copy(isSuspended = true)
+        assertFailsWith<IllegalStateException> { harnesses.attached(session) }
+        library.state.value = HarnessState.Failed()
+        assertFailsWith<IllegalStateException> { harnesses.attached(session) }
+        library.state.value = ready
+        library.isSilent = true
+        assertFailsWith<IllegalStateException> { harnesses.restore(setOf("compose"), other) }
+        assertTrue(library.attached(other).isEmpty())
+
+        library.isSilent = false
+        harnesses.restore(setOf("compose"), other)
+        assertEquals(setOf(HarnessId("compose")), library.attached(other))
+    }
 
     @Test
     fun `clearing eight connected harnesses waits for each persisted disconnection`() = runTest {

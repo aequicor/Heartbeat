@@ -18,8 +18,8 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.handoffSplit
  * [NoticeKind.ContextRollover] notice closes the segment, so the history mirror of the new session never replaces
  * them. The essence of the old session ([rolloverSeed]), or with the continuation brief enabled [continuationSeed],
  * reaches the first accepted turn of the new session as a host directive. Scheduled wakes addressed to an earlier
- * session still find the chat by [StudioChatRecord.previousRefs]; harness connections of the earlier session are not
- * carried over.
+ * session still find the chat by [StudioChatRecord.previousRefs]. Context-window rollovers leave harness connections
+ * behind; an automatic rollover for an outside host preserves them through [StudioChatRecord.pendingHarnesses].
  */
 internal const val FROZEN_PREFIX = "hb.seg."
 
@@ -139,6 +139,6 @@ private val log = Log.tag("StudioRollover")
 private const val ROLLOVER_NOTICE = "Continued in a new session"
 private const val SEED_END = "--- End of earlier conversation ---"
 private const val SEED_HEADER =
-    "This conversation continues from an earlier session that was closed to free the context window. Its essence " +
+    "This conversation continues from an earlier native session. Its essence " +
         "follows, oldest first. Treat it as context only: do not repeat the tool calls or actions it describes; " +
         "check the current state of files and tasks before relying on it."

@@ -59,6 +59,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.OrganismRequest
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.RunFailureKind
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioChatResolver
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessAttach
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPreferences
@@ -143,6 +144,12 @@ internal data class StudioChatRecord(
     val pendingSeed: String? = null,
     /** Continuation brief for the next accepted turn after a native compaction; user data, never logged. */
     val pendingBrief: String? = null,
+    /** Connections awaiting confirmed restoration after an outside host required new native declarations. */
+    val pendingHarnesses: Set<String>? = null,
+    /** Retained while harnesses are globally off; their connections restore before the next enabled prompt. */
+    val pendingHarnessSource: SessionRef? = null,
+    /** Native create received the carried IDs while harnesses were enabled; retries reuse these declarations. */
+    val pendingHarnessContext: SessionRef? = null,
 ) {
     /** Whether [session] is this chat's current or an earlier native session. */
     fun owns(session: SessionRef): Boolean = ref == session || session in previousRefs
@@ -181,6 +188,7 @@ internal class EngineStudioRepository(
     private val organisms: StudioOrganisms,
     private val configuredSubmission: StudioConfiguredSubmission,
     private val helperAdmission: StudioHelperAdmission,
+    private val harnesses: StudioHarnessAttach,
 ) : StudioRepository,
     StudioRuntime,
     StudioTurnHost,
@@ -523,6 +531,7 @@ internal class EngineStudioRepository(
 
     override suspend fun submitTurn(active: ActiveSession, request: StudioTurnRequest): TurnId {
         log.i { "Submit the reserved native request" }
+        carry.restoreHarnesses(request.id, active.ref, harnesses)
         val target = checkNotNull(record(request.id).target)
         checklists.publishGeneration(record(request.id).copy(ref = active.ref))
         return configuredSubmission.submit(
@@ -533,6 +542,18 @@ internal class EngineStudioRepository(
             { offeredModels.value },
             { state.value.configurations },
         )
+    }
+
+    override suspend fun needsCarriedTools(id: String, active: ActiveSession): Boolean {
+        log.v { "Check carried native declarations" }
+        return record(id).needsHarnessDeclarations(active.ref, harnesses)
+    }
+
+    override suspend fun rolloverTurn(request: StudioTurnRequest, active: ActiveSession) {
+        log.i { "Carry outside chat into a compatible native context" }
+        carry.environment(request, active, harnesses) {
+            historyMirror.refresh(request.id, active.features.requireFeature(SessionHistory))
+        }
     }
 
     override suspend fun shouldStop(id: String): Boolean {
@@ -636,7 +657,7 @@ internal class EngineStudioRepository(
     }
 
     private suspend fun open(id: String, target: EngineTarget, chosen: ToolChoices) = conversationLocks.withLock(id) {
-        val record = record(id)
+        val record = carry.prepareHarnesses(id, harnesses)
         check(record.worktreeTaskId == null || record.executionWorkspace != null) {
             "The conversation worktree is not ready"
         }
@@ -664,9 +685,10 @@ internal class EngineStudioRepository(
             update(id) { copy(target = target) }
             return@withLock current
         }
+        val hasCarriedHarnesses = record.ref == null && record.isHarnessCarryEnabled(harnesses)
         val active = if (record.ref == null) {
             facade.engines.features(target.engine).requireFeature(CreatesSessions)
-                .create(studioCreateRequest(target, workspace, chosen))
+                .create(studioCreateRequest(target, workspace, record.withCarriedHarnesses(chosen)))
         } else {
             check(
                 record.target?.engine == target.engine && record.target.binding == target.binding,
@@ -676,29 +698,17 @@ internal class EngineStudioRepository(
         }
         // Register before persisting: the stored ref recomputes continuability, which must see the live handle.
         handlesLock.withLock { handles[id] = active }
-        persistReference(id, target, active)
+        nativeSession.persistReference(
+            active,
+            write = { update(id) { withNativeReference(target, active.ref, hasCarriedHarnesses) } },
+            forget = { forgetHandle(id, active) },
+        )
         usage.attach(id, active)
         active
     }
 
-    private suspend fun persistReference(id: String, target: EngineTarget, active: ActiveSession) {
-        var isPersisted = false
-        try {
-            update(id) { copy(ref = active.ref, target = target) }
-            isPersisted = true
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.e(e) { "Could not persist the native session reference; closing the session" }
-            throw e
-        } finally {
-            if (!isPersisted) {
-                withContext(NonCancellable) {
-                    handlesLock.withLock { if (handles[id] === active) handles.remove(id) }
-                    nativeSession.closeOrphan(active)
-                }
-            }
-        }
+    private suspend fun forgetHandle(id: String, active: ActiveSession) = handlesLock.withLock {
+        if (handles[id] === active) handles.remove(id)
     }
 
     override suspend fun cancel(sessionId: String) {
@@ -871,6 +881,27 @@ private class StudioNativeSessionOperations(private val learning: StudioLearning
     } catch (e: Exception) {
         log.e(e) { "Native cancellation failed; continue observing the accepted turn" }
         false
+    }
+
+    /** A native handle becomes owned only after its reference and declaration receipt are durable. */
+    suspend fun persistReference(active: ActiveSession, write: suspend () -> Unit, forget: suspend () -> Unit) {
+        var isPersisted = false
+        try {
+            write()
+            isPersisted = true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.e(e) { "Could not persist the native session reference; closing the session" }
+            throw e
+        } finally {
+            if (!isPersisted) {
+                withContext(NonCancellable) {
+                    forget()
+                    closeOrphan(active)
+                }
+            }
+        }
     }
 
     /** Closes a native session nobody can reach any more, so it is not leaked. */
