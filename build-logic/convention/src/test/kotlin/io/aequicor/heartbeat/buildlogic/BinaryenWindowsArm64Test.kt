@@ -1,18 +1,17 @@
 package io.aequicor.heartbeat.buildlogic
 
 import org.gradle.api.Project
-import org.gradle.api.artifacts.repositories.IvyArtifactRepository
 import org.gradle.api.internal.project.ProjectInternal
 import org.gradle.kotlin.dsl.getByType
 import org.gradle.testfixtures.ProjectBuilder
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenEnvSpec
 import org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenPlugin
+import org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenSetupTask
 import org.junit.Rule
 import org.junit.rules.TemporaryFolder
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFails
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalWasmDsl::class)
@@ -30,11 +29,15 @@ class BinaryenWindowsArm64Test {
             val archive = repository.resolve("version_130/binaryen-version_130-arm64-windows.tar.gz")
             archive.parentFile.mkdirs()
             archive.writeText("native Windows ARM64 archive")
-            project.extensions.getByType<BinaryenEnvSpec>().downloadBaseUrl.set(repository.toURI().toString())
+            project.extensions.getByType<BinaryenEnvSpec>().apply {
+                version.set("130")
+                downloadBaseUrl.set(repository.toURI().toString())
+            }
             project.evaluateProject()
 
-            assertEquals(archive, project.resolve("com.github.webassembly:binaryen:130:aarch64-windows@tar.gz"))
-            assertFails { project.resolve("unrelated:binaryen:130:aarch64-windows@tar.gz") }
+            assertTrue(project.repositories.isEmpty())
+            assertEquals(archive, project.tasks.withType(BinaryenSetupTask::class.java).single().dist)
+            assertTrue(project.repositories.isEmpty())
         }
     }
 
@@ -88,15 +91,43 @@ class BinaryenWindowsArm64Test {
         }
         project.evaluateProject()
 
-        val repository = project.repositories.single() as IvyArtifactRepository
+        val repository = project.repositories.ivy {
+            name = "Distributions at http://localhost/binaryen"
+            setUrl(project.extensions.getByType<BinaryenEnvSpec>().downloadBaseUrl)
+            isAllowInsecureProtocol = project.extensions.getByType<BinaryenEnvSpec>().allowInsecureProtocol.get()
+            patternLayout {
+                artifact("version_[revision]/binaryen-version_[revision]-[classifier].[ext]")
+            }
+        }
         assertEquals("http://localhost/binaryen", repository.url.toString())
         assertTrue(repository.isAllowInsecureProtocol)
+    }
+
+    @Test
+    fun `other Ivy distributions keep their original patterns`() {
+        val project = project()
+        project.configureBinaryenWindowsArm64("Windows 11", "aarch64")
+        project.plugins.apply(BinaryenPlugin::class.java)
+        val distributions = temporaryFolder.newFolder()
+        val archive = distributions.resolve("v1/node-v1-arm64.zip")
+        archive.parentFile.mkdirs()
+        archive.writeText("other distribution")
+        project.extensions.getByType<BinaryenEnvSpec>().downloadBaseUrl.set(distributions.toURI().toString())
+        project.repositories.ivy {
+            name = "Other distributions at the same URL"
+            setUrl(distributions)
+            patternLayout { artifact("v[revision]/node-v[revision]-[classifier].[ext]") }
+            metadataSources { artifact() }
+        }
+        project.evaluateProject()
+
+        val configuration = project.configurations.detachedConfiguration(
+            project.dependencies.create("fixture:node:1:arm64@zip"),
+        )
+        assertEquals(archive, configuration.singleFile)
     }
 
     private fun Project.evaluateProject() = (this as ProjectInternal).evaluate()
 
     private fun project(): Project = ProjectBuilder.builder().withProjectDir(temporaryFolder.newFolder()).build()
-
-    private fun Project.resolve(notation: String) =
-        configurations.detachedConfiguration(dependencies.create(notation)).singleFile
 }
