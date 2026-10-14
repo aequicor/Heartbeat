@@ -475,10 +475,10 @@ index e5a73ab..0c9eb00 100644
      private final native Status N_GetRequestStatus(long self);
      private final native ErrorCode N_GetRequestError(long self);
 diff --git a/native/CefBrowser_N.cpp b/native/CefBrowser_N.cpp
-index ceea3a6..99c54e4 100644
+index ceea3a6..d950dc4 100644
 --- a/native/CefBrowser_N.cpp
 +++ b/native/CefBrowser_N.cpp
-@@ -932,13 +932,17 @@ void create(std::shared_ptr<JNIObjectsForCreate> objs,
+@@ -932,16 +932,20 @@ void create(std::shared_ptr<JNIObjectsForCreate> objs,
    ScopedJNIEnv env;
    CefRefPtr<ClientHandler> clientHandler = GetCefFromJNIObject<ClientHandler>(
        env, objs->jclientHandler, "CefClientHandler");
@@ -497,7 +497,11 @@ index ceea3a6..99c54e4 100644
 +  }
  
    CefRefPtr<CefBrowser> parentBrowser =
-       GetCefFromJNIObject<CefBrowser>(env, objs->jparentBrowser, "CefBrowser");
+-      GetCefFromJNIObject<CefBrowser>(env, objs->jparentBrowser, "CefBrowser");
++      GetJNIBrowser(env, objs->jparentBrowser);
+ 
+   CefWindowInfo windowInfo;
+   CefBrowserSettings settings;
 @@ -1039,6 +1043,7 @@ void create(std::shared_ptr<JNIObjectsForCreate> objs,
    if (!result) {
      lifeSpanHandler->unregisterJBrowser(globalRef);
@@ -542,6 +546,41 @@ index ceea3a6..99c54e4 100644
  #else
    CefWindowHandle windowHandle = browser->GetHost()->GetWindowHandle();
    if (CefCurrentlyOn(TID_UI)) {
+@@ -2138,14 +2140,26 @@ Java_org_cef_browser_CefBrowser_1N_N_1SetParent(JNIEnv* env,
+     util::SetParent(browserHandle, parentHandle, std::move(callback));
+   } else {
+ #if defined(OS_LINUX)
+-    CriticalLock lock;
+-    CriticalWait waitCond(&lock);
+-    lock.Lock();
+-    CefPostTask(TID_UI,
+-                base::BindOnce(util::SetParentSync, browserHandle, parentHandle,
+-                               &waitCond, std::move(callback)));
+-    waitCond.Wait(1000);
+-    lock.Unlock();
++    // The CEF task can run after the bounded EDT wait has timed out. Both
++    // callers must own the lock and condition until their last access.
++    struct ParentChangeWait {
++      CriticalLock lock;
++      CriticalWait condition{&lock};
++    };
++    auto completion = std::make_shared<ParentChangeWait>();
++    completion->lock.Lock();
++    CefPostTask(
++        TID_UI,
++        base::BindOnce(
++            [](CefWindowHandle browserHandle, CefWindowHandle parentHandle,
++               std::shared_ptr<ParentChangeWait> completion,
++               base::OnceClosure callback) {
++              util::SetParentSync(browserHandle, parentHandle,
++                                  &completion->condition, std::move(callback));
++            },
++            browserHandle, parentHandle, completion, std::move(callback)));
++    completion->condition.Wait(1000);
++    completion->lock.Unlock();
+ #else
+     CefPostTask(TID_UI, base::BindOnce(util::SetParent, browserHandle,
+                                        parentHandle, std::move(callback)));
 diff --git a/native/CefRequestContext_N.cpp b/native/CefRequestContext_N.cpp
 index db6b2dd..987f503 100644
 --- a/native/CefRequestContext_N.cpp
@@ -761,10 +800,29 @@ index cb43cbc..99f21d4 100644
   * Class:     org_cef_network_CefURLRequest_N
   * Method:    N_Dispose
 diff --git a/native/jni_util.cpp b/native/jni_util.cpp
-index 03499c7..b57be7b 100644
+index 03499c7..a09ed33 100644
 --- a/native/jni_util.cpp
 +++ b/native/jni_util.cpp
-@@ -401,12 +401,20 @@ CefRefPtr<CefValue> GetCefValueFromJNIMap(JNIEnv* env, const jobject& obj) {
+@@ -6,6 +6,7 @@
+ 
+ #include <jawt.h>
+ #include <algorithm>
++#include <mutex>
+ 
+ #include "jni_scoped_helpers.h"
+ 
+@@ -17,6 +18,10 @@ JavaVM* g_jvm = nullptr;
+ 
+ jobject g_javaClassLoader = nullptr;
+ 
++// The Java handle owns one CToCpp wrapper reference. Borrowing it must retain
++// that exact wrapper before close can detach and release it on another thread.
++std::mutex g_browser_reference_mutex;
++
+ }  // namespace
+ 
+ void SetJVM(JavaVM* jvm) {
+@@ -401,12 +406,20 @@ CefRefPtr<CefValue> GetCefValueFromJNIMap(JNIEnv* env, const jobject& obj) {
                      entryValue);
      jobject jvalue = entryValue.get();
      CefRefPtr<CefValue> cef_value = GetCefValueFromJNIObject(env, jvalue);
@@ -786,7 +844,7 @@ index 03499c7..b57be7b 100644
    return value;
  }
  
-@@ -427,7 +435,10 @@ CefRefPtr<CefValue> GetCefValueFromJNIList(JNIEnv* env, const jobject& obj) {
+@@ -427,7 +440,10 @@ CefRefPtr<CefValue> GetCefValueFromJNIList(JNIEnv* env, const jobject& obj) {
                      next);
      jobject jvalue = next.get();
      CefRefPtr<CefValue> cef_value = GetCefValueFromJNIObject(env, jvalue);
@@ -798,6 +856,43 @@ index 03499c7..b57be7b 100644
      index++;
      JNI_CALL_METHOD(env, iterator, "hasNext", "()Z", Boolean, hasNext);
    }
+@@ -1352,9 +1368,36 @@ bool GetJNIPoint(JNIEnv* env, jobject obj, int* x, int* y) {
+ }
+ 
+ CefRefPtr<CefBrowser> GetJNIBrowser(JNIEnv* env, jobject jbrowser) {
++  std::lock_guard<std::mutex> lock(g_browser_reference_mutex);
+   return GetCefFromJNIObject<CefBrowser>(env, jbrowser, "CefBrowser");
+ }
+ 
++bool SetJNIBrowser(JNIEnv* env,
++                   jobject jbrowser,
++                   CefRefPtr<CefBrowser> browser) {
++  if (!jbrowser)
++    return false;
++
++  ScopedJNIString identifier(env, "CefBrowser");
++  CefBrowser* previous = nullptr;
++  {
++    std::lock_guard<std::mutex> lock(g_browser_reference_mutex);
++    jlong handle = 0;
++    JNI_CALL_METHOD(env, jbrowser, "getNativeRef", "(Ljava/lang/String;)J", Long,
++                    handle, identifier.get());
++    previous = reinterpret_cast<CefBrowser*>(handle);
++    if (browser)
++      browser->AddRef();
++    JNI_CALL_VOID_METHOD(env, jbrowser, "setNativeRef", "(Ljava/lang/String;J)V",
++                         identifier.get(), (jlong)browser.get());
++  }
++  // Detach before releasing. Destructors and callbacks must not run under the
++  // reference lock, and later getters must already observe the new handle.
++  if (previous)
++    previous->Release();
++  return true;
++}
++
+ jobject GetJNIEnumValue(JNIEnv* env,
+                         const char* class_name,
+                         const char* enum_valname) {
 diff --git a/native/url_request_client.cpp b/native/url_request_client.cpp
 index 2acc9ca..6248d81 100644
 --- a/native/url_request_client.cpp
@@ -1103,3 +1198,42 @@ diff --git a/native/temp_window_x11.cc b/native/temp_window_x11.cc
  }
  
  TempWindowX11::~TempWindowX11() {
+diff --git a/native/jni_util.h b/native/jni_util.h
+index 6028427..dd63245 100644
+--- a/native/jni_util.h
++++ b/native/jni_util.h
+@@ -213,7 +213,12 @@ CefRect GetJNIRect(JNIEnv* env, jobject obj);
+ bool GetJNIPoint(JNIEnv* env, jobject obj, int* x, int* y);
+ 
+ // Get the existing CEF browser counterpart.
++// Retain and detach Java-owned browser references under the same lock. Do not
++// use raw GetCefFromJNIObject/SetCefForJNIObject for CefBrowser handles.
+ CefRefPtr<CefBrowser> GetJNIBrowser(JNIEnv* env, jobject jbrowser);
++bool SetJNIBrowser(JNIEnv* env,
++                   jobject jbrowser,
++                   CefRefPtr<CefBrowser> browser);
+ 
+ jobject GetJNIEnumValue(JNIEnv* env,
+                         const char* class_name,
+diff --git a/native/life_span_handler.cpp b/native/life_span_handler.cpp
+index aaa8c25..9b367b9 100644
+--- a/native/life_span_handler.cpp
++++ b/native/life_span_handler.cpp
+@@ -66,7 +66,7 @@ void LifeSpanHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
+ 
+   // Add a reference to |browser| that will be released in
+   // LifeSpanHandler::OnBeforeClose.
+-  if (SetCefForJNIObject(env, jbrowser, browser.get(), "CefBrowser")) {
++  if (SetJNIBrowser(env, jbrowser, browser)) {
+     JNI_CALL_VOID_METHOD(env, handle_, "onAfterCreated",
+                          "(Lorg/cef/browser/CefBrowser;)V", jbrowser);
+   }
+@@ -103,7 +103,7 @@ void LifeSpanHandler::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
+   // Clear the browser pointer member of the Java object. This will
+   // release the browser reference that was added in
+   // LifeSpanHandler::OnAfterCreated.
+-  SetCefForJNIObject<CefBrowser>(env, jbrowser, nullptr, "CefBrowser");
++  SetJNIBrowser(env, jbrowser, nullptr);
+ 
+   CefRefPtr<ClientHandler> client =
+       (ClientHandler*)browser->GetHost()->GetClient().get();

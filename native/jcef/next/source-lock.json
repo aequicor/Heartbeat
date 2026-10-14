@@ -1,7 +1,7 @@
 {
   "jcefCommit": "17e805ad387d89839fdd2b864466b6510b2a783c",
   "cefVersion": "152.0.6+g708dc14+chromium-152.0.7977.83",
-  "patchSha256": "ee8ca2013a2c9c23a2c18c272a5c0c3850143f6c10ab25d5e6f5118e2f401c2d",
+  "patchSha256": "1a9884f24f680ffe98a119b98a90b7b067877bf4af3f5e346ed5ac73a30df49e",
   "cefDistributions": {
     "macosx-amd64": {
       "file": "cef_binary_152.0.6+g708dc14+chromium-152.0.7977.83_macosx64.tar.bz2",

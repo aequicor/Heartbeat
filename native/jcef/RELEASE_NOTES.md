@@ -17,7 +17,13 @@ Java/native jars cover Windows and macOS on x64 and ARM64, plus Linux x64. Linux
 Ubuntu 24.04-compatible system libraries and an X11 or XWayland display.
 The Linux native patch waits for creation of JCEF's temporary X11 parent before Chromium
 uses it from another connection, fixing the first browser's missing native window and
-close callback. Embedders must pass `--no-first-run` to suppress Chrome's standalone
+close callback. Native browser handles are retained and cleared under a shared lock;
+the detached wrapper is released after unlocking. This fixes a use-after-free when
+Swing visibility/focus events race with native browser close, observed on Linux.
+Linux reparent callbacks retain their lock and wait condition after the bounded EDT wait
+times out. The queued `SetParentSync` callback can finish without accessing destroyed
+stack state during visibility and resize operations.
+Embedders must pass `--no-first-run` to suppress Chrome's standalone
 first-run dialog during initialization; Heartbeat and the lifecycle probe both do so.
 `source-lock.json` identifies the exact upstream JCEF commit, CEF version, patch
 SHA-256 and every artifact SHA-256. `SHA256SUMS` and `runtime-manifest.json` record

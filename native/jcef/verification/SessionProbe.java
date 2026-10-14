@@ -25,6 +25,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.imageio.ImageIO;
 import javax.swing.JFrame;
 import javax.swing.SwingUtilities;
@@ -333,7 +334,7 @@ public final class SessionProbe {
             Anchor current = anchor("anchor-closing-" + index);
             Tab closing = tab(current, "anchor-closing-" + index);
             closing.write("teardown-" + index);
-            closing.close();
+            closing.closeWithConcurrentNativeReads();
             current.close();
             require(remainingClients() == 1, "Anchor teardown retained a client in iteration " + index);
             require("retained".equals(survivor.evaluate("window.anchorSentinel")),
@@ -406,7 +407,8 @@ public final class SessionProbe {
                         + " javaIdentity=" + System.identityHashCode(browser) + " createdIds=" + createdIds);
                 }
                 @Override public void onAfterClose(CefBrowser browser) {
-                    completeNativeClose(browser.getIdentifier());
+                    // The close hook must not call browser methods while native teardown unwinds.
+                    completeNativeClose(createdIds.get(0));
                 }
                 @Override public void onCreationFailed(CefBrowser browser) {
                     closeRequested = true;
@@ -493,6 +495,40 @@ public final class SessionProbe {
             }
             await(closed, "browser onBeforeClose");
             onEdt(() -> { frame.dispose(); return null; });
+        }
+
+        void closeWithConcurrentNativeReads() throws Exception {
+            // A JNI read already in flight must retain its wrapper before native close releases it.
+            AtomicBoolean stopReader = new AtomicBoolean();
+            CompletableFuture<Void> readerStarted = new CompletableFuture<>();
+            CompletableFuture<Void> readerStopped = new CompletableFuture<>();
+            Thread.ofPlatform().name("native-handle-reader").start(() -> {
+                try {
+                    browser.getIdentifier();
+                    readerStarted.complete(null);
+                    while (!closed.isDone() && !stopReader.get()) browser.getIdentifier();
+                    readerStopped.complete(null);
+                } catch (Throwable failure) {
+                    readerStarted.completeExceptionally(failure);
+                    readerStopped.completeExceptionally(failure);
+                }
+            });
+            Throwable closeFailure = null;
+            try {
+                await(readerStarted, "native handle reader start");
+                close();
+            } catch (Exception | Error failure) {
+                closeFailure = failure;
+                throw failure;
+            } finally {
+                stopReader.set(true);
+                try {
+                    await(readerStopped, "native handle reader stop");
+                } catch (Exception | Error stopFailure) {
+                    if (closeFailure == null) throw stopFailure;
+                    closeFailure.addSuppressed(stopFailure);
+                }
+            }
         }
 
         void closeWithPendingVisibility(int pairs) throws Exception {

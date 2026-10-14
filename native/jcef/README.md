@@ -55,6 +55,14 @@ alive until request completion, then dispose the request before its context.
 The prepared **152.0.6-hb4** release adds Linux x64. Its CEF archive digest is pinned in `next/source-lock.json`.
 The Linux patch synchronizes creation of JCEF's temporary X11 parent before Chromium uses its window ID
 on a separate connection, preventing the first embedded browser from losing its native window and close callback.
+Native browser-handle reads now retain the Java-owned CEF wrapper under the same lock that publishes or clears
+the handle. Close releases the detached wrapper after unlocking, preventing Swing events racing with native
+close from retaining a freed wrapper without running destructors under the reference lock. This applies to
+all platforms, including the DevTools parent lookup. The close callback uses the identifier captured at creation;
+the regression probe concurrently reads browser handles until that callback to exercise ownership.
+Linux reparent operations also share ownership of their lock and wait condition between the EDT and the
+queued CEF callback. If the bounded EDT wait times out, the callback keeps that state alive until it returns,
+preventing `SetParentSync` from accessing a destroyed stack condition during visibility and resize work.
 The embedder and probe also pass `--no-first-run` to prevent Chrome's standalone first-run dialog from
 blocking initialization. The current four-host hb3 lock and published assets remain unchanged until all
 five native builds and probes pass. The completed hb4 lock must contain six real jar hashes before Gradle's
