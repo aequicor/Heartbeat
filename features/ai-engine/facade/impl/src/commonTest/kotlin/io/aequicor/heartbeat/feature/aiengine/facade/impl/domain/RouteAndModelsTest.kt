@@ -52,6 +52,7 @@ internal class RouteFixture(
     scope: TestScope,
     val factory: FakeEngineFactory = FakeEngineFactory(),
     registration: EngineRegistration = registration(factory),
+    release: BindingRelease = BindingRelease {},
 ) {
     val clock = FixedClock()
     val toggles = FakeEngineToggles()
@@ -60,7 +61,7 @@ internal class RouteFixture(
     val context = scope.facadeContext(clock)
     val registry = EngineRegistry(listOf(registration), EnginePlatform.DesktopWindows)
     val gate = EngineGate(registry, toggles)
-    val bindings = EngineBindingsService(gate, store, sources, FakeAuthChecks(clock), { false }, context)
+    val bindings = EngineBindingsService(gate, store, sources, FakeAuthChecks(clock), release, context)
     val routes = RouteResolver(registry, gate, bindings)
     val source = sources.add(managedKey())
     val binding = EngineBinding(EngineBindingId("b1"), TestEngine, source.info.id)

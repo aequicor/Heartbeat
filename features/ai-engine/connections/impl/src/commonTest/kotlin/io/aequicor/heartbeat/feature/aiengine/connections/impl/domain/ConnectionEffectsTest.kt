@@ -236,6 +236,53 @@ class ConnectionEffectsTest {
     }
 
     @Test
+    fun `disconnect removes the last connection and models from the observed settings`() = runTest {
+        backgroundScope.launch {
+            facade.bindingsState.collect { facade.catalog.value = listOf(engineInfo(it)) }
+        }
+        backgroundScope.launch { settings.handle(EngineConnectionsEffect.Observe, settingsScope) }
+        val credential = CredentialInput.Existing("Local", OllamaMethod.origin)
+        wizard.handle(ConnectWizardEffect.Connect(KoogId, OllamaMethod, credential), wizardScope)
+        val binding = facade.bindingsState.value.single().id
+        selections.update { it.withDefault(modelInfo(binding, "llama").target) }
+        runCurrent()
+        val before = settingsScope.intents.filterIsInstance<EngineConnectionsIntent.Internal.Snapshot>().last().snapshot
+        assertEquals(listOf(binding), before.engines.single().bindings.map { it.id })
+
+        settings.handle(EngineConnectionsEffect.Execute(ConnectionOperation.Disconnect(binding)), settingsScope)
+        runCurrent()
+
+        val after = settingsScope.intents.filterIsInstance<EngineConnectionsIntent.Internal.Snapshot>().last().snapshot
+        assertTrue(after.engines.single().bindings.isEmpty())
+        assertTrue(after.sources.isEmpty())
+        assertTrue(after.models.isEmpty())
+        assertTrue(after.selection.bindings.isEmpty())
+        assertEquals(null, after.selection.defaultTarget)
+    }
+
+    @Test
+    fun `retry finishes runtime cleanup after the binding has already been removed`() = runTest {
+        val credential = CredentialInput.Existing("Local", OllamaMethod.origin)
+        wizard.handle(ConnectWizardEffect.Connect(KoogId, OllamaMethod, credential), wizardScope)
+        val binding = facade.bindingsState.value.single().id
+        selections.update { it.withDefault(modelInfo(binding, "llama").target) }
+        facade.disconnectCleanupFailure = IllegalStateException("runtime cleanup")
+        val disconnect = EngineConnectionsEffect.Execute(ConnectionOperation.Disconnect(binding))
+
+        assertFailsWith<IllegalStateException> { settings.handle(disconnect, settingsScope) }
+        assertTrue(facade.bindingsState.value.isEmpty())
+        assertTrue(sources.forgotten.isEmpty())
+
+        facade.disconnectCleanupFailure = null
+        settings.handle(disconnect, settingsScope)
+
+        assertEquals(2, facade.calls.count { it == "disconnect" })
+        assertEquals(listOf(AuthSourceId("source-1")), sources.forgotten)
+        assertTrue(selections.state.value.bindings.isEmpty())
+        assertEquals(EngineConnectionsIntent.Internal.Applied, settingsScope.intents.last())
+    }
+
+    @Test
     fun `rollback still forgets the source when clearing the model choice fails`() = runTest {
         val credential = CredentialInput.Existing("Local", OllamaMethod.origin)
         wizard.handle(ConnectWizardEffect.Connect(KoogId, OllamaMethod, credential), wizardScope)

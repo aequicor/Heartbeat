@@ -40,7 +40,10 @@ public sealed interface ConnectionOperation {
     /** Enables or disables new executions through a binding; its models stay chosen. */
     public data class SetConnectionEnabled(val binding: EngineBindingId, val isEnabled: Boolean) : ConnectionOperation
 
-    /** Removes the binding and its model choice; the source is forgotten when no other binding uses it. */
+    /**
+     * Interrupts executions through the connection and removes its binding and model choice, keeping chat history.
+     * The source is forgotten when no other binding uses it.
+     */
     public data class Disconnect(val binding: EngineBindingId) : ConnectionOperation
 
     /** Explicit model discovery through a binding. */

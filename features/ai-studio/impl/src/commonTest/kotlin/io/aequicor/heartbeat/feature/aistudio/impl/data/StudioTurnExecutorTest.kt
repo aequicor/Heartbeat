@@ -77,6 +77,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.reflect.safeCast
@@ -343,7 +344,7 @@ class StudioTurnExecutorTest {
             val result = async { fixture.executor.execute(fixture.host, request) }
             runCurrent()
             assertEquals(1, acknowledgements)
-            assertEquals(request, fixture.host.submitted)
+            assertEquals(request, fixture.host.submitted?.copy(delivery = request.delivery))
             assertEquals(ExecutorAttachments, fixture.host.submitted?.attachments)
             assertEquals(request.request, fixture.host.submitted?.request)
             assertTrue(fixture.machine.sent.any { it is WorktreeIntent.Public.RunAccepted })
@@ -839,6 +840,90 @@ class StudioBrowserEnvironmentTest {
     }
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
+class StudioClosedTurnExecutorTest {
+    @Test
+    fun `closing an accepted turn ends observation without confirming native completion or releasing its worktree`() =
+        runTest {
+            val fixture = TurnFixture()
+            fixture.active.state.value = ActiveSessionState.Running(fixture.turn.copy(outcome = null))
+            var outcome: TurnOutcome? = null
+            val run = async {
+                fixture.executor.execute(fixture.host, fixture.request.copy(onOutcome = { outcome = it }))
+            }
+            runCurrent()
+            fixture.active.state.value = ActiveSessionState.Closed
+            runCurrent()
+            assertFalse(run.isCompleted)
+            assertTrue(fixture.machine.sent.last() is WorktreeIntent.Public.RunObservationLost)
+            fixture.tools.release.complete(Unit)
+            assertEquals(RunOutcome.Failed, run.await())
+            assertEquals(TurnOutcome.Unknown, outcome)
+            assertEquals(fixture.active.ref to fixture.turn.id, fixture.tools.finished)
+            assertTrue(fixture.host.terminalReceipts.isEmpty())
+            assertTrue(fixture.machine.sent.none { it is WorktreeIntent.Public.RunSettled })
+            assertTrue(fixture.events.none { it == "refresh" || it == "cancel" })
+        }
+
+    @Test
+    fun `closing during cancellation recovery ends both bounded and continued observation without settlement`() =
+        runTest {
+            for (elapsed in listOf(0L, 30_001L)) {
+                val fixture = TurnFixture()
+                fixture.host.stopCheckFailure = IllegalStateException("Stop check failed")
+                fixture.active.state.value = ActiveSessionState.Running(fixture.turn.copy(outcome = null))
+                var outcome: TurnOutcome? = null
+                val run = async {
+                    fixture.executor.execute(fixture.host, fixture.request.copy(onOutcome = { outcome = it }))
+                }
+                runCurrent()
+                advanceTimeBy(elapsed)
+                runCurrent()
+                assertFalse(run.isCompleted)
+                fixture.active.state.value = ActiveSessionState.Closed
+                fixture.tools.release.complete(Unit)
+                assertEquals(RunOutcome.Failed, run.await())
+                assertEquals(TurnOutcome.Unknown, outcome)
+                assertEquals(fixture.active.ref to fixture.turn.id, fixture.tools.finished)
+                assertTrue(fixture.host.terminalReceipts.isEmpty())
+                assertEquals(1, fixture.machine.sent.count { it is WorktreeIntent.Public.RunObservationLost })
+                assertTrue(fixture.machine.sent.none { it is WorktreeIntent.Public.RunSettled })
+            }
+        }
+
+    @Test
+    fun `closing during uncertain submission ends the run without rejecting or settling pending worktree ownership`() =
+        runTest {
+            for (environment in listOf(null, ExecutorEnvironment())) {
+                val fixture = TurnFixture()
+                fixture.host.isNativeSubmissionEnabled = true
+                fixture.active.sendFailure = EngineException(
+                    EngineFailure.Request(RequestFailureReason.OutcomeUnknown, fixture.request.request),
+                )
+                var outcome: TurnOutcome? = null
+                val run = async {
+                    fixture.executor.execute(
+                        fixture.host,
+                        fixture.request.copy(environment = environment, onOutcome = { outcome = it }),
+                    )
+                }
+                runCurrent()
+                assertFalse(run.isCompleted)
+                fixture.active.state.value = ActiveSessionState.Closed
+                assertEquals(RunOutcome.Failed, run.await())
+                assertEquals(TurnOutcome.Unknown, outcome)
+                environment?.let { assertTrue(it.isBound) }
+                assertTrue(fixture.host.submitted?.delivery?.isPending == true)
+                assertNull(fixture.tools.finished)
+                assertTrue(fixture.host.acceptedReceipts.isEmpty())
+                assertTrue(fixture.host.terminalReceipts.isEmpty())
+                assertTrue(fixture.machine.sent.any { it is WorktreeIntent.Public.RunStarted })
+                assertTrue(fixture.machine.sent.none { it is WorktreeIntent.Public.RunRejected })
+                assertTrue(fixture.machine.sent.none { it is WorktreeIntent.Public.RunSettled })
+            }
+        }
+}
+
 private class TurnFixture(harnesses: StudioHarnessAttach = NoStudioHarnessAttach) {
     val events = mutableListOf<String>()
     val request = StudioTurnRequest(
@@ -979,7 +1064,11 @@ private class ExecutorHost(
     }
     override suspend fun outcome(id: String, outcome: TurnOutcome?): RunOutcome {
         events += "outcome"
-        return RunOutcome.Completed
+        return when (outcome) {
+            TurnOutcome.Completed -> RunOutcome.Completed
+            TurnOutcome.Cancelled -> RunOutcome.Stopped
+            TurnOutcome.Unknown, is TurnOutcome.Failed, null -> RunOutcome.Failed
+        }
     }
     override suspend fun failedTurn(id: String, error: Exception): RunOutcome {
         events += "failure"

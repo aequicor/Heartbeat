@@ -116,14 +116,11 @@ class EngineConnectionsEffects(private val services: EngineServices, private val
      */
     private suspend fun disconnect(binding: EngineBindingId) {
         val bindings = services.facade.bindings
-        val source = bindings.state.value.firstOrNull { it.id == binding }?.authSource
-            ?.also { disconnectedSources[binding] = it }
-        if (source != null) {
-            log.i { "disconnect binding" }
-            bindings.disconnect(binding)
-        } else {
-            log.w { "disconnect: binding already removed, finishing its cleanup" }
-        }
+        bindings.state.value.firstOrNull { it.id == binding }?.authSource
+            ?.let { disconnectedSources[binding] = it }
+        // A removed binding can still have pending runtime cleanup after a failed disconnect.
+        log.i { "disconnect binding" }
+        bindings.disconnect(binding)
         val removed = disconnectedSources[binding]
         if (removed != null && bindings.state.value.none { it.id != binding && it.authSource == removed }) {
             log.i { "forget unused source" }

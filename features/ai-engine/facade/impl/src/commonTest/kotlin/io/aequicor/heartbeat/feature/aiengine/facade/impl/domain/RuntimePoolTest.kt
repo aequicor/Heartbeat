@@ -13,6 +13,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -130,6 +132,114 @@ class RuntimePoolTest {
         assertEquals(listOf(1, 0), runtimes.map { it.closes })
         assertEquals(listOf(TestEngine to idle.info.id), retiredHandles)
         assertEquals(listOf(active.info.id), pool.entries.value.map { it.source })
+    }
+
+    @Test
+    fun `disconnect stops a busy source and preserves other sources and engines`() = runTest {
+        val pool = pool()
+        val removed = route(managedKey("src_removed"))
+        pool.runtime(removed)
+        pool.runtime(route(managedKey("src_other")))
+        pool.runtime(route(removed.source, OtherEngine))
+        busy += removed.source.info.id
+
+        pool.disconnect(removed.binding)
+
+        assertEquals(listOf(1, 0, 0), runtimes.map { it.closes })
+        assertEquals(listOf(TestEngine to removed.source.info.id), retiredHandles)
+        assertTrue(runtimes.first().isClosed)
+        assertEquals(2, pool.entries.value.size)
+        assertEquals(
+            OperationNotAllowed,
+            assertFailsWith<EngineException> { pool.runtime(removed) }.failure,
+        )
+    }
+
+    @Test
+    fun `disconnect closes the runtime before releasing its handles`() = runTest {
+        var closedBeforeHandles = false
+        val pool = RuntimePool(
+            facadeContext(),
+            { _, _ -> false },
+            { _, _ -> closedBeforeHandles = runtimes.single().isClosed },
+        )
+        factory.runtime = { FakeRuntime(it).also { runtime -> runtimes += runtime } }
+        val removed = route(managedKey())
+        pool.runtime(removed)
+
+        pool.disconnect(removed.binding)
+
+        assertTrue(closedBeforeHandles)
+        assertTrue(pool.entries.value.isEmpty())
+    }
+
+    @Test
+    fun `disconnect releases handles even when no pooled runtime remains`() = runTest {
+        val pool = pool()
+        val removed = route(managedKey())
+
+        pool.disconnect(removed.binding)
+
+        assertEquals(listOf(TestEngine to removed.source.info.id), retiredHandles)
+        assertTrue(runtimes.isEmpty())
+        assertFailsWith<EngineException> { pool.runtime(removed) }
+    }
+
+    @Test
+    fun `disconnect and profile shutdown close their shared runtime only once`() = runTest {
+        val pool = pool()
+        val removed = route(managedKey())
+        pool.runtime(removed)
+        val gate = CompletableDeferred<Unit>().also { runtimes.single().closeGate = it }
+        val disconnect = launch { pool.disconnect(removed.binding) }
+        runCurrent()
+        val shutdown = launch { pool.closeAll() }
+        runCurrent()
+
+        assertEquals(1, runtimes.single().closes)
+        gate.complete(Unit)
+        disconnect.join()
+        shutdown.join()
+
+        assertEquals(1, runtimes.single().closes)
+        assertTrue(pool.entries.value.isEmpty())
+    }
+
+    @Test
+    fun `disconnect retries failed shutdown of a runtime that finished starting after removal`() = runTest {
+        val pool = pool()
+        val removed = route(managedKey())
+        val gate = CompletableDeferred<Unit>().also { factory.createGate = it }
+        factory.runtime = { identity ->
+            FakeRuntime(identity).also {
+                it.closeFailure = IllegalStateException("shutdown failed")
+                runtimes += it
+            }
+        }
+        val starting = async { assertFailsWith<EngineException> { pool.runtime(removed) } }
+        runCurrent()
+        val disconnect = async { assertFailsWith<IllegalStateException> { pool.disconnect(removed.binding) } }
+        runCurrent()
+        gate.complete(Unit)
+
+        assertEquals(OperationNotAllowed, starting.await().failure)
+        assertEquals("shutdown failed", disconnect.await().message)
+        assertEquals(1, pool.entries.value.size)
+        assertEquals(1, runtimes.single().closes)
+
+        // Some adapters mark closed before all shutdown work has succeeded. Ordinary pruning must not lose it.
+        runtimes.single().isClosed = true
+        val replacement = removed.copy(binding = removed.binding.copy(id = EngineBindingId("reconnected")))
+        assertEquals(0, pool.prune())
+        assertEquals(RetireOutcome(retired = 0, busy = 1), pool.retire(TestEngine))
+        assertFailsWith<EngineException> { pool.runtime(replacement) }
+        assertEquals(1, runtimes.size)
+
+        runtimes.single().closeFailure = null
+        pool.disconnect(removed.binding)
+
+        assertEquals(2, runtimes.single().closes)
+        assertTrue(pool.entries.value.isEmpty())
     }
 
     @Test
