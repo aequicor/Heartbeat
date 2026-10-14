@@ -71,11 +71,13 @@ open class JcefRuntimeExtension(private val project: Project) {
 
     /**
      * What `configureDesktopRendering` (`platform-main/desktop/.../DesktopRendering.kt`) sets before Compose starts:
-     * owned WINDOW layers so dialogs and popups stay above heavyweight Chromium, and on Windows a renderer that does
-     * not reenter Direct3D reshape (software on ARM64, where Skiko has no OpenGL). Keep both in sync.
+     * owned WINDOW layers for popups, macOS interop blending so rounded clips retain their real backdrop,
+     * and on Windows a renderer that does not reenter Direct3D reshape (software on ARM64, where Skiko has no OpenGL).
+     * Keep both in sync.
      */
     val renderingProperties: Map<String, String> = buildMap {
         put("compose.layers.type", "WINDOW")
+        if (isMac) put("compose.interop.blending", "true")
         if (isWindows) put("skiko.renderApi", if (isArm) "SOFTWARE_FAST" else "OPENGL")
     }
 

@@ -1,14 +1,19 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
+import com.sun.jna.Memory
 import com.sun.jna.NativeLibrary
 import com.sun.jna.NativeLong
 import com.sun.jna.Pointer
 import org.cef.browser.CefBrowserWindow
+import java.awt.Rectangle
+import java.awt.geom.Rectangle2D
 import javax.swing.JComponent
 import javax.swing.SwingUtilities
 
 /**
- * Selects one exact JCEF group in an owned modal window, never in the primary application window.
+ * Selects the sole visible exact JCEF group in the attachment's current window, including its main window.
+ * The modal host hides other native attachments before capture. Hidden groups and groups whose browser child
+ * is hidden cannot become the target; multiple visible groups remain ambiguous and are never guessed by geometry.
  * The selected group and its layer are retained until the attachment restores their original properties.
  * All view/layer access runs on AppKit; the public JCEF window bridge is called only on EDT.
  */
@@ -26,15 +31,14 @@ internal class CocoaDocumentRoundAccess : DocumentRoundAccess {
 
     override fun capture(component: JComponent): DocumentRoundCapture {
         check(SwingUtilities.isEventDispatchThread())
-        val handle = modalHandle(component)
-        if (handle == 0L) return DocumentRoundCapture.Absent
-        val window = checkNotNull(retain.invokePointer(arrayOf(Pointer(handle))))
+        val scope = windowScope(component) ?: return DocumentRoundCapture.Absent
+        val window = checkNotNull(retain.invokePointer(arrayOf(Pointer(scope.handle))))
         var isTransferred = false
         return try {
             main.call {
                 isTransferred = true
                 try {
-                    captureWindow(window)
+                    captureWindow(window, scope.frame)
                 } finally {
                     release.invokeVoid(arrayOf(window))
                 }
@@ -45,40 +49,64 @@ internal class CocoaDocumentRoundAccess : DocumentRoundAccess {
         }
     }
 
-    private fun modalHandle(component: JComponent): Long {
-        val owner = SwingUtilities.getWindowAncestor(component) ?: return 0
-        return if (owner.owner != null && owner.isDisplayable && component.isShowing) {
-            bridge.getWindowHandle(component)
+    private fun windowScope(component: JComponent): WindowScope? {
+        val root = SwingUtilities.getRootPane(component) ?: return null
+        val owner = SwingUtilities.getWindowAncestor(component)
+        val visible = component.visibleRect
+        val isVisible = owner?.isDisplayable == true && component.isShowing && !visible.isEmpty
+        return if (isVisible) {
+            val origin = SwingUtilities.convertPoint(component, visible.location, root)
+            val frame = Rectangle(origin.x, root.height - origin.y - visible.height, visible.width, visible.height)
+            WindowScope(bridge.getWindowHandle(component), frame).takeIf { it.handle != 0L }
         } else {
-            0
+            null
         }
     }
 
-    private fun captureWindow(window: Pointer): DocumentRoundCapture {
+    private fun captureWindow(window: Pointer, expectedFrame: Rectangle): DocumentRoundCapture {
         val root = pointer(window, "contentView") ?: return DocumentRoundCapture.Absent
         val views = documentViews(root)
         return when (views.size) {
             0 -> DocumentRoundCapture.Absent
-            1 -> DocumentRoundCapture.Found(captureTarget(views.single()))
+
+            1 -> if (frame(views.single()).matchesDocumentFrame(expectedFrame)) {
+                DocumentRoundCapture.Found(captureTarget(views.single()))
+            } else {
+                DocumentRoundCapture.Absent
+            }
+
             else -> DocumentRoundCapture.Ambiguous
         }
     }
 
     private fun documentViews(root: Pointer): List<Pointer> {
         val kind = getClass.invokePointer(arrayOf("CefBrowserContentView")) ?: return emptyList()
-        val pending = ArrayDeque<Pointer>()
-        val matches = mutableListOf<Pointer>()
-        pending.add(root)
-        while (pending.isNotEmpty()) {
-            val view = pending.removeFirst()
-            if (objectClass.invokePointer(arrayOf(view)) == kind) matches.add(view)
-            val children = pointer(view, "subviews") ?: continue
-            val count = message.invokeLong(arguments(children, "count"))
-            for (index in 0 until count) {
-                pending.add(checkNotNull(pointer(children, "objectAtIndex:", NativeLong(index))))
-            }
+        return visibleNativeDocumentGroups(
+            root,
+            children = ::children,
+            isDocumentGroup = { objectClass.invokePointer(arrayOf(it)) == kind },
+            isHidden = { boolean(it, "isHiddenOrHasHiddenAncestor") },
+        )
+    }
+
+    private fun children(view: Pointer): List<Pointer> {
+        val children = pointer(view, "subviews") ?: return emptyList()
+        val count = message.invokeLong(arguments(children, "count"))
+        return (0 until count).map { index ->
+            checkNotNull(pointer(children, "objectAtIndex:", NativeLong(index)))
         }
-        return matches
+    }
+
+    /** Public KVC boxes CGRect into NSValue without architecture-specific objc_msgSend_stret conventions. */
+    private fun frame(view: Pointer): Rectangle2D.Double {
+        val strings = checkNotNull(getClass.invokePointer(arrayOf("NSString")))
+        val key = checkNotNull(pointer(strings, "stringWithUTF8String:", "frame"))
+        val boxed = checkNotNull(pointer(view, "valueForKey:", key))
+        return Memory(FRAME_FIELD_COUNT.toLong() * Double.SIZE_BYTES).use { value ->
+            message.invokeVoid(arguments(boxed, "getValue:size:", value, NativeLong(value.size())))
+            val fields = value.getDoubleArray(0, FRAME_FIELD_COUNT)
+            Rectangle2D.Double(fields[FRAME_X], fields[FRAME_Y], fields[FRAME_WIDTH], fields[FRAME_HEIGHT])
+        }
     }
 
     private fun captureTarget(view: Pointer): DocumentRoundTarget {
@@ -147,5 +175,12 @@ internal class CocoaDocumentRoundAccess : DocumentRoundAccess {
 
     private companion object {
         const val BOOLEAN_MASK = 0xff
+        const val FRAME_FIELD_COUNT = 4
+        const val FRAME_X = 0
+        const val FRAME_Y = 1
+        const val FRAME_WIDTH = 2
+        const val FRAME_HEIGHT = 3
     }
+
+    private data class WindowScope(val handle: Long, val frame: Rectangle)
 }

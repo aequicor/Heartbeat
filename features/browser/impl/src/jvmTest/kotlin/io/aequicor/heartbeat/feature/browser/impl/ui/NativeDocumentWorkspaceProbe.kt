@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.browser.impl.ui
 
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -12,12 +13,14 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.ComposeWindow
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.ds.components.HbDesktopPopupRendering
 import io.aequicor.heartbeat.ds.components.HbDialog
 import io.aequicor.heartbeat.ds.components.HbDialogWidth
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
+import io.aequicor.heartbeat.ds.components.HbInWindowDialogHost
 import io.aequicor.heartbeat.ds.components.hbSurface
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.browser.api.BrowserBridgeResult
@@ -52,6 +55,7 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.JComponent
 import javax.swing.RootPaneContainer
 import javax.swing.SwingUtilities
@@ -61,7 +65,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-/** Exercises the real Compose interop and owned HbDialog layer, including the document's top-level scroll. */
+/** Exercises the real Compose interop and in-window HbDialog layer, including the document's top-level scroll. */
 internal fun verifyNativeDocumentWorkspace(
     resources: DesktopBrowserResources,
     dispatchers: DispatcherProvider,
@@ -83,17 +87,23 @@ private class NativeDocumentWorkspaceProbe(
     private val reports = LinkedBlockingQueue<JsonObject>()
     private val viewports = LinkedBlockingQueue<JsonObject>()
     private val overlays = LinkedBlockingQueue<JsonObject>()
+    private val siblingReports = LinkedBlockingQueue<JsonObject>()
     private var initialShape: NativeDocumentShape? = null
+    private var siblingShape: NativeDocumentShape? = null
+    private var siblingMarker: JsonElement? = null
+    private var siblingRequest = 0
     private val documents = ProfileBrowserDocuments()
     private val handle = assertNotNull(documents.open(workspaceDocument(reports, viewports, overlays)))
+    private val sibling = assertNotNull(documents.open(workspaceSibling(siblingReports)))
     private val owner = BrowserTestScope(
         CoroutineScope(parent.coroutineContext + SupervisorJob(parent.coroutineContext[Job])),
     )
     private val closed = CompletableFuture<Unit>()
+    private val closeCount = AtomicInteger()
     private val views = object : DesktopDocumentViews {
         override fun register(panel: DesktopDocumentPanel) = Unit
         override fun closed(panel: DesktopDocumentPanel) {
-            closed.complete(Unit)
+            if (closeCount.incrementAndGet() == 2) closed.complete(Unit)
         }
     }
     private val panels = nativeEdt { DesktopDocumentPanels(resources, dispatchers, owner, owner, views, documents) }
@@ -101,6 +111,11 @@ private class NativeDocumentWorkspaceProbe(
         documents.documents.value.getValue(handle.route.id),
         panels,
         BrowserDocumentPresentation.Content,
+    )
+    private val siblingSurface = BrowserDocumentSurface(
+        documents.documents.value.getValue(sibling.route.id),
+        panels,
+        BrowserDocumentPresentation.Fill,
     )
     private var isExpanded by mutableStateOf(false)
     private var isDocumentOnly by mutableStateOf(false)
@@ -111,15 +126,22 @@ private class NativeDocumentWorkspaceProbe(
             title = "Heartbeat retained Compose workspace verification (no input)"
             setSize(900, 720)
             val host = this
-            setContent { Content(host) }
+            setContent { HbInWindowDialogHost(host) { Content(host) } }
             isVisible = true
         }
     }
 
     fun verify() {
         awaitReport(0)
+        siblingMarker = siblingReport(0)["marker"]
         awaitClippedDocument()
-        if (OS.isMacintosh()) initialShape = nativeEdt { NativeDocumentClipSnapshot().shapes(window.rootPane).single() }
+        if (OS.isMacintosh()) {
+            initialShape = nativeEdt {
+                NativeDocumentClipSnapshot().shapes(window.rootPane).single {
+                    it.matchesFrame(nativeDocumentFrame(window))
+                }
+            }
+        }
         handle.update(command(1, "seed"))
         val seeded = awaitReport(1)
         assertEquals(JsonPrimitive(650), seeded["scroll"])
@@ -130,7 +152,7 @@ private class NativeDocumentWorkspaceProbe(
             assertRetained(seeded, awaitReport(request))
         }
         nativeEdt { isShown = false }
-        if (OS.isMacintosh()) NativeDocumentClipSnapshot().await(window.rootPane, 0)
+        if (OS.isMacintosh()) NativeDocumentClipSnapshot().await(window.rootPane, 1)
         nativeEdt { isShown = true }
         awaitClippedDocument()
         handle.update(command(6, "check"))
@@ -158,9 +180,9 @@ private class NativeDocumentWorkspaceProbe(
             settledHeights.put(height, actual)?.let { previous ->
                 assertEquals(previous, actual, "Native rounding must not accumulate after content changes")
             }
-            val modal = awaitModal()
-            awaitOverlayPosition(modal)
-            awaitShape(modal, isRounded = true)
+            awaitOverlayPosition(window)
+            awaitShape(window, isRounded = true)
+            assertInWindowModal()
         }
         nativeEdt { isExpanded = false }
         awaitClippedDocument()
@@ -187,6 +209,7 @@ private class NativeDocumentWorkspaceProbe(
         HbTheme(darkTheme = true) {
             val inset = with(LocalDensity.current) { HbTheme.spacing.s.toPx() }
             SideEffect { overlayInset = inset / host.graphicsConfiguration.defaultTransform.scaleX }
+            BrowserDocumentView(siblingSurface, Modifier.size(120.dp, 80.dp))
             if (isExpanded) {
                 HbDialog(
                     "Retained app",
@@ -219,15 +242,13 @@ private class NativeDocumentWorkspaceProbe(
     private fun awaitClippedDocument() {
         if (!OS.isMacintosh()) return
         val snapshot = NativeDocumentClipSnapshot()
+        snapshot.await(window.rootPane, 2, areAllClipped = true)
         if (nativeEdt { isExpanded }) {
-            snapshot.await(window.rootPane, 0)
-            val modal = awaitModal()
-            snapshot.await(modal.rootPane, 1, areAllClipped = true)
             awaitOverlay(isOccupied = true)
-            awaitShape(modal, isRounded = true)
-            awaitOverlayPosition(modal)
+            awaitShape(window, isRounded = true)
+            awaitOverlayPosition(window)
+            assertInWindowModal()
         } else {
-            snapshot.await(window.rootPane, 1, areAllClipped = true)
             awaitShape(window, isRounded = false)
             awaitOverlay(isOccupied = false)
         }
@@ -238,6 +259,10 @@ private class NativeDocumentWorkspaceProbe(
             assertEquals(!isExpanded, attachment.isOpaque, "Attachment backdrop ignored its current host")
             assertEquals(!isExpanded, interop.isOpaque, "Compose interop backdrop ignored its current host")
         }
+        awaitSiblingVisibility(isVisible = !nativeEdt { isExpanded })
+        siblingRequest++
+        sibling.update(JsonPrimitive(siblingRequest))
+        assertEquals(siblingMarker, siblingReport(siblingRequest)["marker"], "Modal hiding reloaded its native sibling")
     }
 
     private fun awaitOverlayPosition(modal: RootPaneContainer) {
@@ -272,22 +297,12 @@ private class NativeDocumentWorkspaceProbe(
         }
     }
 
-    private fun awaitModal(): RootPaneContainer {
-        val result = CompletableFuture<RootPaneContainer>()
-        val timer = nativeEdt {
-            Timer(20) {
-                // Popup Close has a distinct owned window; only the document host owns a CEF content group.
-                val modal = window.ownedWindows.filterIsInstance<RootPaneContainer>().singleOrNull {
-                    it.rootPane.isShowing && NativeDocumentClipSnapshot().read(it.rootPane).size == 1
-                }
-                if (modal is RootPaneContainer) result.complete(modal)
-            }.apply { start() }
-        }
-        return try {
-            result.awaitNative()
-        } finally {
-            nativeEdt(timer::stop)
-        }
+    private fun assertInWindowModal() = nativeEdt {
+        val component = assertNotNull(panels.retain(surface.document)).createComponent()
+        assertTrue(SwingUtilities.getWindowAncestor(component) === window, "Mini-app opened another native window")
+        val owned = window.ownedWindows.filter { it.isShowing }
+        assertEquals(1, owned.size, "Only the Close popup may use a separate window")
+        assertTrue(owned.single().type == Window.Type.POPUP && !owned.single().focusableWindowState)
     }
 
     private fun awaitShape(host: RootPaneContainer, isRounded: Boolean) {
@@ -296,7 +311,9 @@ private class NativeDocumentWorkspaceProbe(
         val timer = nativeEdt {
             Timer(20) {
                 try {
-                    val shape = snapshot.shapes(host.rootPane).singleOrNull()
+                    val shape = snapshot.shapes(host.rootPane).singleOrNull {
+                        it.matchesFrame(nativeDocumentFrame(host))
+                    }
                     val rounded = shape != null && shape.radius > 0 && shape.isMasked
                     if (shape != null && rounded == isRounded &&
                         shape.matchesFrame(nativeDocumentFrame(host))
@@ -326,9 +343,55 @@ private class NativeDocumentWorkspaceProbe(
 
     private fun nativeDocumentFrame(host: RootPaneContainer): Rectangle {
         val component = assertNotNull(panels.retain(surface.document)).createComponent()
+        return nativeFrame(component, host)
+    }
+
+    private fun nativeFrame(component: JComponent, host: RootPaneContainer): Rectangle {
         val visible = component.visibleRect
         val origin = SwingUtilities.convertPoint(component, visible.location, host.rootPane)
         return Rectangle(origin.x, host.rootPane.height - origin.y - visible.height, visible.width, visible.height)
+    }
+
+    private fun awaitSiblingVisibility(isVisible: Boolean) {
+        val result = CompletableFuture<NativeDocumentShape>()
+        val snapshot = NativeDocumentClipSnapshot()
+        val timer = nativeEdt {
+            Timer(20) {
+                try {
+                    val component = assertNotNull(panels.retain(siblingSurface.document)).createComponent()
+                    val current = siblingNativeShape(snapshot, component)
+                    if (current != null && current.isVisible == isVisible && component.isShowing == isVisible) {
+                        result.complete(current)
+                    }
+                } catch (failure: Throwable) {
+                    result.completeExceptionally(failure)
+                }
+            }.apply { start() }
+        }
+        try {
+            val current = result.awaitNative()
+            if (siblingShape == null) siblingShape = current
+            assertEquals(siblingShape?.radius, current.radius, "The modal rounded an unrelated native sibling")
+            assertEquals(siblingShape?.isMasked, current.isMasked)
+        } finally {
+            nativeEdt(timer::stop)
+        }
+    }
+
+    private fun siblingNativeShape(snapshot: NativeDocumentClipSnapshot, component: JComponent): NativeDocumentShape? {
+        val shapes = snapshot.shapes(window.rootPane)
+        val previous = siblingShape
+        return if (previous == null) {
+            shapes.singleOrNull { it.matchesFrame(nativeFrame(component, window)) }
+        } else {
+            shapes.singleOrNull { it.id == previous.id }
+        }
+    }
+
+    private fun siblingReport(request: Int): JsonObject {
+        val report = assertNotNull(siblingReports.poll(30, TimeUnit.SECONDS), "Missing sibling report $request")
+        assertEquals(JsonPrimitive(request), report["request"])
+        return report
     }
 
     private fun awaitOverlay(isOccupied: Boolean) {
@@ -378,6 +441,7 @@ private class NativeDocumentWorkspaceProbe(
 
     override fun close() {
         handle.close()
+        sibling.close()
         try {
             closed.awaitNative()
         } finally {
@@ -387,6 +451,23 @@ private class NativeDocumentWorkspaceProbe(
         }
     }
 }
+
+private fun workspaceSibling(reports: LinkedBlockingQueue<JsonObject>) = BrowserDocument(
+    title = "Native background sibling",
+    data = JsonPrimitive(0),
+    bridge = { _, arguments ->
+        reports.offer(arguments.jsonObject)
+        BrowserBridgeResult.Value(JsonNull)
+    },
+    html = """
+        <!doctype html><body style="margin:0">Native sibling<script>
+        const marker = crypto.randomUUID();
+        function report() { heartbeat.call('report', {request:heartbeat.data, marker}); }
+        addEventListener('heartbeat:data', report);
+        report();
+        </script></body>
+    """.trimIndent(),
+)
 
 /** The mask must be on the current visible native rectangle, not merely a retained layer with the right flags. */
 private fun NativeDocumentShape.matchesFrame(expected: Rectangle): Boolean {

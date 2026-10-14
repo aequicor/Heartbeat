@@ -1,9 +1,13 @@
 package io.aequicor.heartbeat.platform.desktop
 
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toPainter
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
@@ -12,7 +16,9 @@ import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.arkivanov.decompose.DefaultComponentContext
@@ -21,6 +27,7 @@ import com.arkivanov.essenty.lifecycle.LifecycleRegistry
 import com.arkivanov.essenty.lifecycle.destroy
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.components.HbDesktopPopupRendering
+import io.aequicor.heartbeat.ds.components.HbInWindowDialogHost
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.platform.dibundle.AppShutdownAccessors
 import io.aequicor.heartbeat.platform.dibundle.PlantUmlAccessors
@@ -97,20 +104,18 @@ private fun launchLoggedHeartbeat(isDevelopment: Boolean, classes: Result<Path?>
         val diagrams = remember(plantUml) { PlantUmlDiagramRenderer(plantUml, graph.dispatchers.default) }
         val areDiagramsAvailable by plantUml.availability.collectAsState(false)
         LifecycleController(lifecycle, windowState)
+        var hasModal by remember { mutableStateOf(false) }
         Window(
             onCloseRequest = closeRequest,
             title = "Heartbeat",
             icon = icon,
             state = windowState,
             alwaysOnTop = computerUse.isActive,
-            onPreviewKeyEvent = { event -> openSettingsOnShortcut(event, root) },
+            onPreviewKeyEvent = { event -> !hasModal && openSettingsOnShortcut(event, root) },
         ) {
-            DisposableEffect(window) {
-                window.iconImages = applicationIcons
-                onDispose { }
+            HeartbeatWindowContent(windowState, applicationIcons, { hasModal = it }) {
+                App(root, diagramRenderer = diagrams.takeIf { areDiagramsAvailable })
             }
-            HbDesktopPopupRendering(window)
-            DesktopWindowContent(windowState) { App(root, diagramRenderer = diagrams.takeIf { areDiagramsAvailable }) }
             DesktopComputerUsePresentation(window, windowState, computerUse, graph.capturePresentation)
         }
         val guidedPermission = permissionGuide
@@ -122,6 +127,25 @@ private fun launchLoggedHeartbeat(isDevelopment: Boolean, classes: Result<Path?>
                 graph.permissionGuide::dismiss,
             )
         }
+    }
+}
+
+/** One root portal shares the application canvas; the platform owns its popup strategy and native icons. */
+@Composable
+private fun FrameWindowScope.HeartbeatWindowContent(
+    state: WindowState,
+    icons: List<BufferedImage>,
+    onModalChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    DisposableEffect(window, icons) {
+        window.iconImages = icons
+        onDispose { }
+    }
+    HbDesktopPopupRendering(window)
+    HbInWindowDialogHost(window, modifier, onActiveChange = onModalChange) {
+        DesktopWindowContent(state, content = content)
     }
 }
 

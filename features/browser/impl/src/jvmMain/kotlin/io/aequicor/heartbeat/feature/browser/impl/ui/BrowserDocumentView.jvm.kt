@@ -10,7 +10,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.onSizeChanged
@@ -97,9 +96,9 @@ private fun RetainedDocumentPanel(
         // The panel's own background shows until the page paints: the surface color, not Swing's white.
         val name = surface.title.ifBlank { stringResource(Res.string.browser_document_page) }
         DocumentViewport(sized.onSizeChanged { viewportWidth = it.width }) {
-            SwingPanel(
+            BrowserNativeView(
                 background = HbTheme.colors.surface,
-                factory = attachment::createComponent,
+                factory = remember(attachment) { attachment::createComponent },
                 modifier = Modifier.semantics { contentDescription = name },
             )
         }

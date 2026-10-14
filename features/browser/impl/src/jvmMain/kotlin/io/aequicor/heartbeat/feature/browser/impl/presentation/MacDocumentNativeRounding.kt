@@ -8,8 +8,8 @@ import javax.swing.SwingUtilities
 
 /**
  * A corner mask belongs to the current edge-to-edge modal attachment, never to its window's other browsers.
- * Capture succeeds only for one exact native document group in that owned window. Detach restores and releases
- * that same retained target, without discovering anything in the replacement Start window. EDT only.
+ * Capture succeeds only for one visible exact native document group in the attachment's window. Detach restores
+ * and releases that same retained target, without discovering anything in the replacement Start attachment. EDT only.
  */
 internal class MacDocumentNativeRounding(access: DocumentRoundAccess? = null) : AutoCloseable {
     private val log = Log.tag("DocumentRounding")

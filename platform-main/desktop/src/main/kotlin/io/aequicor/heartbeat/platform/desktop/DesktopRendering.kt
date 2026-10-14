@@ -2,10 +2,20 @@ package io.aequicor.heartbeat.platform.desktop
 
 /** Configures both desktop entry points before Compose creates its first native surface. */
 internal fun configureDesktopRendering() {
-    // Heavyweight Chromium requires owned windows for dialogs/popups above its surface.
-    System.setProperty("compose.layers.type", "WINDOW")
-    desktopRenderer(System.getProperty("os.name").orEmpty(), System.getProperty("os.arch").orEmpty())
-        ?.let { System.setProperty("skiko.renderApi", it) }
+    desktopRenderingProperties(System.getProperty("os.name").orEmpty(), System.getProperty("os.arch").orEmpty())
+        .forEach { (name, value) -> System.setProperty(name, value) }
+}
+
+/**
+ * The same properties are supplied to isolated JCEF tests by `JcefRuntimeExtension.renderingProperties`.
+ * macOS blending leaves interop clearing inside Compose's clip instead of punching a rectangular hole
+ * through the entire Metal canvas, so a rounded native document exposes the real backdrop at its corners.
+ * Small popups retain owned WINDOW layers; the modal portal separately hides native background peers.
+ */
+internal fun desktopRenderingProperties(osName: String, architecture: String): Map<String, String> = buildMap {
+    put("compose.layers.type", "WINDOW")
+    if (osName.startsWith("Mac", ignoreCase = true)) put("compose.interop.blending", "true")
+    desktopRenderer(osName, architecture)?.let { put("skiko.renderApi", it) }
 }
 
 /**

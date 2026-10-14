@@ -103,7 +103,7 @@ public fun HbDialog(
         },
     ) {
         LaunchedEffect(focus) {
-            // An owned desktop dialog composes separately; wait for its own focus target and first layout.
+            // The desktop overlay composes separately; wait for its own focus target and first layout.
             withFrameNanos { }
             focus.requestFocus()
         }
@@ -113,7 +113,7 @@ public fun HbDialog(
                 .widthIn(min = minOf(dimensions.dialogMinWidth, maxWidth), max = maxWidth)
                 .then(if (isContentFill) Modifier.fillMaxSize() else Modifier)
                 .padding(HbTheme.spacing.l)
-                .hbPopupSurface(HbTheme.colors.surface, HbTheme.shapes.large)
+                .dialogSurface(isContentEdgeToEdge)
                 .semantics { paneTitle = title }
                 .dismissDialogOnEscape(dismiss)
                 // The panel takes focus on open so Esc and Tab work before any control is focused.
@@ -134,6 +134,15 @@ public fun HbDialog(
             }
         }
     }
+}
+
+/** Web content keeps only the rounded edge; a punched interop region cannot preserve a host drop shadow. */
+@Composable
+@ReadOnlyComposable
+private fun Modifier.dialogSurface(isEdgeToEdge: Boolean): Modifier = if (isEdgeToEdge) {
+    hbSurface(HbTheme.colors.surface, HbTheme.shapes.large, isQuiet = true)
+} else {
+    hbPopupSurface(HbTheme.colors.surface, HbTheme.shapes.large)
 }
 
 private fun Modifier.dismissDialogOnEscape(onDismissRequest: () -> Unit): Modifier = onPreviewKeyEvent {

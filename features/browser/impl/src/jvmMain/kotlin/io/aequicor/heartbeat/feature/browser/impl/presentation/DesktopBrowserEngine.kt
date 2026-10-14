@@ -12,6 +12,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.JsonObject
 import org.cef.CefApp
 import org.cef.CefSettings
+import org.cef.OS
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
 import org.cef.browser.CefRequestContext
@@ -124,6 +125,12 @@ internal class DesktopBrowserEngine(
                         creationFailed()
                     }
 
+                    override fun onAfterParentChanged(browser: CefBrowser) {
+                        onSwing {
+                            if (OS.isMacintosh()) browser.setWindowVisibility(browser.uiComponent.isShowing)
+                        }
+                    }
+
                     override fun onAfterCreated(browser: CefBrowser) {
                         isNativeCreated.set(true)
                         if (isClosed.get() || isReleased()) {
@@ -142,6 +149,8 @@ internal class DesktopBrowserEngine(
                         )
                         val isDenied = preferences.all { context.setPreference(it, CONTENT_SETTING_BLOCK) == null }
                         onSwing {
+                            // A hidden host can miss SHOWING_CHANGED while its native browser is still being created.
+                            if (OS.isMacintosh()) browser.setWindowVisibility(browser.uiComponent.isShowing)
                             if (isDenied) {
                                 isReady = true
                                 val commands = pending.toList().also { pending.clear() }

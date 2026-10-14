@@ -92,6 +92,7 @@ internal class NativeDocumentClipSnapshot {
                     rectangle(view, "bounds"),
                     rectangle(layer, "frame"),
                     rectangle(layer, "bounds"),
+                    isVisibleDocument(view),
                 )
             }
             val children = pointer(view, "subviews") ?: continue
@@ -105,6 +106,16 @@ internal class NativeDocumentClipSnapshot {
 
     private fun pointer(receiver: Pointer, name: String, vararg args: Any): Pointer? =
         message.invokePointer(arrayOf(receiver, selector.invokePointer(arrayOf(name)), *args))
+
+    private fun isVisibleDocument(view: Pointer): Boolean {
+        val children = pointer(view, "subviews") ?: return false
+        val count = message.invokeLong(arrayOf(children, selector.invokePointer(arrayOf("count"))))
+        return (0 until count).any { index ->
+            val child = checkNotNull(pointer(children, "objectAtIndex:", NativeLong(index)))
+            message.invokeInt(arrayOf(child, selector.invokePointer(arrayOf("isHiddenOrHasHiddenAncestor")))) and
+                0xff == 0
+        }
+    }
 
     /** Public KVC boxes CGRect into NSValue, avoiding architecture-specific objc_msgSend_stret conventions. */
     private fun rectangle(receiver: Pointer, name: String): Rectangle2D.Double {
@@ -133,4 +144,5 @@ internal data class NativeDocumentShape(
     val viewBounds: Rectangle2D.Double,
     val layerFrame: Rectangle2D.Double,
     val layerBounds: Rectangle2D.Double,
+    val isVisible: Boolean,
 )

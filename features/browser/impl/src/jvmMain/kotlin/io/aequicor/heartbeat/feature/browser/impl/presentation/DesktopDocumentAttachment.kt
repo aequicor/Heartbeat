@@ -8,6 +8,7 @@ import javax.swing.SwingUtilities
 internal class DesktopDocumentAttachment(private val panel: DesktopDocumentPanel) {
     private var host: DesktopDocumentHost? = null
     private var backdrop: DesktopDocumentBackdrop? = null
+    private var focusCycle: DesktopDocumentFocusCycle? = null
     private var isClosed = false
     private var scrim: Color? = null
 
@@ -33,6 +34,7 @@ internal class DesktopDocumentAttachment(private val panel: DesktopDocumentPanel
         check(SwingUtilities.isEventDispatchThread())
         if (!isClosed) {
             onDismissRequest = callback
+            focusCycle?.update(callback != null)
             panel.updateDismissRequest(this)
         }
     }
@@ -44,6 +46,7 @@ internal class DesktopDocumentAttachment(private val panel: DesktopDocumentPanel
         scrim?.let { component.updateBackdrop(cornerRadius, it) }
         host = component
         if (!isClosed) {
+            focusCycle = DesktopDocumentFocusCycle(component).also { it.update(onDismissRequest != null) }
             backdrop = DesktopDocumentBackdrop(component).also { it.update(cornerRadius > 0) }
             panel.attach(this, component)
         }
@@ -55,6 +58,8 @@ internal class DesktopDocumentAttachment(private val panel: DesktopDocumentPanel
         if (isClosed) return
         isClosed = true
         onDismissRequest = null
+        focusCycle?.close()
+        focusCycle = null
         host?.clearBackdrop()
         panel.detach(this)
         backdrop?.close()

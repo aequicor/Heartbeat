@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
+import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentSizing
@@ -80,6 +81,7 @@ internal class DesktopDocumentEngine(
         throw error
     }
     private val browser: CefBrowser
+    private val cursor = DesktopDocumentCursor(isReleased = { isClosed.get() || isReleased() })
     private var nativeClipping: MacDocumentNativeClipping? = null
     private var nativeRounding: MacDocumentNativeRounding? = null
 
@@ -116,6 +118,10 @@ internal class DesktopDocumentEngine(
             client.addKeyboardHandler(DesktopDocumentKeyboard(presentation.dismissal))
             client.addDisplayHandler(
                 object : CefDisplayHandlerAdapter() {
+                    @HighFrequency
+                    override fun onCursorChange(browser: CefBrowser, cursorType: Int): Boolean =
+                        cursor.change(browser.uiComponent, cursorType)
+
                     override fun onConsoleMessage(
                         browser: CefBrowser,
                         level: CefSettings.LogSeverity,
@@ -289,7 +295,11 @@ internal class DesktopDocumentEngine(
             if (rejected.isEmpty()) {
                 isBootstrap.set(false)
                 browser.loadURL(url)
-                onSwing { requestNativeClipping(isDocumentLoaded = false) }
+                onSwing {
+                    // Creation may finish after a modal has suspended this page's host.
+                    if (OS.isMacintosh()) browser.setWindowVisibility(browser.uiComponent.isShowing)
+                    requestNativeClipping(isDocumentLoaded = false)
+                }
             } else {
                 log.e(IllegalStateException("JCEF document preferences rejected: ${rejected.map { it.first }}")) {
                     "Desktop document initialization failed"
@@ -308,6 +318,7 @@ internal class DesktopDocumentEngine(
                 // Native reparenting completes asynchronously after Swing addNotify/paint. Refresh the current
                 // visible host only after that acknowledgement; the earlier paint may have targeted the old window.
                 val view = browser.uiComponent as JComponent
+                if (OS.isMacintosh()) browser.setWindowVisibility(view.isShowing)
                 if (view.isShowing) {
                     view.revalidate()
                     view.repaint()

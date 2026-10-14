@@ -81,7 +81,7 @@ internal fun AppScreen(
  * Native full-start/modal chrome around one bounded application body. A sole document owns its inner spacing;
  * native and mixed trees keep the regular dialog header and insets.
  */
-// A native modal has another window. The store, scroll and document live above both mounts.
+// Start and modal have separate composition mounts. The store, scroll and document live above both.
 @Suppress("ContentSlotReused")
 @Composable
 internal fun AppHostView(

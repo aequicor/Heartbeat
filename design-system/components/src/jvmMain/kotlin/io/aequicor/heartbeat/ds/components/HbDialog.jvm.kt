@@ -11,7 +11,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.awt.LocalAwtWindow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.window.Dialog
@@ -19,10 +18,9 @@ import androidx.compose.ui.window.DialogProperties
 import io.aequicor.heartbeat.ds.theme.HbTheme
 
 /**
- * The desktop host uses WINDOW Compose layers. Their normal scrim is drawn below native children,
- * and they cannot intercept input outside their own window. Cover the whole client area with the
- * owned layer instead. The upstream transition must not shrink or move this input barrier.
- * Native clipping starts afresh in this layer; a transcript's viewport belongs to its original window.
+ * Edge-to-edge documents use the existing window's modal portal. Native background peers are hidden
+ * by the portal's owner lease; other dialogs retain the platform layer fallback.
+ * Native clipping starts afresh: a transcript's viewport belongs to its original attachment.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -31,10 +29,8 @@ internal actual fun HbPlatformDialog(
     hasOverlay: Boolean,
     content: @Composable () -> Unit,
 ) {
-    val owner = LocalAwtWindow.current
-    if (hasOverlay && owner != null) {
-        HbOwnedDialog(owner, onDismissRequest, content)
-    } else {
+    val isInline = hasOverlay && hbInWindowDialog(onDismissRequest, content)
+    if (!isInline) {
         HbLayerDialog(onDismissRequest, content)
     }
 }
