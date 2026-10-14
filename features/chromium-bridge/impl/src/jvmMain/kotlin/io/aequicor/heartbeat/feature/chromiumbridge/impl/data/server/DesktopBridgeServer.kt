@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
@@ -38,7 +39,11 @@ internal class DesktopBridgeServer(
         val announcer = launch { announceFeatures() }
         val result = UnixSocketBridgeServer(socket(), io).serve(
             onListening = { onStatus(BridgeServerStatus.Listening) },
-        ) { link -> connections.serve(LinkTransport(link, io)) }
+        ) { link ->
+            // JSON and base64 chunk encoding run on the connection's dispatcher, too. Studio handlers marshal
+            // their view operations to main themselves; a multi-megabyte PNG must never serialize on the UI.
+            withContext(io) { connections.serve(LinkTransport(link, io)) }
+        }
         announcer.cancel()
         onStatus(
             when (result) {

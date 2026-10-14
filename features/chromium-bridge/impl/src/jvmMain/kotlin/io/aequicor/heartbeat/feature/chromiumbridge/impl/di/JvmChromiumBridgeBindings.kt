@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.DesktopExtensionFo
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.ToggleBridgeFeatures
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.agent.ChromiumExternalBrowser
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.chat.BridgeWatches
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.chat.DiagramRenderHandler
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.chat.SidePanelStudioHandlers
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.hosts.DesktopNativeHostRegistry
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.hosts.JnaWindowsRegistry
@@ -33,6 +34,7 @@ import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.BridgeServer
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.ExtensionFolder
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.ExtensionIdentity
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.NativeHostRegistry
+import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlRenderer
 import kotlinx.serialization.json.Json
 
 /** Desktop server, host registry and request handlers of the bridge. */
@@ -63,6 +65,12 @@ public object JvmChromiumBridgeBindings {
     @IntoSet
     internal fun hello(features: ToggleBridgeFeatures): BridgeRequestHandler =
         HelloHandler(System.getProperty(APP_VERSION) ?: DEVELOPMENT_VERSION) { features.current() }
+
+    /** Uses the desktop renderer's sandbox, limits and rollout toggle for panel diagrams. */
+    @Provides
+    @IntoSet
+    internal fun diagrams(renderer: PlantUmlRenderer, dispatchers: DispatcherProvider): BridgeRequestHandler =
+        DiagramRenderHandler(renderer, dispatchers.default)
 
     /** Outside chat turns need the desktop browser route; mobile has no native messaging host. */
     @Provides
