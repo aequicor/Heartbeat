@@ -17,8 +17,10 @@ import javax.swing.JPanel
  * Swing's painting-origin contract routes child repaint/paintImmediately through this boundary,
  * so a later repaint cannot restore the incorrect scale. No extra container or layout is inserted.
  */
-internal class DesktopBrowserContainer(private val arePointCoordinatesUsed: Boolean = OS.isMacintosh()) :
-    JPanel(BorderLayout()) {
+internal class DesktopBrowserContainer(
+    private val arePointCoordinatesUsed: Boolean = OS.isMacintosh(),
+    private val onNativePaint: () -> Unit = {},
+) : JPanel(BorderLayout()) {
     init {
         isOpaque = false
     }
@@ -39,6 +41,7 @@ internal class DesktopBrowserContainer(private val arePointCoordinatesUsed: Bool
             // changing the transform, otherwise a visible bottom strip can move outside the child.
             nativeGraphics.clip = clip
             super.paintChildren(nativeGraphics)
+            if (componentCount > 0) onNativePaint()
         } finally {
             nativeGraphics.dispose()
         }

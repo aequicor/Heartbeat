@@ -21,6 +21,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import io.aequicor.heartbeat.ds.components.LocalHbNativeContentViewport
 import kotlinx.serialization.json.jsonPrimitive
+import org.cef.OS
 import org.junit.Assume.assumeTrue
 import java.awt.Dimension
 import java.awt.Rectangle
@@ -35,6 +36,7 @@ import javax.swing.JComponent
 import javax.swing.SwingUtilities
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * Opt-in real SwingPanel/Chromium geometry regression, without Robot, input or screen capture.
@@ -47,50 +49,90 @@ class DesktopDocumentViewportNativeTest {
         assumeTrue(System.getProperty("heartbeat.browser.viewportNativeTest") == "true")
         withNativeViewportFixture { fixture ->
             val state = NativeDocumentViewportState()
+            val sibling = fixture.createViewportSibling()
             val window = nativeEdt {
                 ComposeWindow().apply {
                     title = "Heartbeat document viewport verification (no input)"
                     setSize(800, 760)
-                    setContent { NativeDocumentViewportContent(fixture, state) }
+                    setContent { NativeDocumentViewportContent(fixture, sibling, state) }
                     isVisible = true
                 }
             }
             try {
+                sibling.loaded.awaitNative()
+                sibling.clippingVerified.awaitNative()
+                val snapshot = if (OS.isMacintosh()) NativeDocumentClipSnapshot() else null
+                val siblingNative = sibling.runtime.browser.uiComponent as JComponent
+                snapshot?.await(siblingNative, count = 1, areAllClipped = true)
+                nativeEdt {
+                    sibling.runtime.isPaintObservationEnabled = false
+                    state.hasDocument = true
+                }
                 fixture.loaded.awaitNative()
                 fixture.nativeClippingVerified.awaitNative()
-                val native = nativeEdt { fixture.panel.createComponent().components.single() as JComponent }
-                awaitViewport(native, Rectangle(20, 180, 340, 300)) { }
-                assertEquals(Dimension(400, 600), nativeEdt { native.size })
-                verifyNativeBounds(fixture, native, window)
-                assertEquals(
-                    "400x600",
-                    fixture.evaluate("window.innerWidth + 'x' + window.innerHeight").jsonPrimitive.content,
-                )
-                fixture.evaluate("window.retainedMarker = 'viewport-retained'")
-
-                awaitViewport(native, Rectangle(0, 100, 400, 460)) {
-                    state.viewport = Rect(100f, 0f, 500f, 460f)
-                }
-                awaitViewport(native, Rectangle(), isShowing = false) { state.viewport = Rect.Zero }
-                awaitViewport(native, Rectangle(40, 200, 280, 240)) {
-                    state.viewport = Rect(140f, 100f, 420f, 340f)
-                    window.setSize(900, 800)
-                }
-                assertEquals(Dimension(400, 600), nativeEdt { native.size })
-                nativeEdt { native.paintImmediately(0, 0, native.width, native.height) }
-                verifyNativeBounds(fixture, native, window)
-                assertEquals("viewport-retained", fixture.evaluate("window.retainedMarker").jsonPrimitive.content)
-                assertEquals(
-                    "400x600",
-                    fixture.evaluate("window.innerWidth + 'x' + window.innerHeight").jsonPrimitive.content,
-                )
-                assertEquals(1, state.factories.get(), "Clipping must not replace SwingPanel")
-                assertEquals(1, fixture.pageLoads.get(), "Clipping must not reload the page")
-                assertEquals(1, fixture.runtimeStarts.get(), "Clipping must not recreate Chromium")
+                val runtime = fixture.viewportRuntime()
+                val native = runtime.browser.uiComponent as JComponent
+                if (snapshot != null) verifyLateAttachment(runtime, native, snapshot)
+                verifyRetainedViewport(fixture, state, native, window)
+                fixture.verifyDocumentPresentation()
             } finally {
                 nativeEdt { window.dispose() }
+                sibling.close()
             }
         }
+    }
+
+    private fun verifyRetainedViewport(
+        fixture: NativeComposeBrowserFixture,
+        state: NativeDocumentViewportState,
+        native: JComponent,
+        window: ComposeWindow,
+    ) {
+        awaitViewport(native, Rectangle(20, 180, 340, 300)) { }
+        assertEquals(Dimension(400, 600), nativeEdt { native.size })
+        verifyNativeBounds(fixture, native, window)
+        assertEquals(
+            "400x600",
+            fixture.evaluate("window.innerWidth + 'x' + window.innerHeight").jsonPrimitive.content,
+        )
+        fixture.evaluate("window.retainedMarker = 'viewport-retained'")
+
+        awaitViewport(native, Rectangle(0, 100, 400, 460)) {
+            state.viewport = Rect(100f, 0f, 500f, 460f)
+        }
+        awaitViewport(native, Rectangle(), isShowing = false) { state.viewport = Rect.Zero }
+        awaitViewport(native, Rectangle(40, 200, 280, 240)) {
+            state.viewport = Rect(140f, 100f, 420f, 340f)
+            window.setSize(900, 800)
+        }
+        assertEquals(Dimension(400, 600), nativeEdt { native.size })
+        nativeEdt { native.paintImmediately(0, 0, native.width, native.height) }
+        verifyNativeBounds(fixture, native, window)
+        assertEquals("viewport-retained", fixture.evaluate("window.retainedMarker").jsonPrimitive.content)
+        assertEquals(
+            "400x600",
+            fixture.evaluate("window.innerWidth + 'x' + window.innerHeight").jsonPrimitive.content,
+        )
+        assertEquals(1, state.factories.get(), "Clipping must not replace SwingPanel")
+        assertEquals(2, fixture.pageLoads.get(), "Each document must load once without a clipping reload")
+        assertEquals(1, fixture.runtimeStarts.get(), "Clipping must not recreate Chromium")
+    }
+
+    private fun verifyLateAttachment(
+        runtime: NativeViewportBrowserRuntime,
+        native: JComponent,
+        snapshot: NativeDocumentClipSnapshot,
+    ) {
+        runtime.attachmentHeldPastLoadBurst.awaitNative()
+        assertEquals(listOf(true), nativeEdt { snapshot.read(native) }, "Only the already clipped sibling is attached")
+        nativeEdt(runtime::releaseAttachmentHold)
+        val oldBehavior = snapshot.await(native, count = 2)
+        assertTrue(oldBehavior.any { !it }, "A late target must reproduce the missed attachment before the fix")
+        nativeEdt {
+            runtime.isPaintObservationEnabled = true
+            runtime.paintNative()
+        }
+        assertEquals(listOf(true, true), snapshot.await(native, count = 2, areAllClipped = true))
     }
 
     private fun verifyNativeBounds(fixture: NativeComposeBrowserFixture, native: JComponent, window: ComposeWindow) {
@@ -105,17 +147,22 @@ class DesktopDocumentViewportNativeTest {
 
 private fun withNativeViewportFixture(block: (NativeComposeBrowserFixture) -> Unit) {
     NativeUncaughtFailures().use {
-        NativeComposeBrowserFixture(isViewportProbe = true).use(block)
+        NativeComposeBrowserFixture(isViewportProbe = true, isAttachmentHeld = OS.isMacintosh()).use(block)
     }
 }
 
 private class NativeDocumentViewportState {
+    var hasDocument by mutableStateOf(false)
     var viewport by mutableStateOf(Rect(120f, 80f, 460f, 380f))
     val factories = AtomicInteger()
 }
 
 @Composable
-private fun NativeDocumentViewportContent(fixture: NativeComposeBrowserFixture, state: NativeDocumentViewportState) {
+private fun NativeDocumentViewportContent(
+    fixture: NativeComposeBrowserFixture,
+    sibling: NativeViewportSibling,
+    state: NativeDocumentViewportState,
+) {
     var origin by remember { mutableStateOf(Offset.Zero) }
     val density = LocalDensity.current.density
     val rect = state.viewport
@@ -126,12 +173,18 @@ private fun NativeDocumentViewportContent(fixture: NativeComposeBrowserFixture, 
         rect.bottom * density,
     ).translate(origin)
     Box(Modifier.fillMaxSize().onGloballyPositioned { origin = it.boundsInWindow(clipBounds = false).topLeft }) {
-        CompositionLocalProvider(LocalHbNativeContentViewport provides host) {
-            DocumentViewport(Modifier.offset(100.dp, (-100).dp).size(400.dp, 600.dp)) {
-                SwingPanel(factory = {
-                    state.factories.incrementAndGet()
-                    fixture.panel.createComponent()
-                })
+        SwingPanel(
+            factory = { sibling.runtime.component },
+            modifier = Modifier.offset(100.dp, 620.dp).size(400.dp, 40.dp),
+        )
+        if (state.hasDocument) {
+            CompositionLocalProvider(LocalHbNativeContentViewport provides host) {
+                DocumentViewport(Modifier.offset(100.dp, (-100).dp).size(400.dp, 600.dp)) {
+                    SwingPanel(factory = {
+                        state.factories.incrementAndGet()
+                        fixture.panel.createComponent()
+                    })
+                }
             }
         }
     }

@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
 import androidx.compose.runtime.Immutable
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentSizing
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserDocumentNatives
 import io.aequicor.heartbeat.feature.browser.impl.domain.OpenBrowserDocument
 
@@ -15,4 +16,7 @@ internal data class BrowserDocumentSurface(
 ) {
     /** Accessible name of the page. */
     val title: String get() = document.document.title
+
+    /** Whether this route may follow the page's intrinsic height inside host bounds. */
+    val isContentSized: Boolean get() = document.document.sizing == BrowserDocumentSizing.Content
 }

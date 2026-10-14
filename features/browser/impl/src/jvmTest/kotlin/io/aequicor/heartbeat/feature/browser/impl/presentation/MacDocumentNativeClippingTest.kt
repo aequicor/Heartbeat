@@ -21,6 +21,45 @@ class MacDocumentNativeClippingTest {
     }
 
     @Test
+    fun `painting rearms clipping after the load burst saw only an existing sibling`() = onEdt {
+        val fixture = Fixture()
+        fixture.adapter.documentLoaded()
+        fixture.retries.drain()
+        assertEquals(4, fixture.access.calls)
+        fixture.adapter.nativePainted()
+        assertEquals(4, fixture.access.calls, "Painting must not reenter AppKit")
+        val firstPaint = fixture.retries.take()
+        fixture.adapter.nativePainted()
+        firstPaint.action()
+        assertTrue(firstPaint.isCancelled)
+        assertEquals(4, fixture.access.calls)
+        fixture.access.count = 2
+        fixture.retries.drain()
+        assertEquals(8, fixture.access.calls)
+        assertEquals(listOf(100, 150, 250, 150, 150, 100, 150, 250), fixture.retries.delays)
+        assertEquals(0, fixture.failures)
+        fixture.adapter.close()
+    }
+
+    @Test
+    fun `closing or hiding after a paint cancels its deferred native work`() = onEdt {
+        val fixture = Fixture()
+        fixture.adapter.nativePainted()
+        fixture.component.isShown = false
+        fixture.retries.drain()
+        assertEquals(0, fixture.access.calls)
+        fixture.component.isShown = true
+        fixture.adapter.nativePainted()
+        val pending = fixture.retries.take()
+        fixture.adapter.close()
+        pending.action()
+        fixture.adapter.nativePainted()
+        assertTrue(pending.isCancelled)
+        assertTrue(fixture.retries.queue.isEmpty())
+        assertEquals(0, fixture.access.calls)
+    }
+
+    @Test
     fun `a superseded request ignores callbacks already queued by the old burst`() = onEdt {
         val fixture = Fixture()
         fixture.adapter.request()

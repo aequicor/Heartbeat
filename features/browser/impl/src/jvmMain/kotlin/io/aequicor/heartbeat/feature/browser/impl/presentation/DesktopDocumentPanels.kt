@@ -22,6 +22,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.BorderLayout
@@ -82,6 +83,7 @@ internal class DesktopDocumentPanel(
     private val log = Log.tag("DesktopDocumentPanel")
     private val scope = CoroutineScope(parent.coroutineContext + SupervisorJob(parent.coroutineContext[Job]))
     private val failure = MutableStateFlow(false)
+    private val presentation = DesktopDocumentPresentation()
     private var container: JPanel? = null
     private var engine: DesktopDocumentEngine? = null
     private val engines = mutableListOf<DesktopDocumentEngine>()
@@ -92,10 +94,19 @@ internal class DesktopDocumentPanel(
     /** True once the runtime or the browser is unavailable for this view. */
     val unavailable: StateFlow<Boolean> = failure.asStateFlow()
 
+    /** Measurement of this native view, reset for every served page and revoked on release. */
+    val contentSize: StateFlow<DesktopDocumentSize?> = presentation.measurements.size
+
+    /** Theme changes affect the current DOM without replacing the document or its application data. */
+    fun updateTheme(theme: DesktopDocumentTheme) {
+        check(SwingUtilities.isEventDispatchThread())
+        if (!isReleased) presentation.theme.value = theme
+    }
+
     fun createComponent(): JComponent {
         check(SwingUtilities.isEventDispatchThread())
         container?.let { return it }
-        val panel = DesktopBrowserContainer()
+        val panel = DesktopBrowserContainer(onNativePaint = { engine?.nativePainted() })
         container = panel
         if (!isReleased) start()
         return panel
@@ -106,6 +117,7 @@ internal class DesktopDocumentPanel(
         if (isReleased) return
         isReleased = true
         scope.cancel()
+        presentation.measurements.close()
         engine?.release()
         engine = null
         container?.removeAll()
@@ -125,7 +137,15 @@ internal class DesktopDocumentPanel(
             try {
                 val app = resources.app()
                 if (isReleased) return@launch
-                val runtime = DesktopDocumentEngine(app, document, scope, dispatchers.default, { isReleased }, ::fail)
+                val runtime = DesktopDocumentEngine(
+                    app,
+                    document,
+                    scope,
+                    dispatchers.default,
+                    { isReleased },
+                    ::fail,
+                    presentation,
+                )
                 engine = runtime
                 engines += runtime
                 container?.apply {
@@ -133,7 +153,7 @@ internal class DesktopDocumentPanel(
                     revalidate()
                     repaint()
                 }
-                document.data.collect(runtime::deliver)
+                combine(document.data, presentation.theme) { data, _ -> data }.collect(runtime::deliver)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {

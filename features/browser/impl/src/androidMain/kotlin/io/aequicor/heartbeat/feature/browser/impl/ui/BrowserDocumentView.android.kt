@@ -10,4 +10,4 @@ import org.jetbrains.compose.resources.stringResource
 /** Isolated documents need the desktop engine's own origins and request handling. */
 @Composable
 internal actual fun BrowserDocumentView(surface: BrowserDocumentSurface, modifier: Modifier) =
-    BrowserDocumentNote(stringResource(Res.string.browser_document_unsupported), modifier)
+    BrowserDocumentFallback(surface, stringResource(Res.string.browser_document_unsupported), modifier)

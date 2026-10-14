@@ -1,10 +1,12 @@
 package io.aequicor.heartbeat.feature.browser.impl.ui
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import io.aequicor.heartbeat.ds.components.HbEmptyState
+import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserDocumentSurface
 import io.aequicor.heartbeat.feature.browser.impl.resources.Res
 import io.aequicor.heartbeat.feature.browser.impl.resources.browser_document_closed
@@ -24,6 +26,13 @@ internal fun BrowserDocumentScreen(surface: BrowserDocumentSurface?, modifier: M
 @Composable
 internal fun BrowserDocumentNote(text: String, modifier: Modifier = Modifier) {
     Box(modifier, contentAlignment = Alignment.Center) { HbEmptyState(text) }
+}
+
+/** A fixed regular viewport when a content-sized route cannot create a page to measure. */
+@Composable
+internal fun BrowserDocumentFallback(surface: BrowserDocumentSurface, text: String, modifier: Modifier = Modifier) {
+    val sized = if (surface.isContentSized) modifier.height(HbTheme.dimensions.webDocumentHeight) else modifier
+    BrowserDocumentNote(text, sized)
 }
 
 /** Embeds the page of [surface] on platforms that can isolate it, otherwise explains why it is absent. */

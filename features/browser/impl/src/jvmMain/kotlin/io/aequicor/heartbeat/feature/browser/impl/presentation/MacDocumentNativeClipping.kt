@@ -16,6 +16,8 @@ import javax.swing.Timer
  * A short event-driven burst covers JCEF's asynchronous parent attachment, including additional browsers
  * joining a window which already contains clipped siblings. Hidden documents wait for their next showing event.
  * Missing native views are expected during startup; attachment is required only after the document has loaded.
+ * JCEF restarts its own delayed parent attachment on every paint. A trailing paint notification therefore
+ * rearms the burst even after creation/load retries found only an already attached sibling in the window.
  */
 internal class MacDocumentNativeClipping(
     private val component: JComponent,
@@ -56,6 +58,21 @@ internal class MacDocumentNativeClipping(
         request()
     }
 
+    /**
+     * Called after JCEF's child paint on EDT. Native work waits until painting settles, beyond JCEF's
+     * 100ms attachment timer; neither this callback nor the retry burst requests another repaint.
+     */
+    fun nativePainted() {
+        check(SwingUtilities.isEventDispatchThread())
+        if (isClosed) return
+        pending?.close()
+        pending = null
+        val current = ++generation
+        if (isNativeVisible()) {
+            pending = retries.after(PAINT_SETTLE_MILLIS) { attempt(current, 0) }
+        }
+    }
+
     override fun close() {
         check(SwingUtilities.isEventDispatchThread())
         if (isClosed) return
@@ -94,6 +111,7 @@ internal class MacDocumentNativeClipping(
     }
 
     private companion object {
+        const val PAINT_SETTLE_MILLIS = 150
         const val FIRST_RETRY_MILLIS = 100
         const val SECOND_RETRY_MILLIS = 150
         const val LAST_RETRY_MILLIS = 250

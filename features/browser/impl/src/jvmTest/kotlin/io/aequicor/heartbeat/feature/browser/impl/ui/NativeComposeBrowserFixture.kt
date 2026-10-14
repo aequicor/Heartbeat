@@ -43,7 +43,7 @@ import javax.swing.SwingUtilities
 import kotlin.test.assertNull
 
 /** Real production panel/engine; only the profile retention owner is a test fixture. */
-internal class NativeComposeBrowserFixture(isViewportProbe: Boolean = false) :
+internal class NativeComposeBrowserFixture(isViewportProbe: Boolean = false, isAttachmentHeld: Boolean = false) :
     BrowserSurface,
     AutoCloseable {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Swing)
@@ -67,6 +67,7 @@ internal class NativeComposeBrowserFixture(isViewportProbe: Boolean = false) :
     val loaded = CompletableFuture<Unit>()
     val nativeClippingVerified = CompletableFuture<Unit>()
     private val browser = CompletableFuture<CefBrowser>()
+    private val viewportRuntime = CompletableFuture<NativeViewportBrowserRuntime>()
     private val resources: DesktopDefaultBrowserResources
     private val server: HttpServer
     override val initialUrl: String
@@ -89,8 +90,9 @@ internal class NativeComposeBrowserFixture(isViewportProbe: Boolean = false) :
                 val app = resources.app()
                 runtimeStarts.incrementAndGet()
                 if (isViewportProbe) {
-                    NativeViewportBrowserRuntime(app, changed, nativeClippingVerified).also {
+                    NativeViewportBrowserRuntime(app, changed, nativeClippingVerified, isAttachmentHeld).also {
                         browser.complete(it.browser)
+                        viewportRuntime.complete(it)
                     }
                 } else {
                     DesktopBrowserEngine(
@@ -141,6 +143,24 @@ internal class NativeComposeBrowserFixture(isViewportProbe: Boolean = false) :
     fun nativeContentBounds(): Rectangle {
         val created = browser.awaitNative()
         return nativeEdt { Rectangle(created.windowHandler.getRect(created)) }
+    }
+
+    fun viewportRuntime(): NativeViewportBrowserRuntime = viewportRuntime.awaitNative()
+
+    fun verifyDocumentPresentation() = verifyNativeDocumentPresentation(resources, dispatchers, scope)
+
+    /** A second real browser in the same native runtime, so an existing sibling cannot prove target attachment. */
+    fun createViewportSibling(): NativeViewportSibling {
+        val app = runBlocking { withTimeout(30_000) { resources.app() } }
+        return nativeEdt {
+            val loaded = CompletableFuture<Unit>()
+            val verified = CompletableFuture<Unit>()
+            val runtime = NativeViewportBrowserRuntime(app, { state ->
+                if (!state.isLoading) loaded.complete(Unit)
+            }, verified)
+            runtime.start(initialUrl)
+            NativeViewportSibling(runtime, loaded, verified)
+        }
     }
 
     private suspend fun evaluateDocument(expression: String): JsonElement {
@@ -195,6 +215,17 @@ internal class NativeComposeBrowserFixture(isViewportProbe: Boolean = false) :
 
     private companion object {
         const val NATIVE_ROOT_PROPERTY = "heartbeat.browser.composeNativeRoot"
+    }
+}
+
+internal class NativeViewportSibling(
+    val runtime: NativeViewportBrowserRuntime,
+    val loaded: CompletableFuture<Unit>,
+    val clippingVerified: CompletableFuture<Unit>,
+) : AutoCloseable {
+    override fun close() {
+        nativeEdt(runtime::release)
+        runBlocking { withTimeout(30_000) { runtime.awaitClosed() } }
     }
 }
 

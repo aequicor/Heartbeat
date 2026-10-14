@@ -27,12 +27,14 @@ class DesktopBrowserContainerTest {
     private fun verifyPainting(arePointCoordinatesUsed: Boolean, expectedScale: Double) {
         SwingUtilities.invokeAndWait {
             var childTransform: AffineTransform? = null
+            val events = mutableListOf<String>()
             val child = object : JPanel() {
                 override fun paint(graphics: Graphics) {
                     childTransform = (graphics as Graphics2D).transform
+                    events += "child"
                 }
             }
-            val container = DesktopBrowserContainer(arePointCoordinatesUsed).apply {
+            val container = DesktopBrowserContainer(arePointCoordinatesUsed, { events += "painted" }).apply {
                 setSize(400, 600)
                 add(child)
                 doLayout()
@@ -45,6 +47,7 @@ class DesktopBrowserContainerTest {
                 val original = graphics.transform
                 for (clip in listOf(Rectangle(0, 0, 400, 600), Rectangle(0, 0, 400, 20), Rectangle(0, 580, 400, 20))) {
                     childTransform = null
+                    events.clear()
                     graphics.clip = clip
                     container.paint(graphics)
                     val received = assertNotNull(childTransform, "Visible $clip must invoke the native child")
@@ -54,6 +57,7 @@ class DesktopBrowserContainerTest {
                     assertEquals(original.translateY, received.translateY)
                     assertEquals(original, graphics.transform)
                     assertEquals(clip, graphics.clipBounds)
+                    assertEquals(if (arePointCoordinatesUsed) listOf("child", "painted") else listOf("child"), events)
                 }
                 assertEquals(container.size, child.size)
                 assertTrue(child.parent === container)

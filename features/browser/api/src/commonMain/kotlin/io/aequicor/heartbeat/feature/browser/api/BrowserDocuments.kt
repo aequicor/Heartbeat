@@ -28,14 +28,27 @@ public interface BrowserDocuments {
  * `heartbeat.data` and receives later values from [BrowserDocumentHandle.update] as a `heartbeat:data` event on
  * `window` whose `detail` is the new value. With a [bridge], `heartbeat.call(method, args)` returns a promise of the
  * bridge's result and rejects with an `Error` of its message; without one `heartbeat.call` is absent.
+ * Host colors and typography are exposed as `--hb-*` CSS variables and `heartbeat.theme`; `heartbeat:theme`
+ * announces changes without reloading the document or replacing its data. These presentation facilities confer no
+ * method-call authority. [sizing] opts into bounded intrinsic height; fixed-size callers retain their viewport.
  */
 public data class BrowserDocument(
     val html: String,
     val title: String,
     val data: JsonElement? = null,
     val bridge: BrowserDocumentBridge? = null,
+    val sizing: BrowserDocumentSizing = BrowserDocumentSizing.Fixed,
 ) {
     override fun toString(): String = "BrowserDocument(bridge=${bridge != null})"
+}
+
+/** How a document route uses the size its parent allows. No setting can exceed the host's layout constraints. */
+public enum class BrowserDocumentSizing {
+    /** Fill the caller's viewport, as before. */
+    Fixed,
+
+    /** Follow intrinsic body height within host minimum/maximum tokens; use a regular viewport until measured. */
+    Content,
 }
 
 /**
@@ -76,7 +89,10 @@ public interface BrowserDocumentHandle {
     public fun close()
 }
 
-/** Embeds the document [id] of [BrowserDocuments] in the opener's screen; it fills the size it is given. */
+/**
+ * Embeds document [id] in the opener's screen. Fixed documents fill the given size; content-sized documents follow
+ * intrinsic height inside host bounds, falling back to the regular viewport until measurement is available.
+ */
 @Serializable
 @SerialName("browser_document")
 public data class BrowserDocumentRoute(val id: String) : Route
