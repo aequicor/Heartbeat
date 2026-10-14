@@ -13,7 +13,6 @@ import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.browser.impl.domain.DesktopBrowserResources
 import io.aequicor.heartbeat.feature.browser.impl.domain.DesktopDocumentTeardown
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.SupervisorJob
@@ -52,7 +51,7 @@ internal class DesktopDefaultBrowserResources(
     private val mutex = Mutex()
     private var initialization: Deferred<CefApp>? = null
     private var shutdown: Deferred<Unit>? = null
-    private val terminated = CompletableDeferred<Unit>()
+    private val lifecycle = DesktopBrowserRuntimeLifecycle()
 
     // Owned by this app singleton and never cancelled: DI cancels the app scope before close hooks run, while
     // native teardown must still finish. The process exit ends it.
@@ -130,9 +129,9 @@ internal class DesktopDefaultBrowserResources(
         // A cancelled initializer can still be finishing native startup on another thread.
         initialization?.join()
         nativeApp?.let { app ->
-            // CefApp.dispose ignores repeated calls once the runtime is shutting down or terminated.
-            withContext(dispatchers.main) { app.dispose() }
-            terminated.await()
+            lifecycle.shutdown(CefApp::getState) {
+                withContext(dispatchers.main) { app.dispose() }
+            }
         }
         null
     } catch (error: CancellationException) {
@@ -154,7 +153,11 @@ internal class DesktopDefaultBrowserResources(
             setProgressHandler { _, _ -> }
             setAppHandler(object : MavenCefAppHandlerAdapter() {
                 override fun stateHasChanged(state: CefApp.CefAppState) {
-                    if (state == CefApp.CefAppState.TERMINATED) terminated.complete(Unit)
+                    lifecycle.onStateChanged(state)
+                }
+
+                override fun onContextInitialized() {
+                    lifecycle.onContextInitialized()
                 }
             })
             cefSettings.useBundledBrowserPaths(directory, platform.os)
