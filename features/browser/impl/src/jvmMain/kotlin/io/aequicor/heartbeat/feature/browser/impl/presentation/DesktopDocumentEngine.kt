@@ -280,6 +280,19 @@ internal class DesktopDocumentEngine(
             SwingUtilities.invokeLater(::closeNativeClipping)
         }
 
+        override fun onAfterParentChanged(browser: CefBrowser) {
+            onSwing {
+                // Native reparenting completes asynchronously after Swing addNotify/paint. Refresh the current
+                // visible host only after that acknowledgement; the earlier paint may have targeted the old window.
+                val view = browser.uiComponent as JComponent
+                if (view.isShowing) {
+                    view.revalidate()
+                    view.repaint()
+                    requestNativeClipping(isDocumentLoaded = isLoaded)
+                }
+            }
+        }
+
         override fun onAfterClose(browser: CefBrowser) {
             // Follows JCEF's wrapper disposal and browser registry removal, like DesktopBrowserEngine.
             dispose()
