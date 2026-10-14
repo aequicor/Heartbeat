@@ -53,7 +53,8 @@ paths:
 - Диаграммы в markdown: закрытый fence `plantuml`/`puml` (или без языка с `@startuml`…) — одна строка
   `HbMarkdownBlockKind.Diagram`. Рисует её хост через `HbDiagramsProvider` + SPI `HbDiagramRenderer` (в ДС нет IO и
   диспетчеров; PNG декодируется `decodeHbImageBitmap` вне UI-потока); без рендерера или для `Unsupported` — код.
-  Клик по картинке — просмотр на всю рабочую область `HbPlatformDialog`: pan/zoom, исходник и кликабельные области.
+  Клик по картинке — `HbDiagramRenderer.openFullSize` хоста (например, вкладка Chromium); по умолчанию или при отказе —
+  просмотр на всю рабочую область `HbPlatformDialog`: pan/zoom, исходник и кликабельные области.
   Ссылки открывает обработчик markdown; `HbDiagramActionsProvider` задаёт только действия исходного чата
   (insert/send), без него они недоступны. Геометрия CMap передаётся хостом вместе с PNG; ДС не разбирает PlantUML.
 - Компонент ДС: stateless, `modifier: Modifier = Modifier` первый опциональный параметр, события — лямбды `onX`, параметры стабильны.

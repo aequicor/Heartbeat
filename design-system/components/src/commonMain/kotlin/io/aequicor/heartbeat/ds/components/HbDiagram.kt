@@ -83,6 +83,12 @@ public data class HbDiagramLink(val bounds: Rect, val destination: String, val t
 public fun interface HbDiagramRenderer {
     /** Draws [request]; cancelled when its row leaves composition or the request changes. */
     public suspend fun render(request: HbDiagramRequest): HbDiagramResult
+
+    /**
+     * Opens [request] in a host viewer after a user click, for example in a browser tab. Returns true only after
+     * opening succeeds; false keeps the shared full-size viewer available. The default uses the shared viewer.
+     */
+    public suspend fun openFullSize(request: HbDiagramRequest): Boolean = false
 }
 
 /**
