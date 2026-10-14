@@ -108,7 +108,7 @@ internal class StudioNativeSessions(
                                 emit(root.chat to NativeTranscriptUi(key, persistentListOf()))
                                 emitAll(
                                     views.observeNative(root.ref, ref, root.access)
-                                        .flatMapLatest { messages -> attachments(messages.map { it.toUi() }) }
+                                        .flatMapLatest { messages -> attachments(messages.toTranscriptUi()) }
                                         .map { root.chat to NativeTranscriptUi(key, it) },
                                 )
                             }

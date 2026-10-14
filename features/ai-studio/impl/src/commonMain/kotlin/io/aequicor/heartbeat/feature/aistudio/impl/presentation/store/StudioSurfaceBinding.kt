@@ -181,8 +181,13 @@ internal fun AiStudioScreenState.withCardFocus(
     }
     if (PaneSurfaceUi(chatId, pane.projectId, emptySet()).place(workspace) != request.place) return this
     val reply = transcripts[chatId]?.filterIsInstance<MessageUi.Reply>()
-        ?.lastOrNull { request.cardId in it.cardIds } ?: return this
-    val focus = CardFocusRequestUi(chatId, reply.id, request.cardId, sequence)
+        ?.lastOrNull { request.cardId in it.cardIds || request.cardId in it.liveCardAliases } ?: return this
+    val cardId = if (request.cardId in reply.cardIds) {
+        request.cardId
+    } else {
+        reply.cardIds.firstOrNull { it in reply.liveCardAliases } ?: return this
+    }
+    val focus = CardFocusRequestUi(chatId, reply.id, cardId, sequence)
     return copy(cardFocusRequests = (cardFocusRequests + (pane.id to focus)).toImmutableMap())
 }
 

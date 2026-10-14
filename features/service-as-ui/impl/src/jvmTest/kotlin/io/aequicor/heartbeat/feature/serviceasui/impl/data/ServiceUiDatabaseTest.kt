@@ -43,8 +43,8 @@ class ServiceUiDatabaseTest {
         val inline = card("c_inline", One, UiCardSource.Inline("""{"version":1,"body":{"type":"divider"}}"""))
         val surface = card("c_surface", Two, UiCardSource.Surface(UiSurfaceId("harness:h_1:map")))
 
-        assertEquals(UiCardAdded.Stored(evicted = 0), cards.add(inline))
-        assertEquals(UiCardAdded.Stored(evicted = 0), cards.add(surface))
+        assertEquals(UiCardAdded.Stored(inline.id, evicted = 0), cards.add(inline))
+        assertEquals(UiCardAdded.Stored(surface.id, evicted = 0), cards.add(surface))
         assertEquals(inline, cards.observe("c_inline").first())
         assertEquals(surface, cards.observe("c_surface").first())
         assertNull(cards.observe("c_unknown").first())
@@ -54,12 +54,12 @@ class ServiceUiDatabaseTest {
     fun `a full chat refuses a card and the profile keeps its newest cards`() = runTest {
         repeat(UiCardLimits.PER_CHAT) { cards.add(card("c_$it", One, at = it.toLong())) }
         assertEquals(UiCardAdded.ChatFull, cards.add(card("c_more", One, at = 100)))
-        assertEquals(UiCardAdded.Stored(evicted = 0), cards.add(card("c_other", Two, at = 101)))
+        assertEquals(UiCardAdded.Stored("c_other", evicted = 0), cards.add(card("c_other", Two, at = 101)))
 
         val dao = database.cards()
         val row = { id: String, at: Long -> CardEntity(id, "chat-$id", null, "T", "{}", null, "{}", at) }
-        assertEquals(0, dao.add(row("c_new", 200), perChat = 1, perProfile = 70))
-        assertEquals(1, dao.add(row("c_newer", 201), perChat = 1, perProfile = 66))
+        assertEquals(CardStored("c_new", 0), dao.add(row("c_new", 200), perChat = 1, perProfile = 70))
+        assertEquals(CardStored("c_newer", 1), dao.add(row("c_newer", 201), perChat = 1, perProfile = 66))
         assertNull(cards.observe("c_0").first())
         assertEquals("c_1", cards.observe("c_1").first()?.id)
     }
@@ -71,7 +71,7 @@ class ServiceUiDatabaseTest {
     }
 
     @Test
-    fun `latest card belongs to the exact chat and surface with insertion order for equal timestamps`() = runTest {
+    fun `latest card belongs to the current source only and keeps its identity across replacements`() = runTest {
         val surface = UiSurfaceId("harness:h_1:workout")
         val source = UiCardSource.Surface(surface)
         cards.add(card("old", One, source, at = 1))
@@ -80,7 +80,8 @@ class ServiceUiDatabaseTest {
         cards.add(card("other-chat", Two, source, at = 3))
         cards.add(card("other-owner", One, UiCardSource.Surface(UiSurfaceId("harness:h_2:workout")), at = 4))
         cards.add(card("anonymous", One, at = 5))
-        assertEquals("same-time", cards.latest(One, surface)?.id)
+        assertNull(cards.latest(One, surface))
+        assertEquals("old", cards.latest(One, UiSurfaceId("harness:h_2:workout"))?.id)
         assertEquals("other-chat", cards.latest(Two, surface)?.id)
         assertNull(cards.latest(One, UiSurfaceId("harness:h_1:missing")))
     }

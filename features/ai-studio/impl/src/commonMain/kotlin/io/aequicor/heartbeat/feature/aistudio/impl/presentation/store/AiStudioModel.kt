@@ -382,7 +382,7 @@ class AiStudioModel(
                 combine(
                     ids.map { id ->
                         repository.observeMessages(id)
-                            .flatMapLatest { messages -> messages.map { it.toUi() }.withAttachmentMetadata() }
+                            .flatMapLatest { messages -> messages.toTranscriptUi().withAttachmentMetadata() }
                             .map { entries -> id to entries }
                     },
                 ) { it.toMap() },

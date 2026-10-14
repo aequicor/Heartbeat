@@ -247,6 +247,16 @@ class ServiceUiAgentToolsTest {
     }
 
     @Test
+    fun `library show returns the reused storage identity as a live receipt`() = runTest {
+        call(ServiceUiTools.PUT, put(SPEC))
+        cards.storedId = "c_existing"
+        val result = call(ServiceUiTools.SHOW, show(surface = "harness:h_1:start"))
+        assertFalse(result.isError)
+        assertEquals("c_existing", ServiceUiTools.shownCardId(ServiceUiTools.SHOW, result.text))
+        assertTrue(ServiceUiTools.isLiveCard(ServiceUiTools.SHOW, result.text))
+    }
+
+    @Test
     fun `a method call returns what the owner's method returns`() = runTest {
         val result = call(
             ServiceUiTools.CALL,
@@ -510,12 +520,13 @@ class ServiceUiAgentToolsTest {
     private class Cards : UiCardStorage {
         val added = mutableListOf<UiCard>()
         var isFull = false
+        var storedId: String? = null
 
         override suspend fun add(card: UiCard): UiCardAdded = if (isFull) {
             UiCardAdded.ChatFull
         } else {
             added += card
-            UiCardAdded.Stored(0)
+            UiCardAdded.Stored(storedId ?: card.id, 0)
         }
 
         override fun observe(id: String): Flow<UiCard?> = flowOf(added.firstOrNull { it.id == id })

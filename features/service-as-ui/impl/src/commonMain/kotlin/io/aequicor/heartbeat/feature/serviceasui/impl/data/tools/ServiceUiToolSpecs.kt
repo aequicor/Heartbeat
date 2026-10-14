@@ -79,8 +79,8 @@ internal val ServiceUiToolSpecs: List<AgentToolSpec> = listOf(
     ),
     AgentToolSpec(
         ServiceUiTools.SHOW,
-        "Shows an interface as a card in your reply: an inline spec without an owner, or an interface of the " +
-            "library with arguments. Inline cards cannot call methods; their prompts only fill the chat input.",
+        "Shows the chat's single live library app with arguments; repeated shows replace that same app. " +
+            "An inline spec instead adds an anonymous snapshot without methods or a web bridge.",
         schema(listOf("title")) {
             text("title", "Card title, at most 80 characters.")
             putJsonObject("spec") {

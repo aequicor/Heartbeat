@@ -17,7 +17,7 @@ internal sealed interface UiCardSource {
     data class Surface(val surface: UiSurfaceId) : UiCardSource
 }
 
-/** A card the agent showed with `ui_show` in a response of [chat], by its tool call [callId]. */
+/** A shown card; library sources share one live slot per [chat], while inline sources remain snapshots. */
 internal data class UiCard(
     val id: String,
     val chat: SessionRef,
@@ -32,8 +32,8 @@ internal data class UiCard(
 
 /** How storing a card ended. */
 internal sealed interface UiCardAdded {
-    /** Stored; the [evicted] oldest cards of the profile made room for it. */
-    data class Stored(val evicted: Int) : UiCardAdded
+    /** Stored as [id], reusing the live slot when present; [evicted] oldest rows made room for it. */
+    data class Stored(val id: String, val evicted: Int) : UiCardAdded
 
     /** Not stored: its chat already holds [UiCardLimits.PER_CHAT] cards. */
     data object ChatFull : UiCardAdded
@@ -50,12 +50,12 @@ internal object UiCardLimits {
 
 /** Durable cards of the profile: they stay until the profile limit evicts the oldest. */
 internal interface UiCardStorage {
-    /** Stores [card] unless its chat is full, evicting the oldest cards of the profile beyond its limit. */
+    /** Replaces the chat's live slot, or inserts a new card within the chat/profile bounds. */
     suspend fun add(card: UiCard): UiCardAdded
 
-    /** The card [id], or null once it was evicted, never stored or cannot be read. */
+    /** The card [id]; legacy library ids resolve to their chat's current live slot. Missing ids return null. */
     fun observe(id: String): Flow<UiCard?>
 
-    /** Latest card of [surface] in [chat], or null when none was stored or it can no longer be read. */
+    /** The current live slot, only if it still shows [surface] in [chat]; replaced surfaces return null. */
     suspend fun latest(chat: SessionRef, surface: UiSurfaceId): UiCard?
 }

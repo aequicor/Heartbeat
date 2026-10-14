@@ -12,6 +12,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class ServiceUiContractTest {
     @Test
@@ -48,6 +49,12 @@ class ServiceUiContractTest {
         assertNull(ServiceUiTools.shownCardId(ServiceUiTools.PUT, result))
         assertNull(ServiceUiTools.shownCardId(ServiceUiTools.SHOW, "Card limit for this chat reached"))
         assertFailsWith<IllegalArgumentException> { ServiceUiTools.shown("Bad Id") }
+        val live = ServiceUiTools.shown("uc_live", isLive = true)
+        assertEquals("uc_live", ServiceUiTools.shownCardId(ServiceUiTools.SHOW, live))
+        assertTrue(ServiceUiTools.isLiveCard(ServiceUiTools.SHOW, live))
+        assertFalse(ServiceUiTools.isLiveCard(ServiceUiTools.SHOW, result))
+        assertFalse(ServiceUiTools.isLiveCard(ServiceUiTools.SHOW, "Result: $live"))
+        assertFalse(ServiceUiTools.isLiveCard(ServiceUiTools.PUT, live))
     }
 
     @Test

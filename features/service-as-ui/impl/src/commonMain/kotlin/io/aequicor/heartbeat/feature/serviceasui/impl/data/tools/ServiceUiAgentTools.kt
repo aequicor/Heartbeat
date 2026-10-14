@@ -410,8 +410,11 @@ internal class ServiceUiAgentTools(
             args = args,
             createdAt = clock.now(),
         )
-        return when (cards.value.add(card)) {
-            is UiCardAdded.Stored -> AgentToolResult(ServiceUiTools.shown(card.id))
+        return when (val stored = cards.value.add(card)) {
+            is UiCardAdded.Stored -> AgentToolResult(
+                ServiceUiTools.shown(stored.id, isLive = source is UiCardSource.Surface),
+            )
+
             UiCardAdded.ChatFull -> failure("this chat already shows ${UiCardLimits.PER_CHAT} cards; no more fit")
         }
     }

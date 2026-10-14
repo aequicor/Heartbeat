@@ -74,6 +74,8 @@ data class StudioToolRun(
     val createdChecklistId: String? = null,
     /** Card the agent showed in its reply, decoded only from a successful hosted `ui_show` result. */
     val shownCardId: String? = null,
+    /** A library-backed live app receipt, grouped with other live receipts of this conversation. */
+    val isLiveCard: Boolean = false,
 )
 
 /** What a self-learning tool call does: saving an instruction or loading a learned skill. */

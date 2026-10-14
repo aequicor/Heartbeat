@@ -117,6 +117,8 @@ sealed interface MessageUi {
         val checklistIds: ImmutableList<String> = persistentListOf(),
         /** Cards of interfaces shown in this reply, in order. */
         val cardIds: ImmutableList<String> = persistentListOf(),
+        /** Historical live-app receipt ids that resolve to the one displayed app anchored in this reply. */
+        val liveCardAliases: ImmutableList<String> = persistentListOf(),
     ) : MessageUi {
         /** How this instance looks in a collapsed feed, computed once per settings; not part of equality. */
         @Transient

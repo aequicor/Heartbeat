@@ -41,6 +41,7 @@ class StudioScreenSerializationTest {
                     persistentListOf(tool),
                     isStreaming = true,
                     cardIds = persistentListOf("card-1", "card-2"),
+                    liveCardAliases = persistentListOf("old-card-1", "card-1"),
                     parts = persistentListOf(
                         ReplyPartUi.Reasoning("r1", "думаю"),
                         ReplyPartUi.Tool(tool),

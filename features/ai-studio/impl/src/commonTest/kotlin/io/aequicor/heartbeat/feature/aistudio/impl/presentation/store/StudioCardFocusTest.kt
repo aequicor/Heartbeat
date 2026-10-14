@@ -62,6 +62,20 @@ class StudioCardFocusTest {
     }
 
     @Test
+    fun `legacy live receipt focuses the single displayed slot and unknown ids still fail`() {
+        val reply = (state.transcripts.getValue("chat").single() as MessageUi.Reply).copy(
+            cardIds = persistentListOf("current"),
+            liveCardAliases = persistentListOf("second", "current"),
+        )
+        val single = state.copy(transcripts = persistentMapOf("chat" to persistentListOf(reply)))
+        assertEquals(
+            CardFocusRequestUi("chat", "reply", "current", 1),
+            single.withCardFocus(request, workspace, 1).cardFocusRequests[0],
+        )
+        assertEquals(single, single.withCardFocus(request.copy(cardId = "unknown"), workspace, 2))
+    }
+
+    @Test
     fun `missing cards and delayed outputs for another chat or project are ignored`() {
         assertEquals(state, state.withCardFocus(request.copy(cardId = "missing"), workspace, 1))
         assertEquals(state, state.withCardFocus(request.copy(paneId = 1), workspace, 1))

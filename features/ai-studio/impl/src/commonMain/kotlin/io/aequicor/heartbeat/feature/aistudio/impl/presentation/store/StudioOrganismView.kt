@@ -160,7 +160,7 @@ internal class StudioOrganismView(
                     shown.map { (chat, selected) ->
                         val (key, session) = selected
                         val messages = (session?.let { views.observe(it.ref, it.reopening) } ?: flowOf(emptyList()))
-                            .flatMapLatest { items -> withAttachments(items.map { it.toUi() }) }
+                            .flatMapLatest { items -> withAttachments(items.toTranscriptUi()) }
                         val observation = session?.let { views.observation(it.ref) } ?: flowOf(null)
                         combine(messages, observation) { items, snapshot ->
                             chat to (items to snapshot.toObservationUi(key))
