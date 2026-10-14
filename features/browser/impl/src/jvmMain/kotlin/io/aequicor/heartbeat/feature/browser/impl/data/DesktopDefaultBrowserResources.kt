@@ -92,14 +92,18 @@ internal class DesktopDefaultBrowserResources(
 
     /** Disposes the runtime even when documents or a profile fail to close, then reports all failures together. */
     private suspend fun teardown() {
+        log.v { "Closing document browsers before runtime shutdown" }
         val documentFailure = closeDocuments()
+        log.v { "Closing browser profiles before runtime shutdown" }
         val profileFailure = closeProfiles()
+        log.v { "Disposing browser runtime after resource closure" }
         // The runtime's own failure leads; the earlier ones are attached to it.
         val failures = listOfNotNull(disposeRuntime(), profileFailure, documentFailure)
         failures.firstOrNull()?.let { first ->
             failures.drop(1).forEach(first::addSuppressed)
             throw first
         }
+        log.v { "Browser runtime shutdown completed" }
     }
 
     private suspend fun closeDocuments(): Exception? = try {
