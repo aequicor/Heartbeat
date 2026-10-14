@@ -63,6 +63,24 @@ class CodexManagementTest {
     }
 
     @Test
+    fun `Linux installs the complete musl package with its verified checksum`() = runTest {
+        for (arch in listOf("x86_64", "aarch64")) {
+            val linux = CodexTarget("$arch-unknown-linux-musl", "bin/codex")
+            val name = "codex-package-${linux.triple}.tar.gz"
+            val plan = codexInstallPlan(
+                release(GitHubAsset(name, 1, "$download/$name", "sha256:$digest")),
+                linux,
+                Feeds(),
+            )
+
+            assertEquals("$download/$name", plan.url)
+            assertEquals(ArchiveKind.TarGz(), plan.archive)
+            assertEquals("bin/codex", plan.executable)
+            assertEquals(digest, plan.sha256)
+        }
+    }
+
+    @Test
     fun `a package without a digest falls back to the release checksum list`() = runTest {
         val sums = GitHubAsset("codex-package_SHA256SUMS", 1631, "$download/sums")
         val release = release(GitHubAsset("codex-package-aarch64-apple-darwin.tar.gz", 1, "$download/p.tar.gz"), sums)

@@ -7,7 +7,8 @@ import java.io.File
  * PATH, then check macOS app bundles or the Windows desktop app's materialized CLI cache. Windows cache entries
  * are tried newest first, skipping incomplete entries and caches for other bundled tools. Only native .exe files
  * are used on Windows; npm's .cmd/.bat wrappers cannot be launched directly by ProcessBuilder.
- * Explicit host configuration and other platforms retain ProcessBuilder's normal command resolution.
+ * Linux also checks the user and system local bin directories. Explicit host configuration and unsupported
+ * platforms retain ProcessBuilder's normal command resolution.
  */
 internal fun resolveCodexExecutable(
     configured: String,
@@ -17,16 +18,19 @@ internal fun resolveCodexExecutable(
     localAppData: String? = System.getenv("LOCALAPPDATA"),
     isExecutable: (File) -> Boolean = { it.isFile && it.canExecute() },
 ): String {
+    if (configured != "codex") return configured
     val isWindows = osName.startsWith("Windows")
-    if (configured != "codex" || (!isWindows && !osName.startsWith("Mac"))) return configured
+    val isMacOs = osName.startsWith("Mac")
+    val isLinux = osName.startsWith("Linux")
+    if (!isWindows && !isMacOs && !isLinux) return configured
     val pathCandidates = path.orEmpty().split(if (isWindows) ';' else ':').asSequence()
         .map { it.trim().removeSurrounding("\"") }
         .filter(String::isNotBlank)
         .map { File(it, if (isWindows) "codex.exe" else "codex") }
-    val installedCandidates = if (isWindows) {
-        windowsCodexCandidates(localAppData, userHome)
-    } else {
-        macCodexCandidates(userHome)
+    val installedCandidates = when {
+        isWindows -> windowsCodexCandidates(localAppData, userHome)
+        isMacOs -> macCodexCandidates(userHome)
+        else -> sequenceOf(File(userHome, ".local/bin/codex"), File("/usr/local/bin/codex"))
     }
     return (pathCandidates + installedCandidates).firstOrNull(isExecutable)?.path ?: configured
 }

@@ -104,6 +104,24 @@ class PiStartupTest {
     }
 
     @Test
+    fun `Linux updates use the matching archive and retain its checksum`() = runTest {
+        for (target in listOf("linux-x64", "linux-arm64")) {
+            val name = "pi-$target.tar.gz"
+            val release = GitHubRelease(
+                "v1.0.0",
+                assets = listOf(GitHubAsset(name, 1, "$download/$name", "sha256:$digest")),
+            )
+
+            val plan = piInstallPlan(release, target, Feeds())
+
+            assertEquals("$download/$name", plan.url)
+            assertEquals(ArchiveKind.TarGz(stripComponents = 1), plan.archive)
+            assertEquals("pi", plan.executable)
+            assertEquals(digest, plan.sha256)
+        }
+    }
+
+    @Test
     fun `an archive without a digest is checked against the release checksum list`() = runTest {
         val release = GitHubRelease(
             "v1.0.0",
@@ -132,7 +150,10 @@ class PiStartupTest {
     fun `release targets and versions`() {
         assertEquals("darwin-arm64", piReleaseTarget("Mac OS X", "aarch64"))
         assertEquals("windows-x64", piReleaseTarget("Windows 11", "amd64"))
-        assertNull(piReleaseTarget("Linux", "amd64"))
+        assertEquals("linux-x64", piReleaseTarget("Linux", "amd64"))
+        assertEquals("linux-arm64", piReleaseTarget("Linux", "aarch64"))
+        assertNull(piReleaseTarget("FreeBSD", "amd64"))
+        assertNull(piReleaseTarget("Linux", "ppc64"))
         assertEquals("1.0.0", parsePiVersion("1.0.0\n"))
         assertNull(parsePiVersion("unknown option"))
     }

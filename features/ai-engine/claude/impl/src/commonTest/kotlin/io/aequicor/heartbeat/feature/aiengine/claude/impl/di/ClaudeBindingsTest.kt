@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.validateLaunchSettings
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class ClaudeBindingsTest {
     private val registration = ClaudeBindings.registration(
@@ -23,6 +24,7 @@ class ClaudeBindingsTest {
      */
     @Test
     fun `registration keeps the catalog revision that introduced input support`() {
+        assertTrue(EnginePlatform.DesktopLinux in registration.descriptor.platforms)
         assertEquals(1, registration.modelCatalogRevision)
     }
 

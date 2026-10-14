@@ -16,6 +16,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Instant
 
 class CodexLaunchTest {
@@ -72,6 +73,17 @@ class CodexLaunchTest {
         val wrapper = resolveCodexLaunch(LaunchContext(LaunchSettings(executable = "C:\\codex.bat")), config, windows)
         assertFalse(wrapper.isRunnable)
         assertFalse(resolveCodexLaunch(LaunchContext(), config.copy(executable = "C:\\codex.cmd"), windows).isRunnable)
+    }
+
+    @Test
+    fun `Linux discovers a runnable system installation without shell PATH`() {
+        val executable = File("/home/test/.local/bin/codex").path
+        val linux = host(osName = "Linux", available = setOf(executable)).copy(userHome = "/home/test")
+
+        val launch = resolveCodexLaunch(LaunchContext(), config, linux)
+
+        assertEquals(executable to InstallSource.System, launch.executable to launch.source)
+        assertTrue(launch.isRunnable)
     }
 
     @Test
@@ -135,13 +147,21 @@ class CodexLaunchTest {
     }
 
     @Test
-    fun `packages exist for macOS and Windows on arm64 and x64`() {
+    fun `packages exist for macOS Windows and Linux on arm64 and x64`() {
         assertEquals(CodexTarget("aarch64-apple-darwin", "bin/codex"), codexReleaseTarget(host(osArch = "aarch64")))
         assertEquals(
             CodexTarget("x86_64-pc-windows-msvc", "bin/codex.exe"),
             codexReleaseTarget(host(osName = "Windows 11", osArch = "amd64")),
         )
-        assertNull(codexReleaseTarget(host(osName = "Linux")))
+        assertEquals(
+            CodexTarget("x86_64-unknown-linux-musl", "bin/codex"),
+            codexReleaseTarget(host(osName = "Linux", osArch = "amd64")),
+        )
+        assertEquals(
+            CodexTarget("aarch64-unknown-linux-musl", "bin/codex"),
+            codexReleaseTarget(host(osName = "Linux", osArch = "aarch64")),
+        )
+        assertNull(codexReleaseTarget(host(osName = "FreeBSD")))
         assertNull(codexReleaseTarget(host(osArch = "ppc64")))
     }
 

@@ -22,7 +22,7 @@ class LaunchSettingsTest {
     }
 
     @Test
-    fun `paths must be absolute on both desktop hosts`() {
+    fun `paths must be absolute on desktop hosts`() {
         val accepted = listOf(
             "/usr/local/bin/codex",
             "C:\\Tools\\codex.exe",
@@ -51,6 +51,17 @@ class LaunchSettingsTest {
             validateLaunchSettings(LaunchSettings(executable = "C:\\tools\\codex"), spec, windows),
         )
         assertEquals(emptyList(), problems(LaunchSettings(executable = "/opt/codex/bin/codex")))
+    }
+
+    @Test
+    fun `Linux accepts native executable paths and rejects relative commands`() {
+        val linux = EnginePlatform.DesktopLinux
+        val native = LaunchSettings(executable = "/opt/codex/bin/codex")
+        assertEquals(emptyList(), validateLaunchSettings(native, spec, linux))
+        assertEquals(
+            listOf(LaunchProblem(LaunchOption.Executable, LaunchProblemReason.NotAbsolute)),
+            validateLaunchSettings(LaunchSettings(executable = "codex"), spec, linux),
+        )
     }
 
     @Test

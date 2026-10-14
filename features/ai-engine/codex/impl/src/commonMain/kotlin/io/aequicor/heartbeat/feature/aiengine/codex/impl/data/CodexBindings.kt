@@ -65,7 +65,7 @@ public object CodexBindings {
             CodexEngine.Id,
             "Codex",
             EngineFamily.Vendor,
-            setOf(EnginePlatform.DesktopMacOs, EnginePlatform.DesktopWindows),
+            setOf(EnginePlatform.DesktopMacOs, EnginePlatform.DesktopWindows, EnginePlatform.DesktopLinux),
             CodexEngine.Enabled,
             isLocalWorkspaceSupported = true,
             nativeTools = listOf(

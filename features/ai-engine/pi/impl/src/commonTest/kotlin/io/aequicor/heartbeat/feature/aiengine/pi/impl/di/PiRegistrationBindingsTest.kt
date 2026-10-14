@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiAdapter
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiEngineManager
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class PiRegistrationBindingsTest {
     private val registration = PiRegistrationBindings.registration(
@@ -27,6 +28,7 @@ class PiRegistrationBindingsTest {
      */
     @Test
     fun `registration invalidates cached synthetic compatible context limits`() {
+        assertTrue(EnginePlatform.DesktopLinux in registration.descriptor.platforms)
         assertEquals(4, registration.modelCatalogRevision)
     }
 

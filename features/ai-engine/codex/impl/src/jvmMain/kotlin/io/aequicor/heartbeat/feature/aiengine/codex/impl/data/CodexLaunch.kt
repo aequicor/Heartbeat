@@ -40,7 +40,7 @@ internal data class CodexHost(
 
 /**
  * The launch of [context]: the custom executable of its settings, else Heartbeat's managed copy, else the host
- * configuration's explicit executable, else a system installation (PATH and the standard macOS locations).
+ * configuration's explicit executable, else a system installation (PATH and the standard locations for that host).
  */
 internal fun resolveCodexLaunch(
     context: LaunchContext,
@@ -103,7 +103,7 @@ internal fun codexLaunchProblems(settings: LaunchSettings, host: CodexHost = Cod
         }
     }
 
-/** The package of this host: macOS and Windows on arm64 and x64. */
+/** The package of this host: macOS, Windows and Linux on arm64 and x64; Linux uses the upstream musl build. */
 internal fun codexReleaseTarget(host: CodexHost = CodexHost()): CodexTarget? {
     val arch = when (host.osArch.lowercase()) {
         "aarch64", "arm64" -> "aarch64"
@@ -113,6 +113,7 @@ internal fun codexReleaseTarget(host: CodexHost = CodexHost()): CodexTarget? {
     return when {
         host.osName.startsWith("Mac") -> CodexTarget("$arch-apple-darwin", "bin/codex")
         host.isWindows -> CodexTarget("$arch-pc-windows-msvc", "bin/codex.exe")
+        host.osName.startsWith("Linux") -> CodexTarget("$arch-unknown-linux-musl", "bin/codex")
         else -> null
     }
 }
