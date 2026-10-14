@@ -1,8 +1,6 @@
 package io.aequicor.heartbeat.feature.serviceasui.impl.ui
 
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import io.aequicor.heartbeat.ds.components.HbEmptyState
 import io.aequicor.heartbeat.ds.theme.HbTheme
@@ -51,7 +49,7 @@ private fun AppCardPreview() {
 
 @Composable
 private fun WorkspacePreview() {
-    AppHostView(AppHostState(title = "Orbit Gym", isExpanded = true), hasDocument = false, {}) {
-        HbEmptyState("Начать тренировку", Modifier.fillMaxSize(), "Программа, подходы и прогресс в одном месте")
+    AppHostView(AppHostState(title = "Orbit Gym", isExpanded = true), hasDocument = false, {}) { size ->
+        HbEmptyState("Начать тренировку", size, "Программа, подходы и прогресс в одном месте")
     }
 }

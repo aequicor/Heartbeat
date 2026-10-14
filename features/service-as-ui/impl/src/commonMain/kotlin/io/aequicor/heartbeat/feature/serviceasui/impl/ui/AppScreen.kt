@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.app.AppHostIntent
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.app.AppHostModel
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.app.AppHostState
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiNodeUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceState
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.Res
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_app_expand
@@ -59,23 +60,27 @@ internal fun AppScreen(
         surface?.store?.collect { states.collect { value = it } }
     }
     val hasDocument = content.root?.containsWeb() == true
-    val body: @Composable () -> Unit = {
+    val body: @Composable (Modifier) -> Unit = { size ->
         if (surface == null) {
-            HbLoadingState(stringResource(Res.string.service_ui_loading), Modifier.fillMaxSize())
+            HbLoadingState(stringResource(Res.string.service_ui_loading), size)
         } else {
             SurfaceScreen(
                 surface,
-                Modifier.fillMaxSize().clip(HbTheme.shapes.medium),
+                size.clip(HbTheme.shapes.medium),
                 documents,
                 isApp = true,
                 scrollState = scroll,
+                isContentFill = !state.isExpanded,
             )
         }
     }
-    AppHostView(state, hasDocument, model::intent, modifier, body)
+    AppHostView(state, hasDocument, model::intent, modifier, content.root is UiNodeUi.Web, body)
 }
 
-/** Native full-start/modal chrome around one bounded application body. */
+/**
+ * Native full-start/modal chrome around one bounded application body. A sole document owns its inner spacing;
+ * native and mixed trees keep the regular dialog header and insets.
+ */
 // A native modal has another window. The store, scroll and document live above both mounts.
 @Suppress("ContentSlotReused")
 @Composable
@@ -84,7 +89,8 @@ internal fun AppHostView(
     hasDocument: Boolean,
     onIntent: (AppHostIntent) -> Unit,
     modifier: Modifier = Modifier,
-    body: @Composable () -> Unit,
+    isDocumentOnly: Boolean = false,
+    body: @Composable (Modifier) -> Unit,
 ) {
     if (state.isExpanded) {
         HbDialog(
@@ -92,16 +98,22 @@ internal fun AppHostView(
             onDismissRequest = { onIntent(AppHostIntent.Close(state.sequence)) },
             width = HbDialogWidth.Wide,
             isContentScrollable = false,
-            isContentFill = true,
+            isCompact = true,
+            isContentEdgeToEdge = isDocumentOnly,
             isTitleVisible = !hasDocument,
             headerActions = {
                 HbIconButton(
                     HbIcons.Close,
                     stringResource(Res.string.service_ui_close),
                     { onIntent(AppHostIntent.Close(state.sequence)) },
+                    modifier = if (isDocumentOnly) {
+                        Modifier.hbSurface(HbTheme.colors.surface, HbTheme.shapes.small)
+                    } else {
+                        Modifier
+                    },
                 )
             },
-        ) { body() }
+        ) { body(Modifier.fillMaxWidth()) }
     } else if (state.isStart) {
         HbColumn(
             modifier.fillMaxSize().hbSurface(HbTheme.colors.surface, HbTheme.shapes.large)
@@ -116,7 +128,7 @@ internal fun AppHostView(
                     { onIntent(AppHostIntent.Open) },
                 )
             }
-            HbColumn(Modifier.weight(1f).fillMaxWidth()) { body() }
+            HbColumn(Modifier.weight(1f).fillMaxWidth()) { body(Modifier.fillMaxSize()) }
         }
     }
 }

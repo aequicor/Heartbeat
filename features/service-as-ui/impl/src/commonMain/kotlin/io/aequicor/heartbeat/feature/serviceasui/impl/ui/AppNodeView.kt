@@ -19,36 +19,40 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentMapOf
 
-/** A bounded app layout gives its single web node the remaining space, without an enclosing scroll container. */
+/**
+ * A bounded app layout gives its single web node the remaining space, without an enclosing scroll container.
+ * Start fills that space; a modal measures its content with the same upper bound and may shrink after a tab change.
+ */
 @Composable
 internal fun AppNodeView(
     node: UiNodeUi,
     onIntent: (SurfaceIntent) -> Unit,
     modifier: Modifier = Modifier,
     webs: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
+    isContentFill: Boolean = true,
 ) {
     if (!node.containsWeb()) {
         UiNodeView(node, onIntent, modifier, webs)
         return
     }
     when (node) {
-        is UiNodeUi.Web -> (webs[node.key] ?: OpeningDocument).Content(modifier.fillMaxSize())
+        is UiNodeUi.Web -> (webs[node.key] ?: OpeningDocument).Content(modifier.appSize(isContentFill))
 
-        is UiNodeUi.Column -> HbColumn(modifier.fillMaxSize(), gap = node.gap.spacing()) {
-            AppChildren(node.children, onIntent, webs)
+        is UiNodeUi.Column -> HbColumn(modifier.appSize(isContentFill), gap = node.gap.spacing()) {
+            AppChildren(node.children, onIntent, webs, isContentFill)
         }
 
-        is UiNodeUi.Row -> AppRow(node, onIntent, modifier, webs)
+        is UiNodeUi.Row -> AppRow(node, onIntent, modifier, webs, isContentFill)
 
-        is UiNodeUi.Card -> HbCard(modifier.fillMaxSize(), contentPadding = HbTheme.spacing.l) {
+        is UiNodeUi.Card -> HbCard(modifier.appSize(isContentFill), contentPadding = HbTheme.spacing.l) {
             node.title?.let { HbText(it, style = HbTheme.typography.title) }
-            AppChildren(node.children, onIntent, webs)
+            AppChildren(node.children, onIntent, webs, isContentFill)
         }
 
-        is UiNodeUi.Section -> HbColumn(modifier.fillMaxSize(), gap = HbTheme.spacing.s) {
+        is UiNodeUi.Section -> HbColumn(modifier.appSize(isContentFill), gap = HbTheme.spacing.s) {
             HbText(node.title, style = HbTheme.typography.title)
             node.description?.let { HbText(it, color = HbTheme.colors.textSecondary) }
-            AppChildren(node.children, onIntent, webs)
+            AppChildren(node.children, onIntent, webs, isContentFill)
         }
 
         is UiNodeUi.Content, is UiNodeUi.Input, is UiNodeUi.Divider, is UiNodeUi.Spacer ->
@@ -62,12 +66,15 @@ private fun AppRow(
     onIntent: (SurfaceIntent) -> Unit,
     modifier: Modifier = Modifier,
     webs: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
+    isContentFill: Boolean = true,
 ) {
-    BoxWithConstraints(modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier.appSize(isContentFill)) {
         if (node.isWrapped && maxWidth < HbTheme.dimensions.compactBreakpoint) {
-            HbColumn(Modifier.fillMaxSize(), gap = node.gap.spacing()) { AppChildren(node.children, onIntent, webs) }
+            HbColumn(Modifier.appSize(isContentFill), gap = node.gap.spacing()) {
+                AppChildren(node.children, onIntent, webs, isContentFill)
+            }
         } else {
-            HbRow(Modifier.fillMaxSize(), gap = node.gap.spacing()) {
+            HbRow(Modifier.appSize(isContentFill), gap = node.gap.spacing()) {
                 node.children.forEach { child ->
                     key(child.key) {
                         val size = when {
@@ -75,7 +82,7 @@ private fun AppRow(
                             child is UiNodeUi.Text || child is UiNodeUi.Row -> Modifier.weight(1f, fill = false)
                             else -> Modifier.weight(1f)
                         }
-                        AppNodeView(child, onIntent, size, webs)
+                        AppNodeView(child, onIntent, size, webs, isContentFill)
                     }
                 }
             }
@@ -88,13 +95,22 @@ private fun ColumnScope.AppChildren(
     children: ImmutableList<UiNodeUi>,
     onIntent: (SurfaceIntent) -> Unit,
     webs: ImmutableMap<String, ComposableComponent>,
+    isContentFill: Boolean,
 ) {
     children.forEach { child ->
         key(child.key) {
-            AppNodeView(child, onIntent, if (child.containsWeb()) Modifier.weight(1f) else Modifier, webs)
+            AppNodeView(
+                child,
+                onIntent,
+                if (child.containsWeb()) Modifier.weight(1f, fill = isContentFill) else Modifier,
+                webs,
+                isContentFill,
+            )
         }
     }
 }
+
+private fun Modifier.appSize(isFill: Boolean): Modifier = if (isFill) fillMaxSize() else fillMaxWidth()
 
 /** Whether the subtree contains the spec's isolated document. The validator allows at most one body web node. */
 internal fun UiNodeUi.containsWeb(): Boolean = when (this) {

@@ -26,7 +26,7 @@ class AppHostComponent internal constructor(
         hosts,
         scope.coroutineScope,
         model.surfaces,
-        isFill = true,
+        isApp = true,
     )
 
     /** Creates the component within the retained app graph. */

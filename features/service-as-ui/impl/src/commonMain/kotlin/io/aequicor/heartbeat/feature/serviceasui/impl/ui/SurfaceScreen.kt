@@ -76,12 +76,13 @@ internal fun SurfaceScreen(
     documents: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
     isApp: Boolean = false,
     scrollState: ScrollState = rememberScrollState(),
+    isContentFill: Boolean = true,
 ) {
     val shown by model.webDocuments.collectAsState()
     val webs = remember(shown, documents) {
         shown.mapValues { (_, id) -> documents[id] ?: OpeningDocument }.toImmutableMap()
     }
-    SurfaceScreen(model.store, modifier, webs, isApp, scrollState)
+    SurfaceScreen(model.store, modifier, webs, isApp, scrollState, isContentFill)
 }
 
 /**
@@ -95,6 +96,7 @@ internal fun SurfaceScreen(
     webs: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
     isApp: Boolean = false,
     scrollState: ScrollState = rememberScrollState(),
+    isContentFill: Boolean = true,
 ) {
     val uriHandler = LocalUriHandler.current
     val clipboard = LocalClipboard.current
@@ -117,7 +119,7 @@ internal fun SurfaceScreen(
             states.collect { value = it }
         }
     }
-    SurfaceContent(state, store::intent, modifier, webs, isApp, scrollState)
+    SurfaceContent(state, store::intent, modifier, webs, isApp, scrollState, isContentFill)
     link?.let { url ->
         HbDialog(
             title = stringResource(Res.string.service_ui_open_link_title),
@@ -145,6 +147,7 @@ internal fun SurfaceContent(
     webs: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
     isApp: Boolean = false,
     scrollState: ScrollState = rememberScrollState(),
+    isContentFill: Boolean = true,
 ) {
     HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.m) {
         state.notice?.let { notice ->
@@ -162,8 +165,8 @@ internal fun SurfaceContent(
             )
         }
         state.root?.let { root ->
-            val body = if (isApp) Modifier.weight(1f).fillMaxWidth() else Modifier
-            SurfaceBody(root, onIntent, body, webs, isApp, scrollState)
+            val body = if (isApp) Modifier.weight(1f, fill = isContentFill).fillMaxWidth() else Modifier
+            SurfaceBody(root, onIntent, body, webs, isApp, scrollState, isContentFill)
         }
     }
     val modal = state.modal ?: return
@@ -189,9 +192,10 @@ private fun SurfaceBody(
     webs: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
     isApp: Boolean = false,
     scrollState: ScrollState = rememberScrollState(),
+    isContentFill: Boolean = true,
 ) {
     if (isApp && root.containsWeb()) {
-        AppNodeView(root, onIntent, modifier, webs)
+        AppNodeView(root, onIntent, modifier, webs, isContentFill)
     } else {
         UiNodeView(root, onIntent, if (isApp) modifier.hbVerticalScroll(scrollState) else modifier, webs)
     }

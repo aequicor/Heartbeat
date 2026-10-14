@@ -90,9 +90,13 @@ private fun nodesAndActions(): String = """
   cards may show it only inside modals and never get a bridge; editor previews never execute owner methods.
   Saving a web surface or showing an anonymous web spec uses automatic safety review. `height` is a bounded viewport:
   compact for a standalone status strip; regular (default) and tall are fixed presets. Content grows and shrinks to
-  its body or `[data-heartbeat-root]` within host bounds. The full mini-app on start or in its modal uses the available
-  viewport regardless of this preset, with one page scroll and no outer chat scroll. Keep the page responsive and
+  its body or `[data-heartbeat-root]` within host bounds. The full mini-app fills the start view; its modal follows
+  content height up to the available screen height and shrinks again when content becomes shorter. These app views
+  ignore the preset, with one page scroll and no outer chat scroll. Keep the page responsive and
   its content in normal flow; avoid fixed pixel page heights and nested overflow containers.
+  A mini-app modal whose root is `web` has no host padding or title bar; close overlays the top-end corner.
+  `--hb-overlay-width` and `--hb-overlay-height` describe that occupied area in CSS pixels (zero elsewhere).
+  Let your header or toolbar account for this area at its inline end without adding an empty full-width top strip.
   The page has its own origin and no network: inline scripts and styles, `data:` images and fonts; no fetch, sockets, WebRTC, frames, workers, forms or links away. It reads `data` (a binding) as
   `heartbeat.data` and later values from the `heartbeat:data` event on `window` (`event.detail`). With `bridge: true`
   (library surfaces), `await heartbeat.call(method, args)` calls the owner's method with object `args` and returns
