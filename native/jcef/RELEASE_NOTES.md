@@ -31,6 +31,24 @@ client cleanup, context flush and runtime termination. The release probe require
 all 13 phases, including this close/remove regression, on every native host.
 Embedders must pass `--no-first-run` to suppress Chrome's standalone
 first-run dialog during initialization; Heartbeat and the lifecycle probe both do so.
+
+The hb5 revision fixes a Linux teardown race when the CEF UI thread is busy during
+Swing peer removal. The previous one-second wait could expire before Chromium's
+child window detached from its Canvas, so destroying the Canvas lost the native
+close callback. Linux parent changes now use a synchronous, checked XCB request
+on a separate connection to the same display. The X server acknowledges each
+attach or detach before Swing can continue, without waiting for the CEF UI queue
+while holding Swing's tree lock. Deferred callbacks retain the browser and run
+on CEF UI only while it remains valid. The native library links libxcb, already
+part of the X11 runtime dependencies.
+
+The close/remove regression deliberately pauses CEF UI in another browser's
+close callback, then removes the active Swing peer before releasing that pause.
+It also detaches and reattaches a live browser during the pause before closing
+it, checking that an earlier attachment cannot undo the final detach. Both
+native close callbacks, client cleanup, context flush and runtime termination
+are required. Windows and macOS keep their existing reparent implementation.
+
 `source-lock.json` identifies the exact upstream JCEF commit, CEF version, patch
 SHA-256 and every artifact SHA-256. `SHA256SUMS` and `runtime-manifest.json` record
 the collected build outputs. Reproduction commands and packaging layout are in
