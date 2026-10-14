@@ -26,7 +26,7 @@ internal class DesktopNativeCallClassifierTest {
                 root.resolve(".GiT/config").toString(),
                 root.resolve("src/../new.kt").toString(),
                 root.resolve("../sibling.kt").toString(),
-                root.resolve("no\u00a0break.kt").toString(),
+                root.resolve("no").toString() + "\u00a0break.kt",
             )) {
                 assertFalse(classifier.isWorkspaceEdit(path, root.toString()), path)
             }
