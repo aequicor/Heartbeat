@@ -300,6 +300,32 @@ class LearningAgentToolsTest {
     }
 
     @Test
+    fun `learned rules stay available without declaring learning tools`() = runTest {
+        val toggles = Toggles()
+        val machine = SpecMachine(
+            AgentLearningState.Ready(
+                listOf(
+                    lesson("1", "Project rule"),
+                    lesson("2", "Model rule", InstructionKind.Model, ModelScope(TARGET.engine, TARGET.model)),
+                    lesson("3", "Release", InstructionKind.Skill).copy(description = "When releasing"),
+                ),
+            ),
+        )
+        val tools = tools(machine, toggles = toggles)
+        val scope = AgentToolScope(PROJECT, TARGET, declared = emptySet())
+        assertTrue(tools.hasIndependentInstructions)
+        val text = tools.instructions(scope)
+        assertTrue("Content of Project rule" in text)
+        assertTrue("Content of Model rule" in text)
+        assertFalse("Release" in text)
+        assertFalse(LearningTools.REMEMBER in text)
+        assertFalse(LearningTools.LOAD_SKILL in text)
+
+        toggles.isEnabled = false
+        assertEquals("", tools.instructions(scope))
+    }
+
+    @Test
     fun `learned skills load by name within the session's project`() = runTest {
         val skill = lesson("7", "Release", InstructionKind.Skill).copy(description = "When releasing")
         val tools = tools(SpecMachine(AgentLearningState.Ready(listOf(skill))))

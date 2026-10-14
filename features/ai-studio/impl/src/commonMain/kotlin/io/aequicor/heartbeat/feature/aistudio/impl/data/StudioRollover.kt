@@ -18,8 +18,8 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.handoffSplit
  * [NoticeKind.ContextRollover] notice closes the segment, so the history mirror of the new session never replaces
  * them. The essence of the old session ([rolloverSeed]), or with the continuation brief enabled [continuationSeed],
  * reaches the first accepted turn of the new session as a host directive. Scheduled wakes addressed to an earlier
- * session still find the chat by [StudioChatRecord.previousRefs]; harness connections of the earlier session are not
- * carried over.
+ * session still find the chat by [StudioChatRecord.previousRefs]. Context-window rollovers leave harness connections
+ * behind; an automatic rollover for an outside host preserves them through [StudioChatRecord.pendingHarnesses].
  */
 internal const val FROZEN_PREFIX = "hb.seg."
 
@@ -48,6 +48,27 @@ internal fun StudioChatRecord.rolledOver(seed: String?): StudioChatRecord {
         pendingSeed = seed,
         pendingBrief = null,
     )
+}
+
+/**
+ * An undelivered seed survives empty intermediate contexts unchanged. If native acceptance succeeded but clearing
+ * its receipt failed, the new transcript is carried too, within one budget; empty retries never append it again.
+ */
+internal fun StudioChatRecord.retainedRolloverSeed(items: List<SessionItem>, next: String): String {
+    val previous = pendingSeed ?: return next
+    val current = sessionEssence(items.filterNot { it.isFrozenSegment }, ROLLOVER_SEED_CHARS)
+    if (current.text.isBlank()) return previous
+    val separator = "\n\n--- Later native context ---\n\n"
+    val budget = ROLLOVER_SEED_CHARS - separator.length
+    val earlierLimit = minOf(previous.length, maxOf(budget / 2, budget - next.length))
+    val laterLimit = budget - earlierLimit
+    val earlier = if (previous.length > earlierLimit) {
+        previous.take(earlierLimit - ELLIPSIS.length) + ELLIPSIS
+    } else {
+        previous
+    }
+    val later = if (next.length > laterLimit) ELLIPSIS + next.takeLast(laterLimit - ELLIPSIS.length) else next
+    return earlier + separator + later
 }
 
 /** The record without the failure of its last turn. */
@@ -137,8 +158,9 @@ private fun SessionItem.withId(id: String): SessionItem {
 
 private val log = Log.tag("StudioRollover")
 private const val ROLLOVER_NOTICE = "Continued in a new session"
+private const val ELLIPSIS = " … "
 private const val SEED_END = "--- End of earlier conversation ---"
 private const val SEED_HEADER =
-    "This conversation continues from an earlier session that was closed to free the context window. Its essence " +
+    "This conversation continues from an earlier native session. Its essence " +
         "follows, oldest first. Treat it as context only: do not repeat the tool calls or actions it describes; " +
         "check the current state of files and tasks before relying on it."

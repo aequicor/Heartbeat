@@ -1,15 +1,20 @@
+@file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FrozenHostedTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -107,10 +112,53 @@ class CodexHostedInstructionsTest {
         val tools = ScopedInstructionTools().apply { specs = emptyList() }
         val resumed = Fixture(this, tools = tools, manifests = manifests)
         resumed.workspacePaths[workspace] = "/project"
-        resumed.runtime.attach(ref, ResumeSessionRequest(resumed.target, workspace))
+        val session = resumed.runtime.attach(ref, ResumeSessionRequest(resumed.target, workspace))
         val params = resumed.wire.written.single { it.text("method") == "thread/resume" }.obj("params")
         assertEquals("", params.text("developerInstructions"))
         assertEquals(emptySet(), tools.instructionScopes.single().declared)
+        assertEquals(setOf("read_file"), session.feature(FrozenHostedTools).names)
+        resumed.runtime.close()
+    }
+
+    @Test
+    fun `live session refreshes outside browser guidance even when tool names and policy stay unchanged`() = runTest {
+        val tools = ScopedInstructionTools().apply { guidance = { "Desktop browser guidance" } }
+        val fixture = Fixture(this, tools = tools)
+        fixture.workspacePaths[workspace] = "/project"
+        val session = fixture.open(workspace)
+        assertEquals(setOf("read_file"), session.feature(FrozenHostedTools).names)
+        session.feature(SendsPrompts).send(Prompt)
+        fixture.event("turn/completed", "turn" to json("id" to "native-turn".json(), "status" to "completed".json()))
+        runCurrent()
+        tools.guidance = { "The browser means the external browser hosting this chat" }
+        session.feature(SendsPrompts).send(Prompt.copy(id = RequestId("outside")))
+
+        val resume = fixture.wire.written.single { it.text("method") == "thread/resume" }.obj("params")
+        assertTrue(checkNotNull(resume.text("developerInstructions")).contains("external browser hosting this chat"))
+        assertFalse("dynamicTools" in resume)
+        assertEquals(2, fixture.wire.written.count { it.text("method") == "turn/start" })
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `old session without hosted declarations receives outside guidance without adding tools`() = runTest {
+        val manifests = MemoryCodexToolManifests()
+        val initial = Fixture(this, manifests = manifests)
+        initial.workspacePaths[workspace] = "/project"
+        val ref = initial.open(workspace).ref
+        initial.runtime.close()
+        val tools = ScopedInstructionTools().apply {
+            guidance = { "The browser means the external browser hosting this chat" }
+        }
+        val resumed = Fixture(this, tools = tools, manifests = manifests)
+        resumed.workspacePaths[workspace] = "/project"
+        val session = resumed.runtime.attach(ref, ResumeSessionRequest(resumed.target, workspace))
+
+        val params = resumed.wire.written.single { it.text("method") == "thread/resume" }.obj("params")
+        assertTrue(checkNotNull(params.text("developerInstructions")).contains("external browser hosting this chat"))
+        assertFalse("dynamicTools" in params)
+        assertEquals(emptySet(), tools.instructionScopes.single().declared)
+        assertEquals(emptySet(), session.feature(FrozenHostedTools).names)
         resumed.runtime.close()
     }
 

@@ -117,6 +117,10 @@ internal class BrowserAgentTools(
             "Use browser_request_control to ask for the selected user tab; wait for explicit UI approval. " +
             "If access requires a CAPTCHA, ask the user to complete it in the browser; do not solve it yourself."
 
+    /** Hidden declarations also remove their guide, including when a caller retains an older declared set. */
+    override suspend fun instructions(scope: AgentToolScope): String =
+        if (specifications(scope).isEmpty()) "" else super.instructions(scope)
+
     /** Navigation outside the public web follows the command row of the trust table. */
     override suspend fun requiresDecision(
         context: AgentToolContext,

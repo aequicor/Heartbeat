@@ -63,6 +63,12 @@ internal interface StudioHarnessAttach {
     /** Connects the harnesses claimed by [submissionId] to [session]; a claim is used once, other turns pass. */
     suspend fun beforeSubmit(submissionId: String, session: SessionRef)
 
+    /** Committed connections, including disabled harnesses. Null only while the whole feature is off. */
+    suspend fun attached(session: SessionRef): Set<String>?
+
+    /** Restores all carried connections before a replacement native session may receive a prompt. */
+    suspend fun restore(harnesses: Set<String>, session: SessionRef)
+
     /** The turn of [submissionId] ended; a claim it did not use is dropped. */
     fun release(submissionId: String)
 }
@@ -71,5 +77,9 @@ internal interface StudioHarnessAttach {
 internal object NoStudioHarnessAttach : StudioHarnessAttach {
     override fun preselected(submissionId: String): ToolChoices = emptyMap()
     override suspend fun beforeSubmit(submissionId: String, session: SessionRef) = Unit
+    override suspend fun attached(session: SessionRef): Set<String> = emptySet()
+    override suspend fun restore(harnesses: Set<String>, session: SessionRef) {
+        check(harnesses.isEmpty()) { "Carried harness connections are unavailable" }
+    }
     override fun release(submissionId: String) = Unit
 }

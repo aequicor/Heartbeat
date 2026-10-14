@@ -82,24 +82,35 @@ internal class PiHostedSessionTools(
         snapshot = null
     }
 
-    /** Rebuilds a process capability with the exact frozen declarations and their scoped instructions. */
-    suspend fun prepare(scope: AgentToolScope, specs: List<AgentToolSpec>): PiHostedTools? {
+    /** Rebuilds a process capability, or carries independent guidance without any declared tool. */
+    suspend fun prepare(
+        scope: AgentToolScope,
+        specs: List<AgentToolSpec>,
+        instructions: String?,
+        independentInstructions: suspend () -> String?,
+    ): PiHostedTools? {
         attachment?.close()
         attachment = null
-        if (specs.isEmpty()) return null
-        return try {
-            val declared = scope.copy(declared = specs.map { it.name }.toSet())
-            val instructions = environment.tools.instructions(declared)
-            if (!environment.bridge.isAvailable) piFailure(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
-            val capability = environment.bridge.attach(declared, ::context)
-            attachment = capability
-            PiHostedTools(capability.endpoint, specs, instructions)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            if (scope.workspace != null) throw e
-            log.w(e.withoutDetails()) { "Hosted tools failed to attach; the chat starts without them" }
+        return if (instructions == null) {
             null
+        } else if (specs.isEmpty()) {
+            instructions.takeIf { it.isNotBlank() }?.let { PiHostedTools(null, emptyList(), it) }
+        } else {
+            try {
+                val declared = scope.copy(declared = specs.map { it.name }.toSet())
+                if (!environment.bridge.isAvailable) {
+                    piFailure(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+                }
+                val capability = environment.bridge.attach(declared, ::context)
+                attachment = capability
+                PiHostedTools(capability.endpoint, specs, instructions)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (scope.workspace != null) throw e
+                log.w(e.withoutDetails()) { "Hosted tools failed to attach; the chat starts without them" }
+                independentInstructions()?.takeIf { it.isNotBlank() }?.let { PiHostedTools(null, emptyList(), it) }
+            }
         }
     }
 

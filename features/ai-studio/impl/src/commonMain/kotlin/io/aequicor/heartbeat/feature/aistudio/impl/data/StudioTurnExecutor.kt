@@ -5,7 +5,6 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextCompaction
-import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
@@ -36,11 +35,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** The repository supplies persistence and native features; this executor owns a single accepted turn. */
-internal interface StudioTurnHost {
+internal interface StudioTurnHost : StudioSessionHost {
     suspend fun isWorktree(id: String): Boolean
 
-    /** [preselected] reaches only a session created now ([CreateSessionRequest.preselected]); a resume ignores it. */
-    suspend fun openTurn(id: String, settings: RunSettings, preselected: ToolChoices = emptyMap()): ActiveSession
     suspend fun submitTurn(active: ActiveSession, request: StudioTurnRequest): TurnId
     suspend fun shouldStop(id: String): Boolean
     suspend fun requestStop(id: String, active: ActiveSession, turn: TurnId)
@@ -138,8 +135,9 @@ internal class StudioTurnExecutor(
                 request.environment?.preselected.orEmpty()
             progress.isIsolated = request.compaction == null && host.isWorktree(request.id)
             if (progress.isIsolated) prepare(host, request, progress, preselected)
-            val active = host.openTurn(request.id, request.settings, preselected)
-            environment = request.environment?.bind(active.ref)
+            val opened = host.openEnvironmentSession(request, preselected)
+            val active = opened.active
+            environment = opened.lease
             val boundRequest = if (environment == null) request else request.copy(delivery = progress.delivery)
             return runNative(host, boundRequest, active, progress)
         } catch (error: CancellationException) {

@@ -10,6 +10,9 @@ public interface StudioChatEnvironment {
     /** Declarations for a newly created session, before its native identity exists. */
     public val preselected: Map<String, Set<String>> get() = emptyMap()
 
+    /** Whether this host permits a declaration to remain visible in a session with frozen hosted tools. */
+    public fun acceptsTool(name: String): Boolean = true
+
     /** Binds the concrete session before its first prompt; closing the lease removes only this binding. */
     public fun bind(session: SessionRef): AutoCloseable
 }

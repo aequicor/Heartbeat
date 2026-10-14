@@ -61,6 +61,7 @@ internal class ExternalBrowserTools(
     override val title: String = "Внешний браузер (Chrome)"
     override val catalog: List<ToolCatalogEntry> get() = specs().toolCatalog()
     override val isDetachedSupported: Boolean = true
+    override val hasIndependentInstructions: Boolean = true
 
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
         if (isEnabled()) specs() else emptyList()
@@ -75,12 +76,20 @@ internal class ExternalBrowserTools(
             "If a page needs a CAPTCHA or a sign-in, ask the user to complete it in their browser."
 
     override suspend fun instructions(scope: AgentToolScope): String {
-        val base = super.instructions(scope)
+        val base = if (specifications(scope).isEmpty()) "" else super.instructions(scope)
         val owner = scope.session?.let { Json.encodeToString(it) }
         val isExternal = owner?.let(browser.value::isExternalSession) == true || "external_browser" in scope.preselected
-        return if (base.isNotEmpty() && isExternal) {
-            "This turn comes from the external browser's Heartbeat panel. Use only ex_control_* for browser work. " +
-                "If the connection fails, report it and wait; the embedded browser is disabled. " + base
+        return if (isExternal) {
+            "This turn comes from the external browser's Heartbeat panel. Any user reference to the browser, " +
+                "its tabs or the current page means the external browser hosting this chat. " +
+                "Use that browser exclusively for browser work. If it is unavailable, explain the connection " +
+                "or access problem; do not substitute another browser or desktop screen capture. " +
+                if (base.isEmpty()) {
+                    "Use only the tools available in this turn; do not infer page contents without reading them."
+                } else {
+                    "When asked what is visible in the browser, start with ex_control_active_tab; " +
+                        "an empty list of your own tabs does not mean the user's browser is empty. " + base
+                }
         } else {
             base
         }
