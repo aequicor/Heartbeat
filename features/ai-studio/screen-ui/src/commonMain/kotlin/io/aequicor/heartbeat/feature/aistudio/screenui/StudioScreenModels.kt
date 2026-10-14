@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionTreeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SettingsUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioNoticeDismissalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeUi
@@ -31,6 +32,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.availableHarnesses
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.collapsed
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.dismissedNotices
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.isAttachmentPending
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.noticeDismissal
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.selectedNative
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
@@ -39,6 +41,7 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toImmutableSet
 import kotlin.time.Duration
 
@@ -87,6 +90,8 @@ data class PaneContent(
     val isSubmitFailed: Boolean,
     val renaming: RenameUi?,
     val settings: SettingsUi,
+    /** Targets captured with this pane's snapshot, including for delayed remote clicks. */
+    val noticeTargets: ImmutableMap<StudioNoticeUi, StudioNoticeDismissalUi>,
     val models: ImmutableList<ModelUi> = persistentListOf(),
     val dismissedNotices: ImmutableSet<StudioNoticeUi> = persistentSetOf(),
     val cardFocus: CardFocusRequestUi? = null,
@@ -178,6 +183,7 @@ fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
     return PaneContent(
         pane = pane,
         dismissedNotices = dismissedNotices(pane.id),
+        noticeTargets = StudioNoticeUi.entries.associateWith { noticeDismissal(pane, it) }.toImmutableMap(),
         cardFocus = cardFocusRequests[pane.id]?.takeIf { it.chatId == pane.sessionId },
         session = session,
         project = project(pane.projectId ?: session?.projectId),

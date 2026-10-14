@@ -109,6 +109,86 @@ class StudioNoticesTest {
         assertEquals(restricted.running, restricted.dismiss(StudioNoticeUi.StopUnsupported).running)
     }
 
+    @Test
+    fun `stale notice clicks cannot clear failures or hide notices of a replacement chat`() {
+        val shown = state.copy(
+            projectErrorPane = 0,
+            stopFailures = persistentSetOf("chat", "other"),
+            diagramDraftReasons = persistentMapOf(
+                "chat" to DiagramDraftReasonUi.Busy,
+                "other" to DiagramDraftReasonUi.Rejected,
+            ),
+        )
+        val switched = shown.afterNavigation(AiStudioScreenIntent.OpenSession("other"))
+            .copy(panes = persistentListOf(PaneUi(0, sessionId = "other")))
+        for (notice in StudioNoticeUi.entries) {
+            val stale = AiStudioScreenIntent.DismissNotice(shown.noticeDismissal(shown.panes.first(), notice))
+            assertEquals(
+                switched,
+                switched.dismissNotice(stale),
+                "A stale $notice click must leave the new chat intact",
+            )
+        }
+
+        assertEquals(setOf(1), switched.dismiss(StudioNoticeUi.SubmitFailed).failedPanes)
+        assertEquals(setOf(1), switched.dismiss(StudioNoticeUi.AttachmentFailed).attachmentErrorPanes)
+        assertEquals(setOf("chat"), switched.dismiss(StudioNoticeUi.HarnessFailed).harnessChoices.failedChats)
+        assertEquals(
+            mapOf("chat" to DiagramDraftReasonUi.Busy),
+            switched.dismiss(StudioNoticeUi.DiagramDraft).diagramDraftReasons,
+        )
+        for (notice in listOf(StudioNoticeUi.ProjectFailed, StudioNoticeUi.StopFailed, StudioNoticeUi.ConnectModel)) {
+            assertTrue(notice in switched.dismiss(notice).dismissedNotices(0))
+        }
+    }
+
+    @Test
+    fun `stale notice clicks cannot follow a project or sub-session switch`() {
+        val draft = AiStudioScreenState(panes = persistentListOf(PaneUi(0, projectId = "first")))
+        val projectNotice = AiStudioScreenIntent.DismissNotice(
+            draft.noticeDismissal(draft.panes.single(), StudioNoticeUi.ConnectModel),
+        )
+        val newProject = draft.copy(panes = persistentListOf(PaneUi(0, projectId = "second")))
+        assertEquals(newProject, newProject.dismissNotice(projectNotice))
+        assertTrue(StudioNoticeUi.ConnectModel in newProject.dismiss(StudioNoticeUi.ConnectModel).dismissedNotices(0))
+
+        val harnessNotice = AiStudioScreenIntent.DismissNotice(
+            state.noticeDismissal(state.panes.first(), StudioNoticeUi.HarnessFailed),
+        )
+        val newChild = state.copy(subSessions = persistentMapOf("chat" to "child"))
+        assertEquals(newChild, newChild.dismissNotice(harnessNotice))
+        assertEquals(setOf("other"), newChild.dismiss(StudioNoticeUi.HarnessFailed).harnessChoices.failedChats)
+    }
+
+    @Test
+    fun `a delayed close of a resolved source cannot hide its next notice`() {
+        val shown = state.copy(
+            projectErrorPane = 0,
+            stopFailures = persistentSetOf("chat"),
+            sessions = persistentListOf(state.sessions.first().copy(isContinuable = false)),
+            running = persistentSetOf("chat"),
+            uncancellable = persistentSetOf("chat"),
+            runStartedAt = persistentMapOf("chat" to at),
+        )
+        val resolved = shown.copy(
+            projectErrorPane = null,
+            stopFailures = persistentSetOf(),
+            sessions = state.sessions,
+            running = persistentSetOf(),
+        )
+        for (notice in listOf(
+            StudioNoticeUi.ProjectFailed,
+            StudioNoticeUi.StopFailed,
+            StudioNoticeUi.ReadOnly,
+            StudioNoticeUi.StopUnsupported,
+        )) {
+            val stale = AiStudioScreenIntent.DismissNotice(shown.noticeDismissal(shown.panes.first(), notice))
+            val afterClose = resolved.dismissNotice(stale)
+            assertEquals(resolved, afterClose, "A resolved $notice source cannot acquire a dismissal")
+            assertTrue(shown.copy(noticeDismissals = afterClose.noticeDismissals).dismissedNotices(0).isEmpty())
+        }
+    }
+
     private fun AiStudioScreenState.dismiss(notice: StudioNoticeUi) =
-        dismissNotice(AiStudioScreenIntent.DismissNotice(0, notice))
+        dismissNotice(AiStudioScreenIntent.DismissNotice(noticeDismissal(panes.first { it.id == 0 }, notice)))
 }

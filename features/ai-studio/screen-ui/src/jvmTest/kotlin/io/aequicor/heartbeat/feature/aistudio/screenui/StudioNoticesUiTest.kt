@@ -16,10 +16,12 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
@@ -30,6 +32,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.dismissNotice
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.noticeDismissal
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.persistentSetOf
@@ -62,7 +65,8 @@ class StudioNoticesUiTest {
     @Test
     fun `closing a failed submission keeps its recovered draft and other notices and a later failure returns`() =
         runSkikoComposeUiTest(size = Size(1280f, 800f)) {
-            var state by mutableStateOf(noticeWorkspace())
+            val initialState = noticeWorkspace()
+            var state by mutableStateOf(initialState)
             val dismissals = mutableListOf<StudioIntent.DismissNotice>()
             setContent {
                 NoticePane(state, onIntent = { intent ->
@@ -82,7 +86,8 @@ class StudioNoticesUiTest {
                 onNode(hasSetTextAction()).fetchSemanticsNode().config[SemanticsProperties.EditableText].text,
             )
             runOnIdle {
-                assertEquals(listOf(StudioIntent.DismissNotice(0, StudioNoticeUi.SubmitFailed)), dismissals)
+                val target = initialState.noticeDismissal(initialState.panes.single(), StudioNoticeUi.SubmitFailed)
+                assertEquals(listOf(StudioIntent.DismissNotice(target)), dismissals)
                 assertEquals(RECOVERED_DRAFT, state.draft(0))
                 state = state.copy(failedPanes = persistentSetOf(0))
             }
@@ -122,6 +127,102 @@ class StudioNoticesUiTest {
             for (dark in listOf(false, true)) renderNotices(width, dark)
         }
     }
+
+    @Test
+    fun `a long draft and two notices keep the send action usable in a short pane`() =
+        runSkikoComposeUiTest(size = Size(420f, 360f)) {
+            val draft = List(8) { "Строка восстановленного запроса" }.joinToString("\n")
+            var state by mutableStateOf(noticeWorkspace().copy(drafts = persistentMapOf("chat" to draft)))
+            setContent {
+                NoticePane(state, compact = true, onIntent = { intent ->
+                    if (intent is StudioIntent.DismissNotice) state = state.dismissNotice(intent)
+                })
+            }
+
+            onNodeWithTag("notice-SubmitFailed-0").assertIsDisplayed()
+            onNodeWithTag("notice-AttachmentFailed-0").assertExists()
+            saveNotices("notices-low-420-360")
+            val send = onNodeWithContentDescription("Отправить").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            val pane = onNodeWithTag("pane-0").fetchSemanticsNode().boundsInRoot
+            assertTrue(send.width >= 48f && send.height >= 48f, "Send needs a full mobile hit target: $send")
+            assertTrue(send.left >= pane.left && send.right <= pane.right, "Send must fit horizontally: $send")
+            assertTrue(send.top >= pane.top && send.bottom <= pane.bottom, "Send must fit vertically: $send")
+
+            val close = onNodeWithTag("dismiss-notice-AttachmentFailed-0").performScrollTo().assertIsDisplayed()
+            val closeBounds = close.fetchSemanticsNode().boundsInRoot
+            assertTrue(closeBounds.width >= 48f && closeBounds.height >= 48f, "Close needs its full mobile target")
+            val sendAfterScroll = onNodeWithContentDescription("Отправить").fetchSemanticsNode().boundsInRoot
+            assertEquals(send, sendAfterScroll, "Scrolling notices must preserve the full send action")
+            saveNotices("notices-low-420-360-scrolled")
+            close.performClick()
+
+            onNodeWithTag("notice-AttachmentFailed-0").assertDoesNotExist()
+            val sendAfterDismiss = onNodeWithContentDescription("Отправить").fetchSemanticsNode().boundsInRoot
+            assertEquals(send, sendAfterDismiss, "Closing a notice must preserve the full send action")
+            runOnIdle { assertEquals(draft, state.draft(0)) }
+        }
+
+    @Test
+    fun `an upper stop failure remains dismissible when lower notices fill a short pane`() =
+        runSkikoComposeUiTest(size = Size(420f, 360f)) {
+            val draft = List(8) { "Строка восстановленного запроса" }.joinToString("\n")
+            var state by mutableStateOf(
+                noticeWorkspace().copy(
+                    drafts = persistentMapOf("chat" to draft),
+                    stopFailures = persistentSetOf("chat"),
+                ),
+            )
+            setContent {
+                NoticePane(state, compact = true, onIntent = { intent ->
+                    if (intent is StudioIntent.DismissNotice) state = state.dismissNotice(intent)
+                })
+            }
+
+            onNodeWithTag("notice-StopFailed-0").assertExists()
+            saveNotices("notices-upper-low-420-360")
+            val close = onNodeWithTag("dismiss-notice-StopFailed-0").performScrollTo().assertIsDisplayed()
+            val closeBounds = close.fetchSemanticsNode().boundsInRoot
+            assertTrue(closeBounds.width >= 48f && closeBounds.height >= 48f, "Stop failure needs a full close target")
+            close.performClick()
+
+            onNodeWithTag("notice-StopFailed-0").assertDoesNotExist()
+            val send = onNodeWithContentDescription("Отправить").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            assertTrue(send.width >= 48f && send.height >= 48f, "Send needs a full mobile hit target: $send")
+            runOnIdle {
+                assertEquals(draft, state.draft(0))
+                assertEquals(setOf("chat"), state.stopFailures)
+            }
+        }
+
+    @Test
+    fun `a centered new chat keeps its notice reachable and preserves its draft after dismissal`() =
+        runSkikoComposeUiTest(size = Size(1280f, 500f)) {
+            var state by mutableStateOf(
+                noticeWorkspace().copy(
+                    panes = persistentListOf(PaneUi(0)),
+                    sessions = persistentListOf(),
+                    drafts = persistentMapOf("pane:0" to RECOVERED_DRAFT),
+                    attachmentErrorPanes = persistentSetOf(),
+                ),
+            )
+            setContent {
+                NoticePane(state, onIntent = { intent ->
+                    if (intent is StudioIntent.DismissNotice) state = state.dismissNotice(intent)
+                })
+            }
+
+            onNodeWithTag("new-session-hero").assertExists()
+            onNodeWithTag("notice-SubmitFailed-0").assertExists()
+            val close = onNodeWithTag("dismiss-notice-SubmitFailed-0").assertExists()
+                .performScrollTo().assertIsDisplayed()
+            saveNotices("notices-start-1280-500")
+            close.performClick()
+
+            onNodeWithTag("notice-SubmitFailed-0").assertDoesNotExist()
+            val editor = onNode(hasSetTextAction()).performScrollTo().assertIsDisplayed()
+            assertEquals(RECOVERED_DRAFT, editor.fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
+            runOnIdle { assertEquals(RECOVERED_DRAFT, state.draft(0)) }
+        }
 
     private fun renderNotices(width: Float, dark: Boolean) = runSkikoComposeUiTest(size = Size(width, 800f)) {
         var state by mutableStateOf(noticeWorkspace())

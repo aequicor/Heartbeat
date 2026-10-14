@@ -53,8 +53,10 @@ fun AiStudioScreenState.dismissedNotices(paneId: Int): ImmutableSet<StudioNotice
  * passive status hints keep a presentation-only dismissal, leaving machine state and execution unchanged.
  */
 fun AiStudioScreenState.dismissNotice(intent: AiStudioScreenIntent.DismissNotice): AiStudioScreenState {
-    val pane = panes.firstOrNull { it.id == intent.paneId } ?: return this
-    return when (intent.notice) {
+    val target = intent.target
+    val pane = panes.firstOrNull { it.id == target.paneId } ?: return this
+    if (target != noticeDismissal(pane, target.notice)) return this
+    return when (target.notice) {
         StudioNoticeUi.SubmitFailed -> copy(failedPanes = (failedPanes - pane.id).toImmutableSet())
 
         StudioNoticeUi.AttachmentFailed -> copy(
@@ -76,7 +78,11 @@ fun AiStudioScreenState.dismissNotice(intent: AiStudioScreenIntent.DismissNotice
         StudioNoticeUi.ProjectFailed, StudioNoticeUi.StopFailed, StudioNoticeUi.ConnectModel,
         StudioNoticeUi.ProjectModel, StudioNoticeUi.NativeChild, StudioNoticeUi.ReadOnly,
         StudioNoticeUi.StopUnsupported,
-        -> copy(noticeDismissals = (noticeDismissals + noticeDismissal(pane, intent.notice)).toImmutableSet())
+        -> if (isCurrent(target)) {
+            copy(noticeDismissals = (noticeDismissals + target).toImmutableSet())
+        } else {
+            this
+        }
     }
 }
 
@@ -113,7 +119,8 @@ private fun AiStudioScreenState.isCurrent(dismissal: StudioNoticeDismissalUi): B
     }
 }
 
-private fun AiStudioScreenState.noticeDismissal(pane: PaneUi, notice: StudioNoticeUi): StudioNoticeDismissalUi {
+/** Captures the displayed context so a delayed close cannot dismiss a replacement pane's notice. */
+fun AiStudioScreenState.noticeDismissal(pane: PaneUi, notice: StudioNoticeUi): StudioNoticeDismissalUi {
     val session = session(pane.sessionId)
     val isModelHint = notice == StudioNoticeUi.ConnectModel || notice == StudioNoticeUi.ProjectModel
     return StudioNoticeDismissalUi(

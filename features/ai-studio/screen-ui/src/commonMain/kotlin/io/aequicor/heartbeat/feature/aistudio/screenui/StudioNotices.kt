@@ -24,11 +24,12 @@ internal fun StudioNotice(
     tone: HbTone = HbTone.Neutral,
 ) {
     if (notice in content.dismissedNotices) return
+    val target = content.noticeTargets.getValue(notice)
     HbBanner(message, modifier.testTag("notice-${notice.name}-${content.pane.id}"), tone = tone) {
         HbIconButton(
             HbIcons.Close,
             contentDescription = stringResource(Res.string.notice_dismiss),
-            onClick = { onIntent(AiStudioScreenIntent.DismissNotice(content.pane.id, notice)) },
+            onClick = { onIntent(AiStudioScreenIntent.DismissNotice(target)) },
             modifier = Modifier.testTag("dismiss-notice-${notice.name}-${content.pane.id}"),
         )
     }
