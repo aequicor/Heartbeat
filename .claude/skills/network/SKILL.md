@@ -40,6 +40,10 @@ HttpResponseValidator                    W: request timeout (в Send Ktor нес
 - На Android/JVM используй общий `createOkHttpEngine`: внутренние повторы OkHttp отключены, в том числе на 503 с `Retry-After: 0`; лимитом повторов управляет Ktor.
 - Плагин `ResponseHeaderValidation` проверяет `Content-Type` после ретраев, до встроенного валидатора Ktor: повреждённый заголовок ответа становится `InvalidResponse`, а при включённом `expectSuccess` HTTP-ошибка сохраняет свой статус. Ошибки заголовков запроса остаются ошибками программирования.
 - URL-заголовки `Location`, `Content-Location`, `Referer`, `Link`, `Refresh` скрываются целиком.
+- Если пользовательские данные могут находиться в любом месте URL или заголовков (например, ресурс HTML-документа),
+  до отправки поставь `attributes.put(SensitiveNetworkRequest, Unit)` из `core:network:api`. Транспорт скрывает URL
+  и все заголовки целиком, включая ретраи и таймауты; метод, статус, длительность и тип ошибки остаются в логах.
+  Это не редактирует исключения Ktor — их по-прежнему обрабатывай через `networkResult { }`.
 - Ретраи логируются `I`: `retry #1 GET https://…`.
 - Настройки — `NetworkConfig` (таймауты, `maxRetries`). По умолчанию — `NetworkConfig()`; чтобы поменять, предоставь
   `NetworkConfig` в графе (`@Provides` в графе платформы). Для одного запроса — `timeout { }` / `retry { }` в билдере.

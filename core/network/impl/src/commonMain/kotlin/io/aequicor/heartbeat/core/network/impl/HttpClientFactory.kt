@@ -59,7 +59,8 @@ internal fun createHttpClient(
             if (request.attributes.contains(ReleaseRequest)) {
                 log.i { "retry release request #$retryCount" }
             } else {
-                log.i { "retry #$retryCount ${request.method.value} ${request.url.build().forLog()}" }
+                val url = request.url.build().forLog(request.attributes)
+                log.i { "retry #$retryCount ${request.method.value} $url" }
             }
         }
     }
@@ -77,7 +78,8 @@ internal fun createHttpClient(
     HttpResponseValidator {
         handleResponseExceptionWithRequest { cause, request ->
             if (cause is HttpRequestTimeoutException && !request.attributes.contains(ReleaseRequest)) {
-                log.w { "${request.method.value} ${request.url.forLog()} timed out" }
+                val url = request.url.forLog(request.attributes)
+                log.w { "${request.method.value} $url timed out" }
             }
         }
     }
