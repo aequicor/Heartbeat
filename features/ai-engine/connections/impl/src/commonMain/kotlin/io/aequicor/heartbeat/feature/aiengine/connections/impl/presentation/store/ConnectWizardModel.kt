@@ -163,7 +163,7 @@ class ConnectWizardModel(
     @ForScope(ConnectWizardScope::class) scope: ScopeHandle,
     factory: HeartbeatStoreFactory,
     storage: SecretStorageInfo,
-    facade: EngineFacade? = null,
+    facade: EngineFacade,
 ) {
     private val log = Log.tag("ConnectWizardModel")
     private val sentKeys = mutableListOf<Secret>()
@@ -175,30 +175,28 @@ class ConnectWizardModel(
         onError = { copy(isBusy = false, failure = FailureUi.Unknown) },
     ) {
         init {
-            if (facade != null) {
-                launch {
-                    combine(machine.state, facade.engines.state) { state, engines ->
-                        val id = when (state) {
-                            is ConnectWizardState.ChoosingMethod -> state.engine.descriptor.id
+            launch {
+                combine(machine.state, facade.engines.state) { state, engines ->
+                    val id = when (state) {
+                        is ConnectWizardState.ChoosingMethod -> state.engine.descriptor.id
 
-                            is ConnectWizardState.Connecting -> state.engine.descriptor.id
+                        is ConnectWizardState.Connecting -> state.engine.descriptor.id
 
-                            is ConnectWizardState.ChoosingModels -> state.engine
+                        is ConnectWizardState.ChoosingModels -> state.engine
 
-                            is ConnectWizardState.Saving -> state.engine
+                        is ConnectWizardState.Saving -> state.engine
 
-                            ConnectWizardState.Idle,
-                            ConnectWizardState.Cancelled,
-                            is ConnectWizardState.ChoosingEngine,
-                            is ConnectWizardState.RollingBack,
-                            is ConnectWizardState.Finished,
-                            -> null
-                        }
-                        engines.firstOrNull { it.descriptor.id == id }?.preparation?.toUi()
-                    }.distinctUntilChanged().collect { setup ->
-                        log.v { "Wizard runtime preparation changed" }
-                        updateState { copy(preparation = setup) }
+                        ConnectWizardState.Idle,
+                        ConnectWizardState.Cancelled,
+                        is ConnectWizardState.ChoosingEngine,
+                        is ConnectWizardState.RollingBack,
+                        is ConnectWizardState.Finished,
+                        -> null
                     }
+                    engines.firstOrNull { it.descriptor.id == id }?.preparation?.toUi()
+                }.distinctUntilChanged().collect { setup ->
+                    log.v { "Wizard runtime preparation changed" }
+                    updateState { copy(preparation = setup) }
                 }
             }
             // Closing follows the terminal machine state for the whole store lifetime, so a result reached while

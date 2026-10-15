@@ -13,10 +13,10 @@ import kotlinx.coroutines.flow.map
 
 /** Technical runtime setup is projected independently of managed-engine settings and of chat turn ownership. */
 @HighFrequency
-internal suspend fun observeEnginePreparation(pipeline: StudioPipeline, facade: EngineFacade?) {
-    facade?.engines?.state?.map { engines ->
+internal suspend fun observeEnginePreparation(pipeline: StudioPipeline, facade: EngineFacade) {
+    facade.engines.state.map { engines ->
         engines.mapNotNull { info -> info.preparation.toUi(info.descriptor.title) }.toImmutableList()
-    }?.distinctUntilChanged()?.collect { setup ->
+    }.distinctUntilChanged().collect { setup ->
         Log.tag("StudioEnginePreparation").v { "Engine preparation changed" }
         pipeline.updateState { copy(enginePreparations = setup) }
     }

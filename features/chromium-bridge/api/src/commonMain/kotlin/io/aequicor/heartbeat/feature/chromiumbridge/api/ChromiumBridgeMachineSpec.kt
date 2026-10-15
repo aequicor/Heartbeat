@@ -32,7 +32,7 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | any | EffectFailed | | stay | |
  *
  * A failed registration effect becomes RegistrationFailed(WriteFailed), a failed Serve becomes
- * ServerChanged(Failed); other failures are EffectFailed.
+ * ServerChanged(Failed), and a failed PrepareExtension becomes ExtensionFailed; other failures are EffectFailed.
  */
 public val ChromiumBridgeMachineSpec: MachineSpec<
     ChromiumBridgeState,

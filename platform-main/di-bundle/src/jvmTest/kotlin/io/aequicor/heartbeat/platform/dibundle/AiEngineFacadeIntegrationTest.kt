@@ -44,6 +44,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCheckpoint
@@ -147,6 +148,7 @@ object TestAdapter {
     val engine = EngineId("itest")
     val toggle = FeatureToggle.Flag("itest.engine", "Integration test engine")
     val runtimes = mutableListOf<TestRuntime>()
+    val preparation = MutableStateFlow<EnginePreparation>(EnginePreparation.Ready)
     private val nativeIds = AtomicInteger()
     var reasoningEfforts: List<String> = emptyList()
     var isLocalWorkspaceSupported = false
@@ -175,6 +177,8 @@ object TestAdapter {
         AuthOwnerId("itest-cli"),
         lazyOf(
             object : EngineFactory {
+                override val preparation get() = TestAdapter.preparation
+
                 override suspend fun checkRequirements() = EngineAvailability.Available
 
                 override fun accepts(source: AuthSource, context: EngineContext) = source is AuthSource.ManagedKey

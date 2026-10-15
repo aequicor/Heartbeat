@@ -72,6 +72,7 @@ internal class FakeEngineFactory : EngineFactory {
     var accepts: (AuthSource, EngineContext) -> Boolean = { _, _ -> true }
     var models: List<ModelInfo> = emptyList()
     var modelsFailure: Exception? = null
+    var modelDiscoveries = 0
     var runtime: (RuntimeIdentity) -> EngineRuntime = { error("no runtime in this test") }
     val createdRuntimes = mutableListOf<RuntimeIdentity>()
     var revision: ((AuthSource) -> AuthRevision)? = null
@@ -112,6 +113,7 @@ internal class FakeEngineFactory : EngineFactory {
     }
 
     override suspend fun discoverModels(source: AuthSource, context: EngineContext): List<ModelInfo> {
+        modelDiscoveries++
         modelsFailure?.let { throw it }
         return models
     }

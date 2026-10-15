@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emitAll
@@ -233,6 +234,86 @@ class RouteAndModelsTest {
 
         assertEquals(1, cache.entries.value.single().revision)
         assertFalse(upgraded.observation.isStale)
+    }
+
+    @Test
+    fun `outdated models wait passively for first use and refresh once when ready`() = runTest {
+        val factory = FakeEngineFactory()
+        factory.preparation.value = EnginePreparation.Idle
+        val fixture = RouteFixture(this, factory, registration(factory, modelCatalogRevision = 1))
+        val cache = FakeModelCache()
+        val old = ModelInfo(fixture.target, "Old")
+        cache.entries.value = listOf(CachedModels(TestEngine, fixture.binding.id, listOf(old), fixture.clock.now))
+        val models = ModelCatalogService(cache, fixture.routes, fixture.context)
+        val fresh = ModelInfo(fixture.target, "Fresh", reasoningEfforts = listOf("low"))
+        factory.models = listOf(fresh)
+
+        repeat(2) { models.observe(TestEngine, fixture.binding.id).first { it.isLoaded } }
+        runCurrent()
+        assertEquals(0, factory.preparations)
+        assertEquals(0, factory.modelDiscoveries)
+        assertEquals(1, factory.preparation.subscriptionCount.value)
+
+        factory.preparation.value = EnginePreparation.Ready
+        runCurrent()
+        val upgraded = models.observe(TestEngine, fixture.binding.id).first { it.isLoaded }
+        assertEquals(listOf(fresh), upgraded.models)
+        assertFalse(upgraded.observation.isStale)
+        assertEquals(1, cache.entries.value.single().revision)
+        assertEquals(1, factory.modelDiscoveries)
+        assertEquals(0, factory.preparations)
+        assertEquals(0, factory.preparation.subscriptionCount.value)
+
+        factory.preparation.value = EnginePreparation.Idle
+        runCurrent()
+        factory.preparation.value = EnginePreparation.Ready
+        runCurrent()
+        assertEquals(1, factory.modelDiscoveries)
+    }
+
+    @Test
+    fun `closing the profile cancels the passive catalog upgrade`() = runTest {
+        val factory = FakeEngineFactory()
+        factory.preparation.value = EnginePreparation.Idle
+        val fixture = RouteFixture(this, factory, registration(factory, modelCatalogRevision = 1))
+        val cache = FakeModelCache()
+        val old = CachedModels(TestEngine, fixture.binding.id, emptyList(), fixture.clock.now)
+        cache.entries.value = listOf(old)
+        val models = ModelCatalogService(cache, fixture.routes, fixture.context)
+        models.observe(TestEngine, fixture.binding.id).first { it.isLoaded }
+        runCurrent()
+        assertEquals(1, factory.preparation.subscriptionCount.value)
+
+        fixture.context.scope.cancel()
+        runCurrent()
+        assertEquals(0, factory.preparation.subscriptionCount.value)
+        factory.preparation.value = EnginePreparation.Ready
+        runCurrent()
+        assertEquals(0, factory.modelDiscoveries)
+        assertEquals(0, factory.preparations)
+        assertEquals(listOf(old), cache.entries.value)
+    }
+
+    @Test
+    fun `binding removed while waiting for readiness is not rediscovered`() = runTest {
+        val factory = FakeEngineFactory()
+        factory.preparation.value = EnginePreparation.Idle
+        val fixture = RouteFixture(this, factory, registration(factory, modelCatalogRevision = 1))
+        val cache = FakeModelCache()
+        val old = CachedModels(TestEngine, fixture.binding.id, emptyList(), fixture.clock.now)
+        cache.entries.value = listOf(old)
+        val models = ModelCatalogService(cache, fixture.routes, fixture.context)
+        models.observe(TestEngine, fixture.binding.id).first { it.isLoaded }
+        runCurrent()
+        assertEquals(1, factory.preparation.subscriptionCount.value)
+
+        fixture.bindings.disconnect(fixture.binding.id)
+        factory.preparation.value = EnginePreparation.Ready
+        runCurrent()
+        assertEquals(0, factory.modelDiscoveries)
+        assertEquals(0, factory.preparations)
+        assertEquals(listOf(old), cache.entries.value)
+        assertEquals(0, factory.preparation.subscriptionCount.value)
     }
 
     @Test

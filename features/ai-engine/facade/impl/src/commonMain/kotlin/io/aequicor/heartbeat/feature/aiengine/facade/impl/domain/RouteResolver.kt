@@ -67,9 +67,11 @@ class RouteResolver(
     /** Model catalog revision of [engine]'s adapter, or null for an unknown engine. */
     fun modelCatalogRevision(engine: EngineId): Int? = registry.find(engine)?.modelCatalogRevision
 
-    /** Background cache maintenance must not trigger first-use runtime downloads. */
-    suspend fun isRuntimePrepared(engine: EngineId): Boolean =
-        registry.find(engine)?.factory?.value?.preparation?.first() == EnginePreparation.Ready
+    /** Waits passively for first use to prepare the runtime; cancelling the profile releases the waiter. */
+    suspend fun awaitRuntimePrepared(engine: EngineId) {
+        val factory = registry.find(engine)?.factory?.value ?: fail(EngineUnavailable)
+        factory.preparation.first { it == EnginePreparation.Ready }
+    }
 
     /** Saved bindings and their changes; used to hide data of removed bindings. */
     val saved: StateFlow<List<EngineBinding>> get() = bindings.state
