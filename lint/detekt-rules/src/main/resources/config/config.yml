@@ -34,3 +34,17 @@ heartbeat:
     excludes: ['**/test/**', '**/*Test/**']
   SensitiveDataLogged:
     active: true
+  NativeIllegalName:
+    active: true
+    nativeSourceSets:
+      - 'common'
+      - 'native'
+      - 'apple'
+      - 'ios'
+      - 'macos'
+      - 'tvos'
+      - 'watchos'
+      - 'linux'
+      - 'mingw'
+      - 'androidNative'
+      - 'mobile'

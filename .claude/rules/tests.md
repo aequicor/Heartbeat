@@ -13,5 +13,7 @@ paths:
 - Репозитории: in-memory Room (`Room.inMemoryDatabaseBuilder` + `BundledSQLiteDriver`), fake `KeyValueStore` / `DataStores`, Ktor `MockEngine`. Инфраструктура хранения (`core:datastore:impl`) — во временной директории на виртуальном времени.
 - Koog-агенты: мок `PromptExecutor` (без сетевых вызовов в тестах).
 - Имена: `` `send prompt from Idle moves to Generating`() `` — поведение, не метод.
+  В `commonTest`/`iosTest` и других source set'ах под Kotlin/Native имя без `, ( ) { } $ % & ~ * ? # | @ §`
+  (и `. ; : / \ < > [ ]`): `jvmTest` их пропускает, а компиляция iOS падает — проверяет detekt `heartbeat:NativeIllegalName`.
 - Никаких `Thread.sleep`/`delay` для синхронизации — `runTest` + `advanceUntilIdle`/`Turbine`.
 - `!!` и `@Suppress` в тестах допустимы.
