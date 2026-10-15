@@ -5,7 +5,6 @@ import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.common.DispatcherProvider
-import io.aequicor.heartbeat.core.datastore.StorageRoot
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
@@ -17,6 +16,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -31,7 +32,7 @@ import org.cef.CefSettings
 import java.io.File
 
 /**
- * Extracts the bundled, versioned native archive inside app data on IO. No download fallback exists.
+ * Prepares the pinned native component on first use, then initializes CEF from its immutable installation.
  * CEF stays alive until all profile contexts close; each profile owns persistent Chromium storage.
  * Failed extraction may be retried with a new builder (CefAppBuilder retains a failed building flag).
  * Shutdown disposes CEF even when a profile fails to close, reports every failure, and a failed shutdown
@@ -41,12 +42,14 @@ import java.io.File
 @ContributesBinding(AppScope::class)
 @Inject
 internal class DesktopDefaultBrowserResources(
-    private val storageRoot: StorageRoot,
+    private val runtime: DesktopBrowserRuntimeInstaller,
     private val dispatchers: DispatcherProvider,
     private val profiles: DesktopBrowserProfiles,
     @ForScope(AppScope::class) private val scope: ScopeHandle,
     private val documents: DesktopDocumentTeardown = DesktopDocumentTeardown.None,
 ) : DesktopBrowserResources {
+    override val preparation get() = runtime.preparation
+
     private val log = Log.tag("DesktopBrowserResources")
     private val mutex = Mutex()
     private var initialization: Deferred<CefApp>? = null
@@ -83,6 +86,7 @@ internal class DesktopDefaultBrowserResources(
 
     override suspend fun shutdown() {
         val request = mutex.withLock {
+            initialization?.cancel()
             // A failed attempt is not cached: the retry closes what remains and reports again.
             shutdown?.takeUnless { it.isCancelled } ?: teardownScope.async { teardown() }.also { shutdown = it }
         }
@@ -141,14 +145,14 @@ internal class DesktopDefaultBrowserResources(
         error
     }
 
-    private fun initialize(): CefApp {
+    private suspend fun initialize(): CefApp {
         val info = CefBuildInfo.fromClasspath()
         val platform = EnumPlatform.getCurrentPlatform()
-        val archive = "/jcef-natives-${platform.identifier}-${info.releaseTag}.tar.gz"
-        checkNotNull(CefApp::class.java.getResource(archive)) { "Bundled browser runtime is missing" }
-        val directory = File(storageRoot.path(), "cache/browser/jcef/${info.releaseTag}/${platform.identifier}")
+        val directory = runtime.prepare(info.releaseTag, platform.identifier).toFile()
+        currentCoroutineContext().ensureActive()
         val builder = CefAppBuilder().apply {
             setInstallDir(directory)
+            setSkipInstallation(true)
             setMirrors(emptyList())
             setProgressHandler { _, _ -> }
             setAppHandler(object : MavenCefAppHandlerAdapter() {

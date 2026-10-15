@@ -1,3 +1,5 @@
+import org.gradle.language.jvm.tasks.ProcessResources
+
 plugins {
     alias(libs.plugins.heartbeat.kmp.compose)
     alias(libs.plugins.heartbeat.metro)
@@ -28,6 +30,8 @@ kotlin {
         commonTest.dependencies { implementation(libs.flowmvi.test) }
         jvmMain.dependencies {
             implementation(projects.core.datastore.api)
+            implementation(projects.core.network.api)
+            implementation(libs.apache.commons.compress)
             // Scoped macOS content-view clipping through public JCEF/AppKit APIs.
             implementation(libs.jna.platform)
             // Agent navigation without approval is limited to the same public URLs as web_fetch.
@@ -50,6 +54,14 @@ kotlin {
 }
 
 compose.resources { packageOfResClass = "io.aequicor.heartbeat.feature.browser.impl.resources" }
+
+// Runtime downloads trust the same checked-in artifact hashes as build-time native verification.
+tasks.named<ProcessResources>("jvmProcessResources") {
+    from(rootProject.layout.projectDirectory.file("native/jcef/source-lock.json")) {
+        into("browser")
+        rename { "jcef-runtime-lock.json" }
+    }
+}
 
 heartbeatJcef.registerRuntimeVerification("jvmTestRuntimeClasspath")
 // JVM tests run like the desktop host (JBR, module roots, WINDOW layers), after verifying the locked jars.
