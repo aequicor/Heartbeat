@@ -149,6 +149,12 @@ internal class DesktopBrowserDocumentPreviews(
     private suspend fun disposeAfterFailedClose(lease: PreviewLease) {
         try {
             if (!lease.awaitClosed()) log.w { "Isolated document preview disposes its peer before native close" }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(error.redactedFailure()) { "Preview native close failed before peer disposal" }
+        }
+        try {
             lease.disposePeer()
         } catch (error: CancellationException) {
             throw error
@@ -209,16 +215,14 @@ private class PreviewLease(private val dispatchers: DispatcherProvider) {
 
     suspend fun close(): Boolean = withContext(NonCancellable) {
         withContext(dispatchers.main) {
+            var isHandleClosed = false
             try {
                 handle?.close()
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                // The panel is still released; its own failure is logged so neither hides the other.
-                releaseAfterFailedClose()
-                throw error
+                isHandleClosed = true
+            } finally {
+                // Released after any close failure; a release failure is logged and never hides the first.
+                if (isHandleClosed) panel?.release() else releaseAfterFailedClose()
             }
-            panel?.release()
         }
         withTimeoutOrNull(CLOSE_TIMEOUT_MILLIS) {
             finishClosing()
