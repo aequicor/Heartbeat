@@ -2,7 +2,9 @@ package io.aequicor.heartbeat.ds.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.runtime.CompositionLocalProvider
@@ -54,11 +56,11 @@ class HbEdgeSurfaceUiTest {
                     Box(Modifier.fillMaxSize().background(HbTheme.colors.primary)) {
                         Box(
                             Modifier.align(Alignment.TopEnd).size(50.dp, 30.dp)
-                                // A fill distinct from the content shows that the content covers it.
                                 .hbEdgeSurface(HbTheme.colors.textPrimary, CornerSize(16.dp)),
                         ) {
-                            // Opaque content proves that the hairline is drawn above it.
-                            Box(Modifier.fillMaxSize().background(HbTheme.colors.background))
+                            // Opaque content over the upper half proves that the hairline is drawn above it;
+                            // the lower half shows the panel's own fill.
+                            Box(Modifier.fillMaxWidth().fillMaxHeight(0.5f).background(HbTheme.colors.background))
                         }
                     }
                 }
@@ -71,15 +73,20 @@ class HbEdgeSurfaceUiTest {
         // Mirrors a left-to-right x coordinate for the right-to-left layout.
         fun x(ltr: Int) = if (isRtl) 399 - ltr else ltr
         val content = colors.background.toArgb()
-        val hairline = colors.outlineSubtle.compositeOver(colors.background).toArgb()
+        val fill = colors.textPrimary.toArgb()
+        val overContent = colors.outlineSubtle.compositeOver(colors.background).toArgb()
+        val overFill = colors.outlineSubtle.compositeOver(colors.textPrimary).toArgb()
         val container = colors.primary.toArgb()
-        assertPixelNear(image, x(300), 60, content, "$theme: the panel body shows its content")
-        assertPixelNear(image, x(399), 60, content, "$theme: the end edge continues the container without a hairline")
+        assertPixelNear(image, x(300), 30, content, "$theme: the panel shows its content")
+        assertPixelNear(image, x(300), 90, fill, "$theme: the panel fills the area its content leaves")
+        assertPixelNear(image, x(399), 30, content, "$theme: the end edge continues the container without a hairline")
+        assertPixelNear(image, x(399), 90, fill, "$theme: the end edge has no hairline beside the fill either")
         assertPixelNear(image, x(300), 0, content, "$theme: the top edge continues the container without a hairline")
-        assertPixelNear(image, x(201), 60, hairline, "$theme: the start side has a hairline over the content")
-        assertPixelNear(image, x(300), 118, hairline, "$theme: the bottom side has a hairline over the content")
+        assertPixelNear(image, x(201), 30, overContent, "$theme: the start side has a hairline over the content")
+        assertPixelNear(image, x(300), 118, overFill, "$theme: the bottom side has a hairline")
+        assertPixelNear(image, x(399), 118, overFill, "$theme: the bottom hairline reaches the end edge")
         // 61.5px from the arc's centre: inside the stroke's inner half along the rounded corner.
-        assertPixelNear(image, x(220), 99, hairline, "$theme: the rounded corner keeps its hairline")
+        assertPixelNear(image, x(220), 99, overFill, "$theme: the rounded corner keeps its hairline")
         // 65.8px from the arc's centre: inside the stroke's outer half, outside the 64px rounded fill.
         assertPixelNear(
             image,
