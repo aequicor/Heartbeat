@@ -199,6 +199,12 @@ focused layout, actions/data, WebView, visual-patterns and example references. B
 are available without a project or an attached harness. `ui_reference(topic="spec")` returns this technical reference alone;
 calling without arguments returns all bundled documents for sessions with an older tool schema.
 
+When exposed, `ui_preview(html,data?,width?,height?,theme?,fontScale?,includeScreenshot?)` checks an unsaved WebView
+draft with sample data in the same isolated renderer as editor web previews. It has no owner bridge or persistence.
+HTML remains limited to ${UiSpecLimits.HTML_BYTES} UTF-8 bytes. Default output is text diagnostics; request a PNG
+with `includeScreenshot:true` only for image-capable models. Text diagnostics cannot verify visual/aesthetic quality.
+It does not render native JSON or verify owner save/reopen behavior; see `service-as-ui/webview` for exact bounds.
+
 ## Workflow
 1. Publish the methods in a harness script item: `ui.method(ItemName("prs"), "Open pull requests") { call ->
    ScriptUiResult.Value(json) }`; report expected problems with `ScriptUiResult.Error(message)`.

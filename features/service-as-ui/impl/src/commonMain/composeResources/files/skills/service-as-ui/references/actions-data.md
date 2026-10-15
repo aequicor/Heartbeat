@@ -78,6 +78,7 @@ Transcript cards only insert prompts into the input, even when backed by a libra
 | Tool | Arguments | Purpose |
 |---|---|---|
 | `ui_reference` | Optional `topic` | Read bundled design/authoring guidance or the exact installed spec. No owner/project required. Select a reference topic to avoid loading unrelated detail. |
+| `ui_preview` | `{html,data?,width?,height?,theme?,fontScale?,includeScreenshot?}` | Check an isolated WebView draft before saving, with sample data and no owner bridge. Returns text diagnostics by default; request a PNG only on image-capable models. Desktop/web documents required; see `service-as-ui/webview`. |
 | `ui_list` | `{}` | List library surfaces and owners, enabled status and published methods. `methods` can be unavailable when the owner's script is not running. |
 | `ui_get` | `{id}` | Read a saved surface's full spec, metadata and current revision before editing. |
 | `ui_put` | `{owner,name,placement,title,spec,description?,launchers?,expectedRevision?}` | Create or replace a surface; returns validation diagnostics and saved identity/revision. `spec` is a JSON object, not a JSON-encoded string. |

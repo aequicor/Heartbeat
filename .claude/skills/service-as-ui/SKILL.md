@@ -22,6 +22,7 @@ description: "Интерфейсы агента Heartbeat (features:service-as-u
 | Вычисление спеки и стор поверхности | `impl/presentation` (`UiEvaluator`, `UiValues`, `store/SurfaceModel`, `store/SurfaceWebDocuments`) |
 | Места (слот/панель/модалка), карточки, библиотека, редактор | `impl/presentation/{place,card,library,editor}`, компоненты `presentation/component`, экраны `impl/ui` |
 | Инструменты `ui_reference/list/get/put/delete/show/call` | `impl/data/tools` |
+| Read-only `ui_preview` HTML-черновика: изображение и диагностика без владельца/библиотеки | `impl/data/tools/ServiceUiPreviewTools`; рендер через `browser:api` `BrowserDocumentPreviews` |
 | Встроенные runtime-скиллы `mini-app-design` и `service-as-ui` | `impl/src/commonMain/composeResources/files/skills/`; загрузка и темы справочника — `data/tools/ServiceUiReference.kt`, `domain/UiAuthoringKnowledge.kt` |
 | Файлы и даты платформы | `domain/UiPlatform`; `DesktopUiPlatform` (jvm), `MobileUiPlatform` (Android/iOS) |
 | Web-документы | `domain/UiWebDocuments` → `data/BrowserUiWebDocuments` (`browser:api` `BrowserDocuments`); хосты `presentation/component/WebDocumentHosts` |
@@ -40,6 +41,12 @@ description: "Интерфейсы агента Heartbeat (features:service-as-u
 - Наружу уходит только исходный JSON спеки (`UiSurfaceContent.spec`); модель спеки — внутренняя `impl`. Агентский JSON
   перед kotlinx проверяется на вложенность по сырому тексту (`UiSpecLimits.JSON_DEPTH`): `parseToJsonElement`
   рекурсивен и падает на глубоком вводе.
+- `ui_preview` — отдельная read-only контрибуция без библиотечной машины, методов владельца и записи данных. Доступен
+  только на Desktop при `service_ui.enabled` + `service_ui.web`; декларация, инструкции и исполнение повторяют гейты.
+  Принимает только HTML (лимит `UiSpecLimits.HTML_BYTES`, 48 КиБ), пример данных и ограниченные параметры viewport/темы/масштаба.
+  `BrowserDocumentPreviews` использует тот же изолированный WebView renderer, что и web-превью редактора, без bridge.
+  По умолчанию возвращается текстовый отчёт; PNG — только при явном `includeScreenshot:true` для модели с image input.
+  Диагностика не подтверждает эстетику, нативные узлы, работу владельца, сохранение или полный shell мини-аппы.
 - Неизвестные ключи и типы спеки — ошибка разбора с путём JSON; новая функция спеки — новый узел/действие в
   `domain/spec`, ветка во всех исчерпывающих `when` (без `else`), правило валидатора, текст `UiSpecReference`, тесты
   разбора, валидатора и вычисления.

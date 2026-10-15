@@ -38,8 +38,9 @@ References are bundled too. Load a topic through `ui_reference`; the relative li
 2. Choose a suitable placement and rendering mode. A full mini-app normally needs one owner-backed `card`: the host supplies its chat entry, composer button, full start view and modal. Add a `context` summary only when it provides a distinct useful action or information. Avoid duplicate composer/start copies of the same app.
 3. Establish read-only snapshot methods and durable mutation methods in the owner. Use the harness tools and their API reference if a harness must be created or changed. Inspect existing durable data before changing its shape; visual redesign does not justify clearing it.
 4. Use `ui_call` to inspect read methods. Test mutations only within the user's authorized task and on appropriate test data. `ui_call` performs a real operation, not a dry run.
-5. Save with `ui_put`. Fix returned JSON-path diagnostics; use `expectedRevision` when replacing. Show the returned surface ID with `ui_show`. Existing live cards update after replacement; repeated `ui_show` uses the chat's single live app slot.
-6. Verify the real interaction, saved state, reopen behavior, short and long content, and relevant platform/theme states. The editor preview does not execute owner methods, so preview alone cannot verify the service flow. If live verification is unavailable, state that limitation.
+5. For a WebView draft, use `ui_preview` when available to check the HTML with sample data before saving. Compare viewport/theme/text-scale variants. Its default text report works with text-only models; request `includeScreenshot:true` only on an image-capable model, then inspect the image. Diagnostics alone cannot certify aesthetics; see `service-as-ui/webview` for boundaries.
+6. Save with `ui_put`. Fix returned JSON-path diagnostics; use `expectedRevision` when replacing. Show the returned surface ID with `ui_show`. Existing live cards update after replacement; repeated `ui_show` uses the chat's single live app slot.
+7. Verify the real interaction, saved state, reopen behavior, short and long content, and relevant platform/theme states. Neither editor preview nor `ui_preview` executes owner methods, so preview alone cannot verify the service flow. If live verification is unavailable, state that limitation.
 
 ## Runtime boundaries
 

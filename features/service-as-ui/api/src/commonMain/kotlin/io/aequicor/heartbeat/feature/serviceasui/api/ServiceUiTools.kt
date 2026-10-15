@@ -8,6 +8,9 @@ public object ServiceUiTools {
     /** Reference of the spec format. */
     public const val REFERENCE: String = "ui_reference"
 
+    /** Renders an isolated WebView draft into an image and layout diagnostics without owner calls or persistence. */
+    public const val PREVIEW: String = "ui_preview"
+
     /** Surfaces of the library and owners with their methods. */
     public const val LIST: String = "ui_list"
 
