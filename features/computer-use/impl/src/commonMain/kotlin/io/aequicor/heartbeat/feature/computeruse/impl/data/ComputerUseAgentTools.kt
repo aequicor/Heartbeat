@@ -32,10 +32,12 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseIntent
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineKey
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseOutput
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRecording
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
 import io.aequicor.heartbeat.feature.computeruse.api.CropRequest
 import io.aequicor.heartbeat.feature.computeruse.api.HostComputerControl
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
+import io.aequicor.heartbeat.feature.computeruse.api.RecordRequest
 import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
 import io.aequicor.heartbeat.feature.computeruse.api.TileRef
 import io.aequicor.heartbeat.feature.computeruse.api.WindowId
@@ -52,7 +54,6 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -87,7 +88,7 @@ internal class ComputerUseAgentTools(
 ) : AgentToolContribution {
     override val group: String = "computer"
     override val title: String = "Управление компьютером"
-    override val catalog: List<ToolCatalogEntry> get() = computerToolSpecs.toolCatalog()
+    override val catalog: List<ToolCatalogEntry> get() = computerToolSpecs(isRecordingEnabled = true).toolCatalog()
 
     private val log = Log.tag("ComputerUseAgentTools")
     private val requests = Mutex()
@@ -96,7 +97,7 @@ internal class ComputerUseAgentTools(
     override val isDetachedSupported: Boolean = true
 
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
-        if (isEnabled()) computerToolSpecs else emptyList()
+        if (isEnabled()) computerToolSpecs(isRecording()) else emptyList()
 
     override suspend fun instructions(workspace: WorkspaceRef?): String {
         if (!isEnabled()) return ""
@@ -127,7 +128,8 @@ internal class ComputerUseAgentTools(
             "A capture opened by another turn is refused with CaptureOwnedByAnotherTurn, and " +
             "StoppedByUser means the user stopped you: do not use the computer again in this turn. " +
             "Call <family>_release as soon as you finish working with the computer; capture and " +
-            "stored frames are also released automatically when your turn ends."
+            "stored frames are also released automatically when your turn ends." +
+            if (isRecording()) RECORDING_INSTRUCTIONS else ""
     }
 
     override fun approval(spec: AgentToolSpec, arguments: JsonObject): AgentToolApproval =
@@ -153,7 +155,7 @@ internal class ComputerUseAgentTools(
         requests.withLock {
             try {
                 val tool = ComputerTool.parse(name)
-                refusal(context, tool, name)?.let { return@withLock failure(it) }
+                refusal(context, tool, name, arguments)?.let { return@withLock failure(it) }
                 val machine = started() ?: return@withLock failure("ComputerUseUnavailable")
                 dispatch(machine, context, checkNotNull(tool), arguments)
             } catch (e: CancellationException) {
@@ -165,7 +167,12 @@ internal class ComputerUseAgentTools(
         }
 
     /** The first reason this call cannot run at all, before the machine is touched. */
-    private suspend fun refusal(context: AgentToolContext, tool: ComputerTool?, name: String): String? = when {
+    private suspend fun refusal(
+        context: AgentToolContext,
+        tool: ComputerTool?,
+        name: String,
+        arguments: JsonObject,
+    ): String? = when {
         !isEnabled() -> "Disabled"
 
         stoppedTurns.isStopped(context.owner()) -> {
@@ -174,6 +181,8 @@ internal class ComputerUseAgentTools(
         }
 
         tool == null -> "UnknownTool"
+
+        tool.needsRecording(arguments) && !isRecording() -> "RecordingDisabled"
 
         tool.isMutating() && context.authorization?.binding != binding() -> "CaptureChangedSinceApproval"
 
@@ -241,18 +250,38 @@ internal class ComputerUseAgentTools(
         arguments: JsonObject,
     ): AgentToolResult = when (tool.verb) {
         ToolVerb.Capture -> capture(machine, context, tool.family, arguments)
+
         ToolVerb.Screenshot -> screenshot(machine, arguments, context.owner())
+
         ToolVerb.Zoom -> zoom(machine, arguments, context.owner())
+
         ToolVerb.Roi -> roi(machine, arguments, context.owner())
-        ToolVerb.Click -> input(machine, context, click(arguments), tool.name)
-        ToolVerb.Drag -> input(machine, context, drag(arguments), tool.name)
-        ToolVerb.Scroll -> input(machine, context, scroll(arguments), tool.name)
-        ToolVerb.Type -> input(machine, context, typed(arguments), tool.name)
-        ToolVerb.Key -> input(machine, context, keys(arguments), tool.name)
+
+        ToolVerb.Click -> input(machine, context, click(arguments), tool.name, arguments)
+
+        ToolVerb.Drag -> input(machine, context, drag(arguments), tool.name, arguments)
+
+        ToolVerb.Scroll -> input(machine, context, scroll(arguments), tool.name, arguments)
+
+        ToolVerb.Type -> input(machine, context, typed(arguments), tool.name, arguments)
+
+        ToolVerb.Key -> input(machine, context, keys(arguments), tool.name, arguments)
+
         ToolVerb.Release -> release(machine, context)
+
+        ToolVerb.Record -> record(
+            machine,
+            recordRequest(arguments) ?: return failure("InvalidRecording"),
+            context.owner(),
+        )
     }
 
     private suspend fun isEnabled(): Boolean = toggles.get(ComputerUseEnabled) && preferences.read().isEnabled
+
+    private suspend fun isRecording(): Boolean = toggles.get(ComputerUseRecording)
+
+    private fun ComputerTool.needsRecording(arguments: JsonObject): Boolean =
+        this is ComputerTool.Family && (verb.isRecording || (arguments.int(OBSERVE_ARGUMENT) ?: 0) > 0)
 
     /** The machine is created lazily; a tool call is what starts the availability probe. */
     private suspend fun started(): MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>? {
@@ -546,6 +575,7 @@ internal class ComputerUseAgentTools(
         context: AgentToolContext,
         action: InputAction?,
         name: String,
+        arguments: JsonObject,
     ): AgentToolResult {
         if (action == null) return failure("InvalidAction")
         val session = authorizedSession(context) ?: return failure("CaptureChangedSinceApproval")
@@ -575,7 +605,7 @@ internal class ComputerUseAgentTools(
         )
             ?: return failure("InputTimedOut")
         return when (output) {
-            is ComputerUseOutput.InputApplied -> AgentToolResult("Applied $name")
+            is ComputerUseOutput.InputApplied -> observe(machine, arguments, owner, name)
 
             is ComputerUseOutput.Rejected -> failure(output.reason.name)
 
@@ -585,6 +615,52 @@ internal class ComputerUseAgentTools(
             is ComputerUseOutput.PermissionRequired, ComputerUseOutput.Revoked,
             -> failure("UnexpectedOutput")
         }
+    }
+
+    /**
+     * After an applied input with `observeMs`, records until the screen settles. The input already happened, so a
+     * failed recording is reported next to the success instead of as an error.
+     */
+    private suspend fun observe(
+        machine: MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>,
+        arguments: JsonObject,
+        owner: CaptureOwner.Agent,
+        name: String,
+    ): AgentToolResult {
+        val millis = arguments.int(OBSERVE_ARGUMENT)?.toLong()?.takeIf { it > 0 }
+            ?: return AgentToolResult("Applied $name")
+        val request = RecordRequest(
+            maxDurationMillis = millis.coerceIn(RecordRequest.MIN_DURATION_MILLIS, MAX_OBSERVE_MILLIS),
+        )
+        val observed = record(machine, request, owner, prefix = "Applied $name")
+        val failure = "Applied $name; observation failed: ${observed.text}"
+        return if (observed.isError) {
+            AgentToolResult(failure)
+        } else {
+            observed
+        }
+    }
+
+    private suspend fun record(
+        machine: MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>,
+        request: RecordRequest,
+        owner: CaptureOwner.Agent,
+        prefix: String? = null,
+    ): AgentToolResult {
+        val state = machine.state.value as? ComputerUseState.Capturing ?: return failure("NotCapturing")
+        val intent = ComputerUseIntent.Public.Record(request, expectedSession = state.session, expectedOwner = owner)
+        val output = awaitOutput(machine, intent) ?: return failure("RecordTimedOut")
+        return when (output) {
+            is ComputerUseOutput.ClipReady -> frames.agentToolClip(output.clip, prefix)
+
+            is ComputerUseOutput.Rejected -> failure(output.reason.name)
+
+            is ComputerUseOutput.SessionClosed -> failure(output.reason?.name ?: "CaptureEnded")
+
+            is ComputerUseOutput.FrameReady, is ComputerUseOutput.InputApplied, is ComputerUseOutput.CaptureChanged,
+            is ComputerUseOutput.PermissionRequired, ComputerUseOutput.Revoked,
+            -> failure("UnexpectedOutput")
+        }.also { log.d { "clip served frames=${(output as? ComputerUseOutput.ClipReady)?.clip?.frames?.size ?: 0}" } }
     }
 
     private fun authorizedSession(context: AgentToolContext): CaptureSessionId? =
@@ -612,88 +688,6 @@ internal class ComputerUseAgentTools(
         }
     }
 
-    /** Subscribes before sending and matches the unique operation ID, including rejected responses. */
-    private suspend fun awaitOutput(
-        machine: MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>,
-        intent: ComputerUseIntent.Public,
-        timeoutMillis: Long = OUTPUT_TIMEOUT_MILLIS,
-    ): ComputerUseOutput? = coroutineScope {
-        val session = (machine.state.value as? ComputerUseState.Capturing)?.session
-        val id = Uuid.random().toString()
-        var owner: CaptureOwner? = null
-        val correlated = when (intent) {
-            is ComputerUseIntent.Public.Capture -> intent.copy(requestId = id).also { owner = it.expectedOwner }
-
-            is ComputerUseIntent.Public.Crop -> intent.copy(requestId = id).also { owner = it.expectedOwner }
-
-            is ComputerUseIntent.Public.Input -> intent.copy(requestId = id).also { owner = it.expectedOwner }
-
-            is ComputerUseIntent.Public.Record -> intent.copy(requestId = id).also { owner = it.expectedOwner }
-
-            ComputerUseIntent.Public.Start, ComputerUseIntent.Public.Retry,
-            ComputerUseIntent.Public.RefreshTargets, ComputerUseIntent.Public.EndCapture,
-            ComputerUseIntent.Public.Revoke, is ComputerUseIntent.Public.ArmInput,
-            is ComputerUseIntent.Public.BeginCapture, is ComputerUseIntent.Public.CancelSession,
-            is ComputerUseIntent.Public.SwitchMode, is ComputerUseIntent.Public.OwnerReleased,
-            is ComputerUseIntent.Public.StopAgent, is ComputerUseIntent.Public.SetRoi,
-            -> error("Only operation intents have correlated replies")
-        }
-        val answered = async(start = CoroutineStart.UNDISPATCHED) {
-            machine.outputs.first { it.requestId() == id }
-        }
-        // A stopped or replaced session never answers; its closure is the answer.
-        val closed = async(start = CoroutineStart.UNDISPATCHED) {
-            val ended = machine.state.first { (it as? ComputerUseState.Capturing)?.session != session }
-            ComputerUseOutput.SessionClosed(
-                session ?: CaptureSessionId(""),
-                (ended as? ComputerUseState.Failed)?.takeIf { it.session == session }?.reason,
-            )
-        }
-        var isCompleted = false
-        try {
-            if (machine.send(correlated) != SendResult.Accepted) {
-                isCompleted = true
-                return@coroutineScope ComputerUseOutput.Rejected(ignoredReason(machine.state.value, intent), id)
-            }
-            val result = withTimeoutOrNull(timeoutMillis) {
-                select {
-                    answered.onAwait { it }
-                    closed.onAwait { it }
-                }
-            }
-            isCompleted = result != null
-            result
-        } finally {
-            answered.cancel()
-            closed.cancel()
-            if (!isCompleted && session != null) {
-                // Cancel state effects as well as the waiter, without touching any replacement session.
-                withContext(NonCancellable) { machine.send(ComputerUseIntent.Public.CancelSession(session, owner)) }
-            }
-        }
-    }
-
-    private fun ignoredReason(state: ComputerUseState, intent: ComputerUseIntent.Public): ComputerUseFailure =
-        if (intent is ComputerUseIntent.Public.Input && state is ComputerUseState.Capturing) {
-            if (!state.isInputArmed) ComputerUseFailure.NotArmed else ComputerUseFailure.ModeNotAllowed
-        } else {
-            ComputerUseFailure.Unavailable
-        }
-
-    private fun ComputerUseOutput.requestId(): String? = when (this) {
-        is ComputerUseOutput.FrameReady -> requestId
-
-        is ComputerUseOutput.Rejected -> requestId
-
-        is ComputerUseOutput.InputApplied -> requestId
-
-        is ComputerUseOutput.ClipReady -> requestId
-
-        is ComputerUseOutput.CaptureChanged, is ComputerUseOutput.PermissionRequired,
-        is ComputerUseOutput.SessionClosed, ComputerUseOutput.Revoked,
-        -> null
-    }
-
     private suspend fun mode(family: ToolFamily, arguments: JsonObject): ComputerUseMode? = when (family) {
         ToolFamily.Desktop -> desktopMode(arguments)
         ToolFamily.Window -> windowMode(arguments)
@@ -719,9 +713,14 @@ internal class ComputerUseAgentTools(
 
     private companion object {
         val areaKeys = setOf("roi", "tile")
+
+        const val RECORDING_INSTRUCTIONS = " Video mode: <family>_record {durationMs, fps, untilStable, maxFrames} " +
+            "records the active ROI and returns a few keyframes (images in order, with tMs) cropped to the area " +
+            "that changed; the last keyframe is the current frame for input coordinates. Input tools take " +
+            "observeMs to record right after the action, e.g. to watch a menu open or a page load; " +
+            "prefer it to repeated screenshots while the screen animates."
         const val START_TIMEOUT_MILLIS = 5_000L
         const val CAPTURE_TIMEOUT_MILLIS = 10_000L
-        const val OUTPUT_TIMEOUT_MILLIS = 30_000L
         const val MAX_WINDOWS = 60
         const val BINDING_FIELDS = 2
     }

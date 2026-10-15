@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.computeruse.api.CaptureClip
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureFormat
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureId
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureOwner
@@ -21,6 +22,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.CaptureRegion
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRequest
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureResult
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureSessionId
+import io.aequicor.heartbeat.feature.computeruse.api.ClipFrame
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapabilities
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
@@ -28,6 +30,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseIntent
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineSpec
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseOutput
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRecording
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseStatus
 import io.aequicor.heartbeat.feature.computeruse.api.CropRequest
@@ -680,7 +683,7 @@ class ComputerUseAgentToolsTest {
         assertTrue(fixture.machine.sent.none { it is ComputerUseIntent.Public.CancelSession })
     }
 
-    internal class Fixture(scope: TestScope, initial: ComputerUseState) {
+    internal class Fixture(scope: TestScope, initial: ComputerUseState, isRecording: Boolean = false) {
         val machine = ToolMachine(initial)
         val registry = ToolRegistry(machine)
         val preferences = FakeComputerUsePreferences()
@@ -688,7 +691,7 @@ class ComputerUseAgentToolsTest {
         val frames = FakeFrameStore().apply { files[Frame.path] = byteArrayOf(1, 2, 3) }
         val tools = ComputerUseAgentTools(
             registry,
-            FakeToggles(mapOf(ComputerUseEnabled.key to true)),
+            FakeToggles(mapOf(ComputerUseEnabled.key to true, ComputerUseRecording.key to isRecording)),
             object : HostComputerControl {
                 override suspend fun status() = ComputerUseStatus(Capabilities)
                 override suspend fun windows() = emptyList<WindowTarget>()
@@ -740,6 +743,18 @@ class ComputerUseAgentToolsTest {
             }
             if (intent is ComputerUseIntent.Public.Crop && isReplyEnabled) {
                 apply(ComputerUseIntent.Internal.CropProduced(Frame, intent.requestId))
+            }
+            if (intent is ComputerUseIntent.Public.Record && isReplyEnabled) {
+                val last = Frame.copy(id = CaptureId("clip-last"))
+                val clip = CaptureClip(
+                    frames = listOf(ClipFrame(Frame, 0, 0.0), ClipFrame(last, 900, 0.25)),
+                    roi = Frame.roi,
+                    isAutoRoi = false,
+                    isStable = true,
+                    durationMillis = 900,
+                    master = Frame,
+                )
+                apply(ComputerUseIntent.Internal.ClipRecorded(clip, intent.requestId))
             }
             if (intent is ComputerUseIntent.Public.Input && isReplyEnabled) {
                 appliedActions += intent.action

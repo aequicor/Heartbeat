@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.FrameSpace
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.MouseButton
 import io.aequicor.heartbeat.feature.computeruse.api.NormalizedRegion
+import io.aequicor.heartbeat.feature.computeruse.api.RecordRequest
 import io.aequicor.heartbeat.feature.computeruse.api.TileGrid
 import io.aequicor.heartbeat.feature.computeruse.api.TileRef
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_CLICKS
@@ -129,6 +130,19 @@ private fun CaptureRef.toMaster(rectangle: Rectangle): CaptureRegion {
         (rectangle.width * scaleX).toInt().coerceAtLeast(1),
         (rectangle.height * scaleY).toInt().coerceAtLeast(1),
     )
+}
+
+/** `<family>_record` arguments within the request limits; `null` when a value is out of range. */
+internal fun recordRequest(arguments: JsonObject): RecordRequest? = try {
+    RecordRequest(
+        fps = arguments.int("fps") ?: RecordRequest.DEFAULT_FPS,
+        maxDurationMillis = arguments.int("durationMs")?.toLong() ?: RecordRequest.DEFAULT_DURATION_MILLIS,
+        isUntilStable = arguments.flag("untilStable") ?: true,
+        maxFrames = arguments.int("maxFrames") ?: RecordRequest.DEFAULT_FRAMES,
+    )
+} catch (e: IllegalArgumentException) {
+    argumentLog.w(e) { "recording refused" }
+    null
 }
 
 internal fun encoding(arguments: JsonObject, default: CaptureEncoding): CaptureEncoding {

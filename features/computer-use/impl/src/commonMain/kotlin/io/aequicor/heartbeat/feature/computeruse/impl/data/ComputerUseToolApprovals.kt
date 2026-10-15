@@ -31,9 +31,13 @@ internal fun approvalDescription(spec: AgentToolSpec, arguments: JsonObject): St
 
         ToolVerb.Release -> "Stop the capture and delete its stored frames"
 
-        ToolVerb.Screenshot, ToolVerb.Zoom, ToolVerb.Roi, null -> spec.description
-    }
+        ToolVerb.Screenshot, ToolVerb.Zoom, ToolVerb.Roi, ToolVerb.Record, null -> spec.description
+    } + observed(arguments)
 }
+
+/** Input that records afterwards says so, since the user approves what the agent will see. */
+private fun observed(arguments: JsonObject): String =
+    arguments.int(OBSERVE_ARGUMENT)?.takeIf { it > 0 }?.let { " and record up to $it ms afterwards" }.orEmpty()
 
 private fun describeCapture(family: ToolFamily, arguments: JsonObject): String = when (family) {
     ToolFamily.Desktop ->

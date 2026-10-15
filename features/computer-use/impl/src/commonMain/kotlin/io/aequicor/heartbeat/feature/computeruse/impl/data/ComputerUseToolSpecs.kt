@@ -34,11 +34,12 @@ internal enum class ToolFamily(val prefix: String, val area: String) {
 }
 
 /** What a family tool does; every family declares the same verbs. */
-internal enum class ToolVerb(val suffix: String, val isInput: Boolean = false) {
+internal enum class ToolVerb(val suffix: String, val isInput: Boolean = false, val isRecording: Boolean = false) {
     Capture("capture"),
     Screenshot("screenshot"),
     Zoom("zoom"),
     Roi("roi"),
+    Record("record", isRecording = true),
     Click("click", isInput = true),
     Drag("drag", isInput = true),
     Scroll("scroll", isInput = true),
@@ -91,8 +92,15 @@ private const val TILE_PROPERTY =
 private const val SPACE_PROPERTY = """"space":{"type":"string","enum":["preview","master","normalized","screen"]}"""
 private const val BUTTON_PROPERTY = """"button":{"type":"string","enum":["left","right","middle"]}"""
 
-/** Every hosted computer tool, the shared status first. */
-internal val computerToolSpecs: List<AgentToolSpec> = buildList {
+/** Every hosted computer tool, the shared status first; recording adds `<family>_record` and `observeMs`. */
+internal fun computerToolSpecs(isRecordingEnabled: Boolean): List<AgentToolSpec> =
+    if (isRecordingEnabled) recordingSpecs else plainSpecs
+
+// Lazy: the schemas below are top-level values initialized after this point of the file.
+private val recordingSpecs: List<AgentToolSpec> by lazy { allSpecs(isRecordingEnabled = true) }
+private val plainSpecs: List<AgentToolSpec> by lazy { allSpecs(isRecordingEnabled = false) }
+
+private fun allSpecs(isRecordingEnabled: Boolean): List<AgentToolSpec> = buildList {
     add(
         AgentToolSpec(
             STATUS_TOOL,
@@ -100,7 +108,7 @@ internal val computerToolSpecs: List<AgentToolSpec> = buildList {
             EmptySchema,
         ),
     )
-    addAll(familySpecs(ToolFamily.Desktop))
+    addAll(familySpecs(ToolFamily.Desktop, isRecordingEnabled))
     add(
         AgentToolSpec(
             WINDOW_LIST_TOOL,
@@ -108,17 +116,34 @@ internal val computerToolSpecs: List<AgentToolSpec> = buildList {
             EmptySchema,
         ),
     )
-    addAll(familySpecs(ToolFamily.Window))
+    addAll(familySpecs(ToolFamily.Window, isRecordingEnabled))
 }
 
-private fun familySpecs(family: ToolFamily): List<AgentToolSpec> = ToolVerb.entries.map { verb ->
-    AgentToolSpec(
-        name = family.tool(verb),
-        description = description(family, verb),
-        inputSchema = inputSchema(family, verb),
-        action = if (verb.isInput || verb == ToolVerb.Release) AgentToolAction.Command else AgentToolAction.Read,
-    )
+private fun familySpecs(family: ToolFamily, isRecordingEnabled: Boolean): List<AgentToolSpec> =
+    ToolVerb.entries.filter { isRecordingEnabled || !it.isRecording }.map { verb ->
+        familySpec(family, verb, isRecordingEnabled)
+    }
+
+private fun familySpec(family: ToolFamily, verb: ToolVerb, isRecordingEnabled: Boolean): AgentToolSpec = AgentToolSpec(
+    name = family.tool(verb),
+    description = description(family, verb),
+    inputSchema = inputSchema(family, verb).let { if (isRecordingEnabled && verb.isInput) it.observed() else it },
+    action = if (verb.isInput || verb == ToolVerb.Release) AgentToolAction.Command else AgentToolAction.Read,
+)
+
+/** Adds `observeMs`: after the input, record until the screen settles and return the keyframes. */
+private fun JsonObject.observed(): JsonObject {
+    val properties = getValue("properties").jsonObject + (OBSERVE_ARGUMENT to OBSERVE_SCHEMA)
+    return JsonObject(this + ("properties" to JsonObject(properties)))
 }
+
+internal const val OBSERVE_ARGUMENT = "observeMs"
+internal const val MAX_OBSERVE_MILLIS = 5_000L
+
+private val OBSERVE_SCHEMA = schema(
+    """{"type":"integer","minimum":0,"maximum":$MAX_OBSERVE_MILLIS,
+       "description":"After the input, record up to this long until the screen settles; returns keyframes"}""",
+)
 
 private fun description(family: ToolFamily, verb: ToolVerb): String = when (verb) {
     ToolVerb.Capture -> when (family) {
@@ -147,10 +172,15 @@ private fun description(family: ToolFamily, verb: ToolVerb): String = when (verb
     ToolVerb.Key -> "Press a key combination in ${family.area}, e.g. \"ctrl,s\" or \"f5\" or \"enter\"."
 
     ToolVerb.Release -> "Stop the capture, disarm input and delete the stored frames of this session."
+
+    ToolVerb.Record ->
+        "Record ${family.area} for a short time (video mode): returns keyframes cropped to the area " +
+            "that changed inside the ROI, until the screen settles or the time limit."
 }
 
 private fun inputSchema(family: ToolFamily, verb: ToolVerb): JsonObject = when (verb) {
     ToolVerb.Capture -> captureSchema(family)
+    ToolVerb.Record -> RecordSchema
     ToolVerb.Screenshot, ToolVerb.Zoom, ToolVerb.Roi -> frameSchema(verb)
     ToolVerb.Click, ToolVerb.Drag, ToolVerb.Scroll, ToolVerb.Type, ToolVerb.Key -> inputActionSchema(verb)
     ToolVerb.Release -> EmptySchema
@@ -200,6 +230,7 @@ private fun frameSchema(verb: ToolVerb): JsonObject = when (verb) {
     )
 
     ToolVerb.Capture, ToolVerb.Click, ToolVerb.Drag, ToolVerb.Scroll, ToolVerb.Type, ToolVerb.Key, ToolVerb.Release,
+    ToolVerb.Record,
     -> EmptySchema
 }
 
@@ -235,7 +266,17 @@ private fun inputActionSchema(verb: ToolVerb): JsonObject = when (verb) {
            "required":["keys"],"additionalProperties":false}""",
     )
 
-    ToolVerb.Capture, ToolVerb.Screenshot, ToolVerb.Zoom, ToolVerb.Roi, ToolVerb.Release -> EmptySchema
+    ToolVerb.Capture, ToolVerb.Screenshot, ToolVerb.Zoom, ToolVerb.Roi, ToolVerb.Release, ToolVerb.Record,
+    -> EmptySchema
 }
+
+private val RecordSchema: JsonObject = schema(
+    """{"type":"object","properties":{
+        "fps":{"type":"integer","minimum":1,"maximum":10},
+        "durationMs":{"type":"integer","minimum":200,"maximum":10000},
+        "untilStable":{"type":"boolean"},
+        "maxFrames":{"type":"integer","minimum":2,"maximum":6}
+    },"additionalProperties":false}""",
+)
 
 private fun schema(text: String): JsonObject = Json.parseToJsonElement(text).jsonObject
