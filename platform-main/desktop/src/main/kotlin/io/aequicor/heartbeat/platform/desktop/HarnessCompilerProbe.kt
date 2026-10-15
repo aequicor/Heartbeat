@@ -31,7 +31,12 @@ internal fun handleHarnessCompilerProbe(arguments: Array<String>): Boolean {
             Array<String>::class.java,
         )
         val version = System.getProperty("heartbeat.app.version", "development")
-        val result = entry.invoke(null, directory.toString(), version, arguments.drop(1).toTypedArray()) as CompletionStage<*>
+        val result = entry.invoke(
+            null,
+            directory.toString(),
+            version,
+            arguments.drop(1).toTypedArray(),
+        ) as CompletionStage<*>
         val completion = result.toCompletableFuture()
         pending = completion
         check(completion.get(PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS) == PROBE_SUCCESS) {

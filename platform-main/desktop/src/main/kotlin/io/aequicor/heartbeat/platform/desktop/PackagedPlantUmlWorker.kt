@@ -20,7 +20,9 @@ internal fun runPackagedPlantUmlWorker(arguments: Array<String>): Boolean {
     if (arguments.firstOrNull() != PLANTUML_WORKER_ARGUMENT) return false
     require(arguments.size == 2) { "InvalidPlantUmlWorkerArguments" }
     val runtime = Path.of(arguments[1])
-    val bridge = Class.forName("io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.PlantUmlWorkerLauncherKt")
+    val bridge = Class.forName(
+        "io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.PlantUmlWorkerLauncherKt",
+    )
     val classpath = bridge.getMethod("plantUmlWorkerClasspath", Path::class.java).invoke(null, runtime) as String
     val urls = classpath.split(File.pathSeparator).map { Path.of(it).toUri().toURL() }.toTypedArray()
     URLClassLoader(urls, ClassLoader.getPlatformClassLoader()).use { loader ->
