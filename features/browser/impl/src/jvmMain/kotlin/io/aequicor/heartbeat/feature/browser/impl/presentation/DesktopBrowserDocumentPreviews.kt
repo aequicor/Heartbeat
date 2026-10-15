@@ -142,9 +142,13 @@ internal class DesktopBrowserDocumentPreviews(
         return isPending
     }
 
-    /** The computed preview result must survive a native peer that also fails to dispose. */
+    /**
+     * The native browser may still be closing: its parent window is disposed only after a bounded wait. The computed
+     * preview result must survive a native peer that also fails to dispose.
+     */
     private suspend fun disposeAfterFailedClose(lease: PreviewLease) {
         try {
+            if (!lease.awaitClosed()) log.w { "Isolated document preview disposes its peer before native close" }
             lease.disposePeer()
         } catch (error: CancellationException) {
             throw error
@@ -159,6 +163,8 @@ internal class DesktopBrowserDocumentPreviews(
         const val RENDER_TIMEOUT_MILLIS = 20_000L
     }
 }
+
+private val leaseLog = Log.tag("BrowserDocumentPreviewLease")
 
 /** Owns partially created resources, including cancellation between registration and native creation. */
 private class PreviewLease(private val dispatchers: DispatcherProvider) {
@@ -205,14 +211,35 @@ private class PreviewLease(private val dispatchers: DispatcherProvider) {
         withContext(dispatchers.main) {
             try {
                 handle?.close()
-            } finally {
-                panel?.release()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                // The panel is still released; its own failure is logged so neither hides the other.
+                releaseAfterFailedClose()
+                throw error
             }
+            panel?.release()
         }
         withTimeoutOrNull(CLOSE_TIMEOUT_MILLIS) {
             finishClosing()
             true
         } ?: false
+    }
+
+    /** True when the native browser closed within the close timeout. */
+    suspend fun awaitClosed(): Boolean = withTimeoutOrNull(CLOSE_TIMEOUT_MILLIS) {
+        panel?.awaitClosed()
+        true
+    } ?: false
+
+    private fun releaseAfterFailedClose() {
+        try {
+            panel?.release()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            leaseLog.e(error.redactedFailure()) { "Preview panel release failed after close failure" }
+        }
     }
 
     suspend fun finishClosing() {

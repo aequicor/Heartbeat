@@ -281,7 +281,10 @@ class ServiceUiPreviewToolsTest {
             assertTrue(result.isError)
             assertTrue(result.images.isEmpty())
             assertTrue(result.text.contains(reason.name))
-            assertTrue(result.text.substringAfter("${reason.name}. ").isNotBlank(), "Recovery hint for $reason")
+            assertTrue(
+                result.text.substringAfter("${reason.name}. ", missingDelimiterValue = "").isNotBlank(),
+                "Recovery hint for $reason",
+            )
         }
         renderer.result = BrowserDocumentPreviewResult.Failure(BrowserDocumentPreviewFailure.RuntimeUnavailable)
         assertTrue("Do not retry repeatedly" in call().text)

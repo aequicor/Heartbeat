@@ -12,7 +12,8 @@ public enum class AgentToolAction { Read, Edit, Command }
  *
  * [resultChars] bounds the text a dispatched result may put into the model context after any offload; a longer
  * result is replaced by an explicit error, never truncated. Adapter-operated tools, whose output the native engine
- * produces, are not bounded here. Only tools that must return complete source raise it, up to [MAX_RESULT_CHARS].
+ * produces, are not bounded here. Only tools that must return complete source or bound their own output raise it,
+ * up to [MAX_RESULT_CHARS].
  */
 public data class AgentToolSpec(
     val name: String,
