@@ -277,7 +277,9 @@ class ServiceUiAgentToolsTest {
             .getValue("enum").jsonArray
         assertTrue(JsonPrimitive("context") in placements)
         assertTrue(JsonPrimitive("context") in launchers)
-        assertTrue("`context`: automatically shown" in call(ServiceUiTools.REFERENCE).text)
+        assertTrue(
+            "`context`: a compact, rounded floating card at the top right" in call(ServiceUiTools.REFERENCE).text,
+        )
 
         val saved = call(ServiceUiTools.PUT, put(SPEC, placement = "context"))
         assertFalse(saved.isError, saved.text)

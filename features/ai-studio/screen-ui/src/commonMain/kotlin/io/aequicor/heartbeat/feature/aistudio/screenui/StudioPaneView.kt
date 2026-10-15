@@ -30,12 +30,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
@@ -77,7 +79,6 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.new_heading
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.new_heading_general
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.new_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_close
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_context_panel
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_general
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_open_sidebar
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_split
@@ -151,103 +152,124 @@ internal fun StudioPaneView(
     val appHost = slots[studioAppKey(pane.id)]
     val contextSlot = slots[studioContextSlotKey(pane.id)].takeIf { content.isContextPanelAvailable }
     var paneSize by remember { mutableStateOf(IntSize.Zero) }
+    var panePosition by remember { mutableStateOf(Offset.Zero) }
+    var composerPosition by remember { mutableStateOf(Offset.Zero) }
+    var contextRowWidth by remember(pane.sessionId, pane.projectId) { mutableStateOf<Int?>(null) }
     val ownCards = remember(cards, pane.id) { paneCards(cards, pane.id).toImmutableMap() }
     var headerHeight by remember { mutableIntStateOf(0) }
     var footerHeight by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     val topInset = with(density) { headerHeight.toDp() }
     val bottomInset = with(density) { footerHeight.toDp() }
-    val paneWidth = with(density) { paneSize.width.toDp() }
-    val paneHeight = with(density) { paneSize.height.toDp() }
-    val context = rememberPaneContextPanel(content, contextSlot, layout.isCompact, paneWidth)
+    val feed = paneFeed(content, timelineState)
+    val feedId = feed.id
+    val hasStartApp = feedId == null && content.app != null
+    val isCenteredComposer = feedId == null && HbTheme.dimensions.isDesktop && !hasStartApp
+    val placement = contextPanelPlacement(
+        with(density) { paneSize.width.toDp() },
+        with(density) { contextRowWidth?.toDp() },
+        layout.isCompact,
+        isCenteredComposer,
+    )
+    val isBesideAvailable = placement.isBesideAvailable && !hasStartApp
+    val context = rememberPaneContextPanel(content, contextSlot, isBesideAvailable)
+    val contextInset = placement.insetFor(contextSlot, context.isOpen, isBesideAvailable)
     Box(
-        modifier.onSizeChanged { paneSize = it }.onFocusChanged {
-            if (it.hasFocus && !content.isFocused) onIntent(StudioIntent.FocusPane(pane.id))
-        }.focusRestorer().focusGroup()
+        modifier.onSizeChanged { paneSize = it }
+            .onGloballyPositioned { panePosition = it.positionInRoot() }.onFocusChanged {
+                if (it.hasFocus && !content.isFocused) onIntent(StudioIntent.FocusPane(pane.id))
+            }.focusRestorer().focusGroup()
             .focusOnPress(content.isFocused, pane.id) { onIntent(StudioIntent.FocusPane(pane.id)) }
             .background(HbTheme.surfaces.assistant).testTag("pane-${pane.id}"),
     ) {
-        val feed = paneFeed(content, timelineState)
-        val feedId = feed.id
-        val hasStartApp = feedId == null && content.app != null
-        val isCenteredComposer = feedId == null && HbTheme.dimensions.isDesktop && !hasStartApp
-        PaneConversation(
-            content,
-            feed,
-            timelineState,
-            onIntent,
-            startSlot,
-            appHost,
-            ownCards,
-            checklists,
-            topInset,
-            bottomInset,
-            isCenteredComposer,
-            hasStartApp,
-            Modifier.fillMaxSize().padding(conversationInsets(hasStartApp, layout.isCompact, context)),
-        )
-        HbColumn(
-            Modifier.align(Alignment.TopCenter).fillMaxWidth()
-                .onSizeChanged { headerHeight = it.height }
-                .testTag("pane-header-${pane.id}"),
-            gap = HbTheme.spacing.none,
-        ) {
-            PaneHeader(
-                content,
-                layout,
-                onIntent,
-                isAtWindowLeadingEdge,
-                onOpenContext = context.open,
-                contextFocus = context.focus,
-            )
-            content.enginePreparations.forEach { StudioEnginePreparation(it) }
-        }
-        // The composer keeps the same parents; changing its placement must not detach its focus target.
-        Box(Modifier.fillMaxSize().padding(top = topInset, end = context.inset)) {
-            PaneComposerRegion(
-                content,
-                onIntent,
-                questions,
-                layout.isCompact,
-                onOpenResearch,
-                isCenteredComposer,
-                PaneSlots(composerSlot, startSlot),
-                Modifier.align(
-                    composerRegionAlignment(isCenteredComposer),
-                ).onSizeChanged { footerHeight = it.height },
-            )
-        }
-        PaneContextPanel(
-            contextSlot,
-            context.isDocked,
-            context.isOpen,
-            context.dismiss,
-            pane.id,
-            topInset,
-            paneHeight,
-            Modifier.align(Alignment.TopEnd),
+        PaneLayersLayout(
+            reserveContextBand = hasStartApp,
+            headerInset = topInset,
+            modifier = Modifier.fillMaxSize(),
+            conversation = {
+                PaneConversation(
+                    content,
+                    feed,
+                    timelineState,
+                    onIntent,
+                    startSlot,
+                    appHost,
+                    ownCards,
+                    checklists,
+                    topInset,
+                    bottomInset,
+                    isCenteredComposer,
+                    hasStartApp,
+                    Modifier.fillMaxSize().padding(end = contextInset)
+                        .padding(conversationInsets(hasStartApp, layout.isCompact)),
+                )
+            },
+            header = {
+                HbColumn(
+                    Modifier.fillMaxWidth().onSizeChanged { headerHeight = it.height }
+                        .testTag("pane-header-${pane.id}"),
+                    gap = HbTheme.spacing.none,
+                ) {
+                    PaneHeader(
+                        content,
+                        layout,
+                        onIntent,
+                        isAtWindowLeadingEdge,
+                        onToggleContext = context.toggle,
+                        isContextOpen = context.isOpen,
+                        contextFocus = context.focus,
+                    )
+                    content.enginePreparations.forEach { StudioEnginePreparation(it) }
+                }
+            },
+            composer = {
+                // Its parents stay mounted when the summary opens, grows, or changes responsive placement.
+                Box(Modifier.fillMaxSize().padding(top = topInset, end = contextInset)) {
+                    PaneComposerRegion(
+                        content,
+                        onIntent,
+                        questions,
+                        layout.isCompact,
+                        onOpenResearch,
+                        isCenteredComposer,
+                        PaneSlots(composerSlot, startSlot),
+                        onContextWidthChange = { contextRowWidth = it },
+                        modifier = Modifier.align(
+                            composerRegionAlignment(isCenteredComposer),
+                        ).onSizeChanged { footerHeight = it.height }
+                            .onGloballyPositioned { composerPosition = it.positionInRoot() },
+                    )
+                }
+            },
+            context = {
+                PaneContextPanel(
+                    contextSlot,
+                    context.isOpen,
+                    isBesideAvailable,
+                    context.dismiss,
+                    pane.id,
+                    topInset,
+                    with(density) { (composerPosition.y - panePosition.y).toDp() },
+                    paneSize,
+                )
+            },
         )
     }
 }
 
-/** The docked context already reserves one trailing gap; standalone start apps use the composer's edge insets. */
+/** Standalone start apps use the composer's edge insets, independently of summary availability. */
 @Composable
 @ReadOnlyComposable
-private fun conversationInsets(
-    hasStartApp: Boolean,
-    isCompact: Boolean,
-    context: ContextPanelPresentation,
-): PaddingValues {
+private fun conversationInsets(hasStartApp: Boolean, isCompact: Boolean): PaddingValues {
     val gutter = when {
         !hasStartApp -> HbTheme.spacing.none
-        context.isDocked -> HbTheme.spacing.l
         isCompact -> HbTheme.spacing.m
         else -> HbTheme.spacing.xl
     }
-    return PaddingValues(start = gutter, end = context.inset + if (context.isDocked) HbTheme.spacing.none else gutter)
+    return PaddingValues(horizontal = gutter)
 }
 
-/** The conversation column shares one trailing inset with its composer while the context panel is docked. */
+/** The conversation and its composer share the same adaptive bounds beside a summary or under its overlay. */
 @Composable
 private fun PaneConversation(
     content: PaneContent,
@@ -381,6 +403,7 @@ private fun PaneComposerRegion(
     onOpenResearch: ((String) -> Unit)?,
     isCentered: Boolean,
     slots: PaneSlots,
+    onContextWidthChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val heroScroll = rememberScrollState()
@@ -416,7 +439,7 @@ private fun PaneComposerRegion(
                         isCompact,
                         noticesModifier,
                     )
-                    PaneFooter(content, onIntent, isCompact, onOpenResearch, slots.composer)
+                    PaneFooter(content, onIntent, isCompact, onOpenResearch, slots.composer, onContextWidthChange)
                 }
             }
             if (isCentered) {
@@ -561,7 +584,8 @@ private fun PaneHeader(
     layout: PaneLayout,
     onIntent: (StudioIntent) -> Unit,
     isAtWindowLeadingEdge: Boolean,
-    onOpenContext: (() -> Unit)?,
+    onToggleContext: (() -> Unit)?,
+    isContextOpen: Boolean,
     contextFocus: FocusRequester,
 ) {
     val pane = content.pane
@@ -599,14 +623,13 @@ private fun PaneHeader(
             PaneTitle(content, onIntent, Modifier.weight(1f))
             OrganismSwitcher(content, onIntent)
             PaneSessionMenu(content, onIntent)
-            if (onOpenContext != null) {
-                HbIconButton(
-                    HbIcons.Sidebar,
-                    stringResource(Res.string.pane_context_panel),
-                    onOpenContext,
-                    Modifier.focusRequester(contextFocus).testTag("pane-open-context-${pane.id}"),
-                )
-            }
+            PaneContextToggle(
+                onToggleContext,
+                isContextOpen,
+                layout.isCompact || layout.isCloseAllowed,
+                pane.id,
+                contextFocus,
+            )
             PaneLayoutActions(pane.id, layout, onIntent)
         }
     }
@@ -871,6 +894,7 @@ private fun PaneFooter(
     isCompact: Boolean,
     onOpenResearch: ((String) -> Unit)?,
     composerSlot: StudioEmbed?,
+    onContextWidthChange: (Int) -> Unit,
 ) {
     HbColumn(
         Modifier.fillMaxWidth().padding(
@@ -899,7 +923,7 @@ private fun PaneFooter(
         composerSlot?.Content(
             column.heightIn(max = HbTheme.dimensions.toolPayloadMaxHeight).hbVerticalScroll(slotScroll),
         )
-        StudioComposer(content, onIntent, isCompact, column, onOpenResearch)
+        StudioComposer(content, onIntent, isCompact, column, onOpenResearch, onContextWidthChange)
     }
 }
 

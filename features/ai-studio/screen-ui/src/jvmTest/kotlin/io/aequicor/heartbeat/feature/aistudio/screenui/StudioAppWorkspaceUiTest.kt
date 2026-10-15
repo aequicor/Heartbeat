@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.screenui
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
@@ -9,17 +10,24 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
+import androidx.compose.ui.unit.dp
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
@@ -133,7 +141,7 @@ class StudioAppWorkspaceUiTest {
             HbTheme(darkTheme = dark, dimensions = HbDimensions.Desktop) {
                 val spacing = HbTheme.spacing
                 val density = LocalDensity.current
-                SideEffect { gutter = with(density) { (if (compact) spacing.m else spacing.l).toPx() } }
+                SideEffect { gutter = with(density) { (if (compact) spacing.m else spacing.xl).toPx() } }
                 StudioPaneView(
                     state.paneContent(state.panes.single()),
                     {},
@@ -149,14 +157,108 @@ class StudioAppWorkspaceUiTest {
         val pane = onNodeWithTag("pane-0").fetchSemanticsNode().boundsInRoot
         val body = onNodeWithTag("app-body").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val header = onNodeWithTag("pane-header-0").fetchSemanticsNode().boundsInRoot
-        val boundary = if (compact) {
-            pane.right
-        } else {
-            onNodeWithTag("pane-context-panel-0").fetchSemanticsNode().boundsInRoot.left
-        }
+        onNodeWithTag("pane-open-context-0").assertIsDisplayed()
+        onNodeWithTag("context-body").assertDoesNotExist()
         assertEquals(gutter, body.left - pane.left, 1f)
-        assertEquals(gutter, boundary - body.right, 1f)
+        assertEquals(gutter, pane.right - body.right, 1f)
         assertEquals(header.bottom, body.top, 1f, "The gutter must not reintroduce a header gap")
+    }
+
+    @Test
+    fun `an open start summary reserves only its height and keeps the app mounted and composer unchanged`() =
+        runSkikoComposeUiTest(size = Size(2000f, 900f)) {
+            val state = initial.copy(
+                contextPanels = persistentMapOf(0 to StudioContextPanelUi(null, null, persistentSetOf("gym"))),
+            )
+            var mounts = 0
+            val appHost = App(isStart = { true }, onMount = { mounts++ })
+            setContent {
+                HbTheme(darkTheme = false, dimensions = HbDimensions.Desktop) {
+                    StudioPaneView(
+                        state.paneContent(state.panes.single()),
+                        {},
+                        layout,
+                        Modifier.fillMaxSize(),
+                        slots = persistentMapOf(
+                            studioAppKey(0) to appHost,
+                            studioContextSlotKey(0) to Label("context-body"),
+                        ),
+                    )
+                }
+            }
+            val originalApp = onNodeWithTag("app-body").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            val composer = onNodeWithTag("composer-0").fetchSemanticsNode().boundsInRoot
+            onNodeWithTag("context-body").assertDoesNotExist()
+            onNodeWithTag("pane-open-context-0").performClick()
+            val panel = onNodeWithTag("pane-context-panel-0").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            val openedApp = onNodeWithTag("app-body").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            assertTrue(openedApp.top >= panel.bottom, "A native start document must not overlap the summary")
+            assertEquals(originalApp.width, openedApp.width, "The start document keeps the full available width")
+            assertEquals(composer, onNodeWithTag("composer-0").fetchSemanticsNode().boundsInRoot)
+            assertEquals(1, mounts)
+            onNodeWithTag("pane-open-context-0").performClick()
+            onNodeWithTag("context-body").assertDoesNotExist()
+            assertEquals(originalApp, onNodeWithTag("app-body").fetchSemanticsNode().boundsInRoot)
+            assertEquals(composer, onNodeWithTag("composer-0").fetchSemanticsNode().boundsInRoot)
+            assertEquals(1, mounts, "Opening and closing the summary must preserve the app host")
+        }
+
+    @Test
+    fun `the start app stays below the summary in every placement when it opens and grows`() = runSkikoComposeUiTest(
+        size = Size(2000f, 900f),
+    ) {
+        val state = initial.copy(
+            models = StudioModelOptions,
+            contextPanels = persistentMapOf(0 to StudioContextPanelUi(null, null, persistentSetOf("gym"))),
+        )
+        var appBounds: Rect? = null
+        val placements = mutableListOf<Pair<Rect, Rect>>()
+        var summaryHeight by mutableStateOf(120.dp)
+        var mounts = 0
+        val appHost = App(isStart = { true }, onMount = { mounts++ }, onPlaced = { appBounds = it })
+        val summary = object : StudioEmbed {
+            @Composable
+            override fun Content(modifier: Modifier) {
+                Box(
+                    modifier.height(summaryHeight).onPlaced { coordinates ->
+                        appBounds?.let { placements += it to coordinates.boundsInRoot() }
+                    }.testTag("context-body"),
+                )
+            }
+        }
+        setContent {
+            HbTheme(dimensions = HbDimensions.Desktop) {
+                StudioPaneView(
+                    state.paneContent(state.panes.single()),
+                    {},
+                    layout,
+                    Modifier.fillMaxSize(),
+                    slots = persistentMapOf(studioAppKey(0) to appHost, studioContextSlotKey(0) to summary),
+                )
+            }
+        }
+        val composer = onNodeWithTag("composer-0").fetchSemanticsNode().boundsInRoot
+        onNodeWithTag("pane-open-context-0").performClick()
+        waitForIdle()
+        assertTrue(placements.isNotEmpty())
+        assertTrue(
+            placements.all { (app, card) -> app.top >= card.bottom },
+            "The first opening must reserve the card band in the same layout: $placements",
+        )
+        val editor = onNode(hasSetTextAction()).requestFocus()
+        runOnIdle {
+            placements.clear()
+            summaryHeight = 240.dp
+        }
+        waitForIdle()
+        assertTrue(placements.isNotEmpty())
+        assertTrue(
+            placements.all { (app, card) -> app.top >= card.bottom },
+            "Growing content must move the app before the taller card is placed: $placements",
+        )
+        editor.assertIsFocused()
+        assertEquals(composer, onNodeWithTag("composer-0").fetchSemanticsNode().boundsInRoot)
+        assertEquals(1, mounts, "Changing the card band must retain the app host")
     }
 
     @Test
@@ -201,6 +303,7 @@ class StudioAppWorkspaceUiTest {
         private val isStart: () -> Boolean,
         private val onMount: () -> Unit = {},
         private val onDispose: () -> Unit = {},
+        private val onPlaced: (Rect) -> Unit = {},
     ) : StudioEmbed {
         @Composable
         override fun Content(modifier: Modifier) {
@@ -208,7 +311,11 @@ class StudioAppWorkspaceUiTest {
                 onMount()
                 onDispose { onDispose() }
             }
-            if (isStart()) Box(modifier.testTag("app-body")) { HbText("Full application") }
+            if (isStart()) {
+                Box(modifier.onPlaced { onPlaced(it.boundsInRoot()) }.testTag("app-body")) {
+                    HbText("Full application")
+                }
+            }
         }
     }
 

@@ -15,7 +15,9 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Constraints
 import io.aequicor.heartbeat.ds.components.HbChatComposer
 import io.aequicor.heartbeat.ds.components.HbComposerAction
 import io.aequicor.heartbeat.ds.components.HbComposerCaretRequest
@@ -104,6 +106,8 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent a
 /**
  * Composer of one pane: prompt templates, approval mode and model preferences around the shared editor. Native drop
  * and clipboard capture belongs to the screen root, which observes the gestures with any focus inside the studio.
+ * [onContextWidthChange] reports the width in pixels needed by the context controls on one line, including the
+ * composer's inner context padding. The width is independent of the current wrapping; absent controls report zero.
  */
 @Composable
 internal fun StudioComposer(
@@ -112,6 +116,7 @@ internal fun StudioComposer(
     isCompact: Boolean,
     modifier: Modifier = Modifier,
     onOpenResearch: ((String) -> Unit)? = null,
+    onContextWidthChange: ((Int) -> Unit)? = null,
 ) {
     HbBoxWithConstraints(modifier) {
         val presentation = when {
@@ -122,7 +127,7 @@ internal fun StudioComposer(
 
             else -> ComposerPresentation.Wide
         }
-        StudioComposerInput(content, onIntent, isCompact, presentation, onOpenResearch)
+        StudioComposerInput(content, onIntent, isCompact, presentation, onOpenResearch, onContextWidthChange)
     }
 }
 
@@ -136,6 +141,7 @@ private fun StudioComposerInput(
     isCompact: Boolean,
     presentation: ComposerPresentation,
     onOpenResearch: ((String) -> Unit)?,
+    onContextWidthChange: ((Int) -> Unit)?,
 ) {
     val pane = content.pane
     val session = content.session
@@ -145,6 +151,10 @@ private fun StudioComposerInput(
     val support = content.models.firstOrNull { it.id == settings.modelId }?.inputSupport
     val isAddingEnabled = content.canAddAttachments()
     val (focus, requestInputFocus) = rememberComposerFocus(content)
+    val hasContext = content.hasComposerContext()
+    SideEffect(hasContext, onContextWidthChange) {
+        if (!hasContext) onContextWidthChange?.invoke(0)
+    }
     HbChatComposer(
         value = draft,
         onValueChange = { onIntent(StudioIntent.Suggestions.DraftChanged(pane.id, it)) },
@@ -178,8 +188,8 @@ private fun StudioComposerInput(
         onCaretChange = { caret -> onIntent(StudioIntent.Suggestions.CaretMoved(pane.id, caret)) },
         caretRequest = content.caretRequest?.let { HbComposerCaretRequest(it.id, it.text, it.caret) },
         onCaretRequestApply = { id -> onIntent(StudioIntent.Suggestions.CaretRequestApplied(pane.id, id)) },
-        contextContent = if (content.hasComposerContext()) {
-            { StudioComposerContext(content, onIntent, presentation) }
+        contextContent = if (hasContext) {
+            { StudioComposerContext(content, onIntent, presentation, onContextWidthChange) }
         } else {
             null
         },
@@ -344,8 +354,20 @@ private fun StudioComposerContext(
     content: PaneContent,
     onIntent: (StudioIntent) -> Unit,
     presentation: ComposerPresentation,
+    onContextWidthChange: ((Int) -> Unit)?,
 ) {
-    HbFlowRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
+    val contextPadding = HbTheme.spacing.m * 2
+    val measureWidth = if (onContextWidthChange == null) {
+        Modifier
+    } else {
+        Modifier.layout { measurable, constraints ->
+            val singleLineWidth = measurable.maxIntrinsicWidth(Constraints.Infinity) + contextPadding.roundToPx()
+            onContextWidthChange(singleLineWidth)
+            val placeable = measurable.measure(constraints)
+            layout(placeable.width, placeable.height) { placeable.placeRelative(0, 0) }
+        }
+    }
+    HbFlowRow(Modifier.fillMaxWidth().then(measureWidth), gap = HbTheme.spacing.s) {
         StudioComposerIdentity(content, onIntent, presentation)
         content.app?.let { StudioAppChip(it, content.pane.id, onIntent) }
         StudioComposerModes(content, onIntent)

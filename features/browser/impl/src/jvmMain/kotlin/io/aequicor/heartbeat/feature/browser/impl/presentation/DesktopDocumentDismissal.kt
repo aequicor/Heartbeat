@@ -3,7 +3,7 @@ package io.aequicor.heartbeat.feature.browser.impl.presentation
 import java.util.concurrent.atomic.AtomicReference
 import javax.swing.SwingUtilities
 
-/** A modal callback belongs to one attachment generation, including while an Escape dispatch is queued on EDT. */
+/** A surface callback belongs to one attachment generation, including while an Escape dispatch is queued on EDT. */
 internal class DesktopDocumentDismissal(
     private val dispatch: (() -> Unit) -> Unit = { action -> SwingUtilities.invokeLater(action) },
 ) {
@@ -18,7 +18,9 @@ internal class DesktopDocumentDismissal(
         current.set(action?.let(::Target))
     }
 
-    /** Returns false outside a modal; stale events never acquire the replacement attachment's authority. */
+    /**
+     * Returns false without a dismissible surface; stale events never acquire the replacement attachment's authority.
+     */
     fun request(): Boolean {
         val target = current.get() ?: return false
         dispatch {

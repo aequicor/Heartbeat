@@ -319,7 +319,9 @@
     <string name="harness_picker_one">Harness · %1$s</string>
     <string name="harness_picker_many">Harnesses · %1$d</string>
     <string name="attachments_page">Attach current page</string>
-    <string name="pane_context_panel">Context panel</string>
+    <string name="pane_context_panel">Summary</string>
+    <string name="pane_context_hide">Hide summary</string>
+    <string name="pane_context_show">Show summary</string>
     <string name="engine_preparation_download">Downloading %1$s components…</string>
     <string name="engine_preparation_install">Preparing %1$s components…</string>
     <string name="engine_preparation_network">Could not download %1$s. Check your connection and retry the message.</string>
