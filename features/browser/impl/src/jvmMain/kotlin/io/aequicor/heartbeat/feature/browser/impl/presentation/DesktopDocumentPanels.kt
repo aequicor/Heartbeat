@@ -218,6 +218,14 @@ internal class DesktopDocumentPanel(
         started.forEach { it.awaitClosed() }
     }
 
+    /** Preview callers await preparation first and read the retained runtime on EDT; release cannot resurrect it. */
+    internal val runtimeForPreview: DesktopDocumentEngine
+        get() {
+            check(SwingUtilities.isEventDispatchThread())
+            check(!isReleased) { "Document is closed" }
+            return checkNotNull(engine) { "Document runtime is unavailable" }
+        }
+
     private fun start() {
         initialization?.cancel()
         val attempt = ++generation
