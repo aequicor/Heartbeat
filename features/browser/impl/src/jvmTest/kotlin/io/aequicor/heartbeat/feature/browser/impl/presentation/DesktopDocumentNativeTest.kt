@@ -5,11 +5,13 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.feature.browser.api.BrowserBridgeResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocument
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentHandle
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentResourcePolicy
 import io.aequicor.heartbeat.feature.browser.impl.data.DefaultBrowserUrlResolver
 import io.aequicor.heartbeat.feature.browser.impl.data.DesktopBrowserProfiles
 import io.aequicor.heartbeat.feature.browser.impl.data.DesktopDefaultBrowserResources
 import io.aequicor.heartbeat.feature.browser.impl.data.ProfileBrowserDocuments
 import io.aequicor.heartbeat.feature.browser.impl.data.bundledBrowserRuntimeInstaller
+import io.aequicor.heartbeat.feature.browser.impl.ui.verifyNativeDocumentAssets
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -117,12 +119,23 @@ class DesktopDocumentNativeTest {
                 tab = engine
                 frames += frame
             }
-            verifyNoPeers(documents, resources, scope) { panel, frame ->
+            verifyResourcePolicies(documents, resources, scope) { panel, frame ->
                 panels += panel
                 frames += frame
             }
             assertEquals(emptyList(), requests.toList(), "Documents must not reach the network")
         }
+    }
+
+    /** Both policies keep WebRTC closed; only ExternalAssets admits the bounded host asset transport. */
+    private fun verifyResourcePolicies(
+        documents: ProfileBrowserDocuments,
+        resources: DesktopDefaultBrowserResources,
+        scope: CoroutineScope,
+        shown: (DesktopDocumentPanel, JFrame) -> Unit,
+    ) {
+        BrowserDocumentResourcePolicy.entries.forEach { verifyNoPeers(documents, resources, scope, it, shown) }
+        verifyNativeDocumentAssets(resources, nativeDispatchers(), scope)
     }
 
     /**
@@ -133,6 +146,7 @@ class DesktopDocumentNativeTest {
         documents: ProfileBrowserDocuments,
         resources: DesktopDefaultBrowserResources,
         scope: CoroutineScope,
+        policy: BrowserDocumentResourcePolicy,
         shown: (DesktopDocumentPanel, JFrame) -> Unit,
     ) {
         val loopback = InetSocketAddress(InetAddress.getLoopbackAddress(), 0)
@@ -141,7 +155,9 @@ class DesktopDocumentNativeTest {
             udp.configureBlocking(false)
             tcp.configureBlocking(false)
             val reports = LinkedBlockingQueue<Pair<String, JsonElement>>()
-            val opened = assertNotNull(documents.open(peerDocument(udp.localPort(), tcp.localPort(), reports)))
+            val opened = assertNotNull(
+                documents.open(peerDocument(udp.localPort(), tcp.localPort(), reports).copy(resourcePolicy = policy)),
+            )
             SwingUtilities.invokeAndWait {
                 val panel = DesktopDocumentPanel(
                     documents.documents.value.getValue(opened.route.id),

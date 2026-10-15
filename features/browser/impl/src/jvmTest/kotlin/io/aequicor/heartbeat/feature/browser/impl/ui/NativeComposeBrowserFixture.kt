@@ -150,6 +150,7 @@ internal class NativeComposeBrowserFixture(isViewportProbe: Boolean = false, isA
     fun verifyDocumentPresentation() {
         verifyNativeDocumentPresentation(resources, dispatchers, scope)
         verifyNativeDocumentWorkspace(resources, dispatchers, scope)
+        verifyNativeHiddenDocumentPreview(resources, dispatchers, scope)
     }
 
     /** A second real browser in the same native runtime, so an existing sibling cannot prove target attachment. */

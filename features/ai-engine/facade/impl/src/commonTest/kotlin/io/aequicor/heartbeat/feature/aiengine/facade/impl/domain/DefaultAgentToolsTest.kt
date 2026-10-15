@@ -100,6 +100,24 @@ class DefaultAgentToolsTest {
     }
 
     @Test
+    fun `a result beyond the tool budget becomes an explicit error after offload`() = runTest {
+        val oversized = "x".repeat(AgentToolSpec.DEFAULT_RESULT_CHARS + 1)
+        val owner = ToolOwner(AgentToolAction.Read).apply { output = oversized }
+        val large = ToolOwner(AgentToolAction.Read, AgentToolSpec.MAX_RESULT_CHARS).apply { output = owner.output }
+        val shortening = ToolOutputOffload { _, tool, text -> "short $tool ${text.length}" }
+
+        val refused = DefaultAgentTools(setOf(owner)).execute(toolContext(TrustLevel.Full), "tool", EMPTY_ARGS)
+        val offloaded = DefaultAgentTools(setOf(owner), offloads = lazyOf(setOf(shortening)))
+            .execute(toolContext(TrustLevel.Full), "tool", EMPTY_ARGS)
+        val whole = DefaultAgentTools(setOf(large)).execute(toolContext(TrustLevel.Full), "tool", EMPTY_ARGS)
+
+        assertTrue(refused.isError)
+        assertTrue("${AgentToolSpec.DEFAULT_RESULT_CHARS} characters" in refused.text)
+        assertEquals("short tool ${AgentToolSpec.DEFAULT_RESULT_CHARS + 1}", offloaded.text)
+        assertEquals(owner.output, whole.text)
+    }
+
+    @Test
     fun `only exact durable authorization covers a command without changing trust`() = runTest {
         val owner = ToolOwner(AgentToolAction.Command)
         val tools = DefaultAgentTools(setOf(owner))
@@ -325,8 +343,10 @@ class DefaultAgentToolsTest {
     }
 }
 
-private class ToolOwner(action: AgentToolAction) : AgentToolContribution {
-    private val spec = AgentToolSpec("tool", "Tool", EMPTY_ARGS, action)
+private class ToolOwner(action: AgentToolAction, resultChars: Int = AgentToolSpec.DEFAULT_RESULT_CHARS) :
+    AgentToolContribution {
+    private val spec = AgentToolSpec("tool", "Tool", EMPTY_ARGS, action, resultChars)
+    var output = "done"
     var existing: AgentToolApproval? = null
     override suspend fun existingAuthorization(context: AgentToolContext, spec: AgentToolSpec, arguments: JsonObject) =
         existing
@@ -349,7 +369,7 @@ private class ToolOwner(action: AgentToolAction) : AgentToolContribution {
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
         calls++
         authorization = context.authorization
-        return AgentToolResult("done")
+        return AgentToolResult(output)
     }
     override suspend fun finishTurn(session: SessionRef, turn: TurnId) {
         finishedTurns += session to turn

@@ -35,6 +35,8 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiWrite
 import io.aequicor.heartbeat.feature.serviceasui.api.UiWriteOp
 import io.aequicor.heartbeat.feature.serviceasui.api.UiWriteOrigin
 import io.aequicor.heartbeat.feature.serviceasui.impl.data.RESULT_BYTES
+import io.aequicor.heartbeat.feature.serviceasui.impl.data.uiWebPolicyInstruction
+import io.aequicor.heartbeat.feature.serviceasui.impl.data.uiWebResourcePolicy
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiMachine
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiAuthoringKnowledge
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCard
@@ -101,7 +103,7 @@ internal class ServiceUiAgentTools(
         if (toggles.get(ServiceUiEnabled)) ServiceUiToolSpecs else emptyList()
 
     override suspend fun instructions(workspace: WorkspaceRef?): String =
-        if (toggles.get(ServiceUiEnabled)) INSTRUCTIONS else ""
+        if (toggles.get(ServiceUiEnabled)) INSTRUCTIONS + "\n" + toggles.uiWebPolicyInstruction() else ""
 
     override suspend fun instructions(scope: AgentToolScope): String {
         val declared = scope.declared
@@ -203,6 +205,7 @@ internal class ServiceUiAgentTools(
                 arguments,
                 snapshot,
                 libraryRevision = ready.library.revision,
+                resourcePolicy = toggles.uiWebResourcePolicy(),
             ),
         )
     }
@@ -239,7 +242,13 @@ internal class ServiceUiAgentTools(
             return SafetyPlan.Invalid("args are too large")
         }
         return SafetyPlan.Ready(
-            uiToolSafetyRequest(context, unreviewedApproval(spec, arguments), arguments, snapshot),
+            uiToolSafetyRequest(
+                context,
+                unreviewedApproval(spec, arguments),
+                arguments,
+                snapshot,
+                resourcePolicy = toggles.uiWebResourcePolicy(),
+            ),
             shownSurface,
         )
     }
@@ -268,7 +277,14 @@ internal class ServiceUiAgentTools(
             put("source", review.source)
         }
         return SafetyPlan.Ready(
-            uiToolSafetyRequest(context, unreviewedApproval(spec, arguments), arguments, snapshot, review.binding),
+            uiToolSafetyRequest(
+                context,
+                unreviewedApproval(spec, arguments),
+                arguments,
+                snapshot,
+                review.binding,
+                resourcePolicy = toggles.uiWebResourcePolicy(),
+            ),
         )
     }
 
@@ -666,7 +682,10 @@ internal class ServiceUiAgentTools(
                 "ui_reference(topic=mini-app-design). Load ui_reference(topic=service-as-ui) for rendering choices, " +
                 "placements and examples; it routes to focused references. " +
                 "Read ui_reference(topic=spec) for the schema; no arguments reads all bundled documents. " +
-                "Prefer native nodes; use web for custom views with host theme tokens. " +
+                "Give mini-apps a professional visual finish by default; infer a coherent direction from the product " +
+                "when no style is specified. Use native nodes for simple host forms/lists or portability; choose web " +
+                "when a custom mini-app benefits from its composition, visual hierarchy or navigation. " +
+                "For web read service-as-ui/webview and service-as-ui/visual-patterns for self-contained styling. " +
                 "Create one canonical ui_put placement=card, then ui_show(surface=id). " +
                 "Update the existing surface; the host supplies its chat entry, composer button, start view " +
                 "and modal. " +

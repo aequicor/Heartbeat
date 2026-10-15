@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentResourcePolicy
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
@@ -20,6 +21,22 @@ internal const val DESKTOP_DOCUMENT_CSP: String = "default-src 'none'; script-sr
     "style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; " +
     "frame-src 'none'; child-src 'none'; worker-src 'none'; object-src 'none'; manifest-src 'none'; " +
     "form-action 'none'; base-uri 'none'"
+
+/** Only asset directives expand; direct connections and browser capabilities retain their isolated policy. */
+private val EXTERNAL_ASSET_CSP = DESKTOP_DOCUMENT_CSP
+    .replace("script-src 'unsafe-inline'", "script-src 'unsafe-inline' https:")
+    .replace("style-src 'unsafe-inline'", "style-src 'unsafe-inline' https:")
+    .replace("img-src data: blob:", "img-src data: blob: https:")
+    .replace("media-src data: blob:", "media-src data: blob: https:")
+    .replace("font-src data:", "font-src data: https:")
+
+/** Response policy is captured by the registration and never changed underneath already executed code. */
+internal fun desktopDocumentHeaders(policy: BrowserDocumentResourcePolicy): Map<String, String> =
+    if (policy == BrowserDocumentResourcePolicy.ExternalAssets) {
+        desktopDocumentHeaders + ("Content-Security-Policy" to EXTERNAL_ASSET_CSP)
+    } else {
+        desktopDocumentHeaders
+    }
 
 /** Headers of a document response besides its type: not cached, not sniffed, no referrer, no device features. */
 internal val desktopDocumentHeaders: Map<String, String> = mapOf(
@@ -62,7 +79,7 @@ internal fun desktopDocumentDataScript(data: JsonElement?): String =
 
 private fun pageApi(data: JsonElement?, queryFunction: String?, theme: DesktopDocumentTheme?): String = """
 (() => {
-  // A page has no network, and WebRTC bypasses the content security policy: its constructors are removed.
+  // WebRTC bypasses the asset-only content policy: remove its constructors in addition to the closed proxy.
   for (const name of ['RTCPeerConnection', 'webkitRTCPeerConnection']) delete window[name];
   let data = ${data.scriptLiteral()};
   const query = ${queryFunction?.let { "window[${JsonPrimitive(it).scriptLiteral()}]" } ?: "null"};

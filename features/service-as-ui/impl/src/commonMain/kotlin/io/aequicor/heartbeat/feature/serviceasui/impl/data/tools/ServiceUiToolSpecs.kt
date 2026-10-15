@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.serviceasui.impl.data.tools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiTools
+import io.aequicor.heartbeat.feature.serviceasui.impl.data.RESULT_BYTES
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
@@ -12,11 +13,14 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 
+/** The reference and method calls are bounded by [RESULT_BYTES] of UTF-8 before JSON escaping, hence twice that. */
+private const val BOUNDED_RESULT_CHARS = 2 * RESULT_BYTES
+
 /** Interface tool declarations; mutations, display and agent calls use contribution-owned automatic review. */
 internal val ServiceUiToolSpecs: List<AgentToolSpec> = listOf(
     AgentToolSpec(
         ServiceUiTools.REFERENCE,
-        "Read built-in skills: mini-app-design for UX; service-as-ui for rendering, placements and tools. " +
+        "Read built-in skills: mini-app-design for product and visual design; service-as-ui for rendering and tools. " +
             "Select a reference topic for details, or spec for the schema. Without arguments returns all documents; " +
             "no project or harness is required.",
         schema {
@@ -26,6 +30,7 @@ internal val ServiceUiToolSpecs: List<AgentToolSpec> = listOf(
                 ServiceUiReferenceTopics,
             )
         },
+        resultChars = BOUNDED_RESULT_CHARS,
     ),
     AgentToolSpec(
         ServiceUiTools.LIST,
@@ -36,6 +41,8 @@ internal val ServiceUiToolSpecs: List<AgentToolSpec> = listOf(
         ServiceUiTools.GET,
         "One interface of the library with its spec and revision.",
         schema(listOf("id")) { text("id", "Interface id from ui_list, such as harness:<owner id>:<name>.") },
+        // A complete spec with bundled HTML must reach the agent whole; editing truncated source would corrupt it.
+        resultChars = AgentToolSpec.MAX_RESULT_CHARS,
     ),
     AgentToolSpec(
         ServiceUiTools.PUT,
@@ -115,6 +122,7 @@ internal val ServiceUiToolSpecs: List<AgentToolSpec> = listOf(
             }
         },
         AgentToolAction.Command,
+        resultChars = BOUNDED_RESULT_CHARS,
     ),
 )
 

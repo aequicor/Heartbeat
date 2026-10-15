@@ -7,12 +7,14 @@ import kotlinx.serialization.json.JsonElement
 
 /**
  * Isolated local documents of the active profile: HTML a feature shows inside its own screen through
- * [BrowserDocumentRoute], without network access and apart from the user's browser tabs.
+ * [BrowserDocumentRoute], apart from the user's browser tabs and with explicit resource policy.
  *
  * Desktop only: Android and iOS draw the route as a "not supported" note. Every document gets its own origin
  * (`https://<id>.document.heartbeat.invalid/`) in an in-memory context with no cookies or storage shared with other
- * documents or the profile's browser; a content security policy and the request handler block every request except
- * the document itself and `data:` images and fonts, as well as navigation, pop-ups, downloads and dialogs.
+ * documents or the profile's browser. The default [BrowserDocumentResourcePolicy.Isolated] blocks external assets;
+ * a trusted opener may permit bounded anonymous public HTTPS assets with
+ * [BrowserDocumentResourcePolicy.ExternalAssets].
+ * Direct connections, navigation, pop-ups, downloads and dialogs remain blocked in both modes.
  */
 public interface BrowserDocuments {
     /**
@@ -38,8 +40,26 @@ public data class BrowserDocument(
     val data: JsonElement? = null,
     val bridge: BrowserDocumentBridge? = null,
     val sizing: BrowserDocumentSizing = BrowserDocumentSizing.Fixed,
+    val resourcePolicy: BrowserDocumentResourcePolicy = BrowserDocumentResourcePolicy.Isolated,
 ) {
     override fun toString(): String = "BrowserDocument(bridge=${bridge != null})"
+}
+
+/**
+ * Trusted opener policy, captured when a document is created. External code runs with the same document data and
+ * any allowlisted owner bridge as inline code. Changing policy requires closing and reopening the document.
+ * Neither mode permits direct connections, frames, workers, navigation, local files or device access, but asset
+ * URLs under [ExternalAssets] are an outbound channel: page code can encode its data into them.
+ */
+public enum class BrowserDocumentResourcePolicy {
+    /** Self-contained HTML: only inline scripts/styles and permitted data/blob assets. */
+    Isolated,
+
+    /**
+     * Public HTTPS scripts, styles, fonts, images and media may be loaded by the host's bounded anonymous transport;
+     * hosts resolving to loopback, private, link-local or other non-public addresses are refused on every hop.
+     */
+    ExternalAssets,
 }
 
 /** How a document route uses the size its parent allows. No setting can exceed the host's layout constraints. */
@@ -132,7 +152,7 @@ public enum class BrowserDocumentPresentation {
 /** Bounds of documents and of what their pages send and receive. */
 public object BrowserDocumentLimits {
     /** UTF-8 bytes of a document's HTML. */
-    public const val HTML_BYTES: Int = 256 * 1024
+    public const val HTML_BYTES: Int = 1024 * 1024
 
     /** UTF-8 bytes of a document's data as JSON. */
     public const val DATA_BYTES: Int = 512 * 1024

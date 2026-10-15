@@ -21,6 +21,7 @@ internal class BundledUiAuthoringKnowledge : UiAuthoringKnowledge {
             UiAuthoringDocument.Layout -> "service-as-ui/references/layout.md"
             UiAuthoringDocument.ActionsData -> "service-as-ui/references/actions-data.md"
             UiAuthoringDocument.WebView -> "service-as-ui/references/webview.md"
+            UiAuthoringDocument.VisualPatterns -> "service-as-ui/references/visual-patterns.md"
             UiAuthoringDocument.Examples -> "service-as-ui/references/examples.md"
         }
         return readAuthoringDocument(resource)

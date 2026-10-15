@@ -118,7 +118,8 @@ private fun nodesReference(): String = """
   close in the modal overlay the top-end corner. `--hb-overlay-width` and `--hb-overlay-height` describe that
   occupied area in CSS pixels (zero elsewhere).
   Let your header or toolbar account for this area at its inline end without adding an empty full-width top strip.
-  The page has its own origin and no network: inline scripts and styles, `data:` images and fonts;
+  The page has its own origin. Safe Mode blocks external resources by default; inline scripts/styles and data assets work.
+  With the user's app-wide Safe Mode off, HTTP(S) script/style/font/image/media dependencies may load;
   no fetch, sockets, WebRTC, frames, workers, form submissions or links away. It reads `data` (a binding) as
   `heartbeat.data` and later values from the `heartbeat:data` event on `window` (`event.detail`). With `bridge: true`
   (library surfaces), `await heartbeat.call(method, args)` calls the owner's method with object `args` and returns
@@ -129,6 +130,8 @@ private fun nodesReference(): String = """
   `--hb-on-danger`, `--hb-success`, `--hb-on-success`; typography: `--hb-font-family`, `--hb-font-size`,
   `--hb-line-height`, `--hb-body-size`, `--hb-body-line-height`, `--hb-title-size`, `--hb-caption-size`;
   spacing: `--hb-space-xs`, `--hb-space-s`, `--hb-space-m`, `--hb-space-l`, `--hb-space-xl`, `--hb-control-height`.
+  Control shape/focus: `--hb-control-radius`, `--hb-field-radius`, `--hb-focus-width`, `--hb-focus-offset`;
+  neutral button interaction: `--hb-control-hover`, `--hb-control-pressed`.
   `heartbeat.theme` has `colorScheme` (light/dark) and `variables`; `heartbeat:theme` announces changes. CSS variables
   update without reloading the page, changing `heartbeat.data`, or granting method access. Follow host colors;
   do not infer the application theme only from prefers-color-scheme or hardcode a dark background.
@@ -182,27 +185,38 @@ Turning the owner off, switching to another context or replacing its spec revoke
 
 private fun miniAppsAndWorkflow(): String = """
 ## Mini-apps inside the conversation
-Build a full app as one owner-backed `card` surface with internal tabs, forms and history. The host supplies its
-compact chat entry, composer button, full start view and modal. Do not create duplicate `composer` or `start`
+Build a full app as one owner-backed `card` surface with the internal views and controls the task needs. The host
+supplies its compact chat entry, composer button, full start view and modal. Do not create duplicate `composer` or `start`
 surfaces for that app; existing composer/start mirrors from the same owner are hidden. A separate `context`
 surface may provide a useful summary or quick action alongside the app. Keep the chat, sidebar and input intact.
-Prefer native nodes for straightforward lists, forms and status. Use `web` with inline HTML/CSS/JS when the task
-needs a custom view, with host theme variables. Keep styles inside the document; do not create another
-sidebar inside the document. Use a host `panel` only when the task needs a non-modal workspace compatible with the
-user's constraints, such as simultaneous chat input. Declare `data` auto sources, bind `web.data` to `{{data.snapshot}}`, render
+Use native nodes for simple host forms, lists, status and portability. Choose `web` with inline HTML/CSS/JS for
+custom mini-app composition, visual hierarchy, navigation and interaction, even when native nodes could approximate it.
+Include a professional visual finish by default; infer a coherent direction from the product if no style is given.
+Host theme, scaling and overlay integration allow a custom composition and accessible theme-aware accents/artwork.
+Keep styles inside the document; do not duplicate the host's chat/navigation shell. Use a host `panel` only when
+the task needs a non-modal workspace compatible with the user's constraints, such as simultaneous chat input.
+Declare `data` auto sources, bind `web.data` to `{{data.snapshot}}`, render
 `heartbeat.data` on startup and listen for `heartbeat:data` updates. Handle missing data and rejected bridge calls.
 Buttons call approved harness `ui.method` methods; persist changed values using harness `data` before returning.
 Resume controls must keep existing records. Check the current state inside `data.update` before starting a new
 session so repeated clicks cannot reset active progress; separate starting, resuming and clearing actions.
 The host updates other drawn surfaces after a durable write, without a model turn or a page reload. Do not poll or
-read the same data after every successful call. Use inline SVG or CSS for artwork; isolated pages have no network.
+read the same data after every successful call. Use inline SVG/CSS for artwork or assets allowed by Safe Mode.
+External scripts can read page data and use its allowed bridge; asset requests can transmit data. Automatic review
+does not certify third-party code. Changing Safe Mode reloads mini-apps (unsaved inputs may reset) and cancels previews.
 
 ## Built-in authoring skills
 Read `ui_reference(topic="mini-app-design")` for task flows, durable behavior, native platform fit and design.
 Read `ui_reference(topic="service-as-ui")` for rendering choices, extension points and tool workflows; it links
-focused layout, actions/data, WebView and example references. Both skills ship with Heartbeat and are available
-without a project or an attached harness. `ui_reference(topic="spec")` returns this technical reference alone;
+focused layout, actions/data, WebView, visual-patterns and example references. Both skills ship with Heartbeat and
+are available without a project or an attached harness. `ui_reference(topic="spec")` returns this technical reference alone;
 calling without arguments returns all bundled documents for sessions with an older tool schema.
+
+When exposed, `ui_preview(html,data?,width?,height?,theme?,fontScale?,includeScreenshot?)` checks an unsaved WebView
+draft with sample data in the same isolated renderer as editor web previews. It has no owner bridge or persistence.
+HTML remains limited to ${UiSpecLimits.HTML_BYTES} UTF-8 bytes. Default output is text diagnostics; request a PNG
+with `includeScreenshot:true` only for image-capable models. Text diagnostics cannot verify visual/aesthetic quality.
+It does not render native JSON or verify owner save/reopen behavior; see `service-as-ui/webview` for exact bounds.
 
 ## Workflow
 1. Publish the methods in a harness script item: `ui.method(ItemName("prs"), "Open pull requests") { call ->

@@ -12,5 +12,6 @@ internal enum class UiAuthoringDocument(val topic: String) {
     Layout("service-as-ui/layout"),
     ActionsData("service-as-ui/actions-data"),
     WebView("service-as-ui/webview"),
+    VisualPatterns("service-as-ui/visual-patterns"),
     Examples("service-as-ui/examples"),
 }

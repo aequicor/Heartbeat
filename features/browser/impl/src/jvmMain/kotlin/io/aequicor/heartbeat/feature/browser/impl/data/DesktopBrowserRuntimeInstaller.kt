@@ -83,6 +83,42 @@ internal class DesktopBrowserRuntimeInstaller(
         }
     }
 
+    /**
+     * True when [prepare] would download the pinned runtime: it is neither prepared, bundled on the classpath nor
+     * in the verified cache. Callers without download progress UI use this to refuse instead of downloading.
+     * It never waits for a running preparation (also reported as true), and a verified cache is remembered, so the
+     * following [prepare] does not hash it again.
+     */
+    suspend fun requiresDownload(releaseTag: String, platform: String): Boolean = withContext(dispatchers.io) {
+        val lock = BrowserRuntimeLock.read(metadata(), releaseTag, platform)
+        if (!mutex.tryLock()) return@withContext true
+        try {
+            when {
+                prepared?.first == lock -> false
+                bundledArchive(lock.archive)?.use { true } == true -> false
+                else -> rememberVerifiedCache(lock) == null
+            }
+        } finally {
+            mutex.unlock()
+        }
+    }
+
+    private suspend fun rememberVerifiedCache(lock: BrowserRuntimeLock): Path? {
+        val directory = root.resolve(lock.version).resolve("${lock.platform}-${lock.sha256}")
+        if (!Files.isDirectory(directory, NOFOLLOW_LINKS)) return null
+        val installed = try {
+            BrowserRuntimeCache(directory, lock).installed()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(error.redactedFailure()) { "Browser component cache is not usable without a new installation" }
+            null
+        } ?: return null
+        prepared = lock to installed
+        mutablePreparation.value = BrowserRuntimePreparation.Ready
+        return installed
+    }
+
     private suspend fun install(lock: BrowserRuntimeLock): Path {
         val directory = root.resolve(lock.version).resolve("${lock.platform}-${lock.sha256}")
         Files.createDirectories(directory)

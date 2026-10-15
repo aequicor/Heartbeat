@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store
 import io.aequicor.heartbeat.feature.browser.api.BrowserBridgeResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocument
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentHandle
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentResourcePolicy
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentRoute
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentSizing
 import io.aequicor.heartbeat.feature.serviceasui.api.UiCallContext
@@ -13,6 +14,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiMethods
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwner
 import io.aequicor.heartbeat.feature.serviceasui.impl.data.UnsupportedUiPlatform
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiMethodCalls
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiWebConfiguration
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiWebDocuments
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpecDecoding
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.decodeUiSpec
@@ -26,6 +28,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -68,6 +71,27 @@ class SurfaceWebDocumentsTest {
         runCurrent()
         assertTrue(body.isClosed)
         assertTrue(fixture.model.webDocuments.value.isEmpty())
+    }
+
+    @Test
+    fun `policy changes replace active documents with latest data and revoke old handles`() = runTest {
+        val fixture = Fixture(this, enabled = true)
+        val screen = subscribe(fixture.model.store)
+        val isolated = fixture.web.opened.single()
+        assertEquals(BrowserDocumentResourcePolicy.Isolated, isolated.document.resourcePolicy)
+        screen.intent(SurfaceIntent.Press(button(screen).press))
+        runCurrent()
+        fixture.web.policy.value = BrowserDocumentResourcePolicy.ExternalAssets
+        runCurrent()
+        val external = fixture.web.opened.last()
+        assertTrue(isolated.isClosed)
+        assertEquals(JsonPrimitive(2), external.document.data)
+        assertEquals(BrowserDocumentResourcePolicy.ExternalAssets, external.document.resourcePolicy)
+        fixture.web.policy.value = BrowserDocumentResourcePolicy.Isolated
+        runCurrent()
+        assertTrue(external.isClosed)
+        assertEquals(BrowserDocumentResourcePolicy.Isolated, fixture.web.opened.last().document.resourcePolicy)
+        assertEquals(3, fixture.web.opened.size)
     }
 
     @Test
@@ -212,7 +236,7 @@ class SurfaceWebDocumentsTest {
         val web = FakeWeb(true)
         val documents = SurfaceWebDocuments(web, bridge = null, title = "App")
         val content = UiNodeUi.Web("app", "<p>App</p>", hasBridge = true, JsonNull, WebHeightUi.Content)
-        documents.enable(true)
+        documents.configure(UiWebConfiguration(isEnabled = true))
         documents.show(SurfaceState(root = content))
         val first = web.opened.single()
         assertEquals(BrowserDocumentSizing.Content, first.document.sizing)
@@ -271,7 +295,8 @@ class SurfaceWebDocumentsTest {
         val opened = mutableListOf<Handle>()
         var refuse = false
         var requests = 0
-        override val availability: Flow<Boolean> = this.enabled
+        val policy = MutableStateFlow(BrowserDocumentResourcePolicy.Isolated)
+        override val configuration: Flow<UiWebConfiguration> = combine(this.enabled, policy, ::UiWebConfiguration)
 
         override fun open(document: BrowserDocument): BrowserDocumentHandle? {
             requests++

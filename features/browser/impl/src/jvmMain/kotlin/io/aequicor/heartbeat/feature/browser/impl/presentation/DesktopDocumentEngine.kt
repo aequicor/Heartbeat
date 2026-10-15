@@ -4,12 +4,14 @@ import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentSizing
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserDocumentAssets
 import io.aequicor.heartbeat.feature.browser.impl.domain.OpenBrowserDocument
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import org.cef.CefApp
 import org.cef.CefRequestContextSettings
 import org.cef.CefSettings
@@ -24,6 +26,7 @@ import org.cef.handler.CefLoadHandlerAdapter
 import org.cef.network.CefRequest
 import java.awt.Component
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.JComponent
 import javax.swing.SwingUtilities
 
@@ -43,21 +46,28 @@ internal class DesktopDocumentEngine(
     private val isReleased: () -> Boolean,
     private val unavailable: () -> Unit,
     private val presentation: DesktopDocumentPresentation = DesktopDocumentPresentation(),
+    assets: BrowserDocumentAssets = BrowserDocumentAssets.None,
 ) {
     private val log = Log.tag("DesktopDocumentEngine")
     private val url = desktopDocumentUrl(document.id)
     private val isClosed = AtomicBoolean(false)
     private val closed = CompletableDeferred<Unit>()
+    private val loaded = CompletableDeferred<Unit>()
+    private val devToolsCalls = DesktopBrowserDevToolsCalls(log)
+    private val scriptErrors = AtomicInteger()
     private val isCreationRequested = AtomicBoolean(false)
     private val isNativeCreated = AtomicBoolean(false)
     private val isCloseIssued = AtomicBoolean(false)
     private val isBootstrap = AtomicBoolean(true)
+    private val assets = DesktopDocumentAssets(assets, callsScope, callsDispatcher)
     private val policy = DesktopDocumentPolicy(
         url = url,
         page = ::page,
         isReleased = { isClosed.get() || isReleased() },
         isBootstrap = isBootstrap::get,
         unavailable = { onSwing(::fail) },
+        resourcePolicy = document.document.resourcePolicy,
+        asset = this.assets::response,
     )
     private val client = app.createClient()
     private val context = try {
@@ -130,7 +140,10 @@ internal class DesktopDocumentEngine(
                         message: String,
                         source: String,
                         line: Int,
-                    ): Boolean = true
+                    ): Boolean {
+                        if (level == CefSettings.LogSeverity.LOGSEVERITY_ERROR) scriptErrors.incrementAndGet()
+                        return true
+                    }
                 },
             )
             installDesktopBrowserRestrictions(client)
@@ -190,6 +203,9 @@ internal class DesktopDocumentEngine(
         check(SwingUtilities.isEventDispatchThread())
         closeNativeClipping()
         if (!isClosed.compareAndSet(false, true)) return
+        loaded.completeExceptionally(IllegalStateException("Document is closed"))
+        devToolsCalls.failAll()
+        assets.close()
         presentation.measurements.close()
         if (!isCreationRequested.get()) {
             // Creation was never queued, so no native callback can race.
@@ -202,6 +218,18 @@ internal class DesktopDocumentEngine(
     }
 
     suspend fun awaitClosed() = closed.await()
+
+    /** Waits for this isolated document, never its initial blank page; closure and native failure fail the wait. */
+    suspend fun awaitLoaded() = loaded.await()
+
+    /** Internal fixed preview inspections use CDP; the document and public service receive no evaluation API. */
+    suspend fun previewCommand(method: String, arguments: JsonObject): String = devToolsCalls.call(
+        post = { if (SwingUtilities.isEventDispatchThread()) it() else SwingUtilities.invokeLater(it) },
+        isClosed = { isClosed.get() || isReleased() },
+    ) { browser.devToolsClient?.executeDevToolsMethod(method, arguments.toString()) }
+
+    /** Counts console errors without retaining or logging their potentially private messages. */
+    val scriptErrorCount: Int get() = scriptErrors.get()
 
     /** The page with the data of this moment: the API comes first, so the page's own scripts already read it. */
     private fun page(): ByteArray {
@@ -220,6 +248,9 @@ internal class DesktopDocumentEngine(
     }
 
     private fun fail() {
+        loaded.completeExceptionally(IllegalStateException("Document is unavailable"))
+        devToolsCalls.failAll()
+        assets.close()
         if (isReleased()) return
         unavailable()
     }
@@ -251,6 +282,7 @@ internal class DesktopDocumentEngine(
     }
 
     private fun dispose() {
+        assets.close()
         router?.close()
         layoutRouter?.close()
         client.dispose()
@@ -312,6 +344,9 @@ internal class DesktopDocumentEngine(
 
         override fun onBeforeClose(browser: CefBrowser) {
             isClosed.set(true)
+            loaded.completeExceptionally(IllegalStateException("Document is closed"))
+            devToolsCalls.failAll()
+            assets.close()
             SwingUtilities.invokeLater(::closeNativeClipping)
         }
 
@@ -356,6 +391,7 @@ internal class DesktopDocumentEngine(
                     // The new page holds what it was served with; data that changed since then is sent now.
                     delivered = served
                     isLoaded = true
+                    loaded.complete(Unit)
                     requestNativeClipping(isDocumentLoaded = true)
                     deliver(document.data.value)
                 }

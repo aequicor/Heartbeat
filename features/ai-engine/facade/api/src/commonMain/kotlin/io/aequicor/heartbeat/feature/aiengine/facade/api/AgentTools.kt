@@ -7,13 +7,34 @@ import kotlinx.serialization.json.JsonObject
 /** Side-effect category used by the single Heartbeat trust gate. */
 public enum class AgentToolAction { Read, Edit, Command }
 
-/** A hosted tool declaration. Schemas contain no credentials or execution identity. */
+/**
+ * A hosted tool declaration. Schemas contain no credentials or execution identity.
+ *
+ * [resultChars] bounds the text a dispatched result may put into the model context after any offload; a longer
+ * result is replaced by an explicit error, never truncated. Adapter-operated tools, whose output the native engine
+ * produces, are not bounded here. Only tools that must return complete source or bound their own output raise it,
+ * up to [MAX_RESULT_CHARS].
+ */
 public data class AgentToolSpec(
     val name: String,
     val description: String,
     val inputSchema: JsonObject,
     val action: AgentToolAction = AgentToolAction.Read,
-)
+    val resultChars: Int = DEFAULT_RESULT_CHARS,
+) {
+    init {
+        require(resultChars in 1..MAX_RESULT_CHARS) { "Tool result budget is out of range" }
+    }
+
+    /** Result budgets shared by every contribution. */
+    public companion object {
+        /** Context-sized default shared by every engine. */
+        public const val DEFAULT_RESULT_CHARS: Int = 128 * 1024
+
+        /** Upper bound of a single result; also the hosted bridge transport budget. */
+        public const val MAX_RESULT_CHARS: Int = 4 * 1024 * 1024
+    }
+}
 
 /** Safe presentation of the action awaiting a user decision; never logged by the dispatcher. */
 public data class AgentToolApproval(

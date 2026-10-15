@@ -1,6 +1,8 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentResourcePolicy
+import io.aequicor.heartbeat.feature.searchengine.api.isPublicWebUrl
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
 import org.cef.callback.CefCallback
@@ -21,7 +23,8 @@ import org.cef.network.CefResponse
 /**
  * Native gate of one document browser: only its own address [url] loads, as the main frame's navigation, answered
  * from memory by [page] (read on every load, so a reload shows the current data); every other navigation, frame,
- * resource, redirect, link opening a tab, download and external protocol is refused before any IO. Pop-ups, dialogs
+ * resource, redirect, link opening a tab, download and external protocol is refused before any IO by default.
+ * [resourcePolicy] may admit only bounded host-fetched assets. Pop-ups, dialogs
  * and the remaining native UI are refused by the runtime's life span handler and `installDesktopBrowserRestrictions`.
  * While [isBootstrap], the new browser may show its own blank page until the runtime has configured its context.
  * [unavailable] reports a renderer that terminated while the document was shown.
@@ -32,6 +35,8 @@ internal class DesktopDocumentPolicy(
     private val isReleased: () -> Boolean,
     isBootstrap: () -> Boolean,
     unavailable: () -> Unit,
+    private val resourcePolicy: BrowserDocumentResourcePolicy = BrowserDocumentResourcePolicy.Isolated,
+    private val asset: ((String) -> CefResourceHandler)? = null,
 ) {
     private val log = Log.tag("DesktopDocumentPolicy")
 
@@ -94,7 +99,7 @@ internal class DesktopDocumentPolicy(
         // Default getAuthCredentials and onCertificateError reject; the document origin never reaches the network.
     }
 
-    /** Nothing falls back to default (network) handling: the document is answered here, the rest is cancelled. */
+    /** Default Chromium network handling is always disabled, including for admitted host-fetched assets. */
     private fun resources(
         request: CefRequest,
         isNavigation: Boolean,
@@ -110,7 +115,23 @@ internal class DesktopDocumentPolicy(
             isMainFrame,
             isDownload,
         )
-        return if (isDocument) Document() else Refused
+        return when {
+            isDocument -> Document()
+
+            !isReleased() && asset != null && allowsDesktopDocumentAsset(
+                resourcePolicy,
+                DesktopDocumentAssetRequest(
+                    request.url,
+                    request.method,
+                    request.resourceType,
+                    isNavigation,
+                    isMainFrame,
+                    isDownload,
+                ),
+            ) -> ExternalAsset()
+
+            else -> Refused
+        }
     }
 
     private inner class Document : CefResourceRequestHandlerAdapter() {
@@ -118,7 +139,7 @@ internal class DesktopDocumentPolicy(
             browser: CefBrowser?,
             frame: CefFrame?,
             request: CefRequest,
-        ): CefResourceHandler = DesktopDocumentResponse(page())
+        ): CefResourceHandler = DesktopDocumentResponse(page(), resourcePolicy)
 
         override fun onResourceRedirect(
             browser: CefBrowser?,
@@ -127,6 +148,32 @@ internal class DesktopDocumentPolicy(
             response: CefResponse,
             newUrl: StringRef,
         ) = newUrl.set("")
+
+        override fun onProtocolExecution(
+            browser: CefBrowser?,
+            frame: CefFrame?,
+            request: CefRequest,
+            allowOsExecution: BoolRef,
+        ) = allowOsExecution.set(false)
+    }
+
+    /** A permitted subresource is always served by the host; default Chromium network handling remains disabled. */
+    private inner class ExternalAsset : CefResourceRequestHandlerAdapter() {
+        override fun getResourceHandler(
+            browser: CefBrowser?,
+            frame: CefFrame?,
+            request: CefRequest,
+        ): CefResourceHandler? = if (isReleased()) null else asset?.invoke(request.url)
+
+        override fun onResourceRedirect(
+            browser: CefBrowser?,
+            frame: CefFrame?,
+            request: CefRequest,
+            response: CefResponse,
+            newUrl: StringRef,
+        ) {
+            if (isReleased() || !isPotentialDocumentAssetUrl(newUrl.get())) newUrl.set("")
+        }
 
         override fun onProtocolExecution(
             browser: CefBrowser?,
@@ -176,7 +223,10 @@ internal fun isDesktopDocumentRequest(
  * byte order mark, which decides the encoding before any header or `<meta>`. Serves both the current
  * (`open`/`read`) and the legacy (`processRequest`/`readResponse`) handler protocol on CEF's IO thread.
  */
-internal class DesktopDocumentResponse(private val body: ByteArray) : CefResourceHandlerAdapter() {
+internal class DesktopDocumentResponse(
+    private val body: ByteArray,
+    private val resourcePolicy: BrowserDocumentResourcePolicy = BrowserDocumentResourcePolicy.Isolated,
+) : CefResourceHandlerAdapter() {
     private var offset = 0
 
     override fun open(request: CefRequest, handleRequest: BoolRef, callback: CefCallback): Boolean {
@@ -193,7 +243,7 @@ internal class DesktopDocumentResponse(private val body: ByteArray) : CefResourc
         response.status = HTTP_OK
         response.statusText = "OK"
         response.mimeType = "text/html"
-        response.setHeaderMap(desktopDocumentHeaders + ("Content-Type" to "text/html; charset=utf-8"))
+        response.setHeaderMap(desktopDocumentHeaders(resourcePolicy) + ("Content-Type" to "text/html; charset=utf-8"))
         responseLength.set(body.size)
     }
 
@@ -224,3 +274,41 @@ internal class DesktopDocumentResponse(private val body: ByteArray) : CefResourc
 /** Bytes of a document response: a UTF-8 byte order mark, then [html] without its own mark. */
 internal fun desktopDocumentBody(html: String): ByteArray =
     byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()) + html.removePrefix("﻿").encodeToByteArray()
+
+/** Native admission captures method, type and frame context; the host transport revalidates the full URL before IO. */
+internal fun allowsDesktopDocumentAsset(
+    policy: BrowserDocumentResourcePolicy,
+    request: DesktopDocumentAssetRequest,
+): Boolean = policy == BrowserDocumentResourcePolicy.ExternalAssets && request.isAsset &&
+    request.method == "GET" && request.type in DOCUMENT_ASSET_TYPES && isPotentialDocumentAssetUrl(request.url)
+
+internal data class DesktopDocumentAssetRequest(
+    val url: String?,
+    val method: String?,
+    val type: CefRequest.ResourceType?,
+    val isNavigation: Boolean,
+    val isMainFrame: Boolean?,
+    val isDownload: Boolean,
+) {
+    val isAsset: Boolean get() = !isNavigation && isMainFrame == true && !isDownload
+}
+
+/**
+ * Conservative transport-independent admission of public HTTPS hosts; the anonymous loader also parses, resolves and
+ * validates every hop.
+ */
+private fun isPotentialDocumentAssetUrl(url: String?): Boolean {
+    if (url == null || url.any { it <= ' ' || it == '\\' }) return false
+    if (!url.startsWith("https://", true) || !isPublicWebUrl(url)) return false
+    val authority = url.substringAfter("://").takeWhile { it != '/' && it != '?' && it != '#' }
+    val host = authority.substringBefore(':').trimEnd('.')
+    return authority.isNotEmpty() && '@' !in authority && !host.endsWith(".invalid", true)
+}
+
+private val DOCUMENT_ASSET_TYPES = setOf(
+    CefRequest.ResourceType.RT_STYLESHEET,
+    CefRequest.ResourceType.RT_SCRIPT,
+    CefRequest.ResourceType.RT_IMAGE,
+    CefRequest.ResourceType.RT_FONT_RESOURCE,
+    CefRequest.ResourceType.RT_MEDIA,
+)

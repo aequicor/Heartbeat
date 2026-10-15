@@ -1,6 +1,6 @@
 # Isolated WebView surfaces
 
-Load with `ui_reference(topic="service-as-ui/webview")`. Use this mode for custom layouts and interactions on Desktop. The native JSON layout remains the portable option.
+Load with `ui_reference(topic="service-as-ui/webview")`. Use this mode for custom mini-app composition, visual hierarchy, navigation and interaction on Desktop, not only for features impossible in native nodes. The native JSON layout remains useful for simple host UI and portability. `mini-app-design` guides the visual direction; the mechanics below support it.
 
 ## Node and access
 
@@ -8,7 +8,23 @@ A `web` node contains `html`, optional `bridge` (default false), optional `data`
 
 Owner-backed library surfaces may use WebView in their body or a modal, including `card` and `composer` placements. Anonymous specs may include it only inside a modal and never with a bridge. Editor previews do not execute the owner bridge. Desktop and enabled web documents are required; otherwise the host shows an unavailable note.
 
-A document has an isolated origin, in-memory browser context and no network. Keep CSS, JavaScript and artwork self-contained. Inline styles/scripts and `data:` images/fonts are available. No fetch, sockets, WebRTC, external assets/CDNs, frames, workers, form submissions, popups or navigation away. A local HTML form may handle its submit event with `preventDefault()` and call the owner bridge. Use inline SVG/CSS or embedded image data for illustration. Do not put credentials into HTML. Service IO belongs in authorized owner methods, not in the browser page.
+A document has an isolated origin and in-memory browser context. **Safe Mode is on by default** (`service_ui.web_safe_mode`, in the existing settings toggle panel, shared by all profiles). It blocks external resources; inline CSS/JavaScript/SVG/canvas and `data:` images/fonts work. No framework or icon library is preinstalled, so class names without CSS do nothing.
+
+When the user disables Safe Mode, public HTTPS scripts, stylesheets, fonts, images and media may load, including CDN dependencies. Plain HTTP and hosts on the local network (localhost, private, link-local addresses) are refused. Use versioned production builds and the actual required CSS; evaluate loading failures and test with `ui_preview`. External scripts run in the page: they can read its data and call the owner methods allowed to its existing bridge. Asset requests can transmit data. Automatic review examines the supplied code and URLs; it does not fetch, audit or guarantee the safety of third-party code. The owner-method allowlist is unchanged.
+
+Both modes block fetch/XHR, sockets, WebRTC, frames, workers, form submissions, navigation away, popups and arbitrary local files. A local form can handle `submit` with `preventDefault()` and use an authorized owner method. Do not place credentials in HTML. Service IO belongs in owner methods. The agent cannot choose the policy in HTML, JSON or tool arguments. Changing the setting recreates active mini-app documents and cancels previews; unsaved input may reset. Editor, live app and `ui_preview` use the same effective setting.
+
+The complete HTML string, including inline code, CSS, fonts and embedded assets, fits **1 MiB UTF-8**; the complete JSON spec fits **2 MiB**, and the profile library holds up to **16 MiB**. These resource bounds are independent of Safe Mode. Account for JSON escaping and actual compiled sizes; model context and automatic-review capacity may limit very large bundles earlier. Vanilla code can deliver a professional design. Host tokens and basic controls provide a foundation; choose composition and hierarchy for the product. The [visual patterns](visual-patterns.md) topic supplies a self-contained interaction recipe.
+
+## Preview a draft before saving
+
+When exposed, `ui_preview` renders a supplied `html` string with the same WebView page/bootstrap, theme tokens and resource policy used by editor web previews. It requires Desktop with interface web documents enabled, but no project, library surface or owner. It creates a disposable document, returns bounded layout diagnostics, and changes no saved app or owner data. With Safe Mode off, automatic safety review must allow the exact draft and current policy before any resource loads; refusal returns to the agent without a manual approval flow.
+
+Arguments: `html` (required, at most 1 MiB), optional `data` (sample JSON supplied directly as `heartbeat.data`), `width` (320–1600 CSS px, default 900), `height` (240–1200 CSS px, default 640), `theme` (`light` or `dark`, default light), `fontScale` (0.8–2, default 1), and `includeScreenshot` (default false). Data is limited to 512 KiB and nesting depth 64. No URL, owner, bridge, native JSON spec or arbitrary evaluation command is accepted.
+
+The default result is text-only so text-only models can use it. Set `includeScreenshot:true` only when the current model accepts image tool results; the response then includes its PNG directly. Inspect that image rather than declaring success from an empty issue list. Geometry and DOM diagnostics are useful evidence about specific defects, **not visual or aesthetic approval**. The report identifies the effective resource policy, theme/text scale, image inclusion, actual viewport/content bounds, HTML bytes and any truncated diagnostic list. Up to 20 visible element samples include bounding rectangles, font family/size/line height and computed text/background colors without field values or page text; compare these to diagnose alignment and typography even on a text-only model. These bounded samples are not the complete DOM or a contrast audit.
+
+Use realistic empty/populated/long sample data, rerender at narrow and wide widths, then check dark theme and increased text scale. The screenshot is the requested viewport, not a full-page or host-window capture. Each call starts a fresh document: preview does not click through flows, keep drafts between calls, load owner snapshots, grant `heartbeat.call`, simulate saving, or verify the complete host shell/overlay. Prepare a draft/sample state for the view being inspected and use the live app for save/reopen checks. If rendering is unavailable or the model cannot inspect images, report that gap instead of claiming visual verification.
 
 ## Bridge and lifecycle
 
@@ -30,7 +46,7 @@ The canonical mini-app Start surface and modal with `web` as their root are edge
 
 ## Host theme tokens
 
-The host supplies a system-sans body and inherited form fonts. Use semantic tokens so light/dark theme changes work without reloading.
+The host supplies a system-sans body, inherited form fonts and basic control styling. Use semantic tokens so light/dark theme changes work without reloading. These defaults provide a foundation; they do not choose the app's composition, hierarchy or visual identity. Theme-aware custom accents, artwork and an intentional type hierarchy are supported when their contrast and scaling remain usable.
 
 | Role | CSS variables |
 |---|---|
@@ -39,6 +55,7 @@ The host supplies a system-sans body and inherited form fonts. Use semantic toke
 | Feedback | `--hb-danger`, `--hb-on-danger`, `--hb-success`, `--hb-on-success` |
 | Typography | `--hb-font-family`, `--hb-font-size`, `--hb-line-height`, `--hb-body-size`, `--hb-body-line-height`, `--hb-title-size`, `--hb-caption-size` |
 | Spacing and control size | `--hb-space-xs`, `--hb-space-s`, `--hb-space-m`, `--hb-space-l`, `--hb-space-xl`, `--hb-control-height` |
+| Control shape, focus and interaction | `--hb-control-radius`, `--hb-field-radius`, `--hb-focus-width`, `--hb-focus-offset`, `--hb-control-hover`, `--hb-control-pressed` |
 | Start expand / modal close overlay | `--hb-overlay-width`, `--hb-overlay-height` |
 
 `heartbeat.theme` contains `colorScheme` (`light` or `dark`) and `variables`. Listen to `heartbeat:theme` if a canvas or other non-CSS view needs a repaint. The CSS variables update directly; do not infer the app theme only from `prefers-color-scheme`. Theme changes neither change data nor grant method access.
@@ -59,6 +76,7 @@ This standalone chart example uses `{values:number[]}` as its illustrative `hear
 ```html
 <!doctype html>
 <html lang="en">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 body { margin: 0; color: var(--hb-text); background: var(--hb-surface); }
@@ -144,6 +162,7 @@ This HTML is the value of a `web.html` field, JSON-encoded as a string. Pair it 
 ```html
 <!doctype html>
 <html lang="en">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 * { box-sizing: border-box; }
@@ -157,13 +176,13 @@ header {
 h1 { font-size: var(--hb-title-size); margin: 0 0 var(--hb-space-m); }
 label { display: block; margin-block-end: var(--hb-space-xs); }
 textarea {
-  width: 100%; padding: var(--hb-space-s); border-radius: 8px;
+  width: 100%; padding: var(--hb-space-s); border-radius: var(--hb-field-radius);
   border: 1px solid var(--hb-border); color: var(--hb-text);
   background: var(--hb-input); resize: vertical;
 }
 button {
   min-height: var(--hb-control-height); padding-inline: var(--hb-space-m);
-  border: 0; border-radius: 8px; background: var(--hb-accent);
+  border: 0; border-radius: var(--hb-control-radius); background: var(--hb-accent);
   color: var(--hb-on-accent); cursor: pointer;
 }
 button:disabled { opacity: .6; cursor: default; }

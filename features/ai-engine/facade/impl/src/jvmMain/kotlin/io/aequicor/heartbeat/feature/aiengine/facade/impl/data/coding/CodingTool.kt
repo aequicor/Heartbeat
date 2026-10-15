@@ -45,6 +45,8 @@ internal data class ToolDescriptor(
             put("additionalProperties", false)
         },
         action,
+        // Every coding tool bounds its own output (lines, entries, matches, command head/tail).
+        resultChars = AgentToolSpec.MAX_RESULT_CHARS,
     )
 }
 

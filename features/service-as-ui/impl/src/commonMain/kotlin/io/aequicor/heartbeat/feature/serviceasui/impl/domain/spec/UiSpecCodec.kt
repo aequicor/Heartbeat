@@ -43,7 +43,7 @@ internal object UiSpecLimits {
     const val STATE_BYTES: Int = 16 * 1024
 
     /** UTF-8 bytes of the HTML of a web node. */
-    const val HTML_BYTES: Int = 48 * 1024
+    const val HTML_BYTES: Int = 1024 * 1024
 
     /** Elements of a list or rows of a table drawn; the rest are counted. */
     const val LIST_ITEMS: Int = 200

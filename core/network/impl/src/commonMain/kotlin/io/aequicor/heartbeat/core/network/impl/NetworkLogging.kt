@@ -1,12 +1,14 @@
 package io.aequicor.heartbeat.core.network.impl
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.network.SensitiveNetworkRequest
 import io.aequicor.heartbeat.core.network.impl.release.ReleaseRequest
 import io.ktor.client.plugins.api.Send
 import io.ktor.client.plugins.api.createClientPlugin
 import io.ktor.http.Headers
 import io.ktor.http.Url
 import io.ktor.http.isSuccess
+import io.ktor.util.Attributes
 import kotlinx.coroutines.CancellationException
 import kotlin.time.TimeSource
 
@@ -26,8 +28,9 @@ internal val NetworkLogging = createClientPlugin("NetworkLogging") {
     on(Send) { request ->
         if (request.attributes.contains(ReleaseRequest)) return@on proceed(request)
         val method = request.method.value
-        val url = request.url.build().forLog()
-        log.d { "--> $method $url headers: ${request.headers.build().forLog()}" }
+        val isSensitive = request.attributes.contains(SensitiveNetworkRequest)
+        val url = request.url.build().forLog(request.attributes)
+        log.d { "--> $method $url headers: ${if (isSensitive) "***" else request.headers.build().forLog()}" }
         val started = TimeSource.Monotonic.markNow()
         var isCompleted = false
         try {
@@ -40,7 +43,7 @@ internal val NetworkLogging = createClientPlugin("NetworkLogging") {
             } else {
                 log.w { "$method $url -> ${status.value} ($ms ms)" }
             }
-            log.d { "<-- $method $url headers: ${call.response.headers.forLog()}" }
+            log.d { "<-- $method $url headers: ${if (isSensitive) "***" else call.response.headers.forLog()}" }
             call
         } catch (e: CancellationException) {
             throw e
@@ -56,6 +59,10 @@ internal val NetworkLogging = createClientPlugin("NetworkLogging") {
         }
     }
 }
+
+/** Sensitive requests hide every URL component, including host, path and query names. */
+internal fun Url.forLog(attributes: Attributes): String =
+    if (attributes.contains(SensitiveNetworkRequest)) "***" else forLog()
 
 /** `https://host:port/path?q=***`: query values may carry user data. */
 internal fun Url.forLog(): String = buildString {

@@ -22,6 +22,7 @@ description: "Интерфейсы агента Heartbeat (features:service-as-u
 | Вычисление спеки и стор поверхности | `impl/presentation` (`UiEvaluator`, `UiValues`, `store/SurfaceModel`, `store/SurfaceWebDocuments`) |
 | Места (слот/панель/модалка), карточки, библиотека, редактор | `impl/presentation/{place,card,library,editor}`, компоненты `presentation/component`, экраны `impl/ui` |
 | Инструменты `ui_reference/list/get/put/delete/show/call` | `impl/data/tools` |
+| Read-only `ui_preview` HTML-черновика: изображение и диагностика без владельца/библиотеки | `impl/data/tools/ServiceUiPreviewTools`; рендер через `browser:api` `BrowserDocumentPreviews` |
 | Встроенные runtime-скиллы `mini-app-design` и `service-as-ui` | `impl/src/commonMain/composeResources/files/skills/`; загрузка и темы справочника — `data/tools/ServiceUiReference.kt`, `domain/UiAuthoringKnowledge.kt` |
 | Файлы и даты платформы | `domain/UiPlatform`; `DesktopUiPlatform` (jvm), `MobileUiPlatform` (Android/iOS) |
 | Web-документы | `domain/UiWebDocuments` → `data/BrowserUiWebDocuments` (`browser:api` `BrowserDocuments`); хосты `presentation/component/WebDocumentHosts` |
@@ -33,13 +34,31 @@ description: "Интерфейсы агента Heartbeat (features:service-as-u
 - Скиллы `mini-app-design` и `service-as-ui` поставляются английскими ресурсами вместе с приложением и доступны
   без проекта или подключённого харнесса через `ui_reference`, когда включены интерфейсы. `topic="spec"` возвращает
   техническую спецификацию; имена скиллов — их `SKILL.md`. Темы `service-as-ui/layout`, `service-as-ui/actions-data`,
-  `service-as-ui/webview`, `service-as-ui/examples` читают соответствующие ссылки по необходимости. Без аргументов
+  `service-as-ui/webview`, `service-as-ui/visual-patterns`, `service-as-ui/examples` читают соответствующие ссылки по необходимости. Без аргументов
   возвращаются все документы для старых схем инструмента. Допустимые темы замкнуты, произвольные пути не читаются.
   Инструкции меняй в ресурсах, не дублируй их в Kotlin и проектных навыках разработки. Runtime-скиллы описывают
   доступные агенту инструменты, не требуют проекта, исходников или локальной установки навыков.
 - Наружу уходит только исходный JSON спеки (`UiSurfaceContent.spec`); модель спеки — внутренняя `impl`. Агентский JSON
   перед kotlinx проверяется на вложенность по сырому тексту (`UiSpecLimits.JSON_DEPTH`): `parseToJsonElement`
   рекурсивен и падает на глубоком вводе.
+- `ui_preview` — отдельная read-only контрибуция без библиотечной машины, методов владельца и записи данных. Доступен
+  только на Desktop при `service_ui.enabled` + `service_ui.web`; декларация, инструкции и исполнение повторяют гейты.
+  Принимает только HTML (лимит `UiSpecLimits.HTML_BYTES`, 1 МиБ), пример данных и ограниченные параметры viewport/темы/масштаба.
+  `BrowserDocumentPreviews` использует тот же WebView renderer, что и web-превью редактора, без bridge.
+  По умолчанию возвращается текстовый отчёт; PNG — только при явном `includeScreenshot:true` для модели с image input.
+  Диагностика не подтверждает эстетику, нативные узлы, работу владельца, сохранение или полный shell мини-аппы.
+- Safe Mode (`service_ui.web_safe_mode`, default true) зарегистрирован в общей панели тоглов и сохраняется app-wide.
+  `UiWebConfiguration` объединяет доступность и `BrowserDocumentResourcePolicy`; `SurfaceWebDocuments` пересоздаёт
+  страницы при смене политики, preview отменяется при смене политики/доступности. Off разрешает внешние ресурсы
+  (только публичные HTTPS-хосты: loopback/private/link-local отклоняются на каждом hop после DNS-резолва),
+  но не расширяет allowlist владельца; внешние скрипты видят данные и уже доступный bridge, запросы могут отправлять данные.
+  Preview с внешними ресурсами требует автоматического ревью; политика входит в binding всех ревью операций UI.
+  `ui_put`/`ui_show` ревьюер оценивает так, будто внешние ресурсы загрузятся: Safe Mode выключается без повторного ревью.
+  Бюджет текста результата — `AgentToolSpec.resultChars` (по умолчанию 128K символов); полный spec целиком отдаёт
+  только `ui_get`.
+  Ревью не гарантирует безопасность стороннего кода. Переключение может сбросить несохранённые черновики.
+- Лимиты ресурсов не зависят от Safe Mode: HTML 1 МиБ, compact spec 2 МиБ, библиотека 16 МиБ, редакторский draft 8 МиБ.
+  Меняя их, проверяй hosted transport и offload/recall, чтобы `ui_get` не терял исходный код.
 - Неизвестные ключи и типы спеки — ошибка разбора с путём JSON; новая функция спеки — новый узел/действие в
   `domain/spec`, ветка во всех исчерпывающих `when` (без `else`), правило валидатора, текст `UiSpecReference`, тесты
   разбора, валидатора и вычисления.
@@ -120,8 +139,10 @@ description: "Интерфейсы агента Heartbeat (features:service-as-u
   плотности, доступности и проверки мини-апп находятся во встроенном `mini-app-design` (путь в таблице выше);
   технический контракт хоста и справочник не должны задавать противоречащие ему дизайн-рекомендации.
 - Изоляция — в `browser:impl` (`DesktopDocument*`): свой origin `https://<id>.document.heartbeat.invalid/`, контекст в
-  памяти, CSP без соединений, запросы кроме самого документа отклоняются, WebRTC — UDP только через прокси (его
-  нет), конструкторы WebRTC удалены из окна страницы, TCP (TURN) идёт только в прокси контекста на закрытый порт,
+  памяти, CSP без fetch/WebSocket. При включённом Safe Mode запросы кроме самого документа отклоняются;
+  при отключённом разрешённые публичные HTTPS-ресурсы загружает ограниченный HTTP loader хоста, браузерный proxy
+  остаётся закрытым. WebRTC — UDP только через прокси (его нет), конструкторы WebRTC удалены из окна страницы,
+  TCP (TURN) идёт только в прокси контекста на закрытый порт,
   включая loopback (рантайм hb3: JCEF передаёт словарные настройки). Вызовы страницы —
   свой лимит (1) и лог trace; только Desktop. Проверка с настоящим Chromium —
   `./gradlew :features:browser:impl:browserDocumentNativeTest` (локально, нужен рабочий стол).

@@ -78,6 +78,7 @@ Transcript cards only insert prompts into the input, even when backed by a libra
 | Tool | Arguments | Purpose |
 |---|---|---|
 | `ui_reference` | Optional `topic` | Read bundled design/authoring guidance or the exact installed spec. No owner/project required. Select a reference topic to avoid loading unrelated detail. |
+| `ui_preview` | `{html,data?,width?,height?,theme?,fontScale?,includeScreenshot?}` | Check an isolated WebView draft before saving, with sample data and no owner bridge. Returns text diagnostics by default; request a PNG only on image-capable models. Desktop/web documents required; see `service-as-ui/webview`. |
 | `ui_list` | `{}` | List library surfaces and owners, enabled status and published methods. `methods` can be unavailable when the owner's script is not running. |
 | `ui_get` | `{id}` | Read a saved surface's full spec, metadata and current revision before editing. |
 | `ui_put` | `{owner,name,placement,title,spec,description?,launchers?,expectedRevision?}` | Create or replace a surface; returns validation diagnostics and saved identity/revision. `spec` is a JSON object, not a JSON-encoded string. |
@@ -101,14 +102,14 @@ Use `ui_reference(topic="spec")` for the installed version's authoritative bound
 
 | Area | Bound |
 |---|---|
-| Profile library | 64 surfaces; 16 per owner; 2 MiB combined specs, titles and descriptions |
+| Profile library | 64 surfaces; 16 per owner; 16 MiB combined specs, titles and descriptions |
 | Surface metadata | Title 80 characters; description 500 characters; surface name 32 characters |
-| Spec | 64 KiB UTF-8; 400 nodes; node nesting 16; raw JSON nesting 64 |
+| Spec | 2 MiB UTF-8; 400 nodes; node nesting 16; raw JSON nesting 64 |
 | Data/local state | 8 sources; 16 KiB initial state; opening arguments 16 KiB |
 | Modals/actions | 8 named modals; 8 steps per sequence; 2 concurrent native action/source calls per surface |
 | Collections | 12 table columns; 64 select options; 200 list items/table rows rendered before hidden counts |
 | Expanded rendering | 4,096 elements and 262,144 display characters per body/modal; input values stay intact; keys above 128 characters fall back to positions |
-| WebView | One document per spec; HTML 48 KiB; up to 4 pending bridge calls, executed one at a time; further calls are rejected |
+| WebView | One document per spec; HTML 1 MiB; up to 4 pending bridge calls, executed one at a time; further calls are rejected |
 | Owner call | Arguments 16 KiB for `ui_call`, native `call` and the WebView bridge; result 256 KiB; the installed tool reference advertises 60 seconds, with a 65-second provider guard; the owner's own budget may be shorter |
 | Agent `ui_call` output | Returned text is truncated to 16,000 characters; a large JSON result may therefore be incomplete. Inspect a smaller snapshot or page instead. |
 | Native exports/prompts | Text export up to 4 MiB on Desktop; inserted/submitted prompt up to 16,384 characters |

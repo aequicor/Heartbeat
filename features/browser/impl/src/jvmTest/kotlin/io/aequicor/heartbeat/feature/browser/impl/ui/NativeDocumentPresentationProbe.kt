@@ -1,6 +1,10 @@
 package io.aequicor.heartbeat.feature.browser.impl.ui
 
 import io.aequicor.heartbeat.core.common.DispatcherProvider
+import io.aequicor.heartbeat.ds.tokens.HbColors
+import io.aequicor.heartbeat.ds.tokens.HbDimensions
+import io.aequicor.heartbeat.ds.tokens.HbSpacing
+import io.aequicor.heartbeat.ds.tokens.HbTypography
 import io.aequicor.heartbeat.feature.browser.api.BrowserBridgeResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocument
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentHandle
@@ -69,7 +73,7 @@ internal fun verifyNativeDocumentPresentation(
     }
     val start = nativeEdt { panel.newAttachment() }
     val frame = nativeEdt {
-        panel.updateTheme(DesktopDocumentTheme(false, mapOf("--hb-text" to "rgb(10, 20, 30)")))
+        panel.updateTheme(presentationTheme(isDark = false))
         JFrame("Heartbeat document presentation verification (no input)").apply {
             add(start.createComponent())
             setSize(640, 480)
@@ -116,6 +120,8 @@ private fun verifyNativeDocumentContent(
     val marker = initial.getValue("marker")
     assertEquals(JsonPrimitive(100), initial["height"])
     assertEquals(JsonPrimitive("light"), initial["theme"])
+    verifyNativeDocumentControls(initial)
+    verifyNativeDocumentControlFocus(panel)
     awaitHeight(panel, 100)
     for (height in listOf(300, 80)) {
         handle.update(buildJsonObject { put("height", height) })
@@ -124,15 +130,24 @@ private fun verifyNativeDocumentContent(
         assertEquals(marker, resized["marker"])
         awaitHeight(panel, height)
     }
-    nativeEdt { panel.updateTheme(DesktopDocumentTheme(true, mapOf("--hb-text" to "rgb(220, 230, 240)"))) }
+    nativeEdt { panel.updateTheme(presentationTheme(isDark = true)) }
     val themed = report(reports, "theme")
     assertEquals(JsonPrimitive("dark"), themed["theme"])
     assertEquals(JsonPrimitive("rgb(220, 230, 240)"), themed["color"])
     assertEquals(marker, themed["marker"], "Theme changes must retain the actual DOM instance")
     assertEquals(JsonPrimitive("retained input"), themed["input"])
     assertEquals(buildJsonObject { put("height", 80) }, themed["data"])
+    verifyNativeDocumentControls(themed)
+    verifyNativeDocumentControlFocus(panel)
     awaitHeight(panel, 80)
     return marker
+}
+
+private fun presentationTheme(isDark: Boolean): DesktopDocumentTheme {
+    val colors = if (isDark) HbColors.DesktopDark else HbColors.DesktopLight
+    val theme = colors.browserDocumentTheme(HbTypography.Desktop, HbSpacing(), HbDimensions.Desktop, 1.5f)
+    val text = if (isDark) "rgb(220, 230, 240)" else "rgb(10, 20, 30)"
+    return theme.copy(variables = theme.variables + ("--hb-text" to text))
 }
 
 /** Moves the actual production page through native windows; the input, tab and scroll live only in its DOM. */
@@ -245,7 +260,9 @@ private fun presentationDocument(reports: LinkedBlockingQueue<JsonObject>) = Bro
     },
     html = """
         <!doctype html><body><div id="root" style="height:100px"><input id="entry">
-        <div id="scroll" style="height:30px;overflow:auto"><div style="height:400px">History</div></div></div><script>
+        <div id="scroll" style="height:30px;overflow:auto"><div style="height:400px">History</div></div></div>
+        $nativeDocumentControlsMarkup
+        <script>
         const root = document.getElementById('root');
         const entry = document.getElementById('entry');
         window.marker = crypto.randomUUID();
@@ -253,13 +270,14 @@ private fun presentationDocument(reports: LinkedBlockingQueue<JsonObject>) = Bro
         window.activeTab = 'history';
         const scroller = document.getElementById('scroll');
         scroller.scrollTop = 120;
+        $nativeDocumentControlsScript
         async function report(kind) {
           const request = heartbeat.data.request ?? null;
           await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
           await heartbeat.call('report', {kind, request,
             marker: window.marker, input: entry.value,
             height: root.getBoundingClientRect().height, theme: heartbeat.theme.colorScheme,
-            color: getComputedStyle(root).color, data: heartbeat.data,
+            color: getComputedStyle(root).color, data: heartbeat.data, controls: controlStyles(),
             tab: window.activeTab, scroll: scroller.scrollTop, width: innerWidth, viewportHeight: innerHeight});
         }
         window.addEventListener('heartbeat:data', event => {

@@ -43,6 +43,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiWrite
 import io.aequicor.heartbeat.feature.serviceasui.api.UiWriteResult
 import io.aequicor.heartbeat.feature.serviceasui.api.apply
 import io.aequicor.heartbeat.feature.serviceasui.impl.di.BundledUiAuthoringKnowledge
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiWebSafeMode
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCard
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardAdded
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardSource
@@ -136,6 +137,7 @@ class ServiceUiAgentToolsTest {
             "service-as-ui/layout" to "service-as-ui/references/layout.md",
             "service-as-ui/actions-data" to "service-as-ui/references/actions-data.md",
             "service-as-ui/webview" to "service-as-ui/references/webview.md",
+            "service-as-ui/visual-patterns" to "service-as-ui/references/visual-patterns.md",
             "service-as-ui/examples" to "service-as-ui/references/examples.md",
         )
         val documents = resources.map { (topic, path) ->
@@ -203,6 +205,7 @@ class ServiceUiAgentToolsTest {
                 "service-as-ui/layout",
                 "service-as-ui/actions-data",
                 "service-as-ui/webview",
+                "service-as-ui/visual-patterns",
                 "service-as-ui/examples",
             ),
             topic.getValue("enum").jsonArray.map { it.jsonPrimitive.content },
@@ -454,6 +457,25 @@ class ServiceUiAgentToolsTest {
         assertFalse(execute(ServiceUiTools.PUT, arguments, approved).isError)
         assertEquals(1, reviewer.proposals.size)
         assertEquals(1, machine.writes)
+    }
+
+    @Test
+    fun `writes reviewed under Safe Mode are judged as if external resources will load later`() = runTest {
+        approval(ServiceUiTools.PUT, put(SPEC))
+        assertTrue(reviewer.proposals.last().contains("Isolated"))
+        assertTrue("external resource reference as if it will load" in reviewer.policies.last())
+    }
+
+    @Test
+    fun `changing Safe Mode invalidates the reviewed write snapshot`() = runTest {
+        val arguments = put(SPEC)
+        val isolated = approval(ServiceUiTools.PUT, arguments)
+        toggles.isSafeMode.value = false
+        assertTrue(execute(ServiceUiTools.PUT, arguments, isolated).isError)
+        assertEquals(0, machine.writes)
+        val external = approval(ServiceUiTools.PUT, arguments)
+        assertTrue(reviewer.proposals.last().contains("ExternalAssets"))
+        assertFalse(execute(ServiceUiTools.PUT, arguments, external).isError)
     }
 
     @Test
@@ -727,8 +749,10 @@ class ServiceUiAgentToolsTest {
         var failure: Exception? = null
         var beforeReview: suspend () -> Unit = {}
         val proposals = mutableListOf<String>()
+        val policies = mutableListOf<String>()
         override suspend fun review(target: EngineTarget, policy: String, change: String): AgentSafetyReview {
             proposals += change
+            policies += policy
             beforeReview()
             failure?.let { throw it }
             return verdict
@@ -737,9 +761,11 @@ class ServiceUiAgentToolsTest {
 
     private class Toggles : FeatureToggles {
         val isEnabled = MutableStateFlow(true)
+        val isSafeMode = MutableStateFlow(true)
 
-        @Suppress("UNCHECKED_CAST") // Tests use the one boolean flag of the feature.
-        override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = isEnabled as Flow<T>
+        @Suppress("UNCHECKED_CAST") // Tests expose boolean feature and Safe Mode flags.
+        override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> =
+            (if (toggle == ServiceUiWebSafeMode) isSafeMode else isEnabled) as Flow<T>
         override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = observe(toggle).first()
     }
 

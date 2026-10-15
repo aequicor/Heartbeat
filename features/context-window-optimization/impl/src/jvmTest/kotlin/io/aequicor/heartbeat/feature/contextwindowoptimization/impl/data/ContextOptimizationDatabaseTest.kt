@@ -92,6 +92,15 @@ class ContextOptimizationDatabaseTest {
     }
 
     @Test
+    fun `compiled mini app source survives offload beyond the former half million character limit`() = runTest {
+        val source = "<script>" + "/* bundled module */".repeat(60_000) + "</script><!-- final asset -->"
+        val stored = outputs.put(StoredOutput(One, "ui_get", source))
+
+        assertEquals(source.length, stored.chars)
+        assertEquals(source, outputs.get(stored.id)?.text)
+    }
+
+    @Test
     fun `the oldest outputs are dropped beyond the count limit`() = runTest {
         val first = outputs.put(StoredOutput(One, "tool", "first")).id
         repeat(MAX_OUTPUTS) { outputs.put(StoredOutput(One, "tool", "next $it")) }
@@ -150,8 +159,8 @@ class ContextOptimizationDatabaseTest {
     private companion object {
         const val MAX_LEDGERS = 200
         const val MAX_OUTPUTS = 64
-        const val MAX_OUTPUT_CHARS = 500_000
-        const val MAX_TOTAL_CHARS = 4_000_000
+        const val MAX_OUTPUT_CHARS = 4 * 1024 * 1024
+        const val MAX_TOTAL_CHARS = 32 * 1024 * 1024
         val One = SessionRef(EngineId("pi"), SessionSourceId("s"), "one")
         val Two = SessionRef(EngineId("pi"), SessionSourceId("s"), "two")
     }

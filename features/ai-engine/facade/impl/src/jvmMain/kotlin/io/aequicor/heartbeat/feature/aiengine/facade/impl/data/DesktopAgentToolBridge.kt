@@ -177,9 +177,11 @@ internal class DesktopAgentToolBridge(
     }
 
     private fun readRequest(exchange: HttpExchange): JsonObject? = try {
-        val bytes = exchange.requestBody.use { it.readNBytes(MAX_REQUEST_BYTES + 1) }
-        require(bytes.size <= MAX_REQUEST_BYTES) { "Tool request too large" }
-        Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)) as? JsonObject
+        val bytes = exchange.requestBody.use { it.readNBytes(HostedToolPayloads.REQUEST_BYTES + 1) }
+        require(bytes.size <= HostedToolPayloads.REQUEST_BYTES) { "Tool request too large" }
+        val text = bytes.toString(Charsets.UTF_8)
+        require(HostedToolPayloads.hasBoundedNesting(text)) { "Tool request nesting is too deep" }
+        Json.parseToJsonElement(text) as? JsonObject
             ?: throw IllegalArgumentException("Expected an object")
     } catch (e: IllegalArgumentException) {
         log.w(IllegalArgumentException("Invalid hosted tool request (${e::class.simpleName.orEmpty()})")) {
@@ -201,11 +203,11 @@ internal class DesktopAgentToolBridge(
             val arguments = request["arguments"] as? JsonObject ?: JsonObject(emptyMap())
             val call = (request["callId"] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
                 ?: Uuid.random().toString()
-            tools.execute(context.copy(callId = ToolCallId(call)), name, arguments)
+            HostedToolPayloads.bounded(tools.execute(context.copy(callId = ToolCallId(call)), name, arguments))
         }
         return buildJsonObject {
             put("success", !result.isError)
-            put("text", result.text.take(MAX_RESPONSE_CHARS))
+            put("text", result.text)
             put(
                 "images",
                 JsonArray(
@@ -323,7 +325,5 @@ internal class DesktopAgentToolBridge(
         const val HTTP_FORBIDDEN = 403
         const val HTTP_BAD_REQUEST = 400
         const val HTTP_GONE = 410
-        const val MAX_REQUEST_BYTES = 512 * 1024
-        const val MAX_RESPONSE_CHARS = 128 * 1024
     }
 }
