@@ -30,7 +30,9 @@ import io.aequicor.heartbeat.ds.components.HbDesktopPopupRendering
 import io.aequicor.heartbeat.ds.components.HbInWindowDialogHost
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.platform.dibundle.AppShutdownAccessors
+import io.aequicor.heartbeat.platform.dibundle.HeartbeatGraph
 import io.aequicor.heartbeat.platform.dibundle.PlantUmlAccessors
+import io.aequicor.heartbeat.platform.dibundle.closeScopes
 import io.aequicor.heartbeat.platform.dibundle.createHeartbeatGraph
 import io.aequicor.heartbeat.platform.dibundle.root.HeartbeatRoot
 import io.aequicor.heartbeat.platform.shared.App
@@ -83,8 +85,11 @@ private fun launchLoggedHeartbeat(isDevelopment: Boolean, classes: Result<Path?>
     val dimensions = HbDimensions()
     application {
         val systemQuit = remember { DesktopSystemQuit() }
-        val closeRequest = rememberDesktopCloseHandler(
-            (graph as AppShutdownAccessors).shutdownParticipants,
+        val shutdown = graph as AppShutdownAccessors
+        val quitRequests = rememberDesktopCloseHandler(
+            shutdown.shutdownParticipants,
+            graph.dispatchers,
+            shutdown::closeScopes,
             lifecycle::destroy,
         ) {
             exitApplication()
@@ -92,41 +97,54 @@ private fun launchLoggedHeartbeat(isDevelopment: Boolean, classes: Result<Path?>
         }
         // Every handler instance shares the same remembered closing state, so the first one is installed once.
         DisposableEffect(Unit) {
-            installDesktopQuitHandler(systemQuit, closeRequest)
+            installDesktopQuitHandler(systemQuit, quitRequests.quit)
             onDispose { }
         }
-        QuitForAppUpdate(graph.machines, closeRequest)
+        QuitForAppUpdate(graph.machines, quitRequests.restart)
         val icon = remember(applicationIcons) { applicationIcons.last().toPainter() }
         val windowState = rememberWindowState(width = dimensions.windowWidth, height = dimensions.windowHeight)
         val computerUse by root.computerUse.collectAsState()
-        val permissionGuide by graph.permissionGuide.guide.collectAsState()
+        val visibility = rememberDesktopWindowVisibility(
+            windowState,
+            applicationIcons.last(),
+            computerUse.isActive,
+            quitRequests.quit,
+        )
         val plantUml = remember(graph) { (graph as PlantUmlAccessors).plantUml }
         val diagrams = remember(plantUml) { PlantUmlDiagramRenderer(plantUml, graph.dispatchers.default) }
         val areDiagramsAvailable by plantUml.availability.collectAsState(false)
         LifecycleController(lifecycle, windowState)
         var hasModal by remember { mutableStateOf(false) }
         Window(
-            onCloseRequest = closeRequest,
+            onCloseRequest = visibility::closeWindow,
+            visible = visibility.isVisible,
             title = "Heartbeat",
             icon = icon,
             state = windowState,
             alwaysOnTop = computerUse.isActive,
             onPreviewKeyEvent = { event -> !hasModal && openSettingsOnShortcut(event, root) },
         ) {
+            RestoreDesktopWindowFocus(window, visibility)
             HeartbeatWindowContent(windowState, applicationIcons, { hasModal = it }) {
                 App(root, diagramRenderer = diagrams.takeIf { areDiagramsAvailable })
             }
             DesktopComputerUsePresentation(window, windowState, computerUse, graph.capturePresentation)
         }
-        val guidedPermission = permissionGuide
-        if (isMacHost && guidedPermission != null) {
-            ComputerUsePermissionGuideWindow(
-                guidedPermission,
-                graph.dispatchers.io,
-                graph.capturePresentation,
-                graph.permissionGuide::dismiss,
-            )
-        }
+        DesktopPermissionGuide(graph)
+    }
+}
+
+@Composable
+private fun DesktopPermissionGuide(graph: HeartbeatGraph) {
+    val permissionGuide by graph.permissionGuide.guide.collectAsState()
+    val guidedPermission = permissionGuide
+    if (isMacHost && guidedPermission != null) {
+        ComputerUsePermissionGuideWindow(
+            guidedPermission,
+            graph.dispatchers.io,
+            graph.capturePresentation,
+            graph.permissionGuide::dismiss,
+        )
     }
 }
 
