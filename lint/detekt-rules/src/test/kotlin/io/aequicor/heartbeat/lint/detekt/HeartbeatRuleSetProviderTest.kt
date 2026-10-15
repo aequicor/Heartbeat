@@ -14,11 +14,12 @@ class HeartbeatRuleSetProviderTest {
         val rules = provider.instance().rules.keys.map { it.value }
 
         assertEquals("heartbeat", provider.ruleSetId.value)
-        assertEquals(12, rules.size)
+        assertEquals(13, rules.size)
         assertTrue("HighFrequencyLog" in rules)
         assertTrue("SwallowedError" in rules)
         assertTrue("FeatureLayerPlacement" in rules)
         assertTrue("FeatureLayerDependency" in rules)
+        assertTrue("NativeIllegalName" in rules)
     }
 
     @Test

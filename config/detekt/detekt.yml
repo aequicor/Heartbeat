@@ -216,6 +216,12 @@ heartbeat:
   # API keys, tokens, passwords, Authorization, cookies in log calls
   SensitiveDataLogged:
     active: true
+  # names with characters Kotlin/Native rejects (`,`, `(`, `$`, ...) in source sets compiled for iOS;
+  # jvmTest accepts them, so without the rule they surface only in compileTestKotlinIos*
+  NativeIllegalName:
+    active: true
+    # wasmJs + jvm only: no Kotlin/Native compilation
+    excludes: ['**/chromium-plugin/panel/**']
 
 ktlint:
   active: true

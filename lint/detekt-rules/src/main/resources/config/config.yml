@@ -34,3 +34,6 @@ heartbeat:
     excludes: ['**/test/**', '**/*Test/**']
   SensitiveDataLogged:
     active: true
+  NativeIllegalName:
+    active: true
+    excludes: ['**/chromium-plugin/panel/**']
