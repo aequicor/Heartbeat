@@ -30,6 +30,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRecording
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
 import io.aequicor.heartbeat.feature.computeruse.api.VisionBudget
 import io.aequicor.heartbeat.feature.computeruse.impl.data.CaptureCoordinator
+import io.aequicor.heartbeat.feature.computeruse.impl.data.ClipClock
 import io.aequicor.heartbeat.feature.computeruse.impl.data.ClipRecorder
 import io.aequicor.heartbeat.feature.computeruse.impl.data.FramePipeline
 import io.aequicor.heartbeat.feature.computeruse.impl.data.MasterFrameCache
@@ -45,7 +46,6 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlin.time.Clock
 
 /**
  * Profile-owned computer use graph.
@@ -122,7 +122,7 @@ internal class ComputerUseCoordinatorResources(
     private val pipeline: FramePipeline,
     private val cache: MasterFrameCache,
     private val dispatchers: DispatcherProvider,
-    private val clock: Clock,
+    private val clipClock: ClipClock,
 ) {
     /** Creates the one profile-owned coordinator. */
     fun create(): CaptureCoordinator = CaptureCoordinator(
@@ -132,7 +132,7 @@ internal class ComputerUseCoordinatorResources(
         pipeline,
         cache,
         dispatchers,
-        ClipRecorder { clock.now().toEpochMilliseconds() },
+        ClipRecorder(clipClock),
     )
 }
 

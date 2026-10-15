@@ -189,7 +189,8 @@ internal fun areaArgument(
     val source = listOfNotNull(state.master, state.lastPreview, state.lastCrop).firstOrNull { it.id == identifier }
     val tile = arguments.text("tile")?.let { TileRef.parse(it) }
     if ("tile" in arguments && tile == null) return AreaArgument.Invalid
-    val roi = roiArgument(arguments, state.lastPreview)
+    // Preview pixels belong to the addressed frame when it is a derived one, otherwise to the last received frame.
+    val roi = roiArgument(arguments, source?.takeIf { !it.isMaster } ?: state.lastPreview)
     return when {
         roi == RoiArgument.Invalid -> AreaArgument.Invalid
 

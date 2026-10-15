@@ -1,5 +1,9 @@
 package io.aequicor.heartbeat.feature.computeruse.impl.data
 
+import dev.zacsweers.metro.ContributesBinding
+import dev.zacsweers.metro.Inject
+import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRegion
 import io.aequicor.heartbeat.feature.computeruse.api.RecordRequest
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ClipPlanner
@@ -9,9 +13,11 @@ import io.aequicor.heartbeat.feature.computeruse.impl.domain.MotionSignature
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.PixelGrid
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.RawFrame
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.motionSignature
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.scaledInto
 import kotlinx.coroutines.delay
 import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlin.time.TimeSource
 
 /**
  * The frames of one recording before encoding. Keyframes are kept at a bounded working resolution ([scale] of the
@@ -27,11 +33,27 @@ internal data class RecordedFrames(
     val durationMillis: Long,
 )
 
+/** Monotonic milliseconds for recording pace and duration; never the wall clock, which can jump. */
+internal fun interface ClipClock {
+    fun millis(): Long
+}
+
+/** The host's monotonic clock. */
+@ContributesBinding(ProfileScope::class)
+@Inject
+internal class MonotonicClipClock : ClipClock {
+    private val start = TimeSource.Monotonic.markNow()
+
+    override fun millis(): Long = start.elapsedNow().inWholeMilliseconds
+}
+
 /**
  * Captures frames at the requested rate and keeps the ones that changed, inside [area] of the master. Stops at the
  * time limit, or once the screen settled when the request asks for it; `null` when a frame could not be captured.
  */
-internal class ClipRecorder(private val clock: () -> Long) {
+internal class ClipRecorder(private val clock: ClipClock) {
+    /** One iteration per recorded frame; nothing here logs, the coordinator reports the finished clip once. */
+    @HighFrequency
     suspend fun record(
         request: RecordRequest,
         area: (PixelGrid) -> CaptureRegion,
@@ -39,19 +61,19 @@ internal class ClipRecorder(private val clock: () -> Long) {
     ): RecordedFrames? {
         val planner = ClipPlanner<PixelGrid>(request.maxFrames, QUIET_MILLIS, IDLE_MILLIS)
         val interval = MILLIS_PER_SECOND / request.fps
-        val start = clock()
+        val start = clock.millis()
         var previous: MotionSignature? = null
         var kept: MotionSignature? = null
         var last: RawFrame
         var scale: Double
         var elapsed: Long
         do {
-            val frameStart = clock()
+            val frameStart = clock.millis()
             last = capture() ?: return null
             elapsed = frameStart - start
             scale = workingScale(last.pixels)
             val working = last.pixels.workingCopy(scale)
-            val signature = working.region(area(last.pixels).scaled(scale, working)).motionSignature()
+            val signature = working.region(area(last.pixels).scaledInto(scale, working)).motionSignature()
             val sincePrevious = previous?.compare(signature) ?: NoChange
             val sinceKept = kept?.compare(signature) ?: NoChange
             val dropped = planner.offer(working, elapsed, sincePrevious.inMaster(scale), sinceKept)
@@ -59,7 +81,7 @@ internal class ClipRecorder(private val clock: () -> Long) {
             previous = signature
             val isDone = elapsed >= request.maxDurationMillis ||
                 (request.isUntilStable && planner.isSettled(elapsed))
-            if (!isDone) delay(max(0L, interval - (clock() - frameStart)))
+            if (!isDone) delay(max(0L, interval - (clock.millis() - frameStart)))
         } while (!isDone)
         return RecordedFrames(
             keyframes = planner.keyframes,
@@ -95,15 +117,6 @@ internal class ClipRecorder(private val clock: () -> Long) {
                 (widthPx * scale).roundToInt().coerceAtLeast(1),
                 (heightPx * scale).roundToInt().coerceAtLeast(1),
             )
-        }
-
-        /** This master rectangle in the pixels of [working], kept inside it. */
-        fun CaptureRegion.scaled(scale: Double, working: PixelGrid): CaptureRegion {
-            val left = (x * scale).toInt().coerceIn(0, working.widthPx - 1)
-            val top = (y * scale).toInt().coerceIn(0, working.heightPx - 1)
-            val width = (widthPx * scale).roundToInt().coerceIn(1, working.widthPx - left)
-            val height = (heightPx * scale).roundToInt().coerceIn(1, working.heightPx - top)
-            return CaptureRegion(left, top, width, height)
         }
 
         /** A change measured in working pixels of the area, mapped back to master pixels relative to the area. */

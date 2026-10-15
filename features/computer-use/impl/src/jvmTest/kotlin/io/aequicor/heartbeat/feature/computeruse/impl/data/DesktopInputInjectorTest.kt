@@ -44,9 +44,12 @@ class DesktopInputInjectorTest {
     }
 
     @Test
-    fun `a click glides from the pointer location and presses only on arrival`() = runTest {
-        val driver = RecordingDriver(location = ScreenPoint(0, 0))
+    fun `a click glides from the agent's last point and presses only on arrival`() = runTest {
+        val driver = RecordingDriver(location = ScreenPoint(500, 500))
         val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        injector.apply(InputAction.MoveTo(FramePoint(0.0, 0.0))) { ScreenPoint(it.x.toInt(), it.y.toInt()) }
+        assertEquals(1, driver.movements, "an unknown start jumps instead of crossing other windows")
+        driver.movements = 0
         val progress = mutableListOf<ScreenPoint?>()
         var effectAfterMoves = -1
         val outcome = injector.applyObserved(
@@ -56,6 +59,7 @@ class DesktopInputInjectorTest {
             onEffect = {
                 effectAfterMoves = driver.movements
                 assertTrue(driver.events.none { it.startsWith("pressButton") })
+                null
             },
         )
         assertEquals(InputOutcome.Applied, outcome)
@@ -76,10 +80,27 @@ class DesktopInputInjectorTest {
             InputAction.Type("ab"),
             { null },
             onProgress = { },
-            onEffect = { eventsBeforeEffect = driver.events.size },
+            onEffect = {
+                eventsBeforeEffect = driver.events.size
+                null
+            },
         )
         assertEquals(0, eventsBeforeEffect)
         assertTrue(driver.pressedKeys.isNotEmpty())
+    }
+
+    @Test
+    fun `a refusal on arrival stops the click before the button is pressed`() = runTest {
+        val driver = RecordingDriver()
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        val outcome = injector.applyObserved(
+            InputAction.Click(FramePoint(10.0, 10.0)),
+            { ScreenPoint(it.x.toInt(), it.y.toInt()) },
+            onProgress = { },
+            onEffect = { ComputerUseFailure.TargetNotForeground },
+        )
+        assertEquals(InputOutcome.Rejected(ComputerUseFailure.TargetNotForeground), outcome)
+        assertTrue(driver.events.none { it.startsWith("pressButton") })
     }
 
     @Test
@@ -331,7 +352,7 @@ class DesktopInputInjectorTest {
     private class RecordingDriver(
         override val isUnicodeAvailable: Boolean = false,
         private val isUnicodeRefused: Boolean = false,
-        private val location: ScreenPoint? = null,
+        private var location: ScreenPoint? = null,
     ) : DesktopInputDriver {
         override fun location(): ScreenPoint? = location
 
@@ -347,6 +368,7 @@ class DesktopInputInjectorTest {
         var failOnKey: Int? = null
 
         override fun move(point: ScreenPoint) {
+            if (location != null) location = point
             movements++
             events += "move"
         }

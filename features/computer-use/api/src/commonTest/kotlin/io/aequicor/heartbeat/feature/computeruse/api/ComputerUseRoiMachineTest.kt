@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineTest.Comp
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineTest.Companion.session
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineTest.Companion.windowMode
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 /** Transitions of the active ROI and of recordings. */
@@ -139,5 +140,70 @@ class ComputerUseRoiMachineTest {
         assertFailsWith<IllegalArgumentException> { RecordRequest(fps = 0) }
         assertFailsWith<IllegalArgumentException> { RecordRequest(maxDurationMillis = 20_000) }
         assertFailsWith<IllegalArgumentException> { RecordRequest(maxFrames = 1) }
+    }
+
+    @Test
+    fun `roi and recording are refused without an open matching session`() {
+        val closed = capturing.copy(master = master, isOpen = false)
+        val roi = CaptureRegion(0, 0, 10, 10)
+        ComputerUseMachineSpec.assertIgnored(closed, ComputerUseIntent.Public.SetRoi(roi, session, owner))
+        ComputerUseMachineSpec.assertIgnored(closed, ComputerUseIntent.Public.Record(RecordRequest()))
+        val other = CaptureSessionId("other")
+        val open = capturing.copy(master = master)
+        ComputerUseMachineSpec.assertIgnored(open, ComputerUseIntent.Public.SetRoi(roi, other, owner))
+        ComputerUseMachineSpec.assertIgnored(open, ComputerUseIntent.Public.Record(RecordRequest(), "r", other))
+        val ready = ComputerUseState.Ready(capturing.capabilities)
+        ComputerUseMachineSpec.assertIgnored(ready, ComputerUseIntent.Public.SetRoi(null))
+        ComputerUseMachineSpec.assertIgnored(ready, ComputerUseIntent.Public.Record(RecordRequest()))
+        ComputerUseMachineSpec.assertIgnored(ComputerUseState.Idle, ComputerUseIntent.Public.Record(RecordRequest()))
+    }
+
+    @Test
+    fun `clearing the roi needs no master and a new mode starts without one`() {
+        val framed = capturing.copy(roi = CaptureRegion(0, 0, 10, 10))
+        ComputerUseMachineSpec.assertTransition(
+            from = framed,
+            intent = ComputerUseIntent.Public.SetRoi(null, session, owner),
+            to = capturing,
+        )
+        val next = CaptureSessionId("s2")
+        ComputerUseMachineSpec.assertTransition(
+            from = framed,
+            intent = ComputerUseIntent.Public.SwitchMode(windowMode, next, owner),
+            to = ComputerUseState.Capturing(next, windowMode, owner, capturing.capabilities),
+            effects = listOf(ComputerUseEffect.CloseCapture(session), ComputerUseEffect.OpenCapture(windowMode, next)),
+            outputs = listOf(ComputerUseOutput.CaptureChanged(windowMode)),
+        )
+    }
+
+    @Test
+    fun `a clip whose master no longer holds the roi clears it`() {
+        val framed = capturing.copy(master = master, roi = CaptureRegion(600, 500, 400, 300))
+        val smaller = master.copy(id = CaptureId("m-2"), masterWidthPx = 800, masterHeightPx = 600)
+        val clip = CaptureClip(
+            frames = listOf(ClipFrame(preview, 0, 0.0)),
+            roi = CaptureRegion(0, 0, 800, 600),
+            isAutoRoi = false,
+            isStable = true,
+            durationMillis = 1_500,
+            master = smaller,
+        )
+        ComputerUseMachineSpec.assertTransition(
+            from = framed,
+            intent = ComputerUseIntent.Internal.ClipRecorded(clip),
+            to = framed.copy(master = smaller, lastPreview = preview, frameCount = 1, roi = null),
+            outputs = listOf(ComputerUseOutput.ClipReady(clip)),
+        )
+    }
+
+    @Test
+    fun `a failed recording effect is rejected for its request`() {
+        assertEquals(
+            ComputerUseIntent.Internal.Rejected(ComputerUseFailure.CaptureFailed, "r"),
+            ComputerUseMachineSpec.onEffectFailure(
+                ComputerUseEffect.RecordClip(RecordRequest(), "r"),
+                IllegalStateException(),
+            ),
+        )
     }
 }

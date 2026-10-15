@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.CropRequest
 import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
+import io.aequicor.heartbeat.feature.computeruse.api.RecordRequest
 import io.aequicor.heartbeat.feature.computeruse.api.VisionBudget
 import io.aequicor.heartbeat.feature.computeruse.impl.di.ComputerUseBindings
 import io.aequicor.heartbeat.feature.computeruse.impl.di.ComputerUseCoordinatorResources
@@ -47,8 +48,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
-import kotlin.time.Clock
-import kotlin.time.Instant
 
 class ComputerUseEffectHandlerTest {
     @Test
@@ -322,6 +321,28 @@ class ComputerUseEffectHandlerTest {
         assertEquals("crop", produced.requestId)
     }
 
+    @Test
+    fun `a recording reports its clip and hides the session only per frame`() = runTest {
+        val fixture = fixture()
+        fixture.run(ComputerUseEffect.RecordClip(RecordRequest(), "clip"))
+        val recorded = assertIs<ComputerUseIntent.Internal.ClipRecorded>(fixture.feedback.intents.single())
+        assertEquals("clip", recorded.requestId)
+        assertEquals(fixture.capturer.captures, fixture.presentation.suppressions)
+        assertTrue(fixture.presentation.suppressions > 1)
+        assertFalse(fixture.presentation.isSuppressed)
+    }
+
+    @Test
+    fun `a recording of a vanished target is rejected with its reason`() = runTest {
+        val fixture = fixture()
+        fixture.capturer.bounds = null
+        fixture.run(ComputerUseEffect.RecordClip(RecordRequest(), "clip"))
+        assertEquals(
+            ComputerUseIntent.Internal.Rejected(ComputerUseFailure.TargetClosed, "clip"),
+            fixture.feedback.intents.single(),
+        )
+    }
+
     private class Feedback : EffectScope<ComputerUseIntent> {
         val intents = mutableListOf<ComputerUseIntent>()
         override suspend fun send(intent: ComputerUseIntent): SendResult {
@@ -340,7 +361,7 @@ class ComputerUseEffectHandlerTest {
             action: InputAction,
             map: (FramePoint) -> ScreenPoint?,
             onProgress: suspend (ScreenPoint?) -> Unit,
-            onEffect: suspend () -> Unit,
+            onEffect: suspend () -> ComputerUseFailure?,
         ): InputOutcome = apply(action, map)
 
         override suspend fun apply(action: InputAction, map: (FramePoint) -> ScreenPoint?): InputOutcome {
@@ -428,9 +449,7 @@ class ComputerUseEffectHandlerTest {
             pipeline = pipeline,
             cache = cache,
             dispatchers = dispatchers,
-            clock = object : Clock {
-                override fun now(): Instant = Instant.fromEpochMilliseconds(testScheduler.currentTime)
-            },
+            clipClock = ClipClock { testScheduler.currentTime },
         )
         val profile = TestComputerUseScope(backgroundScope)
         val coordinator = ComputerUseBindings.coordinator(resources, profile, TestComputerUseScope(backgroundScope))

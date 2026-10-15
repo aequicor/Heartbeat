@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.computeruse.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
+import io.aequicor.heartbeat.feature.computeruse.api.RecordRequest
 import kotlinx.serialization.json.JsonObject
 
 // Approval texts of the hosted computer tools: the exact action, with control characters escaped and text bounded.
@@ -37,7 +38,10 @@ internal fun approvalDescription(spec: AgentToolSpec, arguments: JsonObject): St
 
 /** Input that records afterwards says so, since the user approves what the agent will see. */
 private fun observed(arguments: JsonObject): String =
-    arguments.int(OBSERVE_ARGUMENT)?.takeIf { it > 0 }?.let { " and record up to $it ms afterwards" }.orEmpty()
+    arguments.int(OBSERVE_ARGUMENT)?.takeIf { it > 0 }?.let { millis ->
+        val recorded = millis.toLong().coerceIn(RecordRequest.MIN_DURATION_MILLIS, MAX_OBSERVE_MILLIS)
+        " and record up to $recorded ms afterwards"
+    }.orEmpty()
 
 private fun describeCapture(family: ToolFamily, arguments: JsonObject): String = when (family) {
     ToolFamily.Desktop ->

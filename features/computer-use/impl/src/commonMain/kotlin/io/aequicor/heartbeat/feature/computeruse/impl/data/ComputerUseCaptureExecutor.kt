@@ -48,13 +48,12 @@ internal class ComputerUseCaptureExecutor(
         presentation.withoutPresentation { captureWithoutPresentation(request, roi) }
 
     /**
-     * Records keyframes of the open session with the host. One suppression covers the whole recording, so the
-     * session window and indicators stay hidden instead of flickering between frames.
+     * Records keyframes of the open session with the host. The session window and indicators are hidden only while
+     * each frame is taken, so the user keeps seeing the capture and can press «Stop» during the recording.
      */
     suspend fun record(request: RecordRequest, roi: CaptureRegion? = null): ClipOutcome =
-        presentation.withoutPresentation {
-            access.captureFailure()?.let { ClipOutcome.Rejected(it) } ?: coordinator.record(request, roi)
-        }
+        access.captureFailure()?.let { ClipOutcome.Rejected(it) }
+            ?: coordinator.record(request, roi) { frame -> presentation.withoutPresentation { frame() } }
 
     private suspend fun captureWithoutPresentation(request: CaptureRequest, roi: CaptureRegion?): CaptureResult {
         val refusal = access.captureFailure()

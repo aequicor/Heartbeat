@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.CaptureRequest
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureSessionId
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
+import io.aequicor.heartbeat.feature.computeruse.api.CropRequest
 import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
@@ -77,6 +78,36 @@ class ClipRecordingTest {
             fixture.coordinator.input(InputAction.Click(FramePoint(10.0, 10.0)), roi = roi),
         )
         assertEquals(ScreenPoint(10 + 80 / 2 + 5, 20 + 40 / 2 + 5), fixture.injector.points.single())
+    }
+
+    @Test
+    fun `only the last keyframe can be zoomed because earlier ones are not the master`() = runTest {
+        val fixture = fixture()
+        fixture.capturer.pixels = { index -> if (index == 0) Blank else Changed }
+        fixture.coordinator.open(Session, ComputerUseMode.Desktop())
+        val clip = assertIs<ClipOutcome.Recorded>(fixture.coordinator.record(RecordRequest())).clip
+        assertEquals(
+            CaptureOutcome.Rejected(ComputerUseFailure.UnknownCapture),
+            fixture.coordinator.crop(CropRequest(clip.frames.first().capture.id)),
+        )
+        assertIs<CaptureOutcome.Produced>(fixture.coordinator.crop(CropRequest(clip.frames.last().capture.id)))
+    }
+
+    @Test
+    fun `a check that fails after the glide refuses the click before its effect`() = runTest {
+        val fixture = fixture()
+        fixture.injector.isProgressReported = true
+        fixture.coordinator.open(Session, ComputerUseMode.Desktop())
+        fixture.coordinator.capture(CaptureRequest())
+        var checks = 0
+        val activities = mutableListOf<io.aequicor.heartbeat.feature.computeruse.api.ComputerUseInputActivity>()
+        val outcome = fixture.coordinator.input(
+            InputAction.Click(FramePoint(10.0, 10.0)),
+            guard = { if (++checks > 3) ComputerUseFailure.PermissionLost else null },
+            onProgress = { _, activity -> activities += activity },
+        )
+        assertEquals(InputOutcome.Rejected(ComputerUseFailure.PermissionLost), outcome)
+        assertTrue(activities.none { it.effectSequence > 0 })
     }
 
     @Test

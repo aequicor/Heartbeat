@@ -116,6 +116,6 @@ private fun clipText(clip: CaptureClip, prefix: String?): String = buildJsonObje
     put(
         "hint",
         "The images are the keyframes in order and show the roi of the master frame; the last one is the current " +
-            "screen and input coordinates refer to it. Set the ROI to the same rectangle to keep working there.",
+            "screen: input coordinates and zoom refer to it, earlier keyframes cannot be zoomed.",
     )
 }.toString()

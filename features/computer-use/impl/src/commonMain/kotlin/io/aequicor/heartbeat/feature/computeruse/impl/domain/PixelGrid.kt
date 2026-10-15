@@ -212,3 +212,15 @@ internal class PixelGrid(val widthPx: Int, val heightPx: Int, val argb: IntArray
 /** A single-color frame; used by tests and by hosts that can only report a placeholder. */
 internal fun solidGrid(widthPx: Int, heightPx: Int, argb: Int): PixelGrid =
     PixelGrid(widthPx, heightPx, IntArray(widthPx * heightPx) { argb })
+
+/** This master rectangle in the pixels of a copy scaled by [scale] to [grid], kept inside it. */
+internal fun CaptureRegion.scaledInto(scale: Double, grid: PixelGrid): CaptureRegion {
+    val left = (x * scale).toInt().coerceIn(0, grid.widthPx - 1)
+    val top = (y * scale).toInt().coerceIn(0, grid.heightPx - 1)
+    return CaptureRegion(
+        left,
+        top,
+        (widthPx * scale).roundToInt().coerceIn(1, grid.widthPx - left),
+        (heightPx * scale).roundToInt().coerceIn(1, grid.heightPx - top),
+    )
+}
