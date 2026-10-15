@@ -3,7 +3,10 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
@@ -14,6 +17,7 @@ import kotlinx.coroutines.sync.withLock
 
 /**
  * Stored-ref probes cached per enabled engine set; a history write never reopens every other conversation.
+ * A disabled engine is cached too, so it is not reported again on every sidebar recompute.
  * A live handle makes its conversation continuable; a released one (its runtime was retired or restarted) does not
  * end the conversation: the next send resumes the stored session, so the stored reference decides.
  */
@@ -43,6 +47,12 @@ internal class StudioContinuability(
             isResumable
         } catch (e: CancellationException) {
             throw e
+        } catch (e: EngineException) {
+            // A disabled engine is decided by the enabled set, the cache key: probe and warn once per set.
+            val isDisabled = e.failure == EngineFailure.Engine(EngineFailureReason.Unavailable)
+            log.w(e) { "Stored chat cannot currently be resumed engine=${ref.engine.value} cached=$isDisabled" }
+            if (isDisabled) lock.withLock { byRef[ref] = false }
+            false
         } catch (e: Exception) {
             log.w(e) { "Stored chat cannot currently be resumed" }
             false

@@ -7,7 +7,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
@@ -93,6 +96,34 @@ class StudioContinuabilityTest {
     }
 
     @Test
+    fun `a disabled engine is probed once until the enabled engines change`() = runTest {
+        val facade = ContinuityFacade(isResumable = true)
+        facade.failure = EngineFailure.Engine(EngineFailureReason.Unavailable)
+        val probes = StudioContinuability(facade) { null }
+
+        assertFalse(probes.isContinuable("chat", StoredRef))
+        assertFalse(probes.isContinuable("chat", StoredRef))
+        assertEquals(1, facade.lookups)
+
+        facade.failure = null
+        facade.engines.state.value = emptyList()
+        assertTrue(probes.isContinuable("chat", StoredRef))
+        assertEquals(2, facade.lookups)
+    }
+
+    @Test
+    fun `a transient failure is probed again on the next recompute`() = runTest {
+        val facade = ContinuityFacade(isResumable = true)
+        facade.failure = EngineFailure.Engine(EngineFailureReason.Crashed)
+        val probes = StudioContinuability(facade) { null }
+
+        assertFalse(probes.isContinuable("chat", StoredRef))
+        facade.failure = null
+        assertTrue(probes.isContinuable("chat", StoredRef))
+        assertEquals(2, facade.lookups)
+    }
+
+    @Test
     fun `a released handle is dropped so the conversation resumes instead of reusing it`() = runTest {
         val open = ContinuitySession(ActiveSessionState.Ready())
         val closed = ContinuitySession(ActiveSessionState.Closed)
@@ -118,6 +149,7 @@ private val StoredRef = SessionRef(ContinuityEngine, SessionSourceId("history"),
 
 private class ContinuityFacade(private val isResumable: Boolean) : EngineFacade {
     var lookups = 0
+    var failure: EngineFailure? = null
     override val engines = ContinuityEngines()
     override val bindings: EngineBindings get() = error("Continuability never reads bindings")
     override val models: ModelCatalog get() = error("Continuability never discovers models")
@@ -127,6 +159,7 @@ private class ContinuityFacade(private val isResumable: Boolean) : EngineFacade 
 
         override suspend fun get(ref: SessionRef): EngineSession {
             lookups++
+            failure?.let { throw EngineException(it) }
             return ContinuityStored(ref, isResumable)
         }
 
