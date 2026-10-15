@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
@@ -17,8 +18,15 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -29,6 +37,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import io.aequicor.heartbeat.ds.components.HbChip
 import io.aequicor.heartbeat.ds.components.HbDismissRequestProvider
 import io.aequicor.heartbeat.ds.components.HbIconButton
@@ -70,7 +79,8 @@ internal fun PaneContextToggle(
 }
 
 /**
- * A non-modal summary at the top-end, beside the conversation when its controls fit and over it otherwise.
+ * A non-modal summary at the top-end: a card beside the conversation when its controls fit, otherwise a panel
+ * attached to the pane's top and end edges that overlays the conversation without moving or narrowing it.
  * The card intercepts only its own bounds, never captures focus on appearance, and leaves scrolling to its renderer.
  */
 @Composable
@@ -86,20 +96,8 @@ internal fun PaneContextPanel(
     modifier: Modifier = Modifier,
 ) {
     if (slot != null && isOpen) {
-        val gap = HbTheme.spacing.l
-        val density = LocalDensity.current
-        val width = with(density) { paneSize.width.toDp() }
-        val height = with(density) { paneSize.height.toDp() }
-        val cardWidth = minOf(
-            HbTheme.dimensions.inspectorPanelWidth,
-            (width - gap * 2).coerceAtLeast(HbTheme.spacing.none),
-        )
-        val bottom = if (isBeside) height else composerTop
         Box(
-            modifier.padding(top = topInset + gap, end = gap)
-                .width(cardWidth)
-                .heightIn(max = (bottom - topInset - gap * 2).coerceAtLeast(HbTheme.spacing.none))
-                .hbSurface(HbTheme.colors.surface, HbTheme.shapes.large)
+            modifier.contextPanelFrame(isBeside, topInset, composerTop, paneSize)
                 .onPreviewKeyEvent { event ->
                     if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
                         onDismiss()
@@ -114,6 +112,55 @@ internal fun PaneContextPanel(
             HbDismissRequestProvider(onDismiss) { slot.Content(Modifier.fillMaxWidth()) }
         }
     }
+}
+
+/** Beside the conversation it is a card; over it, a panel continuing the pane's top and end edges. */
+@Composable
+@ReadOnlyComposable
+private fun Modifier.contextPanelFrame(isBeside: Boolean, topInset: Dp, composerTop: Dp, paneSize: IntSize): Modifier {
+    val gap = HbTheme.spacing.l
+    val none = HbTheme.spacing.none
+    val density = LocalDensity.current
+    val width = with(density) { paneSize.width.toDp() }
+    val bottom = if (isBeside) with(density) { paneSize.height.toDp() } else composerTop
+    val inset = if (isBeside) gap else none
+    val surface = if (isBeside) {
+        Modifier.hbSurface(HbTheme.colors.surface, HbTheme.shapes.large)
+    } else {
+        Modifier.edgePanelSurface()
+    }
+    return padding(top = topInset + inset, end = inset)
+        .width(minOf(HbTheme.dimensions.inspectorPanelWidth, (width - inset * 2).coerceAtLeast(none)))
+        .heightIn(max = (bottom - topInset - inset - gap).coerceAtLeast(none))
+        .then(surface)
+}
+
+/**
+ * The overlay panel's fill, with a hairline and a rounded corner only on the chat-facing sides. Its top and end
+ * outline is drawn past its bounds and clipped, so the panel reads as part of the pane edge rather than a popup.
+ */
+@Composable
+@ReadOnlyComposable
+private fun Modifier.edgePanelSurface(): Modifier {
+    val colors = HbTheme.colors
+    val stroke = HbTheme.dimensions.borderWidth
+    val square = CornerSize(HbTheme.spacing.none)
+    val shape = HbTheme.shapes.large.copy(topStart = square, topEnd = square, bottomEnd = square)
+    return drawBehind {
+        val hidden = stroke.toPx()
+        clipRect {
+            translate(left = if (layoutDirection == LayoutDirection.Rtl) -hidden else 0f, top = -hidden) {
+                val outline = shape.createOutline(
+                    Size(size.width + hidden, size.height + hidden),
+                    layoutDirection,
+                    this,
+                )
+                drawOutline(outline, colors.surface)
+                // A centred stroke of twice the width leaves exactly one border width inside the outline.
+                drawOutline(outline, colors.outlineSubtle, style = Stroke(hidden * 2))
+            }
+        }
+    }.clip(shape)
 }
 
 /** The chat first shifts into its leading gutter, then narrows only while its whole context toolbar fits. */

@@ -36,7 +36,7 @@ internal fun PaneLayersLayout(
     ) { measurables, constraints ->
         val loose = constraints.copy(minWidth = 0, minHeight = 0)
         val contextPlaceable = measurables[3].measure(loose)
-        // Its outer height includes the header inset and upper gap; retain one gap below the card as well.
+        // Its outer height includes the header inset; retain one gap below the panel.
         val band = if (reserveContextBand && contextPlaceable.height > 0) {
             (contextPlaceable.height - headerInset.roundToPx() + gap.roundToPx()).coerceIn(0, constraints.maxHeight)
         } else {

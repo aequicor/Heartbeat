@@ -127,6 +127,10 @@ class StudioContextPanelUiTest {
         assertTrue(panel.bottom <= composer.top, "The floating card must leave the composer reachable")
         assertTrue(panel.left >= 0f && panel.right <= width, "The floating card must fit its pane")
         assertTrue(panel.center.x > width / 2, "The floating card stays aligned to the trailing edge")
+        if (width < 1000f) {
+            assertEquals(header.bottom, panel.top, 1f, "The overlay panel must continue directly below the header")
+            assertEquals(width, panel.right, 1f, "The overlay panel must be attached to the pane's end edge")
+        }
         if (width >= 1000f) {
             val message = onNodeWithTag("message-footer:r").fetchSemanticsNode().boundsInRoot
             assertTrue(panel.left > message.right, "The card must remain beside the message with a gap")
