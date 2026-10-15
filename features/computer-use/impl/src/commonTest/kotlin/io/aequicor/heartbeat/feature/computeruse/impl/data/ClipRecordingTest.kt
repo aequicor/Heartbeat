@@ -132,6 +132,18 @@ class ClipRecordingTest {
     }
 
     @Test
+    fun `a blinking caret alone neither frames the clip nor keeps it from settling`() = runTest {
+        val fixture = fixture()
+        val caret = Blank.filled(CaptureRegion(7, 10, 2, 36), BLACK)
+        fixture.capturer.pixels = { index -> if (index % 2 == 0) Blank else caret }
+        fixture.coordinator.open(Session, ComputerUseMode.Desktop())
+        val clip = assertIs<ClipOutcome.Recorded>(fixture.coordinator.record(RecordRequest())).clip
+        assertFalse(clip.isAutoRoi)
+        assertEquals(CaptureRegion(0, 0, 400, 200), clip.roi)
+        assertTrue(clip.isStable)
+    }
+
+    @Test
     fun `a slow drift on a frame wider than the working copy is framed in master pixels`() = runTest {
         val fixture = fixture(widthPx = 3840, heightPx = 400)
         val drifting = CaptureRegion(3000, 100, 200, 100)
@@ -166,7 +178,8 @@ class ClipRecordingTest {
         val fixture = fixture()
         fixture.coordinator.open(Session, ComputerUseMode.Desktop())
         fixture.coordinator.capture(CaptureRequest())
-        val roi = CaptureRegion(100, 50, 200, 100)
+        // Odd edges map to half pixels on the 2:1 screen: the area is the hull of the mapped points, truncated alike.
+        val roi = CaptureRegion(101, 51, 198, 98)
         fixture.coordinator.input(InputAction.Click(FramePoint(150.0, 80.0)), roi = roi)
         assertEquals(ScreenBounds(60, 45, 100, 50), fixture.injector.lastArea)
         fixture.coordinator.input(InputAction.Click(FramePoint(10.0, 10.0)))

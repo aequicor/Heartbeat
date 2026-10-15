@@ -12,9 +12,10 @@ internal data class Keyframe<T>(val frame: T, val offsetMillis: Long, val change
  * [maxFrames] are kept: the baseline and the latest frame always stay, and the interior frame with the smallest
  * change gives way first. All changes between consecutive frames, and from the last kept frame, are united into
  * [changedArea], which the recorder frames the clip to: a slow drift below the threshold per frame still counts once
- * it adds up. A sliver change that repeats in the same place (a blinking caret, a ticking digit) is noise after its
- * first appearance. The screen has settled once nothing changed for [quietMillis] after the last change, or for
- * [idleMillis] when nothing changed at all. Both changes of one offer must be in the same pixels.
+ * it adds up. A sliver change (a blinking caret) counts only alongside a non-sliver change of the same frame: alone
+ * it neither keeps a frame, nor moves [changedArea], nor delays settling. The screen has settled once nothing changed
+ * for [quietMillis] after the last change, or for [idleMillis] when nothing changed at all. Both changes of one
+ * offer must be in the same pixels.
  */
 internal class ClipPlanner<T>(
     private val maxFrames: Int,
@@ -27,7 +28,6 @@ internal class ClipPlanner<T>(
     }
 
     private val kept = mutableListOf<Keyframe<T>>()
-    private val slivers = mutableSetOf<CaptureRegion>()
     private var lastChangeMillis: Long? = null
 
     /** The union of every change between consecutive frames, in the frames' pixels. */
@@ -42,8 +42,9 @@ internal class ClipPlanner<T>(
      */
     fun offer(frame: T, offsetMillis: Long, sincePrevious: MotionChange, sinceKept: MotionChange): T? {
         val isBaseline = kept.isEmpty()
-        val changes = listOf(sincePrevious, sinceKept).map { if (it.isRepeatedSliver()) Unchanged else it }
-        slivers += listOf(sincePrevious, sinceKept).filter { it.isSliver }.mapNotNull { it.bounds }
+        val offered = listOf(sincePrevious, sinceKept)
+        val isSolid = offered.any { it.isChanged && !it.isSliver }
+        val changes = offered.map { if (it.isSliver && !isSolid) Unchanged else it }
         changes.filter { it.isChanged && !isBaseline }.forEach { change ->
             lastChangeMillis = offsetMillis
             changedArea = changedArea.union(change.bounds)
@@ -63,8 +64,6 @@ internal class ClipPlanner<T>(
             }
         }
     }
-
-    private fun MotionChange.isRepeatedSliver(): Boolean = isSliver && bounds in slivers
 
     /** `true` once the screen stopped changing long enough after [offsetMillis] of recording. */
     fun isSettled(offsetMillis: Long): Boolean {

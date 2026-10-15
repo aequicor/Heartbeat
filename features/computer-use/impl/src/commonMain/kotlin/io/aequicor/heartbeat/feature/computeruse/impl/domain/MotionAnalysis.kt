@@ -20,8 +20,8 @@ internal class MotionSignature(
     /**
      * Cells whose mean luma moved by more than [threshold]; fewer than [minCells] changed cells count as no change
      * (a clock digit). A change that is only a thin vertical sliver is marked [MotionChange.isSliver]: it may be a
-     * blinking text caret, which spans several cells at high DPI, and [ClipPlanner] ignores it once it repeats in
-     * place. The bounds are in source pixels of this frame; frames of different sizes differ as a whole.
+     * blinking text caret, which spans several cells at high DPI, and [ClipPlanner] counts it only alongside another
+     * change. The bounds are in source pixels of this frame; frames of different sizes differ as a whole.
      */
     fun compare(
         other: MotionSignature,

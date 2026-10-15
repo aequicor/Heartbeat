@@ -62,14 +62,18 @@ class ClipPlannerTest {
     }
 
     @Test
-    fun `a sliver counts once and is noise when it repeats in place`() {
+    fun `a sliver alone is noise and counts only alongside another change`() {
         val planner = ClipPlanner<String>(maxFrames = 4, quietMillis = 500, idleMillis = 1_500)
         val caret = MotionChange(CaptureRegion(0, 8, 16, 40), 0.01, isSliver = true)
         planner.offer("on", 0, none, none)
-        assertNull(planner.offer("off", 250, caret, caret), "a first sliver may be a typed character")
-        assertEquals("on", planner.offer("on", 500, caret, caret))
-        assertEquals("off", planner.offer("off", 750, caret, none))
-        assertEquals(listOf("on", "off"), planner.keyframes.map { it.frame })
-        assertTrue(planner.isSettled(750))
+        assertEquals("off", planner.offer("off", 250, caret, caret))
+        assertEquals("on", planner.offer("on", 500, caret, none))
+        assertFalse(planner.hasChanged)
+        assertNull(planner.changedArea)
+        assertFalse(planner.isSettled(1_000))
+        assertTrue(planner.isSettled(1_500), "a blinking caret does not delay settling")
+        assertNull(planner.offer("typed", 750, caret, change(40, 0.2)))
+        assertEquals(listOf("on", "typed"), planner.keyframes.map { it.frame })
+        assertEquals(CaptureRegion(0, 0, 50, 48), planner.changedArea)
     }
 }
