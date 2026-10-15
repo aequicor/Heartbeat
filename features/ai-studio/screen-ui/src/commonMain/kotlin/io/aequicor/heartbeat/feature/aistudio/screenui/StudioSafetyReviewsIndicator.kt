@@ -24,8 +24,8 @@ import org.jetbrains.compose.resources.stringResource
 
 /**
  * Quiet sidebar header status of automatic safety reviews: taken slots of the capacity and, when reviews wait,
- * the queue. Its tooltip and accessible description repeat the label and spell out taken slots, queued, stopping and
- * abandoned reviews; the visible label is not announced twice.
+ * the queue. Its tooltip and accessible description spell out taken slots, queued, stopping and abandoned reviews
+ * instead of the compact label, which is not announced.
  */
 @Composable
 internal fun SafetyReviewsIndicator(reviews: SafetyReviewsUi, modifier: Modifier = Modifier) {
@@ -34,7 +34,7 @@ internal fun SafetyReviewsIndicator(reviews: SafetyReviewsUi, modifier: Modifier
     } else {
         stringResource(Res.string.safety_reviews_label, reviews.busy, reviews.capacity)
     }
-    val description = reviews.description(label)
+    val description = reviews.description()
     HbTooltip(description, modifier) {
         HbRow(
             Modifier.testTag("sidebar-safety-reviews").clearAndSetSemantics { contentDescription = description },
@@ -47,8 +47,8 @@ internal fun SafetyReviewsIndicator(reviews: SafetyReviewsUi, modifier: Modifier
 }
 
 @Composable
-private fun SafetyReviewsUi.description(label: String): String = listOfNotNull(
-    stringResource(Res.string.safety_reviews_title, label),
+private fun SafetyReviewsUi.description(): String = listOfNotNull(
+    stringResource(Res.string.safety_reviews_title),
     stringResource(Res.string.safety_reviews_busy, busy, capacity),
     queued.takeIf { it > 0 }?.let { stringResource(Res.string.safety_reviews_queued, it) },
     finishing.takeIf { it > 0 }?.let { stringResource(Res.string.safety_reviews_finishing, it) },

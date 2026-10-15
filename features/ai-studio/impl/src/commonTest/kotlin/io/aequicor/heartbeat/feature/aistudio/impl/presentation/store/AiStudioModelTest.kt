@@ -117,6 +117,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -1030,5 +1031,5 @@ private class EmptyStudioFacade : EngineFacade {
 internal object IdleSafetyReviews : io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewMonitor {
     override val load = kotlinx.coroutines.flow.MutableStateFlow(
         io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewLoad(capacity = 0),
-    )
+    ).asStateFlow()
 }

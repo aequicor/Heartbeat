@@ -84,14 +84,14 @@ internal class FacadeAgentSafetyReviewer(
             ?: return uncertain("Каталог инструментов модели недоступен для изоляции ревью.")
         val creates = facade.value.engines.features(target.engine).resolve(CreatesSessions) as? FeatureAccess.Available
             ?: return uncertain("Модель не поддерживает отдельную сессию ревью.")
-        if (!scope.isActive) return uncertain("Профиль закрывается, автоматическое ревью недоступно.")
+        if (!scope.isActive) return closing()
         if (!slots.acquire()) {
             return uncertain("Автоматические проверки безопасности перегружены. ${slots.describe()} Повторите позже.")
         }
         // The queue may have waited minutes: never open a review session for a closing profile.
         if (!scope.isActive) {
             slots.releaseRunning()
-            return uncertain("Профиль закрывается, автоматическое ревью недоступно.")
+            return closing()
         }
         var session: ActiveSession? = null
         try {
@@ -165,9 +165,16 @@ internal class FacadeAgentSafetyReviewer(
                 slots.releaseFinishing(isAbandoned)
                 if (!isClosed) awaitCancellation()
             } finally {
-                if (!isClosed) withContext(NonCancellable) { cleanup("close") { session.close() } }
+                if (!isClosed && withContext(NonCancellable) { cleanup("close") { session.close() } }) {
+                    log.i { "Abandoned safety review handle closed with the profile" }
+                }
             }
         }
+    }
+
+    private fun closing(): AgentSafetyReview {
+        log.i { "Safety review refused: the profile is closing" }
+        return uncertain("Профиль закрывается, автоматическое ревью недоступно.")
     }
 
     /** A failed submission may not have reached the runtime; Unavailable must be reconciled before cancellation. */

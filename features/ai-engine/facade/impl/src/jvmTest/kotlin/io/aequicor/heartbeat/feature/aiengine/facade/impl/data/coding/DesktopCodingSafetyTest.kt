@@ -118,7 +118,7 @@ class DesktopCodingSafetyTest {
     }
 
     @Test
-    fun `reviews of different calls from parallel chats run concurrently`() = runTest {
+    fun `reviews of different calls run concurrently`() = runTest {
         val bothStarted = CompletableDeferred<Unit>()
         val gate = CompletableDeferred<Unit>()
         onReview = {

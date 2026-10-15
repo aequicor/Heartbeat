@@ -44,12 +44,7 @@ internal class ServiceUiToolSafety(private val reviewer: AgentSafetyReviewer) {
     suspend fun authorize(context: AgentToolContext, request: UiToolSafetyRequest): AgentToolAutomaticAuthorization {
         val key = requireNotNull(request.approval.binding)
         // The lock guards only the memo: reviews of different proposals wait in the reviewer's own bounded queue.
-        val review = lock.withLock { decisions[key] } ?: assess(context, request).also { assessed ->
-            lock.withLock {
-                if (key !in decisions && decisions.size >= MEMO_LIMIT) decisions.remove(decisions.keys.first())
-                decisions[key] = assessed
-            }
-        }
+        val review = lock.withLock { decisions[key] } ?: remember(key, assess(context, request))
         return if (review.isSafe) {
             AgentToolAutomaticAuthorization.Allowed(request.approval)
         } else {
@@ -59,6 +54,14 @@ internal class ServiceUiToolSafety(private val reviewer: AgentSafetyReviewer) {
 
     suspend fun isAuthorized(context: AgentToolContext, request: UiToolSafetyRequest): Boolean = lock.withLock {
         context.authorization == request.approval && decisions[request.approval.binding]?.isSafe == true
+    }
+
+    /** A concurrent review of the same proposal that stored first wins, so every verdict matches the memo. */
+    private suspend fun remember(key: String, assessed: AgentSafetyReview): AgentSafetyReview = lock.withLock {
+        decisions[key] ?: assessed.also {
+            if (decisions.size >= MEMO_LIMIT) decisions.remove(decisions.keys.first())
+            decisions[key] = it
+        }
     }
 
     private suspend fun assess(context: AgentToolContext, request: UiToolSafetyRequest): AgentSafetyReview {

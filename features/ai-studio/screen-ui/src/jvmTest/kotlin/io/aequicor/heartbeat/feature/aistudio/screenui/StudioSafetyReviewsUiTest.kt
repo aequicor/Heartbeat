@@ -37,7 +37,7 @@ class StudioSafetyReviewsUiTest {
             val label = getString(Res.string.safety_reviews_label_queued, 3, 3, 4)
             assertEquals("3/3 · +4", label)
             listOf(
-                getString(Res.string.safety_reviews_title, label),
+                getString(Res.string.safety_reviews_title),
                 getString(Res.string.safety_reviews_busy, 3, 3),
                 getString(Res.string.safety_reviews_queued, 4),
                 getString(Res.string.safety_reviews_finishing, 1),
@@ -55,7 +55,7 @@ class StudioSafetyReviewsUiTest {
             val label = getString(Res.string.safety_reviews_label, 2, 3)
             assertEquals("2/3", label)
             listOf(
-                getString(Res.string.safety_reviews_title, label),
+                getString(Res.string.safety_reviews_title),
                 getString(Res.string.safety_reviews_busy, 2, 3),
             ).joinToString("\n")
         }

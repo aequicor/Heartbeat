@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.safety
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewLoad
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -60,6 +62,35 @@ class AgentSafetyReviewSlotsTest {
         runCurrent()
         assertEquals(AgentSafetyReviewLoad(capacity = 1, running = 1), slots.load.value)
         slots.releaseRunning()
+        assertTrue(slots.acquire())
+    }
+
+    @Test
+    fun `a slot handed over as the wait times out is owned by the waiter or stays free`() = runTest {
+        val slots = AgentSafetyReviewSlots(capacity = 1, queueLimit = 4, queueWait = 10.seconds)
+        assertTrue(slots.acquire())
+        val waiting = async { slots.acquire() }
+        launch {
+            delay(10.seconds)
+            slots.releaseRunning()
+        }
+        if (waiting.await()) slots.releaseRunning()
+        runCurrent()
+        assertEquals(AgentSafetyReviewLoad(capacity = 1), slots.load.value)
+        assertTrue(slots.acquire())
+    }
+
+    @Test
+    fun `a waiter cancelled after its slot was handed over returns it`() = runTest {
+        val slots = AgentSafetyReviewSlots(capacity = 1, queueLimit = 4, queueWait = 10.seconds)
+        assertTrue(slots.acquire())
+        val waiting = async { slots.acquire() }
+        runCurrent()
+        slots.releaseRunning()
+        waiting.cancel()
+        runCurrent()
+        assertTrue(waiting.isCancelled)
+        assertEquals(AgentSafetyReviewLoad(capacity = 1), slots.load.value)
         assertTrue(slots.acquire())
     }
 }
