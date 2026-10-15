@@ -206,6 +206,86 @@ class RuntimePoolTest {
     }
 
     @Test
+    fun `concurrent shutdown callers wait for native termination`() = runTest {
+        val pool = pool()
+        pool.runtime(route(managedKey()))
+        val gate = CompletableDeferred<Unit>().also { runtimes.single().closeGate = it }
+        val first = async { pool.closeAll() }
+        runCurrent()
+        val second = async { pool.closeAll() }
+        runCurrent()
+
+        assertFalse(first.isCompleted)
+        assertFalse(second.isCompleted)
+        assertEquals(1, runtimes.single().closes)
+        gate.complete(Unit)
+        first.await()
+        second.await()
+        assertTrue(pool.entries.value.isEmpty())
+    }
+
+    @Test
+    fun `shutdown waits for a runtime being created and stops it before completion`() = runTest {
+        val pool = pool()
+        val gate = CompletableDeferred<Unit>().also { factory.createGate = it }
+        val creation = async { assertFailsWith<EngineException> { pool.runtime(route(managedKey())) } }
+        runCurrent()
+        val closing = async { pool.closeAll() }
+        runCurrent()
+
+        assertFalse(closing.isCompleted)
+        gate.complete(Unit)
+        creation.await()
+        closing.await()
+        assertEquals(1, runtimes.single().closes)
+        assertTrue(runtimes.single().isClosed)
+        assertTrue(pool.entries.value.isEmpty())
+    }
+
+    @Test
+    fun `shutdown retains failed runtimes and still stops other sources`() = runTest {
+        val pool = pool()
+        pool.runtime(route(managedKey("src_failed")))
+        pool.runtime(route(managedKey("src_other")))
+        runtimes.first().closeFailure = IllegalStateException("stop failed")
+
+        assertFailsWith<IllegalStateException> { pool.closeAll() }
+
+        assertEquals(listOf(1, 1), runtimes.map { it.closes })
+        assertEquals(listOf(AuthSourceId("src_failed")), pool.entries.value.map { it.source })
+        runtimes.first().closeFailure = null
+        pool.closeAll()
+        assertEquals(listOf(2, 1), runtimes.map { it.closes })
+        assertTrue(pool.entries.value.isEmpty())
+    }
+
+    @Test
+    fun `runtime created during shutdown stays owned when termination fails`() = runTest {
+        val pool = pool()
+        val gate = CompletableDeferred<Unit>().also { factory.createGate = it }
+        factory.runtime = { identity ->
+            FakeRuntime(identity).also {
+                it.closeFailure = IllegalStateException("stop failed")
+                runtimes += it
+            }
+        }
+        val creation = async { assertFailsWith<IllegalStateException> { pool.runtime(route(managedKey())) } }
+        runCurrent()
+        val closing = async { assertFailsWith<IllegalStateException> { pool.closeAll() } }
+        runCurrent()
+        gate.complete(Unit)
+
+        creation.await()
+        closing.await()
+        assertEquals(2, runtimes.single().closes)
+        assertEquals(1, pool.entries.value.size)
+        runtimes.single().closeFailure = null
+        pool.closeAll()
+        assertEquals(3, runtimes.single().closes)
+        assertTrue(pool.entries.value.isEmpty())
+    }
+
+    @Test
     fun `disconnect retries failed shutdown of a runtime that finished starting after removal`() = runTest {
         val pool = pool()
         val removed = route(managedKey())

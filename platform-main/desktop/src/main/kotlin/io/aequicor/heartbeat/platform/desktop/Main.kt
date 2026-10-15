@@ -17,7 +17,6 @@ import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.window.FrameWindowScope
-import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
@@ -30,7 +29,9 @@ import io.aequicor.heartbeat.ds.components.HbDesktopPopupRendering
 import io.aequicor.heartbeat.ds.components.HbInWindowDialogHost
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.platform.dibundle.AppShutdownAccessors
+import io.aequicor.heartbeat.platform.dibundle.HeartbeatGraph
 import io.aequicor.heartbeat.platform.dibundle.PlantUmlAccessors
+import io.aequicor.heartbeat.platform.dibundle.closeScopes
 import io.aequicor.heartbeat.platform.dibundle.createHeartbeatGraph
 import io.aequicor.heartbeat.platform.dibundle.root.HeartbeatRoot
 import io.aequicor.heartbeat.platform.shared.App
@@ -77,14 +78,15 @@ private fun launchLoggedHeartbeat(isDevelopment: Boolean, classes: Result<Path?>
     val applicationIcons = runOnUiThread { loadDesktopIcons().also(::configureDockIcon) }
     val lifecycle = LifecycleRegistry()
     val graph = runOnUiThread { createHeartbeatGraph(isDevelopment) }
-    val root = runOnUiThread {
-        createAppRoot(DefaultComponentContext(lifecycle), graph).also { startAppWork(graph) }
-    }
+    val root = createDesktopRoot(lifecycle, graph)
     val dimensions = HbDimensions()
     application {
         val systemQuit = remember { DesktopSystemQuit() }
-        val closeRequest = rememberDesktopCloseHandler(
-            (graph as AppShutdownAccessors).shutdownParticipants,
+        val shutdown = graph as AppShutdownAccessors
+        val quitRequests = rememberDesktopCloseHandler(
+            shutdown.shutdownParticipants,
+            graph.dispatchers,
+            shutdown::closeScopes,
             lifecycle::destroy,
         ) {
             exitApplication()
@@ -92,41 +94,60 @@ private fun launchLoggedHeartbeat(isDevelopment: Boolean, classes: Result<Path?>
         }
         // Every handler instance shares the same remembered closing state, so the first one is installed once.
         DisposableEffect(Unit) {
-            installDesktopQuitHandler(systemQuit, closeRequest)
+            installDesktopQuitHandler(systemQuit, quitRequests.quit)
             onDispose { }
         }
-        QuitForAppUpdate(graph.machines, closeRequest)
+        QuitForAppUpdate(graph.machines, quitRequests.restart)
         val icon = remember(applicationIcons) { applicationIcons.last().toPainter() }
         val windowState = rememberWindowState(width = dimensions.windowWidth, height = dimensions.windowHeight)
         val computerUse by root.computerUse.collectAsState()
-        val permissionGuide by graph.permissionGuide.guide.collectAsState()
+        val visibility = rememberDesktopWindowVisibility(
+            windowState,
+            applicationIcons.last(),
+            computerUse.isActive,
+            quitRequests.quit,
+        )
         val plantUml = remember(graph) { (graph as PlantUmlAccessors).plantUml }
         val diagrams = remember(plantUml) { PlantUmlDiagramRenderer(plantUml, graph.dispatchers.default) }
         val areDiagramsAvailable by plantUml.availability.collectAsState(false)
         LifecycleController(lifecycle, windowState)
         var hasModal by remember { mutableStateOf(false) }
-        Window(
-            onCloseRequest = closeRequest,
-            title = "Heartbeat",
+        DesktopWindowHost(
+            onCloseRequest = visibility::closeWindow,
+            isVisible = visibility.isVisible,
             icon = icon,
             state = windowState,
-            alwaysOnTop = computerUse.isActive,
+            isAlwaysOnTop = computerUse.isActive,
             onPreviewKeyEvent = { event -> !hasModal && openSettingsOnShortcut(event, root) },
+            nativePresentation = { window ->
+                RestoreDesktopWindowFocus(window, visibility)
+                DesktopComputerUsePresentation(window, windowState, computerUse, graph.capturePresentation)
+            },
         ) {
             HeartbeatWindowContent(windowState, applicationIcons, { hasModal = it }) {
                 App(root, diagramRenderer = diagrams.takeIf { areDiagramsAvailable })
             }
-            DesktopComputerUsePresentation(window, windowState, computerUse, graph.capturePresentation)
         }
-        val guidedPermission = permissionGuide
-        if (isMacHost && guidedPermission != null) {
-            ComputerUsePermissionGuideWindow(
-                guidedPermission,
-                graph.dispatchers.io,
-                graph.capturePresentation,
-                graph.permissionGuide::dismiss,
-            )
-        }
+        DesktopPermissionGuide(graph)
+    }
+}
+
+/** Creates the root and starts application work once, while the desktop event loop is available. */
+private fun createDesktopRoot(lifecycle: LifecycleRegistry, graph: HeartbeatGraph): HeartbeatRoot = runOnUiThread {
+    createAppRoot(DefaultComponentContext(lifecycle), graph).also { startAppWork(graph) }
+}
+
+@Composable
+private fun DesktopPermissionGuide(graph: HeartbeatGraph) {
+    val permissionGuide by graph.permissionGuide.guide.collectAsState()
+    val guidedPermission = permissionGuide
+    if (isMacHost && guidedPermission != null) {
+        ComputerUsePermissionGuideWindow(
+            guidedPermission,
+            graph.dispatchers.io,
+            graph.capturePresentation,
+            graph.permissionGuide::dismiss,
+        )
     }
 }
 

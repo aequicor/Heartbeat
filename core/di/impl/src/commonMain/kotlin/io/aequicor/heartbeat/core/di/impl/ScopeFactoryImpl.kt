@@ -35,7 +35,7 @@ internal class ScopeFactoryImpl(private val dispatchers: DispatcherProvider) : S
     }
 }
 
-/** The app scope: root of the tree, no parent, never closed. */
+/** The app scope: root of the tree, closed by the desktop host when the application quits. */
 internal fun createRootScope(dispatchers: DispatcherProvider): OwnedScope =
     createScope(dispatchers, ROOT_SCOPE_NAME, parentJob = null, restored = null)
         .also { Log.tag(ScopeHandleImpl.LOG_TAG).i { "scope $ROOT_SCOPE_NAME created" } }
