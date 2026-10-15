@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -13,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 
 /** A route that passed every gate; [route] fixes the checked source revision. */
 data class ResolvedRoute(
@@ -64,6 +66,10 @@ class RouteResolver(
 
     /** Model catalog revision of [engine]'s adapter, or null for an unknown engine. */
     fun modelCatalogRevision(engine: EngineId): Int? = registry.find(engine)?.modelCatalogRevision
+
+    /** Background cache maintenance must not trigger first-use runtime downloads. */
+    suspend fun isRuntimePrepared(engine: EngineId): Boolean =
+        registry.find(engine)?.factory?.value?.preparation?.first() == EnginePreparation.Ready
 
     /** Saved bindings and their changes; used to hide data of removed bindings. */
     val saved: StateFlow<List<EngineBinding>> get() = bindings.state

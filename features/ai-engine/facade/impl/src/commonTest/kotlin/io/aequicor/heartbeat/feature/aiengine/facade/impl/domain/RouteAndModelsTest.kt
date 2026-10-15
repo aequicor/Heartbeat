@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
@@ -232,5 +233,26 @@ class RouteAndModelsTest {
 
         assertEquals(1, cache.entries.value.single().revision)
         assertFalse(upgraded.observation.isStale)
+    }
+
+    @Test
+    fun `observing outdated models does not download an unused runtime`() = runTest {
+        val factory = FakeEngineFactory()
+        factory.preparation.value = EnginePreparation.Idle
+        val fixture = RouteFixture(this, factory, registration(factory, modelCatalogRevision = 1))
+        val cache = FakeModelCache()
+        val old = ModelInfo(fixture.target, "Old")
+        cache.entries.value = listOf(CachedModels(TestEngine, fixture.binding.id, listOf(old), fixture.clock.now))
+        val models = ModelCatalogService(cache, fixture.routes, fixture.context)
+        factory.models = listOf(ModelInfo(fixture.target, "Fresh"))
+
+        val observed = models.observe(TestEngine, fixture.binding.id).first { it.isLoaded }
+        runCurrent()
+        assertEquals(listOf(old), observed.models)
+        assertTrue(observed.observation.isStale)
+        assertEquals(0, cache.entries.value.single().revision)
+        assertEquals(0, factory.preparations)
+
+        assertEquals(factory.models, models.refresh(TestEngine, fixture.binding.id).models)
     }
 }

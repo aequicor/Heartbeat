@@ -51,7 +51,8 @@ interface ModelCache {
 /**
  * [ModelCatalog] with a persistent cache. Discovery runs on [refresh] through the exact binding's route;
  * a failure is thrown and leaves the previous cache intact. Entries older than [freshFor] are reported stale.
- * An observed entry of another adapter catalog revision is reported stale and rediscovered once in the background.
+ * An observed entry of another adapter catalog revision is reported stale and rediscovered once in the background
+ * when the runtime is already prepared. Observation never downloads an optional runtime.
  * A binding removed during discovery gets no cache entry, and entries of removed bindings are hidden and dropped
  * on the next write.
  */
@@ -118,6 +119,10 @@ class ModelCatalogService(
         log.i { "model catalog revision changed engine=${engine.value} binding=${binding.value}" }
         context.scope.launch {
             try {
+                if (!routes.isRuntimePrepared(engine)) {
+                    log.d { "Model catalog upgrade waits for first engine use engine=${engine.value}" }
+                    return@launch
+                }
                 refresh(engine, binding)
             } catch (e: CancellationException) {
                 throw e

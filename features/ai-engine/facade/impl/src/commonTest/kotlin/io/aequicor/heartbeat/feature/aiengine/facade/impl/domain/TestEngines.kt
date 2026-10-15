@@ -28,6 +28,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
@@ -62,6 +63,9 @@ internal class FixedClock(var now: Instant = Instant.fromEpochSeconds(1_000)) : 
 
 /** Adapter factory whose answers are set by the test. */
 internal class FakeEngineFactory : EngineFactory {
+    override val preparation = MutableStateFlow<EnginePreparation>(EnginePreparation.Ready)
+    var prepare: suspend () -> Unit = {}
+    var preparations = 0
     var availability: EngineAvailability = EngineAvailability.Available
     var probeFailure: Exception? = null
     var probes = 0
@@ -73,6 +77,11 @@ internal class FakeEngineFactory : EngineFactory {
     var revision: ((AuthSource) -> AuthRevision)? = null
     var createGate: CompletableDeferred<Unit>? = null
     val routes = mutableMapOf<EngineBindingId, AuthSource>()
+
+    override suspend fun prepareRuntime() {
+        preparations++
+        prepare()
+    }
 
     override suspend fun sourceRevision(source: AuthSource): AuthRevision =
         revision?.invoke(source) ?: source.info.revision

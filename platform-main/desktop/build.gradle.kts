@@ -114,10 +114,23 @@ val preparePiRuntime = piTarget?.let { target ->
     }
 }
 
-// A plain IDE main() launch builds classes only; preparing Pi here lets that launch find it (see Main.kt).
-preparePiRuntime?.let { task -> tasks.named("processResources") { dependsOn(task) } }
+// First-use installation uses the same reviewed publisher pin as the optional development archive.
+piTarget?.let { target ->
+    val piAsset = "pi-$target." + if (piOs == "windows") "zip" else "tar.gz"
+    val piMetadata = tasks.register<WriteProperties>("preparePiMetadata") {
+        destinationFile.set(layout.buildDirectory.file("generated/piMetadata/runtime.properties"))
+        property("version", libs.versions.pi.get())
+        property("target", target)
+        property("asset", piAsset)
+        property("sha256", piChecksums.getValue(target))
+        property("url", "https://github.com/earendil-works/pi/releases/download/v${libs.versions.pi.get()}/$piAsset")
+    }
+    tasks.named<ProcessResources>("processResources") {
+        from(piMetadata) { into("pi") }
+    }
+}
 
-// App resources of the distribution: the Pi runtime and the Chromium extension folder that settings offer for
+// App resources of the distribution: the Chromium extension folder that settings offer for
 // "Load unpacked". Runs from a checkout use the repository's extension folder instead (DesktopExtensionFolder).
 // CI passes the artifact exported by prepareChromiumPanelArtifact from this release's Linux build.
 // Without the property, local packaging continues to build the panel from the checkout.
@@ -144,7 +157,7 @@ val collectAppResources = tasks.register<Sync>("collectAppResources") {
     } else {
         dependsOn(":chromium-plugin:panel:syncChromiumPanel")
     }
-    preparePiRuntime?.let { task -> from(task.flatMap { it.outputDirectory }) }
+    from(layout.projectDirectory.file("pi/LICENSE")) { into("common/licenses/pi") }
     from(layout.settingsDirectory.dir("chromium-plugin")) {
         into("common/chromium-plugin")
         // Tests, editor typings, a private signing key and the Kotlin sources of the side panel (built into app/)
@@ -366,28 +379,6 @@ if (piOs == "windows" && innoSetupArchitecture != null) {
                 outputDirectory.set(layout.buildDirectory.dir("compose/binaries/$outputName/exe"))
             }
             tasks.named("package${buildType}DistributionForCurrentOS") { dependsOn(installer) }
-        }
-    }
-}
-
-// Compose copies app resources without their executable bits. Repair the app image before installers consume it.
-// Keep the installation read-only at runtime: changing a bundled executable after installation is unnecessary.
-if (piTarget != null && piOs != "windows") {
-    tasks.withType<AbstractJPackageTask>().configureEach {
-        if (targetFormat == TargetFormat.AppImage) {
-            val isMacBundle = piOs == "darwin"
-            doLast {
-                val imageTask = this as AbstractJPackageTask
-                val resources = if (isMacBundle) {
-                    "${imageTask.packageName.get()}.app/Contents/app/resources"
-                } else {
-                    "${imageTask.packageName.get()}/lib/app/resources"
-                }
-                val executable = imageTask.destinationDir.get().file("$resources/pi/pi").asFile
-                check(executable.isFile && executable.setExecutable(true, false)) {
-                    "Cannot mark packaged Pi executable: $executable"
-                }
-            }
         }
     }
 }

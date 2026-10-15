@@ -227,11 +227,15 @@ class RuntimePool(
     }
 
     /**
-     * Creation is not interrupted by cancellation, and a runtime the adapter already started reaches the pool or is
-     * closed here: `withContext` drops its result when the caller was cancelled meanwhile, so it is captured inside.
+     * Optional preparation remains cancellable. Native creation is not interrupted; a started runtime reaches
+     * the pool or is closed here: `withContext` drops its result on cancellation, so it is captured inside.
      */
     private suspend fun create(resolved: ResolvedRoute): EngineRuntime {
         val identity = resolved.identity
+        adapterCall(log, "prepareRuntime") {
+            withContext(context.io) { resolved.registration.factory.value.prepareRuntime() }
+        }
+        currentCoroutineContext().ensureActive()
         var started: EngineRuntime? = null
         var isHandedOver = false
         try {
