@@ -11,8 +11,12 @@ import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.time.Duration.Companion.minutes
 
 internal val isMacHost: Boolean = System.getProperty("os.name").orEmpty().startsWith("Mac")
+
+/** Real hdiutil work can exceed runTest's one-minute default on a busy macOS host. */
+internal val MAC_DISK_IMAGE_TEST_TIMEOUT = 5.minutes
 
 /** Exercises image cleanup against a disposable Applications link without touching the host's applications. */
 @OptIn(ExperimentalPathApi::class)

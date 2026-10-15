@@ -42,7 +42,9 @@ class DesktopUpdateInstallerTest {
     }
 
     @Test
-    fun `a verified release image replaces the installed bundle after the app quits`() = runTest {
+    fun `a verified release image replaces the installed bundle after the app quits`() = runTest(
+        timeout = MAC_DISK_IMAGE_TEST_TIMEOUT,
+    ) {
         if (!isMacHost) return@runTest
         val installed = fakeBundle(Files.createDirectories(root.resolve("Applications")), "1.3.0")
         val image = releaseImage("1.4.0")
