@@ -1,3 +1,4 @@
+import io.aequicor.heartbeat.buildlogic.CompressReleaseDmg
 import io.aequicor.heartbeat.buildlogic.HarnessProbeArguments
 import io.aequicor.heartbeat.buildlogic.PackageInnoSetup
 import io.aequicor.heartbeat.buildlogic.PreparePiRuntime
@@ -5,8 +6,8 @@ import io.aequicor.heartbeat.buildlogic.PrepareReleaseRuntimeJars
 import io.aequicor.heartbeat.buildlogic.VerifyChromiumPanelArtifact
 import io.aequicor.heartbeat.buildlogic.WriteComponentMetadata
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
-import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
 import org.jetbrains.compose.desktop.application.tasks.AbstractCheckNativeDistributionRuntime
+import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
 import org.jetbrains.compose.desktop.application.tasks.AbstractJvmToolOperationTask
 import org.jetbrains.compose.desktop.application.tasks.AbstractProguardTask
 import org.jetbrains.compose.reload.gradle.ComposeHotRun
@@ -87,6 +88,9 @@ val piTarget = if (piOs != null && piArch != null) "$piOs-$piArch" else null
 heartbeatJcef.nativeBundle?.let { dependencies { runtimeOnly(it) } }
 // Module roots that keep the pinned API/native pair ahead of JBR's own jcef module, see heartbeat.jcef.
 val jcefJvmArgs = heartbeatJcef.jvmArguments
+// K2 compiles scripts without javac or dynamic JVM attachment. Excluding these tools also omits ct.sym.
+// The packaged harness probe exercises compilation and evaluation against this exact smaller runtime.
+val packagedJdkModules = heartbeatJcef.jdkModules.filterNot { it == "jdk.compiler" || it == "jdk.attach" }
 // Verify the pinned inputs before release staging removes the native archive.
 val verifyBrowserRuntime = heartbeatJcef.registerRuntimeVerification("runtimeClasspath")
 val verifyWindowRuntime = tasks.register<JavaExec>("verifyWindowRuntime") {
@@ -210,7 +214,7 @@ compose.desktop {
             // jdk.unsupported: DataStore's protobuf accesses sun.misc.Unsafe; jdk.httpserver: the loopback search bridge;
             // java.prefs and java.scripting: the PlantUML engine of the diagram worker process. Its launcher passes
             // the app's JVM options to that worker, which refuses to draw with an -Xmx above its own cap.
-            modules(*heartbeatJcef.jdkModules.toTypedArray())
+            modules(*packagedJdkModules.toTypedArray())
             modules(
                 "java.instrument",
                 "java.compiler",
@@ -218,7 +222,6 @@ compose.desktop {
                 "java.prefs",
                 "java.scripting",
                 "jdk.httpserver",
-                "jdk.compiler",
                 "jdk.unsupported",
             )
             // The installed app's name: Heartbeat.app on macOS, Heartbeat.exe on Windows (heartbeat.iss cleans up the
@@ -318,6 +321,16 @@ afterEvaluate {
         jdkHome.set(desktopJavaHome)
     }
     tasks.withType<AbstractJPackageTask>().configureEach {
+        if (targetFormat == TargetFormat.Dmg && name.contains("Release")) {
+            doLast(objects.newInstance<CompressReleaseDmg>().apply { imageDirectory.set(destinationDir) })
+        }
+        launcherJvmArgs.set(launcherJvmArgs.get().map { argument ->
+            if (argument.startsWith("--limit-modules=")) {
+                "--limit-modules=${packagedJdkModules.joinToString(",")}"
+            } else {
+                argument
+            }
+        })
         dependsOn(verifyWindowRuntime)
         dependsOn(verifyBrowserRuntime)
         if (targetFormat == TargetFormat.Deb) {
