@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.platform.desktop
 
+import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseInputActivity
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePresentation
@@ -35,6 +36,7 @@ internal data class AgentCursorStyle(
     val rippleRadius: Int,
     val trailWidth: Float,
     val badgeTextSize: Int,
+    val isBadgeBold: Boolean,
     val badgePadding: Int,
     val badgeOffset: Int,
     val timing: CursorTiming,
@@ -45,7 +47,7 @@ internal data class AgentCursorStyle(
  * pointer steps, and clicks, drags, wheel notches and keystrokes leave a short-lived mark. A frame timer runs only
  * while something moves or fades.
  */
-internal class ComputerUsePointerOverlay(private val clock: () -> Long = System::currentTimeMillis) :
+internal class ComputerUsePointerOverlay(private val clock: () -> Long = ::monotonicMillis) :
     ComputerUsePresentation,
     AutoCloseable {
     private val log = Log.tag("ComputerUsePointerOverlay")
@@ -108,6 +110,8 @@ internal class ComputerUsePointerOverlay(private val clock: () -> Long = System:
         canvas = null
     }
 
+    /** Runs on every overlay frame and every pointer step; it never logs on success. */
+    @HighFrequency
     private fun renderFrame() {
         if (isClosed || suppressionCount > 0) return
         val currentStyle = style ?: return
@@ -160,6 +164,11 @@ internal class ComputerUsePointerOverlay(private val clock: () -> Long = System:
         const val FRAME_MILLIS = 16
     }
 }
+
+/** Milliseconds of a clock that never jumps, unlike the wall clock. */
+private fun monotonicMillis(): Long = System.nanoTime() / NANOS_PER_MILLI
+
+private const val NANOS_PER_MILLI = 1_000_000L
 
 /** The canvas is centered on the tip but kept on the screen that holds it, so effects are not cut at an edge. */
 internal fun canvasOrigin(tip: CursorPoint, canvasSize: Int, screen: Rectangle?): java.awt.Point {
@@ -256,9 +265,13 @@ internal class AgentCursorCanvas(var style: AgentCursorStyle) : JPanel() {
     }
 
     private fun paintBadge(canvas: Graphics2D, badge: CursorBadge, tipX: Double, tipY: Double) {
-        canvas.font = canvas.font.deriveFont(Font.BOLD, style.badgeTextSize.toFloat())
+        canvas.font = canvas.font.deriveFont(
+            if (style.isBadgeBold) Font.BOLD else Font.PLAIN,
+            style.badgeTextSize.toFloat(),
+        )
+        val text = badge.text.takeIf { canvas.font.canDisplayUpTo(it) == -1 } ?: badge.text.plain()
         val metrics = canvas.fontMetrics
-        val width = metrics.stringWidth(badge.text) + style.badgePadding * 2.0
+        val width = metrics.stringWidth(text) + style.badgePadding * 2.0
         val height = metrics.height + style.badgePadding.toDouble()
         val x = (tipX + style.badgeOffset).coerceAtMost(this.width - width)
         val y = (tipY + style.badgeOffset).coerceAtMost(this.height - height)
@@ -266,8 +279,11 @@ internal class AgentCursorCanvas(var style: AgentCursorStyle) : JPanel() {
         canvas.fill(RoundRectangle2D.Double(x, y, width, height, height, height))
         canvas.color = style.badgeContent.withAlpha(badge.alpha)
         val baseline = y + (height - metrics.height) / 2 + metrics.ascent
-        canvas.drawString(badge.text, (x + style.badgePadding).toFloat(), baseline.toFloat())
+        canvas.drawString(text, (x + style.badgePadding).toFloat(), baseline.toFloat())
     }
+
+    /** ASCII stand-ins for label symbols a font cannot draw (the default Swing font on some hosts). */
+    private fun String.plain(): String = replace("⌨", "Aa").replace("↑", "^").replace("↓", "v")
 
     private fun Color.withAlpha(fraction: Float): Color =
         Color(red, green, blue, (alpha * fraction.coerceIn(0f, 1f)).roundToInt())

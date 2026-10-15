@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.toArgb
 import io.aequicor.heartbeat.ds.tokens.HbColors
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.ds.tokens.HbMotion
+import io.aequicor.heartbeat.ds.tokens.HbTypography
 import java.awt.Color
 import java.awt.image.BufferedImage
 import javax.swing.JPanel
@@ -53,7 +54,12 @@ class ComputerUseIndicatorRasterTest {
     fun `agent cursor uses theme fill and contrasting outline with transparent exterior`() {
         for (theme in listOf(HbColors.DesktopLight, HbColors.DesktopDark)) {
             for (scale in listOf(1, 2, 3)) {
-                val style = agentCursorStyle(theme, HbDimensions.Desktop, HbMotion(isReducedMotion = true))
+                val style = agentCursorStyle(
+                    theme,
+                    HbDimensions.Desktop,
+                    HbMotion(isReducedMotion = true),
+                    HbTypography.Desktop,
+                )
                 val image = render(canvas(style, CursorScene(Tip)), style.canvasSize, style.canvasSize, scale)
                 val pixels = image.getRGB(0, 0, image.width, image.height, null, 0, image.width).toSet()
                 assertTrue(theme.computerUsePointer.toArgb() in pixels)
@@ -67,7 +73,7 @@ class ComputerUseIndicatorRasterTest {
     @Test
     fun `a click ring and an action label are painted around the tip`() {
         val theme = HbColors.DesktopLight
-        val style = agentCursorStyle(theme, HbDimensions.Desktop, HbMotion())
+        val style = agentCursorStyle(theme, HbDimensions.Desktop, HbMotion(), HbTypography.Desktop)
         val center = style.canvasSize / 2
         val size = center * 2
         val ring = render(canvas(style, CursorScene(Tip, rings = listOf(CursorRing(1f, 1f)))), size, size, 1)

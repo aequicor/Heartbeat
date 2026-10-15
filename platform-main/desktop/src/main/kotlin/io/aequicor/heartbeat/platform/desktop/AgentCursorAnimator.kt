@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.platform.desktop
 
+import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseGesture
 import io.aequicor.heartbeat.feature.computeruse.api.MouseButton
 import kotlin.math.pow
@@ -47,6 +48,7 @@ internal class AgentCursorAnimator(private val timing: CursorTiming) {
     private val trail = ArrayDeque<Pair<CursorPoint, Long>>()
 
     /** Moves the target to [point]; a new [effectSequence] starts the effect of [gesture]. */
+    @HighFrequency
     fun update(point: CursorPoint, gesture: ComputerUseGesture?, effectSequence: Long, nowMillis: Long) {
         val current = to
         if (current == null) {
@@ -75,6 +77,8 @@ internal class AgentCursorAnimator(private val timing: CursorTiming) {
         trail.clear()
     }
 
+    /** Called on every frame of the overlay timer. */
+    @HighFrequency
     fun scene(nowMillis: Long): CursorScene? {
         val tip = to?.let { tip(nowMillis) } ?: return null
         val rings = rings(nowMillis)

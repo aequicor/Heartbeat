@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.tokens.HbColors
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.ds.tokens.HbMotion
+import io.aequicor.heartbeat.ds.tokens.HbTypography
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseInputActivity
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseSuppressionReason
 import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
@@ -64,7 +65,7 @@ private fun verifyComputerUseIndicators() {
                 FramePoint(area.width / 2.0, area.height / 2.0),
                 isPointerVisible = true,
             ),
-            agentCursorStyle(colors, dimensions, motion),
+            agentCursorStyle(colors, dimensions, motion, HbTypography.Desktop),
         )
         val marker = indicatorWindows("pointer").single()
         pointer.suppress(ComputerUseSuppressionReason.PointerInput).use { check(marker.isVisible) }

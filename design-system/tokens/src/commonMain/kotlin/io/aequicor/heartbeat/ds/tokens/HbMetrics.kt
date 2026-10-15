@@ -91,8 +91,7 @@ data class HbDimensions(
     /** Final radius of the ring an agent click leaves, and the width of the agent drag trail. */
     val computerUseRippleRadius: Dp = 28.dp,
     val computerUseTrailWidth: Dp = 3.dp,
-    /** Action label next to the agent cursor: text size, inner padding and offset from the pointer tip. */
-    val computerUseBadgeTextSize: Dp = 12.dp,
+    /** Action label next to the agent cursor (text style: `HbTypography.label`): padding and offset from the tip. */
     val computerUseBadgePadding: Dp = 5.dp,
     val computerUseBadgeOffset: Dp = 20.dp,
     /** Floating panel next to System Settings that guides a computer-use permission grant. */
