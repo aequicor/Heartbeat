@@ -107,7 +107,7 @@ internal class SurfaceModel(
                 name = "web-documents"
                 onStart {
                     withState { documents.show(this) }
-                    launch { web.availability.collect(documents::enable) }
+                    launch { web.configuration.collect(documents::configure) }
                 }
                 onState { _, next -> next.also(documents::show) }
                 onStop { documents.close() }

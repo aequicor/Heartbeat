@@ -35,6 +35,7 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCard
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardAdded
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardStorage
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiMethodCalls
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiWebConfiguration
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiWebDocuments
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiNodeUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceIntent
@@ -469,7 +470,7 @@ class PlaceModelTest {
     }
 
     private class ContextWeb : UiWebDocuments {
-        override val availability: Flow<Boolean> = flowOf(true)
+        override val configuration: Flow<UiWebConfiguration> = flowOf(UiWebConfiguration(isEnabled = true))
         val opened = mutableListOf<ContextDocument>()
 
         override fun open(document: BrowserDocument): BrowserDocumentHandle =

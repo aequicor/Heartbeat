@@ -14,10 +14,10 @@ import kotlinx.serialization.json.putJsonObject
 /** One disposable WebView render; its schema provides no owner, URL, bridge or arbitrary evaluation command. */
 internal val ServiceUiPreviewSpec = AgentToolSpec(
     name = ServiceUiTools.PREVIEW,
-    description = "Render a self-contained HTML draft with Heartbeat's isolated WebView renderer. Returns layout " +
+    description = "Render an HTML draft with Heartbeat's renderer and current Safe Mode setting. Returns layout " +
         "diagnostics and an optional PNG for image-capable models. No owner methods, saved interfaces, " +
-        "network, project or harness are required. WebView only; does not render native JSON nodes " +
-        "or test persistence.",
+        "project or harness are required. Safe Mode blocks remote assets; disabling it permits resource loads " +
+        "subject to automatic review. WebView only; does not render native JSON nodes or test persistence.",
     inputSchema = buildJsonObject {
         put("type", "object")
         put("additionalProperties", false)
@@ -27,7 +27,7 @@ internal val ServiceUiPreviewSpec = AgentToolSpec(
                 put("type", "string")
                 put(
                     "description",
-                    "Complete web.html draft including inline CSS and JavaScript, at most 48 KiB in UTF-8.",
+                    "Complete web.html draft including inline CSS and JavaScript, at most 1 MiB in UTF-8.",
                 )
             }
             putJsonObject("data") {

@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserDocument
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentBridge
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentHandle
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentSizing
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiWebConfiguration
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiWebDocuments
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiNodeUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.WebHeightUi
@@ -36,7 +37,7 @@ internal class SurfaceWebDocuments(
     private val open = mutableMapOf<String, Opened>()
     private val refused = mutableMapOf<String, Drawn>()
     private var drawn: List<Drawn> = emptyList()
-    private var isEnabled = false
+    private var configuration = UiWebConfiguration()
     private var isClosed = false
     private val routes = MutableStateFlow<ImmutableMap<String, String>>(persistentMapOf())
 
@@ -47,9 +48,13 @@ internal class SurfaceWebDocuments(
     @HighFrequency
     fun show(state: SurfaceState) = sync { drawn = state.webs() }
 
-    /** Web documents were turned on or off; turning them on asks again for documents refused before. */
-    fun enable(isEnabled: Boolean) = sync {
-        this.isEnabled = isEnabled
+    /** A policy change revokes retained pages, including their old scripts, drafts and pending bridge calls. */
+    fun configure(configuration: UiWebConfiguration) = sync {
+        if (this.configuration.resourcePolicy != configuration.resourcePolicy) {
+            open.values.forEach { it.handle.close() }
+            open.clear()
+        }
+        this.configuration = configuration
         refused.clear()
     }
 
@@ -59,7 +64,7 @@ internal class SurfaceWebDocuments(
     @HighFrequency
     private fun sync(change: () -> Unit) {
         change()
-        val wanted = if (isEnabled && !isClosed) drawn.associateBy { it.key } else emptyMap()
+        val wanted = if (configuration.isEnabled && !isClosed) drawn.associateBy { it.key } else emptyMap()
         open.keys.filter { key -> wanted[key]?.let { open.getValue(key).isSame(it) } != true }.forEach { key ->
             open.remove(key)?.handle?.close()
         }
@@ -90,6 +95,7 @@ internal class SurfaceWebDocuments(
             node.data,
             bridge.takeIf { node.hasBridge },
             node.sizing,
+            configuration.resourcePolicy,
         )
         return documents.open(document)?.let { Opened(it, node) }
     }

@@ -32,6 +32,7 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardAdded
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardSource
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardStorage
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiMethodCalls
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiWebConfiguration
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiWebDocuments
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.place.PrMap
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.place.surface
@@ -139,7 +140,7 @@ internal class AppCalls : UiMethodCalls {
 }
 
 internal class AppWeb : UiWebDocuments {
-    override val availability: Flow<Boolean> = flowOf(true)
+    override val configuration: Flow<UiWebConfiguration> = flowOf(UiWebConfiguration(isEnabled = true))
     val opened = mutableListOf<AppDocument>()
     override fun open(document: BrowserDocument): BrowserDocumentHandle =
         AppDocument(document, BrowserDocumentRoute("doc-${opened.size}")).also { opened += it }

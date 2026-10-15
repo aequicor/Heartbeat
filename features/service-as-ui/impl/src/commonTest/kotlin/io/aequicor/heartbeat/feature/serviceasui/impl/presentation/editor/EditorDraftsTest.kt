@@ -59,7 +59,8 @@ class EditorDraftsTest {
 
     @Test
     fun `the size limit applies to the stored form not to the indented draft`() {
-        val children = (1..300).joinToString(",") { """{"type":"text","text":"${"x".repeat(180)}"}""" }
+        val text = "x".repeat(ServiceUiLimits.SPEC_BYTES / 300 - 30)
+        val children = (1..300).joinToString(",") { """{"type":"text","text":"$text"}""" }
         val big = saved.withSpec("""{"version":1,"body":{"type":"column","children":[$children]}}""")
         val state = EditorState().synced(ready(big), edited(big))
 

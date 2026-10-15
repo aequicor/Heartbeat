@@ -35,6 +35,8 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiWrite
 import io.aequicor.heartbeat.feature.serviceasui.api.UiWriteOp
 import io.aequicor.heartbeat.feature.serviceasui.api.UiWriteOrigin
 import io.aequicor.heartbeat.feature.serviceasui.impl.data.RESULT_BYTES
+import io.aequicor.heartbeat.feature.serviceasui.impl.data.uiWebPolicyInstruction
+import io.aequicor.heartbeat.feature.serviceasui.impl.data.uiWebResourcePolicy
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiMachine
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiAuthoringKnowledge
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCard
@@ -101,7 +103,7 @@ internal class ServiceUiAgentTools(
         if (toggles.get(ServiceUiEnabled)) ServiceUiToolSpecs else emptyList()
 
     override suspend fun instructions(workspace: WorkspaceRef?): String =
-        if (toggles.get(ServiceUiEnabled)) INSTRUCTIONS else ""
+        if (toggles.get(ServiceUiEnabled)) INSTRUCTIONS + "\n" + toggles.uiWebPolicyInstruction() else ""
 
     override suspend fun instructions(scope: AgentToolScope): String {
         val declared = scope.declared
@@ -203,6 +205,7 @@ internal class ServiceUiAgentTools(
                 arguments,
                 snapshot,
                 libraryRevision = ready.library.revision,
+                resourcePolicy = toggles.uiWebResourcePolicy(),
             ),
         )
     }
@@ -239,7 +242,13 @@ internal class ServiceUiAgentTools(
             return SafetyPlan.Invalid("args are too large")
         }
         return SafetyPlan.Ready(
-            uiToolSafetyRequest(context, unreviewedApproval(spec, arguments), arguments, snapshot),
+            uiToolSafetyRequest(
+                context,
+                unreviewedApproval(spec, arguments),
+                arguments,
+                snapshot,
+                resourcePolicy = toggles.uiWebResourcePolicy(),
+            ),
             shownSurface,
         )
     }
@@ -268,7 +277,14 @@ internal class ServiceUiAgentTools(
             put("source", review.source)
         }
         return SafetyPlan.Ready(
-            uiToolSafetyRequest(context, unreviewedApproval(spec, arguments), arguments, snapshot, review.binding),
+            uiToolSafetyRequest(
+                context,
+                unreviewedApproval(spec, arguments),
+                arguments,
+                snapshot,
+                review.binding,
+                resourcePolicy = toggles.uiWebResourcePolicy(),
+            ),
         )
     }
 

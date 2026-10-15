@@ -4,10 +4,16 @@ import io.aequicor.heartbeat.core.common.HostPlatform
 import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReview
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
@@ -20,13 +26,20 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewMetrics
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviews
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentResourcePolicy
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiEnabled
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiTools
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiWeb
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiWebSafeMode
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpecLimits
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -42,17 +55,20 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ServiceUiPreviewToolsTest {
     private val renderer = Renderer()
     private val toggles = Toggles()
+    private val reviewer = Reviewer()
     private val tools = tools(HostPlatform.MacOs)
     private val context = AgentToolContext(
         SessionRef(EngineId("pi"), SessionSourceId("source"), "session"),
         workspace = null,
         TurnId("turn"),
+        target = EngineTarget(EngineId("pi"), EngineBindingId("provider"), ModelId("model")),
     )
 
     @Test
@@ -86,11 +102,11 @@ class ServiceUiPreviewToolsTest {
         assertEquals("", tools.instructions(scope.copy(declared = emptySet())))
         assertEquals("", tools.instructions(scope.copy(declared = setOf(ServiceUiTools.PUT))))
         for (key in listOf(ServiceUiEnabled.key, ServiceUiWeb.key)) {
-            toggles.disabled += key
+            toggles.set(key, false)
             assertEquals(emptyList(), tools.specifications(null))
             assertEquals("", tools.instructions(scope))
             assertTrue(call().isError)
-            toggles.disabled -= key
+            toggles.set(key, true)
         }
         assertTrue(renderer.requests.isEmpty())
     }
@@ -206,6 +222,31 @@ class ServiceUiPreviewToolsTest {
     }
 
     @Test
+    fun `approval validates depth bytes and unknown keys before creating a safety snapshot`() = runTest {
+        var nested: JsonElement = JsonPrimitive("Private sample")
+        repeat(20_000) { nested = JsonArray(listOf(nested)) }
+        val invalid = listOf(
+            arguments("data" to nested),
+            arguments("unknown" to nested),
+            arguments("html" to JsonPrimitive("я".repeat(UiSpecLimits.HTML_BYTES / 2 + 1))),
+            arguments("data" to JsonPrimitive("я".repeat(BrowserDocumentLimits.DATA_BYTES / 2 + 1))),
+        )
+        val spec = tools.specifications(null).single()
+        for (isSafeMode in listOf(true, false)) {
+            toggles.set(ServiceUiWebSafeMode.key, isSafeMode)
+            for (args in invalid) {
+                val approval = tools.approval(context, spec, args)
+                assertEquals("invalid", approval.binding)
+                assertEquals(ServiceUiTools.PREVIEW, approval.name)
+                assertTrue(approval.description.orEmpty().length < 200)
+                assertFalse(approval.description.orEmpty().contains("Private sample"))
+            }
+        }
+        assertTrue(reviewer.changes.isEmpty())
+        assertTrue(renderer.requests.isEmpty())
+    }
+
+    @Test
     fun `viewport bounds and arbitrary JSON sample values remain usable`() = runTest {
         val samples = listOf(JsonNull, JsonPrimitive("sample"), JsonArray(listOf(JsonPrimitive(1))))
         for (sample in samples) {
@@ -245,12 +286,68 @@ class ServiceUiPreviewToolsTest {
         assertFailsWith<CancellationException> { call() }
     }
 
+    @Test
+    fun `external previews need exact automatic review and cannot select their own policy`() = runTest {
+        toggles.set(ServiceUiWebSafeMode.key, false)
+        assertTrue(call().isError)
+        val spec = tools.specifications(null).single()
+        reviewer.verdict = AgentSafetyReview("risk", "Data exfiltration")
+        assertIs<AgentToolAutomaticAuthorization.Denied>(tools.automaticAuthorization(context, spec, arguments()))
+        assertTrue(renderer.requests.isEmpty())
+        reviewer.verdict = AgentSafetyReview("safe", "Ordinary assets")
+        val changed = arguments("html" to JsonPrimitive(HTML + " "))
+        val allowed = assertIs<AgentToolAutomaticAuthorization.Allowed>(
+            tools.automaticAuthorization(context, spec, changed),
+        )
+        val authorized = context.copy(authorization = allowed.approval)
+        assertTrue(tools.execute(authorized, ServiceUiTools.PREVIEW, arguments()).isError)
+        assertFalse(tools.execute(authorized, ServiceUiTools.PREVIEW, changed).isError)
+        assertEquals(BrowserDocumentResourcePolicy.ExternalAssets, renderer.requests.single().resourcePolicy)
+        assertTrue(reviewer.changes.last().contains("ExternalAssets"))
+        assertTrue(call(arguments("resourcePolicy" to JsonPrimitive("ExternalAssets"))).isError)
+    }
+
+    @Test
+    fun `turning safe mode on revokes an active external preview and returns no image`() = runTest {
+        toggles.set(ServiceUiWebSafeMode.key, false)
+        val allowed = assertIs<AgentToolAutomaticAuthorization.Allowed>(
+            tools.automaticAuthorization(context, tools.specifications(null).single(), arguments()),
+        )
+        renderer.isSuspended = true
+        val preview = async {
+            tools.execute(context.copy(authorization = allowed.approval), ServiceUiTools.PREVIEW, arguments())
+        }
+        renderer.started.await()
+        toggles.set(ServiceUiWebSafeMode.key, true)
+        val result = preview.await()
+        assertTrue(result.isError)
+        assertTrue(result.text.contains("settings changed"))
+        assertTrue(result.images.isEmpty())
+        assertTrue(renderer.wasCancelled)
+    }
+
+    @Test
+    fun `feature changes cancel active renders and caller cancellation still propagates`() = runTest {
+        renderer.isSuspended = true
+        val preview = async { call() }
+        renderer.started.await()
+        toggles.set(ServiceUiWeb.key, false)
+        assertTrue(preview.await().isError)
+        assertTrue(renderer.wasCancelled)
+        toggles.set(ServiceUiWeb.key, true)
+        val cancelled = async { call() }
+        runCurrent()
+        cancelled.cancel()
+        assertFailsWith<CancellationException> { cancelled.await() }
+    }
+
     private fun tools(host: HostPlatform): ServiceUiPreviewTools = ServiceUiPreviewTools(
         renderer,
         toggles,
         object : PlatformInfo {
             override val host = host
         },
+        ServiceUiToolSafety(reviewer),
     )
 
     private suspend fun call(args: Map<String, JsonElement> = arguments()) =
@@ -264,22 +361,46 @@ class ServiceUiPreviewToolsTest {
             emptyList(),
         )
         var cancel = false
+        var isSuspended = false
+        val started = CompletableDeferred<Unit>()
+        var wasCancelled = false
 
         override suspend fun preview(request: BrowserDocumentPreviewRequest): BrowserDocumentPreviewResult {
             if (cancel) throw CancellationException("preview cancelled")
             requests += request
-            return result
+            started.complete(Unit)
+            try {
+                if (isSuspended) awaitCancellation()
+                return result
+            } catch (error: CancellationException) {
+                wasCancelled = true
+                throw error
+            }
         }
     }
 
     private class Toggles : FeatureToggles {
-        val disabled = mutableSetOf<String>()
+        private val disabled = MutableStateFlow(emptySet<String>())
 
-        @Suppress("UNCHECKED_CAST") // This fixture exposes only the two boolean interface flags.
-        override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = flowOf((toggle.key !in disabled) as T)
+        fun set(key: String, isEnabled: Boolean) {
+            disabled.value = if (isEnabled) disabled.value - key else disabled.value + key
+        }
 
-        @Suppress("UNCHECKED_CAST") // This fixture exposes only the two boolean interface flags.
-        override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = (toggle.key !in disabled) as T
+        @Suppress("UNCHECKED_CAST") // This fixture exposes boolean interface flags.
+        override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> =
+            disabled.map { (toggle.key !in it) as T }
+
+        @Suppress("UNCHECKED_CAST") // This fixture exposes boolean interface flags.
+        override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = (toggle.key !in disabled.value) as T
+    }
+
+    private class Reviewer : AgentSafetyReviewer {
+        var verdict = AgentSafetyReview("safe", "Ordinary external assets")
+        val changes = mutableListOf<String>()
+        override suspend fun review(target: EngineTarget, policy: String, change: String): AgentSafetyReview {
+            changes += change
+            return verdict
+        }
     }
 
     private companion object {

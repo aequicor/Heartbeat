@@ -108,7 +108,8 @@ private fun nodesReference(): String = """
   close in the modal overlay the top-end corner. `--hb-overlay-width` and `--hb-overlay-height` describe that
   occupied area in CSS pixels (zero elsewhere).
   Let your header or toolbar account for this area at its inline end without adding an empty full-width top strip.
-  The page has its own origin and no network: inline scripts and styles, `data:` images and fonts;
+  The page has its own origin. Safe Mode blocks external resources by default; inline scripts/styles and data assets work.
+  With the user's app-wide Safe Mode off, HTTP(S) script/style/font/image/media dependencies may load;
   no fetch, sockets, WebRTC, frames, workers, form submissions or links away. It reads `data` (a binding) as
   `heartbeat.data` and later values from the `heartbeat:data` event on `window` (`event.detail`). With `bridge: true`
   (library surfaces), `await heartbeat.call(method, args)` calls the owner's method with object `args` and returns
@@ -190,7 +191,9 @@ Buttons call approved harness `ui.method` methods; persist changed values using 
 Resume controls must keep existing records. Check the current state inside `data.update` before starting a new
 session so repeated clicks cannot reset active progress; separate starting, resuming and clearing actions.
 The host updates other drawn surfaces after a durable write, without a model turn or a page reload. Do not poll or
-read the same data after every successful call. Use inline SVG or CSS for artwork; isolated pages have no network.
+read the same data after every successful call. Use inline SVG/CSS for artwork or assets allowed by Safe Mode.
+External scripts can read page data and use its allowed bridge; asset requests can transmit data. Automatic review
+does not certify third-party code. Changing Safe Mode reloads mini-apps (unsaved inputs may reset) and cancels previews.
 
 ## Built-in authoring skills
 Read `ui_reference(topic="mini-app-design")` for task flows, durable behavior, native platform fit and design.

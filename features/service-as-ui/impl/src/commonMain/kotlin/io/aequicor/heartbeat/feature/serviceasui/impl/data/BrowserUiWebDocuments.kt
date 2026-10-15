@@ -9,10 +9,9 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocument
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentHandle
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocuments
-import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiWeb
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiWebConfiguration
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiWebDocuments
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 
 /**
  * Web documents of surfaces through the profile's browser documents, while `service_ui.web` is on and only on
@@ -27,7 +26,7 @@ internal class BrowserUiWebDocuments(
 ) : UiWebDocuments {
     private val isDesktop = platform.host in setOf(HostPlatform.MacOs, HostPlatform.Windows, HostPlatform.Linux)
 
-    override val availability: Flow<Boolean> = toggles.observe(ServiceUiWeb).map { it && isDesktop }
+    override val configuration: Flow<UiWebConfiguration> = toggles.uiWebConfiguration(isDesktop)
 
     override fun open(document: BrowserDocument): BrowserDocumentHandle? = documents.open(document)
 }

@@ -6,6 +6,8 @@ import io.aequicor.heartbeat.core.common.HostPlatform
 import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolImage
@@ -14,12 +16,18 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewElement
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviews
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentResourcePolicy
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiEnabled
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiTools
+import io.aequicor.heartbeat.feature.serviceasui.impl.data.uiWebConfiguration
+import io.aequicor.heartbeat.feature.serviceasui.impl.data.uiWebPolicyInstruction
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiWeb
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiWebConfiguration
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpecLimits
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -37,8 +45,10 @@ internal class ServiceUiPreviewTools(
     private val previews: BrowserDocumentPreviews,
     private val toggles: FeatureToggles,
     platform: PlatformInfo,
+    private val safety: ServiceUiToolSafety,
 ) : AgentToolContribution {
     private val isDesktop = platform.host in setOf(HostPlatform.MacOs, HostPlatform.Windows, HostPlatform.Linux)
+    private val configuration = toggles.uiWebConfiguration(isDesktop)
     override val group: String = ServiceUiTools.GROUP
     override val title: String = "Интерфейсы"
     override val isDetachedSupported: Boolean = true
@@ -47,26 +57,76 @@ internal class ServiceUiPreviewTools(
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
         if (isEnabled()) listOf(ServiceUiPreviewSpec) else emptyList()
 
-    override suspend fun instructions(workspace: WorkspaceRef?): String = if (isEnabled()) INSTRUCTIONS else ""
+    override suspend fun instructions(workspace: WorkspaceRef?): String =
+        if (isEnabled()) INSTRUCTIONS + "\n" + toggles.uiWebPolicyInstruction() else ""
 
     override suspend fun instructions(scope: AgentToolScope): String {
         val declared = scope.declared
         return if (declared == null || ServiceUiTools.PREVIEW in declared) instructions(scope.workspace) else ""
     }
 
+    override suspend fun automaticAuthorization(
+        context: AgentToolContext,
+        spec: AgentToolSpec,
+        arguments: JsonObject,
+    ): AgentToolAutomaticAuthorization? {
+        val current = configuration.first()
+        if (!current.isEnabled) return AgentToolAutomaticAuthorization.Denied("WebView preview is unavailable")
+        if (current.resourcePolicy == BrowserDocumentResourcePolicy.Isolated) return null
+        val parsed = previewArguments(arguments)
+        if (parsed is UiPreviewArguments.Invalid) return AgentToolAutomaticAuthorization.Denied(parsed.message)
+        return safety.authorize(context, previewSafety(context, arguments, current))
+    }
+
+    override suspend fun approval(
+        context: AgentToolContext,
+        spec: AgentToolSpec,
+        arguments: JsonObject,
+    ): AgentToolApproval = when (val parsed = previewArguments(arguments)) {
+        is UiPreviewArguments.Invalid ->
+            AgentToolApproval(ServiceUiTools.PREVIEW, "Preview an HTML draft", parsed.message, "invalid")
+
+        is UiPreviewArguments.Valid -> previewSafety(context, arguments, configuration.first()).approval
+    }
+
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
         if (name != ServiceUiTools.PREVIEW) return failure("Unknown preview tool")
-        if (!isEnabled()) return failure("WebView preview requires Desktop and enabled interface web documents")
+        val current = configuration.first()
+        if (!current.isEnabled) return failure("WebView preview requires Desktop and enabled interface web documents")
         val input = when (val parsed = previewArguments(arguments)) {
             is UiPreviewArguments.Valid -> parsed
             is UiPreviewArguments.Invalid -> return failure(parsed.message)
         }
-        return when (val result = previews.preview(input.request)) {
-            is BrowserDocumentPreviewResult.Rendered -> rendered(result, input)
+        if (current.resourcePolicy == BrowserDocumentResourcePolicy.ExternalAssets &&
+            !safety.isAuthorized(context, previewSafety(context, arguments, current))
+        ) {
+            return failure("Automatic safety review is missing or settings changed; request the preview again")
+        }
+        val configured = input.copy(request = input.request.copy(resourcePolicy = current.resourcePolicy))
+        val result = previewWithConfiguration(configuration, current) { previews.preview(configured.request) }
+            ?: return failure("WebView settings changed during preview; retry with the current settings")
+        return when (result) {
+            is BrowserDocumentPreviewResult.Rendered -> rendered(result, configured)
             BrowserDocumentPreviewResult.Unavailable -> failure("WebView preview is unavailable on this host")
             is BrowserDocumentPreviewResult.Failure -> failure("WebView preview failed: ${result.reason.name}")
         }
     }
+
+    private fun previewSafety(
+        context: AgentToolContext,
+        arguments: JsonObject,
+        configuration: UiWebConfiguration,
+    ): UiToolSafetyRequest = uiToolSafetyRequest(
+        context,
+        AgentToolApproval(ServiceUiTools.PREVIEW, "Preview an HTML draft"),
+        arguments,
+        buildJsonObject {
+            put("isEnabled", configuration.isEnabled)
+            put("bridge", false)
+            put("persistence", false)
+        },
+        resourcePolicy = configuration.resourcePolicy,
+    )
 
     private suspend fun isEnabled(): Boolean = isDesktop && toggles.get(ServiceUiEnabled) && toggles.get(ServiceUiWeb)
 
@@ -76,7 +136,8 @@ internal class ServiceUiPreviewTools(
     ): AgentToolResult {
         val isScreenshotIncluded = input.isScreenshotIncluded
         val report = buildJsonObject {
-            put("scope", "isolated WebView draft; owner bridge disabled; no saved interface changed")
+            put("scope", "disposable WebView draft; owner bridge disabled; no saved interface changed")
+            put("resourcePolicy", input.request.resourcePolicy.name)
             put("theme", if (input.request.isDark) "dark" else "light")
             put("fontScale", input.request.fontScale)
             putJsonObject("viewport") {
@@ -99,23 +160,7 @@ internal class ServiceUiPreviewTools(
                 }
             }
             putJsonArray("samples") {
-                result.samples.forEach { sample ->
-                    add(
-                        buildJsonObject {
-                            put("element", sample.element)
-                            put("tag", sample.tag)
-                            put("x", sample.x)
-                            put("y", sample.y)
-                            put("width", sample.width)
-                            put("height", sample.height)
-                            put("fontFamily", sample.fontFamily)
-                            put("fontSize", sample.fontSize)
-                            put("lineHeight", sample.lineHeight)
-                            put("color", sample.color)
-                            put("backgroundColor", sample.backgroundColor)
-                        },
-                    )
-                }
+                result.samples.forEach { sample -> add(sample.json()) }
             }
             put("issuesTruncated", result.issuesTruncated)
             put("imageIncluded", isScreenshotIncluded)
@@ -136,7 +181,7 @@ internal class ServiceUiPreviewTools(
 
     private companion object {
         const val INSTRUCTIONS = "Use ui_preview with an HTML draft to check it before ui_put. " +
-            "It uses the isolated host renderer without owner methods " +
+            "It uses the host renderer and current Safe Mode setting without owner methods " +
             "or persistence. Default text diagnostics work with text-only models and do not verify aesthetic " +
             "quality. Set includeScreenshot=true only for models supporting image tool results, then inspect " +
             "the image. Supply realistic sample data, check narrow/wide and light/dark variants, fix defects and " +
@@ -145,3 +190,17 @@ internal class ServiceUiPreviewTools(
 }
 
 private fun failure(message: String): AgentToolResult = AgentToolResult(message, isError = true)
+
+private fun BrowserDocumentPreviewElement.json(): JsonObject = buildJsonObject {
+    put("element", element)
+    put("tag", tag)
+    put("x", x)
+    put("y", y)
+    put("width", width)
+    put("height", height)
+    put("fontFamily", fontFamily)
+    put("fontSize", fontSize)
+    put("lineHeight", lineHeight)
+    put("color", color)
+    put("backgroundColor", backgroundColor)
+}

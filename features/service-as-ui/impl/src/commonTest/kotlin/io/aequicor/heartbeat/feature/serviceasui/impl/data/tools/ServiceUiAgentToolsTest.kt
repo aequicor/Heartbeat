@@ -43,6 +43,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiWrite
 import io.aequicor.heartbeat.feature.serviceasui.api.UiWriteResult
 import io.aequicor.heartbeat.feature.serviceasui.api.apply
 import io.aequicor.heartbeat.feature.serviceasui.impl.di.BundledUiAuthoringKnowledge
+import io.aequicor.heartbeat.feature.serviceasui.impl.domain.ServiceUiWebSafeMode
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCard
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardAdded
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardSource
@@ -457,6 +458,18 @@ class ServiceUiAgentToolsTest {
     }
 
     @Test
+    fun `changing Safe Mode invalidates the reviewed write snapshot`() = runTest {
+        val arguments = put(SPEC)
+        val isolated = approval(ServiceUiTools.PUT, arguments)
+        toggles.isSafeMode.value = false
+        assertTrue(execute(ServiceUiTools.PUT, arguments, isolated).isError)
+        assertEquals(0, machine.writes)
+        val external = approval(ServiceUiTools.PUT, arguments)
+        assertTrue(reviewer.proposals.last().contains("ExternalAssets"))
+        assertFalse(execute(ServiceUiTools.PUT, arguments, external).isError)
+    }
+
+    @Test
     fun `risk uncertainty and absent model leave writes cards and owner methods untouched`() = runTest {
         reviewer.verdict = AgentSafetyReview("risky", "Dangerous operation")
         assertTrue(call(ServiceUiTools.PUT, put(SPEC)).isError)
@@ -737,9 +750,11 @@ class ServiceUiAgentToolsTest {
 
     private class Toggles : FeatureToggles {
         val isEnabled = MutableStateFlow(true)
+        val isSafeMode = MutableStateFlow(true)
 
-        @Suppress("UNCHECKED_CAST") // Tests use the one boolean flag of the feature.
-        override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = isEnabled as Flow<T>
+        @Suppress("UNCHECKED_CAST") // Tests expose boolean feature and Safe Mode flags.
+        override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> =
+            (if (toggle == ServiceUiWebSafeMode) isSafeMode else isEnabled) as Flow<T>
         override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = observe(toggle).first()
     }
 

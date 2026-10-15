@@ -9,10 +9,10 @@ public object ServiceUiLimits {
     public const val SURFACES_PER_OWNER: Int = 16
 
     /** UTF-8 bytes of one spec. */
-    public const val SPEC_BYTES: Int = 64 * 1024
+    public const val SPEC_BYTES: Int = 2 * 1024 * 1024
 
     /** UTF-8 bytes of all specs, titles and descriptions of a profile. */
-    public const val LIBRARY_BYTES: Int = 2 * 1024 * 1024
+    public const val LIBRARY_BYTES: Int = 16 * 1024 * 1024
 
     /** Characters of a surface title. */
     public const val TITLE_CHARS: Int = 80
