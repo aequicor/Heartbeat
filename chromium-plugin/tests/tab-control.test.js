@@ -22,6 +22,9 @@ function fakeBrowser() {
       detach: async (/** @type {any} */ target) => chrome.debugger.attached.delete(target.tabId),
       sendCommand: async (/** @type {any} */ target, /** @type {string} */ method, /** @type {any} */ params) => {
         commands.push([target.tabId, method, params]);
+        if (method === 'Page.getNavigationHistory') {
+          return { currentIndex: 0, entries: [{ id: 7, url: tabs.get(target.tabId).url }] };
+        }
         if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: `frame-${target.tabId}` } } };
         if (method === 'Page.createIsolatedWorld') return { executionContextId: nextContext++ };
         if (method === 'Page.navigate') {
@@ -174,6 +177,70 @@ test('history and reload wait for completion while their document guard remains 
     assert.equal(finished, true);
     assert.equal(chrome.debugger.attached.has(1), true);
     assert.equal(commands.some((command) => command[1] === 'Fetch.disable'), false);
+    assert.equal(timers.tasks.size, 0);
+  }
+});
+
+test('history refuses non-web and store destinations before dispatch even without Fetch events', async () => {
+  for (const url of ['file:///etc/hosts', 'chrome://settings/', 'chrome-extension://other/page.html',
+    'data:text/html,hello', 'javascript:alert(1)', 'about:blank', 'https://chromewebstore.google.com/detail/x',
+    'https://chrome.google.com/webstore/x', 'https://microsoftedge.microsoft.com/addons/x',
+    'https://addons.opera.com/x']) {
+    const { control, chrome, commands, timers } = setup();
+    await control.handle('tabs.control', { tabId: '1', expectedUrl: 'https://user.example/' });
+    const send = chrome.debugger.sendCommand;
+    chrome.debugger.sendCommand = async (...args) => args[1] === 'Page.getNavigationHistory'
+      ? { currentIndex: 1, entries: [{ id: 7, url }] } : send(...args);
+    await assert.rejects(
+      control.handle('cdp.send', { tabId: '1', method: 'Page.navigateToHistoryEntry', params: { entryId: 7 } }),
+      (error) => error.code === 'forbidden', url,
+    );
+    assert.equal(commands.some((command) => command[1] === 'Page.navigateToHistoryEntry'), false, url);
+    assert.equal(timers.tasks.size, 0);
+  }
+});
+
+test('history refuses a missing entry or unavailable history before dispatch', async () => {
+  for (const history of [{ entries: [{ id: 8, url: 'https://other.example/' }] }, {}, { entries: null }]) {
+    const { control, chrome, commands } = setup();
+    await control.handle('tabs.control', { tabId: '1', expectedUrl: 'https://user.example/' });
+    const send = chrome.debugger.sendCommand;
+    chrome.debugger.sendCommand = async (...args) => args[1] === 'Page.getNavigationHistory' ? history : send(...args);
+    await assert.rejects(
+      control.handle('cdp.send', { tabId: '1', method: 'Page.navigateToHistoryEntry', params: { entryId: 7 } }),
+      (error) => error.code === 'forbidden',
+    );
+    assert.equal(commands.some((command) => command[1] === 'Page.navigateToHistoryEntry'), false);
+  }
+});
+
+test('history refuses consent or ownership revoked during destination lookup', async () => {
+  for (const revoke of ['consent', 'release', 'reacquire']) {
+    const { control, chrome, commands, setAllowed, timers } = setup();
+    await control.handle('tabs.control', { tabId: '1', expectedUrl: 'https://user.example/' });
+    const send = chrome.debugger.sendCommand;
+    const entered = deferred();
+    const resume = deferred();
+    chrome.debugger.sendCommand = async (...args) => {
+      if (args[1] === 'Page.getNavigationHistory') { entered.resolve(); await resume.promise; }
+      return send(...args);
+    };
+    const navigation = control.handle('cdp.send', {
+      tabId: '1', method: 'Page.navigateToHistoryEntry', params: { entryId: 7 },
+    });
+    const rejected = assert.rejects(navigation, (error) => ['forbidden', 'no_such_tab'].includes(error.code));
+    await entered.promise;
+    if (revoke === 'consent') {
+      setAllowed(false);
+    } else {
+      await control.handle('tabs.release', { tabId: '1' });
+      if (revoke === 'reacquire') {
+        await control.handle('tabs.control', { tabId: '1', expectedUrl: 'https://user.example/' });
+      }
+    }
+    resume.resolve();
+    await rejected;
+    assert.equal(commands.some((command) => command[1] === 'Page.navigateToHistoryEntry'), false);
     assert.equal(timers.tasks.size, 0);
   }
 });

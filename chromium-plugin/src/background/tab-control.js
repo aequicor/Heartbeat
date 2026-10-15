@@ -471,6 +471,14 @@ export function createTabControl({ chrome, notify, isAllowed, timers = globalThi
       if (!Number.isInteger(params.entryId) || Object.keys(params).some((key) => key !== 'entryId')) {
         throw new BridgeError(ErrorCode.FORBIDDEN, 'A history entry is required');
       }
+      // History can restore a page without Fetch events; enforce the same URL policy as a fresh navigation.
+      const expected = generation;
+      const history = await send(tabId, 'Page.getNavigationHistory', {});
+      checkGeneration(expected);
+      if (controlled.get(tabId) !== tab) throw new BridgeError(ErrorCode.NO_SUCH_TAB, 'Tab was released');
+      const destination = Array.isArray(history?.entries)
+        ? history.entries.find((entry) => entry.id === params.entryId) : undefined;
+      requireUrl(destination?.url);
       return navigateCommand(tabId, method, { entryId: params.entryId });
     }
     if (method === 'Runtime.evaluate' && !tab.contexts.has(Number(params.contextId))) {

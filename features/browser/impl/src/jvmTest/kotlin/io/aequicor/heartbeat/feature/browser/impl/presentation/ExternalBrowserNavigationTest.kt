@@ -49,6 +49,29 @@ class ExternalBrowserNavigationTest {
     }
 
     @Test
+    fun `history refuses non-web and malformed destinations even when the origin is allowed`() = runTest {
+        val unsupported = listOf(
+            "file:///etc/hosts",
+            "chrome://settings/",
+            "chrome-extension://extension/page.html",
+            "data:text/html,hello",
+            "javascript:alert(1)",
+            "about:blank",
+            "blob:https://example.com/id",
+            "example.com",
+            "https://user:secret@example.com/",
+            "https://example.com:invalid/",
+        )
+        for (url in unsupported) {
+            val driver = Driver().apply { nextUrl = url }
+            assertFailsWith<IllegalArgumentException>(url) {
+                driver.navigation.history(1) { true }
+            }
+            assertEquals(emptyList(), driver.mutations, url)
+        }
+    }
+
+    @Test
     fun `history changed after review is refused before dispatch`() = runTest {
         val driver = Driver()
         val expected = driver.navigation.target(-1)
@@ -80,13 +103,14 @@ class ExternalBrowserNavigationTest {
 
     private class Driver {
         var index = 1
+        var nextUrl = "https://next.example/"
         val mutations = mutableListOf<Pair<String, JsonObject>>()
         val navigation = ExternalBrowserNavigation { method, arguments ->
             if (method == "Page.getNavigationHistory") {
                 """{"currentIndex":$index,"entries":[
                     {"id":10,"url":"http://private.local/","title":"Private"},
                     {"id":20,"url":"https://current.example/","title":"Current","transitionType":"form_submit"},
-                    {"id":30,"url":"https://next.example/","title":"Next"}
+                    {"id":30,"url":${JsonPrimitive(nextUrl)},"title":"Next"}
                 ]}
                 """.trimIndent()
             } else {

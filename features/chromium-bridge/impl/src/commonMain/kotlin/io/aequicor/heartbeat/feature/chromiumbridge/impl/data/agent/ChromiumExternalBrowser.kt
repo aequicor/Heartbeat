@@ -205,6 +205,10 @@ internal class ChromiumExternalBrowser(sessions: StateFlow<List<BridgeSession>>,
                 put("method", method)
                 put("params", params)
             },
+            timeout = when (method) {
+                "Page.navigateToHistoryEntry", "Page.reload" -> NAVIGATION_TIMEOUT_MILLIS
+                else -> CALL_TIMEOUT_MILLIS
+            },
         )
         return (result["result"] ?: JsonObject(emptyMap())).toString()
     }

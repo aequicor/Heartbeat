@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
+import io.aequicor.heartbeat.feature.browser.api.isBrowserUrlAllowed
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -14,7 +15,8 @@ import kotlinx.serialization.json.put
 /**
  * Fixed history and reload commands over the external browser's guarded DevTools transport. History targets are
  * checked before dispatch as Chromium can restore them from its back-forward cache without a network request.
- * The caller keeps its current navigation guard; revisiting an address never grants a new origin permission.
+ * Only explicit HTTP(S) entries are eligible. The caller keeps its current navigation guard; revisiting an
+ * address never grants a new origin permission.
  */
 internal class ExternalBrowserNavigation(private val transport: suspend (String, JsonObject) -> String) {
     /** The exact history entry a review or navigation would target; no entry means the history boundary. */
@@ -34,6 +36,7 @@ internal class ExternalBrowserNavigation(private val transport: suspend (String,
         }
         destination ?: return buildJsonObject { put("navigated", false) }
         val url = requireNotNull(destination["url"]?.jsonPrimitive?.content) { "History address unavailable" }
+        require(isBrowserUrlAllowed(url)) { "History navigation supports only HTTP(S) pages" }
         require(isAllowed(url)) { "History address is blocked; open it explicitly to request access" }
         val id = requireNotNull(destination["id"]?.jsonPrimitive?.intOrNull) { "History entry unavailable" }
         call("Page.navigateToHistoryEntry", buildJsonObject { put("entryId", id) })
