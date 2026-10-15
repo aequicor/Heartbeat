@@ -16,7 +16,7 @@ import kotlinx.serialization.json.putJsonObject
 internal val ServiceUiToolSpecs: List<AgentToolSpec> = listOf(
     AgentToolSpec(
         ServiceUiTools.REFERENCE,
-        "Read built-in skills: mini-app-design for UX; service-as-ui for rendering, placements and tools. " +
+        "Read built-in skills: mini-app-design for product and visual design; service-as-ui for rendering and tools. " +
             "Select a reference topic for details, or spec for the schema. Without arguments returns all documents; " +
             "no project or harness is required.",
         schema {

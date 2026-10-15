@@ -119,6 +119,8 @@ private fun nodesReference(): String = """
   `--hb-on-danger`, `--hb-success`, `--hb-on-success`; typography: `--hb-font-family`, `--hb-font-size`,
   `--hb-line-height`, `--hb-body-size`, `--hb-body-line-height`, `--hb-title-size`, `--hb-caption-size`;
   spacing: `--hb-space-xs`, `--hb-space-s`, `--hb-space-m`, `--hb-space-l`, `--hb-space-xl`, `--hb-control-height`.
+  Control shape/focus: `--hb-control-radius`, `--hb-field-radius`, `--hb-focus-width`, `--hb-focus-offset`;
+  neutral button interaction: `--hb-control-hover`, `--hb-control-pressed`.
   `heartbeat.theme` has `colorScheme` (light/dark) and `variables`; `heartbeat:theme` announces changes. CSS variables
   update without reloading the page, changing `heartbeat.data`, or granting method access. Follow host colors;
   do not infer the application theme only from prefers-color-scheme or hardcode a dark background.
@@ -172,14 +174,17 @@ Turning the owner off, switching to another context or replacing its spec revoke
 
 private fun miniAppsAndWorkflow(): String = """
 ## Mini-apps inside the conversation
-Build a full app as one owner-backed `card` surface with internal tabs, forms and history. The host supplies its
-compact chat entry, composer button, full start view and modal. Do not create duplicate `composer` or `start`
+Build a full app as one owner-backed `card` surface with the internal views and controls the task needs. The host
+supplies its compact chat entry, composer button, full start view and modal. Do not create duplicate `composer` or `start`
 surfaces for that app; existing composer/start mirrors from the same owner are hidden. A separate `context`
 surface may provide a useful summary or quick action alongside the app. Keep the chat, sidebar and input intact.
-Prefer native nodes for straightforward lists, forms and status. Use `web` with inline HTML/CSS/JS when the task
-needs a custom view, with host theme variables. Keep styles inside the document; do not create another
-sidebar inside the document. Use a host `panel` only when the task needs a non-modal workspace compatible with the
-user's constraints, such as simultaneous chat input. Declare `data` auto sources, bind `web.data` to `{{data.snapshot}}`, render
+Use native nodes for simple host forms, lists, status and portability. Choose `web` with inline HTML/CSS/JS for
+custom mini-app composition, visual hierarchy, navigation and interaction, even when native nodes could approximate it.
+Include a professional visual finish by default; infer a coherent direction from the product if no style is given.
+Host theme, scaling and overlay integration allow a custom composition and accessible theme-aware accents/artwork.
+Keep styles inside the document; do not duplicate the host's chat/navigation shell. Use a host `panel` only when
+the task needs a non-modal workspace compatible with the user's constraints, such as simultaneous chat input.
+Declare `data` auto sources, bind `web.data` to `{{data.snapshot}}`, render
 `heartbeat.data` on startup and listen for `heartbeat:data` updates. Handle missing data and rejected bridge calls.
 Buttons call approved harness `ui.method` methods; persist changed values using harness `data` before returning.
 Resume controls must keep existing records. Check the current state inside `data.update` before starting a new
@@ -190,8 +195,8 @@ read the same data after every successful call. Use inline SVG or CSS for artwor
 ## Built-in authoring skills
 Read `ui_reference(topic="mini-app-design")` for task flows, durable behavior, native platform fit and design.
 Read `ui_reference(topic="service-as-ui")` for rendering choices, extension points and tool workflows; it links
-focused layout, actions/data, WebView and example references. Both skills ship with Heartbeat and are available
-without a project or an attached harness. `ui_reference(topic="spec")` returns this technical reference alone;
+focused layout, actions/data, WebView, visual-patterns and example references. Both skills ship with Heartbeat and
+are available without a project or an attached harness. `ui_reference(topic="spec")` returns this technical reference alone;
 calling without arguments returns all bundled documents for sessions with an older tool schema.
 
 ## Workflow

@@ -11,12 +11,14 @@ Turn an owner's service into a usable interface inside Heartbeat. The user can o
 
 | Mode | Use when | Authoring contract |
 |---|---|---|
-| Native layout rendered by Compose | Lists, forms, tables, summaries, actions, and platform-consistent appearance | A version-1 JSON tree of supported nodes. Compose is the host renderer, not a separate agent-programmable Kotlin layout language. |
+| Native layout rendered by Compose | Simple forms, lists, tables, summaries, actions, or portable host UI | A version-1 JSON tree of supported nodes. Compose is the host renderer, not a separate agent-programmable Kotlin layout language. |
 | Platform-native widgets | Date input or file/folder selection should follow the host's interaction | `native` nodes inside the same JSON tree. Date uses a picker on Android/iOS and a validated text field on Desktop; file/folder picking is Desktop-only. This is not a separate layout engine. |
-| WebView | Custom visualization, rich interaction, or a layout the native node vocabulary cannot express | One `web` node with self-contained HTML/CSS/JavaScript, on Desktop with web documents enabled. Use the owner bridge for service operations. |
+| WebView | A full custom mini-app with a deliberate composition, visual hierarchy, navigation or rich interaction; custom visualization | One `web` node with self-contained HTML/CSS/JavaScript, on Desktop with web documents enabled. Use the owner bridge for service operations. Native nodes need not be technically incapable before choosing this mode. |
 | Mixed surface | A native form needs one custom visualization or an occasional rich dialog | Native nodes plus one `web` node in the body or a named modal. The one-WebView limit applies across the entire spec, including modals. |
 
 Do not invent `compose`, `grid`, `tabs`, `chart`, or `image` JSON node types. Build simple tab selection with `state`, buttons and `if`; use WebView for custom grids, charts, images or more involved interactions. Preserve the user's choice of platform and extension locations.
+
+Give implemented mini-apps a professional visual finish by default. Read `mini-app-design` to choose a direction from the product when the user has not specified a style. Host integration covers theme, text scaling and interaction boundaries; it permits a custom composition and accessible theme-aware visual identity. A stylesheet or framework alone does not provide that design work.
 
 ## Read the relevant reference
 
@@ -25,6 +27,7 @@ References are bundled too. Load a topic through `ui_reference`; the relative li
 - [Layout and placement](references/layout.md) — `service-as-ui/layout`: every placement, launcher, native node, icon and platform boundary.
 - [Actions, data and tools](references/actions-data.md) — `service-as-ui/actions-data`: every action and tool, bindings, state, owner methods, persistence, revisions and limits.
 - [WebView](references/webview.md) — `service-as-ui/webview`: isolation, bridge, sizing, host theme, lifecycle and a working HTML pattern.
+- [Visual patterns](references/visual-patterns.md) — `service-as-ui/visual-patterns`: adaptable self-contained HTML for responsive forms, selected navigation, validation, primary/secondary actions and saved-state views; read when building a custom app layout.
 - [Examples](references/examples.md) — `service-as-ui/examples`: complete specs for a native app, context summary, native file workflow and a mixed surface with a dialog.
 - `ui_reference(topic="spec")` — the exact format reference for this installed version; use it to resolve validation diagnostics.
 - `ui_reference(topic="mini-app-design")` — interaction and visual design guidance when creating or redesigning a mini-app.

@@ -136,6 +136,7 @@ class ServiceUiAgentToolsTest {
             "service-as-ui/layout" to "service-as-ui/references/layout.md",
             "service-as-ui/actions-data" to "service-as-ui/references/actions-data.md",
             "service-as-ui/webview" to "service-as-ui/references/webview.md",
+            "service-as-ui/visual-patterns" to "service-as-ui/references/visual-patterns.md",
             "service-as-ui/examples" to "service-as-ui/references/examples.md",
         )
         val documents = resources.map { (topic, path) ->
@@ -203,6 +204,7 @@ class ServiceUiAgentToolsTest {
                 "service-as-ui/layout",
                 "service-as-ui/actions-data",
                 "service-as-ui/webview",
+                "service-as-ui/visual-patterns",
                 "service-as-ui/examples",
             ),
             topic.getValue("enum").jsonArray.map { it.jsonPrimitive.content },

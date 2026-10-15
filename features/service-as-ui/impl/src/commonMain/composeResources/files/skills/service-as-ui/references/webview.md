@@ -1,6 +1,6 @@
 # Isolated WebView surfaces
 
-Load with `ui_reference(topic="service-as-ui/webview")`. Use this mode for custom layouts and interactions on Desktop. The native JSON layout remains the portable option.
+Load with `ui_reference(topic="service-as-ui/webview")`. Use this mode for custom mini-app composition, visual hierarchy, navigation and interaction on Desktop, not only for features impossible in native nodes. The native JSON layout remains useful for simple host UI and portability. `mini-app-design` guides the visual direction; the mechanics below support it.
 
 ## Node and access
 
@@ -9,6 +9,8 @@ A `web` node contains `html`, optional `bridge` (default false), optional `data`
 Owner-backed library surfaces may use WebView in their body or a modal, including `card` and `composer` placements. Anonymous specs may include it only inside a modal and never with a bridge. Editor previews do not execute the owner bridge. Desktop and enabled web documents are required; otherwise the host shows an unavailable note.
 
 A document has an isolated origin, in-memory browser context and no network. Keep CSS, JavaScript and artwork self-contained. Inline styles/scripts and `data:` images/fonts are available. No fetch, sockets, WebRTC, external assets/CDNs, frames, workers, form submissions, popups or navigation away. A local HTML form may handle its submit event with `preventDefault()` and call the owner bridge. Use inline SVG/CSS or embedded image data for illustration. Do not put credentials into HTML. Service IO belongs in authorized owner methods, not in the browser page.
+
+There is no preinstalled Tailwind, React, charting or icon library, and a `<link>`, CSS `@import`, remote font or CDN script cannot load. Semantic HTML, inline CSS, JavaScript, SVG and canvas work without a dependency. If a library is needed, embed its compiled code, CSS and assets within the document limits; class names without their stylesheet do nothing. Keep isolation intact when diagnosing missing styling. The host supplies theme tokens and basic control defaults, not a layout framework. Inspect the actual rendering and use [visual patterns](visual-patterns.md), available as `ui_reference(topic="service-as-ui/visual-patterns")`, for a complete form/navigation starting point.
 
 ## Bridge and lifecycle
 
@@ -30,7 +32,7 @@ The canonical mini-app Start surface and modal with `web` as their root are edge
 
 ## Host theme tokens
 
-The host supplies a system-sans body and inherited form fonts. Use semantic tokens so light/dark theme changes work without reloading.
+The host supplies a system-sans body, inherited form fonts and basic control styling. Use semantic tokens so light/dark theme changes work without reloading. These defaults provide a foundation; they do not choose the app's composition, hierarchy or visual identity. Theme-aware custom accents, artwork and an intentional type hierarchy are supported when their contrast and scaling remain usable.
 
 | Role | CSS variables |
 |---|---|
@@ -39,6 +41,7 @@ The host supplies a system-sans body and inherited form fonts. Use semantic toke
 | Feedback | `--hb-danger`, `--hb-on-danger`, `--hb-success`, `--hb-on-success` |
 | Typography | `--hb-font-family`, `--hb-font-size`, `--hb-line-height`, `--hb-body-size`, `--hb-body-line-height`, `--hb-title-size`, `--hb-caption-size` |
 | Spacing and control size | `--hb-space-xs`, `--hb-space-s`, `--hb-space-m`, `--hb-space-l`, `--hb-space-xl`, `--hb-control-height` |
+| Control shape, focus and interaction | `--hb-control-radius`, `--hb-field-radius`, `--hb-focus-width`, `--hb-focus-offset`, `--hb-control-hover`, `--hb-control-pressed` |
 | Start expand / modal close overlay | `--hb-overlay-width`, `--hb-overlay-height` |
 
 `heartbeat.theme` contains `colorScheme` (`light` or `dark`) and `variables`. Listen to `heartbeat:theme` if a canvas or other non-CSS view needs a repaint. The CSS variables update directly; do not infer the app theme only from `prefers-color-scheme`. Theme changes neither change data nor grant method access.
@@ -59,6 +62,7 @@ This standalone chart example uses `{values:number[]}` as its illustrative `hear
 ```html
 <!doctype html>
 <html lang="en">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 body { margin: 0; color: var(--hb-text); background: var(--hb-surface); }
@@ -144,6 +148,7 @@ This HTML is the value of a `web.html` field, JSON-encoded as a string. Pair it 
 ```html
 <!doctype html>
 <html lang="en">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 * { box-sizing: border-box; }
@@ -157,13 +162,13 @@ header {
 h1 { font-size: var(--hb-title-size); margin: 0 0 var(--hb-space-m); }
 label { display: block; margin-block-end: var(--hb-space-xs); }
 textarea {
-  width: 100%; padding: var(--hb-space-s); border-radius: 8px;
+  width: 100%; padding: var(--hb-space-s); border-radius: var(--hb-field-radius);
   border: 1px solid var(--hb-border); color: var(--hb-text);
   background: var(--hb-input); resize: vertical;
 }
 button {
   min-height: var(--hb-control-height); padding-inline: var(--hb-space-m);
-  border: 0; border-radius: 8px; background: var(--hb-accent);
+  border: 0; border-radius: var(--hb-control-radius); background: var(--hb-accent);
   color: var(--hb-on-accent); cursor: pointer;
 }
 button:disabled { opacity: .6; cursor: default; }

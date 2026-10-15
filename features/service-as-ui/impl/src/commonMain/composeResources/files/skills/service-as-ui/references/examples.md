@@ -131,4 +131,4 @@ Save as `name:"activity", placement:"panel", title:"Activity", launchers:["conte
 }
 ```
 
-For a full custom app, use the HTML pattern in `service-as-ui/webview` as the root body of a canonical `card`, with a snapshot source and `bridge:true`. For an anonymous one-off result, pass a native spec directly to `ui_show(spec=...)` and remove all owner sources/calls; it remains a snapshot even if its local controls are interactive.
+For a custom form or multi-view app, adapt the responsive form/navigation pattern in `service-as-ui/visual-patterns` as the root body of a canonical `card`, with a snapshot source and `bridge:true`; `service-as-ui/webview` supplies the bridge and rendering contract. For an anonymous one-off result, pass a native spec directly to `ui_show(spec=...)` and remove all owner sources/calls; it remains a snapshot even if its local controls are interactive.

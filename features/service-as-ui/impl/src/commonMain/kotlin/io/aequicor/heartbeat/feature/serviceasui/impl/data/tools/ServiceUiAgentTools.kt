@@ -666,7 +666,10 @@ internal class ServiceUiAgentTools(
                 "ui_reference(topic=mini-app-design). Load ui_reference(topic=service-as-ui) for rendering choices, " +
                 "placements and examples; it routes to focused references. " +
                 "Read ui_reference(topic=spec) for the schema; no arguments reads all bundled documents. " +
-                "Prefer native nodes; use web for custom views with host theme tokens. " +
+                "Give mini-apps a professional visual finish by default; infer a coherent direction from the product " +
+                "when no style is specified. Use native nodes for simple host forms/lists or portability; choose web " +
+                "when a custom mini-app benefits from its composition, visual hierarchy or navigation. " +
+                "For web read service-as-ui/webview and service-as-ui/visual-patterns for self-contained styling. " +
                 "Create one canonical ui_put placement=card, then ui_show(surface=id). " +
                 "Update the existing surface; the host supplies its chat entry, composer button, start view " +
                 "and modal. " +
