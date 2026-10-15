@@ -16,7 +16,7 @@ public enum class UiPlacement {
     @SerialName("start")
     Start,
 
-    /** In the compact context card at the top right of the chat while the owner is active or preselected. */
+    /** In a floating top-right summary while the owner is active in the chat or preselected for a new chat. */
     @SerialName("context")
     Context,
 
@@ -33,11 +33,11 @@ public enum class UiPlacement {
     Modal,
     ;
 
-    /** Whether the surface is drawn inline in a slot instead of being opened. */
+    /** Whether the surface belongs to a host slot instead of opening its own panel or modal. */
     public val isInline: Boolean get() = this == Composer || this == Start || this == Context
 }
 
-/** Inline slots of a host: they draw inline surfaces and the launchers of surfaces that open. */
+/** Slots of a host: they draw their surfaces and the launchers of panels or modals. */
 @Serializable
 public enum class UiSlot {
     /** The row above the chat input. */
@@ -48,7 +48,10 @@ public enum class UiSlot {
     @SerialName("start")
     Start,
 
-    /** The content-sized context card at the top right of the chat; the host adapts it to narrow windows. */
+    /**
+     * The content-sized, non-modal summary. The host first shifts chat and composer left, then may narrow them
+     * while composer context controls fit on one row. Otherwise Summary reveals it over the unchanged chat.
+     */
     @SerialName("context")
     Context,
     ;

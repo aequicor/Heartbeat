@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.screenui
 
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -16,65 +18,140 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
-import io.aequicor.heartbeat.ds.components.HbDialog
+import androidx.compose.ui.unit.IntSize
+import io.aequicor.heartbeat.ds.components.HbChip
+import io.aequicor.heartbeat.ds.components.HbDismissRequestProvider
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
+import io.aequicor.heartbeat.ds.components.hbSurface
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_close
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_context_hide
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_context_panel
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_context_show
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 
-/** The retained slot is mounted in exactly one responsive location; its renderer owns its single scroll. */
+/** A persistent header action leaves the input usable while the non-modal card is open. */
+@Composable
+internal fun PaneContextToggle(
+    onClick: (() -> Unit)?,
+    isOpen: Boolean,
+    isCompact: Boolean,
+    paneId: Int,
+    focus: FocusRequester,
+    modifier: Modifier = Modifier,
+) {
+    if (onClick == null) return
+    val trigger = modifier.focusRequester(focus).testTag("pane-open-context-$paneId")
+    val label = stringResource(if (isOpen) Res.string.pane_context_hide else Res.string.pane_context_show)
+    if (isCompact) {
+        HbIconButton(HbIcons.Sidebar, label, onClick, trigger)
+    } else {
+        HbChip(
+            label = stringResource(Res.string.pane_context_panel),
+            modifier = trigger,
+            icon = HbIcons.Sidebar,
+            onClick = onClick,
+            accessibleLabel = label,
+            trailingIcon = if (isOpen) HbIcons.ChevronUp else HbIcons.ChevronDown,
+        )
+    }
+}
+
+/**
+ * A non-modal summary at the top-end, beside the conversation when its controls fit and over it otherwise.
+ * The card intercepts only its own bounds, never captures focus on appearance, and leaves scrolling to its renderer.
+ */
 @Composable
 internal fun PaneContextPanel(
     slot: StudioEmbed?,
-    isDocked: Boolean,
     isOpen: Boolean,
+    isBeside: Boolean,
     onDismiss: () -> Unit,
     paneId: Int,
     topInset: Dp,
-    paneHeight: Dp,
+    composerTop: Dp,
+    paneSize: IntSize,
     modifier: Modifier = Modifier,
 ) {
-    if (slot == null) return
-    if (isDocked) {
-        slot.Content(
-            modifier.padding(top = topInset, end = HbTheme.spacing.l)
-                .width(HbTheme.dimensions.inspectorPanelWidth)
-                .heightIn(max = (paneHeight - topInset - HbTheme.spacing.l).coerceAtLeast(HbTheme.spacing.none))
-                .testTag("pane-context-panel-$paneId"),
+    if (slot != null && isOpen) {
+        val gap = HbTheme.spacing.l
+        val density = LocalDensity.current
+        val width = with(density) { paneSize.width.toDp() }
+        val height = with(density) { paneSize.height.toDp() }
+        val cardWidth = minOf(
+            HbTheme.dimensions.inspectorPanelWidth,
+            (width - gap * 2).coerceAtLeast(HbTheme.spacing.none),
         )
-    } else if (isOpen) {
-        HbDialog(
-            title = stringResource(Res.string.pane_context_panel),
-            onDismissRequest = onDismiss,
-            isContentScrollable = false,
-            isCompact = true,
-            isInWindow = true,
-            headerActions = { HbIconButton(HbIcons.Close, stringResource(Res.string.pane_close), onDismiss) },
+        val bottom = if (isBeside) height else composerTop
+        Box(
+            modifier.padding(top = topInset + gap, end = gap)
+                .width(cardWidth)
+                .heightIn(max = (bottom - topInset - gap * 2).coerceAtLeast(HbTheme.spacing.none))
+                .hbSurface(HbTheme.colors.surface, HbTheme.shapes.large)
+                .onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
+                        onDismiss()
+                        true
+                    } else {
+                        false
+                    }
+                }
+                .pointerInput(Unit) { detectTapGestures { } }
+                .testTag("pane-context-panel-$paneId"),
         ) {
-            slot.Content(Modifier.fillMaxWidth().testTag("pane-context-dialog-$paneId"))
+            HbDismissRequestProvider(onDismiss) { slot.Content(Modifier.fillMaxWidth()) }
         }
     }
 }
 
-/** A context panel never squeezes the transcript or its composer below the regular pane minimum. */
+/** The chat first shifts into its leading gutter, then narrows only while its whole context toolbar fits. */
+internal data class ContextPanelPlacement(val isBesideAvailable: Boolean, val endInset: Dp) {
+    @Composable
+    @ReadOnlyComposable
+    fun insetFor(slot: StudioEmbed?, isOpen: Boolean, isBeside: Boolean): Dp =
+        if (slot != null && isOpen && isBeside) endInset else HbTheme.spacing.none
+}
+
 @Composable
 @ReadOnlyComposable
-internal fun contextPanelFits(width: Dp): Boolean = width >= HbTheme.dimensions.paneMinWidth +
-    HbTheme.dimensions.messagePadding * 2 + HbTheme.dimensions.inspectorPanelWidth + HbTheme.spacing.l * 2
+internal fun contextPanelPlacement(
+    width: Dp,
+    contextRowWidth: Dp?,
+    isCompact: Boolean,
+    isCenteredComposer: Boolean,
+): ContextPanelPlacement {
+    val spacing = HbTheme.spacing
+    val dimensions = HbTheme.dimensions
+    val composerPadding = (if (isCompact) spacing.m else spacing.xl) * 2 +
+        if (isCenteredComposer) spacing.xl * 2 else spacing.none
+    val fullWidth = maxOf(dimensions.messageMaxWidth + spacing.xl * 2, dimensions.composerMaxWidth + composerPadding)
+    val minimumWidth = contextRowWidth?.let {
+        maxOf(dimensions.composerToolbarBreakpoint, it) + composerPadding
+    } ?: fullWidth
+    val reserved = dimensions.inspectorPanelWidth + spacing.l * 2
+    return ContextPanelPlacement(
+        isBesideAvailable = width >= minOf(fullWidth, minimumWidth) + reserved,
+        endInset = (fullWidth + reserved * 2 - width).coerceIn(spacing.none, reserved),
+    )
+}
 
 /** Local presentation of a retained context slot; opening it never changes the chat or its draft. */
 internal data class ContextPanelPresentation(
-    val isDocked: Boolean,
-    val inset: Dp,
     val isOpen: Boolean,
     val focus: FocusRequester,
-    val open: (() -> Unit)?,
+    val toggle: (() -> Unit)?,
     val dismiss: () -> Unit,
 )
 
@@ -82,18 +159,18 @@ internal data class ContextPanelPresentation(
 internal fun rememberPaneContextPanel(
     content: PaneContent,
     slot: StudioEmbed?,
-    isCompact: Boolean,
-    width: Dp,
+    isBesideAvailable: Boolean,
 ): ContextPanelPresentation {
-    var isOpen by remember(content.pane.sessionId, content.pane.projectId, content.harnesses) { mutableStateOf(false) }
+    var isExpandedByUser by remember(content.pane.sessionId, content.pane.projectId, content.harnesses) {
+        mutableStateOf<Boolean?>(null)
+    }
+    val isOpen = isExpandedByUser ?: isBesideAvailable
     val focus = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
-    val isDocked = slot != null && !isCompact && contextPanelFits(width)
-    val inset = if (isDocked) HbTheme.dimensions.inspectorPanelWidth + HbTheme.spacing.l * 2 else HbTheme.spacing.none
-    val isContextFocusRestorable by rememberUpdatedState(slot != null && !isDocked)
-    SideEffect(isDocked, slot) { if (isDocked || slot == null) isOpen = false }
+    val isContextFocusRestorable by rememberUpdatedState(slot != null)
+    SideEffect(slot) { if (slot == null) isExpandedByUser = null }
     val dismiss = {
-        isOpen = false
+        isExpandedByUser = false
         scope.launch {
             withFrameNanos { }
             if (isContextFocusRestorable) focus.requestFocus()
@@ -101,15 +178,13 @@ internal fun rememberPaneContextPanel(
         Unit
     }
     return ContextPanelPresentation(
-        isDocked,
-        inset,
         isOpen,
         focus,
-        open = {
-            // A macOS mouse click need not focus the button; save it before the modal captures background focus.
+        toggle = {
+            // Collapsing the card must not leave focus on a removed descendant.
             focus.requestFocus()
-            isOpen = true
-        }.takeIf { slot != null && !isDocked },
+            isExpandedByUser = !isOpen
+        }.takeIf { slot != null },
         dismiss = dismiss,
     )
 }

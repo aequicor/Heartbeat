@@ -13,7 +13,7 @@ import org.cef.misc.EventFlags
 import java.awt.event.KeyEvent
 
 /**
- * Native CEF keys bypass Compose. Escape belongs to the active modal, while macOS editing commands
+ * Native CEF keys bypass Compose. Escape belongs to the current dismissible surface, while macOS editing commands
  * follow JCEF's KeyboardHandler example and target the focused frame after the page handles the key.
  * All callbacks and the press bookkeeping are confined to CEF's UI thread.
  */
@@ -28,7 +28,7 @@ internal class DesktopDocumentKeyboard(
     /** Focus can leave before key-up; the next attachment must not inherit a half-finished press. */
     override fun onTakeFocus(browser: CefBrowser, next: Boolean) {
         editingPress = null
-        // JCEF has already bounded AWT traversal to this attachment; now restore its Compose overlay target.
+        // Modal attachments bound AWT traversal to their document; restore their Compose overlay target.
         focusExit.request()
     }
 

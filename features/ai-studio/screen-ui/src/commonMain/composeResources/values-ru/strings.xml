@@ -313,7 +313,9 @@
     <string name="harness_picker_one">Харнесс · %1$s</string>
     <string name="harness_picker_many">Харнессы · %1$d</string>
     <string name="attachments_page">Прикрепить страницу</string>
-    <string name="pane_context_panel">Панель контекста</string>
+    <string name="pane_context_panel">Сводка</string>
+    <string name="pane_context_hide">Скрыть сводку</string>
+    <string name="pane_context_show">Показать сводку</string>
     <string name="engine_preparation_download">Скачивание компонентов %1$s…</string>
     <string name="engine_preparation_install">Подготовка компонентов %1$s…</string>
     <string name="engine_preparation_network">Не удалось скачать %1$s. Проверьте подключение и повторите сообщение.</string>

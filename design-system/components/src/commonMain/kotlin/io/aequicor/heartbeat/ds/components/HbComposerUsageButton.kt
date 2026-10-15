@@ -20,11 +20,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -44,7 +46,8 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 private val log = Log.tag("DS/ComposerUsage")
 
 /**
- * Controlled usage disclosure in a composer. A known [contextPercent] renders a determinate meter;
+ * Controlled usage disclosure in a composer. A known [contextPercent] renders a rounded rectangular button
+ * with a determinate perimeter, filled clockwise from the top center by the fraction of its length;
  * null renders the caller's localized [label] (for example, "Limits") without implying zero usage.
  * The owner omits this control when no usage information is available and supplies the detail [content].
  * Enter, Space and arrow keys open the panel; Escape and outside clicks dismiss it and restore focus.
@@ -109,7 +112,7 @@ private fun ComposerUsageMeter(
     val isHovered by interactions.collectIsHoveredAsState()
     val isPressed by interactions.collectIsPressedAsState()
     val colors = HbTheme.colors
-    val base = HbTheme.surfaces.composer
+    val base = HbTheme.surfaces.composerPill
     val background = when {
         enabled && isPressed -> colors.pressedOverlay.compositeOver(base)
         enabled && isHovered -> colors.interactionHoverOverlay.compositeOver(base)
@@ -117,7 +120,8 @@ private fun ComposerUsageMeter(
     }
     val foreground = if (enabled) colors.brand else colors.textSecondary
     val track = colors.outlineSubtle
-    val shape = RoundedCornerShape(percent = 50)
+    val cornerRadius = HbTheme.dimensions.controlCornerRadius
+    val shape = RoundedCornerShape(cornerRadius)
     val value = percent.coerceIn(0, 100)
     val strokeWidth = HbTheme.dimensions.usageRingStrokeWidth
     Box(
@@ -125,21 +129,23 @@ private fun ComposerUsageMeter(
             .widthIn(min = maxOf(HbTheme.dimensions.composerUsageMinWidth, HbTheme.dimensions.touchTarget))
             .hbFocusOutline(isFocused, shape)
             .background(background, shape)
-            .drawBehind {
+            .drawWithCache {
                 val stroke = strokeWidth.toPx()
-                val inset = Offset(stroke / 2f, stroke / 2f)
-                val arcSize = Size(size.width - stroke, size.height - stroke)
-                drawArc(track, 0f, FULL_TURN, false, inset, arcSize, style = Stroke(stroke))
-                if (value > 0) {
-                    drawArc(
-                        foreground,
-                        -QUARTER_TURN,
-                        FULL_TURN * value / 100f,
-                        false,
-                        inset,
-                        arcSize,
-                        style = Stroke(stroke, cap = StrokeCap.Round),
-                    )
+                val perimeter = usagePerimeter(size, stroke, cornerRadius.toPx())
+                val progress = Path()
+                if (value in 1..99) {
+                    val measure = PathMeasure().apply { setPath(perimeter, false) }
+                    measure.getSegment(0f, measure.length * value / 100f, progress, true)
+                }
+                onDrawBehind {
+                    drawPath(perimeter, track, style = Stroke(stroke))
+                    if (value > 0) {
+                        drawPath(
+                            if (value == 100) perimeter else progress,
+                            foreground,
+                            style = Stroke(stroke, cap = StrokeCap.Round),
+                        )
+                    }
                 }
             }
             .semantics { progressBarRangeInfo = ProgressBarRangeInfo(value / 100f, 0f..1f) }
@@ -151,5 +157,45 @@ private fun ComposerUsageMeter(
     }
 }
 
-private const val FULL_TURN = 360f
+/** Insets the stroke so its outer edge follows the same rounded rectangle as the button fill. */
+private fun usagePerimeter(size: Size, stroke: Float, cornerRadius: Float): Path {
+    val inset = stroke / 2f
+    val bounds = Rect(inset, inset, size.width - inset, size.height - inset)
+    val radius = (cornerRadius - inset).coerceIn(0f, bounds.minDimension.coerceAtLeast(0f) / 2f)
+    val diameter = radius * 2f
+    return Path().apply {
+        moveTo(size.width / 2f, bounds.top)
+        lineTo(bounds.right - radius, bounds.top)
+        arcTo(
+            Rect(bounds.right - diameter, bounds.top, bounds.right, bounds.top + diameter),
+            -QUARTER_TURN,
+            QUARTER_TURN,
+            false,
+        )
+        lineTo(bounds.right, bounds.bottom - radius)
+        arcTo(
+            Rect(bounds.right - diameter, bounds.bottom - diameter, bounds.right, bounds.bottom),
+            0f,
+            QUARTER_TURN,
+            false,
+        )
+        lineTo(bounds.left + radius, bounds.bottom)
+        arcTo(
+            Rect(bounds.left, bounds.bottom - diameter, bounds.left + diameter, bounds.bottom),
+            QUARTER_TURN,
+            QUARTER_TURN,
+            false,
+        )
+        lineTo(bounds.left, bounds.top + radius)
+        arcTo(
+            Rect(bounds.left, bounds.top, bounds.left + diameter, bounds.top + diameter),
+            HALF_TURN,
+            QUARTER_TURN,
+            false,
+        )
+        close()
+    }
+}
+
 private const val QUARTER_TURN = 90f
+private const val HALF_TURN = 180f

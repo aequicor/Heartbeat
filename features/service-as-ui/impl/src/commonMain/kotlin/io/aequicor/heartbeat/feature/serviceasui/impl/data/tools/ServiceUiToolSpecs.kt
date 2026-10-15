@@ -46,7 +46,7 @@ internal val ServiceUiToolSpecs: List<AgentToolSpec> = listOf(
             text("name", "Short lowercase slug, unique for the owner; other interfaces open it by this name.")
             choice(
                 "placement",
-                "Use card for a mini-app; context for an automatic top-right summary; composer for input status.",
+                "Use card for a mini-app; context for a floating top-right summary; composer for input status.",
                 listOf("card", "composer", "start", "context", "panel", "modal"),
             )
             text("title", "Title for people, at most 80 characters.")

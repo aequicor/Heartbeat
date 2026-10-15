@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
+import io.aequicor.heartbeat.feature.browser.api.browserSearchUrl
 import io.aequicor.heartbeat.feature.browser.api.normalizeBrowserUrl
 import io.aequicor.heartbeat.feature.browser.impl.domain.ApprovedTab
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserRequestKind
@@ -21,6 +22,7 @@ import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalBrowser
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalBrowserException
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalTab
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalTabEvent
+import io.aequicor.heartbeat.feature.searchengine.api.isPublicWebUrl
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
@@ -32,6 +34,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -59,6 +62,7 @@ internal class ExternalBrowserSession(
 ) : ExternalBrowserControl {
     private val log = Log.tag("ExternalBrowserSession")
     private val lock = Mutex()
+    private val handovers = Mutex()
     private val entries = mutableMapOf<String, Entry>()
     private val reservations = mutableMapOf<String, Boolean>()
     private val retiring = mutableSetOf<String>()
@@ -78,10 +82,15 @@ internal class ExternalBrowserSession(
         }
     }
 
-    override suspend fun execute(owner: String, operation: ExternalOperation, arguments: JsonObject): BrowserResult {
+    override suspend fun execute(
+        owner: String,
+        operation: ExternalOperation,
+        arguments: JsonObject,
+        expected: JsonObject?,
+    ): BrowserResult {
         val requestId = Uuid.random().toString()
         return try {
-            val outcome = run(owner, operation, arguments, requestId)
+            val outcome = run(owner, operation, arguments, requestId, expected)
             BrowserResult(requestId, outcome.data, imageBase64 = outcome.image)
         } catch (e: CancellationException) {
             throw e
@@ -97,37 +106,79 @@ internal class ExternalBrowserSession(
         }
     }
 
-    private suspend fun run(owner: String, operation: ExternalOperation, args: JsonObject, id: String): Outcome {
-        val page = PAGE_OPERATIONS[operation] ?: return Outcome(manage(owner, operation, args))
-        val entry = owned(owner, args)
-        return perform(entry, page, owner, args, id)
+    override suspend fun snapshot(owner: String, operation: ExternalOperation, arguments: JsonObject): JsonObject {
+        policyReady.await()
+        lock.withLock { checkEnabled() }
+        return if (operation == ExternalOperation.NewTab) {
+            newTabSnapshot(owner, arguments)
+        } else if (operation == ExternalOperation.RequestTab) {
+            handoverSnapshot(owner, arguments)
+        } else {
+            val entry = owned(owner, arguments)
+            entry.mutex.withLock { snapshot(entry, operation, arguments) }
+        }
     }
 
-    private suspend fun manage(owner: String, operation: ExternalOperation, args: JsonObject): JsonObject =
-        when (operation) {
-            ExternalOperation.Tabs -> tabs(owner)
+    private suspend fun run(
+        owner: String,
+        operation: ExternalOperation,
+        args: JsonObject,
+        id: String,
+        expected: JsonObject?,
+    ): Outcome {
+        val page = PAGE_OPERATIONS[operation] ?: return Outcome(manage(owner, operation, args, expected))
+        val entry = owned(owner, args)
+        return perform(entry, operation, page, owner, args, id, expected)
+    }
 
-            ExternalOperation.ActiveTab -> browser.readActiveTab(owner)
+    private suspend fun manage(
+        owner: String,
+        operation: ExternalOperation,
+        args: JsonObject,
+        expected: JsonObject?,
+    ): JsonObject = when (operation) {
+        ExternalOperation.Tabs -> tabs(owner)
 
-            ExternalOperation.NewTab -> newTab(owner, args.text("url"))
+        ExternalOperation.ActiveTab -> browser.readActiveTab(owner)
 
-            ExternalOperation.RequestTab -> requestTab(owner, args)
-
-            ExternalOperation.CloseTab -> release(owned(owner, args), close = true)
-
-            ExternalOperation.Release -> release(owned(owner, args), close = false)
-
-            ExternalOperation.Open -> open(owned(owner, args), requireNotNull(args.text("url")) { "url required" })
-
-            ExternalOperation.Read,
-            ExternalOperation.Screenshot,
-            ExternalOperation.Click,
-            ExternalOperation.Type,
-            ExternalOperation.Key,
-            ExternalOperation.Scroll,
-            ExternalOperation.Drag,
-            -> error("Not a tab operation")
+        ExternalOperation.NewTab -> {
+            if (expected != null) requireExpected(newTabSnapshot(owner, args), expected)
+            newTab(owner, args.text("url"))
         }
+
+        ExternalOperation.RequestTab -> {
+            check(handovers.tryLock()) { "Tab handover already in progress" }
+            try {
+                if (expected != null) requireExpected(handoverSnapshot(owner, args), expected)
+                requestTab(owner, args)
+            } finally {
+                handovers.unlock()
+            }
+        }
+
+        ExternalOperation.CloseTab -> release(owned(owner, args), close = true, expected)
+
+        ExternalOperation.Release -> release(owned(owner, args), close = false, expected)
+
+        ExternalOperation.Open -> open(owned(owner, args), args, operation, expected)
+
+        ExternalOperation.Search -> open(owned(owner, args), args, operation, expected)
+
+        ExternalOperation.Back,
+        ExternalOperation.Forward,
+        ExternalOperation.Reload,
+        ExternalOperation.Activate,
+        -> navigate(owned(owner, args), operation, args, expected)
+
+        ExternalOperation.Read,
+        ExternalOperation.Screenshot,
+        ExternalOperation.Click,
+        ExternalOperation.Type,
+        ExternalOperation.Key,
+        ExternalOperation.Scroll,
+        ExternalOperation.Drag,
+        -> error("Not a tab operation")
+    }
 
     override suspend fun address(owner: String, tabId: String): String? =
         lock.withLock { entries[tabId]?.takeIf { it.owner == owner && browser.isTabInSession(owner, tabId) }?.url }
@@ -175,7 +226,54 @@ internal class ExternalBrowserSession(
     private suspend fun newTab(owner: String, url: String?): JsonObject {
         val entry = acquire(owner, expected = null)
         log.i { "External agent tab opened" }
-        return if (url == null) describe(entry) else open(entry, url)
+        return if (url == null) {
+            describe(entry)
+        } else {
+            open(entry, buildJsonObject { put("url", url) }, ExternalOperation.Open, expected = null)
+        }
+    }
+
+    private suspend fun newTabSnapshot(owner: String, args: JsonObject): JsonObject = lock.withLock {
+        checkEnabled()
+        val url = args.text("url")?.let { requireNotNull(normalizeBrowserUrl(it)) { "Invalid address" } }
+        check(url == null || isPublicWebUrl(url) || browser.isExternalSession(owner)) {
+            "Open a blank tab first, then use ex_control_open for this address"
+        }
+        buildJsonObject {
+            put("owner", owner)
+            put("generation", generation)
+            put("url", url)
+        }
+    }
+
+    private suspend fun handoverSnapshot(owner: String, args: JsonObject): JsonObject {
+        val active = browser.activeTab(owner) ?: error("No web page is open in the external browser")
+        check(args.text(ApprovedTab.ID) == active.id && args.text(ApprovedTab.URL) == active.url) {
+            "The active tab changed since the approval; ask again"
+        }
+        val page = browser.readActiveTab(owner)
+        check(page.text("tabId") == active.id && page.text("url") == active.url) {
+            "The active page could not be captured for review"
+        }
+        check(browser.activeTab(owner) == active) { "The active tab changed; request it again" }
+        return lock.withLock {
+            checkEnabled()
+            buildJsonObject {
+                put("generation", generation)
+                put("tabId", active.id)
+                put("url", active.url)
+                put("title", active.title.take(MAX_SAFETY_TITLE))
+                put(
+                    "page",
+                    buildJsonObject {
+                        val content = page.text("text").orEmpty()
+                        put("text", content.take(MAX_SAFETY_CONTENT))
+                        put("isContentTruncated", content.length > MAX_SAFETY_CONTENT)
+                        put("selection", page.text("selection").orEmpty().take(MAX_SAFETY_SELECTION))
+                    },
+                )
+            }
+        }
     }
 
     private suspend fun requestTab(owner: String, args: JsonObject): JsonObject {
@@ -310,25 +408,41 @@ internal class ExternalBrowserSession(
         }
     }
 
-    private suspend fun release(entry: Entry, close: Boolean): JsonObject = entry.mutex.withLock {
-        lock.withLock {
-            checkEnabled()
-            check(entries[entry.id] === entry) { "Tab control ended; use ex_control_tabs" }
-            retiring.add(entry.id)
-            entries.remove(entry.id)
-        }
-        withContext(NonCancellable) {
-            try {
-                if (close) browser.close(entry.id) else browser.release(entry.id)
-            } finally {
-                withContext(NonCancellable) { lock.withLock { retiring.remove(entry.id) } }
+    private suspend fun release(entry: Entry, close: Boolean, expected: JsonObject?): JsonObject =
+        entry.mutex.withLock {
+            val operation = if (close) ExternalOperation.CloseTab else ExternalOperation.Release
+            if (expected != null) requireExpected(snapshot(entry, operation, JsonObject(emptyMap())), expected)
+            lock.withLock {
+                checkEnabled()
+                check(entries[entry.id] === entry) { "Tab control ended; use ex_control_tabs" }
+                retiring.add(entry.id)
+                entries.remove(entry.id)
             }
+            withContext(NonCancellable) {
+                try {
+                    if (close) browser.close(entry.id) else browser.release(entry.id)
+                } finally {
+                    withContext(NonCancellable) { lock.withLock { retiring.remove(entry.id) } }
+                }
+            }
+            closed(entry.id)
         }
-        closed(entry.id)
-    }
 
-    private suspend fun open(entry: Entry, url: String): JsonObject = entry.mutex.withLock {
+    private suspend fun open(
+        entry: Entry,
+        args: JsonObject,
+        operation: ExternalOperation,
+        expected: JsonObject?,
+    ): JsonObject = entry.mutex.withLock {
         checkLive(entry)
+        if (expected != null) requireExpected(snapshot(entry, operation, args), expected)
+        val url = if (operation == ExternalOperation.Search) {
+            val query = requireNotNull(args.text("query")) { "query required" }
+            require(query.isNotBlank()) { "Empty search query" }
+            browserSearchUrl(query)
+        } else {
+            requireNotNull(args.text("url")) { "url required" }
+        }
         val address = requireNotNull(normalizeBrowserUrl(url)) { "Invalid address" }
         // Guard answers use only the registry lock, never this operation mutex.
         entry.guard.restrict(address)
@@ -339,15 +453,70 @@ internal class ExternalBrowserSession(
         withGuardNotes(entry, describe(entry))
     }
 
+    private suspend fun navigate(
+        entry: Entry,
+        operation: ExternalOperation,
+        args: JsonObject,
+        expected: JsonObject?,
+    ): JsonObject = entry.mutex.withLock {
+        checkLive(entry)
+        if (expected != null) requireExpected(snapshot(entry, operation, args), expected)
+        val result = if (operation == ExternalOperation.Activate) {
+            browser.activate(entry.id)
+            buildJsonObject { put("activated", true) }
+        } else if (operation == ExternalOperation.Reload) {
+            entry.navigation.reload(expected?.get("reloadEntry") as? JsonObject)
+        } else {
+            entry.navigation.history(historyDirection(operation), expected?.get("historyTarget")) {
+                entry.guard.allows(it, BrowserRequestKind.MainDocument)
+            }
+        }
+        if (operation != ExternalOperation.Activate) entry.driver.invalidate()
+        checkLive(entry)
+        result.text("url")?.let { entry.update(ExternalTab(entry.id, it, result.text("title") ?: entry.title)) }
+        withGuardNotes(entry, JsonObject(describe(entry) + result))
+    }
+
+    private suspend fun snapshot(entry: Entry, operation: ExternalOperation, args: JsonObject): JsonObject {
+        checkLive(entry)
+        val page = entry.driver.safetySnapshot(PAGE_OPERATIONS[operation], args)
+        val destination = if (operation == ExternalOperation.Back || operation == ExternalOperation.Forward) {
+            entry.navigation.target(historyDirection(operation))
+        } else {
+            null
+        }
+        val reloadEntry = if (operation == ExternalOperation.Reload) entry.navigation.currentEntry() else null
+        checkLive(entry)
+        return buildJsonObject {
+            put("acquisition", entry.acquisition)
+            put("tabId", entry.id)
+            put("url", entry.url)
+            put("title", entry.title.take(MAX_SAFETY_TITLE))
+            put("isUserTab", entry.isUserTab)
+            put("page", page)
+            put("historyTarget", destination ?: JsonNull)
+            put("reloadEntry", reloadEntry ?: JsonNull)
+        }
+    }
+
+    private fun requireExpected(actual: JsonObject, expected: JsonObject) {
+        check(
+            actual == expected,
+        ) { "The browser action changed after safety review; read the page and request it again" }
+    }
+
     private suspend fun perform(
         entry: Entry,
+        external: ExternalOperation,
         operation: BrowserOperation,
         owner: String,
         args: JsonObject,
         id: String,
+        expected: JsonObject?,
     ): Outcome {
         val result = entry.mutex.withLock {
             checkLive(entry)
+            if (expected != null) requireExpected(snapshot(entry, external, args), expected)
             if (operation == BrowserOperation.Screenshot) browser.activate(entry.id)
             entry.driver.perform(BrowserRequest(id, operation, entry.id, owner, args)).also { checkLive(entry) }
         }
@@ -358,11 +527,19 @@ internal class ExternalBrowserSession(
     private fun createEntry(owner: String, tab: ExternalTab, isUserTab: Boolean): Entry {
         val guard = DesktopBrowserAgentGuard().apply { restrict(null) }
         val token = Any()
-        val driver = DesktopBrowserAutomation({ method, params ->
+        val transport: suspend (String, JsonObject) -> String = { method, params ->
             checkLive(tab.id, token)
             browser.devTools(tab.id, method, params).also { checkLive(tab.id, token) }
-        })
-        return Entry(tab.id, owner, isUserTab, driver, guard, token).apply { update(tab) }
+        }
+        return Entry(
+            tab.id,
+            owner,
+            isUserTab,
+            DesktopBrowserAutomation(transport),
+            ExternalBrowserNavigation(transport),
+            guard,
+            token,
+        ).apply { update(tab) }
     }
 
     private suspend fun checkLive(entry: Entry) = checkLive(entry.id, entry.token)
@@ -467,10 +644,12 @@ internal class ExternalBrowserSession(
         val owner: String,
         val isUserTab: Boolean,
         val driver: DesktopBrowserAutomation,
+        val navigation: ExternalBrowserNavigation,
         val guard: DesktopBrowserAgentGuard,
         val token: Any,
     ) {
         val mutex = Mutex()
+        val acquisition = Uuid.random().toString()
 
         @Volatile
         var url: String = ""
@@ -488,6 +667,10 @@ internal class ExternalBrowserSession(
 
     private companion object {
         const val MAX_TABS = 20
+        const val MAX_SAFETY_TITLE = 512
+        const val MAX_SAFETY_CONTENT = 12_000
+        const val MAX_SAFETY_SELECTION = 4_000
+        fun historyDirection(operation: ExternalOperation): Int = if (operation == ExternalOperation.Back) -1 else 1
         val PAGE_OPERATIONS = mapOf(
             ExternalOperation.Read to BrowserOperation.Read,
             ExternalOperation.Screenshot to BrowserOperation.Screenshot,

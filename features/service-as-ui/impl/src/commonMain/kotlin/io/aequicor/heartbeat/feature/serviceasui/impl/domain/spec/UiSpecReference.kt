@@ -40,12 +40,22 @@ to you; inspect the reason and correct the operation. Do not ask the user to byp
   and the native composer chip open a spacious modal. The selected harness also shows the full app on new-chat start.
 - `composer`: inline in a compact row above the chat input while the owner is connected to the chat.
 - `start`: inline in the start window of a new chat for which the owner is selected.
-- `context`: automatically shown in a compact, rounded card at the top right of the chat (also on new-chat start
-  for the selected owner). It stays alongside a canonical mini-app without creating another app or message.
-  The host adapts its placement on narrow windows. Use it for summaries, sections, short lists and quick actions;
-  content determines its height. Prefer native nodes; the spec supplies its own concise heading and the host does
-  not repeat the title. Do not add a nested outer card. If several context surfaces are active, one card has a
-  selector and shows the selected surface. A web root uses a content-sized viewport within the card's bounds.
+- `context`: a compact, rounded floating card at the top right. The host first shifts chat and input left without
+  narrowing them, preserving the sidebar inset. If needed, it narrows them only while the context controls above
+  the input still fit on one row. When this leaves room beside chat, the card appears automatically. Otherwise
+  Summary in the header reveals it over chat without narrowing the input.
+  It belongs to the active owner or the selected owner on new-chat start. Summary collapses or shows it; an explicit
+  choice survives resizing until the chat, project, harness or content availability changes. The card is non-modal:
+  no dock panel, background dimming or automatic focus capture. It follows content
+  height within the space above the composer, and its width fits narrow panes. It coexists with a canonical mini-app
+  without creating another app or message and needs no surface launcher. Use it for summaries, sections, short lists
+  and quick actions.
+  With a full canonical mini-app on Start, the summary starts collapsed; showing it places the card at the top right
+  in a content-height band above the app, avoiding native WebView overlap. Composer width and position stay unchanged.
+  Prefer native nodes; the spec supplies its own concise heading and the host does not repeat the surface title.
+  Do not add a nested outer card. If several context surfaces are active, one card has a selector and shows the
+  selected surface. A web root uses a content-sized viewport within the card's bounds. This remains a context slot,
+  separate from `panel` and `modal` placements.
 - `panel`: in the side panel, opened by a launcher or by an `open` action with `presentation: "panel"`.
 - `modal`: in a dialog, opened by a launcher or by an `open` action.
 `launchers` (panel and modal surfaces only): `["composer", "start", "context"]` put a button that opens the surface

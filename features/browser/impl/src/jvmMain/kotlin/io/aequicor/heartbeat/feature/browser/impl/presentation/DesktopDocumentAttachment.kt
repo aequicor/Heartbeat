@@ -9,6 +9,7 @@ internal class DesktopDocumentAttachment(private val panel: DesktopDocumentPanel
     private var host: DesktopDocumentHost? = null
     private var backdrop: DesktopDocumentBackdrop? = null
     private var focusCycle: DesktopDocumentFocusCycle? = null
+    private var isModal = false
     private var isClosed = false
     private var scrim: Color? = null
 
@@ -33,11 +34,13 @@ internal class DesktopDocumentAttachment(private val panel: DesktopDocumentPanel
         }
     }
 
-    fun updateDismissRequest(callback: (() -> Unit)?) {
+    /** Escape can dismiss a non-modal surface without restricting its native Tab traversal. */
+    fun updateDismissRequest(callback: (() -> Unit)?, isModal: Boolean) {
         check(SwingUtilities.isEventDispatchThread())
         if (!isClosed) {
             onDismissRequest = callback
-            focusCycle?.update(callback != null)
+            this.isModal = isModal
+            focusCycle?.update(isModal)
             panel.updateDismissRequest(this)
         }
     }
@@ -49,7 +52,7 @@ internal class DesktopDocumentAttachment(private val panel: DesktopDocumentPanel
         scrim?.let { component.updateBackdrop(cornerRadius, it) }
         host = component
         if (!isClosed) {
-            focusCycle = DesktopDocumentFocusCycle(component).also { it.update(onDismissRequest != null) }
+            focusCycle = DesktopDocumentFocusCycle(component).also { it.update(isModal) }
             backdrop = DesktopDocumentBackdrop(component).also { it.update(cornerRadius > 0) }
             panel.attach(this, component)
         }
