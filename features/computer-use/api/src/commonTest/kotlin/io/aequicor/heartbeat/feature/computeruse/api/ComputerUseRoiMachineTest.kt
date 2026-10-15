@@ -40,7 +40,7 @@ class ComputerUseRoiMachineTest {
     }
 
     @Test
-    fun `an ROI is refused outside the master, without a master and for another owner`() {
+    fun `an ROI is refused outside the master or without one or for another owner`() {
         val withMaster = capturing.copy(master = master)
         ComputerUseMachineSpec.assertIgnored(
             withMaster,
