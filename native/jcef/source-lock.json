@@ -1,7 +1,7 @@
 {
   "jcefCommit": "17e805ad387d89839fdd2b864466b6510b2a783c",
   "cefVersion": "152.0.6+g708dc14+chromium-152.0.7977.83",
-  "patchSha256": "b5de5312e8d74dd0189b7e2c6754f63d5566b51da87bf81af1a46d581f4249a6",
+  "patchSha256": "6f1bc1d18d4972dffad131c6298bea0155ef5bf02eec697d603b93c9f88b3fb7",
   "cefDistributions": {
     "macosx-amd64": {
       "file": "cef_binary_152.0.6+g708dc14+chromium-152.0.7977.83_macosx64.tar.bz2",
@@ -26,29 +26,29 @@
   },
   "nativeArtifacts": {
     "linux-amd64": {
-      "file": "jcef-natives-linux-amd64-152.0.6-hb4.jar",
-      "sha256": "d5cfabafb0e6da644dd2dbf146ff34205ddcadee4c8fb8ed401518521fe55bd9"
+      "file": "jcef-natives-linux-amd64-152.0.6-hb5.jar",
+      "sha256": "aae2239cfdf2b2336f8e3694433a8db9a75e41c1a97c68b38c914a47a4a34917"
     },
     "macosx-amd64": {
-      "file": "jcef-natives-macosx-amd64-152.0.6-hb4.jar",
-      "sha256": "df17b29c0e4b15fea86368e1fe8c3e03937b9e7d40cad52dc7ecaf60dd9f9f3b"
+      "file": "jcef-natives-macosx-amd64-152.0.6-hb5.jar",
+      "sha256": "31f47861c8686cbbfa9c1c333075bc20acde01986645d85b2fdc672a7cc0ccbb"
     },
     "macosx-arm64": {
-      "file": "jcef-natives-macosx-arm64-152.0.6-hb4.jar",
-      "sha256": "48aeb520a2272e83d5705886841febbe988cbfe30bc5f77c27f30f4ca11ecc8d"
+      "file": "jcef-natives-macosx-arm64-152.0.6-hb5.jar",
+      "sha256": "2ecc9bd952dd23e8bc5f9501116bde147cc6dbd6e6c29f596c8f0c9bf053908d"
     },
     "windows-amd64": {
-      "file": "jcef-natives-windows-amd64-152.0.6-hb4.jar",
-      "sha256": "5ff24e6650631dcf81e953e08bcc90e5c98b488ab01b34a0d42eccdd4be09791"
+      "file": "jcef-natives-windows-amd64-152.0.6-hb5.jar",
+      "sha256": "b9e06f3341704b5c87f3a3f110d198b971cdf34e3415f496a172b6a932472ebe"
     },
     "windows-arm64": {
-      "file": "jcef-natives-windows-arm64-152.0.6-hb4.jar",
-      "sha256": "0fca5aa78bcf29f331bed54f26d84d343e298f4bc6999e1b9af82c8b8d8324c8"
+      "file": "jcef-natives-windows-arm64-152.0.6-hb5.jar",
+      "sha256": "db36d9cb7328d2b85016731804224e62557e7fc6ed608595b1be21cf9198d86b"
     }
   },
-  "artifactVersion": "152.0.6-hb4",
+  "artifactVersion": "152.0.6-hb5",
   "apiArtifact": {
-    "file": "jcef-api-152.0.6-hb4.jar",
-    "sha256": "4c5426beea86965e14755c22154a91d9bf9ef6adbb2f5548d75a026fdbdd07fa"
+    "file": "jcef-api-152.0.6-hb5.jar",
+    "sha256": "b0629185294ae2a411aa5e8ade015c805c118b60356ef23983cdf07ca71a2cc4"
   }
 }

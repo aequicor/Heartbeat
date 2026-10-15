@@ -507,7 +507,7 @@ index e5a73ab..0c9eb00 100644
      private final native Status N_GetRequestStatus(long self);
      private final native ErrorCode N_GetRequestError(long self);
 diff --git a/native/CMakeLists.txt b/native/CMakeLists.txt
-index cdcd1ef..62df7ae 100644
+index cdcd1ef..9afab9b 100644
 --- a/native/CMakeLists.txt
 +++ b/native/CMakeLists.txt
 @@ -236,7 +236,7 @@ if(OS_LINUX)
@@ -515,12 +515,12 @@ index cdcd1ef..62df7ae 100644
    SET_LIBRARY_TARGET_PROPERTIES(${JCEF_TARGET})
    add_dependencies(${JCEF_TARGET} libcef_dll_wrapper ${JCEF_HELPER_TARGET})
 -  target_link_libraries(${JCEF_TARGET} libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} ${JNI_LIBRARIES})
-+  target_link_libraries(${JCEF_TARGET} libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} ${JNI_LIBRARIES} Xext)
++  target_link_libraries(${JCEF_TARGET} libcef_lib libcef_dll_wrapper ${CEF_STANDARD_LIBS} ${JNI_LIBRARIES} Xext xcb)
    target_include_directories(${JCEF_TARGET} PUBLIC ${JNI_INCLUDE_DIRS})
  
    # Compile flags specific to the JCEF library target.
 diff --git a/native/CefBrowser_N.cpp b/native/CefBrowser_N.cpp
-index ceea3a6..f0b8474 100644
+index ceea3a6..95c97d3 100644
 --- a/native/CefBrowser_N.cpp
 +++ b/native/CefBrowser_N.cpp
 @@ -932,16 +932,20 @@ void create(std::shared_ptr<JNIObjectsForCreate> objs,
@@ -555,7 +555,19 @@ index ceea3a6..f0b8474 100644
      return;
    }
    JNI_CALL_VOID_METHOD(env, objs->jbrowser, "notifyBrowserCreated", "()V");
-@@ -1197,9 +1202,9 @@ Java_org_cef_browser_CefBrowser_1N_N_1CreateBrowser(JNIEnv* env,
+@@ -1081,6 +1086,11 @@ void OnAfterParentChanged(CefRefPtr<CefBrowser> browser) {
+     return;
+   }
+ 
++#if defined(OS_LINUX)
++  // The queued notification may outlive a concurrent native close.
++  if (!browser->IsValid())
++    return;
++#endif
+   if (browser->GetHost()->GetClient()) {
+     CefRefPtr<LifeSpanHandler> lifeSpanHandler =
+         (LifeSpanHandler*)browser->GetHost()
+@@ -1197,9 +1207,9 @@ Java_org_cef_browser_CefBrowser_1N_N_1CreateBrowser(JNIEnv* env,
                                canvas, jcontext, nullptr, browserSettings));
    if (CefCurrentlyOn(TID_UI)) {
      create(objs, windowHandle, osr, transparent);
@@ -568,7 +580,7 @@ index ceea3a6..f0b8474 100644
    }
    return JNI_FALSE;  // set asynchronously
  }
-@@ -1525,10 +1530,8 @@ Java_org_cef_browser_CefBrowser_1N_N_1SetWindowVisibility(JNIEnv* env,
+@@ -1525,10 +1535,8 @@ Java_org_cef_browser_CefBrowser_1N_N_1SetWindowVisibility(JNIEnv* env,
    CefRefPtr<CefBrowser> browser = JNI_GET_BROWSER_OR_RETURN(env, obj);
  
  #if defined(OS_MACOSX)
@@ -581,7 +593,7 @@ index ceea3a6..f0b8474 100644
  #endif
  }
  JNIEXPORT jdouble JNICALL
-@@ -2106,8 +2109,16 @@ Java_org_cef_browser_CefBrowser_1N_N_1UpdateUI(JNIEnv* env,
+@@ -2106,8 +2114,16 @@ Java_org_cef_browser_CefBrowser_1N_N_1UpdateUI(JNIEnv* env,
    CefRect contentRect = GetJNIRect(env, jcontentRect);
  #if defined(OS_MACOSX)
    CefRect browserRect = GetJNIRect(env, jbrowserRect);
@@ -600,10 +612,20 @@ index ceea3a6..f0b8474 100644
  #else
    CefWindowHandle windowHandle = browser->GetHost()->GetWindowHandle();
    if (CefCurrentlyOn(TID_UI)) {
-@@ -2138,14 +2149,26 @@ Java_org_cef_browser_CefBrowser_1N_N_1SetParent(JNIEnv* env,
+@@ -2134,24 +2150,20 @@ Java_org_cef_browser_CefBrowser_1N_N_1SetParent(JNIEnv* env,
+   CefWindowHandle browserHandle = browser->GetHost()->GetWindowHandle();
+   CefWindowHandle parentHandle =
+       canvas ? util::GetWindowHandle(env, canvas) : kNullWindowHandle;
++#if defined(OS_LINUX)
++  // Swing may destroy its Canvas as soon as this call returns. Reparent on
++  // this thread and wait only for the X server, never for the CEF UI queue.
++  // Attach uses the same path so no older queued attach can undo a detach.
++  util::SetParent(browserHandle, parentHandle, std::move(callback));
++#else
+   if (CefCurrentlyOn(TID_UI)) {
      util::SetParent(browserHandle, parentHandle, std::move(callback));
    } else {
- #if defined(OS_LINUX)
+-#if defined(OS_LINUX)
 -    CriticalLock lock;
 -    CriticalWait waitCond(&lock);
 -    lock.Lock();
@@ -612,29 +634,16 @@ index ceea3a6..f0b8474 100644
 -                               &waitCond, std::move(callback)));
 -    waitCond.Wait(1000);
 -    lock.Unlock();
-+    // The CEF task can run after the bounded EDT wait has timed out. Both
-+    // callers must own the lock and condition until their last access.
-+    struct ParentChangeWait {
-+      CriticalLock lock;
-+      CriticalWait condition{&lock};
-+    };
-+    auto completion = std::make_shared<ParentChangeWait>();
-+    completion->lock.Lock();
-+    CefPostTask(
-+        TID_UI,
-+        base::BindOnce(
-+            [](CefWindowHandle browserHandle, CefWindowHandle parentHandle,
-+               std::shared_ptr<ParentChangeWait> completion,
-+               base::OnceClosure callback) {
-+              util::SetParentSync(browserHandle, parentHandle,
-+                                  &completion->condition, std::move(callback));
-+            },
-+            browserHandle, parentHandle, completion, std::move(callback)));
-+    completion->condition.Wait(1000);
-+    completion->lock.Unlock();
- #else
+-#else
      CefPostTask(TID_UI, base::BindOnce(util::SetParent, browserHandle,
                                         parentHandle, std::move(callback)));
+-#endif
+   }
+ #endif
++#endif
+ }
+ 
+ JNIEXPORT void JNICALL
 diff --git a/native/CefRequestContext_N.cpp b/native/CefRequestContext_N.cpp
 index db6b2dd..987f503 100644
 --- a/native/CefRequestContext_N.cpp
@@ -987,10 +996,43 @@ index aaa8c25..9b367b9 100644
    CefRefPtr<ClientHandler> client =
        (ClientHandler*)browser->GetHost()->GetClient().get();
 diff --git a/native/temp_window_x11.cc b/native/temp_window_x11.cc
-index 1f3601e..de0a734 100644
+index 1f3601e..ff54b54 100644
 --- a/native/temp_window_x11.cc
 +++ b/native/temp_window_x11.cc
-@@ -49,6 +49,11 @@ TempWindowX11::TempWindowX11() : xwindow_(kNullWindowHandle) {
+@@ -5,6 +5,12 @@
+ #include "temp_window_x11.h"
+ 
+ #include <X11/Xlib.h>
++#include <xcb/xcb.h>
++
++#include <cstdlib>
++#include <memory>
++#include <mutex>
++#include <string>
+ 
+ #include "include/base/cef_logging.h"
+ #include "include/cef_app.h"
+@@ -14,6 +20,8 @@ namespace {
+ 
+ ::Display* g_xdisplay = nullptr;
+ TempWindowX11* g_temp_window = nullptr;
++std::mutex g_temp_window_mutex;
++std::string g_display_name;
+ 
+ // Create the temp window.
+ ::Window CreateTempWindow() {
+@@ -40,18 +48,27 @@ void CloseTempWindow(::Window xwindow) {
+ 
+ TempWindowX11::TempWindowX11() : xwindow_(kNullWindowHandle) {
+   REQUIRE_UI_THREAD();
++  std::lock_guard<std::mutex> lock(g_temp_window_mutex);
+ 
+   g_xdisplay = cef_get_xdisplay();
+   CHECK(g_xdisplay);
++  g_display_name = DisplayString(g_xdisplay);
+ 
+   DCHECK(!g_temp_window);
+   g_temp_window = this;
  
    xwindow_ = CreateTempWindow();
    CHECK(xwindow_);
@@ -1002,6 +1044,82 @@ index 1f3601e..de0a734 100644
  }
  
  TempWindowX11::~TempWindowX11() {
++  // An EDT reparent owns this lock through the server's acknowledgement.
++  std::lock_guard<std::mutex> lock(g_temp_window_mutex);
+   g_temp_window = nullptr;
+   DCHECK(xwindow_);
+ 
+@@ -60,6 +77,7 @@ TempWindowX11::~TempWindowX11() {
+ 
+ // static
+ CefWindowHandle TempWindowX11::GetWindowHandle() {
++  std::lock_guard<std::mutex> lock(g_temp_window_mutex);
+   if (!g_temp_window)
+     return kNullWindowHandle;
+   return g_temp_window->xwindow_;
+@@ -70,3 +88,46 @@ void* TempWindowX11::GetDisplay() {
+   CHECK(g_xdisplay);
+   return g_xdisplay;
+ }
++
++// static
++bool TempWindowX11::ReparentWindow(CefWindowHandle browser,
++                                  CefWindowHandle parent) {
++  std::lock_guard<std::mutex> lock(g_temp_window_mutex);
++  if (!g_temp_window || browser == kNullWindowHandle)
++    return false;
++  if (parent == kNullWindowHandle)
++    parent = g_temp_window->xwindow_;
++
++  // A dedicated checked XCB connection cannot replace AWT/CEF's process-wide
++  // Xlib error handler or dispatch their callbacks while Swing holds its lock.
++  // The temporary parent is published only after its XSync, and the lock keeps
++  // it alive until this request has been processed by the server.
++  std::unique_ptr<xcb_connection_t, decltype(&xcb_disconnect)> connection(
++      xcb_connect(g_display_name.c_str(), nullptr), &xcb_disconnect);
++  if (const int error = xcb_connection_has_error(connection.get())) {
++    LOG(ERROR) << "Cannot connect to X11 for browser reparent: " << error;
++    return false;
++  }
++  const auto request = xcb_reparent_window_checked(
++      connection.get(), static_cast<xcb_window_t>(browser),
++      static_cast<xcb_window_t>(parent), 0, 0);
++  std::unique_ptr<xcb_generic_error_t, decltype(&std::free)> error(
++      xcb_request_check(connection.get(), request), &std::free);
++  if (error) {
++    // Retaining CefBrowser keeps its wrapper alive, not its native X window.
++    // A concurrently completed close needs no further parent notification.
++    if (error->error_code == XCB_WINDOW && error->resource_id == browser) {
++      VLOG(1) << "Browser window already closed during reparent";
++    } else {
++      LOG(ERROR) << "X11 browser reparent failed: code="
++                 << static_cast<int>(error->error_code)
++                 << " resource=" << error->resource_id;
++    }
++    return false;
++  }
++  if (const int error = xcb_connection_has_error(connection.get())) {
++    LOG(ERROR) << "X11 connection failed during browser reparent: " << error;
++    return false;
++  }
++  return true;
++}
+diff --git a/native/temp_window_x11.h b/native/temp_window_x11.h
+index 32e6e42..76adc5d 100644
+--- a/native/temp_window_x11.h
++++ b/native/temp_window_x11.h
+@@ -17,6 +17,11 @@ class TempWindowX11 {
+ 
+   static void* GetDisplay();
+ 
++  // Reparent synchronously on the caller without waiting for CEF UI. A null
++  // parent means the live temporary window. False means no change completed.
++  static bool ReparentWindow(CefWindowHandle browser,
++                             CefWindowHandle parent);
++
+  private:
+   // A single instance will be created/owned by Context.
+   friend class Context;
 diff --git a/native/url_request_client.cpp b/native/url_request_client.cpp
 index 2acc9ca..6248d81 100644
 --- a/native/url_request_client.cpp
@@ -1053,14 +1171,28 @@ index 5b9dfc1..df8cc9f 100644
    virtual void OnRequestComplete(CefRefPtr<CefURLRequest> request) override;
  
 diff --git a/native/util.h b/native/util.h
-index eba0745..19bb8eb 100644
+index eba0745..23bdab2 100644
 --- a/native/util.h
 +++ b/native/util.h
-@@ -117,6 +117,11 @@ void SetParentSync(CefWindowHandle browserHandle,
-                    CefWindowHandle parentHandle,
-                    CriticalWait* waitCond,
-                    base::OnceClosure callback);
-+
+@@ -16,10 +16,6 @@
+ #include "include/cef_browser.h"
+ #include "include/cef_task.h"
+ 
+-#if defined(OS_LINUX)
+-#include "critical_wait.h"
+-#endif
+-
+ #endif  // USING_JAVA
+ 
+ #if defined(OS_WIN)
+@@ -113,10 +109,10 @@ void SetParent(CefWindowHandle browserHandle,
+                base::OnceClosure callback);
+ 
+ #if defined(OS_LINUX)
+-void SetParentSync(CefWindowHandle browserHandle,
+-                   CefWindowHandle parentHandle,
+-                   CriticalWait* waitCond,
+-                   base::OnceClosure callback);
 +// Keep the full document viewport while clipping its X11 output and input.
 +void UpdateWindowBounds(CefWindowHandle browserHandle,
 +                        const CefRect& contentRect,
@@ -1069,10 +1201,10 @@ index eba0745..19bb8eb 100644
  
  // Set the window bounds for |browserHandle|.
 diff --git a/native/util_linux.cpp b/native/util_linux.cpp
-index e04e9f8..a08b3f8 100644
+index e04e9f8..549be51 100644
 --- a/native/util_linux.cpp
 +++ b/native/util_linux.cpp
-@@ -4,7 +4,9 @@
+@@ -4,10 +4,14 @@
  
  #include "util.h"
  
@@ -1082,7 +1214,61 @@ index e04e9f8..a08b3f8 100644
  #undef Success
  
  #include "include/base/cef_callback.h"
-@@ -85,8 +87,27 @@ void SetParentSync(CefWindowHandle browserHandle,
++#include "include/base/cef_logging.h"
++#include "include/wrapper/cef_closure_task.h"
+ 
+ #include "jni_util.h"
+ #include "temp_window.h"
+@@ -26,18 +30,6 @@ void X_XMoveResizeWindow(unsigned long browserHandle,
+   XFlush(xdisplay);
+ }
+ 
+-void X_XReparentWindow(unsigned long browserHandle,
+-                       unsigned long parentDrawable) {
+-  ::Display* xdisplay = (::Display*)TempWindow::GetDisplay();
+-  XReparentWindow(xdisplay, browserHandle, parentDrawable, 0, 0);
+-  XFlush(xdisplay);
+-}
+-
+-void X_XSync(bool discard) {
+-  ::Display* xdisplay = (::Display*)TempWindow::GetDisplay();
+-  XSync(xdisplay, discard);
+-}
+-
+ }  // namespace
+ 
+ // This function is called by LifeSpanHandler::OnAfterCreated().
+@@ -60,33 +52,37 @@ CefWindowHandle GetWindowHandle(JNIEnv* env, jobject canvas) {
+ void SetParent(CefWindowHandle browserHandle,
+                CefWindowHandle parentHandle,
+                base::OnceClosure callback) {
+-  SetParentSync(browserHandle, parentHandle, nullptr, std::move(callback));
+-}
+-
+-void SetParentSync(CefWindowHandle browserHandle,
+-                   CefWindowHandle parentHandle,
+-                   CriticalWait* waitCond,
+-                   base::OnceClosure callback) {
+-  if (waitCond) {
+-    waitCond->lock()->Lock();
++  if (TempWindow::ReparentWindow(browserHandle, parentHandle)) {
++    // The callback retains the browser, but never runs Java while Swing owns
++    // the tree lock. A native close can complete before this UI task runs.
++    if (!CefPostTask(TID_UI, std::move(callback)))
++      LOG(WARNING) << "CEF rejected the browser parent notification during shutdown";
+   }
+-  if (parentHandle == kNullWindowHandle)
+-    parentHandle = TempWindow::GetWindowHandle();
+-  if (parentHandle != kNullWindowHandle && browserHandle != kNullWindowHandle)
+-    X_XReparentWindow(browserHandle, parentHandle);
+-
+-  if (waitCond) {
+-    X_XSync(false);
+-    waitCond->WakeUp();
+-    waitCond->lock()->Unlock();
+-  }
+-  std::move(callback).Run();
+ }
  
  void SetWindowBounds(CefWindowHandle browserHandle,
                       const CefRect& contentRect) {

@@ -29,17 +29,18 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.cef.OS
-import java.awt.Dimension
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import javax.swing.JDialog
 import javax.swing.JFrame
+import javax.swing.RootPaneContainer
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 /** Production document engine, page bootstrap, bridge and layout observer; no JavaScript or measurement fakes. */
 internal fun verifyNativeDocumentPresentation(
@@ -159,8 +160,7 @@ private class NativeDocumentRelocation(
                 nativeEdt { prior.close() }
                 clipping?.await(startWindow.rootPane, 0)
                 clipping?.await(modal.rootPane, 1, areAllClipped = true)
-                request(iteration)
-                assertRetained(report(reports, "data"), marker, nativeEdt { modal.contentPane.size })
+                awaitRetained(iteration, marker, modal)
                 nativeEdt {
                     attachment.close()
                     assertNull(panel.createComponent().parent)
@@ -184,20 +184,44 @@ private class NativeDocumentRelocation(
         }
         try {
             clipping?.await(startWindow.rootPane, 1, areAllClipped = true)
-            request(3)
-            assertRetained(report(reports, "data"), marker, nativeEdt { startWindow.contentPane.size })
+            awaitRetained(3, marker, startWindow)
         } finally {
             nativeEdt(restored::close)
         }
     }
 
-    private fun assertRetained(report: JsonObject, marker: kotlinx.serialization.json.JsonElement, size: Dimension) {
+    /** A data event can precede the renderer's native resize; only matching DOM and current AWT sizes complete it. */
+    private fun awaitRetained(requestId: Int, marker: JsonElement, host: RootPaneContainer) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
+        var expected = nativeEdt { host.contentPane.size }
+        var latest: JsonObject? = null
+        request(requestId)
+        while (true) {
+            val remaining = deadline - System.nanoTime()
+            val observed = assertNotNull(
+                if (remaining > 0) reports.poll(remaining, TimeUnit.NANOSECONDS) else null,
+                "Missing retained viewport for request $requestId: expected=$expected, latest=$latest",
+            )
+            latest = observed
+            assertTrue(observed["kind"]?.jsonPrimitive?.content in setOf("data", "viewport"))
+            assertRetainedState(observed, marker)
+            expected = nativeEdt { host.contentPane.size }
+            val isCurrentRequest = observed["request"] == JsonPrimitive(requestId)
+            val isCurrentSize = observed["width"] == JsonPrimitive(expected.width) &&
+                observed["viewportHeight"] == JsonPrimitive(expected.height)
+            if (isCurrentRequest && isCurrentSize) {
+                assertEquals(JsonPrimitive(expected.width), observed["width"])
+                assertEquals(JsonPrimitive(expected.height), observed["viewportHeight"])
+                return
+            }
+        }
+    }
+
+    private fun assertRetainedState(report: JsonObject, marker: JsonElement) {
         assertEquals(marker, report["marker"], "Reparent must preserve the live DOM instance")
         assertEquals(JsonPrimitive("retained input"), report["input"])
         assertEquals(JsonPrimitive("history"), report["tab"])
         assertEquals(JsonPrimitive(120), report["scroll"])
-        assertEquals(JsonPrimitive(size.width), report["width"])
-        assertEquals(JsonPrimitive(size.height), report["viewportHeight"])
     }
 }
 
@@ -230,8 +254,10 @@ private fun presentationDocument(reports: LinkedBlockingQueue<JsonObject>) = Bro
         const scroller = document.getElementById('scroll');
         scroller.scrollTop = 120;
         async function report(kind) {
+          const request = heartbeat.data.request ?? null;
           await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-          await heartbeat.call('report', {kind, marker: window.marker, input: entry.value,
+          await heartbeat.call('report', {kind, request,
+            marker: window.marker, input: entry.value,
             height: root.getBoundingClientRect().height, theme: heartbeat.theme.colorScheme,
             color: getComputedStyle(root).color, data: heartbeat.data,
             tab: window.activeTab, scroll: scroller.scrollTop, width: innerWidth, viewportHeight: innerHeight});
@@ -241,6 +267,9 @@ private fun presentationDocument(reports: LinkedBlockingQueue<JsonObject>) = Bro
           report('data');
         });
         window.addEventListener('heartbeat:theme', () => report('theme'));
+        window.addEventListener('resize', () => {
+          if (heartbeat.data.request != null) report('viewport');
+        });
         report('ready');
         </script></body>
     """.trimIndent(),

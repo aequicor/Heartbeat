@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
@@ -34,6 +35,7 @@ import org.cef.CefApp;
 import org.cef.CefClient;
 import org.cef.CefRequestContextSettings;
 import org.cef.CefSettings;
+import org.cef.OS;
 import org.cef.SystemBootstrap;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
@@ -377,26 +379,55 @@ public final class SessionProbe {
             require(detached.client != active.client, "Each closing tab must own a separate client");
             require("retained".equals(detached.evaluate("window.closeRemoveSentinel")),
                 "Detaching the inactive tab replaced its DOM");
-            onEdt(() -> {
-                require(active.browser.getUIComponent().isDisplayable(), "Active tab is not displayable");
-                // Removing Swing peers after close(true) must still reparent Chromium safely.
-                // No callback/CEF barrier is allowed between these operations: this is the race.
-                detached.closeRequested = true;
-                detached.browser.close(true);
-                active.closeRequested = true;
-                active.browser.close(true);
-                active.host.removeAll();
-                active.host.validate();
-                require(!active.browser.getUIComponent().isDisplayable(), "Active peer was not removed");
-                return null;
-            });
+            ClosePause pause = OS.isLinux() ? new ClosePause() : null;
+            boolean reattachWhilePaused = pause != null && index == 1;
+            detached.closePause = pause;
+            try {
+                if (pause != null) {
+                    onEdt(() -> {
+                        detached.closeRequested = true;
+                        detached.browser.close(true);
+                        return null;
+                    });
+                    require(pause.entered.await(TIMEOUT_SECONDS, TimeUnit.SECONDS),
+                        "Detached tab did not pause CEF UI in doClose");
+                }
+                onEdt(() -> {
+                    Component surface = active.browser.getUIComponent();
+                    require(surface.isDisplayable(), "Active tab is not displayable");
+                    if (reattachWhilePaused) {
+                        // A queued attachment must not outlive the final detach and target its destroyed Canvas.
+                        active.host.remove(surface);
+                        active.host.validate();
+                        require(!surface.isDisplayable(), "Live active peer did not detach");
+                        active.host.add(surface, BorderLayout.CENTER);
+                        active.host.validate();
+                        require(surface.isDisplayable(), "Live active peer did not reattach");
+                    }
+                    if (pause == null) {
+                        detached.closeRequested = true;
+                        detached.browser.close(true);
+                    }
+                    // Linux CEF UI is paused: detaching must finish before AWT destroys its Canvas,
+                    // without waiting for CEF callbacks or a queued reparent operation.
+                    active.closeRequested = true;
+                    active.browser.close(true);
+                    active.host.removeAll();
+                    active.host.validate();
+                    require(!surface.isDisplayable(), "Active peer was not removed");
+                    return null;
+                });
+            } finally {
+                if (pause != null) pause.resume.countDown();
+            }
             await(detached.closed, "detached tab onAfterClose after simultaneous close/remove");
             await(active.closed, "active tab onAfterClose after simultaneous close/remove");
             require(remainingClients() == 0, "Close/remove retained native clients");
             anchor.close();
             onEdt(() -> { window.dispose(); return null; });
             passed("close-remove-iteration", Map.of("iteration", index, "closedTabs", 2,
-                "remainingClients", 0, "flushCompleted", true));
+                "remainingClients", 0, "flushCompleted", true, "cefUiPausedDuringDetach", pause != null,
+                "reattachedWhilePaused", reattachWhilePaused));
         }
         passed("simultaneous-close-remove-lifecycle", Map.of("tabPairs", iterations, "remainingClients", 0));
     }
@@ -449,6 +480,7 @@ public final class SessionProbe {
         final JFrame frame;
         final JPanel host;
         final List<Integer> createdIds = new CopyOnWriteArrayList<>();
+        volatile ClosePause closePause;
         boolean closeRequested;
 
         Tab(Anchor anchor, String name, JFrame sharedFrame) throws Exception {
@@ -459,6 +491,17 @@ public final class SessionProbe {
                     createdIds.add(identifier);
                     System.out.println("BROWSER CREATED tab=" + name + " id=" + identifier
                         + " javaIdentity=" + System.identityHashCode(browser) + " createdIds=" + createdIds);
+                }
+                @Override public boolean doClose(CefBrowser browser) {
+                    ClosePause pause = closePause;
+                    if (pause != null) {
+                        try { pause.awaitResume(); }
+                        catch (Throwable failure) {
+                            closed.completeExceptionally(failure);
+                            throw failure;
+                        }
+                    }
+                    return false;
                 }
                 @Override public void onAfterClose(CefBrowser browser) {
                     // The close hook must not call browser methods while native teardown unwinds.
@@ -623,6 +666,22 @@ public final class SessionProbe {
                 return null;
             });
             close();
+        }
+    }
+
+    /** Holds Linux CEF UI until the test thread has observed the EDT detach finish. */
+    private static final class ClosePause {
+        final CountDownLatch entered = new CountDownLatch(1);
+        final CountDownLatch resume = new CountDownLatch(1);
+
+        void awaitResume() {
+            entered.countDown();
+            try {
+                require(resume.await(TIMEOUT_SECONDS, TimeUnit.SECONDS), "CEF UI close pause was not released");
+            } catch (InterruptedException failure) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("CEF UI close pause was interrupted", failure);
+            }
         }
     }
 

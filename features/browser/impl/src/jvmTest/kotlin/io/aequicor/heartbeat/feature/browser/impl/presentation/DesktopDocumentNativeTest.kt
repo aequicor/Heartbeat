@@ -16,7 +16,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.swing.Swing
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -86,7 +86,15 @@ class DesktopDocumentNativeTest {
             frame.add(panel.createComponent())
             frame.validate()
         }
-        try {
+        AutoCloseable {
+            SwingUtilities.invokeAndWait {
+                panels.forEach(DesktopDocumentPanel::release)
+                tab?.release()
+                frames.forEach(JFrame::dispose)
+            }
+            close(resources, handle, scope, server, panels, tab)
+            listOf(first, second).forEach(BrowserDocumentHandle::close)
+        }.use {
             SwingUtilities.invokeAndWait {
                 frames += JFrame("Heartbeat document native verification").apply {
                     layout = GridLayout(1, 2)
@@ -114,14 +122,6 @@ class DesktopDocumentNativeTest {
                 frames += frame
             }
             assertEquals(emptyList(), requests.toList(), "Documents must not reach the network")
-        } finally {
-            SwingUtilities.invokeAndWait {
-                panels.forEach(DesktopDocumentPanel::release)
-                tab?.release()
-                frames.forEach(JFrame::dispose)
-            }
-            close(resources, handle, scope, server, panels, tab)
-            listOf(first, second).forEach(BrowserDocumentHandle::close)
         }
     }
 
@@ -355,11 +355,19 @@ class DesktopDocumentNativeTest {
     ) {
         try {
             runBlocking {
-                withTimeout(60_000) {
-                    panels.forEach { it.awaitClosed() }
+                var stage = "document panels"
+                val completed = withTimeoutOrNull(60_000) {
+                    panels.forEachIndexed { index, panel ->
+                        stage = "native closure of document panel ${index + 1}/${panels.size}"
+                        panel.awaitClosed()
+                    }
+                    stage = "native closure of the user tab"
                     tab?.awaitClosed()
+                    stage = "browser runtime shutdown"
                     resources.shutdown()
+                    true
                 }
+                assertTrue(completed == true, "Native document cleanup timed out waiting for $stage")
             }
         } finally {
             handle.close()
