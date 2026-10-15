@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.harness.impl.data.script
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.CompiledHarnessCode
+import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeKind
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCompilationRequest
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCompilationResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationContext
@@ -13,6 +14,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.CountDownLatch
@@ -28,6 +30,36 @@ import kotlin.test.assertTrue
 
 class HarnessHostProbeTest {
     @Test
+    fun `cached evaluation after restart needs neither compiler preparation nor network`() {
+        val directory = Files.createTempDirectory("harness-probe-offline-")
+        val workers = HarnessProbeWorkers()
+        var hosts = 0
+        try {
+            val result = runHarnessProbe(
+                directory.toString(),
+                "probe-test",
+                workers,
+            ) { cache, version, scope, dispatchers ->
+                val isOffline = hosts++ > 0
+                val process = ProcessHarnessCompiler(scope, dispatchers.io, dispatchers.default, workers)
+                val compiler = object : PreparingHarnessCompiler {
+                    override suspend fun prepare() {
+                        if (isOffline) throw IOException("offline")
+                    }
+                    override suspend fun compile(kind: HarnessCodeKind, source: String, output: Path) =
+                        process.compile(kind, source, output)
+                }
+                JvmHarnessScriptHost(cache, version, scope, dispatchers, compiler)
+            }
+
+            assertEquals(HARNESS_PROBE_SUCCESS, result.toCompletableFuture().get(240, TimeUnit.SECONDS))
+            assertEquals(2, hosts)
+        } finally {
+            deleteProbeDirectory(directory)
+        }
+    }
+
+    @Test
     fun `production probe compiles both templates and reloads their artifacts with every resource closed`() {
         val directory = Files.createTempDirectory("harness-probe-test-")
         try {
@@ -36,6 +68,7 @@ class HarnessHostProbeTest {
                 HarnessHostProbe.run(
                     directory.toString(),
                     "probe-test",
+                    checkNotNull(HarnessCompilerArtifacts.bundled()).map(Path::toString).toTypedArray(),
                 ).toCompletableFuture().get(240, TimeUnit.SECONDS),
             )
         } finally {

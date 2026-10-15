@@ -19,15 +19,19 @@ import java.util.concurrent.TimeUnit
  */
 internal fun handleHarnessCompilerProbe(arguments: Array<String>): Boolean {
     if (arguments.firstOrNull() != HARNESS_PROBE_ARGUMENT) return false
-    require(arguments.size == 1) { "InvalidHarnessProbeArguments" }
     Log.init(isDebug = true)
     val directory = Files.createTempDirectory("heartbeat-harness-probe-")
     var pending: CompletableFuture<*>? = null
     var isSuccessful = false
     try {
-        val entry = Class.forName(HARNESS_PROBE_CLASS).getMethod("run", String::class.java, String::class.java)
+        val entry = Class.forName(HARNESS_PROBE_CLASS).getMethod(
+            "run",
+            String::class.java,
+            String::class.java,
+            Array<String>::class.java,
+        )
         val version = System.getProperty("heartbeat.app.version", "development")
-        val result = entry.invoke(null, directory.toString(), version) as CompletionStage<*>
+        val result = entry.invoke(null, directory.toString(), version, arguments.drop(1).toTypedArray()) as CompletionStage<*>
         val completion = result.toCompletableFuture()
         pending = completion
         check(completion.get(PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS) == PROBE_SUCCESS) {

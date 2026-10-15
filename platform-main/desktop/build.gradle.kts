@@ -1,3 +1,4 @@
+import io.aequicor.heartbeat.buildlogic.HarnessProbeArguments
 import io.aequicor.heartbeat.buildlogic.PackageInnoSetup
 import io.aequicor.heartbeat.buildlogic.PreparePiRuntime
 import io.aequicor.heartbeat.buildlogic.PrepareReleaseRuntimeJars
@@ -232,6 +233,16 @@ afterEvaluate {
         targetOs.set(if (piOs == "darwin") "macos" else piOs.orEmpty())
         targetArch.set(piArch.orEmpty())
         deferredJcefPlatform.set(heartbeatJcef.hostPlatform.orEmpty())
+        deferredJarPrefixes.set(
+            listOf(
+                "kotlin-compiler-embeddable",
+                "kotlin-scripting-compiler-embeddable",
+                "kotlin-scripting-compiler-impl-embeddable",
+                "kotlin-daemon-embeddable",
+                "kotlin-build-tools-api",
+                "kotlin-scripting-jvm-host",
+            ).map { "$it-${libs.versions.kotlin.get()}-" },
+        )
     }
     val releaseImage = tasks.named<AbstractJPackageTask>("createReleaseDistributable")
     tasks.register<Exec>("verifyReleaseHarnessCompiler") {
@@ -248,7 +259,19 @@ afterEvaluate {
             })
         }
         executable(launcher.get().asFile)
-        args("--heartbeat-harness-probe")
+        argumentProviders.add(objects.newInstance<HarnessProbeArguments>().apply {
+            fileNames.set(
+                listOf(
+                    "kotlin-compiler-embeddable",
+                    "kotlin-scripting-compiler-embeddable",
+                    "kotlin-scripting-compiler-impl-embeddable",
+                    "kotlin-daemon-embeddable",
+                    "kotlin-build-tools-api",
+                    "kotlin-scripting-jvm-host",
+                ).map { "$it-${libs.versions.kotlin.get()}.jar" },
+            )
+            compilerFiles.from(configurations.runtimeClasspath)
+        })
         timeout.set(Duration.ofMinutes(5))
     }
     tasks.withType<AbstractJvmToolOperationTask>().configureEach {

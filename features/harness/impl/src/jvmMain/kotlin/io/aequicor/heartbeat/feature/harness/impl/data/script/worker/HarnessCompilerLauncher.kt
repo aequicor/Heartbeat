@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.harness.impl.data.script.worker
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.harness.api.script.HarnessScriptBase
+import io.aequicor.heartbeat.feature.harness.impl.data.script.HarnessCompilerArtifacts
 import io.aequicor.heartbeat.feature.scheduler.api.WakeId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.serialization.KSerializer
@@ -14,7 +15,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.script.experimental.api.ScriptCompilationConfiguration
 import kotlin.script.experimental.jvm.impl.KJvmCompiledScript
-import kotlin.script.experimental.jvmhost.BasicJvmScriptingHost
 
 /** Starts a harness compiler worker process; tests substitute other JVM options or another program. */
 internal fun interface HarnessCompilerLauncher {
@@ -32,6 +32,7 @@ internal fun interface HarnessCompilerLauncher {
 internal class JavaHarnessCompilerLauncher(
     private val jvmOptions: List<String> = WORKER_JVM_OPTIONS,
     private val isClasspathInFile: Boolean = isWindows,
+    private val runtimeFiles: List<Path> = emptyList(),
 ) : HarnessCompilerLauncher {
     override fun start(): Process {
         val java = Path.of(System.getProperty("java.home"), "bin", if (isWindows) "java.exe" else "java")
@@ -43,11 +44,13 @@ internal class JavaHarnessCompilerLauncher(
             } else {
                 listOf("-cp", classpath)
             }
-            listOf(java.toString()) + jvmOptions + classpathArguments + WORKER_MAIN to null
+            val command = listOf(java.toString()) + jvmOptions + classpathArguments + WORKER_MAIN
+            (command + runtimeFiles.map(Path::toString)) to null
         } else {
             val packaged = System.getProperty("jpackage.app-path")?.let(Path::of)
             check(packaged != null && Files.isRegularFile(packaged)) { "HarnessCompilerWorkerRuntimeUnavailable" }
-            listOf(packaged.toString(), WORKER_ARGUMENT) to jvmOptions.joinToString(" ")
+            val command = listOf(packaged.toString(), WORKER_ARGUMENT) + runtimeFiles.map(Path::toString)
+            command to jvmOptions.joinToString(" ")
         }
         val builder = ProcessBuilder(command)
             .directory(File(System.getProperty("java.io.tmpdir")))
@@ -85,7 +88,8 @@ internal class JavaHarnessCompilerLauncher(
     }
 
     private companion object {
-        const val WORKER_MAIN = "io.aequicor.heartbeat.feature.harness.impl.data.script.worker.HarnessCompilerWorkerKt"
+        const val WORKER_MAIN =
+            "io.aequicor.heartbeat.feature.harness.impl.data.script.worker.HarnessCompilerBootstrapKt"
         const val WORKER_ARGUMENT = "--heartbeat-harness-compiler-worker"
         const val JAVA_TOOL_OPTIONS = "JAVA_TOOL_OPTIONS"
     }
@@ -132,6 +136,7 @@ private val WorkerEnvironment = setOf("TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL",
 /** The app's classpath, and the jars of the worker's own classes when a class loader hides them from it. */
 private fun workerClasspath(): String {
     val paths = linkedSetOf<String>()
+    HarnessCompilerArtifacts.bundled()?.mapTo(paths, Path::toString)
     paths += System.getProperty("java.class.path").split(File.pathSeparator).filter { it.isNotBlank() }
     val loader = HarnessCompilerLauncher::class.java.classLoader
     val types = mutableListOf<Class<*>>(
@@ -147,8 +152,6 @@ private fun workerClasspath(): String {
         ByteString::class.java,
         ScriptCompilationConfiguration::class.java,
         KJvmCompiledScript::class.java,
-        BasicJvmScriptingHost::class.java,
-        org.jetbrains.kotlin.cli.jvm.K2JVMCompiler::class.java,
     )
     try {
         types += Class.forName(NAPIER, false, loader)

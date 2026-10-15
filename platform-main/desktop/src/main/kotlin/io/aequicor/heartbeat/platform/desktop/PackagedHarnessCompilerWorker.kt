@@ -2,7 +2,7 @@ package io.aequicor.heartbeat.platform.desktop
 
 private const val HARNESS_COMPILER_WORKER_ARGUMENT = "--heartbeat-harness-compiler-worker"
 private const val HARNESS_COMPILER_WORKER_MAIN =
-    "io.aequicor.heartbeat.feature.harness.impl.data.script.worker.HarnessCompilerWorkerKt"
+    "io.aequicor.heartbeat.feature.harness.impl.data.script.worker.HarnessCompilerBootstrapKt"
 
 /**
  * A packaged jlink runtime has no Java launcher, so the harness compiler worker process starts through the application
@@ -12,8 +12,7 @@ private const val HARNESS_COMPILER_WORKER_MAIN =
  */
 internal fun runPackagedHarnessCompilerWorker(arguments: Array<String>): Boolean {
     if (arguments.firstOrNull() != HARNESS_COMPILER_WORKER_ARGUMENT) return false
-    require(arguments.size == 1) { "InvalidHarnessCompilerWorkerArguments" }
     Class.forName(HARNESS_COMPILER_WORKER_MAIN).getMethod("main", Array<String>::class.java)
-        .invoke(null, emptyArray<String>())
+        .invoke(null, arguments.drop(1).toTypedArray())
     return true
 }

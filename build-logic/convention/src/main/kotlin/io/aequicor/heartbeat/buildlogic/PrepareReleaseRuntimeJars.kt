@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.buildlogic
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.FileSystemOperations
+import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
@@ -28,7 +29,8 @@ import javax.inject.Inject
  * Unknown platforms/resources, signed jars and native families missing their host binary are preserved. Jars with
  * no removable entries are copied byte for byte. When [deferredJcefPlatform] is set, the host's JCEF native archive
  * is omitted for download on first use; all bridge classes stay on the packaged classpath. Original JCEF artifacts
- * are still checked by `verifyBrowserRuntime` before packaging. Rewritten jars use
+ * are still checked by `verifyBrowserRuntime` before packaging. [deferredJarPrefixes] removes explicitly pinned
+ * worker dependencies that their feature downloads and verifies on first use. Rewritten jars use
  * sorted entries and a fixed ZIP timestamp so cache results do not depend on the input archive's timestamps.
  */
 @CacheableTask
@@ -46,10 +48,14 @@ abstract class PrepareReleaseRuntimeJars : DefaultTask() {
     /** Empty keeps JCEF bundled; otherwise exactly one archive for this jcefmaven platform must be removed. */
     @get:Input abstract val deferredJcefPlatform: Property<String>
 
+    /** Exact artifact/version prefixes of worker-only JARs. Each must identify exactly one staged JAR. */
+    @get:Input abstract val deferredJarPrefixes: ListProperty<String>
+
     @get:Inject abstract val files: FileSystemOperations
 
     init {
         deferredJcefPlatform.convention("")
+        deferredJarPrefixes.convention(emptyList())
     }
 
     /** Replaces the staging directory with the release payload, then filters eligible native resource families. */
@@ -67,15 +73,30 @@ abstract class PrepareReleaseRuntimeJars : DefaultTask() {
         val families = nativeFamilies(targetOs.get(), targetArch.get())
         val jars = destination.toFile().walkTopDown().filter { it.isFile && it.extension == "jar" }.toList()
         val deferredArchive = findDeferredJcefArchive(jars)
-        if (families.isEmpty() && deferredArchive == null) return
+        val deferredJars = findDeferredJars(jars)
+        if (families.isEmpty() && deferredArchive == null && deferredJars.isEmpty()) return
         var removedBytes = 0L
         for (jar in jars) {
             val originalSize = jar.length()
-            prune(jar, families, deferredArchive)
+            if (jar in deferredJars) {
+                Files.delete(jar.toPath())
+            } else {
+                prune(jar, families, deferredArchive)
+            }
             removedBytes += originalSize - jar.length()
         }
-        logger.lifecycle("Release runtime jars: saved {} bytes after filtering native resources", removedBytes)
+        logger.lifecycle(
+            "Release runtime jars: saved {} bytes after filtering native and optional resources",
+            removedBytes,
+        )
     }
+
+    private fun findDeferredJars(jars: List<File>): Set<File> = deferredJarPrefixes.get().map { prefix ->
+        require(prefix.matches(Regex("[A-Za-z0-9][A-Za-z0-9._-]*-"))) { "Invalid deferred artifact prefix" }
+        val matches = jars.filter { it.name.startsWith(prefix) }
+        check(matches.size == 1) { "Expected one deferred artifact $prefix, found ${matches.size}" }
+        matches.single()
+    }.toSet()
 
     private fun findDeferredJcefArchive(jars: List<File>): String? {
         val platform = deferredJcefPlatform.get()

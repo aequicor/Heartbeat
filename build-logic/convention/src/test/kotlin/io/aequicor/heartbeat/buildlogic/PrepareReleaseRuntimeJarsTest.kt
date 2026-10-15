@@ -23,6 +23,34 @@ class PrepareReleaseRuntimeJarsTest {
     val temporaryFolder = TemporaryFolder()
 
     @Test
+    fun `worker dependency is deferred without removing the lightweight evaluator`() {
+        val task = fixture()
+        task.deferredJarPrefixes.set(listOf("kotlin-compiler-embeddable-2.4.20-"))
+        val compiler = writeJar(
+            task.inputDirectory.file("kotlin-compiler-embeddable-2.4.20-hash.jar").get().asFile,
+            common,
+        )
+        val evaluator = writeJar(task.inputDirectory.file("kotlin-scripting-jvm-2.4.20-hash.jar").get().asFile, common)
+
+        task.prepare()
+
+        assertFalse(task.outputDirectory.file(compiler.name).get().asFile.exists())
+        assertContentEquals(evaluator.readBytes(), task.outputDirectory.file(evaluator.name).get().asFile.readBytes())
+        assertTrue(compiler.exists())
+    }
+
+    @Test
+    fun `missing or ambiguous deferred dependency refuses packaging`() {
+        val task = fixture()
+        task.deferredJarPrefixes.set(listOf("plantuml-mit-1.2026.8-"))
+        writeJar(task.inputDirectory.file("plantuml-mit-1.2026.9-hash.jar").get().asFile, common)
+        assertFailsWith<IllegalStateException> { task.prepare() }
+        writeJar(task.inputDirectory.file("plantuml-mit-1.2026.8-first.jar").get().asFile, common)
+        writeJar(task.inputDirectory.file("plantuml-mit-1.2026.8-second.jar").get().asFile, common)
+        assertFailsWith<IllegalStateException> { task.prepare() }
+    }
+
+    @Test
     fun `five release hosts retain matching native payload and checksum with application resources`() {
         for ((target, hostEntries) in hosts) {
             val task = fixture(target)
