@@ -20,8 +20,9 @@ public interface AgentSafetyReviewMonitor {
 
 /**
  * Reviews of one profile. [running] hold one of [capacity] slots with an open review session, [queued] wait for a
- * slot, [finishing] were stopped but still hold a slot until their session confirms termination. [abandoned] counts
- * reviews whose termination was never confirmed: their slot was released, their session keeps its tool restrictions.
+ * slot, [finishing] were stopped but still hold a slot until their session confirms termination. [abandoned] is a
+ * running total since the profile opened of reviews released without a confirmed termination or a closed handle:
+ * their slot was freed, their session keeps its tool restrictions.
  */
 public data class AgentSafetyReviewLoad(
     val capacity: Int,

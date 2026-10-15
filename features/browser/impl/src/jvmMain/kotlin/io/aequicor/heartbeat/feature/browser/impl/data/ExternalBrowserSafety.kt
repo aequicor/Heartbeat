@@ -38,13 +38,16 @@ internal class ExternalBrowserSafety(private val reviewer: AgentSafetyReviewer) 
     suspend fun authorize(
         context: AgentToolContext,
         request: ExternalBrowserSafetyRequest,
-    ): AgentToolAutomaticAuthorization = lock.withLock {
+    ): AgentToolAutomaticAuthorization {
         val key = requireNotNull(request.approval.binding)
-        val review = decisions[key] ?: assess(context, request).also {
-            if (decisions.size >= MAX_DECISIONS) decisions.remove(decisions.keys.first())
-            decisions[key] = it
+        // The lock guards only the memo: reviews of different proposals wait in the reviewer's own bounded queue.
+        val review = lock.withLock { decisions[key] } ?: assess(context, request).also { assessed ->
+            lock.withLock {
+                if (key !in decisions && decisions.size >= MAX_DECISIONS) decisions.remove(decisions.keys.first())
+                decisions[key] = assessed
+            }
         }
-        if (review.isSafe) {
+        return if (review.isSafe) {
             AgentToolAutomaticAuthorization.Allowed(request.approval)
         } else {
             AgentToolAutomaticAuthorization.Denied("Automatic safety review refused the action: ${review.reason}")

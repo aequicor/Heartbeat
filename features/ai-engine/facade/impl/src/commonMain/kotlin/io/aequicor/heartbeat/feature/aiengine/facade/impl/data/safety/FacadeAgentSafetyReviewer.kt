@@ -36,6 +36,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -52,14 +53,21 @@ import kotlin.uuid.Uuid
  */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
-@Inject
 internal class FacadeAgentSafetyReviewer(
     private val facade: Lazy<EngineFacade>,
     private val isolation: AgentSafetyIsolation,
     private val slots: AgentSafetyReviewSlots,
-    @ForScope(ProfileScope::class) private val scope: CoroutineScope,
-    private val settleGrace: Duration = SETTLE_GRACE,
+    private val scope: CoroutineScope,
+    private val settleGrace: Duration,
 ) : AgentSafetyReviewer {
+    @Inject
+    constructor(
+        facade: Lazy<EngineFacade>,
+        isolation: AgentSafetyIsolation,
+        slots: AgentSafetyReviewSlots,
+        @ForScope(ProfileScope::class) scope: CoroutineScope,
+    ) : this(facade, isolation, slots, scope, SETTLE_GRACE)
+
     private val log = Log.tag("AgentSafetyReviewer")
 
     override suspend fun review(target: EngineTarget, policy: String, change: String): AgentSafetyReview = try {
@@ -79,6 +87,11 @@ internal class FacadeAgentSafetyReviewer(
         if (!scope.isActive) return uncertain("Профиль закрывается, автоматическое ревью недоступно.")
         if (!slots.acquire()) {
             return uncertain("Автоматические проверки безопасности перегружены. ${slots.describe()} Повторите позже.")
+        }
+        // The queue may have waited minutes: never open a review session for a closing profile.
+        if (!scope.isActive) {
+            slots.releaseRunning()
+            return uncertain("Профиль закрывается, автоматическое ревью недоступно.")
         }
         var session: ActiveSession? = null
         try {
@@ -128,7 +141,8 @@ internal class FacadeAgentSafetyReviewer(
     /**
      * Cancel only requests interruption. The slot and observation stay until that exact turn terminates, but at most
      * [settleGrace]: then the handle is closed and the slot released, while the session keeps its tool restrictions
-     * until the profile closes, so a review the engine never confirmed cannot block every later review.
+     * until the profile closes, so a review the engine never confirmed cannot block every later review. A handle whose
+     * close failed is closed again when the profile closes.
      */
     private suspend fun dismiss(session: ActiveSession) {
         val turn = session.state.value.reviewTurn()
@@ -140,18 +154,18 @@ internal class FacadeAgentSafetyReviewer(
         slots.startFinishing()
         // Start even if profile cancellation raced with the handoff, so finally always releases the handle.
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            var isReleased = false
+            var isClosed = false
             try {
                 val isTerminal = withTimeoutOrNull(settleGrace) { awaitTerminal(session, turn) } != null
-                val isClosed = if (isTerminal) finish(session) else cleanup("close") { session.close() }
+                isClosed = if (isTerminal) finish(session) else cleanup("close") { session.close() }
                 val isAbandoned = !isTerminal || !isClosed
                 if (isAbandoned) {
                     log.w { "Safety review abandoned: terminal=$isTerminal closed=$isClosed; restrictions retained" }
                 }
-                isReleased = true
                 slots.releaseFinishing(isAbandoned)
+                if (!isClosed) awaitCancellation()
             } finally {
-                if (!isReleased) withContext(NonCancellable) { cleanup("close") { session.close() } }
+                if (!isClosed) withContext(NonCancellable) { cleanup("close") { session.close() } }
             }
         }
     }

@@ -230,8 +230,24 @@ class FacadeAgentSafetyReviewerTest {
         }
         assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "{}").isSafe)
         assertFalse(f.closed)
-        assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "second").isSafe)
+        val refused = f.reviewer.review(f.target, "Bounded local changes only", "second")
+        assertFalse(refused.isSafe)
+        assertTrue("Выполняется 1 из 1, в очереди 0." in refused.reason)
         assertEquals(1, f.creations.size)
+        assertEquals(ToolSwitch.Off, f.policy.policy(ToolPolicyScope(session = f.ref))?.native?.get("shell"))
+    }
+
+    @Test
+    fun `a running review ignoring cancellation is closed and abandoned after the grace period`() = runTest {
+        val f = ReviewFixture(backgroundScope).apply {
+            outcome = null
+            ignoresCancel = true
+        }
+        assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "{}").isSafe)
+        assertEquals(AgentSafetyReviewLoad(capacity = 1, finishing = 1), f.slots.load.value)
+        advanceTimeBy(GRACE + 1.seconds)
+        assertEquals(AgentSafetyReviewLoad(capacity = 1, abandoned = 1), f.slots.load.value)
+        assertTrue(f.closed)
         assertEquals(ToolSwitch.Off, f.policy.policy(ToolPolicyScope(session = f.ref))?.native?.get("shell"))
     }
 
@@ -285,6 +301,37 @@ class FacadeAgentSafetyReviewerTest {
         f.hangsOnClose = false
         assertTrue(f.reviewer.review(f.target, "Bounded local changes only", "second").isSafe)
         assertEquals(2, f.creations.size)
+    }
+
+    @Test
+    fun `a handle whose close failed is closed again when the profile closes`() = runTest {
+        val owner = CoroutineScope(backgroundScope.coroutineContext + Job())
+        val f = ReviewFixture(owner).apply { hangsOnClose = true }
+        assertTrue(f.reviewer.review(f.target, "Bounded local changes only", "{}").isSafe)
+        advanceTimeBy(30.seconds)
+        assertEquals(AgentSafetyReviewLoad(capacity = 1, abandoned = 1), f.slots.load.value)
+        assertFalse(f.closed)
+        f.hangsOnClose = false
+        owner.cancel()
+        runCurrent()
+        assertTrue(f.closed)
+    }
+
+    @Test
+    fun `a review leaving the queue after the profile started closing opens no session`() = runTest {
+        val owner = CoroutineScope(backgroundScope.coroutineContext + Job())
+        val gate = CompletableDeferred<Unit>()
+        val f = ReviewFixture(owner).apply { createGate = gate }
+        val first = async { f.reviewer.review(f.target, "Bounded local changes only", "first") }
+        val second = async { f.reviewer.review(f.target, "Bounded local changes only", "second") }
+        runCurrent()
+        owner.cancel()
+        gate.complete(Unit)
+        first.await()
+        val refused = second.await()
+        assertFalse(refused.isSafe)
+        assertTrue("Профиль закрывается" in refused.reason)
+        assertEquals(1, f.creations.size)
     }
 
     @Test

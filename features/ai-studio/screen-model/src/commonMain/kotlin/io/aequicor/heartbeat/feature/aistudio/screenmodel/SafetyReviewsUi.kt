@@ -7,7 +7,7 @@ import kotlinx.serialization.Serializable
 /**
  * Automatic safety reviews of the profile while any occupies or waits for the reviewer: [running] of [capacity]
  * slots review now, [queued] wait for a slot, [finishing] were stopped and wait for their session to terminate.
- * [abandoned] never confirmed termination; their slots were released.
+ * [abandoned] is a running total since the profile opened of reviews released without a confirmed termination.
  */
 @Serializable
 @SerialName("SafetyReviewsUi")

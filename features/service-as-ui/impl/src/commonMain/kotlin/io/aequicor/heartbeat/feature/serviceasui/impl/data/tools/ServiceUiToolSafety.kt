@@ -41,19 +41,21 @@ internal class ServiceUiToolSafety(private val reviewer: AgentSafetyReviewer) {
     private val decisions = linkedMapOf<String, AgentSafetyReview>()
     private val log = Log.tag("ServiceUiSafety")
 
-    suspend fun authorize(context: AgentToolContext, request: UiToolSafetyRequest): AgentToolAutomaticAuthorization =
-        lock.withLock {
-            val key = requireNotNull(request.approval.binding)
-            val review = decisions[key] ?: assess(context, request).also {
-                if (decisions.size >= MEMO_LIMIT) decisions.remove(decisions.keys.first())
-                decisions[key] = it
-            }
-            if (review.isSafe) {
-                AgentToolAutomaticAuthorization.Allowed(request.approval)
-            } else {
-                AgentToolAutomaticAuthorization.Denied("Automatic safety review refused the action: ${review.reason}")
+    suspend fun authorize(context: AgentToolContext, request: UiToolSafetyRequest): AgentToolAutomaticAuthorization {
+        val key = requireNotNull(request.approval.binding)
+        // The lock guards only the memo: reviews of different proposals wait in the reviewer's own bounded queue.
+        val review = lock.withLock { decisions[key] } ?: assess(context, request).also { assessed ->
+            lock.withLock {
+                if (key !in decisions && decisions.size >= MEMO_LIMIT) decisions.remove(decisions.keys.first())
+                decisions[key] = assessed
             }
         }
+        return if (review.isSafe) {
+            AgentToolAutomaticAuthorization.Allowed(request.approval)
+        } else {
+            AgentToolAutomaticAuthorization.Denied("Automatic safety review refused the action: ${review.reason}")
+        }
+    }
 
     suspend fun isAuthorized(context: AgentToolContext, request: UiToolSafetyRequest): Boolean = lock.withLock {
         context.authorization == request.approval && decisions[request.approval.binding]?.isSafe == true

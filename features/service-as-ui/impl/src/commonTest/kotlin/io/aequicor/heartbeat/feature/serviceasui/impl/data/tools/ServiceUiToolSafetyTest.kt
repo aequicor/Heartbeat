@@ -16,6 +16,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -144,6 +147,19 @@ class ServiceUiToolSafetyTest {
         assertEquals(1, reviewer.calls)
     }
 
+    @Test
+    fun `reviews of different proposals run in parallel`() = runTest {
+        val gate = CompletableDeferred<Unit>().also { reviewer.gate = it }
+        val first = request()
+        val second = request(arguments = buildJsonObject { put("method", "refresh") })
+        val pending = listOf(async { safety.authorize(context, first) }, async { safety.authorize(context, second) })
+        runCurrent()
+        assertEquals(2, reviewer.calls)
+        gate.complete(Unit)
+        pending.forEach { assertIs<AgentToolAutomaticAuthorization.Allowed>(it.await()) }
+        assertTrue(safety.isAuthorized(context.copy(authorization = first.approval), first))
+    }
+
     private fun request(
         caller: AgentToolContext = context,
         arguments: JsonObject = this.arguments,
@@ -158,10 +174,12 @@ class ServiceUiToolSafetyTest {
         var failure: Exception? = null
         var target: EngineTarget? = null
         var change: String? = null
+        var gate: CompletableDeferred<Unit>? = null
         override suspend fun review(target: EngineTarget, policy: String, change: String): AgentSafetyReview {
             calls++
             this.target = target
             this.change = change
+            gate?.await()
             failure?.let { throw it }
             return result
         }

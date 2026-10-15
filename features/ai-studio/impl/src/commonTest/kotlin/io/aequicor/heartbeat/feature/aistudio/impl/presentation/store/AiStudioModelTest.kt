@@ -831,8 +831,7 @@ class AiStudioModelTest {
                     hostCommands: List<io.aequicor.heartbeat.feature.autocomplete.api.HostCommand>,
                 ): List<io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion> = emptyList()
             },
-        safetyReviews: io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewMonitor =
-            StudioSafetyReviews.Idle(),
+        safetyReviews: io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewMonitor = IdleSafetyReviews,
     ) {
         val machine = FakeMachine(initial)
         val efforts = FakeEfforts(attachments)
@@ -1025,4 +1024,11 @@ private class EmptyStudioFacade : EngineFacade {
     override val models get() = error("Unused")
     override val sessions get() = error("Unused")
     override val providerUsage get() = error("Unused")
+}
+
+/** A reviewer that never runs: the sidebar shows no safety review status. */
+internal object IdleSafetyReviews : io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewMonitor {
+    override val load = kotlinx.coroutines.flow.MutableStateFlow(
+        io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewLoad(capacity = 0),
+    )
 }

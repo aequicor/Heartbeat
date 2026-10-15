@@ -22,19 +22,25 @@ import kotlin.time.Duration.Companion.minutes
  * termination; at most [queueLimit] callers wait up to [queueWait] for a slot. Every change is reflected in [load].
  */
 @SingleIn(ProfileScope::class)
-@Inject
 internal class AgentSafetyReviewSlots(
-    capacity: Int = MAX_PARALLEL_REVIEWS,
+    capacity: Int,
     private val queueLimit: Int = MAX_QUEUED_REVIEWS,
     private val queueWait: Duration = QUEUE_WAIT,
 ) {
+    @Inject
+    constructor() : this(MAX_PARALLEL_REVIEWS)
+
     private val log = Log.tag("AgentSafetyReviewer")
     private val permits = Semaphore(capacity)
     private val state = MutableStateFlow(AgentSafetyReviewLoad(capacity))
 
     val load: StateFlow<AgentSafetyReviewLoad> = state.asStateFlow()
 
-    /** Waits in the bounded queue; false when it is full or no slot frees up in time. Cancellation propagates. */
+    /**
+     * Waits in the bounded queue; false when it is full or no slot frees up in time. Cancellation propagates. The
+     * permit is recorded inside the timeout block: a timeout firing after the semaphore handed it over keeps it
+     * owned, and a cancellation arriving then returns it, so no slot is ever lost.
+     */
     suspend fun acquire(): Boolean {
         val before = state.getAndUpdate { if (it.queued >= queueLimit) it else it.copy(queued = it.queued + 1) }
         if (before.queued >= queueLimit) {
@@ -42,9 +48,18 @@ internal class AgentSafetyReviewSlots(
             return false
         }
         var isAcquired = false
+        var isReturned = false
         try {
-            isAcquired = withTimeoutOrNull(queueWait) { permits.acquire() } != null
+            withTimeoutOrNull(queueWait) {
+                permits.acquire()
+                isAcquired = true
+            }
+            isReturned = true
         } finally {
+            if (isAcquired && !isReturned) {
+                permits.release()
+                isAcquired = false
+            }
             state.update {
                 it.copy(queued = it.queued - 1, running = if (isAcquired) it.running + 1 else it.running)
             }

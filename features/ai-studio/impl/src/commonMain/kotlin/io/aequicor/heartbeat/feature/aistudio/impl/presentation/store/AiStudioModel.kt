@@ -127,7 +127,7 @@ class AiStudioModel(
     private val embeddedScreens: StudioEmbeds = StudioEmbeds.None,
     private val surfaceBinding: StudioSurfaceBinding = StudioSurfaceBinding(StudioSurfaces.None, backend, scope),
     facade: EngineFacade,
-    safetyReviewMonitor: AgentSafetyReviewMonitor = StudioSafetyReviews.Idle(),
+    safetyReviewMonitor: AgentSafetyReviewMonitor,
 ) {
     private val log = Log.tag("AiStudioModel")
     private val inputContexts = StudioInputContexts()

@@ -74,19 +74,21 @@ internal class DesktopCodingSafety(
         null
     }
 
-    suspend fun authorize(context: AgentToolContext, snapshot: CodingSafetySnapshot): AgentToolAutomaticAuthorization =
-        lock.withLock {
-            val key = requireNotNull(snapshot.approval.binding)
-            val review = decisions[key] ?: assess(context, snapshot).also {
-                if (decisions.size >= MEMO_LIMIT) decisions.remove(decisions.keys.first())
-                decisions[key] = it
-            }
-            if (review.isSafe) {
-                AgentToolAutomaticAuthorization.Allowed(snapshot.approval)
-            } else {
-                AgentToolAutomaticAuthorization.Denied("Automatic safety review refused the action: ${review.reason}")
+    suspend fun authorize(context: AgentToolContext, snapshot: CodingSafetySnapshot): AgentToolAutomaticAuthorization {
+        val key = requireNotNull(snapshot.approval.binding)
+        // The lock guards only the memo: reviews of different proposals wait in the reviewer's own bounded queue.
+        val review = lock.withLock { decisions[key] } ?: assess(context, snapshot).also { assessed ->
+            lock.withLock {
+                if (key !in decisions && decisions.size >= MEMO_LIMIT) decisions.remove(decisions.keys.first())
+                decisions[key] = assessed
             }
         }
+        return if (review.isSafe) {
+            AgentToolAutomaticAuthorization.Allowed(snapshot.approval)
+        } else {
+            AgentToolAutomaticAuthorization.Denied("Automatic safety review refused the action: ${review.reason}")
+        }
+    }
 
     suspend fun consume(context: AgentToolContext, snapshot: CodingSafetySnapshot): Boolean = lock.withLock {
         context.authorization == snapshot.approval &&
