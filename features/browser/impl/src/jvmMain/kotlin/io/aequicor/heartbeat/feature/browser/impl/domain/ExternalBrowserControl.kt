@@ -13,6 +13,11 @@ internal enum class ExternalOperation {
     RequestTab,
     Release,
     Open,
+    Search,
+    Back,
+    Forward,
+    Reload,
+    Activate,
     Read,
     Screenshot,
     Click,
@@ -24,8 +29,19 @@ internal enum class ExternalOperation {
 
 /** Agent operations on the external browser; [owner] comes from the trusted session, never from arguments. */
 internal interface ExternalBrowserControl {
-    /** Runs [operation] for [owner]; failures come back as [BrowserResult.error]. */
-    suspend fun execute(owner: String, operation: ExternalOperation, arguments: JsonObject): BrowserResult
+    /** Captures bounded live evidence without changing the page's element references or granting ownership. */
+    suspend fun snapshot(owner: String, operation: ExternalOperation, arguments: JsonObject): JsonObject
+
+    /**
+     * Runs [operation] for [owner]; failures come back as [BrowserResult.error]. A reviewed [expected] snapshot
+     * must still match immediately before execution while holding the same tab operation slot.
+     */
+    suspend fun execute(
+        owner: String,
+        operation: ExternalOperation,
+        arguments: JsonObject,
+        expected: JsonObject? = null,
+    ): BrowserResult
 
     /** The address [owner]'s tab [tabId] shows, for approval texts; `null` for a tab it does not control. */
     suspend fun address(owner: String, tabId: String): String?

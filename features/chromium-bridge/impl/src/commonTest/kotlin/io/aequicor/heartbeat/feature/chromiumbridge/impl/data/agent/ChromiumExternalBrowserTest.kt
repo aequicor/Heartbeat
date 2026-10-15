@@ -18,8 +18,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.addJsonObject
@@ -30,6 +32,7 @@ import kotlinx.serialization.json.putJsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 
 class ChromiumExternalBrowserTest {
     private val sessions = MutableStateFlow<List<BridgeSession>>(emptyList())
@@ -76,6 +79,52 @@ class ChromiumExternalBrowserTest {
         assertEquals("""{"data":"png"}""", result)
         assertEquals(listOf("tabs.open", "cdp.send"), agent.calls.map { it.first })
         assertEquals("17", (agent.calls[1].second["tabId"] as kotlinx.serialization.json.JsonPrimitive).content)
+    }
+
+    @Test
+    fun `history and reload accept a reply after the extension navigation deadline`() = runTest {
+        val browser = ChromiumExternalBrowser(sessions, backgroundScope)
+        val agent = FakeSession(this, 2, setOf("agentControl"))
+        sessions.value = listOf(agent)
+        for (method in listOf("Page.navigateToHistoryEntry", "Page.reload")) {
+            val reply = CompletableDeferred<Unit>()
+            agent.beforeReply = { reply.await() }
+            val navigating = async { browser.devTools("2:17", method, JsonObject(emptyMap())) }
+            runCurrent()
+
+            advanceTimeBy(30_001)
+            runCurrent()
+            assertFalse(navigating.isCompleted, method)
+            reply.complete(Unit)
+            assertEquals("{}", navigating.await(), method)
+        }
+    }
+
+    @Test
+    fun `navigation DevTools calls remain bounded and other methods keep the ordinary timeout`() = runTest {
+        val browser = ChromiumExternalBrowser(sessions, backgroundScope)
+        val agent = FakeSession(this, 2, setOf("agentControl"))
+        sessions.value = listOf(agent)
+        val timeouts = mapOf(
+            "Page.navigateToHistoryEntry" to 35_000L,
+            "Page.reload" to 35_000L,
+            "Page.getNavigationHistory" to 30_000L,
+        )
+        for ((method, timeout) in timeouts) {
+            agent.beforeReply = { CompletableDeferred<Unit>().await() }
+            val pending = async {
+                assertFailsWith<ExternalBrowserException> {
+                    browser.devTools("2:17", method, JsonObject(emptyMap()))
+                }
+            }
+            runCurrent()
+            advanceTimeBy(timeout - 1)
+            runCurrent()
+            assertFalse(pending.isCompleted, method)
+            advanceTimeBy(1)
+            runCurrent()
+            assertEquals(ExternalBrowserFailure.Timeout, pending.await().failure, method)
+        }
     }
 
     @Test
@@ -341,8 +390,10 @@ class ChromiumExternalBrowserTest {
         override suspend fun call(method: String, params: JsonObject, timeoutMillis: Long): JsonElement {
             calls += method to params
             refusal?.let { throw it }
-            beforeReply()
-            return answers[method] ?: JsonObject(emptyMap())
+            return withTimeoutOrNull(timeoutMillis) {
+                beforeReply()
+                answers[method] ?: JsonObject(emptyMap())
+            } ?: throw BridgeException(BridgeErrorCode.TIMEOUT, "Extension reply timed out")
         }
     }
 }
