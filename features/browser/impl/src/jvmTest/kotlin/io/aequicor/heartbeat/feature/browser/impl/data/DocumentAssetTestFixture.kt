@@ -13,6 +13,7 @@ import kotlinx.coroutines.test.TestScope
 
 internal fun TestScope.documentAssets(
     configure: HttpClientConfig<*>.() -> Unit = {},
+    destinations: DocumentAssetDestinations = DocumentAssetDestinations { true },
     handler: MockRequestHandler,
 ): DocumentAssetTestFixture {
     val dispatcher = StandardTestDispatcher(testScheduler)
@@ -32,7 +33,7 @@ internal fun TestScope.documentAssets(
         engine,
         client,
         profile,
-        HttpBrowserDocumentAssets(client, BrowserTestDispatchers(dispatcher), profile),
+        HttpBrowserDocumentAssets(client, BrowserTestDispatchers(dispatcher), profile, destinations),
     )
 }
 

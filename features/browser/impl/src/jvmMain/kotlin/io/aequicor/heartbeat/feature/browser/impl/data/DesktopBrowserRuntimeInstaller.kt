@@ -83,6 +83,26 @@ internal class DesktopBrowserRuntimeInstaller(
         }
     }
 
+    /**
+     * True when [prepare] would download the pinned runtime: it is neither prepared, bundled on the classpath nor
+     * in the verified cache. Callers without download progress UI use this to refuse instead of downloading.
+     */
+    suspend fun requiresDownload(releaseTag: String, platform: String): Boolean = withContext(dispatchers.io) {
+        mutex.withLock {
+            val lock = BrowserRuntimeLock.read(metadata(), releaseTag, platform)
+            when {
+                prepared?.first == lock -> false
+
+                bundledArchive(lock.archive)?.use { true } == true -> false
+
+                else -> {
+                    val directory = root.resolve(lock.version).resolve("${lock.platform}-${lock.sha256}")
+                    !Files.isDirectory(directory) || readCache(BrowserRuntimeCache(directory, lock)) == null
+                }
+            }
+        }
+    }
+
     private suspend fun install(lock: BrowserRuntimeLock): Path {
         val directory = root.resolve(lock.version).resolve("${lock.platform}-${lock.sha256}")
         Files.createDirectories(directory)

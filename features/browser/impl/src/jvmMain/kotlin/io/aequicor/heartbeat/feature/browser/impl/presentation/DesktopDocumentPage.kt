@@ -24,11 +24,11 @@ internal const val DESKTOP_DOCUMENT_CSP: String = "default-src 'none'; script-sr
 
 /** Only asset directives expand; direct connections and browser capabilities retain their isolated policy. */
 private val EXTERNAL_ASSET_CSP = DESKTOP_DOCUMENT_CSP
-    .replace("script-src 'unsafe-inline'", "script-src 'unsafe-inline' https: http:")
-    .replace("style-src 'unsafe-inline'", "style-src 'unsafe-inline' https: http:")
-    .replace("img-src data: blob:", "img-src data: blob: https: http:")
-    .replace("media-src data: blob:", "media-src data: blob: https: http:")
-    .replace("font-src data:", "font-src data: https: http:")
+    .replace("script-src 'unsafe-inline'", "script-src 'unsafe-inline' https:")
+    .replace("style-src 'unsafe-inline'", "style-src 'unsafe-inline' https:")
+    .replace("img-src data: blob:", "img-src data: blob: https:")
+    .replace("media-src data: blob:", "media-src data: blob: https:")
+    .replace("font-src data:", "font-src data: https:")
 
 /** Response policy is captured by the registration and never changed underneath already executed code. */
 internal fun desktopDocumentHeaders(policy: BrowserDocumentResourcePolicy): Map<String, String> =

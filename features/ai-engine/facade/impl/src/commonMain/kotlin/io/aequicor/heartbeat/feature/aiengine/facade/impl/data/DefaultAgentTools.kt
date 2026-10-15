@@ -302,6 +302,19 @@ internal class DefaultAgentTools(
         this
     }
 
+    /** An oversized result must never look like a complete one or flood the model context. */
+    private fun AgentToolResult.withinBudget(spec: AgentToolSpec): AgentToolResult {
+        if (text.length <= spec.resultChars) return this
+        log.w {
+            "Hosted tool result exceeds its budget name=${spec.name} chars=${text.length} limit=${spec.resultChars}"
+        }
+        return AgentToolResult(
+            "The tool ran, but its text result exceeds the limit of ${spec.resultChars} characters. Request a " +
+                "smaller or paged result. Do not repeat a mutating operation solely to retrieve its output.",
+            isError = true,
+        )
+    }
+
     private suspend fun executeAuthorized(
         context: AgentToolContext,
         name: String,
@@ -337,6 +350,7 @@ internal class DefaultAgentTools(
                 currentCoroutineContext().ensureActive()
                 val result = owner.execute(context.copy(authorization = approval), name, arguments)
                     .shortened(context, name)
+                    .withinBudget(spec)
                 log.i { "Hosted tool finished name=${spec.name} failed=${result.isError}" }
                 val note = call?.let { hooks.afterTool(it, result) }
                 if (note.isNullOrBlank()) {

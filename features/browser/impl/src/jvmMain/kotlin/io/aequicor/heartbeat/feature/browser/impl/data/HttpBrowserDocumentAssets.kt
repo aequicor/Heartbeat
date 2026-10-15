@@ -39,6 +39,7 @@ internal class HttpBrowserDocumentAssets(
     client: HttpClient,
     private val dispatchers: DispatcherProvider,
     @ForScope(ProfileScope::class) scope: ScopeHandle,
+    private val destinations: DocumentAssetDestinations,
 ) : BrowserDocumentAssets {
     private val isClosed = AtomicBoolean(false)
     private val client = client.documentAssetClient()
@@ -52,16 +53,22 @@ internal class HttpBrowserDocumentAssets(
     }
 
     override fun open(): BrowserDocumentAssetSession {
-        val session = HttpDocumentAssetSession(client) { !isClosed.get() }
+        val session = HttpDocumentAssetSession(client, destinations) { !isClosed.get() }
         return BrowserDocumentAssetSession { url ->
             if (isClosed.get()) null else withContext(dispatchers.io) { session.load(url) }
         }
     }
 }
 
-/** Budgets include failed transfers and redirect hops; concurrent calls cannot reset or overspend them. */
-private class HttpDocumentAssetSession(private val client: HttpClient, private val isAvailable: () -> Boolean) :
-    BrowserDocumentAssetSession {
+/**
+ * Budgets include rejected URLs, failed transfers and redirect hops; concurrent calls cannot reset or overspend them.
+ * Chromium requests every redirect target through [load] again, so each hop is resolved and checked.
+ */
+private class HttpDocumentAssetSession(
+    private val client: HttpClient,
+    private val destinations: DocumentAssetDestinations,
+    private val isAvailable: () -> Boolean,
+) : BrowserDocumentAssetSession {
     private val log = Log.tag("DocumentAssets")
     private val monitor = Any()
     private val parallel = Semaphore(MAX_PARALLEL)
@@ -70,12 +77,13 @@ private class HttpDocumentAssetSession(private val client: HttpClient, private v
     private var receivedBytes = 0
 
     override suspend fun load(url: String): BrowserDocumentAssetResult? {
-        val requested = documentAssetUrl(url) ?: return null
+        // Reserve first: page-controlled URLs that fail validation are bounded by the same per-document budget.
         if (!reserveRequest()) return null
-        // Includes time waiting for a permit. withTimeoutOrNull only absorbs its own timeout, never the caller's.
+        val requested = documentAssetUrl(url) ?: return null
+        // Includes resolution and time waiting for a permit. withTimeoutOrNull only absorbs its own timeout.
         return withTimeoutOrNull(REQUEST_TIMEOUT_MILLIS) {
             parallel.withPermit {
-                if (!isAvailable()) return@withPermit null
+                if (!isAvailable() || !destinations.isPublic(requested.host)) return@withPermit null
                 networkResult {
                     client.prepareGet(requested) {
                         attributes.put(DocumentAssetUrl, requested)

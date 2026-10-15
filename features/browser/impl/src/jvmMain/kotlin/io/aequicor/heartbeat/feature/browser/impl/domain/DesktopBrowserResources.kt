@@ -11,6 +11,9 @@ internal fun interface DesktopBrowserResources {
     /** App-owned download and installation; immediately emits its current state, including for local documents. */
     val preparation: Flow<BrowserRuntimePreparation> get() = flowOf(BrowserRuntimePreparation.Ready)
 
+    /** True when starting the runtime would first download it; surfaces without progress UI must not start it. */
+    suspend fun requiresRuntimeDownload(): Boolean = false
+
     /** Completes native teardown before the desktop host exits; unused runtimes remain uninitialized. */
     suspend fun shutdown() = Unit
 }

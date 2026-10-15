@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserDocumentAssets
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -44,17 +45,21 @@ internal class DesktopDocumentAssets(
         requests.remove(it)
     }.also {
         requests += it
-        if (isClosed.get()) it.cancel()
+        if (isClosed.get()) it.abort()
     }
 
     fun close() {
         if (!isClosed.compareAndSet(false, true)) return
-        requests.toList().forEach(AssetResponse::cancel)
+        requests.toList().forEach(AssetResponse::abort)
         scope.cancel()
     }
 }
 
-/** Async CEF IO protocol; completion and cancellation race through one gate before touching the native callback. */
+/**
+ * Async CEF IO protocol; completion and cancellation race through one gate before touching the native callback.
+ * The load starts atomically, so its `finally` resolves a callback that CEF already accepted even when the scope is
+ * cancelled before the coroutine runs.
+ */
 private class AssetResponse(
     private val url: String,
     private val session: BrowserDocumentAssetSession,
@@ -82,7 +87,7 @@ private class AssetResponse(
 
     private fun start(callback: CefCallback): Boolean {
         if (isClosed() || isFinished.get() || !isStarted.compareAndSet(false, true)) return false
-        request = scope.launch {
+        request = scope.launch(start = CoroutineStart.ATOMIC) {
             try {
                 val loaded = session.load(url)
                 if (isFinished.compareAndSet(false, true)) {
@@ -150,10 +155,16 @@ private class AssetResponse(
         return true
     }
 
+    /** CEF cancelled the request itself: the native side needs no further callback. */
     override fun cancel() {
         isFinished.set(true)
         request?.cancel()
         finished(this)
+    }
+
+    /** Host shutdown: cancelling the load lets its `finally` cancel the native callback through the gate. */
+    fun abort() {
+        request?.cancel()
     }
 
     private companion object {

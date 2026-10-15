@@ -84,6 +84,12 @@ internal class DesktopDefaultBrowserResources(
         }.also { initialization = it }
     }.await()
 
+    override suspend fun requiresRuntimeDownload(): Boolean {
+        if (nativeApp != null) return false
+        val info = CefBuildInfo.fromClasspath()
+        return runtime.requiresDownload(info.releaseTag, EnumPlatform.getCurrentPlatform().identifier)
+    }
+
     override suspend fun shutdown() {
         val request = mutex.withLock {
             initialization?.cancel()

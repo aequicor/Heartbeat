@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewElement
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewFailure
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviews
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentResourcePolicy
@@ -107,8 +108,11 @@ internal class ServiceUiPreviewTools(
             ?: return failure("WebView settings changed during preview; retry with the current settings")
         return when (result) {
             is BrowserDocumentPreviewResult.Rendered -> rendered(result, configured)
+
             BrowserDocumentPreviewResult.Unavailable -> failure("WebView preview is unavailable on this host")
-            is BrowserDocumentPreviewResult.Failure -> failure("WebView preview failed: ${result.reason.name}")
+
+            is BrowserDocumentPreviewResult.Failure ->
+                failure("WebView preview failed: ${result.reason.name}. ${result.reason.recovery()}")
         }
     }
 
@@ -203,4 +207,21 @@ private fun BrowserDocumentPreviewElement.json(): JsonObject = buildJsonObject {
     put("lineHeight", lineHeight)
     put("color", color)
     put("backgroundColor", backgroundColor)
+}
+
+/** Recovery hint for the agent; the reason itself never carries page or native text. */
+private fun BrowserDocumentPreviewFailure.recovery(): String = when (this) {
+    BrowserDocumentPreviewFailure.InvalidRequest -> "Check the argument limits."
+
+    BrowserDocumentPreviewFailure.Busy -> "Another preview is rendering; retry shortly."
+
+    BrowserDocumentPreviewFailure.RuntimeUnavailable ->
+        "The browser component is not installed or failed to prepare; ask the user to open a web mini-app " +
+            "once to install it, then retry. Do not retry repeatedly."
+
+    BrowserDocumentPreviewFailure.TimedOut -> "Simplify scripts that block loading, then retry once."
+
+    BrowserDocumentPreviewFailure.ImageTooLarge -> "Use a smaller viewport or omit the screenshot."
+
+    BrowserDocumentPreviewFailure.RenderFailed -> "Retry once; report the gap if it repeats."
 }

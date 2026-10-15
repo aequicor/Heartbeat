@@ -32,7 +32,6 @@ import kotlinx.serialization.json.put
 import java.awt.Window
 import java.io.ByteArrayInputStream
 import java.net.InetSocketAddress
-import java.nio.file.Files
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicInteger
 import javax.imageio.ImageIO
@@ -175,6 +174,7 @@ internal class NativePreviewFixture(
         panels,
         dispatchers,
         BrowserDocumentPreviewBindings.themes(),
+        resources,
         owner,
     )
 
@@ -230,7 +230,6 @@ private fun previewHtml(url: String): String = """
 
 private fun assertPreviewPng(result: BrowserDocumentPreviewResult.Rendered, width: Int) {
     val bytes = Base64.getDecoder().decode(result.imageBase64)
-    Files.write(Files.createTempFile("heartbeat-mini-app-preview-$width-", ".png"), bytes)
     val image = ImageIO.read(ByteArrayInputStream(bytes))
     assertEquals(width, image.width)
     assertEquals(480, image.height)

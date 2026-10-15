@@ -39,7 +39,8 @@ internal suspend fun FeatureToggles.uiWebPolicyInstruction(): String {
             "Current mini-app Safe Mode: on. External resources are blocked; use inline code and embedded assets."
 
         BrowserDocumentResourcePolicy.ExternalAssets ->
-            "Current mini-app Safe Mode: off. HTTP(S) asset dependencies are permitted. External scripts see page " +
-                "data and its allowed bridge; automatic review does not certify third-party code."
+            "Current mini-app Safe Mode: off. Public HTTPS asset dependencies are permitted. " +
+                "External scripts see page data and its allowed bridge; automatic review does not certify " +
+                "third-party code."
     }
 }

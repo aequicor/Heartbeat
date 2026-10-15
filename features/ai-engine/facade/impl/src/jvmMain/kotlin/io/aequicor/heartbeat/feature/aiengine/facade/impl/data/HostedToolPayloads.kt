@@ -1,11 +1,15 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 
-/** Transport budgets accommodate compiled mini-app source while bounding local HTTP allocation and JSON recursion. */
+/**
+ * Transport budgets accommodate compiled mini-app source while bounding request allocation and JSON recursion.
+ * The context budget of each tool ([AgentToolSpec.resultChars]) is enforced by the dispatcher before transport.
+ */
 internal object HostedToolPayloads {
     const val REQUEST_BYTES = 8 * 1024 * 1024
-    const val RESPONSE_CHARS = 4 * 1024 * 1024
+    const val RESPONSE_CHARS = AgentToolSpec.MAX_RESULT_CHARS
     private const val JSON_DEPTH = 128
 
     /** Checks nesting before the recursive JSON parser; braces inside escaped HTML/JavaScript strings are data. */

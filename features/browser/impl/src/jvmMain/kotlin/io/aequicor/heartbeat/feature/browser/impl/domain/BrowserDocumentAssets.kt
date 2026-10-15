@@ -4,7 +4,7 @@ package io.aequicor.heartbeat.feature.browser.impl.domain
 internal fun interface BrowserDocumentAssets {
     fun open(): BrowserDocumentAssetSession
 
-    /** Safe documents never create an HTTP client session. */
+    /** Loads nothing; documents whose policy blocks assets never reach a loader session's network path. */
     object None : BrowserDocumentAssets {
         override fun open(): BrowserDocumentAssetSession = BrowserDocumentAssetSession { null }
     }

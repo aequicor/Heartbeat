@@ -31,11 +31,18 @@ class DesktopDocumentAssetPolicyTest {
             "data:text/css,body{}",
             "https://u:p@example.com/x",
             "https://a.invalid/x",
+            "https://a.invalid./x",
             "https://a b/x",
+            "http://assets.example/theme.css",
+            "https://127.0.0.1:123/theme.css",
+            "https://localhost/theme.css",
+            "https://[::1]/theme.css",
+            "https://192.168.0.10/theme.css",
+            "https://169.254.169.254/latest",
         )) {
             assertFalse(admitted(url = url), url)
         }
-        assertTrue(admitted(url = "http://127.0.0.1:123/theme.css"))
+        assertTrue(admitted(url = "https://93.184.216.34:8443/theme.css"))
     }
 
     @Test
@@ -47,7 +54,7 @@ class DesktopDocumentAssetPolicyTest {
         isolated.forEach { (name, sources) ->
             if (name in assetDirectives) {
                 assertTrue(external.getValue(name).contains("https:"))
-                assertTrue(external.getValue(name).contains("http:"))
+                assertFalse(external.getValue(name).contains("http:"), name)
             } else {
                 assertEquals(sources, external[name], name)
             }

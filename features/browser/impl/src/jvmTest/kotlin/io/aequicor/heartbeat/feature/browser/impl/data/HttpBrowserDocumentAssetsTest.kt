@@ -135,6 +135,55 @@ internal class HttpBrowserDocumentAssetsTest {
     }
 
     @Test
+    fun `refuses plain HTTP and local network destinations directly and through redirects`() = runTest {
+        val local = listOf(
+            "http://assets.example/theme.css", "https://127.0.0.1/x.css", "https://localhost/x.css",
+            "https://[::1]/x.css", "https://10.0.0.8/x.css", "https://192.168.1.2/x.css",
+            "https://169.254.169.254/latest", "https://[fd00::1]/x.css", "https://printer.local/x.css",
+            "https://x.document.heartbeat.invalid./x.css",
+        )
+        documentAssets { respond("ok") }.use { fixture ->
+            val session = fixture.assets.open()
+            local.forEach { assertNull(session.load(it), it) }
+            assertEquals(0, fixture.engine.requestHistory.size)
+        }
+        local.forEach { destination ->
+            documentAssets {
+                respond("", HttpStatusCode.Found, headersOf(HttpHeaders.Location, destination))
+            }.use { fixture ->
+                assertNull(fixture.assets.open().load(ASSET_URL), destination)
+                assertEquals(1, fixture.engine.requestHistory.size)
+            }
+        }
+    }
+
+    @Test
+    fun `refuses a host that resolves to a non public address before any request`() = runTest {
+        val checked = mutableListOf<String>()
+        val destinations = DocumentAssetDestinations { host ->
+            checked += host
+            false
+        }
+        documentAssets(destinations = destinations) { respond("ok") }.use { fixture ->
+            assertNull(fixture.assets.open().load(ASSET_URL))
+            assertEquals(listOf("assets.example"), checked)
+            assertEquals(0, fixture.engine.requestHistory.size)
+        }
+    }
+
+    @Test
+    fun `classifies resolved addresses with the public web rules`() {
+        val private = listOf(
+            "127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.0.1", "169.254.169.254", "100.64.0.1",
+            "0.0.0.0", "::1", "::", "fe80::1", "fd12::1", "::ffff:127.0.0.1", "224.0.0.1",
+        )
+        private.forEach { assertFalse(java.net.InetAddress.getByName(it).isPublicAddress(), it) }
+        listOf("93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946").forEach {
+            assertTrue(java.net.InetAddress.getByName(it).isPublicAddress(), it)
+        }
+    }
+
+    @Test
     fun `does not synthesize CORS or pass unbounded and repeated response declarations`() = runTest {
         documentAssets {
             respond(

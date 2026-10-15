@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.browser.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
+import io.aequicor.heartbeat.feature.searchengine.api.isPublicWebUrl
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.api.SendingRequest
 import io.ktor.client.plugins.api.createClientPlugin
@@ -44,17 +45,21 @@ private object NoDocumentCookies : CookiesStorage {
     override fun close() = Unit
 }
 
-/** URI first: Ktor otherwise supplies a default host for malformed or relative input. */
+/**
+ * URI first: Ktor otherwise supplies a default host for malformed or relative input. Only public HTTPS hosts pass:
+ * plain HTTP subresources are blocked as mixed content anyway, and literal local addresses never leave the host.
+ */
 internal fun documentAssetUrl(raw: String, base: Url? = null): Url? {
     if (raw.isBlank() || raw.length > MAX_URL_LENGTH) return null
     return try {
         val supplied = URI(raw)
         val uri = base?.let { URI(it.toString()).resolve(supplied) } ?: supplied
-        if (!uri.isAssetOrigin() || uri.toASCIIString().length > MAX_URL_LENGTH) {
+        val address = uri.toASCIIString()
+        if (!uri.isAssetOrigin() || address.length > MAX_URL_LENGTH || !isPublicWebUrl(address)) {
             null
         } else {
             // Fragments are local references, never part of the network request or its inherited defaults.
-            Url(uri.toASCIIString().substringBefore('#'))
+            Url(address.substringBefore('#'))
         }
     } catch (error: URISyntaxException) {
         log.w(error.redactedFailure()) { "Document asset URL rejected" }
@@ -63,8 +68,8 @@ internal fun documentAssetUrl(raw: String, base: Url? = null): Url? {
 }
 
 private fun URI.isAssetOrigin(): Boolean = when {
-    scheme?.lowercase() !in setOf("http", "https") -> false
-    host.isNullOrEmpty() || rawUserInfo != null -> false
+    !scheme.equals("https", ignoreCase = true) -> false
+    host.isNullOrEmpty() || rawUserInfo != null || host.trimEnd('.').endsWith(".invalid", ignoreCase = true) -> false
     port != -1 && port !in 1..MAX_PORT -> false
     else -> true
 }

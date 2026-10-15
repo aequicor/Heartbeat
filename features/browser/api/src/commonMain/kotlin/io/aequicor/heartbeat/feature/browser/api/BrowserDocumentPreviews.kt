@@ -57,10 +57,13 @@ public enum class BrowserDocumentPreviewFailure {
     /** HTML/data, viewport or text scale lies outside its limits. */
     InvalidRequest,
 
-    /** Another preview is already rendering; callers can retry after it finishes. */
+    /** Another preview is rendering or the profile's documents are at their limit; callers can retry later. */
     Busy,
 
-    /** The native runtime could not be prepared. */
+    /**
+     * The native runtime could not be prepared or is not installed yet: a preview never starts the first download,
+     * which a visible web document performs with progress and retry.
+     */
     RuntimeUnavailable,
 
     /** The page did not produce a bounded result before the deadline. */

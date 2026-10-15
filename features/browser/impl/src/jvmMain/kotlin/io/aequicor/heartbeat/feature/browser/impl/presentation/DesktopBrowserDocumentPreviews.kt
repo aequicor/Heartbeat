@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviews
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocuments
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserDocumentNatives
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserDocumentRegistry
+import io.aequicor.heartbeat.feature.browser.impl.domain.DesktopBrowserResources
 import io.aequicor.heartbeat.feature.browser.impl.domain.isValidPreview
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
@@ -30,7 +31,10 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import javax.swing.JWindow
 
-/** Temporary documents reuse the production renderer and its profile/app teardown; the native peer is never shown. */
+/**
+ * Temporary documents reuse the production renderer and its profile/app teardown; the native peer is never shown.
+ * A preview never starts the first runtime download: that needs the progress and retry UI of a visible document.
+ */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class, priority = 1)
 @Inject
@@ -40,6 +44,7 @@ internal class DesktopBrowserDocumentPreviews(
     private val natives: BrowserDocumentNatives,
     private val dispatchers: DispatcherProvider,
     private val themes: DesktopDocumentPreviewThemes,
+    private val resources: DesktopBrowserResources,
     @ForScope(AppScope::class) private val app: ScopeHandle,
 ) : BrowserDocumentPreviews {
     private val log = Log.tag("BrowserDocumentPreviews")
@@ -51,38 +56,90 @@ internal class DesktopBrowserDocumentPreviews(
         if (!rendering.tryLock()) return failed(BrowserDocumentPreviewFailure.Busy)
         val lease = PreviewLease(dispatchers)
         return try {
-            withTimeoutOrNull(RENDER_TIMEOUT_MILLIS) {
-                withContext(dispatchers.main) { lease.open(request, documents, registry, panels, themes) }
-                val runtime = checkNotNull(lease.panel).awaitPreviewRuntime(dispatchers)
-                captureDocumentPreview(runtime, request)
-            } ?: failed(BrowserDocumentPreviewFailure.TimedOut)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: PreviewImageTooLarge) {
-            log.w(error.redactedFailure()) { "Isolated document preview exceeds image limit" }
-            failed(BrowserDocumentPreviewFailure.ImageTooLarge)
-        } catch (error: Exception) {
-            log.w(error.redactedFailure()) { "Isolated document preview failed" }
-            failed(BrowserDocumentPreviewFailure.RenderFailed)
-        } catch (error: LinkageError) {
-            log.w(error.redactedFailure()) { "Isolated document runtime is unavailable" }
-            failed(BrowserDocumentPreviewFailure.RuntimeUnavailable)
+            renderSafely(request, panels, lease)
         } finally {
+            withContext(NonCancellable) { release(lease) }
+        }
+    }
+
+    private suspend fun renderSafely(
+        request: BrowserDocumentPreviewRequest,
+        panels: DesktopDocumentPanels,
+        lease: PreviewLease,
+    ): BrowserDocumentPreviewResult = try {
+        if (resources.requiresRuntimeDownload()) {
+            log.i { "Isolated document preview refused: browser component is not installed" }
+            failed(BrowserDocumentPreviewFailure.RuntimeUnavailable)
+        } else {
+            render(request, panels, lease)
+        }
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: PreviewRuntimeUnavailable) {
+        log.w(error.redactedFailure()) { "Isolated document runtime preparation failed" }
+        failed(BrowserDocumentPreviewFailure.RuntimeUnavailable)
+    } catch (error: PreviewImageTooLarge) {
+        log.w(error.redactedFailure()) { "Isolated document preview exceeds image limit" }
+        failed(BrowserDocumentPreviewFailure.ImageTooLarge)
+    } catch (error: Exception) {
+        log.w(error.redactedFailure()) { "Isolated document preview failed" }
+        failed(BrowserDocumentPreviewFailure.RenderFailed)
+    } catch (error: LinkageError) {
+        log.w(error.redactedFailure()) { "Isolated document runtime is unavailable" }
+        failed(BrowserDocumentPreviewFailure.RuntimeUnavailable)
+    }
+
+    private suspend fun render(
+        request: BrowserDocumentPreviewRequest,
+        panels: DesktopDocumentPanels,
+        lease: PreviewLease,
+    ): BrowserDocumentPreviewResult = withTimeoutOrNull(RENDER_TIMEOUT_MILLIS) {
+        val isOpened = withContext(dispatchers.main) { lease.open(request, documents, registry, panels, themes) }
+        if (isOpened) {
+            val runtime = checkNotNull(lease.panel).awaitPreviewRuntime(dispatchers)
+            captureDocumentPreview(runtime, request)
+        } else {
+            log.w { "Isolated document preview refused: profile document limit reached" }
+            failed(BrowserDocumentPreviewFailure.Busy)
+        }
+    } ?: failed(BrowserDocumentPreviewFailure.TimedOut).also { log.w { "Isolated document preview timed out" } }
+
+    /** A stalled native close must not admit a second renderer or dispose its native parent prematurely. */
+    private suspend fun release(lease: PreviewLease) {
+        if (!closeOrUnlock(lease)) return
+        log.w { "Isolated document preview is waiting for native close" }
+        app.coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
             withContext(NonCancellable) {
-                // A stalled native close must not admit a second renderer or dispose its native parent prematurely.
-                if (lease.close()) {
+                try {
+                    lease.finishClosing()
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    log.e(error.redactedFailure()) { "Isolated document preview native close failed" }
+                } finally {
                     rendering.unlock()
-                } else {
-                    log.w { "Isolated document preview is waiting for native close" }
-                    app.coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
-                        withContext(NonCancellable) {
-                            lease.finishClosing()
-                            rendering.unlock()
-                        }
-                    }
                 }
             }
         }
+    }
+
+    /**
+     * Closes the lease and releases the renderer unless native close is still pending (true). A failing close
+     * still releases it: the profile must not stay Busy until restart.
+     */
+    private suspend fun closeOrUnlock(lease: PreviewLease): Boolean {
+        var isPending = false
+        try {
+            isPending = !lease.close()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.e(error.redactedFailure()) { "Isolated document preview close failed" }
+            lease.disposePeer()
+        } finally {
+            if (!isPending) rendering.unlock()
+        }
+        return isPending
     }
 
     private fun failed(reason: BrowserDocumentPreviewFailure) = BrowserDocumentPreviewResult.Failure(reason)
@@ -99,23 +156,22 @@ private class PreviewLease(private val dispatchers: DispatcherProvider) {
         private set
     private var peer: JWindow? = null
 
+    /** False when the profile already holds its maximum number of documents. */
     fun open(
         request: BrowserDocumentPreviewRequest,
         documents: BrowserDocuments,
         registry: BrowserDocumentRegistry,
         panels: DesktopDocumentPanels,
         themes: DesktopDocumentPreviewThemes,
-    ) {
-        val opened = checkNotNull(
-            documents.open(
-                BrowserDocument(
-                    request.html,
-                    "Document preview",
-                    request.data,
-                    resourcePolicy = request.resourcePolicy,
-                ),
+    ): Boolean {
+        val opened = documents.open(
+            BrowserDocument(
+                request.html,
+                "Document preview",
+                request.data,
+                resourcePolicy = request.resourcePolicy,
             ),
-        )
+        ) ?: return false
         handle = opened
         val view = checkNotNull(panels.retain(registry.documents.value.getValue(opened.route.id)))
         panel = view
@@ -131,6 +187,7 @@ private class PreviewLease(private val dispatchers: DispatcherProvider) {
             window.addNotify()
             window.validate()
         }
+        return true
     }
 
     suspend fun close(): Boolean = withContext(NonCancellable) {
@@ -146,6 +203,10 @@ private class PreviewLease(private val dispatchers: DispatcherProvider) {
 
     suspend fun finishClosing() {
         panel?.awaitClosed()
+        disposePeer()
+    }
+
+    suspend fun disposePeer() {
         withContext(dispatchers.main) { peer?.dispose() }
     }
 
@@ -162,8 +223,10 @@ internal fun interface DesktopDocumentPreviewThemes {
 /** Preparation and native loading are separate barriers; both are bounded by the caller's render deadline. */
 private suspend fun DesktopDocumentPanel.awaitPreviewRuntime(dispatchers: DispatcherProvider): DesktopDocumentEngine {
     val prepared = preparation.first { it == BrowserRuntimeUi.Ready || it is BrowserRuntimeUi.Failed }
-    check(prepared == BrowserRuntimeUi.Ready) { "Document runtime is unavailable" }
+    if (prepared != BrowserRuntimeUi.Ready) throw PreviewRuntimeUnavailable()
     val runtime = withContext(dispatchers.main) { runtimeForPreview }
     runtime.awaitLoaded()
     return runtime
 }
+
+private class PreviewRuntimeUnavailable : IllegalStateException("Document runtime is unavailable")

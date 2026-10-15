@@ -25,6 +25,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import okhttp3.Request
 import java.net.InetSocketAddress
 import java.util.Base64
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -32,7 +33,11 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/** Real host HTTP relay, CEF policy, redirect base URLs, CORS and applied resources, with only a local tripwire. */
+/**
+ * Real host HTTP relay, CEF policy, redirect base URLs, CORS and applied resources, with only a local tripwire.
+ * Documents address a public-looking HTTPS host; only this test's OkHttp interceptor routes it to the loopback
+ * server, so production never needs a local-network exception.
+ */
 internal fun verifyNativeDocumentAssets(
     resources: DesktopBrowserResources,
     dispatchers: DispatcherProvider,
@@ -42,11 +47,14 @@ internal fun verifyNativeDocumentAssets(
         val owner = BrowserTestScope(
             CoroutineScope(scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job])),
         )
-        val client = HttpClient(OkHttp) { install(HttpRequestRetry) }
-        val assets = HttpBrowserDocumentAssets(client, dispatchers, owner)
+        val client = HttpClient(OkHttp) {
+            install(HttpRequestRetry)
+            engine { addInterceptor { chain -> chain.proceed(server.route(chain.request())) } }
+        }
+        val assets = HttpBrowserDocumentAssets(client, dispatchers, owner) { host -> host == ASSET_HOST }
         val fixture = NativePreviewFixture(resources, dispatchers, scope, assets)
         try {
-            val html = externalAssetHtml(server.url)
+            val html = externalAssetHtml(ASSET_ORIGIN)
             val external = fixture.render(html, 640, resourcePolicy = BrowserDocumentResourcePolicy.ExternalAssets)
             assertEquals("rgb(23, 45, 67)", external.sample("css").color)
             assertEquals(70.0, external.sample("script").width, "Classic external JavaScript must execute")
@@ -132,7 +140,12 @@ private class NativeAssetServer : AutoCloseable {
         createContext("/") { answer(it) }
         start()
     }
-    val url = "http://127.0.0.1:${server.address.port}"
+
+    fun route(request: Request): Request {
+        check(request.url.host == ASSET_HOST) { "Unexpected asset host" }
+        val local = request.url.newBuilder().scheme("http").host("127.0.0.1").port(server.address.port).build()
+        return request.newBuilder().url(local).build()
+    }
 
     private fun answer(exchange: HttpExchange) = exchange.use {
         val path = exchange.requestURI.path
@@ -199,9 +212,12 @@ private fun externalAssetHtml(url: String): String = """
     try { const xhr=new XMLHttpRequest();xhr.open('GET','$url/forbidden-xhr');xhr.send(); } catch {}
     try { navigator.sendBeacon('$url/forbidden-beacon','private'); } catch {}
     try { new Worker('$url/forbidden-worker'); } catch {}
-    try { new WebSocket('$url'.replace('http:','ws:')+'/forbidden-socket'); } catch {}
+    try { new WebSocket('$url'.replace('https:','wss:')+'/forbidden-socket'); } catch {}
     </script><iframe src="$url/forbidden-frame"></iframe>
     """.trimIndent()
+
+private const val ASSET_HOST = "assets.heartbeat.test"
+private const val ASSET_ORIGIN = "https://$ASSET_HOST"
 
 private val ASSET_PATHS = setOf(
     "/theme.css", "/css/theme.css", "/css/probe.ttf", "/classic.js", "/module.js", "/js/main.js", "/js/piece.js",

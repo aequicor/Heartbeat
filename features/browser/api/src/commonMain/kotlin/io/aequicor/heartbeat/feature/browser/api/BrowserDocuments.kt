@@ -12,7 +12,8 @@ import kotlinx.serialization.json.JsonElement
  * Desktop only: Android and iOS draw the route as a "not supported" note. Every document gets its own origin
  * (`https://<id>.document.heartbeat.invalid/`) in an in-memory context with no cookies or storage shared with other
  * documents or the profile's browser. The default [BrowserDocumentResourcePolicy.Isolated] blocks external assets;
- * a trusted opener may permit bounded anonymous HTTP(S) assets with [BrowserDocumentResourcePolicy.ExternalAssets].
+ * a trusted opener may permit bounded anonymous public HTTPS assets with
+ * [BrowserDocumentResourcePolicy.ExternalAssets].
  * Direct connections, navigation, pop-ups, downloads and dialogs remain blocked in both modes.
  */
 public interface BrowserDocuments {
@@ -47,13 +48,17 @@ public data class BrowserDocument(
 /**
  * Trusted opener policy, captured when a document is created. External code runs with the same document data and
  * any allowlisted owner bridge as inline code. Changing policy requires closing and reopening the document.
- * Neither mode permits direct connections, frames, workers, navigation, local files or device access.
+ * Neither mode permits direct connections, frames, workers, navigation, local files or device access, but asset
+ * URLs under [ExternalAssets] are an outbound channel: page code can encode its data into them.
  */
 public enum class BrowserDocumentResourcePolicy {
     /** Self-contained HTML: only inline scripts/styles and permitted data/blob assets. */
     Isolated,
 
-    /** HTTP(S) scripts, styles, fonts, images and media may be loaded by the host's bounded anonymous transport. */
+    /**
+     * Public HTTPS scripts, styles, fonts, images and media may be loaded by the host's bounded anonymous transport;
+     * hosts resolving to loopback, private, link-local or other non-public addresses are refused on every hop.
+     */
     ExternalAssets,
 }
 

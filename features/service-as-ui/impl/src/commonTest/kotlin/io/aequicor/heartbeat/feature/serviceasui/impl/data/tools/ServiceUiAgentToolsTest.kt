@@ -460,6 +460,13 @@ class ServiceUiAgentToolsTest {
     }
 
     @Test
+    fun `writes reviewed under Safe Mode are judged as if external resources will load later`() = runTest {
+        approval(ServiceUiTools.PUT, put(SPEC))
+        assertTrue(reviewer.proposals.last().contains("Isolated"))
+        assertTrue("external resource reference as if it will load" in reviewer.policies.last())
+    }
+
+    @Test
     fun `changing Safe Mode invalidates the reviewed write snapshot`() = runTest {
         val arguments = put(SPEC)
         val isolated = approval(ServiceUiTools.PUT, arguments)
@@ -742,8 +749,10 @@ class ServiceUiAgentToolsTest {
         var failure: Exception? = null
         var beforeReview: suspend () -> Unit = {}
         val proposals = mutableListOf<String>()
+        val policies = mutableListOf<String>()
         override suspend fun review(target: EngineTarget, policy: String, change: String): AgentSafetyReview {
             proposals += change
+            policies += policy
             beforeReview()
             failure?.let { throw it }
             return verdict

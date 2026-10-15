@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.browser.impl.presentation
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentResourcePolicy
+import io.aequicor.heartbeat.feature.searchengine.api.isPublicWebUrl
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
 import org.cef.callback.CefCallback
@@ -292,12 +293,16 @@ internal data class DesktopDocumentAssetRequest(
     val isAsset: Boolean get() = !isNavigation && isMainFrame == true && !isDownload
 }
 
-/** Conservative transport-independent admission; the anonymous loader also parses and validates every hop. */
+/**
+ * Conservative transport-independent admission of public HTTPS hosts; the anonymous loader also parses, resolves and
+ * validates every hop.
+ */
 private fun isPotentialDocumentAssetUrl(url: String?): Boolean {
     if (url == null || url.any { it <= ' ' || it == '\\' }) return false
-    if (!url.startsWith("https://", true) && !url.startsWith("http://", true)) return false
+    if (!url.startsWith("https://", true) || !isPublicWebUrl(url)) return false
     val authority = url.substringAfter("://").takeWhile { it != '/' && it != '?' && it != '#' }
-    return authority.isNotEmpty() && '@' !in authority && !authority.substringBefore(':').endsWith(".invalid", true)
+    val host = authority.substringBefore(':').trimEnd('.')
+    return authority.isNotEmpty() && '@' !in authority && !host.endsWith(".invalid", true)
 }
 
 private val DOCUMENT_ASSET_TYPES = setOf(
