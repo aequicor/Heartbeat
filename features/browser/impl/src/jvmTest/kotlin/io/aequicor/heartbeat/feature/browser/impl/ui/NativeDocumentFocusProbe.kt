@@ -107,7 +107,7 @@ private fun accessibleContexts(context: AccessibleContext): List<AccessibleConte
 }
 
 /** Test-only access avoids adding native-browser or automation handles to production document APIs. */
-private fun documentBrowser(panel: DesktopDocumentPanel): CefBrowser {
+internal fun documentBrowser(panel: DesktopDocumentPanel): CefBrowser {
     val engine = DesktopDocumentPanel::class.java.getDeclaredField("engine").apply { isAccessible = true }.get(panel)
     return DesktopDocumentEngine::class.java.getDeclaredField("browser").apply { isAccessible = true }
         .get(assertNotNull(engine)) as CefBrowser

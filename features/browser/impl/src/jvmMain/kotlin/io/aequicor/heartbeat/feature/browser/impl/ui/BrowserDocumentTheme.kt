@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.browser.impl.ui
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.toArgb
 import io.aequicor.heartbeat.ds.components.HbDialogOverlayInsets
 import io.aequicor.heartbeat.ds.tokens.HbColors
@@ -28,6 +29,8 @@ internal fun HbColors.browserDocumentTheme(
         "--hb-on-accent" to onBrand.css(),
         "--hb-accent-muted" to accentMuted.css(),
         "--hb-control" to buttonFill.css(),
+        "--hb-control-hover" to interactionHoverOverlay.compositeOver(buttonFill).css(),
+        "--hb-control-pressed" to pressedOverlay.compositeOver(buttonFill).css(),
         "--hb-input" to inputFill.css(),
         "--hb-focus" to focusAccent.css(),
         "--hb-danger" to error.css(),
@@ -49,6 +52,10 @@ internal fun HbColors.browserDocumentTheme(
         "--hb-overlay-width" to "${overlay.width.value}px",
         "--hb-overlay-height" to "${overlay.height.value}px",
         "--hb-control-height" to "${dimensions.controlHeight.value}px",
+        "--hb-control-radius" to "${dimensions.controlCornerRadius.value}px",
+        "--hb-field-radius" to "${dimensions.fieldCornerRadius.value}px",
+        "--hb-focus-width" to "${dimensions.fieldFocusWidth.value}px",
+        "--hb-focus-offset" to "${dimensions.focusOutset.value}px",
     ),
 )
 

@@ -43,6 +43,27 @@ class DesktopDocumentThemeTest {
     }
 
     @Test
+    fun `control states and geometry follow the active host tokens`() {
+        val dimensions = HbDimensions.Desktop.copy(
+            controlHeight = 40.dp,
+            controlCornerRadius = 10.dp,
+            fieldCornerRadius = 12.dp,
+            fieldFocusWidth = 3.dp,
+            focusOutset = 4.dp,
+        )
+        for (colors in listOf(HbColors.DesktopLight, HbColors.DesktopDark)) {
+            val values = colors.browserDocumentTheme(HbTypography.Desktop, HbSpacing(), dimensions, 1f).variables
+            assertEquals("40.0px", values["--hb-control-height"])
+            assertEquals("10.0px", values["--hb-control-radius"])
+            assertEquals("12.0px", values["--hb-field-radius"])
+            assertEquals("3.0px", values["--hb-focus-width"])
+            assertEquals("4.0px", values["--hb-focus-offset"])
+            assertNotEquals(values["--hb-control"], values["--hb-control-hover"])
+            assertNotEquals(values["--hb-control-hover"], values["--hb-control-pressed"])
+        }
+    }
+
+    @Test
     fun `theme and content sizing work without enabling an owner method bridge`() {
         val page = desktopDocumentHtml(
             "<main data-heartbeat-root>App</main>",
