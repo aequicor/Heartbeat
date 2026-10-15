@@ -36,28 +36,31 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
-/** A fresh service session on the caller's model; no workspace or hosted tools, no inherited harnesses. */
+/**
+ * A fresh service session on the caller's model; no workspace or hosted tools, no inherited harnesses. Reviews of
+ * different sessions and projects run in parallel up to the [slots] capacity and otherwise wait in its queue.
+ */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
 @Inject
 internal class FacadeAgentSafetyReviewer(
     private val facade: Lazy<EngineFacade>,
     private val isolation: AgentSafetyIsolation,
+    private val slots: AgentSafetyReviewSlots,
     @ForScope(ProfileScope::class) private val scope: CoroutineScope,
+    private val settleGrace: Duration = SETTLE_GRACE,
 ) : AgentSafetyReviewer {
     private val log = Log.tag("AgentSafetyReviewer")
-    private val slot = Mutex()
 
     override suspend fun review(target: EngineTarget, policy: String, change: String): AgentSafetyReview = try {
         reviewIsolated(target, policy, change)
@@ -73,12 +76,13 @@ internal class FacadeAgentSafetyReviewer(
             ?: return uncertain("Каталог инструментов модели недоступен для изоляции ревью.")
         val creates = facade.value.engines.features(target.engine).resolve(CreatesSessions) as? FeatureAccess.Available
             ?: return uncertain("Модель не поддерживает отдельную сессию ревью.")
-        if (!scope.isActive || !slot.tryLock()) {
-            return uncertain("Предыдущее ревью ещё завершает работу.")
+        if (!scope.isActive) return uncertain("Профиль закрывается, автоматическое ревью недоступно.")
+        if (!slots.acquire()) {
+            return uncertain("Автоматические проверки безопасности перегружены. ${slots.describe()} Повторите позже.")
         }
         var session: ActiveSession? = null
         try {
-            return withTimeoutOrNull(2.minutes) {
+            return withTimeoutOrNull(REVIEW_TIMEOUT) {
                 val opened = creates.feature.create(CreateSessionRequest(target, areSessionHooksEnabled = true))
                 session = opened
                 isolation.restrict(opened.ref, descriptor.nativeTools.map { it.name })
@@ -86,7 +90,7 @@ internal class FacadeAgentSafetyReviewer(
             } ?: uncertain("Истекло время автоматического ревью.")
         } finally {
             val opened = session
-            if (opened == null) slot.unlock() else withContext(NonCancellable) { dismiss(opened) }
+            if (opened == null) slots.releaseRunning() else withContext(NonCancellable) { dismiss(opened) }
         }
     }
 
@@ -121,29 +125,31 @@ internal class FacadeAgentSafetyReviewer(
         return parseSafetyReview(answer.orEmpty())
     }
 
-    /** Cancel only requests interruption. Keep the slot and observation until that exact turn terminates. */
+    /**
+     * Cancel only requests interruption. The slot and observation stay until that exact turn terminates, but at most
+     * [settleGrace]: then the handle is closed and the slot released, while the session keeps its tool restrictions
+     * until the profile closes, so a review the engine never confirmed cannot block every later review.
+     */
     private suspend fun dismiss(session: ActiveSession) {
-        val turn = when (val state = session.state.value) {
-            is ActiveSessionState.Submitting -> state.turn
-            is ActiveSessionState.Running -> state.turn
-            is ActiveSessionState.AwaitingUserAction -> state.turn
-            is ActiveSessionState.Interrupting -> state.turn
-            is ActiveSessionState.Unavailable -> state.activeTurn ?: state.lastTurn
-            is ActiveSessionState.Ready -> state.lastTurn
-            is ActiveSessionState.Closing, ActiveSessionState.Closed -> null
-        }?.id
+        val turn = session.state.value.reviewTurn()
         val isSettled = cleanup("stop") { stop(session, turn) }
         if (isSettled && finish(session)) {
-            slot.unlock()
+            slots.releaseRunning()
             return
         }
+        slots.startFinishing()
         // Start even if profile cancellation raced with the handoff, so finally always releases the handle.
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             var isReleased = false
             try {
-                awaitTerminal(session, turn)
-                isReleased = finish(session)
-                if (isReleased) slot.unlock() else awaitCancellation()
+                val isTerminal = withTimeoutOrNull(settleGrace) { awaitTerminal(session, turn) } != null
+                val isClosed = if (isTerminal) finish(session) else cleanup("close") { session.close() }
+                val isAbandoned = !isTerminal || !isClosed
+                if (isAbandoned) {
+                    log.w { "Safety review abandoned: terminal=$isTerminal closed=$isClosed; restrictions retained" }
+                }
+                isReleased = true
+                slots.releaseFinishing(isAbandoned)
             } finally {
                 if (!isReleased) withContext(NonCancellable) { cleanup("close") { session.close() } }
             }
@@ -170,9 +176,8 @@ internal class FacadeAgentSafetyReviewer(
         awaitTerminal(session, turn)
     }
 
-    private suspend fun awaitTerminal(session: ActiveSession, turn: TurnId?) {
+    private suspend fun awaitTerminal(session: ActiveSession, turn: TurnId?): ActiveSessionState =
         session.state.first { it.hasFinished(turn) }
-    }
 
     private suspend fun finish(session: ActiveSession): Boolean {
         cleanup("archive") {
@@ -199,6 +204,17 @@ internal class FacadeAgentSafetyReviewer(
         false
     }
 }
+
+/** The turn a dismissed review must see terminate: the current one, else the last. */
+private fun ActiveSessionState.reviewTurn(): TurnId? = when (this) {
+    is ActiveSessionState.Submitting -> turn
+    is ActiveSessionState.Running -> turn
+    is ActiveSessionState.AwaitingUserAction -> turn
+    is ActiveSessionState.Interrupting -> turn
+    is ActiveSessionState.Unavailable -> activeTurn ?: lastTurn
+    is ActiveSessionState.Ready -> lastTurn
+    is ActiveSessionState.Closing, ActiveSessionState.Closed -> null
+}?.id
 
 /** Unavailable retains correlated completion; Closed only proves handle detachment, never native termination. */
 private fun ActiveSessionState.hasFinished(turn: TurnId?): Boolean = when (this) {
@@ -227,6 +243,8 @@ internal class AgentSafetyHook(private val isolation: AgentSafetyIsolation) : Se
 }
 
 private fun uncertain(reason: String) = AgentSafetyReview("uncertain", reason)
+private val REVIEW_TIMEOUT = 2.minutes
+private val SETTLE_GRACE = 1.minutes
 internal const val REVIEW_REQUEST_PREFIX = "safety-review-"
 private const val REVIEW_PROMPT = """
 You independently assess one proposed Heartbeat operation under the trusted host policy below.

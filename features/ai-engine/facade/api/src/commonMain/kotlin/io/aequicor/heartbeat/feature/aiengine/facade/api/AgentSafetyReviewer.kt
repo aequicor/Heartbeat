@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.api
 
+import kotlinx.coroutines.flow.StateFlow
+
 /** Independent assessment in a fresh session without tools, workspace or inherited harnesses. */
 public fun interface AgentSafetyReviewer {
     /**
@@ -8,6 +10,28 @@ public fun interface AgentSafetyReviewer {
      * ambiguous or incomplete assessment is never safe. Cancellation propagates.
      */
     public suspend fun review(target: EngineTarget, policy: String, change: String): AgentSafetyReview
+}
+
+/** The profile's automatic safety review load, for showing the user how busy the reviewer is. */
+public interface AgentSafetyReviewMonitor {
+    /** Current counts; updated whenever a review is queued, starts, ends or stops waiting for its session. */
+    public val load: StateFlow<AgentSafetyReviewLoad>
+}
+
+/**
+ * Reviews of one profile. [running] hold one of [capacity] slots with an open review session, [queued] wait for a
+ * slot, [finishing] were stopped but still hold a slot until their session confirms termination. [abandoned] counts
+ * reviews whose termination was never confirmed: their slot was released, their session keeps its tool restrictions.
+ */
+public data class AgentSafetyReviewLoad(
+    val capacity: Int,
+    val running: Int = 0,
+    val queued: Int = 0,
+    val finishing: Int = 0,
+    val abandoned: Int = 0,
+) {
+    /** Nothing occupies or waits for the reviewer. */
+    public val isIdle: Boolean get() = running == 0 && queued == 0 && finishing == 0
 }
 
 /** A complete strict verdict; reasons may contain private context and must not be logged. */
