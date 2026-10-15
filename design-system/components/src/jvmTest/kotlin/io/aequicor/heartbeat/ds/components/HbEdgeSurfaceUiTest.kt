@@ -22,8 +22,8 @@ import androidx.compose.ui.unit.dp
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbColors
 import java.awt.image.BufferedImage
-import kotlin.test.Test
 import kotlin.math.abs
+import kotlin.test.Test
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
