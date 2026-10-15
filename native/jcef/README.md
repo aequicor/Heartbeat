@@ -4,9 +4,9 @@ Heartbeat builds Java-CEF `17e805ad387d89839fdd2b864466b6510b2a783c` with CEF
 `152.0.6+g708dc14+chromium-152.0.7977.83`. `source-lock.json` pins the source and
 SHA-256 of `request-context-settings.patch`. Upstream files retain their BSD license.
 
-The **152.0.6-hb4** runtime is pinned by this source lock and by Gradle
+The **152.0.6-hb5** runtime is pinned by this source lock and by Gradle
 verification metadata. It contains the matching Java API and native libraries
-for all five desktop targets. The previous hb1, hb2 and hb3 releases remain immutable.
+for all five desktop targets. The previous hb1, hb2, hb3 and hb4 releases remain immutable.
 
 hb3 fixes upstream `GetCefValueFromJNIMap`, which built a dictionary but returned an
 empty, null-typed `CefValue`: `Map` (and nested `List`) values of
@@ -60,9 +60,10 @@ the handle. Close releases the detached wrapper after unlocking, preventing Swin
 close from retaining a freed wrapper without running destructors under the reference lock. This applies to
 all platforms, including the DevTools parent lookup. The close callback uses the identifier captured at creation;
 the regression probe concurrently reads browser handles until that callback to exercise ownership.
-Linux reparent operations also share ownership of their lock and wait condition between the EDT and the
-queued CEF callback. If the bounded EDT wait times out, the callback keeps that state alive until it returns,
+In hb4, Linux reparent operations shared ownership of their lock and wait condition between the EDT and the
+queued CEF callback. If the bounded EDT wait timed out, the callback kept that state alive until it returned,
 preventing `SetParentSync` from accessing a destroyed stack condition during visibility and resize work.
+The hb5 change below replaces that queued reparent operation.
 Linux viewport updates keep the full browser size and apply an X11 bounding shape to the visible rectangle.
 This clips drawing and input without shrinking Chromium's DOM viewport; `libXext` supplies the shape API.
 Linux windowed browsers still detach during a queued forced close: Swing's `removeNotify` must move the
@@ -77,9 +78,9 @@ blocking initialization. The completed lock contains six real jar hashes, verifi
 builds and probes before enabling Gradle's `jcef-native` version and `jcef-linux-x64` coordinate together.
 Do not publish the application with a missing Linux native jar or replace it with an unpatched upstream runtime.
 
-## Preparing another release
+## Linux teardown fix in hb5
 
-`next/` currently prepares **152.0.6-hb5** for a Linux teardown race confirmed with the CEF UI thread
+The **152.0.6-hb5** release fixes a Linux teardown race confirmed with the CEF UI thread
 deliberately held in a close callback. In hb4, the one-second wait for queued reparenting can expire while
 Swing destroys its Canvas. Chromium then loses its child X11 window before processing its close message,
 and never delivers the native close callback. Increasing the wait cannot guarantee safety, and waiting
@@ -95,16 +96,22 @@ window needs no reparenting; other request and connection failures are logged. T
 retains the browser and runs later on CEF UI only while it is still valid.
 
 The Linux library now links `libxcb`, already a dependency of its X11 runtime. Building needs `libxcb1-dev`
-(also supplied by Ubuntu's `libx11-dev` dependency). The current hb4 patch, published jars and application
-coordinates stay immutable until the hb5 builds and probes have passed the release gate below.
+(also supplied by Ubuntu's `libx11-dev` dependency). The hb4 release tag and assets remain immutable.
+
+The hb5 builds passed all 13 lifecycle-probe phases on all five native hosts in
+[the runtime build](https://github.com/aequicor/Heartbeat/actions/runs/38607229980). The completed source lock
+and Gradle verification metadata pin the six jars collected from those builds.
+
+## Preparing another release
 
 `next/` holds a prepared release while the application still uses the current one: `next/request-context-settings.patch`
 is its complete patch and `next/source-lock.json` its lock (the patch's SHA-256, `artifactVersion`, no artifacts yet).
 Build every target from it — in CI (below) or locally with `--patch native/jcef/next/request-context-settings.patch
 --source-lock native/jcef/next/source-lock.json` added to every `build_runtime.py` command — then collect and publish
-as below. The release commit moves the patch over `request-context-settings.patch`, replaces `source-lock.json` with
-the completed lock, removes `next/`, sets `jcef-native` in `gradle/libs.versions.toml` and pins all six jars in
-`gradle/verification-metadata.xml`.
+as below. Activation replaces `request-context-settings.patch` and `source-lock.json` with the complete patch
+and completed lock, sets `jcef-native` in `gradle/libs.versions.toml` and pins all six jars in
+`gradle/verification-metadata.xml`. Remove `next/` after committing activation; cleanup may be a separate
+commit to keep the complete patch deletion within the commit-size budget.
 
 ## Build in CI
 
@@ -195,14 +202,14 @@ python native/jcef/build_runtime.py collect --source build/jcef-inputs --output 
 
 The release directory contains:
 
-- `jcef-api-152.0.6-hb4.jar`
-- `jcef-natives-<target>-152.0.6-hb4.jar` for each target
+- `jcef-api-152.0.6-hb5.jar`
+- `jcef-natives-<target>-152.0.6-hb5.jar` for each target
 - `SHA256SUMS`, `runtime-manifest.json`, and completed `source-lock.json`
 
 The native jar contains a tar.gz resource named exactly as jcefmaven expects:
 `jcef-natives-<target>-<release_tag>.tar.gz`. Both API `build_meta.json` and native
 metadata use the unique release tag
-`jcef-17e805a+cef-152.0.6+g708dc14+chromium-152.0.7977.83+heartbeat-hb4`.
+`jcef-17e805a+cef-152.0.6+g708dc14+chromium-152.0.7977.83+heartbeat-hb5`.
 This prevents reuse of an unpatched extraction cache. Native archives include
 resources, locales, helper executables/apps and licenses. macOS symlinks and
 executable modes are preserved. Jar entries and archive timestamps are normalized;
@@ -213,13 +220,15 @@ with the GitHub CLI; existing assets are never replaced and a retry must match t
 published checksums and manifests:
 
 ```shell
-python native/jcef/publish_draft.py --artifacts build/jcef-release --repository aequicor/Heartbeat --commit <sha> --version 152.0.6-hb4
+python native/jcef/publish_draft.py --artifacts build/jcef-release --repository aequicor/Heartbeat --commit <sha> --version 152.0.6-hb5
 ```
 
 Publication follows inspection of the verified jars and manifests as immutable
-assets of the GitHub release tag `152.0.6-hb4`. Copy the completed source lock into
-this directory, and pin actual jar hashes in Gradle verification metadata.
-Coordinates are `io.aequicor.heartbeat.jcef:<artifact>:152.0.6-hb4`;
+assets of the GitHub release tag `152.0.6-hb5`. After inspecting the draft, the maintainer publishes it
+with `gh release edit 152.0.6-hb5 --repo aequicor/Heartbeat --draft=false --prerelease --latest=false`.
+Gradle cannot resolve the normal release-download URLs while the release is still a draft. Copy the completed
+source lock into this directory, and pin actual jar hashes in Gradle verification metadata.
+Coordinates are `io.aequicor.heartbeat.jcef:<artifact>:152.0.6-hb5`;
 Gradle consumes release assets using an Ivy artifact pattern. JOGL/gluegen Java
 API dependencies remain explicit dependencies of the application.
 
