@@ -77,13 +77,16 @@ public value class ConfigEntityKey(public val value: String) {
 }
 
 /**
- * A profile entity a section can encode. [name] is the unit name it is written to by default; [revision] changes
- * whenever its portable content may have changed, so unchanged entities are not encoded again. [project] is the
- * project the entity applies in (learned instructions), [parent] the entity it belongs to (an interface's harness).
+ * A profile entity a section can encode. [name] is the unit name it is written to by default; [identity] is what the
+ * owner keeps unique (a harness name, a lesson's kind, scope and title), so a unit that arrives with the identity of an
+ * existing entity replaces it instead of colliding; [revision] changes whenever its portable content may have
+ * changed, so unchanged entities are not encoded again. [project] is the project the entity applies in (learned
+ * instructions), [parent] the entity it belongs to (an interface's harness).
  */
 public data class ConfigEntity(
     val key: ConfigEntityKey,
     val name: String,
+    val identity: String,
     val title: String,
     val revision: String,
     val description: String = "",
@@ -123,8 +126,11 @@ public enum class ConfigContentKind(public val isCode: Boolean = false) {
 
 /** Result of checking a unit before it is reviewed or applied. */
 public sealed interface ConfigCheck {
-    /** The unit can be applied. */
-    public data class Valid(val summary: ConfigSummary) : ConfigCheck
+    /**
+     * The unit can be applied. [identity] is compared with [ConfigEntity.identity]; [canonical] is the unit as the
+     * section would encode what it parsed, so a file that differs only in formatting is recognized as unchanged.
+     */
+    public data class Valid(val summary: ConfigSummary, val identity: String, val canonical: ConfigUnit) : ConfigCheck
 
     /** The unit cannot be applied. */
     public data class Invalid(val problems: List<ConfigProblem>) : ConfigCheck {

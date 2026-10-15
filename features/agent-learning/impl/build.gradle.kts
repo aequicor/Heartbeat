@@ -11,6 +11,7 @@ kotlin {
         commonMain.dependencies {
             implementation(projects.features.agentLearning.api)
             implementation(projects.features.worktreeMode.api)
+            implementation(projects.features.projectConfig.api)
             implementation(projects.core.common)
             implementation(projects.core.stateMachine.api)
             implementation(projects.core.stateMachine.flowmviExt)
