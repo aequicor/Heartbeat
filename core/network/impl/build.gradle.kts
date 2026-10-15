@@ -22,6 +22,7 @@ kotlin {
             implementation(libs.ktor.client.okhttp)
         }
         jvmMain.dependencies {
+            implementation(projects.core.datastore.api)
             implementation(libs.ktor.client.okhttp)
         }
         iosMain.dependencies {
