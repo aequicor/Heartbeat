@@ -55,6 +55,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_show_more_s
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_brand
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AppUpdateUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectGroupUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SafetyReviewsUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarContent
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarMode
@@ -75,6 +76,7 @@ internal fun StudioSidebar(
     modifier: Modifier = Modifier,
     isDrawer: Boolean = false,
     appUpdate: AppUpdateUi? = null,
+    safetyReviews: SafetyReviewsUi? = null,
 ) {
     val sidebar = input.sidebar
     val content = remember(input.projects, input.sessions, input.running, input.awaitingPermission, sidebar) {
@@ -93,6 +95,7 @@ internal fun StudioSidebar(
     HbColumn(modifier.testTag("studio-sidebar"), gap = HbTheme.spacing.none) {
         SidebarHeader(
             appUpdate = appUpdate,
+            safetyReviews = safetyReviews,
             isAgentRunning = isAgentRunning,
             onUpdate = { onIntent(StudioIntent.InstallAppUpdate) },
             onNew = { onIntent(StudioIntent.NewSession(input.newSessionProjectId)) },
@@ -131,6 +134,7 @@ internal fun StudioSidebar(
 @Composable
 private fun SidebarHeader(
     appUpdate: AppUpdateUi?,
+    safetyReviews: SafetyReviewsUi?,
     isAgentRunning: Boolean,
     onUpdate: () -> Unit,
     onNew: () -> Unit,
@@ -144,8 +148,8 @@ private fun SidebarHeader(
             gap = HbTheme.spacing.m,
         ) {
             if (!HbTheme.dimensions.isDesktop) HbStudioMark()
-            // The window controls are measured first: the brand and an update offer share what remains, and the
-            // brand fades before the offer does.
+            // The window controls are measured first: the brand, the safety review status and an update offer share
+            // what remains, and the brand fades before them.
             HbRow(Modifier.weight(1f), gap = HbTheme.spacing.m) {
                 HbText(
                     stringResource(Res.string.studio_brand),
@@ -158,6 +162,7 @@ private fun SidebarHeader(
                     },
                     maxLines = 1,
                 )
+                safetyReviews?.let { SafetyReviewsIndicator(it) }
                 appUpdate?.let { update -> AppUpdateButton(update, isAgentRunning, onUpdate) }
             }
             HbIconButton(

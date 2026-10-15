@@ -1,0 +1,32 @@
+package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
+
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewLoad
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewMonitor
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SafetyReviewsUi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+
+/**
+ * Mirrors the profile's automatic safety review load into the sidebar header, so the user sees how many reviews run
+ * and wait while agents of several chats and projects work. Display only: queueing stays with the reviewer.
+ */
+internal class StudioSafetyReviews(private val monitor: AgentSafetyReviewMonitor) {
+    suspend fun observe(pipeline: StudioPipeline) = with(pipeline) {
+        monitor.load
+            .map { it.toUi() }
+            .distinctUntilChanged()
+            .collect { reviews -> updateState { copy(safetyReviews = reviews) } }
+    }
+
+    /** No reviewer in the graph (previews, tests): nothing is ever shown. */
+    class Idle : AgentSafetyReviewMonitor {
+        override val load: StateFlow<AgentSafetyReviewLoad> =
+            MutableStateFlow(AgentSafetyReviewLoad(capacity = 0)).asStateFlow()
+    }
+}
+
+internal fun AgentSafetyReviewLoad.toUi(): SafetyReviewsUi? =
+    if (isIdle) null else SafetyReviewsUi(capacity, running, queued, finishing, abandoned)

@@ -299,6 +299,13 @@
     <string name="app_update_failure_storage">Не удалось сохранить обновление.</string>
     <string name="app_update_failure_install">Не удалось установить обновление.</string>
     <string name="app_update_failure_previous">Прошлое обновление не завершилось. Повторите его.</string>
+    <string name="safety_reviews_label">%1$d/%2$d</string>
+    <string name="safety_reviews_label_queued">%1$d/%2$d · +%3$d</string>
+    <string name="safety_reviews_title">Автоматические проверки безопасности</string>
+    <string name="safety_reviews_running">Выполняется: %1$d из %2$d</string>
+    <string name="safety_reviews_queued">В очереди: %1$d</string>
+    <string name="safety_reviews_finishing">Остановлены, ждут завершения сессии: %1$d</string>
+    <string name="safety_reviews_abandoned">Не подтвердили остановку: %1$d</string>
     <string name="app_update_percent">%1$d%%</string>
     <string name="app_update_manual_reason">Доступна версия Heartbeat %1$s. Эта установка не может обновить себя сама: скачайте и установите релиз.</string>
     <string name="app_update_downloading_status">Загрузка Heartbeat %1$s</string>

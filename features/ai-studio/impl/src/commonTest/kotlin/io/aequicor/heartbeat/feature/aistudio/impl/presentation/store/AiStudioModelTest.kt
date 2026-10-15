@@ -831,6 +831,8 @@ class AiStudioModelTest {
                     hostCommands: List<io.aequicor.heartbeat.feature.autocomplete.api.HostCommand>,
                 ): List<io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion> = emptyList()
             },
+        safetyReviews: io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewMonitor =
+            StudioSafetyReviews.Idle(),
     ) {
         val machine = FakeMachine(initial)
         val efforts = FakeEfforts(attachments)
@@ -866,6 +868,7 @@ class AiStudioModelTest {
             host = host,
             surfaceBinding = StudioSurfaceBinding(surfaces, backend, TestScopeHandle(scope.backgroundScope)),
             facade = EmptyStudioFacade(),
+            safetyReviewMonitor = safetyReviews,
         )
 
         suspend fun subscribe(): Provider<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction> {

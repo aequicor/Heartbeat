@@ -305,6 +305,13 @@
     <string name="app_update_failure_storage">The update could not be saved.</string>
     <string name="app_update_failure_install">The update could not be installed.</string>
     <string name="app_update_failure_previous">The previous update did not finish. Retry it.</string>
+    <string name="safety_reviews_label">%1$d/%2$d</string>
+    <string name="safety_reviews_label_queued">%1$d/%2$d · +%3$d</string>
+    <string name="safety_reviews_title">Automatic safety reviews</string>
+    <string name="safety_reviews_running">Reviewing: %1$d of %2$d</string>
+    <string name="safety_reviews_queued">Waiting in queue: %1$d</string>
+    <string name="safety_reviews_finishing">Stopped, awaiting session end: %1$d</string>
+    <string name="safety_reviews_abandoned">Never confirmed stopping: %1$d</string>
     <string name="app_update_percent">%1$d%%</string>
     <string name="app_update_manual_reason">Heartbeat %1$s is available. This installation cannot replace itself: download and install the release.</string>
     <string name="app_update_downloading_status">Downloading Heartbeat %1$s</string>
