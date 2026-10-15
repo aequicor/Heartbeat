@@ -12,8 +12,9 @@ internal data class Keyframe<T>(val frame: T, val offsetMillis: Long, val change
  * [maxFrames] are kept: the baseline and the latest frame always stay, and the interior frame with the smallest
  * change gives way first. All changes between consecutive frames, and from the last kept frame, are united into
  * [changedArea], which the recorder frames the clip to: a slow drift below the threshold per frame still counts once
- * it adds up. The screen has settled once nothing changed for [quietMillis] after the last change, or for
- * [idleMillis] when nothing changed at all.
+ * it adds up. A sliver change that repeats in the same place (a blinking caret, a ticking digit) is noise after its
+ * first appearance. The screen has settled once nothing changed for [quietMillis] after the last change, or for
+ * [idleMillis] when nothing changed at all. Both changes of one offer must be in the same pixels.
  */
 internal class ClipPlanner<T>(
     private val maxFrames: Int,
@@ -26,6 +27,7 @@ internal class ClipPlanner<T>(
     }
 
     private val kept = mutableListOf<Keyframe<T>>()
+    private val slivers = mutableSetOf<CaptureRegion>()
     private var lastChangeMillis: Long? = null
 
     /** The union of every change between consecutive frames, in the frames' pixels. */
@@ -40,24 +42,29 @@ internal class ClipPlanner<T>(
      */
     fun offer(frame: T, offsetMillis: Long, sincePrevious: MotionChange, sinceKept: MotionChange): T? {
         val isBaseline = kept.isEmpty()
-        listOf(sincePrevious, sinceKept).filter { it.isChanged && !isBaseline }.forEach { change ->
+        val changes = listOf(sincePrevious, sinceKept).map { if (it.isRepeatedSliver()) Unchanged else it }
+        slivers += listOf(sincePrevious, sinceKept).filter { it.isSliver }.mapNotNull { it.bounds }
+        changes.filter { it.isChanged && !isBaseline }.forEach { change ->
             lastChangeMillis = offsetMillis
             changedArea = changedArea.union(change.bounds)
         }
+        val keptChange = changes.last()
         return when {
             isBaseline -> {
                 kept += Keyframe(frame, offsetMillis, 0.0)
                 null
             }
 
-            !sinceKept.isChanged -> frame
+            !keptChange.isChanged -> frame
 
             else -> {
-                kept += Keyframe(frame, offsetMillis, sinceKept.changedFraction)
+                kept += Keyframe(frame, offsetMillis, keptChange.changedFraction)
                 trim()
             }
         }
     }
+
+    private fun MotionChange.isRepeatedSliver(): Boolean = isSliver && bounds in slivers
 
     /** `true` once the screen stopped changing long enough after [offsetMillis] of recording. */
     fun isSettled(offsetMillis: Long): Boolean {
@@ -72,5 +79,9 @@ internal class ClipPlanner<T>(
         if (kept.size <= maxFrames) return null
         val interior = (1 until kept.lastIndex).minBy { kept[it].changedFraction }
         return kept.removeAt(interior).frame
+    }
+
+    private companion object {
+        val Unchanged = MotionChange(null, 0.0)
     }
 }

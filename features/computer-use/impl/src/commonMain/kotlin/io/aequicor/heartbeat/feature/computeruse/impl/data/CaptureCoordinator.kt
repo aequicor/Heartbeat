@@ -764,17 +764,18 @@ internal class CaptureCoordinator(
     }
 }
 
-/** The screen rectangle input may cross: these bounds narrowed to the active [roi] of [source]; `null` when empty. */
-private fun ScreenBounds.narrowedTo(roi: CaptureRegion?, source: CaptureRef): ScreenBounds? {
+/**
+ * The screen rectangle input may cross: these bounds narrowed to the active [roi] of [source]. It is exactly the hull
+ * of the screen points that master pixels of the ROI map to, with the same truncation as the point mapping.
+ */
+private fun ScreenBounds.narrowedTo(roi: CaptureRegion?, source: CaptureRef): ScreenBounds {
     if (roi == null) return this
-    val left = x + ceilDiv(roi.x.toLong() * widthPx, source.masterWidthPx)
-    val top = y + ceilDiv(roi.y.toLong() * heightPx, source.masterHeightPx)
-    val right = x + (roi.right.toLong() * widthPx / source.masterWidthPx).toInt()
-    val bottom = y + (roi.bottom.toLong() * heightPx / source.masterHeightPx).toInt()
-    return if (right > left && bottom > top) ScreenBounds(left, top, right - left, bottom - top) else null
+    val left = x + (roi.x.toLong() * widthPx / source.masterWidthPx).toInt()
+    val top = y + (roi.y.toLong() * heightPx / source.masterHeightPx).toInt()
+    val right = x + ((roi.right - 1L) * widthPx / source.masterWidthPx).toInt() + 1
+    val bottom = y + ((roi.bottom - 1L) * heightPx / source.masterHeightPx).toInt() + 1
+    return ScreenBounds(left, top, right - left, bottom - top)
 }
-
-private fun ceilDiv(value: Long, divisor: Int): Int = ((value + divisor - 1) / divisor).toInt()
 
 private data class ProgressStep(
     val point: ScreenPoint?,

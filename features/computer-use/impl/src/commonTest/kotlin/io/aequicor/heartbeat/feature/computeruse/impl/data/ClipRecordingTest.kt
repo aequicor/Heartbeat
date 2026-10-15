@@ -132,6 +132,19 @@ class ClipRecordingTest {
     }
 
     @Test
+    fun `a slow drift on a frame wider than the working copy is framed in master pixels`() = runTest {
+        val fixture = fixture(widthPx = 3840, heightPx = 400)
+        val drifting = CaptureRegion(3000, 100, 200, 100)
+        // Each frame darkens the block below the per-frame threshold; only the change from the kept frame shows it.
+        val blank = solidGrid(3840, 400, WHITE)
+        fixture.capturer.pixels = { index -> blank.filled(drifting, gray(255 - minOf(index, 5) * 4)) }
+        fixture.coordinator.open(Session, ComputerUseMode.Desktop())
+        val clip = assertIs<ClipOutcome.Recorded>(fixture.coordinator.record(RecordRequest())).clip
+        assertTrue(clip.isAutoRoi)
+        assertTrue(drifting.isInside(clip.roi), "auto-ROI ${clip.roi} must hold the drifting block")
+    }
+
+    @Test
     fun `a finished drag reports the released button to the cursor`() = runTest {
         val fixture = fixture()
         fixture.injector.isProgressReported = true
@@ -177,9 +190,9 @@ class ClipRecordingTest {
         val coordinator: CaptureCoordinator,
     )
 
-    private fun TestScope.fixture(): Fixture {
-        val capturer = FakeScreenCapturer(400, 200).apply {
-            bounds = ScreenBounds(10, 20, 200, 100)
+    private fun TestScope.fixture(widthPx: Int = 400, heightPx: Int = 200): Fixture {
+        val capturer = FakeScreenCapturer(widthPx, heightPx).apply {
+            bounds = ScreenBounds(10, 20, widthPx / 2, heightPx / 2)
             pixels = { Blank }
         }
         val injector = FakeInputInjector()
@@ -204,6 +217,16 @@ class ClipRecordingTest {
         const val BLACK = 0xFF000000.toInt()
         val Blank: PixelGrid = solidGrid(400, 200, WHITE)
         val Changed: PixelGrid = block(100)
+
+        fun gray(value: Int): Int = 0xFF000000.toInt() or (value shl 16) or (value shl 8) or value
+
+        fun PixelGrid.filled(region: CaptureRegion, color: Int): PixelGrid {
+            val pixels = argb.copyOf()
+            for (row in region.y until region.bottom) {
+                for (column in region.x until region.right) pixels[row * widthPx + column] = color
+            }
+            return PixelGrid(widthPx, heightPx, pixels)
+        }
 
         fun block(x: Int): PixelGrid {
             val pixels = IntArray(400 * 200) { WHITE }

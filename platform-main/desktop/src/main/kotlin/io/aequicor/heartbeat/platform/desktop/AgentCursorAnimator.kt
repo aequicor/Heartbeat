@@ -63,7 +63,8 @@ internal class AgentCursorAnimator(var timing: CursorTiming) {
             to = point
             movedAtMillis = nowMillis
         }
-        if (effectSequence > this.effectSequence && gesture != null) {
+        // Any other sequence is a new effect: a new capture session counts from zero again.
+        if (effectSequence != this.effectSequence && gesture != null) {
             effect = Effect(gesture, nowMillis)
             trail.clear()
         }
@@ -81,8 +82,8 @@ internal class AgentCursorAnimator(var timing: CursorTiming) {
     }
 
     /**
-     * Forgets the position: the next pointer appears in place instead of gliding from a stale one. Effects up to
-     * [effectSequence] happened while the cursor was hidden and are never replayed.
+     * Forgets the position: the next pointer appears in place instead of gliding from a stale one. The effect of
+     * [effectSequence] happened while the cursor was hidden and is never replayed.
      */
     fun reset(effectSequence: Long = this.effectSequence) {
         from = null
@@ -90,7 +91,7 @@ internal class AgentCursorAnimator(var timing: CursorTiming) {
         effect = null
         gesture = null
         trail.clear()
-        this.effectSequence = maxOf(this.effectSequence, effectSequence)
+        this.effectSequence = effectSequence
     }
 
     /** Called on every frame of the overlay timer. */

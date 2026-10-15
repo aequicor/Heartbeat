@@ -362,6 +362,8 @@ public enum class ComputerUseFailure {
     EncodingTooLarge,
     InputRejected,
     StaleFrame,
+
+    /** The target changed its size, or moved while the pointer travelled to it: a fresh frame is required. */
     TargetResized,
     ActivationFailed,
     TargetNotForeground,

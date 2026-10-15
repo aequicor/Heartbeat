@@ -19,9 +19,9 @@ internal class MotionSignature(
 ) {
     /**
      * Cells whose mean luma moved by more than [threshold]; fewer than [minCells] changed cells count as no change
-     * (a clock digit), and so does a change that is only a thin vertical sliver (a blinking text caret, which spans
-     * several cells at high DPI and blinks faster than the screen is expected to settle). The bounds are in source
-     * pixels of this frame; frames of different sizes differ as a whole.
+     * (a clock digit). A change that is only a thin vertical sliver is marked [MotionChange.isSliver]: it may be a
+     * blinking text caret, which spans several cells at high DPI, and [ClipPlanner] ignores it once it repeats in
+     * place. The bounds are in source pixels of this frame; frames of different sizes differ as a whole.
      */
     fun compare(
         other: MotionSignature,
@@ -49,7 +49,7 @@ internal class MotionSignature(
                 }
             }
         }
-        if (changed < minCells || isCaret(right - left + 1, bottom - top + 1)) return MotionChange(null, 0.0)
+        if (changed < minCells) return MotionChange(null, 0.0)
         val x = left * cellPx
         val y = top * cellPx
         val bounds = CaptureRegion(
@@ -58,11 +58,11 @@ internal class MotionSignature(
             min((right + 1) * cellPx, sourceWidthPx) - x,
             min((bottom + 1) * cellPx, sourceHeightPx) - y,
         )
-        return MotionChange(bounds, changed.toDouble() / (columns * rows))
+        return MotionChange(bounds, changed.toDouble() / (columns * rows), isSliver(right - left + 1, bottom - top + 1))
     }
 
     /** A change at most [CARET_MAX_COLUMNS] cells wide, at least twice as tall, and short enough to be a caret. */
-    private fun isCaret(columnSpan: Int, rowSpan: Int): Boolean =
+    private fun isSliver(columnSpan: Int, rowSpan: Int): Boolean =
         columnSpan <= CARET_MAX_COLUMNS && rowSpan >= columnSpan * 2 && rowSpan <= CARET_MAX_ROWS
 
     companion object {
@@ -83,8 +83,15 @@ internal class MotionSignature(
     }
 }
 
-/** Where two frames differ: the bounding box of the changed cells, `null` when nothing relevant changed. */
-internal data class MotionChange(val bounds: CaptureRegion?, val changedFraction: Double) {
+/**
+ * Where two frames differ: the bounding box of the changed cells, `null` when nothing relevant changed.
+ * [isSliver] marks a thin vertical change that may be a blinking caret.
+ */
+internal data class MotionChange(
+    val bounds: CaptureRegion?,
+    val changedFraction: Double,
+    val isSliver: Boolean = false,
+) {
     val isChanged: Boolean get() = bounds != null
 }
 

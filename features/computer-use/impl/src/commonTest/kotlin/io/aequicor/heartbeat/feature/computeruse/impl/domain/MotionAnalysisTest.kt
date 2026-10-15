@@ -17,14 +17,17 @@ class MotionAnalysisTest {
     }
 
     @Test
-    fun `a tall caret across a cell boundary is noise while a small control is a change`() {
+    fun `a tall caret across a cell boundary is a sliver while a small control is not`() {
         val frame = solidGrid(128, 96, WHITE)
-        val caret = frame.painted(CaptureRegion(7, 10, 2, 36), BLACK)
-        assertFalse(frame.motionSignature().compare(caret.motionSignature()).isChanged, "a 2x36 caret at 2x")
-        val checkbox = frame.painted(CaptureRegion(20, 20, 14, 14), BLACK)
-        assertTrue(frame.motionSignature().compare(checkbox.motionSignature()).isChanged)
-        val line = frame.painted(CaptureRegion(20, 20, 60, 10), BLACK)
-        assertTrue(frame.motionSignature().compare(line.motionSignature()).isChanged)
+        val change = { region: CaptureRegion ->
+            frame.motionSignature().compare(frame.painted(region, BLACK).motionSignature())
+        }
+        val caret = change(CaptureRegion(7, 10, 2, 36))
+        assertTrue(caret.isChanged && caret.isSliver, "a 2x36 caret at 2x")
+        val checkbox = change(CaptureRegion(20, 20, 14, 14))
+        assertTrue(checkbox.isChanged && !checkbox.isSliver)
+        val line = change(CaptureRegion(20, 20, 60, 10))
+        assertTrue(line.isChanged && !line.isSliver)
     }
 
     @Test

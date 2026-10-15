@@ -84,6 +84,10 @@ class AgentCursorAnimatorTest {
         animator.reset(effectSequence = 2)
         animator.update(CursorPoint(0.0, 0.0), keys, 2, nowMillis = 6_000)
         assertNull(assertNotNull(animator.scene(6_000)).badge)
+        // A new capture counts its effects from zero again.
+        animator.reset(effectSequence = 0)
+        animator.update(CursorPoint(0.0, 0.0), keys, 1, nowMillis = 7_000)
+        assertNotNull(assertNotNull(animator.scene(7_000)).badge)
     }
 
     @Test

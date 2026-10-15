@@ -76,7 +76,7 @@ internal class ClipRecorder(private val clock: ClipClock) {
             val signature = working.region(area(last.pixels).scaledInto(scale, working)).motionSignature()
             val sincePrevious = previous?.compare(signature) ?: NoChange
             val sinceKept = kept?.compare(signature) ?: NoChange
-            val dropped = planner.offer(working, elapsed, sincePrevious.inMaster(scale), sinceKept)
+            val dropped = planner.offer(working, elapsed, sincePrevious.inMaster(scale), sinceKept.inMaster(scale))
             if (dropped !== working) kept = signature
             previous = signature
             val isDone = elapsed >= request.maxDurationMillis ||
