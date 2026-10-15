@@ -11,6 +11,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -85,7 +86,13 @@ private fun RetainedDocumentPanel(
     } else {
         0.0
     }
-    val backdrop = if (dismiss != null) HbTheme.colors.scrim else HbTheme.surfaces.assistant
+    // SwingPanel clears the Compose backing under the entire native rectangle. Its masked corners
+    // need the final opaque backdrop: a translucent scrim alone composites over the empty black hole.
+    val backdrop = if (dismiss != null) {
+        HbTheme.colors.scrim.compositeOver(HbTheme.surfaces.assistant)
+    } else {
+        HbTheme.surfaces.assistant
+    }
     val cornerColor = java.awt.Color(backdrop.toArgb(), true)
     SideEffect {
         // Prepare before mounting Swing, whose heavyweight background would otherwise hide this viewport's status.
