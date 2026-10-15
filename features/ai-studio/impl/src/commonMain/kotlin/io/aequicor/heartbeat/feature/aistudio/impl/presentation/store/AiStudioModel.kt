@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.core.statemachine.flowmvi.reflect
 import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
@@ -124,6 +125,7 @@ class AiStudioModel(
     private val host: StudioScreenHost = StudioScreenHost.Window,
     private val embeddedScreens: StudioEmbeds = StudioEmbeds.None,
     private val surfaceBinding: StudioSurfaceBinding = StudioSurfaceBinding(StudioSurfaces.None, backend, scope),
+    facade: EngineFacade? = null,
 ) {
     private val log = Log.tag("AiStudioModel")
     private val inputContexts = StudioInputContexts()
@@ -180,6 +182,7 @@ class AiStudioModel(
             val pipeline = this
             coroutineScope {
                 launch { observeWorkspace(pipeline) }
+                launch { observeEnginePreparation(pipeline, facade) }
                 launch { embeddedScreens.observe(pipeline) }
                 launch {
                     entries.showsAttachments.collect { updateState { copy(isAttachmentsEnabled = it) } }

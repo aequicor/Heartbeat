@@ -13,11 +13,13 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.stor
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardScreenState
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectionRowUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineConnectionsScreenState
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EnginePreparationUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineRowUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.MethodKindUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.MethodRowUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ModelRowUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ModelsPaneUi
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.PreparationPhaseUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.WizardStep
 import kotlinx.collections.immutable.persistentListOf
 import java.io.File
@@ -62,6 +64,18 @@ class ConnectionsSnapshotTest {
             for (isDark in listOf(false, true)) {
                 render("connections", width, isDark) { EngineConnectionsContent(connections, {}, {}, {}) }
                 render("wizard", width, isDark) { ConnectWizardContent(wizard, {}) }
+                render("preparing", width, isDark) {
+                    ConnectWizardContent(
+                        wizard.copy(
+                            isBusy = true,
+                            preparation = EnginePreparationUi(PreparationPhaseUi.Downloading, 42),
+                        ),
+                        {},
+                    )
+                }
+                render("preparation-failed", width, isDark) {
+                    ConnectWizardContent(wizard.copy(preparation = EnginePreparationUi(PreparationPhaseUi.Network)), {})
+                }
             }
         }
     }

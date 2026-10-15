@@ -34,8 +34,13 @@ class EngineConnectionsEffects(private val services: EngineServices, private val
             }
 
             is EngineConnectionsEffect.Execute -> {
-                // A write started by the user completes even if the screen closes meanwhile.
-                withContext(NonCancellable) { execute(effect.operation) }
+                if (effect.operation is ConnectionOperation.RefreshModels) {
+                    // Discovery may prepare a first-use runtime; closing settings must cancel its download.
+                    execute(effect.operation)
+                } else {
+                    // A write started by the user completes even if the screen closes meanwhile.
+                    withContext(NonCancellable) { execute(effect.operation) }
+                }
                 machine.send(EngineConnectionsIntent.Internal.Applied)
             }
         }

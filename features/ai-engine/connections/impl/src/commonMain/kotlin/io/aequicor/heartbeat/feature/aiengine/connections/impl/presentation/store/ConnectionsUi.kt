@@ -39,6 +39,7 @@ data class EngineRowUi(
     val connections: Int,
     val isConnectable: Boolean,
     val isEnabled: Boolean = true,
+    val preparation: EnginePreparationUi? = null,
 )
 
 /** Provider/method row of the wizard's second step. */
@@ -69,6 +70,7 @@ internal fun EngineInfo.toRow(): EngineRowUi = EngineRowUi(
     availability = availability.toUi(),
     connections = bindings.size,
     isConnectable = isConnectable,
+    preparation = preparation.toUi(),
 )
 
 internal fun ConnectionMethod.toRow(): MethodRowUi = MethodRowUi(

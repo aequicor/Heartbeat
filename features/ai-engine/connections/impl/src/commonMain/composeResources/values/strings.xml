@@ -226,4 +226,10 @@
     <string name="engine_launch_add_override">Add override</string>
     <string name="engine_launch_add_variable">Add variable</string>
     <string name="engine_login_code_label">Code from the sign-in page</string>
+    <string name="engine_preparation_download">Downloading engine components…</string>
+    <string name="engine_preparation_install">Preparing engine components…</string>
+    <string name="engine_preparation_network">Could not download engine components. Check your connection and retry the operation.</string>
+    <string name="engine_preparation_storage">Could not save engine components. Check free disk space and retry the operation.</string>
+    <string name="engine_preparation_invalid">Engine components could not be verified. Retry the operation to download them again.</string>
+    <string name="engine_preparation_unavailable">Engine components are unavailable. Retry the operation.</string>
 </resources>
