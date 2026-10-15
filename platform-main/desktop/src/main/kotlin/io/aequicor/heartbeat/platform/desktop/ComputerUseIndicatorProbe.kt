@@ -64,10 +64,7 @@ private fun verifyComputerUseIndicators() {
                 FramePoint(area.width / 2.0, area.height / 2.0),
                 isPointerVisible = true,
             ),
-            Color(colors.computerUsePointer.toArgb(), true),
-            Color(colors.computerUsePointerOutline.toArgb(), true),
-            dimensions.computerUsePointerSize.value.toInt(),
-            dimensions.computerUsePointerStroke.value,
+            agentCursorStyle(colors, dimensions, motion),
         )
         val marker = indicatorWindows("pointer").single()
         pointer.suppress(ComputerUseSuppressionReason.PointerInput).use { check(marker.isVisible) }
