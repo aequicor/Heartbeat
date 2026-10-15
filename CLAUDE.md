@@ -45,7 +45,7 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > движки, объявившие `connectionMethods` (Pi, Koog, Codex, Claude); адаптеры узнают источники привязок через SPI `bind`/`unbind`.
 > Управление движками (тогл `ai.engine_management`, по умолчанию false) — блок выбранного движка в «Модели и движки» поверх
 > `EngineManagement` (`facade:api`): вкл/выкл в профиле поверх флагов разработки, статус и пути, своя проверенная (SHA-256) копия
-> CLI Heartbeat (Codex, Claude; Pi — обновление с откатом на встроенную), вход/выход CLI, параметры запуска, перезапуск рантаймов;
+> CLI Heartbeat (Codex, Claude; Pi — обновление с откатом на закреплённую версию), вход/выход CLI, параметры запуска, перезапуск рантаймов;
 > адаптеры реализуют SPI `EngineManager`, длительные задачи принадлежат профилю.
 > `ai-studio` использует профильный фасад, сохраняет идентичность и историю чатов; принятые ходы принадлежат профилю
 > и переживают закрытие экрана (тогл `ai_studio.engine_runtime`, по умолчанию false — демо-пространство и старт профиля с welcome).
@@ -60,7 +60,9 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > `core:datastore:{api,impl}` (key-value + БД фич, владельцы app/profile, удержание записей),
 > `core:secrets:{api,impl}` (защищённые секреты профиля и ссылки), `core:feature-toggles:{api,impl}` (тоглы, реестр, локальные переопределения, `FeatureToggleControl`).
 > `features:ai-engine:{facade:{api,impl},pi:{api,impl}}` — встроенный движок Pi по умолчанию только на Desktop (Windows/macOS/Linux)
-> (бинарь Pi вшит в дистрибутив задачей `preparePiRuntime`, данные — в каталоге приложения `<app data>/engines/pi`; установщик Windows на Inno Setup (`packageInnoSetup`) при удалении чистит данные пользователя — `platform-main/desktop/packaging/windows/heartbeat.iss`)
+> (бинарь Pi загружается и проверяется по SHA-256 при первом использовании, прогресс и повтор доступны в студии и подключениях;
+> `preparePiRuntime` остаётся для development, данные — в `<app data>/engines/pi`; установщик Windows на Inno Setup
+> (`packageInnoSetup`) при удалении чистит данные пользователя — `platform-main/desktop/packaging/windows/heartbeat.iss`)
 > за тоглами `ai.engines` + `ai.pi` (вендорные ключи и OpenAI-/Anthropic-совместимые серверы — `CompatibleProtocol` в `facade:api`).
 > Обычные ходы студии задают доверенный `AgentToolDecisionMode.AutomaticSafety`: нативные вызовы и поддержанные
 > изменяющие hosted tools проходят независимую проверку без ручных разрешений. Непроверенные действия отклоняются;
@@ -122,7 +124,10 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > Оба дополнительных флага выключены по умолчанию. Desktop-вкладки разделяют постоянное Chromium-хранилище своего
 > профиля (cookies, localStorage, IndexedDB); очистка браузера и удаление профиля закрывают вкладки до удаления данных.
 > Согласованные Java/JNI-артефакты для Windows/macOS x64/ARM64 и Linux x64 собираются из `native/jcef` локально или в CI (`jcef-runtime.yml`, вручную), проверяются
-> по SHA-256 (`heartbeat.jcef`, `verifyBrowserRuntime`) и входят в дистрибутив. Нативные проверки с настоящим Chromium —
+> по SHA-256 (`heartbeat.jcef`, `verifyBrowserRuntime`). В релизе Java-мост входит в дистрибутив, а нативный Chromium
+> скачивается при первом открытии браузера или web-документа: версия и SHA-256 закреплены в `native/jcef/source-lock.json`.
+> UI показывает прогресс и позволяет повторить попытку; установленный runtime повторно используется без сети.
+> Development и нативные тесты продолжают использовать архив из classpath. Нативные проверки с настоящим Chromium —
 > отдельные задачи `browserNativeTest`, `browserComposeNativeTest`, `browserViewportNativeTest`, `browserRecoveryNativeTest`, `browserDocumentNativeTest` (нужен рабочий стол, вне `check`); Linux-этап релиза запускает `browserNativeTest` и `browserDocumentNativeTest` под Xvfb. Восстановление источника запускается только кнопкой пользователя и использует тот же профиль.
 > Сервисный контракт `BrowserDocuments` (`browser:api`) — изолированные локальные HTML-документы, которые фича рисует
 > в своём экране маршрутом `BrowserDocumentRoute`: только Desktop, свой origin и контекст в памяти на документ, CSP без
@@ -134,7 +139,8 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > только Desktop Windows/macOS/Linux). Транспорт — Native Messaging: браузер запускает лаунчер Heartbeat с `--heartbeat-chromium-host`,
 > хост ретранслирует кадры (JSON с 4-байтовым LE-префиксом, протокол v1) в Unix-сокет профиля; приложение принимает только
 > origin своего расширения (ID закреплён ключом в `manifest.json`). Раздел настроек «Браузер Chrome» регистрирует хост
-> в Chrome/Edge/Brave/Chromium/Vivaldi и показывает папку расширения (входит в ресурсы дистрибутива, `collectAppResources`).
+> в Chrome/Edge/Brave/Chromium/Vivaldi; показ папки впервые загружает закреплённый ZIP расширения с прогрессом и повтором.
+> `packageChromiumExtension` готовит отдельный release asset, `collectAppResources` включает только его SHA-256 и URL.
 > Side panel — общий Compose-экран студии через `StudioRemoteScreens` (`ai-studio:api`, `studio.watch/intent/attachPage`).
 > `features:{ai-studio,questionnaire,checklist}:{screen-model,screen-ui}` содержат общие модели и UI для desktop/Wasm;
 > native хранит отдельный безголовый стор и машину, панель зеркалит кадры и нумерует интенты. Новая generation
@@ -149,8 +155,9 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > документы вне публичного веба — по одобрению; отзыв — «Забрать все» в панели, настройки, плашка Chrome, выключение тогла.
 > `features:plant-uml-support:{api,impl}` — диаграммы PlantUML в markdown чатов и кодинг-сессий (тогл `plantuml.enabled`,
 > по умолчанию false): закрытый fence `plantuml`/`puml` ДС делает строкой `Diagram` и рисует через SPI `HbDiagramRenderer`;
-> только Desktop — встроенный `plantuml-mit` в отдельном процессе-воркере (свой малый heap, убивается по таймауту; SANDBOX,
-> Smetana, без сети), тема из токенов, ошибка — строка и исходник, клик — полный размер; на Android/iOS fence остаётся кодом.
+> только Desktop — закреплённый `plantuml-mit` загружается при первом рендере и проверяется по SHA-256;
+> отдельный процесс-воркер рисует локально (свой малый heap, убивается по таймауту; SANDBOX, Smetana, без сети),
+> тема из токенов, ошибка — строка и исходник, клик — полный размер; на Android/iOS fence остаётся кодом.
 > Chromium-панель получает PNG через `diagram.render` (тот же локальный рендерер и флаг); клик открывает активную
 > вкладку расширения с масштабированием. При ошибке открытия остаётся общий просмотрщик панели.
 > `features:scheduler:{api,impl}` — сон и пробуждение сессий (тогл `scheduler.enabled`, по умолчанию false): агент

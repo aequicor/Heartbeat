@@ -25,8 +25,10 @@ public sealed interface ChromiumBridgeState : MachineState {
         public val registering: ChromiumBrowser? = null,
         /** `chromium_bridge.agent_control`: agents may drive external browsers. */
         public val isAgentControlEnabled: Boolean = false,
-        /** Folder of the extension to load unpacked, when this build ships or sits next to one. */
+        /** Verified extension folder to load unpacked, or the development checkout. */
         public val extensionFolder: String? = null,
+        /** First-use preparation, started only by an explicit reveal request. */
+        public val extensionPreparation: ExtensionPreparation = ExtensionPreparation.Idle,
     ) : ChromiumBridgeState
 }
 
@@ -87,7 +89,7 @@ public sealed interface ChromiumBridgeIntent : MachineIntent {
         /** Takes every tab agents drive in external browsers back from them. */
         public data object RevokeTabs : Public
 
-        /** Shows the extension folder in the system file manager. */
+        /** Prepares the pinned extension if needed, then shows its folder in the system file manager. */
         public data object RevealExtension : Public
     }
 
@@ -124,6 +126,15 @@ public sealed interface ChromiumBridgeIntent : MachineIntent {
         /** The extension folder was looked up; `null` when this build has none. */
         public data class ExtensionLocated(public val folder: String?) : Internal
 
+        /** Download or extraction progress of the explicitly requested extension. */
+        public data class ExtensionProgress(public val preparation: ExtensionPreparation) : Internal
+
+        /** Preparation succeeded; the folder can now be revealed. */
+        public data class ExtensionPrepared(public val folder: String) : Internal
+
+        /** Preparation failed; another reveal request retries it. */
+        public data object ExtensionFailed : Internal
+
         /** An effect without a dedicated failure intent failed; the runtime logged it. */
         public data object EffectFailed : Internal
     }
@@ -148,6 +159,9 @@ public sealed interface ChromiumBridgeEffect : MachineEffect {
 
     /** Looks up the extension folder of this build. */
     public data object LocateExtension : ChromiumBridgeEffect
+
+    /** Downloads and safely extracts this build's pinned extension, reporting progress. */
+    public data object PrepareExtension : ChromiumBridgeEffect
 
     /** Opens [folder] in the system file manager. */
     public data class RevealExtension(public val folder: String) : ChromiumBridgeEffect

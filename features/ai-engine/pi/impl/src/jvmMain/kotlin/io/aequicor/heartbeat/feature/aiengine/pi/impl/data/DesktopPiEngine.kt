@@ -61,11 +61,20 @@ internal class DesktopPiEngine(
     private val mutex = Mutex()
     private val runtimes = mutableMapOf<AuthSourceId, PiRuntime>()
 
+    override val preparation = processes.preparation
+
+    override suspend fun prepareRuntime() {
+        ensureEnabled()
+        processes.prepare()
+    }
+
     override suspend fun checkRequirements(): EngineAvailability = withContext(dispatchers.io) {
         log.d { "Checking Pi installation" }
         if (piReleaseTarget() == null) {
             EngineAvailability.UnsupportedPlatform
-        } else if (processes.executable()?.let { Files.isRegularFile(it) && Files.isExecutable(it) } == true) {
+        } else if (processes.executable()?.let { Files.isRegularFile(it) && Files.isExecutable(it) } == true ||
+            processes.canPrepare()
+        ) {
             EngineAvailability.Available
         } else {
             EngineAvailability.Unavailable(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))

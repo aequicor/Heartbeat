@@ -35,6 +35,13 @@ internal class ChromiumBridgeEffects(
             ChromiumBridgeEffect.LocateExtension ->
                 machine.send(ChromiumBridgeIntent.Internal.ExtensionLocated(extension.value.locate()))
 
+            ChromiumBridgeEffect.PrepareExtension -> {
+                val folder = extension.value.prepare {
+                    machine.send(ChromiumBridgeIntent.Internal.ExtensionProgress(it))
+                }
+                machine.send(ChromiumBridgeIntent.Internal.ExtensionPrepared(folder))
+            }
+
             is ChromiumBridgeEffect.RevealExtension -> extension.value.reveal(effect.folder)
 
             ChromiumBridgeEffect.RevokeTabs -> {

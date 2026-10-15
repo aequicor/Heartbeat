@@ -2,7 +2,6 @@ package io.aequicor.heartbeat.feature.browser.impl.presentation
 
 import com.sun.net.httpserver.HttpServer
 import io.aequicor.heartbeat.core.common.DispatcherProvider
-import io.aequicor.heartbeat.core.datastore.StorageRoot
 import io.aequicor.heartbeat.feature.browser.api.BrowserBridgeResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocument
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentHandle
@@ -10,6 +9,7 @@ import io.aequicor.heartbeat.feature.browser.impl.data.DefaultBrowserUrlResolver
 import io.aequicor.heartbeat.feature.browser.impl.data.DesktopBrowserProfiles
 import io.aequicor.heartbeat.feature.browser.impl.data.DesktopDefaultBrowserResources
 import io.aequicor.heartbeat.feature.browser.impl.data.ProfileBrowserDocuments
+import io.aequicor.heartbeat.feature.browser.impl.data.bundledBrowserRuntimeInstaller
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -379,7 +379,7 @@ class DesktopDocumentNativeTest {
     private fun nativeResources(handle: BrowserTestScope): DesktopDefaultBrowserResources {
         val cache = Files.createTempDirectory("heartbeat-jcef-document-test")
         return DesktopDefaultBrowserResources(
-            StorageRoot { cache.toString() },
+            bundledBrowserRuntimeInstaller(cache, nativeDispatchers()),
             nativeDispatchers(),
             DesktopBrowserProfiles(handle, nativeDispatchers(), lazy { BrowserNativeTestStores(cache) }),
             handle,

@@ -54,7 +54,10 @@ class PiStartupTest {
         )
         assertEquals(InstallSource.Bundled, resolvePiStartup(launch, bundled, "0.9.0").source)
         assertEquals(InstallSource.Managed, resolvePiStartup(launch, bundled, "0.8.0").source)
-        assertEquals(InstallSource.Managed, resolvePiStartup(launch, null, "0.10.0").source)
+        assertEquals(null to InstallSource.Bundled, resolvePiStartup(launch, null, "0.10.0").pair())
+        assertEquals(null to InstallSource.Bundled, resolvePiStartup(launch, null, "0.9.0").pair())
+        assertEquals(InstallSource.Managed, resolvePiStartup(launch, null, "0.8.0").source)
+        assertEquals(InstallSource.Managed, resolvePiStartup(launch, null).source)
     }
 
     @Test
@@ -67,6 +70,11 @@ class PiStartupTest {
             resolvePiStartup(LaunchContext(managed = managed), bundled).pair(),
         )
         assertEquals(bundled to InstallSource.Bundled, resolvePiStartup(LaunchContext(), bundled).pair())
+        assertEquals(null to InstallSource.Bundled, resolvePiStartup(LaunchContext(), null, "1.0.0").pair())
+        assertEquals(
+            Path.of("/custom/pi") to InstallSource.Custom,
+            resolvePiStartup(custom, null, "2.0.0").pair(),
+        )
         assertEquals(null to InstallSource.Missing, resolvePiStartup(LaunchContext(), null).pair())
         val unnamed = LaunchContext(LaunchSettings(executable = "C:\\pi\u0000.exe"))
         assertEquals(null to InstallSource.Custom, resolvePiStartup(unnamed, bundled).pair())

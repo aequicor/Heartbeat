@@ -86,6 +86,43 @@ class RuntimePoolTest {
 
         assertSame(pool.runtime(route(key)), pool.runtime(route(key)))
         assertEquals(1, runtimes.size)
+        assertEquals(1, factory.preparations)
+    }
+
+    @Test
+    fun `cancelling preparation does not create a native runtime and the operation can retry`() = runTest {
+        val pool = pool()
+        val gate = CompletableDeferred<Unit>()
+        factory.prepare = { gate.await() }
+        val first = launch { pool.runtime(route(managedKey())) }
+        runCurrent()
+        assertEquals(1, factory.preparations)
+
+        first.cancel()
+        first.join()
+        assertTrue(factory.createdRuntimes.isEmpty())
+        assertTrue(pool.entries.value.isEmpty())
+
+        gate.complete(Unit)
+        pool.runtime(route(managedKey()))
+        assertEquals(2, factory.preparations)
+        assertEquals(1, runtimes.size)
+    }
+
+    @Test
+    fun `failed preparation keeps the pool empty until explicit retry`() = runTest {
+        val pool = pool()
+        factory.prepare = { throw EngineException(OperationNotAllowed) }
+        assertEquals(
+            OperationNotAllowed,
+            assertFailsWith<EngineException> { pool.runtime(route(managedKey())) }.failure,
+        )
+        assertTrue(factory.createdRuntimes.isEmpty())
+
+        factory.prepare = {}
+        pool.runtime(route(managedKey()))
+        assertEquals(2, factory.preparations)
+        assertEquals(1, runtimes.size)
     }
 
     @Test

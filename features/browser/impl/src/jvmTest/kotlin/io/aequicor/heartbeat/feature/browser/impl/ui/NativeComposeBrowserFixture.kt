@@ -2,10 +2,10 @@ package io.aequicor.heartbeat.feature.browser.impl.ui
 
 import com.sun.net.httpserver.HttpServer
 import io.aequicor.heartbeat.core.common.DispatcherProvider
-import io.aequicor.heartbeat.core.datastore.StorageRoot
 import io.aequicor.heartbeat.feature.browser.impl.data.DefaultBrowserUrlResolver
 import io.aequicor.heartbeat.feature.browser.impl.data.DesktopBrowserProfiles
 import io.aequicor.heartbeat.feature.browser.impl.data.DesktopDefaultBrowserResources
+import io.aequicor.heartbeat.feature.browser.impl.data.bundledBrowserRuntimeInstaller
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserNativeTestStores
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserSurface
@@ -77,7 +77,7 @@ internal class NativeComposeBrowserFixture(isViewportProbe: Boolean = false, isA
         var started: HttpServer? = null
         try {
             resources = DesktopDefaultBrowserResources(
-                StorageRoot { cache.toString() },
+                bundledBrowserRuntimeInstaller(cache, dispatchers),
                 dispatchers,
                 DesktopBrowserProfiles(handle, dispatchers, lazy { BrowserNativeTestStores(cache) }),
                 handle,

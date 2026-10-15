@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.feature.harness.impl.data.script
 
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.harness.impl.data.script.worker.JavaHarnessCompilerLauncher
+import io.aequicor.heartbeat.feature.harness.impl.data.script.worker.verifiedCompilerFiles
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessScriptHost
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -31,8 +33,14 @@ public object HarnessHostProbe {
      * timeout is a failure, but never shortens this resource barrier. Errors contain no source or filesystem paths.
      */
     @JvmStatic
-    public fun run(cacheDirectory: String, appVersion: String): CompletionStage<String> {
-        val workers = HarnessProbeWorkers()
+    public fun run(cacheDirectory: String, appVersion: String): CompletionStage<String> =
+        run(cacheDirectory, appVersion, emptyArray())
+
+    /** A thin release image supplies the exact pinned compiler files without requiring network in the probe. */
+    @JvmStatic
+    public fun run(cacheDirectory: String, appVersion: String, compilerFiles: Array<String>): CompletionStage<String> {
+        val files = if (compilerFiles.isEmpty()) emptyList() else verifiedCompilerFiles(compilerFiles.toList())
+        val workers = HarnessProbeWorkers(JavaHarnessCompilerLauncher(runtimeFiles = files))
         return runHarnessProbe(cacheDirectory, appVersion, workers) { directory, version, scope, dispatchers ->
             val compiler = ProcessHarnessCompiler(scope, dispatchers.io, dispatchers.default, workers)
             JvmHarnessScriptHost(directory, version, scope, dispatchers, compiler)

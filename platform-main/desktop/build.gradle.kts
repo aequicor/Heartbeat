@@ -1,10 +1,15 @@
+import io.aequicor.heartbeat.buildlogic.CompressReleaseDmg
+import io.aequicor.heartbeat.buildlogic.HarnessProbeArguments
 import io.aequicor.heartbeat.buildlogic.PackageInnoSetup
 import io.aequicor.heartbeat.buildlogic.PreparePiRuntime
+import io.aequicor.heartbeat.buildlogic.PrepareReleaseRuntimeJars
 import io.aequicor.heartbeat.buildlogic.VerifyChromiumPanelArtifact
+import io.aequicor.heartbeat.buildlogic.WriteComponentMetadata
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
-import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
 import org.jetbrains.compose.desktop.application.tasks.AbstractCheckNativeDistributionRuntime
+import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
 import org.jetbrains.compose.desktop.application.tasks.AbstractJvmToolOperationTask
+import org.jetbrains.compose.desktop.application.tasks.AbstractProguardTask
 import org.jetbrains.compose.reload.gradle.ComposeHotRun
 import java.time.Duration
 
@@ -79,11 +84,14 @@ val piArch = when (piArchName.lowercase()) {
 }
 val piTarget = if (piOs != null && piArch != null) "$piOs-$piArch" else null
 
-// One bundled native archive per host distribution; the browser never downloads a runtime at launch.
+// Development uses the host archive; release staging retains bridge classes and defers Chromium installation.
 heartbeatJcef.nativeBundle?.let { dependencies { runtimeOnly(it) } }
 // Module roots that keep the pinned API/native pair ahead of JBR's own jcef module, see heartbeat.jcef.
 val jcefJvmArgs = heartbeatJcef.jvmArguments
-// Packaging checks the JCEF jars this application actually ships, not another module's test classpath.
+// K2 compiles scripts without javac or dynamic JVM attachment. Excluding these tools also omits ct.sym.
+// The packaged harness probe exercises compilation and evaluation against this exact smaller runtime.
+val packagedJdkModules = heartbeatJcef.jdkModules.filterNot { it == "jdk.compiler" || it == "jdk.attach" }
+// Verify the pinned inputs before release staging removes the native archive.
 val verifyBrowserRuntime = heartbeatJcef.registerRuntimeVerification("runtimeClasspath")
 val verifyWindowRuntime = tasks.register<JavaExec>("verifyWindowRuntime") {
     group = "verification"
@@ -111,11 +119,24 @@ val preparePiRuntime = piTarget?.let { target ->
     }
 }
 
-// A plain IDE main() launch builds classes only; preparing Pi here lets that launch find it (see Main.kt).
-preparePiRuntime?.let { task -> tasks.named("processResources") { dependsOn(task) } }
+// First-use installation uses the same reviewed publisher pin as the optional development archive.
+piTarget?.let { target ->
+    val piAsset = "pi-$target." + if (piOs == "windows") "zip" else "tar.gz"
+    val piMetadata = tasks.register<WriteProperties>("preparePiMetadata") {
+        destinationFile.set(layout.buildDirectory.file("generated/piMetadata/runtime.properties"))
+        property("version", libs.versions.pi.get())
+        property("target", target)
+        property("asset", piAsset)
+        property("sha256", piChecksums.getValue(target))
+        property("url", "https://github.com/earendil-works/pi/releases/download/v${libs.versions.pi.get()}/$piAsset")
+    }
+    tasks.named<ProcessResources>("processResources") {
+        from(piMetadata) { into("pi") }
+    }
+}
 
-// App resources of the distribution: the Pi runtime and the Chromium extension folder that settings offer for
-// "Load unpacked". Runs from a checkout use the repository's extension folder instead (DesktopExtensionFolder).
+// The optional extension is a separate release asset; only its pinned metadata enters the installer.
+// Runs from a checkout use the repository's extension folder instead (DesktopExtensionFolder).
 // CI passes the artifact exported by prepareChromiumPanelArtifact from this release's Linux build.
 // Without the property, local packaging continues to build the panel from the checkout.
 val prebuiltChromiumPanel = providers.gradleProperty("heartbeat.chromiumPanelDir").orNull?.let { path ->
@@ -131,24 +152,47 @@ val verifyChromiumPanelArtifact = if (prebuiltChromiumPanel != null) {
 } else {
     null
 }
-val collectAppResources = tasks.register<Sync>("collectAppResources") {
+val collectExtensionResources = tasks.register<Sync>("collectExtensionResources") {
     if (verifyChromiumPanelArtifact != null) {
         dependsOn(verifyChromiumPanelArtifact)
         from(verifyChromiumPanelArtifact.flatMap { it.panelDirectory }) {
-            into("common/chromium-plugin/app")
+            into("app")
             exclude("SHA256SUMS")
         }
     } else {
         dependsOn(":chromium-plugin:panel:syncChromiumPanel")
     }
-    preparePiRuntime?.let { task -> from(task.flatMap { it.outputDirectory }) }
     from(layout.settingsDirectory.dir("chromium-plugin")) {
-        into("common/chromium-plugin")
         // Tests, editor typings, a private signing key and the Kotlin sources of the side panel (built into app/)
         // are not part of the extension.
-        exclude("tests/**", "jsconfig.json", "src/types/**", "*.pem", "panel/**")
+        exclude("tests/**", "jsconfig.json", "src/types/**", "*.pem", "panel/**", "**/*.map")
         if (prebuiltChromiumPanel != null) exclude("app/**")
     }
+    exclude("**/*.map")
+    into(layout.buildDirectory.dir("generated/chromiumExtension"))
+}
+// Every platform imports the same Wasm panel and produces the same ZIP, recorded in its installer metadata.
+val packageChromiumExtension = tasks.register<Zip>("packageChromiumExtension") {
+    group = "distribution"
+    description = "Packages the optional Chromium extension for publication with the desktop release."
+    from(collectExtensionResources)
+    archiveFileName.set("Heartbeat-$heartbeatApplicationVersion-chromium-extension.zip")
+    destinationDirectory.set(layout.buildDirectory.dir("release-components"))
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+}
+val prepareExtensionMetadata = tasks.register<WriteComponentMetadata>("prepareExtensionMetadata") {
+    artifact.set(packageChromiumExtension.flatMap { it.archiveFile })
+    version.set(heartbeatApplicationVersion)
+    downloadUrl.set(
+        "https://github.com/$heartbeatUpdateRepository/releases/download/v$heartbeatApplicationVersion/" +
+            "Heartbeat-$heartbeatApplicationVersion-chromium-extension.zip",
+    )
+    outputFile.set(layout.buildDirectory.file("generated/extensionMetadata/chromium-extension.properties"))
+}
+val collectAppResources = tasks.register<Sync>("collectAppResources") {
+    from(prepareExtensionMetadata) { into("common") }
+    from(layout.projectDirectory.file("pi/LICENSE")) { into("common/licenses/pi") }
     into(layout.buildDirectory.dir("generated/appResources"))
 }
 
@@ -170,7 +214,7 @@ compose.desktop {
             // jdk.unsupported: DataStore's protobuf accesses sun.misc.Unsafe; jdk.httpserver: the loopback search bridge;
             // java.prefs and java.scripting: the PlantUML engine of the diagram worker process. Its launcher passes
             // the app's JVM options to that worker, which refuses to draw with an -Xmx above its own cap.
-            modules(*heartbeatJcef.jdkModules.toTypedArray())
+            modules(*packagedJdkModules.toTypedArray())
             modules(
                 "java.instrument",
                 "java.compiler",
@@ -178,7 +222,6 @@ compose.desktop {
                 "java.prefs",
                 "java.scripting",
                 "jdk.httpserver",
-                "jdk.compiler",
                 "jdk.unsupported",
             )
             // The installed app's name: Heartbeat.app on macOS, Heartbeat.exe on Windows (heartbeat.iss cleans up the
@@ -221,6 +264,26 @@ tasks.withType<ComposeHotRun>().configureEach {
 // The default Compose build is development; release tasks retain the protected MainKt entry point.
 // Configure after Compose has registered and initialized its tasks, without an environment/property escape hatch.
 afterEvaluate {
+    val releaseJars = tasks.named<AbstractProguardTask>("proguardReleaseJars")
+    val prepareReleaseRuntimeJars = tasks.register<PrepareReleaseRuntimeJars>("prepareReleaseRuntimeJars") {
+        group = "compose desktop"
+        description = "Removes native libraries for other hosts from release jars before packaging."
+        inputDirectory.set(releaseJars.flatMap { it.destinationDir })
+        outputDirectory.set(layout.buildDirectory.dir("compose/tmp/host-release-jars"))
+        targetOs.set(if (piOs == "darwin") "macos" else piOs.orEmpty())
+        targetArch.set(piArch.orEmpty())
+        deferredJcefPlatform.set(heartbeatJcef.hostPlatform.orEmpty())
+        deferredJarPrefixes.set(
+            listOf(
+                "kotlin-compiler-embeddable",
+                "kotlin-scripting-compiler-embeddable",
+                "kotlin-scripting-compiler-impl-embeddable",
+                "kotlin-daemon-embeddable",
+                "kotlin-build-tools-api",
+                "kotlin-scripting-jvm-host",
+            ).map { "$it-${libs.versions.kotlin.get()}-" } + "plantuml-mit-${libs.versions.plantuml.get()}-",
+        )
+    }
     val releaseImage = tasks.named<AbstractJPackageTask>("createReleaseDistributable")
     tasks.register<Exec>("verifyReleaseHarnessCompiler") {
         group = "verification"
@@ -236,7 +299,19 @@ afterEvaluate {
             })
         }
         executable(launcher.get().asFile)
-        args("--heartbeat-harness-probe")
+        argumentProviders.add(objects.newInstance<HarnessProbeArguments>().apply {
+            fileNames.set(
+                listOf(
+                    "kotlin-compiler-embeddable",
+                    "kotlin-scripting-compiler-embeddable",
+                    "kotlin-scripting-compiler-impl-embeddable",
+                    "kotlin-daemon-embeddable",
+                    "kotlin-build-tools-api",
+                    "kotlin-scripting-jvm-host",
+                ).map { "$it-${libs.versions.kotlin.get()}.jar" },
+            )
+            compilerFiles.from(configurations.runtimeClasspath)
+        })
         timeout.set(Duration.ofMinutes(5))
     }
     tasks.withType<AbstractJvmToolOperationTask>().configureEach {
@@ -246,6 +321,16 @@ afterEvaluate {
         jdkHome.set(desktopJavaHome)
     }
     tasks.withType<AbstractJPackageTask>().configureEach {
+        if (targetFormat == TargetFormat.Dmg && name.contains("Release")) {
+            doLast(objects.newInstance<CompressReleaseDmg>().apply { imageDirectory.set(destinationDir) })
+        }
+        launcherJvmArgs.set(launcherJvmArgs.get().map { argument ->
+            if (argument.startsWith("--limit-modules=")) {
+                "--limit-modules=${packagedJdkModules.joinToString(",")}"
+            } else {
+                argument
+            }
+        })
         dependsOn(verifyWindowRuntime)
         dependsOn(verifyBrowserRuntime)
         if (targetFormat == TargetFormat.Deb) {
@@ -281,6 +366,13 @@ afterEvaluate {
         if (!name.contains("Release")) {
             launcherMainClass.set("io.aequicor.heartbeat.platform.desktop.DevelopmentMainKt")
         } else {
+            // Stage the ProGuard output separately: development and verified upstream JCEF jars stay intact.
+            // Compose still extracts and signs the host's Skiko dylib from the filtered jar on macOS.
+            dependsOn(prepareReleaseRuntimeJars)
+            files.setFrom(fileTree(prepareReleaseRuntimeJars.flatMap { it.outputDirectory }))
+            launcherMainJar.set(prepareReleaseRuntimeJars.flatMap { prepared ->
+                releaseJars.flatMap { original -> prepared.outputDirectory.file(original.mainJar.get().asFile.name) }
+            })
             // Only the release launcher names the update source: development launches never replace themselves.
             launcherJvmArgs.add("-Dheartbeat.app.update.repository=$heartbeatUpdateRepository")
         }
@@ -324,28 +416,6 @@ if (piOs == "windows" && innoSetupArchitecture != null) {
                 outputDirectory.set(layout.buildDirectory.dir("compose/binaries/$outputName/exe"))
             }
             tasks.named("package${buildType}DistributionForCurrentOS") { dependsOn(installer) }
-        }
-    }
-}
-
-// Compose copies app resources without their executable bits. Repair the app image before installers consume it.
-// Keep the installation read-only at runtime: changing a bundled executable after installation is unnecessary.
-if (piTarget != null && piOs != "windows") {
-    tasks.withType<AbstractJPackageTask>().configureEach {
-        if (targetFormat == TargetFormat.AppImage) {
-            val isMacBundle = piOs == "darwin"
-            doLast {
-                val imageTask = this as AbstractJPackageTask
-                val resources = if (isMacBundle) {
-                    "${imageTask.packageName.get()}.app/Contents/app/resources"
-                } else {
-                    "${imageTask.packageName.get()}/lib/app/resources"
-                }
-                val executable = imageTask.destinationDir.get().file("$resources/pi/pi").asFile
-                check(executable.isFile && executable.setExecutable(true, false)) {
-                    "Cannot mark packaged Pi executable: $executable"
-                }
-            }
         }
     }
 }

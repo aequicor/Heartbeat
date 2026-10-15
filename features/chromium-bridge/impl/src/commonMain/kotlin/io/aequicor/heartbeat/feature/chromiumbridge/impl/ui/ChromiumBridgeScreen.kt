@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbPaneHeader
+import io.aequicor.heartbeat.ds.components.HbProgressBar
 import io.aequicor.heartbeat.ds.components.HbSettingsRow
 import io.aequicor.heartbeat.ds.components.HbSettingsSection
 import io.aequicor.heartbeat.ds.components.HbTone
@@ -37,6 +38,7 @@ import io.aequicor.heartbeat.feature.chromiumbridge.impl.presentation.ChromiumBr
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.presentation.ChromiumBridgeScreenIntent
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.presentation.ChromiumBridgeScreenState
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.presentation.ConnectionRow
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.presentation.ExtensionPreparationPhase
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.presentation.FailureUi
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.presentation.RegistrationError
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.presentation.RegistrationUi
@@ -56,10 +58,15 @@ import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_brid
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_controlled_tabs_count
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_disabled
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_dismiss
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_extension_download
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_extension_downloading
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_extension_extracting
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_extension_failed
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_extension_folder
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_extension_folder_missing
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_extension_hint
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_extension_id
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_extension_retry
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_failure
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_failure_launcher
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.resources.chromium_bridge_failure_platform
@@ -282,17 +289,40 @@ private fun ExtensionSection(state: ChromiumBridgeScreenState, onIntent: (Chromi
         HbSettingsRow(
             stringResource(Res.string.chromium_bridge_extension_folder),
             Modifier.fillMaxWidth().testTag("chromium-bridge-extension-folder"),
-            description = state.extensionFolder ?: stringResource(Res.string.chromium_bridge_extension_folder_missing),
+            description = when (state.extensionPreparation.phase) {
+                ExtensionPreparationPhase.Downloading -> stringResource(
+                    Res.string.chromium_bridge_extension_downloading,
+                )
+
+                ExtensionPreparationPhase.Extracting -> stringResource(Res.string.chromium_bridge_extension_extracting)
+
+                ExtensionPreparationPhase.Failed -> stringResource(Res.string.chromium_bridge_extension_failed)
+
+                ExtensionPreparationPhase.Idle ->
+                    state.extensionFolder
+                        ?: stringResource(Res.string.chromium_bridge_extension_folder_missing)
+            },
         ) {
             HbButton(
-                stringResource(Res.string.chromium_bridge_reveal),
+                stringResource(
+                    when {
+                        state.extensionPreparation.phase == ExtensionPreparationPhase.Failed ->
+                            Res.string.chromium_bridge_extension_retry
+
+                        state.extensionFolder == null -> Res.string.chromium_bridge_extension_download
+
+                        else -> Res.string.chromium_bridge_reveal
+                    },
+                ),
                 { onIntent(ChromiumBridgeScreenIntent.RevealExtension) },
                 Modifier.testTag("chromium-bridge-reveal"),
                 style = HbButtonStyle.Secondary,
-                enabled = state.extensionFolder != null,
+                enabled = state.extensionPreparation.phase != ExtensionPreparationPhase.Downloading &&
+                    state.extensionPreparation.phase != ExtensionPreparationPhase.Extracting,
                 size = HbButtonSize.Small,
             )
         }
+        state.extensionPreparation.percent?.let { HbProgressBar(it / 100f, Modifier.fillMaxWidth()) }
         HbSettingsRow(
             stringResource(Res.string.chromium_bridge_extension_id),
             Modifier.fillMaxWidth().testTag("chromium-bridge-extension-id"),

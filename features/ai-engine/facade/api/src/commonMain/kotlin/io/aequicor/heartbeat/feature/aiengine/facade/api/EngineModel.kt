@@ -56,7 +56,7 @@ public sealed interface EngineAvailability {
     @Serializable
     public data object Unknown : EngineAvailability
 
-    /** Installation requirements are met. */
+    /** Host requirements are met; optional runtime preparation may still be needed on first use. */
     @Serializable
     public data object Available : EngineAvailability
 
@@ -89,6 +89,7 @@ public data class EngineInfo(
     val availability: EngineAvailability,
     val bindings: List<EngineBinding>,
     val observation: Observation = Observation(),
+    val preparation: EnginePreparation = EnginePreparation.Ready,
 )
 
 /** A model is resolved only within this exact engine and binding. No implicit credential fallback is permitted. */

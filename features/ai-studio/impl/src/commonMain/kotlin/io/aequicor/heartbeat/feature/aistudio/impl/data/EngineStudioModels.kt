@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -28,30 +29,34 @@ import kotlinx.coroutines.flow.map
 internal fun EngineFacade.observeStudioModels(
     selections: ModelSelections,
     sources: AuthSources,
-): Flow<List<StudioModel>> =
-    combine(selections.observe(), bindings.state, engines.state, sources.state) { selected, bindings, engines, auth ->
-        selected.bindings.mapNotNull { enabled ->
-            val binding = bindings.firstOrNull { it.id == enabled.binding && it.isEnabled } ?: return@mapNotNull null
-            val engine = engines.firstOrNull { it.descriptor.id == binding.engine } ?: return@mapNotNull null
-            val label = auth.firstOrNull { it.info.id == binding.authSource }?.info?.label.orEmpty()
-            models.observe(binding.engine, binding.id).filter { it.isLoaded }.map { snapshot ->
-                enabled.models.map { model ->
-                    val target = EngineTarget(binding.engine, binding.id, model)
-                    studioModel(
-                        target,
-                        snapshot.models.firstOrNull { it.target == target },
-                        engine.descriptor.title,
-                        label,
-                        engine.descriptor.isLocalWorkspaceSupported,
-                        isTrustSupported = AppliesTrustLevels.id in engine.descriptor.declaredFeatures,
-                        isModelSwitchSupported = engine.descriptor.declaredFeatures.supportsStudioModelSwitch(),
-                    )
-                }
+): Flow<List<StudioModel>> = combine(
+    selections.observe(),
+    bindings.state,
+    engines.state.map { engines -> engines.map { it.descriptor } }.distinctUntilChanged(),
+    sources.state,
+) { selected, bindings, engines, auth ->
+    selected.bindings.mapNotNull { enabled ->
+        val binding = bindings.firstOrNull { it.id == enabled.binding && it.isEnabled } ?: return@mapNotNull null
+        val engine = engines.firstOrNull { it.id == binding.engine } ?: return@mapNotNull null
+        val label = auth.firstOrNull { it.info.id == binding.authSource }?.info?.label.orEmpty()
+        models.observe(binding.engine, binding.id).filter { it.isLoaded }.map { snapshot ->
+            enabled.models.map { model ->
+                val target = EngineTarget(binding.engine, binding.id, model)
+                studioModel(
+                    target,
+                    snapshot.models.firstOrNull { it.target == target },
+                    engine.title,
+                    label,
+                    engine.isLocalWorkspaceSupported,
+                    isTrustSupported = AppliesTrustLevels.id in engine.declaredFeatures,
+                    isModelSwitchSupported = engine.declaredFeatures.supportsStudioModelSwitch(),
+                )
             }
         }
-    }.flatMapLatest { observations ->
-        if (observations.isEmpty()) flowOf(emptyList()) else combine(observations) { it.flatMap { models -> models } }
     }
+}.flatMapLatest { observations ->
+    if (observations.isEmpty()) flowOf(emptyList()) else combine(observations) { it.flatMap { models -> models } }
+}
 
 /** Both native configuration changes and the legacy model setter can keep a conversation on its binding. */
 internal fun Set<EngineFeatureId>.supportsStudioModelSwitch(): Boolean =

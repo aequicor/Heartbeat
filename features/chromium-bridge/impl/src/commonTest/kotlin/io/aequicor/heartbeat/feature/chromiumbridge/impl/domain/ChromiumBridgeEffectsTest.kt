@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeEffect
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeIntent
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBrowser
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ConnectedBrowser
+import io.aequicor.heartbeat.feature.chromiumbridge.api.ExtensionPreparation
 import io.aequicor.heartbeat.feature.chromiumbridge.api.HostRegistration
 import io.aequicor.heartbeat.feature.chromiumbridge.api.HostRegistrationFailure
 import kotlinx.coroutines.flow.Flow
@@ -25,6 +26,12 @@ class ChromiumBridgeEffectsTest {
     private val revealed = mutableListOf<String>()
     private val folder = object : ExtensionFolder {
         override suspend fun locate(): String = "/app/chromium-plugin"
+
+        override suspend fun prepare(progress: suspend (ExtensionPreparation) -> Unit): String {
+            progress(ExtensionPreparation.Downloading(20, 100))
+            progress(ExtensionPreparation.Extracting)
+            return "/cache/extension"
+        }
 
         override suspend fun reveal(folder: String) {
             revealed += folder
@@ -93,6 +100,20 @@ class ChromiumBridgeEffectsTest {
             machine.sent,
         )
         assertEquals(listOf("/app/chromium-plugin"), revealed)
+    }
+
+    @Test
+    fun `preparation reports progress before the final folder`() = runTest {
+        effects.handle(ChromiumBridgeEffect.PrepareExtension, machine)
+        assertEquals<List<ChromiumBridgeIntent>>(
+            listOf(
+                ChromiumBridgeIntent.Internal.ExtensionProgress(ExtensionPreparation.Downloading(20, 100)),
+                ChromiumBridgeIntent.Internal.ExtensionProgress(ExtensionPreparation.Extracting),
+                ChromiumBridgeIntent.Internal.ExtensionPrepared("/cache/extension"),
+            ),
+            machine.sent,
+        )
+        assertEquals(emptyList(), revealed)
     }
 
     @Test

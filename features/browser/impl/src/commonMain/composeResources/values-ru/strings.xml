@@ -39,4 +39,12 @@
     <string name="browser_document_closed">Эта страница закрыта</string>
     <string name="browser_document_unsupported">Эта страница открывается в приложении для компьютера</string>
     <string name="browser_document_page">Веб-страница</string>
+    <string name="browser_runtime_downloading">Скачивание компонентов браузера… %1$d МиБ</string>
+    <string name="browser_runtime_downloading_percent">Скачивание компонентов браузера… %1$d%</string>
+    <string name="browser_runtime_installing">Установка компонентов браузера…</string>
+    <string name="browser_runtime_network">Не удалось скачать компоненты браузера. Проверьте подключение и повторите попытку.</string>
+    <string name="browser_runtime_storage">Не удалось сохранить компоненты браузера. Проверьте свободное место и повторите попытку.</string>
+    <string name="browser_runtime_invalid">Не удалось проверить скачанные компоненты браузера. Повторите загрузку.</string>
+    <string name="browser_runtime_unavailable">Не удалось запустить браузер. Повторите попытку.</string>
+    <string name="browser_runtime_retry">Повторить</string>
 </resources>

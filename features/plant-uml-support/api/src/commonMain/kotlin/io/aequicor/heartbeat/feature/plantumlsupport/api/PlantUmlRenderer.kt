@@ -3,7 +3,8 @@ package io.aequicor.heartbeat.feature.plantumlsupport.api
 import kotlinx.coroutines.flow.Flow
 
 /**
- * Draws PlantUML diagrams of Markdown fences locally, without network access. Only a host that renders
+ * Draws PlantUML diagrams of Markdown fences locally. The desktop host downloads its pinned engine on first use;
+ * later drawings reuse the verified local copy without network access. Only a host that renders
  * locally binds it (desktop); the feature toggle switches it on. Untrusted sources are expected: the engine reads
  * no files, URLs or environment variables, runs apart from the app with bounded memory and time, and only draws
  * diagram types that need no external tools.
@@ -14,7 +15,8 @@ public interface PlantUmlRenderer {
 
     /**
      * Draws [request]. Main-safe; never throws except for cancellation — failures are [PlantUmlResult]s.
-     * Identical requests share one drawing and recent results are cached.
+     * Identical requests share one drawing and recent results are cached. Initial engine preparation precedes
+     * the drawing's time limit; a preparation failure is retryable through the next render request.
      */
     public suspend fun render(request: PlantUmlRequest): PlantUmlResult
 }

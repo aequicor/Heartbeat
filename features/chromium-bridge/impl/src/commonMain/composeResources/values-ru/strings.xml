@@ -34,7 +34,7 @@
     <string name="chromium_bridge_section_extension">Расширение</string>
     <string name="chromium_bridge_extension_hint">Откройте chrome://extensions, включите режим разработчика, нажмите «Загрузить распакованное расширение» и выберите папку ниже.</string>
     <string name="chromium_bridge_extension_folder">Папка расширения</string>
-    <string name="chromium_bridge_extension_folder_missing">Не найдена в этой сборке</string>
+    <string name="chromium_bridge_extension_folder_missing">Расширение скачается, когда оно понадобится</string>
     <string name="chromium_bridge_reveal">Показать папку</string>
     <string name="chromium_bridge_extension_id">Идентификатор расширения</string>
     <string name="chromium_bridge_section_agents">Агенты</string>
@@ -47,4 +47,9 @@
     <string name="chromium_bridge_failure_launcher">Heartbeat не нашёл свой лаунчер для запуска хоста.</string>
     <string name="chromium_bridge_failure_write">не удалось записать регистрацию хоста.</string>
     <string name="chromium_bridge_dismiss">Скрыть</string>
+    <string name="chromium_bridge_extension_download">Скачать и показать</string>
+    <string name="chromium_bridge_extension_downloading">Скачивается расширение браузера…</string>
+    <string name="chromium_bridge_extension_extracting">Подготовка расширения браузера…</string>
+    <string name="chromium_bridge_extension_failed">Не удалось подготовить расширение. Проверьте подключение и свободное место, затем повторите.</string>
+    <string name="chromium_bridge_extension_retry">Повторить</string>
 </resources>

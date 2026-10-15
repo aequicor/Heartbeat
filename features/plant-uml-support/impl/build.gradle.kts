@@ -1,3 +1,5 @@
+import org.gradle.language.jvm.tasks.ProcessResources
+
 plugins {
     alias(libs.plugins.heartbeat.kmp.library)
     alias(libs.plugins.heartbeat.metro)
@@ -14,8 +16,19 @@ kotlin {
         jvmMain.dependencies {
             implementation(projects.core.common)
             implementation(projects.core.di.api)
+            implementation(projects.core.network.api)
             implementation(libs.plantuml.mit)
         }
+    }
+}
+
+// The version remains owned by the catalog; the publisher's checksum pins the exact MIT artifact.
+val plantUmlVersion = libs.versions.plantuml.get()
+tasks.named<ProcessResources>("jvmProcessResources") {
+    val version = plantUmlVersion
+    inputs.property("plantUmlVersion", version)
+    filesMatching("plantuml/runtime.properties") {
+        expand("plantUmlVersion" to version)
     }
 }
 

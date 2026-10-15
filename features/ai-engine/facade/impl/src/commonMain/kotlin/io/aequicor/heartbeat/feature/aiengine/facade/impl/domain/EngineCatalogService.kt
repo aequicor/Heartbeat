@@ -9,12 +9,19 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Observation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
@@ -25,6 +32,7 @@ import kotlin.coroutines.cancellation.CancellationException
  * Unknown until an explicit [refresh], except for statically unsupported platforms. Engine-wide capabilities
  * come from [engineFeatures] and are blocked while the engine is disabled.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class EngineCatalogService(
     private val gate: EngineGate,
     private val enabled: EnabledEngines,
@@ -35,9 +43,20 @@ class EngineCatalogService(
     private val log = Log.tag("EngineCatalog")
     private val registry = gate.registry
     private val probes = MutableStateFlow(emptyMap<EngineId, Probe>())
+    private val preparations = enabled.state.flatMapLatest { on ->
+        val observed = registry.all.filter { it.descriptor.id in on }.map { registration ->
+            flow { emitAll(registration.factory.value.preparation) }.map { registration.descriptor.id to it }
+        }
+        if (observed.isEmpty()) flowOf(emptyMap()) else combine(observed) { it.toMap() }
+    }.stateIn(context.scope, SharingStarted.Eagerly, emptyMap())
 
-    override val state: StateFlow<List<EngineInfo>> = combine(enabled.state, probes, bindings) { on, probed, saved ->
-        registry.all.filter { it.descriptor.id in on }.map { info(it, probed, saved) }
+    override val state: StateFlow<List<EngineInfo>> = combine(
+        enabled.state,
+        probes,
+        bindings,
+        preparations,
+    ) { on, probed, saved, preparation ->
+        registry.all.filter { it.descriptor.id in on }.map { info(it, probed, saved, preparation) }
     }.stateIn(context.scope, SharingStarted.Eagerly, emptyList())
 
     override suspend fun refresh(engine: EngineId): EngineInfo {
@@ -50,7 +69,7 @@ class EngineCatalogService(
         }
         log.i { "availability engine=${engine.value} result=${availability.label()}" }
         probes.update { it + (engine to Probe(availability, Observation(context.clock.now(), isStale = false))) }
-        return info(registration, probes.value, bindings.value)
+        return info(registration, probes.value, bindings.value, preparations.value)
     }
 
     override fun features(engine: EngineId): EngineFeatures {
@@ -71,18 +90,28 @@ class EngineCatalogService(
         EngineAvailability.Unavailable(EngineFailure.Unknown())
     }
 
-    private fun info(registration: EngineRegistration, probed: Map<EngineId, Probe>, saved: List<EngineBinding>) =
-        registration.descriptor.id.let { id ->
-            val probe = probed[id] ?: Probe(
-                if (registry.supportsPlatform(registration)) {
-                    EngineAvailability.Unknown
-                } else {
-                    EngineAvailability.UnsupportedPlatform
-                },
-                Observation(),
-            )
-            EngineInfo(registration.descriptor, probe.availability, saved.filter { it.engine == id }, probe.observation)
-        }
+    private fun info(
+        registration: EngineRegistration,
+        probed: Map<EngineId, Probe>,
+        saved: List<EngineBinding>,
+        preparations: Map<EngineId, EnginePreparation>,
+    ) = registration.descriptor.id.let { id ->
+        val probe = probed[id] ?: Probe(
+            if (registry.supportsPlatform(registration)) {
+                EngineAvailability.Unknown
+            } else {
+                EngineAvailability.UnsupportedPlatform
+            },
+            Observation(),
+        )
+        EngineInfo(
+            registration.descriptor,
+            probe.availability,
+            saved.filter { it.engine == id },
+            probe.observation,
+            preparations[id] ?: EnginePreparation.Ready,
+        )
+    }
 
     private data class Probe(val availability: EngineAvailability, val observation: Observation)
 }

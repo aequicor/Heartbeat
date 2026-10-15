@@ -87,8 +87,8 @@ compose.resources {
     customDirectory(sourceSetName = "wasmJsMain", directoryProvider = preparePanelFonts.flatMap { it.outputDirectory })
 }
 
-// The unpacked extension loads the panel from `chromium-plugin/app/`; the desktop distribution copies it with the
-// rest of the extension folder (`collectAppResources`).
+// The unpacked extension loads the panel from `chromium-plugin/app/`; packageChromiumExtension exports it with
+// the rest of the extension as a separate release asset, downloaded when the installed app first needs it.
 val syncChromiumPanel = tasks.register<Sync>("syncChromiumPanel") {
     group = "build"
     description = "Builds the side panel and copies it into the extension folder (chromium-plugin/app)."

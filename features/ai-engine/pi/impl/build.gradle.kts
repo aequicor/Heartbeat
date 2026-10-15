@@ -20,5 +20,8 @@ kotlin {
         commonTest.dependencies {
             implementation(libs.ktor.client.mock)
         }
+        jvmMain.dependencies {
+            implementation(libs.apache.commons.compress)
+        }
     }
 }

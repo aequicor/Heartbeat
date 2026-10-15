@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.harness.impl.data.script.HarnessScriptClasspath
 import io.aequicor.heartbeat.feature.harness.impl.data.script.harnessCompilerConfiguration
 import io.aequicor.heartbeat.feature.harness.impl.data.script.harnessDiagnostics
+import io.aequicor.heartbeat.feature.harness.impl.data.script.validateHarnessSource
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.rethrowFatalHarnessFailure
 import kotlinx.coroutines.CancellationException
 import java.io.BufferedInputStream
@@ -81,6 +82,8 @@ private fun compileHarnessCode(
     request: HarnessCompilerRequest,
     classpath: HarnessScriptClasspath,
 ): HarnessCompilerReply {
+    val failures = validateHarnessSource(request.source)
+    if (failures.isNotEmpty()) return HarnessCompilerReply.Failed(failures)
     val result = compileBlocking(request, classpath)
     result.reports.forEach { it.exception?.rethrowFatalHarnessFailure() }
     return when (result) {

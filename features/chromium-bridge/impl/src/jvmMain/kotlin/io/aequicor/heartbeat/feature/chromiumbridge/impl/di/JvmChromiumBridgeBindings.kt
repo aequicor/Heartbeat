@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioRemoteScreens
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ExternalBrowser
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.DesktopBridgeEnvironment
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.DesktopExtensionFolder
+import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.DesktopExtensionInstaller
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.ToggleBridgeFeatures
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.agent.ChromiumExternalBrowser
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.data.chat.BridgeWatches
@@ -110,7 +111,8 @@ public object JvmChromiumBridgeBindings {
 
     /** The extension folder to load unpacked. */
     @Provides
-    internal fun extension(dispatchers: DispatcherProvider): ExtensionFolder = DesktopExtensionFolder(dispatchers.io)
+    internal fun extension(dispatchers: DispatcherProvider, installer: DesktopExtensionInstaller): ExtensionFolder =
+        DesktopExtensionFolder(dispatchers.io, installer = installer)
 
     /** Browser registrations. */
     @Provides

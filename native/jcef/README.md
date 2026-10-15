@@ -149,6 +149,12 @@ Linux needs `build-essential`, `libx11-dev`, `libxext-dev`, `libxrender-dev`, `l
 `libcef.so`, CEF GPU libraries/data/locales and the executable `jcef_helper`, with original executable modes.
 Browser settings point to this extracted bundle; the application does not create resource links in the system JDK.
 
+Desktop release installers retain the Java bridge classes but omit the host's native archive. The first browser
+or web-document use downloads the exact native JAR listed in the embedded `source-lock.json`, verifies its SHA-256,
+and installs it into the application cache. Subsequent launches use that cache offline. The UI shows download and
+installation progress and offers a retry on failure. Development and native test classpaths still bundle the archive;
+`verifyBrowserRuntime` checks the original API/native pair before release staging removes the archive.
+
 ```shell
 python -m pip install six==1.17.0
 python -m unittest discover -s native/jcef -p "test_*.py" -v

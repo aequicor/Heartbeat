@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeOutput
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeState
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBrowser
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ConnectedBrowser
+import io.aequicor.heartbeat.feature.chromiumbridge.api.ExtensionPreparation
 import io.aequicor.heartbeat.feature.chromiumbridge.api.HostRegistration
 import io.aequicor.heartbeat.feature.chromiumbridge.api.HostRegistrationFailure
 import kotlinx.coroutines.CompletableDeferred
@@ -78,6 +79,31 @@ class ChromiumBridgeModelTest {
         runCurrent()
 
         assertEquals(AvailabilityUi.Unsupported, screen.states.value.availability)
+    }
+
+    @Test
+    fun `extension preparation progress and retry state are reflected`() = runTest {
+        val fixture = Fixture(
+            this,
+            enabled.copy(
+                extensionFolder = null,
+                extensionPreparation = ExtensionPreparation.Downloading(25, 100),
+            ),
+        )
+        val screen = fixture.subscribe()
+        assertEquals(
+            ExtensionPreparationUi(ExtensionPreparationPhase.Downloading, 25),
+            screen.states.value.extensionPreparation,
+        )
+        fixture.machine.state.value = enabled.copy(extensionPreparation = ExtensionPreparation.Failed)
+        runCurrent()
+        assertEquals(ExtensionPreparationPhase.Failed, screen.states.value.extensionPreparation.phase)
+        screen.intent(ChromiumBridgeScreenIntent.RevealExtension)
+        runCurrent()
+        assertEquals<List<ChromiumBridgeIntent>>(
+            listOf(ChromiumBridgeIntent.Public.RevealExtension),
+            fixture.machine.sent,
+        )
     }
 
     @Test

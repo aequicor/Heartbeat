@@ -34,7 +34,7 @@
     <string name="chromium_bridge_section_extension">Extension</string>
     <string name="chromium_bridge_extension_hint">Open chrome://extensions, turn on developer mode, choose “Load unpacked” and select the folder below.</string>
     <string name="chromium_bridge_extension_folder">Extension folder</string>
-    <string name="chromium_bridge_extension_folder_missing">Not found in this build</string>
+    <string name="chromium_bridge_extension_folder_missing">The extension will be downloaded when you need it</string>
     <string name="chromium_bridge_reveal">Show folder</string>
     <string name="chromium_bridge_extension_id">Extension ID</string>
     <string name="chromium_bridge_section_agents">Agents</string>
@@ -47,4 +47,9 @@
     <string name="chromium_bridge_failure_launcher">Heartbeat cannot find its launcher to start the host.</string>
     <string name="chromium_bridge_failure_write">the host registration could not be written.</string>
     <string name="chromium_bridge_dismiss">Dismiss</string>
+    <string name="chromium_bridge_extension_download">Download and show</string>
+    <string name="chromium_bridge_extension_downloading">Downloading the browser extension…</string>
+    <string name="chromium_bridge_extension_extracting">Preparing the browser extension…</string>
+    <string name="chromium_bridge_extension_failed">The extension could not be prepared. Check your connection and free disk space, then retry.</string>
+    <string name="chromium_bridge_extension_retry">Retry</string>
 </resources>

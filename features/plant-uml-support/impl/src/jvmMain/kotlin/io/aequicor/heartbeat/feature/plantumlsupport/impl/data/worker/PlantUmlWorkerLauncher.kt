@@ -2,7 +2,8 @@ package io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlResult
-import net.sourceforge.plantuml.SourceStringReader
+import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.bundledPlantUmlJar
+import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.validatePlantUmlRuntimeJar
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
@@ -19,18 +20,27 @@ internal fun interface PlantUmlWorkerLauncher {
  * routes it before anything else initializes, taking [jvmOptions] from `JAVA_TOOL_OPTIONS`. The worker runs in
  * the temporary directory with only the environment a JVM needs: none of the app's secrets reach diagram code.
  */
-internal class JavaPlantUmlWorkerLauncher(private val jvmOptions: List<String> = WORKER_JVM_OPTIONS) :
-    PlantUmlWorkerLauncher {
+internal class JavaPlantUmlWorkerLauncher(
+    private val jvmOptions: List<String> = WORKER_JVM_OPTIONS,
+    private val runtime: () -> Path = { checkNotNull(bundledPlantUmlJar()) { "PlantUmlWorkerRuntimeUnavailable" } },
+) : PlantUmlWorkerLauncher {
     override fun start(): Process {
+        val runtimeJar = runtime()
         val java = Path.of(System.getProperty("java.home"), "bin", if (isWindows) "java.exe" else "java")
         if (Files.isRegularFile(java)) {
-            return startJavaWorker(java, jvmOptions + listOf("-cp", workerClasspath(), WORKER_MAIN)) { command ->
+            return startJavaWorker(
+                java,
+                jvmOptions + listOf("-cp", plantUmlWorkerClasspath(runtimeJar), WORKER_MAIN),
+            ) { command ->
                 startProcess(command)
             }
         }
         val packaged = System.getProperty("jpackage.app-path")?.let(Path::of)
         check(packaged != null && Files.isRegularFile(packaged)) { "PlantUmlWorkerRuntimeUnavailable" }
-        return startProcess(listOf(packaged.toString(), WORKER_ARGUMENT), jvmOptions.joinToString(" "))
+        return startProcess(
+            listOf(packaged.toString(), WORKER_ARGUMENT, runtimeJar.toString()),
+            jvmOptions.joinToString(" "),
+        )
     }
 
     private fun startProcess(command: List<String>, toolOptions: String? = null): Process {
@@ -88,16 +98,17 @@ private val WorkerEnvironment = setOf("TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL",
 
 /**
  * Only the worker's runtime dependencies, excluding unrelated app/test entries. Code-source locations also work
- * when a host class loader hides dependencies from `java.class.path`.
+ * when a host class loader hides dependencies from `java.class.path`. The private packaged entry calls this method
+ * reflectively before constructing an isolated loader; the sole supplied JAR must match the compiled publisher pin.
  */
-private fun workerClasspath(): String {
+public fun plantUmlWorkerClasspath(runtimeJar: Path): String {
+    validatePlantUmlRuntimeJar(runtimeJar)
     val paths = linkedSetOf<String>()
     val loader = PlantUmlWorkerLauncher::class.java.classLoader
     val types = mutableListOf<Class<*>>(
         PlantUmlWorkerLauncher::class.java,
         PlantUmlResult::class.java,
         Log::class.java,
-        SourceStringReader::class.java,
         Unit::class.java,
     )
     try {
@@ -109,5 +120,6 @@ private fun workerClasspath(): String {
     types.forEach { type ->
         type.protectionDomain?.codeSource?.location?.let { paths += Path.of(it.toURI()).toString() }
     }
+    paths += runtimeJar.toAbsolutePath().toString()
     return paths.joinToString(File.pathSeparator)
 }

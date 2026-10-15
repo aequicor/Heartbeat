@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.AttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.CardFocusRequestUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ComposerCaretRequestUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextUsageUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.EnginePreparationUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoiceUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoicesUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
@@ -96,6 +97,7 @@ data class PaneContent(
     /** Targets captured with this pane's snapshot, including for delayed remote clicks. */
     val noticeTargets: ImmutableMap<StudioNoticeUi, StudioNoticeDismissalUi>,
     val models: ImmutableList<ModelUi> = persistentListOf(),
+    val enginePreparations: ImmutableList<EnginePreparationUi> = persistentListOf(),
     val dismissedNotices: ImmutableSet<StudioNoticeUi> = persistentSetOf(),
     val cardFocus: CardFocusRequestUi? = null,
     val app: StudioAppUi? = null,
@@ -187,6 +189,7 @@ fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
     val effectiveSettings = paneSettings(session, configuration).forOrganism(organism)
     return PaneContent(
         pane = pane,
+        enginePreparations = if (pane.id == focusedPaneId) enginePreparations else persistentListOf(),
         dismissedNotices = dismissedNotices(pane.id),
         noticeTargets = StudioNoticeUi.entries.associateWith { noticeDismissal(pane, it) }.toImmutableMap(),
         cardFocus = cardFocusRequests[pane.id]?.takeIf { it.chatId == pane.sessionId },
