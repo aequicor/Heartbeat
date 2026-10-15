@@ -1,7 +1,6 @@
 package io.aequicor.heartbeat.feature.computeruse.impl.domain
 
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRegion
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -213,13 +212,3 @@ internal class PixelGrid(val widthPx: Int, val heightPx: Int, val argb: IntArray
 /** A single-color frame; used by tests and by hosts that can only report a placeholder. */
 internal fun solidGrid(widthPx: Int, heightPx: Int, argb: Int): PixelGrid =
     PixelGrid(widthPx, heightPx, IntArray(widthPx * heightPx) { argb })
-
-/** Absolute difference between two frames in luma; a cheap "did anything change" check. */
-internal fun PixelGrid.delta(other: PixelGrid): Int {
-    if (other.widthPx != widthPx || other.heightPx != heightPx) return Int.MAX_VALUE
-    var changed = 0
-    for (index in argb.indices) {
-        if (abs(argb[index] - other.argb[index]) > 0) changed++
-    }
-    return changed
-}
