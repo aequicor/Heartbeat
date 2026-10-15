@@ -116,11 +116,13 @@ internal class FakeScreenCapturer(private val widthPx: Int = 200, private val he
         private set
     var onCapture: () -> Unit = {}
 
+    /** Pixels of the n-th capture, counted from zero; a fixed color by default. */
+    var pixels: (Int) -> PixelGrid = { solidGrid(widthPx, heightPx, 0xFF336699.toInt()) }
+
     override suspend fun capture(mode: ComputerUseMode, region: CaptureRegion?, isCursorIncluded: Boolean): RawFrame? {
         onCapture()
         val current = bounds ?: return null
-        captures++
-        return RawFrame(solidGrid(widthPx, heightPx, 0xFF336699.toInt()), current, 0L)
+        return RawFrame(pixels(captures++), current, 0L)
     }
 
     override suspend fun currentBounds(mode: ComputerUseMode): ScreenBounds? = bounds
@@ -155,6 +157,9 @@ internal class FakeInputInjector(override val isAvailable: Boolean = true) : Inp
     var onInput: () -> Unit = {}
     var isProgressReported: Boolean = false
 
+    /** The authorized area of the last observed action. */
+    var lastArea: ScreenBounds? = null
+
     /** Holds every input until completed, like a device busy with a long action. */
     var awaitInput: CompletableDeferred<Unit>? = null
 
@@ -162,15 +167,27 @@ internal class FakeInputInjector(override val isAvailable: Boolean = true) : Inp
         action: InputAction,
         map: (FramePoint) -> ScreenPoint?,
         onProgress: suspend (ScreenPoint?) -> Unit,
+        onEffect: suspend () -> ComputerUseFailure?,
+        area: ScreenBounds?,
     ): InputOutcome {
-        val outcome = apply(action, map)
-        if (outcome == InputOutcome.Applied && isProgressReported) onProgress(action.firstPoint()?.let(map))
-        return outcome
+        lastArea = area
+        onInput()
+        awaitInput?.await()
+        // Like the driver: the pointer arrives, the effect is announced (or refused), and only then is input applied.
+        if (isProgressReported && refusal == null) {
+            onProgress(action.firstPoint()?.let(map))
+            if (action !is InputAction.MoveTo) onEffect()?.let { return InputOutcome.Rejected(it) }
+        }
+        return applyEntered(action, map)
     }
 
     override suspend fun apply(action: InputAction, map: (FramePoint) -> ScreenPoint?): InputOutcome {
         onInput()
         awaitInput?.await()
+        return applyEntered(action, map)
+    }
+
+    private fun applyEntered(action: InputAction, map: (FramePoint) -> ScreenPoint?): InputOutcome {
         val refused = refusal ?: return mappedOutcome(action, map)
         return InputOutcome.Rejected(refused)
     }

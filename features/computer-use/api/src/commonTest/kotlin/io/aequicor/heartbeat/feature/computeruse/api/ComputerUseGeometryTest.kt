@@ -73,7 +73,7 @@ class ComputerUseGeometryTest {
             format = CaptureFormat.Png,
             widthPx = 500,
             heightPx = 400,
-            region = CaptureRegion(0, 0, 1000, 800),
+            roi = CaptureRegion(0, 0, 1000, 800),
             masterWidthPx = 1000,
             masterHeightPx = 800,
             bytes = 10,
@@ -81,13 +81,13 @@ class ComputerUseGeometryTest {
             path = "/tmp/m.png",
             sequence = 1,
         )
-        val inside = CropRequest(master.id, region = CaptureRegion(100, 100, 200, 200))
-        assertEquals(CaptureRegion(100, 100, 200, 200), inside.regionIn(master))
-        assertNull(CropRequest(master.id, CaptureRegion(900, 0, 200, 100)).regionIn(master))
-        assertEquals(CaptureRegion(0, 0, 1000, 800), CropRequest(master.id).regionIn(master))
+        val inside = CropRequest(master.id, roi = CaptureRegion(100, 100, 200, 200))
+        assertEquals(CaptureRegion(100, 100, 200, 200), inside.roiIn(master))
+        assertNull(CropRequest(master.id, CaptureRegion(900, 0, 200, 100)).roiIn(master))
+        assertEquals(CaptureRegion(0, 0, 1000, 800), CropRequest(master.id).roiIn(master))
         assertEquals(
             CaptureRegion(250, 200, 500, 400),
-            CropRequest(master.id, normalized = NormalizedRegion(0.25, 0.25, 0.5, 0.5)).regionIn(master),
+            CropRequest(master.id, normalized = NormalizedRegion(0.25, 0.25, 0.5, 0.5)).roiIn(master),
         )
         assertEquals(0.5, master.previewScale)
     }
@@ -122,7 +122,7 @@ class ComputerUseGeometryTest {
             format = CaptureFormat.Png,
             widthPx = 10,
             heightPx = 10,
-            region = CaptureRegion(0, 0, 10, 10),
+            roi = CaptureRegion(0, 0, 10, 10),
             masterWidthPx = 10,
             masterHeightPx = 10,
             bytes = 10,

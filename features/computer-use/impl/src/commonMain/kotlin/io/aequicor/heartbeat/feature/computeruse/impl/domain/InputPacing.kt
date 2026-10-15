@@ -2,6 +2,9 @@ package io.aequicor.heartbeat.feature.computeruse.impl.domain
 
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import kotlin.math.abs
+import kotlin.math.pow
+import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 /** Vertical wheel deltas are counted in notches of this many pixels. */
 internal const val WHEEL_NOTCH_PX = 40
@@ -31,12 +34,36 @@ internal fun wheelNotches(deltaY: Int): Int {
     return if (deltaY < 0) -notches else notches
 }
 
+/** Pixels the pointer covers per glide step; shorter moves take fewer steps. */
+internal const val GLIDE_STEP_PX = 48
+
+/** Upper bound of glide steps; together with the driver pause it keeps one glide near a quarter second. */
+internal const val MAX_GLIDE_STEPS = 12
+
+/**
+ * The eased path of the pointer from [from] to [to], excluding [from] and ending exactly at [to]: the virtual cursor
+ * and the real pointer move smoothly instead of jumping. A move shorter than one step is a single step.
+ */
+internal fun glidePath(from: ScreenPoint, to: ScreenPoint): List<ScreenPoint> {
+    val dx = (to.x - from.x).toDouble()
+    val dy = (to.y - from.y).toDouble()
+    val distance = sqrt(dx * dx + dy * dy)
+    val steps = (distance / GLIDE_STEP_PX).toInt().coerceIn(1, MAX_GLIDE_STEPS)
+    return (1..steps).map { step ->
+        val progress = step.toDouble() / steps
+        val eased = 1.0 - (1.0 - progress).pow(EASE_POWER)
+        if (step == steps) to else ScreenPoint(from.x + (dx * eased).roundToInt(), from.y + (dy * eased).roundToInt())
+    }
+}
+
+private const val EASE_POWER = 3
+
 /** Worst-case device time of one action, milliseconds; real devices are usually faster. */
 internal fun inputExecutionMillis(action: InputAction): Long = when (action) {
-    is InputAction.MoveTo -> MOVE_MILLIS
-    is InputAction.Click -> CLICK_MILLIS * action.count.coerceIn(1, MAX_CLICKS)
-    is InputAction.Drag -> DRAG_MILLIS
-    is InputAction.Scroll -> SCROLL_NOTCH_MILLIS * abs(wheelNotches(action.deltaY)) + BASE_MILLIS
+    is InputAction.MoveTo -> MOVE_MILLIS + GLIDE_MILLIS
+    is InputAction.Click -> CLICK_MILLIS * action.count.coerceIn(1, MAX_CLICKS) + GLIDE_MILLIS
+    is InputAction.Drag -> DRAG_MILLIS + GLIDE_MILLIS
+    is InputAction.Scroll -> SCROLL_NOTCH_MILLIS * abs(wheelNotches(action.deltaY)) + BASE_MILLIS + GLIDE_MILLIS
     is InputAction.Type -> TYPE_CHAR_MILLIS * action.text.length + BASE_MILLIS
     is InputAction.Key -> KEY_MILLIS * action.keys.size + BASE_MILLIS
 }
@@ -46,6 +73,7 @@ internal fun inputWaitLimitMillis(action: InputAction): Long = BASE_WAIT_MILLIS 
 
 private const val BASE_MILLIS = 1_000L
 private const val MOVE_MILLIS = 200L
+private const val GLIDE_MILLIS = 500L
 private const val CLICK_MILLIS = 500L
 private const val DRAG_MILLIS = 3_000L
 private const val SCROLL_NOTCH_MILLIS = 60L

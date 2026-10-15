@@ -20,3 +20,12 @@ public val ComputerUseNativeRouting: FeatureToggle.Flag = FeatureToggle.Flag(
     "computer_use.native_routing",
     "Предпочитать собственное computer-use движка хостовому захвату",
 )
+
+/**
+ * Recording mode of the agent tools: `<family>_record` and `observeMs` of the input tools capture a short series of
+ * frames and return keyframes cropped to the area that changed. Requires [ComputerUseEnabled].
+ */
+public val ComputerUseRecording: FeatureToggle.Flag = FeatureToggle.Flag(
+    "computer_use.recording",
+    "Управление компьютером: запись ключевых кадров с автокадрированием",
+)

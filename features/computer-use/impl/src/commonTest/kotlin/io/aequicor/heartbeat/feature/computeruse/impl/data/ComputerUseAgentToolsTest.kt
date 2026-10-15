@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.computeruse.api.CaptureClip
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureFormat
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureId
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureOwner
@@ -21,6 +22,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.CaptureRegion
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRequest
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureResult
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureSessionId
+import io.aequicor.heartbeat.feature.computeruse.api.ClipFrame
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapabilities
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
@@ -28,6 +30,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseIntent
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineSpec
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseOutput
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRecording
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseStatus
 import io.aequicor.heartbeat.feature.computeruse.api.CropRequest
@@ -447,13 +450,10 @@ class ComputerUseAgentToolsTest {
     fun `malformed screenshot geometry never falls back to a full frame`() = runTest {
         val cases = listOf(
             buildJsonObject { put("tile", "broken") },
-            buildJsonObject { put("regionX", 5) },
-            buildJsonObject {
-                put("regionX", 0)
-                put("regionY", 0)
-                put("regionWidth", 0)
-                put("regionHeight", 10)
-            },
+            buildJsonObject { put("roi", buildJsonObject { put("x", 5) }) },
+            buildJsonObject { put("roi", "0,0,10,10") },
+            buildJsonObject { put("roi", roi(0, 0, 0, 10)) },
+            buildJsonObject { put("roi", roi(0, 0, 10, 10, space = "galaxy")) },
         )
         for (arguments in cases) {
             val fixture = Fixture(this, Capturing)
@@ -468,11 +468,10 @@ class ComputerUseAgentToolsTest {
         val cases = listOf(
             buildJsonObject { put("tile", "broken") },
             buildJsonObject { put("tile", "2:2") },
+            buildJsonObject { put("roi", roi(0, 0, 2, 1, space = "normalized")) },
             buildJsonObject {
-                put("nx", 0.0)
-                put("ny", 0.0)
-                put("nw", 2.0)
-                put("nh", 1.0)
+                put("tile", "0:0")
+                put("roi", roi(0, 0, 5, 5))
             },
             buildJsonObject { put("scale", 0.0) },
         )
@@ -488,7 +487,7 @@ class ComputerUseAgentToolsTest {
     fun `zoom tile uses the stored native master and preserves its session`() = runTest {
         val master = Frame.copy(
             id = CaptureId("native-master"),
-            region = CaptureRegion(0, 0, 2200, 1200),
+            roi = CaptureRegion(0, 0, 2200, 1200),
             masterWidthPx = 2200,
             masterHeightPx = 1200,
         )
@@ -500,7 +499,7 @@ class ComputerUseAgentToolsTest {
         assertFalse(reply.isError)
         val crop = fixture.machine.sent.filterIsInstance<ComputerUseIntent.Public.Crop>().single()
         assertEquals(master.id, crop.request.capture)
-        assertEquals(CaptureRegion(960, 960, 1024, 240), crop.request.region)
+        assertEquals(CaptureRegion(960, 960, 1024, 240), crop.request.roi)
         assertEquals(Session, crop.expectedSession)
     }
 
@@ -591,7 +590,7 @@ class ComputerUseAgentToolsTest {
     fun `a stopped turn cannot use the computer again while other turns still can`() = runTest {
         val fixture = Fixture(this, ComputerUseState.Ready(Capabilities))
         fixture.stoppedTurns.stop(Owner)
-        for (tool in listOf("computer_status", "computer_windows", "computer_screenshot")) {
+        for (tool in listOf("computer_status", "window_list", "computer_screenshot")) {
             val reply = fixture.tools.execute(fixture.context, tool, EmptyArguments)
             assertTrue(reply.isError, tool)
             assertEquals("StoppedByUser", reply.text, tool)
@@ -684,7 +683,7 @@ class ComputerUseAgentToolsTest {
         assertTrue(fixture.machine.sent.none { it is ComputerUseIntent.Public.CancelSession })
     }
 
-    internal class Fixture(scope: TestScope, initial: ComputerUseState) {
+    internal class Fixture(scope: TestScope, initial: ComputerUseState, isRecording: Boolean = false) {
         val machine = ToolMachine(initial)
         val registry = ToolRegistry(machine)
         val preferences = FakeComputerUsePreferences()
@@ -692,7 +691,7 @@ class ComputerUseAgentToolsTest {
         val frames = FakeFrameStore().apply { files[Frame.path] = byteArrayOf(1, 2, 3) }
         val tools = ComputerUseAgentTools(
             registry,
-            FakeToggles(mapOf(ComputerUseEnabled.key to true)),
+            FakeToggles(mapOf(ComputerUseEnabled.key to true, ComputerUseRecording.key to isRecording)),
             object : HostComputerControl {
                 override suspend fun status() = ComputerUseStatus(Capabilities)
                 override suspend fun windows() = emptyList<WindowTarget>()
@@ -745,6 +744,18 @@ class ComputerUseAgentToolsTest {
             if (intent is ComputerUseIntent.Public.Crop && isReplyEnabled) {
                 apply(ComputerUseIntent.Internal.CropProduced(Frame, intent.requestId))
             }
+            if (intent is ComputerUseIntent.Public.Record && isReplyEnabled) {
+                val last = Frame.copy(id = CaptureId("clip-last"))
+                val clip = CaptureClip(
+                    frames = listOf(ClipFrame(Frame, 0, 0.0), ClipFrame(last, 900, 0.25)),
+                    roi = Frame.roi,
+                    isAutoRoi = false,
+                    isStable = true,
+                    durationMillis = 900,
+                    master = Frame,
+                )
+                apply(ComputerUseIntent.Internal.ClipRecorded(clip, intent.requestId))
+            }
             if (intent is ComputerUseIntent.Public.Input && isReplyEnabled) {
                 appliedActions += intent.action
                 apply(ComputerUseIntent.Internal.InputApplied(intent.action, intent.requestId))
@@ -786,6 +797,15 @@ class ComputerUseAgentToolsTest {
     }
 
     internal companion object {
+        fun roi(x: Number, y: Number, width: Number, height: Number, space: String? = null): JsonObject =
+            buildJsonObject {
+                put("x", x)
+                put("y", y)
+                put("width", width)
+                put("height", height)
+                space?.let { put("space", it) }
+            }
+
         val Capabilities = ComputerUseCapabilities(
             true,
             true,

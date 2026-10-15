@@ -118,7 +118,7 @@ class ComputerUseMachineTest {
     @Test
     fun `a crop inside the master is produced`() {
         val withMaster = capturing.copy(master = master)
-        val crop = CropRequest(master.id, region = CaptureRegion(0, 0, 100, 80))
+        val crop = CropRequest(master.id, roi = CaptureRegion(0, 0, 100, 80))
         ComputerUseMachineSpec.assertTransition(
             from = withMaster,
             intent = ComputerUseIntent.Public.Crop(crop),
@@ -132,7 +132,7 @@ class ComputerUseMachineTest {
         val withMaster = capturing.copy(master = master)
         ComputerUseMachineSpec.assertIgnored(
             withMaster,
-            ComputerUseIntent.Public.Crop(CropRequest(master.id, region = CaptureRegion(900, 0, 200, 80))),
+            ComputerUseIntent.Public.Crop(CropRequest(master.id, roi = CaptureRegion(900, 0, 200, 80))),
         )
     }
 
@@ -140,7 +140,7 @@ class ComputerUseMachineTest {
     fun `a crop without a stored master is ignored`() {
         ComputerUseMachineSpec.assertIgnored(
             capturing,
-            ComputerUseIntent.Public.Crop(CropRequest(CaptureId("unknown"), region = CaptureRegion(0, 0, 10, 10))),
+            ComputerUseIntent.Public.Crop(CropRequest(CaptureId("unknown"), roi = CaptureRegion(0, 0, 10, 10))),
         )
     }
 
@@ -565,7 +565,7 @@ class ComputerUseMachineTest {
         )
     }
 
-    private companion object {
+    internal companion object {
         val capabilities = ComputerUseCapabilities(
             isCaptureAvailable = true,
             isWindowCaptureAvailable = true,
@@ -595,7 +595,7 @@ class ComputerUseMachineTest {
             format = CaptureFormat.Png,
             widthPx = 1000,
             heightPx = 800,
-            region = CaptureRegion(0, 0, 1000, 800),
+            roi = CaptureRegion(0, 0, 1000, 800),
             masterWidthPx = 1000,
             masterHeightPx = 800,
             bytes = 40_000,

@@ -10,11 +10,13 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.awt.ComposeWindow
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.WindowState
 import io.aequicor.heartbeat.ds.tokens.HbColors
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.ds.tokens.HbMotion
+import io.aequicor.heartbeat.ds.tokens.HbTypography
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseActivity
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapturePresentation
 import kotlinx.coroutines.delay
@@ -61,14 +63,9 @@ internal fun DesktopComputerUsePresentation(
             registration.close()
         }
     }
-    DisposableEffect(pointer, activity.input, colors) {
-        pointer.update(
-            activity.input,
-            Color(colors.computerUsePointer.toArgb(), true),
-            Color(colors.computerUsePointerOutline.toArgb(), true),
-            dimensions.computerUsePointerSize.value.toInt(),
-            dimensions.computerUsePointerStroke.value,
-        )
+    val cursor = agentCursorStyle(colors, dimensions, motion, HbTypography.Desktop)
+    DisposableEffect(pointer, activity.input, cursor) {
+        pointer.update(activity.input, cursor)
         onDispose { }
     }
     DisposableEffect(presentation, capturePresentation) {
@@ -107,6 +104,36 @@ internal fun DesktopComputerUsePresentation(
     }
     DisposableEffect(overlay) { onDispose { overlay.close() } }
 }
+
+/** Agent cursor tokens in the units the Swing overlay paints with. */
+internal fun agentCursorStyle(
+    colors: HbColors,
+    dimensions: HbDimensions,
+    motion: HbMotion,
+    typography: HbTypography,
+): AgentCursorStyle = AgentCursorStyle(
+    fill = Color(colors.computerUsePointer.toArgb(), true),
+    outline = Color(colors.computerUsePointerOutline.toArgb(), true),
+    ripple = Color(colors.computerUseRipple.toArgb(), true),
+    badge = Color(colors.computerUseBadge.toArgb(), true),
+    badgeContent = Color(colors.computerUseBadgeContent.toArgb(), true),
+    pointerSize = dimensions.computerUsePointerSize.value.toInt(),
+    stroke = dimensions.computerUsePointerStroke.value,
+    canvasSize = dimensions.computerUsePointerCanvas.value.toInt(),
+    rippleRadius = dimensions.computerUseRippleRadius.value.toInt(),
+    trailWidth = dimensions.computerUseTrailWidth.value,
+    badgeTextSize = typography.label.fontSize.value.toInt(),
+    isBadgeBold = (typography.label.fontWeight ?: FontWeight.Normal) >= FontWeight.SemiBold,
+    badgePadding = dimensions.computerUseBadgePadding.value.toInt(),
+    badgeOffset = dimensions.computerUseBadgeOffset.value.toInt(),
+    timing = CursorTiming(
+        glideMillis = motion.computerUsePointerGlideMillis,
+        rippleMillis = motion.computerUseRippleMillis,
+        trailMillis = motion.computerUseTrailMillis,
+        badgeMillis = motion.computerUseBadgeMillis,
+        isReducedMotion = motion.isReducedMotion,
+    ),
+)
 
 /** Keeps the session inside the usable screen, including monitors left or above the primary one. */
 internal fun computerUseSessionBounds(workArea: Rectangle, width: Int, height: Int): Rectangle {

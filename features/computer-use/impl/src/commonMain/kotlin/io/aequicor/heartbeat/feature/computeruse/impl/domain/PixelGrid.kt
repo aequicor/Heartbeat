@@ -1,7 +1,6 @@
 package io.aequicor.heartbeat.feature.computeruse.impl.domain
 
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRegion
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -214,12 +213,14 @@ internal class PixelGrid(val widthPx: Int, val heightPx: Int, val argb: IntArray
 internal fun solidGrid(widthPx: Int, heightPx: Int, argb: Int): PixelGrid =
     PixelGrid(widthPx, heightPx, IntArray(widthPx * heightPx) { argb })
 
-/** Absolute difference between two frames in luma; a cheap "did anything change" check. */
-internal fun PixelGrid.delta(other: PixelGrid): Int {
-    if (other.widthPx != widthPx || other.heightPx != heightPx) return Int.MAX_VALUE
-    var changed = 0
-    for (index in argb.indices) {
-        if (abs(argb[index] - other.argb[index]) > 0) changed++
-    }
-    return changed
+/** This master rectangle in the pixels of a copy scaled by [scale] to [grid], kept inside it. */
+internal fun CaptureRegion.scaledInto(scale: Double, grid: PixelGrid): CaptureRegion {
+    val left = (x * scale).toInt().coerceIn(0, grid.widthPx - 1)
+    val top = (y * scale).toInt().coerceIn(0, grid.heightPx - 1)
+    return CaptureRegion(
+        left,
+        top,
+        (widthPx * scale).roundToInt().coerceIn(1, grid.widthPx - left),
+        (heightPx * scale).roundToInt().coerceIn(1, grid.heightPx - top),
+    )
 }

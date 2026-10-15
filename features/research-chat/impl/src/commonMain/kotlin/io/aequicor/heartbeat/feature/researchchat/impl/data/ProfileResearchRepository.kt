@@ -476,7 +476,7 @@ internal class ProfileResearchRepository(
      * Interactive questions opt into profile hooks as well as detached tools and their permission bridge.
      *
      * `areDetachedToolsEnabled` gives research sessions the projectless host tools of the profile
-     * (`browser_*`, `scheduler_*`, `computer_*`, `harness_*` and others, each still behind its own flag and
+     * (`browser_*`, `scheduler_*`, `computer_*`/`window_*`, `harness_*` and others, each still behind its own flag and
      * trust gate). Research does not implement `ScheduledSessionHost`, so scheduler wake-ups addressed to a
      * research session are not delivered; its permission requests surface in the research conversation.
      */

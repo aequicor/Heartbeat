@@ -37,6 +37,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.NoSessionHooks
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.SessionHooks
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.LegacyToolNamesResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.NoToolPolicyResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ToolPolicyResolver
 import kotlinx.coroutines.CancellationException
@@ -74,7 +75,7 @@ public interface AgentToolBindings {
 internal class DefaultAgentTools(
     private val contributions: Set<AgentToolContribution>,
     private val hooks: SessionHooks = NoSessionHooks,
-    private val policies: ToolPolicyResolver = NoToolPolicyResolver,
+    policies: ToolPolicyResolver = NoToolPolicyResolver,
     private val offloads: Lazy<Set<ToolOutputOffload>> = lazyOf(emptySet()),
     safety: Lazy<AgentSafetyReviewer> = lazyOf(
         AgentSafetyReviewer { _, _, _ ->
@@ -83,7 +84,13 @@ internal class DefaultAgentTools(
     ),
 ) : ProfileAgentTools {
     private val log = Log.tag("AgentTools")
-    private val nativeGate = NativeToolGate(policies, hooks, safety) {
+    private val legacyNames: Map<String, Set<String>> by lazy {
+        contributions.flatMap { it.legacyNames.entries }
+            .groupBy({ it.key }, { it.value })
+            .mapValues { (_, replacements) -> replacements.flatten().toSet() }
+    }
+    private val policyLookup: ToolPolicyResolver = LegacyToolNamesResolver(policies) { legacyNames }
+    private val nativeGate = NativeToolGate(policyLookup, hooks, safety) {
         catalog().flatMap { it.tools }.map { it.name }.toSet()
     }
     private val callsLock = Mutex()
@@ -121,11 +128,11 @@ internal class DefaultAgentTools(
     }
 
     override suspend fun nativeTools(scope: ToolPolicyScope): ResolvedToolPolicy = checkNotNull(
-        policies.resolve(scope, catalog().flatMap { it.tools }.map { it.name }.toSet(), isExecuting = false),
+        policyLookup.resolve(scope, catalog().flatMap { it.tools }.map { it.name }.toSet(), isExecuting = false),
     )
 
     override suspend fun nativeToolsForExecution(scope: ToolPolicyScope): ResolvedToolPolicy? =
-        policies.resolve(scope, catalog().flatMap { it.tools }.map { it.name }.toSet(), isExecuting = true)
+        policyLookup.resolve(scope, catalog().flatMap { it.tools }.map { it.name }.toSet(), isExecuting = true)
 
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
         specifications(AgentToolScope(workspace))
@@ -507,7 +514,7 @@ internal class DefaultAgentTools(
         check(available.map { it.second.name }.distinct().size == available.size) { "Duplicate hosted tool name" }
         val catalogued = catalog().flatMap { it.tools }.map { it.name }.toSet()
         reportUncatalogued(available.map { it.second.name }.filterNot { it in catalogued })
-        val policy = policies.resolve(
+        val policy = policyLookup.resolve(
             ToolPolicyScope(
                 scope.target?.engine ?: scope.session?.engine,
                 scope.workspace,

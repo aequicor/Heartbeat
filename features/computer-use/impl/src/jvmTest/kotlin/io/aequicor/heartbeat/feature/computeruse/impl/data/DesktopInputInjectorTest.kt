@@ -4,6 +4,8 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
+import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_GLIDE_STEPS
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_TYPED_CHARS
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_WHEEL_NOTCHES
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ScreenPoint
@@ -18,6 +20,7 @@ import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class DesktopInputInjectorTest {
@@ -29,15 +32,93 @@ class DesktopInputInjectorTest {
         val outcome = injector.applyObserved(
             InputAction.Drag(FramePoint(-100.0, 10.0), FramePoint(20.0, 130.0)),
             { ScreenPoint(it.x.toInt(), it.y.toInt()) },
-        ) { point ->
-            progress += point
-            assertEquals(progress.size, driver.movements)
-        }
+            onProgress = { point ->
+                progress += point
+                assertEquals(progress.size, driver.movements)
+            },
+        )
         assertEquals(InputOutcome.Applied, outcome)
         assertEquals(ScreenPoint(-100, 10), progress.first())
         assertEquals(ScreenPoint(20, 130), progress.last())
         assertTrue(progress.size > 2)
         assertTrue(driver.heldButtons.isEmpty())
+    }
+
+    @Test
+    fun `a click glides from the agent's last point and presses only on arrival`() = runTest {
+        val driver = RecordingDriver(location = ScreenPoint(500, 500))
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        injector.apply(InputAction.MoveTo(FramePoint(0.0, 0.0))) { ScreenPoint(it.x.toInt(), it.y.toInt()) }
+        assertEquals(1, driver.movements, "an unknown start jumps instead of crossing other windows")
+        driver.movements = 0
+        val progress = mutableListOf<ScreenPoint?>()
+        var effectAfterMoves = -1
+        val outcome = injector.applyObserved(
+            InputAction.Click(FramePoint(900.0, 1200.0)),
+            { ScreenPoint(it.x.toInt(), it.y.toInt()) },
+            onProgress = { progress += it },
+            onEffect = {
+                effectAfterMoves = driver.movements
+                assertTrue(driver.events.none { it.startsWith("pressButton") })
+                null
+            },
+            area = Area,
+        )
+        assertEquals(InputOutcome.Applied, outcome)
+        assertEquals(MAX_GLIDE_STEPS, progress.size)
+        assertEquals(ScreenPoint(900, 1200), progress.last())
+        assertEquals(MAX_GLIDE_STEPS, effectAfterMoves)
+        val first = assertNotNull(progress.first())
+        val second = assertNotNull(progress[1])
+        assertTrue(first.x > second.x - first.x, "the glide eases out: the first step is the longest")
+    }
+
+    @Test
+    fun `a last point outside the authorized area makes the pointer jump`() = runTest {
+        val driver = RecordingDriver(location = ScreenPoint(500, 500))
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        val map: (FramePoint) -> ScreenPoint? = { ScreenPoint(it.x.toInt(), it.y.toInt()) }
+        injector.applyObserved(InputAction.MoveTo(FramePoint(0.0, 0.0)), map, onProgress = { }, area = Area)
+        driver.movements = 0
+        // The capture moved or its ROI narrowed: the old point is no longer inside the authorized area.
+        val narrowed = ScreenBounds(800, 1000, 400, 400)
+        injector.applyObserved(InputAction.Click(FramePoint(900.0, 1200.0)), map, onProgress = { }, area = narrowed)
+        assertEquals(1, driver.movements)
+        driver.movements = 0
+        injector.applyObserved(InputAction.Click(FramePoint(1000.0, 1300.0)), map, onProgress = { }, area = null)
+        assertEquals(1, driver.movements, "without an authorized area the pointer never glides")
+    }
+
+    @Test
+    fun `typing announces its effect before the first key`() = runTest {
+        val driver = RecordingDriver()
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        var eventsBeforeEffect = -1
+        injector.applyObserved(
+            InputAction.Type("ab"),
+            { null },
+            onProgress = { },
+            onEffect = {
+                eventsBeforeEffect = driver.events.size
+                null
+            },
+        )
+        assertEquals(0, eventsBeforeEffect)
+        assertTrue(driver.pressedKeys.isNotEmpty())
+    }
+
+    @Test
+    fun `a refusal on arrival stops the click before the button is pressed`() = runTest {
+        val driver = RecordingDriver()
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        val outcome = injector.applyObserved(
+            InputAction.Click(FramePoint(10.0, 10.0)),
+            { ScreenPoint(it.x.toInt(), it.y.toInt()) },
+            onProgress = { },
+            onEffect = { ComputerUseFailure.TargetNotForeground },
+        )
+        assertEquals(InputOutcome.Rejected(ComputerUseFailure.TargetNotForeground), outcome)
+        assertTrue(driver.events.none { it.startsWith("pressButton") })
     }
 
     @Test
@@ -94,7 +175,8 @@ class DesktopInputInjectorTest {
             injector.applyObserved(
                 InputAction.Drag(FramePoint(0.0, 0.0), FramePoint(120.0, 120.0)),
                 { ScreenPoint(it.x.toInt(), it.y.toInt()) },
-            ) { currentCoroutineContext().cancel() }
+                onProgress = { currentCoroutineContext().cancel() },
+            )
         }
         job.start()
         advanceUntilIdle()
@@ -110,7 +192,8 @@ class DesktopInputInjectorTest {
             injector.applyObserved(
                 InputAction.Scroll(FramePoint(0.0, 0.0), deltaY = 120),
                 { ScreenPoint(it.x.toInt(), it.y.toInt()) },
-            ) { currentCoroutineContext().cancel() }
+                onProgress = { currentCoroutineContext().cancel() },
+            )
         }
         job.start()
         advanceUntilIdle()
@@ -287,7 +370,10 @@ class DesktopInputInjectorTest {
     private class RecordingDriver(
         override val isUnicodeAvailable: Boolean = false,
         private val isUnicodeRefused: Boolean = false,
+        private var location: ScreenPoint? = null,
     ) : DesktopInputDriver {
+        override fun location(): ScreenPoint? = location
+
         val events = mutableListOf<String>()
         val heldKeys = mutableSetOf<Int>()
         val heldButtons = mutableSetOf<Int>()
@@ -300,6 +386,7 @@ class DesktopInputInjectorTest {
         var failOnKey: Int? = null
 
         override fun move(point: ScreenPoint) {
+            if (location != null) location = point
             movements++
             events += "move"
         }
@@ -341,5 +428,10 @@ class DesktopInputInjectorTest {
             events += "typeUnicode:$text"
             return !isUnicodeRefused
         }
+    }
+
+    private companion object {
+        /** An authorized area that holds every point of the glide tests. */
+        val Area = ScreenBounds(0, 0, 2000, 2000)
     }
 }

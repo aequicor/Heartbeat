@@ -26,9 +26,12 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineKey
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineSpec
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseNativeRouting
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseOutput
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRecording
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
 import io.aequicor.heartbeat.feature.computeruse.api.VisionBudget
 import io.aequicor.heartbeat.feature.computeruse.impl.data.CaptureCoordinator
+import io.aequicor.heartbeat.feature.computeruse.impl.data.ClipClock
+import io.aequicor.heartbeat.feature.computeruse.impl.data.ClipRecorder
 import io.aequicor.heartbeat.feature.computeruse.impl.data.FramePipeline
 import io.aequicor.heartbeat.feature.computeruse.impl.data.MasterFrameCache
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ComputerUsePreferences
@@ -119,9 +122,18 @@ internal class ComputerUseCoordinatorResources(
     private val pipeline: FramePipeline,
     private val cache: MasterFrameCache,
     private val dispatchers: DispatcherProvider,
+    private val clipClock: ClipClock,
 ) {
     /** Creates the one profile-owned coordinator. */
-    fun create(): CaptureCoordinator = CaptureCoordinator(capturer, windows, injector, pipeline, cache, dispatchers)
+    fun create(): CaptureCoordinator = CaptureCoordinator(
+        capturer,
+        windows,
+        injector,
+        pipeline,
+        cache,
+        dispatchers,
+        ClipRecorder(clipClock),
+    )
 }
 
 /** Observes profile opt in and rollout availability, releasing capture even while the settings screen is closed. */
@@ -178,4 +190,9 @@ public object ComputerUseToggleBindings {
     @Provides
     @IntoSet
     public fun nativeRouting(): FeatureToggle<*> = ComputerUseNativeRouting
+
+    /** Exact FeatureToggle wildcard joins the application registry. */
+    @Provides
+    @IntoSet
+    public fun recording(): FeatureToggle<*> = ComputerUseRecording
 }

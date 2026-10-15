@@ -78,11 +78,19 @@ internal interface InputInjector {
      */
     suspend fun apply(action: InputAction, map: (FramePoint) -> ScreenPoint?): InputOutcome
 
-    /** Reports actual native pointer steps; null reports keyboard input without moving the pointer. */
+    /**
+     * Reports actual native pointer steps; null reports keyboard input without moving the pointer. [onEffect] runs
+     * once, right before the action's effect (press, drag start, wheel, typing) reaches the driver; a returned failure
+     * refuses the action before that effect, so a check made before the pointer glided is repeated on arrival.
+     * [area] is the authorized screen rectangle (captured area and active ROI): the pointer glides only from a point
+     * inside it, so the path never crosses windows outside the capture; otherwise, or when it is `null`, it jumps.
+     */
     suspend fun applyObserved(
         action: InputAction,
         map: (FramePoint) -> ScreenPoint?,
         onProgress: suspend (ScreenPoint?) -> Unit,
+        onEffect: suspend () -> ComputerUseFailure? = { null },
+        area: ScreenBounds? = null,
     ): InputOutcome = apply(action, map)
 }
 

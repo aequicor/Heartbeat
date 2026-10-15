@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineKey
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseNativeRouting
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRecording
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
 import io.aequicor.heartbeat.feature.computeruse.api.supports
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ComputerUsePreferences
@@ -62,6 +63,13 @@ internal class ComputerUseAccess(
         if (!capabilities.supports(capture.mode)) return ComputerUseFailure.ModeNotAllowed
         return null
     }
+
+    /**
+     * Refusal of a recording: the capture checks plus the recording toggle, so a machine caller cannot record
+     * while recording is switched off.
+     */
+    suspend fun recordingFailure(): ComputerUseFailure? =
+        captureFailure() ?: ComputerUseFailure.Unavailable.takeUnless { toggles.get(ComputerUseRecording) }
 
     /** Refusal of input: the machine owns arming and the live host owns permission availability. */
     suspend fun inputFailure(): ComputerUseFailure? {

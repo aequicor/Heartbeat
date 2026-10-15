@@ -106,6 +106,13 @@ data class HbColors(
     val computerUsePointer: Color = brand
     val computerUsePointerOutline: Color = accessibleContentColor(computerUsePointer)
 
+    /** Expanding ring of an agent click and the fading trail of an agent drag. */
+    val computerUseRipple: Color = brand.copy(alpha = 0.85f)
+
+    /** Label next to the agent cursor naming keys, typing or scrolling; its text uses [computerUseBadgeContent]. */
+    val computerUseBadge: Color = brand
+    val computerUseBadgeContent: Color = accessibleContentColor(computerUseBadge)
+
     /**
      * Opaque dark oak attention surface with warm ivory text and amber actions for a pending questionnaire.
      * This is a semantic scoped variant of the host palette, not a separate application palette: inherited

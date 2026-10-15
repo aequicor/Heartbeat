@@ -110,6 +110,15 @@ public object CapturePresets {
         maxHeightPx = UI_MAX_HEIGHT_PX,
     )
 
+    /** One keyframe of a recording: small and lossy, since a clip sends several frames at once. */
+    public val AgentClip: CaptureEncoding = CaptureEncoding(
+        format = CaptureFormat.Jpeg,
+        quality = OVERVIEW_QUALITY,
+        maxWidthPx = CLIP_MAX_PX,
+        maxHeightPx = CLIP_MAX_PX,
+        maxBytes = CLIP_MAX_BYTES,
+    )
+
     /** Stored master frame: lossless, full resolution, never sent to a model as is. */
     public val Master: CaptureEncoding = CaptureEncoding().lossless()
 
@@ -132,19 +141,86 @@ public object CapturePresets {
     private const val OVERVIEW_MAX_BYTES: Int = 300 * 1024
     private const val TEXT_MAX_BYTES: Int = 200 * 1024
     private const val DETAIL_MAX_BYTES: Int = 2 * 1024 * 1024
+    private const val CLIP_MAX_PX: Int = 1024
+    private const val CLIP_MAX_BYTES: Int = 160 * 1024
 }
 
-/** One frame request. Geometry is interpreted in master-frame pixels. */
+/**
+ * One frame request. Geometry is interpreted in master-frame pixels.
+ *
+ * [roi] is a one-off ROI of this frame and must lie inside the active ROI of the capture; [tile] is a tile of the
+ * grid laid over the active ROI (or over the whole master without one). Without either the frame shows the active ROI.
+ */
 public data class CaptureRequest(
-    public val region: CaptureRegion? = null,
+    public val roi: CaptureRegion? = null,
     public val tile: TileRef? = null,
     public val encoding: CaptureEncoding = CapturePresets.AgentOverview,
     public val isCursorIncluded: Boolean = true,
     public val isFresh: Boolean = true,
 ) {
     init {
-        require(region == null || tile == null) { "A capture request selects either a region or a tile" }
+        require(roi == null || tile == null) { "A capture request selects either an ROI or a tile" }
     }
+}
+
+/**
+ * A recording of the active capture: frames at [fps] for at most [maxDurationMillis], or until the screen settles
+ * when [isUntilStable]. At most [maxFrames] keyframes reach the caller, cropped to the area that changed inside the
+ * active ROI and encoded with [encoding].
+ */
+public data class RecordRequest(
+    public val fps: Int = DEFAULT_FPS,
+    public val maxDurationMillis: Long = DEFAULT_DURATION_MILLIS,
+    public val isUntilStable: Boolean = true,
+    public val maxFrames: Int = DEFAULT_FRAMES,
+    public val encoding: CaptureEncoding = CapturePresets.AgentClip,
+) {
+    init {
+        require(fps in 1..MAX_FPS) { "Recording fps must be in 1..$MAX_FPS: $fps" }
+        require(maxDurationMillis in MIN_DURATION_MILLIS..MAX_DURATION_MILLIS) {
+            "Recording duration must be in $MIN_DURATION_MILLIS..$MAX_DURATION_MILLIS ms: $maxDurationMillis"
+        }
+        require(maxFrames in MIN_FRAMES..MAX_FRAMES) { "Recording keeps $MIN_FRAMES..$MAX_FRAMES frames: $maxFrames" }
+    }
+
+    /** Limits of a recording. */
+    public companion object {
+        public const val DEFAULT_FPS: Int = 4
+        public const val MAX_FPS: Int = 10
+        public const val DEFAULT_DURATION_MILLIS: Long = 3_000L
+        public const val MIN_DURATION_MILLIS: Long = 200L
+        public const val MAX_DURATION_MILLIS: Long = 10_000L
+        public const val DEFAULT_FRAMES: Int = 4
+        public const val MIN_FRAMES: Int = 2
+        public const val MAX_FRAMES: Int = 6
+    }
+}
+
+/** One keyframe of a recording, [offsetMillis] after it started; [changedFraction] of its cells changed. */
+public data class ClipFrame(
+    public val capture: CaptureRef,
+    public val offsetMillis: Long,
+    public val changedFraction: Double,
+)
+
+/**
+ * The keyframes of one recording, oldest first; every frame shows [roi] of [master], the frame captured last.
+ * [isAutoRoi] says the ROI was cropped to the change; [isStable] that the screen settled before the time limit.
+ */
+public data class CaptureClip(
+    public val frames: List<ClipFrame>,
+    public val roi: CaptureRegion,
+    public val isAutoRoi: Boolean,
+    public val isStable: Boolean,
+    public val durationMillis: Long,
+    public val master: CaptureRef,
+) {
+    init {
+        require(frames.isNotEmpty()) { "A clip has at least one frame" }
+    }
+
+    /** `true` when the screen changed during the recording. */
+    public val hasChanged: Boolean get() = frames.size > 1
 }
 
 /** One tile of the master frame grid. */
@@ -166,16 +242,21 @@ public data class TileRef(public val column: Int, public val row: Int) {
     }
 }
 
-/** A crop request against one stored master frame. */
+/**
+ * A crop request against one stored master frame.
+ *
+ * [roi] is the cropped ROI in master pixels; without [roi] and [normalized] the crop covers the active ROI, or the
+ * whole master without one.
+ */
 public data class CropRequest(
     public val capture: CaptureId,
-    public val region: CaptureRegion? = null,
+    public val roi: CaptureRegion? = null,
     public val normalized: NormalizedRegion? = null,
     public val scale: Double = 1.0,
     public val encoding: CaptureEncoding = CapturePresets.AgentDetail,
 ) {
     init {
-        require(region == null || normalized == null) { "A crop selects either master pixels or fractions" }
+        require(roi == null || normalized == null) { "A crop selects either master pixels or fractions" }
         require(scale in MIN_SCALE..MAX_SCALE) { "Crop scale must be in $MIN_SCALE..$MAX_SCALE: $scale" }
     }
 

@@ -86,6 +86,14 @@ data class HbDimensions(
     /** Size and outline of the agent's native pointer marker. */
     val computerUsePointerSize: Dp = 24.dp,
     val computerUsePointerStroke: Dp = 2.dp,
+    /** Transparent canvas around the agent cursor that holds its click ring, drag trail and action label. */
+    val computerUsePointerCanvas: Dp = 176.dp,
+    /** Final radius of the ring an agent click leaves, and the width of the agent drag trail. */
+    val computerUseRippleRadius: Dp = 28.dp,
+    val computerUseTrailWidth: Dp = 3.dp,
+    /** Action label next to the agent cursor (text style: `HbTypography.label`): padding and offset from the tip. */
+    val computerUseBadgePadding: Dp = 5.dp,
+    val computerUseBadgeOffset: Dp = 20.dp,
     /** Floating panel next to System Settings that guides a computer-use permission grant. */
     val computerUsePermissionGuideWidth: Dp = 340.dp,
     /** Application icon on the guide's draggable tile, as large as a Finder list icon. */
@@ -263,6 +271,12 @@ data class HbMotion(
     /** Safety indication remains visible even when reduced motion disables these pulses. */
     val computerUseStartMillis: Int = 600,
     val computerUseInputMillis: Int = 300,
+    /** Agent cursor easing between reported pointer steps; reduced motion jumps instead. */
+    val computerUsePointerGlideMillis: Int = 90,
+    /** Lifetime of an agent click ring, a drag trail point and an action label. */
+    val computerUseRippleMillis: Int = 450,
+    val computerUseTrailMillis: Int = 600,
+    val computerUseBadgeMillis: Int = 1200,
     val fastMillis: Int = 120,
     val normalMillis: Int = 220,
     val slowMillis: Int = 360,

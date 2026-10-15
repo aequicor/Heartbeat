@@ -52,7 +52,13 @@ public data class ScreenBounds(
     public fun region(): CaptureRegion = CaptureRegion(x, y, widthPx, heightPx)
 }
 
-/** Rectangle inside one captured frame, in that frame's pixels. */
+/**
+ * Rectangle inside one captured frame, in that frame's pixels.
+ *
+ * The agent's working area is an ROI (rectangle of interest): a [CaptureRegion] of the master frame that frames,
+ * auto-cropping and input of the capture are limited to. A frame derived from the master records the ROI it shows
+ * in [CaptureRef.roi], so its pixels are relative to that ROI.
+ */
 public data class CaptureRegion(
     public val x: Int,
     public val y: Int,
@@ -233,14 +239,18 @@ public sealed interface InputOutcome {
     public data class Rejected(public val reason: ComputerUseFailure) : InputOutcome
 }
 
-/** A stored capture artifact. The path is host data: it is never logged. */
+/**
+ * A stored capture artifact. The path is host data: it is never logged.
+ *
+ * [roi] is the master-frame rectangle this artifact shows: the whole master for a master frame.
+ */
 public data class CaptureRef(
     public val id: CaptureId,
     public val session: CaptureSessionId,
     public val format: CaptureFormat,
     public val widthPx: Int,
     public val heightPx: Int,
-    public val region: CaptureRegion,
+    public val roi: CaptureRegion,
     public val masterWidthPx: Int,
     public val masterHeightPx: Int,
     public val bytes: Long,
@@ -254,7 +264,7 @@ public data class CaptureRef(
 
     /** Scale of this frame relative to the master frame it was derived from. */
     public val previewScale: Double
-        get() = if (masterWidthPx <= 0) 1.0 else widthPx.toDouble() / region.widthPx.toDouble()
+        get() = if (masterWidthPx <= 0) 1.0 else widthPx.toDouble() / roi.widthPx.toDouble()
 }
 
 /** A tile grid over one master frame; agents request a tile instead of inventing coordinates. */
@@ -352,6 +362,8 @@ public enum class ComputerUseFailure {
     EncodingTooLarge,
     InputRejected,
     StaleFrame,
+
+    /** The target changed its size, or moved while the pointer travelled to it: a fresh frame is required. */
     TargetResized,
     ActivationFailed,
     TargetNotForeground,
@@ -360,6 +372,9 @@ public enum class ComputerUseFailure {
     UnsupportedCharacter,
     UnsupportedKey,
     RegionOutOfBounds,
+
+    /** A point or a rectangle leaves the active ROI of the capture. */
+    OutsideRoi,
     CaptureExpired,
     UnknownCapture,
     CropTooLarge,

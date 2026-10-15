@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.toArgb
 import io.aequicor.heartbeat.ds.tokens.HbColors
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.ds.tokens.HbMotion
+import io.aequicor.heartbeat.ds.tokens.HbTypography
 import java.awt.Color
 import java.awt.image.BufferedImage
 import javax.swing.JPanel
@@ -53,18 +54,49 @@ class ComputerUseIndicatorRasterTest {
     fun `agent cursor uses theme fill and contrasting outline with transparent exterior`() {
         for (theme in listOf(HbColors.DesktopLight, HbColors.DesktopDark)) {
             for (scale in listOf(1, 2, 3)) {
-                val panel = AgentPointer(
-                    Color(theme.computerUsePointer.toArgb(), true),
-                    Color(theme.computerUsePointerOutline.toArgb(), true),
-                    2f,
+                val style = agentCursorStyle(
+                    theme,
+                    HbDimensions.Desktop,
+                    HbMotion(isReducedMotion = true),
+                    HbTypography.Desktop,
                 )
-                val image = render(panel, 24, 24, scale)
+                val image = render(canvas(style, CursorScene(Tip)), style.canvasSize, style.canvasSize, scale)
                 val pixels = image.getRGB(0, 0, image.width, image.height, null, 0, image.width).toSet()
                 assertTrue(theme.computerUsePointer.toArgb() in pixels)
                 assertTrue(theme.computerUsePointerOutline.toArgb() in pixels)
                 assertEquals(0, image.getRGB(image.width - 1, 0).ushr(24))
+                assertEquals(0, image.getRGB(0, image.height - 1).ushr(24))
             }
         }
+    }
+
+    @Test
+    fun `a click ring and an action label are painted around the tip`() {
+        val theme = HbColors.DesktopLight
+        val style = agentCursorStyle(theme, HbDimensions.Desktop, HbMotion(), HbTypography.Desktop)
+        val center = style.canvasSize / 2
+        val size = center * 2
+        val ring = render(canvas(style, CursorScene(Tip, rings = listOf(CursorRing(1f, 1f)))), size, size, 1)
+        assertTrue(ring.getRGB(center - style.rippleRadius, center).ushr(24) > 0, "ring left of the tip")
+        val plain = render(canvas(style, CursorScene(Tip)), size, size, 1)
+        assertEquals(0, plain.getRGB(center - style.rippleRadius, center).ushr(24))
+        val labelled = render(canvas(style, CursorScene(Tip, badge = CursorBadge("Ctrl+S", 1f))), size, size, 1)
+        val inside = center + style.badgeOffset
+        val badgePixel = labelled.getRGB(inside + 3, inside + style.badgePadding * 2)
+        assertEquals(theme.computerUseBadge.toArgb(), badgePixel)
+    }
+
+    private fun canvas(style: AgentCursorStyle, scene: CursorScene): AgentCursorCanvas =
+        AgentCursorCanvas(style).apply {
+            this.scene = scene
+            origin = java.awt.Point(
+                (Tip.x - style.canvasSize / 2).toInt(),
+                (Tip.y - style.canvasSize / 2).toInt(),
+            )
+        }
+
+    private companion object {
+        val Tip = CursorPoint(500.0, 300.0)
     }
 
     private fun render(panel: JPanel, width: Int, height: Int, scale: Int): BufferedImage {

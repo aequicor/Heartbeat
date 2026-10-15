@@ -86,7 +86,7 @@ internal class RoutedComputerControl(
 
             is ComputerUseOutput.Rejected -> InputOutcome.Rejected(output.reason)
 
-            is ComputerUseOutput.FrameReady, is ComputerUseOutput.CaptureChanged,
+            is ComputerUseOutput.FrameReady, is ComputerUseOutput.ClipReady, is ComputerUseOutput.CaptureChanged,
             is ComputerUseOutput.SessionClosed, is ComputerUseOutput.PermissionRequired, ComputerUseOutput.Revoked,
             -> InputOutcome.Rejected(ComputerUseFailure.InputRejected)
         }
@@ -177,6 +177,8 @@ internal class RoutedComputerControl(
 
             is ComputerUseOutput.FrameReady -> takeIf { this.requestId == requestId }
 
+            is ComputerUseOutput.ClipReady -> takeIf { this.requestId == requestId }
+
             is ComputerUseOutput.CaptureChanged, ComputerUseOutput.Revoked -> null
 
             is ComputerUseOutput.SessionClosed -> if (this.session == session) {
@@ -193,7 +195,7 @@ internal class RoutedComputerControl(
 
         is ComputerUseOutput.Rejected -> CaptureResult(failure = reason)
 
-        is ComputerUseOutput.InputApplied, is ComputerUseOutput.CaptureChanged,
+        is ComputerUseOutput.InputApplied, is ComputerUseOutput.ClipReady, is ComputerUseOutput.CaptureChanged,
         is ComputerUseOutput.SessionClosed, is ComputerUseOutput.PermissionRequired, ComputerUseOutput.Revoked,
         -> CaptureResult(failure = ComputerUseFailure.CaptureFailed)
     }
