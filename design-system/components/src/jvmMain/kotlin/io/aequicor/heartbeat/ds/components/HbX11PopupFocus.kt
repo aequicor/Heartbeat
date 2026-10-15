@@ -20,15 +20,21 @@ import com.sun.jna.ptr.PointerByReference
  */
 internal fun requestX11PopupFocus(owner: Long, popup: Long, focusOwners: Set<Long>): Boolean {
     if (!areDistinctX11Windows(owner, popup) || !areValidFocusOwners(owner, popup, focusOwners)) return false
-    return HbX11PopupConnection().use { it.request(owner, popup, focusOwners) }
+    return HbX11FocusConnection().use { it.request(owner, popup, focusOwners) }
 }
 
-private class HbX11PopupConnection : AutoCloseable {
+/** Returns native document focus to the same active, mapped owner without authorizing any owned popup. */
+internal fun requestX11DocumentFocus(owner: Long): Boolean {
+    if (owner <= 1L) return false
+    return HbX11FocusConnection().use { it.request(owner, popup = null, setOf(owner)) }
+}
+
+private class HbX11FocusConnection : AutoCloseable {
     private val x11 = X11.INSTANCE
     private val library = NativeLibrary.getInstance("X11")
-    private val display = checkNotNull(x11.XOpenDisplay(null)) { "Cannot open the popup X11 display" }
+    private val display = checkNotNull(x11.XOpenDisplay(null)) { "Cannot open the focus X11 display" }
 
-    fun request(owner: Long, popup: Long, focusOwners: Set<Long>): Boolean {
+    fun request(owner: Long, popup: Long?, focusOwners: Set<Long>): Boolean {
         val root = x11.XDefaultRootWindow(display)
         val activeAtom = atom("_NET_ACTIVE_WINDOW", onlyExisting = true) ?: return false
         val timestamp = serverTimestamp(root)
@@ -39,8 +45,13 @@ private class HbX11PopupConnection : AutoCloseable {
             val focus = X11.WindowByReference()
             library.getFunction("XGetInputFocus").invokeInt(arrayOf(display, focus, IntByReference()))
             val ancestors = x11FocusAncestors(focus.value?.toLong() ?: 0L, ::parentWindow)
-            val areWindowsMapped = isMapped(owner) && isMapped(popup)
-            if (canRestoreX11PopupFocus(owner, popup, active, ancestors, areWindowsMapped, focusOwners)) {
+            val isAllowed = if (popup == null) {
+                canRestoreX11DocumentFocus(owner, active, ancestors, isMapped(owner))
+            } else {
+                val areWindowsMapped = isMapped(owner) && isMapped(popup)
+                canRestoreX11PopupFocus(owner, popup, active, ancestors, areWindowsMapped, focusOwners)
+            }
+            if (isAllowed) {
                 sendActivation(root, activeAtom, owner, timestamp)
                 true
             } else {
@@ -113,7 +124,7 @@ private class HbX11PopupConnection : AutoCloseable {
             type = X11.ClientMessage
             serial = NativeLong(0)
             send_event = 1
-            display = this@HbX11PopupConnection.display
+            display = this@HbX11FocusConnection.display
             window = X11.Window(owner)
             message_type = atom
             format = CARDINAL_FORMAT
@@ -128,7 +139,7 @@ private class HbX11PopupConnection : AutoCloseable {
     private fun isMapped(window: Long): Boolean {
         val attributes = X11.XWindowAttributes()
         check(x11.XGetWindowAttributes(display, X11.Window(window), attributes) != 0) {
-            "Cannot query the popup X11 window attributes"
+            "Cannot query the focus X11 window attributes"
         }
         return attributes.map_state == X11.IsViewable
     }
@@ -186,6 +197,14 @@ private class HbX11PopupConnection : AutoCloseable {
         return value.toLong().takeIf { it != 0L }?.let { X11.Atom(it) }
     }
 }
+
+/** Neither WM activity nor focus ancestry alone authorizes returning native child input to this owner. */
+internal fun canRestoreX11DocumentFocus(
+    owner: Long,
+    active: Long,
+    ancestors: List<Long>?,
+    isOwnerMapped: Boolean,
+): Boolean = owner > 1L && active == owner && ancestors?.contains(owner) == true && isOwnerMapped
 
 /** WM activity and native focus ancestry must independently identify this live owner's window. */
 internal fun canRestoreX11PopupFocus(

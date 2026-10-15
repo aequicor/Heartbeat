@@ -69,9 +69,10 @@ public fun HbDocumentOverlay(
     val active = LocalHbActiveNativeModalOwner.current
     val owner = LocalHbNativeModalOwner.current
     val isAvailable by rememberUpdatedState(active == null || active === owner)
-    val focusExit: () -> Unit = remember(focus) {
+    val focusWindow = rememberHbDocumentWindowFocus()
+    val focusExit: () -> Unit = remember(focus, focusWindow) {
         {
-            if (isAvailable) focus.requestFocus()
+            if (isAvailable && focus.requestFocus()) focusWindow()
         }
     }
     val inputMode = LocalInputModeManager.current

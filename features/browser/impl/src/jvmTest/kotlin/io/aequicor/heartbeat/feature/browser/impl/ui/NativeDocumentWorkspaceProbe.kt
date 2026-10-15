@@ -201,7 +201,7 @@ private class NativeDocumentWorkspaceProbe(
                 assertEquals(previous, actual, "Native rounding must not accumulate after content changes")
             }
             awaitOverlayPosition(window)
-            awaitShape(window, isRounded = true)
+            awaitMacShape(window, isRounded = true)
             assertInWindowModal()
         }
         nativeEdt { isExpanded = false }
@@ -265,11 +265,11 @@ private class NativeDocumentWorkspaceProbe(
         snapshot.await(window.rootPane, 2, areAllClipped = true)
         if (nativeEdt { isExpanded }) {
             awaitOverlay(isOccupied = true)
-            awaitShape(window, isRounded = true)
+            awaitMacShape(window, isRounded = true)
             awaitOverlayPosition(window)
             assertInWindowModal()
         } else {
-            awaitShape(window, isRounded = false)
+            awaitMacShape(window, isRounded = false)
             awaitOverlay(isOccupied = false)
         }
         nativeEdt {
@@ -325,7 +325,9 @@ private class NativeDocumentWorkspaceProbe(
         assertTrue(owned.single().type == Window.Type.POPUP && !owned.single().focusableWindowState)
     }
 
-    private fun awaitShape(host: RootPaneContainer, isRounded: Boolean) {
+    private fun awaitMacShape(host: RootPaneContainer, isRounded: Boolean) {
+        // NativeDocumentClipSnapshot reads AppKit layers; DOM and host geometry checks run on every OS.
+        if (!OS.isMacintosh()) return
         val result = CompletableFuture<NativeDocumentShape>()
         val snapshot = NativeDocumentClipSnapshot()
         val timer = nativeEdt {

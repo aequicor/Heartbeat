@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.ds.components
 
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 
 /**
@@ -7,3 +8,7 @@ import androidx.compose.runtime.compositionLocalOf
  * control. Native hosts must revoke queued requests when their attachment changes or leaves the composition.
  */
 public val LocalHbDocumentFocusExit = compositionLocalOf<(() -> Unit)?> { null }
+
+/** Returns native child focus to this composition's window after its Compose target has been selected. */
+@Composable
+internal expect fun rememberHbDocumentWindowFocus(): () -> Unit
