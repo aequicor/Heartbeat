@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_GLIDE_STEPS
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_TYPED_CHARS
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_WHEEL_NOTCHES
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ScreenPoint
@@ -18,6 +19,7 @@ import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class DesktopInputInjectorTest {
@@ -29,15 +31,55 @@ class DesktopInputInjectorTest {
         val outcome = injector.applyObserved(
             InputAction.Drag(FramePoint(-100.0, 10.0), FramePoint(20.0, 130.0)),
             { ScreenPoint(it.x.toInt(), it.y.toInt()) },
-        ) { point ->
-            progress += point
-            assertEquals(progress.size, driver.movements)
-        }
+            onProgress = { point ->
+                progress += point
+                assertEquals(progress.size, driver.movements)
+            },
+        )
         assertEquals(InputOutcome.Applied, outcome)
         assertEquals(ScreenPoint(-100, 10), progress.first())
         assertEquals(ScreenPoint(20, 130), progress.last())
         assertTrue(progress.size > 2)
         assertTrue(driver.heldButtons.isEmpty())
+    }
+
+    @Test
+    fun `a click glides from the pointer location and presses only on arrival`() = runTest {
+        val driver = RecordingDriver(location = ScreenPoint(0, 0))
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        val progress = mutableListOf<ScreenPoint?>()
+        var effectAfterMoves = -1
+        val outcome = injector.applyObserved(
+            InputAction.Click(FramePoint(900.0, 1200.0)),
+            { ScreenPoint(it.x.toInt(), it.y.toInt()) },
+            onProgress = { progress += it },
+            onEffect = {
+                effectAfterMoves = driver.movements
+                assertTrue(driver.events.none { it.startsWith("pressButton") })
+            },
+        )
+        assertEquals(InputOutcome.Applied, outcome)
+        assertEquals(MAX_GLIDE_STEPS, progress.size)
+        assertEquals(ScreenPoint(900, 1200), progress.last())
+        assertEquals(MAX_GLIDE_STEPS, effectAfterMoves)
+        val first = assertNotNull(progress.first())
+        val second = assertNotNull(progress[1])
+        assertTrue(first.x > second.x - first.x, "the glide eases out: the first step is the longest")
+    }
+
+    @Test
+    fun `typing announces its effect before the first key`() = runTest {
+        val driver = RecordingDriver()
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        var eventsBeforeEffect = -1
+        injector.applyObserved(
+            InputAction.Type("ab"),
+            { null },
+            onProgress = { },
+            onEffect = { eventsBeforeEffect = driver.events.size },
+        )
+        assertEquals(0, eventsBeforeEffect)
+        assertTrue(driver.pressedKeys.isNotEmpty())
     }
 
     @Test
@@ -94,7 +136,8 @@ class DesktopInputInjectorTest {
             injector.applyObserved(
                 InputAction.Drag(FramePoint(0.0, 0.0), FramePoint(120.0, 120.0)),
                 { ScreenPoint(it.x.toInt(), it.y.toInt()) },
-            ) { currentCoroutineContext().cancel() }
+                onProgress = { currentCoroutineContext().cancel() },
+            )
         }
         job.start()
         advanceUntilIdle()
@@ -110,7 +153,8 @@ class DesktopInputInjectorTest {
             injector.applyObserved(
                 InputAction.Scroll(FramePoint(0.0, 0.0), deltaY = 120),
                 { ScreenPoint(it.x.toInt(), it.y.toInt()) },
-            ) { currentCoroutineContext().cancel() }
+                onProgress = { currentCoroutineContext().cancel() },
+            )
         }
         job.start()
         advanceUntilIdle()
@@ -287,7 +331,10 @@ class DesktopInputInjectorTest {
     private class RecordingDriver(
         override val isUnicodeAvailable: Boolean = false,
         private val isUnicodeRefused: Boolean = false,
+        private val location: ScreenPoint? = null,
     ) : DesktopInputDriver {
+        override fun location(): ScreenPoint? = location
+
         val events = mutableListOf<String>()
         val heldKeys = mutableSetOf<Int>()
         val heldButtons = mutableSetOf<Int>()

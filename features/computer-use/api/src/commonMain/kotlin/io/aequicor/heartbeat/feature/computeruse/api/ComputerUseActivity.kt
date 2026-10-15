@@ -13,7 +13,10 @@ public data class ComputerUseActivity(
     public val input: ComputerUseInputActivity = ComputerUseInputActivity(),
 )
 
-/** Host-coordinate feedback; the pointer is relative to [bounds], not to a preview or the user's mouse. */
+/**
+ * Host-coordinate feedback that drives the virtual cursor; the pointer is relative to [bounds], not to a preview or
+ * the user's mouse. The cursor is shown in every capture mode: over a window only while it is in the foreground.
+ */
 public data class ComputerUseInputActivity(
     public val bounds: ScreenBounds? = null,
     public val pointer: FramePoint? = null,
@@ -22,7 +25,32 @@ public data class ComputerUseInputActivity(
     public val sequence: Long = 0L,
     /** Monotonic feedback revision; rejects a delayed observation after a newer pointer step. */
     public val revision: Long = 0L,
+    /** What the agent is doing: gliding to a point, then pressing, dragging, scrolling or typing there. */
+    public val gesture: ComputerUseGesture? = null,
+    /** Increments once when the [gesture]'s effect (press, drag start, wheel, typing) reaches the driver. */
+    public val effectSequence: Long = 0L,
 )
+
+/** The current input gesture of the agent, as the virtual cursor shows it. Typed text is never carried. */
+public sealed interface ComputerUseGesture {
+    /** The pointer glides towards its target. */
+    public data object Move : ComputerUseGesture
+
+    /** [count] clicks of [button] at the pointer. */
+    public data class Press(public val button: MouseButton, public val count: Int) : ComputerUseGesture
+
+    /** [button] is held while the pointer moves. */
+    public data class Drag(public val button: MouseButton) : ComputerUseGesture
+
+    /** Wheel notches at the pointer; negative scrolls up. */
+    public data class Scroll(public val notches: Int) : ComputerUseGesture
+
+    /** [length] UTF-16 code units are typed into the focused control. */
+    public data class Type(public val length: Int) : ComputerUseGesture
+
+    /** A key combination by its names, e.g. `["ctrl", "s"]`. */
+    public data class Keys(public val names: List<String>) : ComputerUseGesture
+}
 
 /** Monitor bounds in the coordinates the host reported in [MonitorInfo.bounds], including negative origins. */
 public data class ComputerUseScreenBounds(val x: Int, val y: Int, val width: Int, val height: Int)

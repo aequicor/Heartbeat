@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.computeruse.impl.domain.InputInjector
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_CLICKS
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_TYPED_CHARS
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ScreenPoint
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.glidePath
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.wheelNotches
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -23,6 +24,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.awt.GraphicsEnvironment
+import java.awt.MouseInfo
 import java.awt.Robot
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
@@ -39,6 +41,9 @@ internal interface DesktopInputDriver {
     fun wheel(notches: Int)
     fun pause()
     fun idle()
+
+    /** The pointer's current host position, where a glide starts; `null` when the platform cannot tell. */
+    fun location(): ScreenPoint? = null
 
     /** `true` when [typeUnicode] carries characters independent of the active keyboard layout. */
     val isUnicodeAvailable: Boolean get() = false
@@ -83,6 +88,8 @@ private class AwtInputDriver(private val robot: Robot, private val host: HostPla
     override fun pause() = robot.delay(STEP_DELAY_MILLIS)
     override fun idle() = robot.waitForIdle()
 
+    override fun location(): ScreenPoint? = MouseInfo.getPointerInfo()?.location?.let { ScreenPoint(it.x, it.y) }
+
     override val isUnicodeAvailable: Boolean get() = host == HostPlatform.Windows && WindowsTextBackend.isAvailable
 
     override fun typeUnicode(text: String): Boolean = isUnicodeAvailable && WindowsTextBackend.type(text)
@@ -106,6 +113,9 @@ internal fun injectableKeyCode(code: Int, host: HostPlatform): Int =
  * failures and the kill switch. Text is validated in its entirety
  * before the first event, so a rejected character cannot leave a partially typed command behind.
  *
+ * Pointer actions glide to their target along an eased path, so the real pointer and the virtual cursor move
+ * smoothly; the effect (press, wheel, typing) starts only on arrival and is announced through `onEffect`.
+ *
  * Text goes through the driver's Unicode path when it has one (Windows), otherwise through US keyboard key
  * positions; unsupported characters are refused instead of silently dropped.
  */
@@ -121,12 +131,13 @@ internal class DesktopInputInjector(
     override val isAvailable: Boolean get() = devices.isAvailable
 
     override suspend fun apply(action: InputAction, map: (FramePoint) -> ScreenPoint?): InputOutcome =
-        applyObserved(action, map) { }
+        applyObserved(action, map, onProgress = { })
 
     override suspend fun applyObserved(
         action: InputAction,
         map: (FramePoint) -> ScreenPoint?,
         onProgress: suspend (ScreenPoint?) -> Unit,
+        onEffect: suspend () -> Unit,
     ): InputOutcome = withContext(dispatchers.io) {
         mutex.withLock {
             currentCoroutineContext().ensureActive()
@@ -140,14 +151,18 @@ internal class DesktopInputInjector(
                 }
                 currentCoroutineContext().ensureActive()
             }
+            val effect: suspend () -> Unit = {
+                onEffect()
+                currentCoroutineContext().ensureActive()
+            }
             try {
                 when (action) {
                     is InputAction.MoveTo -> pointer(driver, action.point, map, progress)
-                    is InputAction.Click -> click(driver, action, map, progress)
-                    is InputAction.Drag -> drag(driver, action, map, progress)
-                    is InputAction.Scroll -> scroll(driver, action, map, progress)
-                    is InputAction.Type -> type(driver, action.text, progress)
-                    is InputAction.Key -> combination(driver, action.keys, progress)
+                    is InputAction.Click -> click(driver, action, map, progress, effect)
+                    is InputAction.Drag -> drag(driver, action, map, progress, effect)
+                    is InputAction.Scroll -> scroll(driver, action, map, progress, effect)
+                    is InputAction.Type -> type(driver, action.text, progress, effect)
+                    is InputAction.Key -> combination(driver, action.keys, progress, effect)
                 }.also { currentCoroutineContext().ensureActive() }
             } catch (e: CancellationException) {
                 throw e
@@ -165,10 +180,24 @@ internal class DesktopInputInjector(
         onProgress: suspend (ScreenPoint?) -> Unit,
     ): InputOutcome {
         val target = map(point) ?: return outside()
-        driver.move(target)
-        onProgress(target)
+        glide(driver, target, onProgress)
         driver.idle()
         return InputOutcome.Applied
+    }
+
+    /** Moves the pointer along an eased path from where it is to [target], reporting every step. */
+    private suspend fun glide(
+        driver: DesktopInputDriver,
+        target: ScreenPoint,
+        onProgress: suspend (ScreenPoint?) -> Unit,
+    ) {
+        val path = driver.location()?.let { glidePath(it, target) } ?: listOf(target)
+        path.forEachIndexed { index, point ->
+            currentCoroutineContext().ensureActive()
+            driver.move(point)
+            onProgress(point)
+            if (index != path.lastIndex) driver.pause()
+        }
     }
 
     private suspend fun click(
@@ -176,11 +205,12 @@ internal class DesktopInputInjector(
         action: InputAction.Click,
         map: (FramePoint) -> ScreenPoint?,
         onProgress: suspend (ScreenPoint?) -> Unit,
+        onEffect: suspend () -> Unit,
     ): InputOutcome {
         val target = map(action.point) ?: return outside()
         val mask = mask(action.button)
-        driver.move(target)
-        onProgress(target)
+        glide(driver, target, onProgress)
+        onEffect()
         repeat(action.count.coerceIn(1, MAX_CLICKS)) {
             currentCoroutineContext().ensureActive()
             try {
@@ -199,12 +229,13 @@ internal class DesktopInputInjector(
         action: InputAction.Drag,
         map: (FramePoint) -> ScreenPoint?,
         onProgress: suspend (ScreenPoint?) -> Unit,
+        onEffect: suspend () -> Unit,
     ): InputOutcome {
         val from = map(action.from) ?: return outside()
         val to = map(action.to) ?: return outside()
         val mask = mask(action.button)
-        driver.move(from)
-        onProgress(from)
+        glide(driver, from, onProgress)
+        onEffect()
         try {
             driver.pressButton(mask)
             for (step in 1..DRAG_STEPS) {
@@ -227,12 +258,13 @@ internal class DesktopInputInjector(
         action: InputAction.Scroll,
         map: (FramePoint) -> ScreenPoint?,
         onProgress: suspend (ScreenPoint?) -> Unit,
+        onEffect: suspend () -> Unit,
     ): InputOutcome {
         val target = map(action.point) ?: return outside()
         // AWT exposes only the vertical wheel. Refuse horizontal input instead of scrolling the wrong axis.
         if (action.deltaX != 0) return InputOutcome.Rejected(ComputerUseFailure.InputRejected)
-        driver.move(target)
-        onProgress(target)
+        glide(driver, target, onProgress)
+        onEffect()
         val notches = wheelNotches(action.deltaY)
         // One native event per notch: a single large delta scrolls an unpredictable amount in modern apps.
         val sign = if (notches < 0) -1 else 1
@@ -250,6 +282,7 @@ internal class DesktopInputInjector(
         driver: DesktopInputDriver,
         text: String,
         onProgress: suspend (ScreenPoint?) -> Unit,
+        onEffect: suspend () -> Unit,
     ): InputOutcome {
         if (text.length > MAX_TYPED_CHARS) {
             log.w { "typed text refused: over the limit chars=${text.length}" }
@@ -268,6 +301,7 @@ internal class DesktopInputInjector(
             log.w { "typed text refused: unmappable character" }
             return InputOutcome.Rejected(ComputerUseFailure.UnsupportedCharacter)
         }
+        onEffect()
         if (!typeSegments(driver, segments, isUnicodeCapable, onProgress)) {
             log.w { "typed text refused by the system chars=${text.length}" }
             return InputOutcome.Rejected(ComputerUseFailure.InputRejected)
@@ -332,6 +366,7 @@ internal class DesktopInputInjector(
         driver: DesktopInputDriver,
         keys: List<String>,
         onProgress: suspend (ScreenPoint?) -> Unit,
+        onEffect: suspend () -> Unit,
     ): InputOutcome {
         if (keys.isEmpty()) return InputOutcome.Rejected(ComputerUseFailure.InputRejected)
         val codes = keys.map { namedKey(it) }
@@ -339,6 +374,7 @@ internal class DesktopInputInjector(
             log.w { "key combination refused: unknown key name count=${keys.size}" }
             return InputOutcome.Rejected(ComputerUseFailure.UnsupportedKey)
         }
+        onEffect()
         pressKeys(driver, codes, onProgress)
         driver.idle()
         return InputOutcome.Applied

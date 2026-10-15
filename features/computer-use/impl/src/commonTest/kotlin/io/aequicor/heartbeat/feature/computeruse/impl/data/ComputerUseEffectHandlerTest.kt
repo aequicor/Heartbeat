@@ -338,6 +338,7 @@ class ComputerUseEffectHandlerTest {
             action: InputAction,
             map: (FramePoint) -> ScreenPoint?,
             onProgress: suspend (ScreenPoint?) -> Unit,
+            onEffect: suspend () -> Unit,
         ): InputOutcome = apply(action, map)
 
         override suspend fun apply(action: InputAction, map: (FramePoint) -> ScreenPoint?): InputOutcome {

@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.CaptureRequest
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureResult
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureSessionId
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseGesture
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseInputActivity
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.CropRequest
@@ -24,10 +25,12 @@ import io.aequicor.heartbeat.feature.computeruse.api.fitsRoi
 import io.aequicor.heartbeat.feature.computeruse.api.roiIn
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.CaptureRegionPolicy
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.InputInjector
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_CLICKS
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.PixelGrid
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ScreenCapturer
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ScreenPoint
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.WindowCatalog
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.wheelNotches
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
@@ -286,13 +289,24 @@ internal class CaptureCoordinator(
         if (frames.leavesRoi(action, bounds, binding.roi)) return InputOutcome.Rejected(ComputerUseFailure.OutsideRoi)
         val map: (FramePoint) -> ScreenPoint? = { point -> mapPoint(point, action.space, bounds, frames) }
         var hasStarted = false
+        var gesture: ComputerUseGesture = ComputerUseGesture.Move
+        val report: suspend (ScreenPoint?, Boolean) -> Unit = { point, isEffect ->
+            val step = ProgressStep(point, isFirst = !hasStarted, gesture = gesture, isEffect = isEffect)
+            val activity = recordProgress(session, bounds, step)
+            hasStarted = true
+            onProgress(session.session, activity)
+        }
         val outcome = guard()?.let(InputOutcome::Rejected)
             ?: runLogged("input injection") {
-                injector.applyObserved(action, map) { point ->
-                    val activity = recordProgress(session, bounds, point, isFirst = !hasStarted)
-                    hasStarted = true
-                    onProgress(session.session, activity)
-                }
+                injector.applyObserved(
+                    action,
+                    map,
+                    onProgress = { point -> report(point, false) },
+                    onEffect = {
+                        gesture = action.gesture()
+                        report(null, true)
+                    },
+                )
             }
             ?: InputOutcome.Rejected(ComputerUseFailure.InputRejected)
         log.i {
@@ -305,16 +319,14 @@ internal class CaptureCoordinator(
     private suspend fun recordProgress(
         session: ActiveCapture,
         authorizedBounds: ScreenBounds,
-        point: ScreenPoint?,
-        isFirst: Boolean,
+        step: ProgressStep,
     ): ComputerUseInputActivity {
         val current = capturer.currentBounds(session.mode)
         val isValidSize = current?.hasSameSize(authorizedBounds) == true
-        val isForeground = (session.mode as? ComputerUseMode.Window)?.let {
-            windows.isForeground(it.target)
-        } == true
+        val isShown = isCursorShown(session.mode)
         return mutex.withLock {
             val previous = session.inputActivity
+            val point = step.point
             val local = if (current != null && isValidSize && point != null) {
                 FramePoint((point.x - current.x).toDouble(), (point.y - current.y).toDouble())
             } else {
@@ -324,11 +336,19 @@ internal class CaptureCoordinator(
             previous.copy(
                 bounds = current ?: previous.bounds,
                 pointer = pointer,
-                isPointerVisible = isForeground && pointer != null,
-                sequence = previous.sequence + if (isFirst) 1 else 0,
+                isPointerVisible = isShown && pointer != null,
+                sequence = previous.sequence + if (step.isFirst) 1 else 0,
                 revision = previous.revision + 1,
+                gesture = step.gesture,
+                effectSequence = previous.effectSequence + if (step.isEffect) 1 else 0,
             ).also { session.inputActivity = it }
         }
+    }
+
+    /** The virtual cursor shows on the desktop always, over a window only while it is in the foreground. */
+    private suspend fun isCursorShown(mode: ComputerUseMode): Boolean = when (mode) {
+        is ComputerUseMode.Desktop -> true
+        is ComputerUseMode.Window -> windows.isForeground(mode.target)
     }
 
     private suspend fun inputFailure(
@@ -375,8 +395,7 @@ internal class CaptureCoordinator(
         val bounds = capturer.currentBounds(session.mode)
         val hasSizeChanged = bounds != null && previous.bounds?.let { !bounds.hasSameSize(it) } == true
         val point = if (hasSizeChanged) null else previous.pointer
-        val window = session.mode as? ComputerUseMode.Window
-        val isVisible = bounds != null && point != null && window != null && windows.isForeground(window.target)
+        val isVisible = bounds != null && point != null && isCursorShown(session.mode)
         val next = previous.copy(bounds = bounds ?: previous.bounds, pointer = point, isPointerVisible = isVisible)
         mutex.withLock {
             if (active !== session) return@withLock null
@@ -607,6 +626,13 @@ internal class CaptureCoordinator(
 
     private data class Frames(val master: CaptureRef?, val preview: CaptureRef?)
 
+    private data class ProgressStep(
+        val point: ScreenPoint?,
+        val isFirst: Boolean,
+        val gesture: ComputerUseGesture,
+        val isEffect: Boolean,
+    )
+
     private data class InputBinding(val expectedCapture: CaptureId?, val isFrameBound: Boolean, val roi: CaptureRegion?)
 
     private companion object {
@@ -621,6 +647,16 @@ internal class CaptureCoordinator(
             TileGrid.forMaster(widthPx, heightPx).region(column, row, widthPx, heightPx)?.let { tile ->
                 CaptureRegion(x + tile.x, y + tile.y, tile.widthPx, tile.heightPx)
             }
+
+        /** What the virtual cursor shows once this action's effect starts; typed text is reduced to its length. */
+        fun InputAction.gesture(): ComputerUseGesture = when (this) {
+            is InputAction.MoveTo -> ComputerUseGesture.Move
+            is InputAction.Click -> ComputerUseGesture.Press(button, count.coerceIn(1, MAX_CLICKS))
+            is InputAction.Drag -> ComputerUseGesture.Drag(button)
+            is InputAction.Scroll -> ComputerUseGesture.Scroll(wheelNotches(deltaY))
+            is InputAction.Type -> ComputerUseGesture.Type(text.length)
+            is InputAction.Key -> ComputerUseGesture.Keys(keys)
+        }
 
         fun InputAction.points(): List<FramePoint> = when (this) {
             is InputAction.MoveTo -> listOf(point)

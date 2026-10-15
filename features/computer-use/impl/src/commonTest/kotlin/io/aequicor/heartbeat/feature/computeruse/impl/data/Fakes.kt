@@ -162,9 +162,13 @@ internal class FakeInputInjector(override val isAvailable: Boolean = true) : Inp
         action: InputAction,
         map: (FramePoint) -> ScreenPoint?,
         onProgress: suspend (ScreenPoint?) -> Unit,
+        onEffect: suspend () -> Unit,
     ): InputOutcome {
         val outcome = apply(action, map)
-        if (outcome == InputOutcome.Applied && isProgressReported) onProgress(action.firstPoint()?.let(map))
+        if (outcome == InputOutcome.Applied && isProgressReported) {
+            onProgress(action.firstPoint()?.let(map))
+            if (action !is InputAction.MoveTo) onEffect()
+        }
         return outcome
     }
 

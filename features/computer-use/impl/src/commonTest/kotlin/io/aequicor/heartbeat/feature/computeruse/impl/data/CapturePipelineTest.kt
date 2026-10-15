@@ -8,12 +8,15 @@ import io.aequicor.heartbeat.feature.computeruse.api.CaptureRegion
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRequest
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureSessionId
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseGesture
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseInputActivity
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.CropRequest
 import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
 import io.aequicor.heartbeat.feature.computeruse.api.FrameSpace
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
+import io.aequicor.heartbeat.feature.computeruse.api.MouseButton
 import io.aequicor.heartbeat.feature.computeruse.api.NormalizedRegion
 import io.aequicor.heartbeat.feature.computeruse.api.TileRef
 import io.aequicor.heartbeat.feature.computeruse.api.VisionBudget
@@ -215,6 +218,34 @@ class CaptureCoordinatorTest {
         release.complete(Unit)
         assertEquals(InputOutcome.Applied, action.await())
         assertEquals(FramePoint(10.0, 5.0), fixture.coordinator.observeActivity(Session)?.pointer)
+    }
+
+    @Test
+    fun `the virtual cursor shows on the desktop and reports the gesture of each effect`() = runTest {
+        val fixture = fixture()
+        val coordinator = fixture.coordinator
+        fixture.injector.isProgressReported = true
+        coordinator.open(Session, Desktop)
+        coordinator.capture(CaptureRequest())
+        val activities = mutableListOf<ComputerUseInputActivity>()
+        coordinator.input(
+            InputAction.Click(FramePoint(20.0, 10.0), MouseButton.Right, count = 2),
+            onProgress = { _, activity -> activities += activity },
+        )
+        val moved = activities.first()
+        assertTrue(moved.isPointerVisible)
+        assertEquals(ComputerUseGesture.Move, moved.gesture)
+        assertEquals(0L, moved.effectSequence)
+        val pressed = activities.last()
+        assertEquals(ComputerUseGesture.Press(MouseButton.Right, 2), pressed.gesture)
+        assertEquals(1L, pressed.effectSequence)
+        assertEquals(moved.pointer, pressed.pointer)
+        assertEquals(1L, pressed.sequence)
+        activities.clear()
+        coordinator.input(InputAction.Type("secret"), onProgress = { _, activity -> activities += activity })
+        assertEquals(ComputerUseGesture.Type(6), activities.last().gesture)
+        assertEquals(2L, activities.last().effectSequence)
+        assertTrue(assertNotNull(coordinator.observeActivity(Session)).isPointerVisible)
     }
 
     @Test

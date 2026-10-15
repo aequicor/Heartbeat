@@ -52,4 +52,15 @@ class InputPacingTest {
         assertTrue(long > short)
         assertTrue(long >= 30_000L + 2 * 1_000 * 60)
     }
+
+    @Test
+    fun `a glide ends exactly at the target with steps bounded by distance`() {
+        val short = glidePath(ScreenPoint(10, 10), ScreenPoint(12, 11))
+        assertEquals(listOf(ScreenPoint(12, 11)), short)
+        val long = glidePath(ScreenPoint(0, 0), ScreenPoint(4000, 0))
+        assertEquals(MAX_GLIDE_STEPS, long.size)
+        assertEquals(ScreenPoint(4000, 0), long.last())
+        assertTrue(long.zipWithNext().all { (a, b) -> b.x >= a.x })
+        assertEquals(listOf(ScreenPoint(5, 5)), glidePath(ScreenPoint(5, 5), ScreenPoint(5, 5)))
+    }
 }

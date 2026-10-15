@@ -78,11 +78,15 @@ internal interface InputInjector {
      */
     suspend fun apply(action: InputAction, map: (FramePoint) -> ScreenPoint?): InputOutcome
 
-    /** Reports actual native pointer steps; null reports keyboard input without moving the pointer. */
+    /**
+     * Reports actual native pointer steps; null reports keyboard input without moving the pointer. [onEffect] runs
+     * once, right before the action's effect (press, drag start, wheel, typing) reaches the driver.
+     */
     suspend fun applyObserved(
         action: InputAction,
         map: (FramePoint) -> ScreenPoint?,
         onProgress: suspend (ScreenPoint?) -> Unit,
+        onEffect: suspend () -> Unit = {},
     ): InputOutcome = apply(action, map)
 }
 
