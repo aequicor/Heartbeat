@@ -15,9 +15,50 @@ import kotlinx.serialization.json.booleanOrNull
 
 private val log = Log.tag("PiSessionRecovery")
 
-/** Called only after the previous process's exit; a concurrent shutdown discards the fresh connection. */
+/** Main-confined transcript location and proof that the native session has never received a prompt. */
+internal class PiSessionContinuation {
+    private var nativeId: String? = null
+    private var sessionFile: String? = null
+    private var isEmptyRestartAllowed = false
+    private var persistedTranscript: suspend (String) -> String? = { null }
+
+    fun start(snapshot: JsonObject, isNew: Boolean, persisted: suspend (String) -> String?) {
+        nativeId = snapshot.string("sessionId")
+        capture(snapshot)
+        isEmptyRestartAllowed = isNew
+        persistedTranscript = persisted
+    }
+
+    /** Same-id empty recreation can allocate a different path; future recovery must follow that path. */
+    fun capture(snapshot: JsonObject) {
+        sessionFile = snapshot.string("sessionFile")
+    }
+
+    /** Delivery can fail after Pi has started; never reconstruct an empty session after this boundary. */
+    fun submitted() {
+        isEmptyRestartAllowed = false
+    }
+
+    suspend fun refresh(tools: PiToolPlans, launched: Set<String>, instructions: String?): Boolean {
+        // get_state may advertise an allocated path before Pi writes its first assistant message.
+        // Existing history requires a stored transcript; an empty session can be recreated with its exact id.
+        val refresh = tools.refresh(launched, instructions, isEmptyRestartAllowed, ::persisted) ?: return false
+        refresh.transcript?.let { sessionFile = it }
+        return true
+    }
+
+    suspend fun file(): String? = if (isEmptyRestartAllowed) {
+        persisted()
+    } else {
+        sessionFile ?: piFailure(EngineFailure.Session(SessionFailureReason.NotResumable))
+    }
+
+    private suspend fun persisted(): String? = nativeId?.let { persistedTranscript(it) }
+}
+
+/** A null file is only for a never-submitted session reopened with its explicit id after the old process exited. */
 internal suspend fun PiSessionConfiguration.reconnect(
-    file: String,
+    file: String?,
     nativeId: String?,
     open: suspend () -> PiConnection,
     ensureOpen: suspend () -> Unit,
@@ -28,7 +69,7 @@ internal suspend fun PiSessionConfiguration.reconnect(
     var isConfigured = false
     try {
         ensureOpen()
-        fresh.reattach(file)
+        file?.let { fresh.reattach(it) }
         // switch_session can create a new session if the original file was never persisted.
         if (fresh.command("get_state").string("sessionId") != nativeId) {
             piFailure(EngineFailure.Session(SessionFailureReason.Changed))

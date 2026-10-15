@@ -13,11 +13,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationChange
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngineId
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
@@ -183,14 +185,106 @@ class PiToolPlanTest {
     }
 
     @Test
-    fun `removed tools without a persisted transcript refuse the prompt without killing the process`() = runTest {
+    fun `fresh review removes tools and preserves identity configuration and recovery`() = runTest {
+        val tools = PlanTools()
+        val fixture = fixture(this, tools = tools, project = null, areSessionHooksEnabled = true) { index, connection ->
+            if (index == 0) connection.sessionId = "fresh-review"
+            connection.sessionIdAfterSwitch = "fresh-review"
+            connection.sessionFile = if (index == 0) "unpersisted-original.jsonl" else "replacement.jsonl"
+            connection.isTranscriptPersisted = false
+            connection.promptAck.complete(JsonObject(emptyMap()))
+        }
+        val original = fixture.session.ref
+        fixture.session.apply("model", SessionConfigurationChange.Model(ModelId("anthropic/reviewer")))
+        tools.policy = ResolvedToolPolicy(nativeOff = setOf("read"))
+
+        fixture.session.send(prompt("review").copy(reasoningEffort = "high"))
+
+        assertEquals(2, fixture.connections.size)
+        val replacement = fixture.connections.last()
+        assertEquals(emptySet(), replacement.plan?.names)
+        assertEquals(original.nativeId, replacement.plan?.emptySessionId)
+        assertEquals(original, fixture.session.ref)
+        assertEquals(original.nativeId, replacement.sessionId)
+        assertEquals("reviewer", replacement.model)
+        assertEquals("high", replacement.thinkingLevel)
+        assertEquals(1, fixture.connection.stopRequests)
+        assertFalse("prompt" in fixture.connection.commands)
+        assertFalse("switch_session" in replacement.commands)
+        assertTrue("prompt" in replacement.commands)
+        replacement.event(record("""{"type":"agent_settled"}"""))
+        replacement.isTranscriptPersisted = true
+        replacement.isOpen = false
+        fixture.session.send(prompt("follow-up"))
+
+        val recovered = fixture.connections.last()
+        assertEquals(3, fixture.connections.size)
+        val switch = recovered.fields[recovered.commands.indexOf("switch_session")]
+        assertEquals("replacement.jsonl", switch.string("sessionPath"))
+        assertEquals(original, fixture.session.ref)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `fresh restart rejects a changed native identity and safely retries the original identity`() = runTest {
+        val tools = PlanTools()
+        val fixture = fixture(this, tools = tools) { index, connection ->
+            connection.isTranscriptPersisted = false
+            connection.promptAck.complete(JsonObject(emptyMap()))
+            if (index == 1) connection.sessionId = "wrong-session"
+        }
+        val original = fixture.session.ref
+        tools.policy = ResolvedToolPolicy(nativeOff = setOf("read"))
+
+        val failure = assertFailsWith<EngineException> { fixture.session.send(prompt("refused")) }
+        assertEquals(EngineFailure.Session(SessionFailureReason.Changed), failure.failure)
+        assertTrue(fixture.connections[1].isClosed)
+        assertTrue(fixture.connections.none { "prompt" in it.commands })
+
+        fixture.session.send(prompt("retry"))
+
+        assertEquals(3, fixture.connections.size)
+        assertEquals(original, fixture.session.ref)
+        assertEquals(original.nativeId, fixture.connections.last().plan?.emptySessionId)
+        assertEquals(emptySet(), fixture.connections.last().plan?.names)
+        assertTrue("prompt" in fixture.connections.last().commands)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `removed tools after a native prompt without a persisted transcript refuse the next prompt`() = runTest {
         val tools = PlanTools().apply { names = listOf("browser_tabs", "ex_control_active_tab") }
         val fixture = fixture(this, tools = tools, bridge = PlanBridge()) { _, connection ->
             connection.isTranscriptPersisted = false
             connection.promptAck.complete(JsonObject(emptyMap()))
         }
+        fixture.session.send(prompt("first"))
+        fixture.connection.event(record("""{"type":"agent_settled"}"""))
         tools.names = listOf("ex_control_active_tab")
         val failure = assertFailsWith<EngineException> { fixture.session.send(prompt("external")) }
+
+        assertEquals(EngineFailure.Session(SessionFailureReason.NotResumable), failure.failure)
+        assertEquals(1, fixture.connections.size)
+        assertFalse(fixture.connection.isClosed)
+        assertEquals(1, fixture.connection.commands.count { it == "prompt" })
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `resumed session with a missing transcript cannot be recreated as an empty session`() = runTest {
+        val tools = PlanTools()
+        val reference = SessionRef(PiEngineId, PiSessionSource, "native")
+        val fixture = fixture(
+            this,
+            tools = tools,
+            transcript = PiTranscript(reference, "native.jsonl"),
+        ) { _, connection ->
+            connection.isTranscriptPersisted = false
+            connection.promptAck.complete(JsonObject(emptyMap()))
+        }
+        tools.policy = ResolvedToolPolicy(nativeOff = setOf("read"))
+
+        val failure = assertFailsWith<EngineException> { fixture.session.send(prompt("refused")) }
 
         assertEquals(EngineFailure.Session(SessionFailureReason.NotResumable), failure.failure)
         assertEquals(1, fixture.connections.size)

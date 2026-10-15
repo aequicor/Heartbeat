@@ -20,6 +20,8 @@ internal data class PiLaunchPlan(
     // A failed optional attachment is retried on the next process launch, not by restarting every turn.
     val requestedNames: Set<String> = policy.nativeOn + search + hosted?.specifications.orEmpty().map { it.name },
     val requestedInstructions: String? = hosted?.instructions,
+    // Only a newly created session with no possible native prompt can be reopened without a transcript.
+    val emptySessionId: String? = null,
 ) {
     val names: Set<String> get() = policy.nativeOn + search + hosted?.specifications.orEmpty().map { it.name }
     override fun toString(): String = "PiLaunchPlan"
@@ -39,6 +41,9 @@ internal data class PiDesiredTools(
 
 /** Whether a running process can keep its frozen catalog or needs new declarations before its next prompt. */
 internal enum class PiToolChange { None, Added, Removed, Instructions }
+
+/** A missing transcript is permitted only while the owning session can prove it has never sent a prompt. */
+internal data class PiToolRefresh(val transcript: String?)
 
 /** Computes a fresh launch plan; removed tools must disappear from declarations as well as the live host gate. */
 internal class PiToolPlans(
@@ -80,20 +85,22 @@ internal class PiToolPlans(
         piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable))
     }
 
-    /** Only a persisted transcript can carry refreshed declarations without losing native history. */
-    suspend fun refreshedTranscript(
+    /** Native history requires a persisted transcript; a never-submitted session can preserve its explicit id. */
+    suspend fun refresh(
         launched: Set<String>,
         instructions: String?,
+        isEmptyRestartAllowed: Boolean,
         persisted: suspend () -> String?,
-    ): String? {
+    ): PiToolRefresh? {
         val change = change(launched, instructions)
         if (change == PiToolChange.None) return null
         val file = persisted()
         // Growth can wait; removed tools and the host's changed guidance must apply before a prompt.
-        if (file == null && change != PiToolChange.Added) {
-            piFailure(EngineFailure.Session(SessionFailureReason.NotResumable))
+        if (file == null) {
+            if (change == PiToolChange.Added) return null
+            if (!isEmptyRestartAllowed) piFailure(EngineFailure.Session(SessionFailureReason.NotResumable))
         }
-        return file
+        return PiToolRefresh(file)
     }
 
     suspend fun launch(): PiLaunchPlan {
