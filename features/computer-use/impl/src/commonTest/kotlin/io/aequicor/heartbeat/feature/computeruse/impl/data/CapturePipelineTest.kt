@@ -608,7 +608,15 @@ class CaptureCoordinatorTest {
         val dispatchers = TestDispatchers(StandardTestDispatcher(testScheduler))
         val pipeline = FramePipeline(encoder, store, VisionBudget(maxTokens = 100_000), dispatchers)
         val cache = MasterFrameCache(encoder, store, maxBytes = 64L * 1024 * 1024)
-        val coordinator = CaptureCoordinator(capturer, windows, injector, pipeline, cache, dispatchers)
+        val coordinator = CaptureCoordinator(
+            capturer,
+            windows,
+            injector,
+            pipeline,
+            cache,
+            dispatchers,
+            ClipRecorder { testScheduler.currentTime },
+        )
         return Fixture(
             capturer = capturer,
             windows = windows,

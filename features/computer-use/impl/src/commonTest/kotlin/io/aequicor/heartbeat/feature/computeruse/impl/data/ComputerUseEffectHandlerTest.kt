@@ -47,6 +47,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlin.time.Clock
+import kotlin.time.Instant
 
 class ComputerUseEffectHandlerTest {
     @Test
@@ -426,6 +428,9 @@ class ComputerUseEffectHandlerTest {
             pipeline = pipeline,
             cache = cache,
             dispatchers = dispatchers,
+            clock = object : Clock {
+                override fun now(): Instant = Instant.fromEpochMilliseconds(testScheduler.currentTime)
+            },
         )
         val profile = TestComputerUseScope(backgroundScope)
         val coordinator = ComputerUseBindings.coordinator(resources, profile, TestComputerUseScope(backgroundScope))

@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapturePresentat
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.NativeComputerControl
+import io.aequicor.heartbeat.feature.computeruse.api.RecordRequest
 import kotlinx.coroutines.CancellationException
 
 /** Supplies the engine features of the session that currently drives the computer, when there is one. */
@@ -45,6 +46,15 @@ internal class ComputerUseCaptureExecutor(
      */
     suspend fun capture(request: CaptureRequest, roi: CaptureRegion? = null): CaptureResult =
         presentation.withoutPresentation { captureWithoutPresentation(request, roi) }
+
+    /**
+     * Records keyframes of the open session with the host. One suppression covers the whole recording, so the
+     * session window and indicators stay hidden instead of flickering between frames.
+     */
+    suspend fun record(request: RecordRequest, roi: CaptureRegion? = null): ClipOutcome =
+        presentation.withoutPresentation {
+            access.captureFailure()?.let { ClipOutcome.Rejected(it) } ?: coordinator.record(request, roi)
+        }
 
     private suspend fun captureWithoutPresentation(request: CaptureRequest, roi: CaptureRegion?): CaptureResult {
         val refusal = access.captureFailure()

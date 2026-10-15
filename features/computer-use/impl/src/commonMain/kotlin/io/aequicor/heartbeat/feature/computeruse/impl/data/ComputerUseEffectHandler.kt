@@ -45,6 +45,7 @@ internal class ComputerUseEffectHandler(
             is ComputerUseEffect.CloseCapture -> close(effect)
             is ComputerUseEffect.CaptureFrame -> capture(effect, machine)
             is ComputerUseEffect.ProduceCrop -> crop(effect, machine)
+            is ComputerUseEffect.RecordClip -> record(effect, machine)
             is ComputerUseEffect.ApplyInput -> input(effect, machine)
             is ComputerUseEffect.PurgeMasters -> coordinator.closeSessionAndPurge(effect.session)
             is ComputerUseEffect.StopOwner -> stoppedTurns.stop(effect.owner)
@@ -118,6 +119,16 @@ internal class ComputerUseEffectHandler(
                     requestId = effect.requestId,
                 ),
             )
+        }
+    }
+
+    private suspend fun record(effect: ComputerUseEffect.RecordClip, machine: EffectScope<ComputerUseIntent>) {
+        when (val outcome = captures.record(effect.request, effect.roi)) {
+            is ClipOutcome.Recorded -> machine.send(
+                ComputerUseIntent.Internal.ClipRecorded(outcome.clip, effect.requestId),
+            )
+
+            is ClipOutcome.Rejected -> reject(machine, outcome.reason, effect.requestId)
         }
     }
 

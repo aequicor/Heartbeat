@@ -420,7 +420,8 @@ class RoutedComputerControlTest {
         val dispatchers = TestDispatchers(StandardTestDispatcher(testScheduler))
         val pipeline = FramePipeline(encoder, store, VisionBudget(maxTokens = 100_000), dispatchers)
         val cache = MasterFrameCache(encoder, store, maxBytes = 8L * 1024 * 1024)
-        val coordinator = CaptureCoordinator(capturer, windows, injector, pipeline, cache, dispatchers)
+        val recorder = ClipRecorder { testScheduler.currentTime }
+        val coordinator = CaptureCoordinator(capturer, windows, injector, pipeline, cache, dispatchers, recorder)
         val toggles = FakeToggles(
             mapOf(
                 ComputerUseEnabled.key to true,
@@ -453,11 +454,7 @@ class RoutedComputerControlTest {
             presentation,
             ComputerUseStoppedTurns(),
         )
-        val control = RoutedComputerControl(
-            coordinator,
-            access,
-            registry,
-        )
+        val control = RoutedComputerControl(coordinator, access, registry)
         val context = io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext(
             session = io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef(
                 io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId("pi"),

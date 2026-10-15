@@ -148,6 +148,7 @@ class ComputerUseCaptureExecutorTest {
             FramePipeline(encoder, store, VisionBudget(100_000), dispatchers),
             MasterFrameCache(encoder, store, 8L * 1024 * 1024),
             dispatchers,
+            ClipRecorder { testScheduler.currentTime },
         )
         val session = CaptureSessionId("native-routing")
         coordinator.open(session, mode)

@@ -27,9 +27,11 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Capturing | ArmInput | input available, matching binding and owner | stay(armed) | |
  * | Capturing | SetRoi | host open, session and owner match, ROI inside master (or null) | stay(roi) | |
  * | Capturing | Capture | host open, matching session and owner | stay | CaptureFrame(roi) |
+ * | Capturing | Record | host open, matching session and owner | stay | RecordClip(roi) |
  * | Capturing | Crop | host open, crop in master and ROI, session and owner match | stay | ProduceCrop(roi) |
  * | Capturing | Input | host open, armed, mode allows input, binding and owner match | stay | ApplyInput(roi) |
  * | Capturing | FrameCaptured | | stay(master, preview, frames+1, roi kept if inside master) | FrameReady |
+ * | Capturing | ClipRecorded | | stay(master, last keyframe, frames+n, roi kept if inside master) | ClipReady |
  * | Capturing | CropProduced | | stay(lastCrop) | FrameReady |
  * | Capturing | InputApplied | | stay | InputApplied output |
  * | Capturing | SwitchMode | supported mode, same owner and session | Capturing (re-entered) | CloseCapture(old), |
@@ -158,6 +160,12 @@ public val ComputerUseMachineSpec: MachineSpec<
         }) {
             effect { ComputerUseEffect.CaptureFrame(intent.request, intent.requestId, state.roi) }
         }
+        on<ComputerUseIntent.Public.Record>(guard = {
+            state.isOpen && state.isOwnedBy(intent.expectedOwner) &&
+                (intent.expectedSession == null || intent.expectedSession == state.session)
+        }) {
+            effect { ComputerUseEffect.RecordClip(intent.request, intent.requestId, state.roi) }
+        }
         on<ComputerUseIntent.Public.Crop>(guard = {
             state.isOpen && state.canCrop(intent.request) && state.isOwnedBy(intent.expectedOwner) &&
                 (intent.expectedSession == null || intent.expectedSession == state.session)
@@ -235,6 +243,17 @@ public val ComputerUseMachineSpec: MachineSpec<
             }
             output { ComputerUseOutput.FrameReady(intent.preview, intent.tiles, intent.requestId, intent.master) }
         }
+        on<ComputerUseIntent.Internal.ClipRecorded> {
+            stay {
+                state.copy(
+                    master = intent.clip.master,
+                    lastPreview = intent.clip.frames.last().capture,
+                    frameCount = state.frameCount + intent.clip.frames.size,
+                    roi = state.roi?.takeIf { it.isInside(intent.clip.master.masterBounds()) },
+                )
+            }
+            output { ComputerUseOutput.ClipReady(intent.clip, intent.requestId) }
+        }
         on<ComputerUseIntent.Internal.CropProduced> {
             stay { state.copy(lastCrop = intent.crop, lastPreview = intent.crop) }
             output { ComputerUseOutput.FrameReady(intent.crop, requestId = intent.requestId, master = intent.master) }
@@ -303,6 +322,9 @@ public val ComputerUseMachineSpec: MachineSpec<
                 ComputerUseIntent.Internal.Rejected(ComputerUseFailure.CaptureFailed, effect.requestId)
 
             is ComputerUseEffect.ProduceCrop ->
+                ComputerUseIntent.Internal.Rejected(ComputerUseFailure.CaptureFailed, effect.requestId)
+
+            is ComputerUseEffect.RecordClip ->
                 ComputerUseIntent.Internal.Rejected(ComputerUseFailure.CaptureFailed, effect.requestId)
 
             is ComputerUseEffect.ApplyInput ->

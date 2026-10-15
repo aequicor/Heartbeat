@@ -527,7 +527,7 @@ internal class ComputerUseAgentTools(
 
             is ComputerUseOutput.SessionClosed -> failure(output.reason?.name ?: "CaptureEnded")
 
-            is ComputerUseOutput.InputApplied, is ComputerUseOutput.CaptureChanged,
+            is ComputerUseOutput.InputApplied, is ComputerUseOutput.ClipReady, is ComputerUseOutput.CaptureChanged,
             is ComputerUseOutput.PermissionRequired, ComputerUseOutput.Revoked,
             -> failure("UnexpectedOutput")
         }.also { log.d { "frame served format=${encoding.format}" } }
@@ -581,7 +581,7 @@ internal class ComputerUseAgentTools(
 
             is ComputerUseOutput.SessionClosed -> failure(output.reason?.name ?: "CaptureEnded")
 
-            is ComputerUseOutput.FrameReady, is ComputerUseOutput.CaptureChanged,
+            is ComputerUseOutput.FrameReady, is ComputerUseOutput.ClipReady, is ComputerUseOutput.CaptureChanged,
             is ComputerUseOutput.PermissionRequired, ComputerUseOutput.Revoked,
             -> failure("UnexpectedOutput")
         }
@@ -627,6 +627,8 @@ internal class ComputerUseAgentTools(
             is ComputerUseIntent.Public.Crop -> intent.copy(requestId = id).also { owner = it.expectedOwner }
 
             is ComputerUseIntent.Public.Input -> intent.copy(requestId = id).also { owner = it.expectedOwner }
+
+            is ComputerUseIntent.Public.Record -> intent.copy(requestId = id).also { owner = it.expectedOwner }
 
             ComputerUseIntent.Public.Start, ComputerUseIntent.Public.Retry,
             ComputerUseIntent.Public.RefreshTargets, ComputerUseIntent.Public.EndCapture,
@@ -684,6 +686,8 @@ internal class ComputerUseAgentTools(
         is ComputerUseOutput.Rejected -> requestId
 
         is ComputerUseOutput.InputApplied -> requestId
+
+        is ComputerUseOutput.ClipReady -> requestId
 
         is ComputerUseOutput.CaptureChanged, is ComputerUseOutput.PermissionRequired,
         is ComputerUseOutput.SessionClosed, ComputerUseOutput.Revoked,

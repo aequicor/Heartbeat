@@ -116,11 +116,13 @@ internal class FakeScreenCapturer(private val widthPx: Int = 200, private val he
         private set
     var onCapture: () -> Unit = {}
 
+    /** Pixels of the n-th capture, counted from zero; a fixed color by default. */
+    var pixels: (Int) -> PixelGrid = { solidGrid(widthPx, heightPx, 0xFF336699.toInt()) }
+
     override suspend fun capture(mode: ComputerUseMode, region: CaptureRegion?, isCursorIncluded: Boolean): RawFrame? {
         onCapture()
         val current = bounds ?: return null
-        captures++
-        return RawFrame(solidGrid(widthPx, heightPx, 0xFF336699.toInt()), current, 0L)
+        return RawFrame(pixels(captures++), current, 0L)
     }
 
     override suspend fun currentBounds(mode: ComputerUseMode): ScreenBounds? = bounds

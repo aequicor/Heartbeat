@@ -121,6 +121,14 @@ public sealed interface ComputerUseIntent : MachineIntent {
             public val expectedOwner: CaptureOwner? = null,
         ) : Public
 
+        /** Records keyframes of the running session; a named [expectedOwner] must own it. */
+        public data class Record(
+            public val request: RecordRequest,
+            public val requestId: String? = null,
+            public val expectedSession: CaptureSessionId? = null,
+            public val expectedOwner: CaptureOwner? = null,
+        ) : Public
+
         /** Cuts a region out of a stored master frame of the running session; a named [expectedOwner] must own it. */
         public data class Crop(
             public val request: CropRequest,
@@ -206,6 +214,9 @@ public sealed interface ComputerUseIntent : MachineIntent {
             public val requestId: String? = null,
         ) : Internal
 
+        /** One recording was stored; its last frame becomes the frame input coordinates refer to. */
+        public data class ClipRecorded(public val clip: CaptureClip, public val requestId: String? = null) : Internal
+
         /** One crop of a stored master frame was produced. */
         public data class CropProduced(
             public val crop: CaptureRef,
@@ -259,6 +270,13 @@ public sealed interface ComputerUseEffect : MachineEffect {
         public val roi: CaptureRegion? = null,
     ) : ComputerUseEffect
 
+    /** Records keyframes limited to the active [roi]. */
+    public data class RecordClip(
+        public val request: RecordRequest,
+        public val requestId: String? = null,
+        public val roi: CaptureRegion? = null,
+    ) : ComputerUseEffect
+
     /** Cuts a region out of a stored master frame, limited to the active [roi]. */
     public data class ProduceCrop(
         public val request: CropRequest,
@@ -299,6 +317,9 @@ public sealed interface ComputerUseOutput : MachineOutput {
         public val requestId: String? = null,
         public val master: CaptureRef? = null,
     ) : ComputerUseOutput
+
+    /** A recording is stored and its keyframes can be read by their references. */
+    public data class ClipReady(public val clip: CaptureClip, public val requestId: String? = null) : ComputerUseOutput
 
     /** One request was refused. */
     public data class Rejected(public val reason: ComputerUseFailure, public val requestId: String? = null) :

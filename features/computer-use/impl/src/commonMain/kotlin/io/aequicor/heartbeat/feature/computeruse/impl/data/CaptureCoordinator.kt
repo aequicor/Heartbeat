@@ -2,12 +2,14 @@ package io.aequicor.heartbeat.feature.computeruse.impl.data
 
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.computeruse.api.CaptureClip
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureId
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRef
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRegion
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRequest
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureResult
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureSessionId
+import io.aequicor.heartbeat.feature.computeruse.api.ClipFrame
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseGesture
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseInputActivity
@@ -18,6 +20,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.FrameSpace
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
 import io.aequicor.heartbeat.feature.computeruse.api.NativeCapture
+import io.aequicor.heartbeat.feature.computeruse.api.RecordRequest
 import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
 import io.aequicor.heartbeat.feature.computeruse.api.TileGrid
 import io.aequicor.heartbeat.feature.computeruse.api.WindowTarget
@@ -30,6 +33,7 @@ import io.aequicor.heartbeat.feature.computeruse.impl.domain.PixelGrid
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ScreenCapturer
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ScreenPoint
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.WindowCatalog
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.autoRoi
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.wheelNotches
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -37,6 +41,15 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.uuid.Uuid
+
+/** Outcome of one recording. */
+internal sealed interface ClipOutcome {
+    /** The keyframes were stored. */
+    data class Recorded(val clip: CaptureClip) : ClipOutcome
+
+    /** The recording was refused or a frame could not be captured. */
+    data class Rejected(val reason: ComputerUseFailure) : ClipOutcome
+}
 
 /** Outcome of one coordinator operation; refusals are values, not exceptions. */
 internal sealed interface CaptureOutcome {
@@ -58,7 +71,8 @@ internal sealed interface CaptureOutcome {
  * are laid over it, and frames, crops or input points leaving it are refused with [ComputerUseFailure.OutsideRoi].
  * An ROI that no longer fits the master frame (the target was resized) is ignored.
  */
-@Suppress("TooManyFunctions") // One coordinator serializes all operations on the single active capture.
+// One coordinator serializes all operations on the single active capture, including recordings: it owns every port.
+@Suppress("TooManyFunctions", "LongParameterList")
 internal class CaptureCoordinator(
     private val capturer: ScreenCapturer,
     private val windows: WindowCatalog,
@@ -66,6 +80,7 @@ internal class CaptureCoordinator(
     private val pipeline: FramePipeline,
     private val cache: MasterFrameCache,
     private val dispatchers: DispatcherProvider,
+    private val recorder: ClipRecorder,
 ) {
     private val log = Log.tag("CaptureCoordinator")
     private val mutex = Mutex()
@@ -203,6 +218,71 @@ internal class CaptureCoordinator(
                 master = master.reference,
                 tiles = tilesFor(master.reference, activeRoi),
             ),
+        )
+    }
+
+    /**
+     * Records keyframes inside the active [roi] and frames them to the area that changed (auto-ROI). The last frame
+     * becomes the master and the frame input coordinates refer to; earlier keyframes are cut from bounded working
+     * copies and alias that master. Frames are captured without the cursor, so only the application moves.
+     */
+    suspend fun record(request: RecordRequest, roi: CaptureRegion? = null): ClipOutcome = withContext(dispatchers.io) {
+        operations.withLock {
+            val session = active ?: return@withLock ClipOutcome.Rejected(ComputerUseFailure.Unavailable)
+            val recorded = recorder.record(
+                request,
+                area = { pixels -> roi.within(pixels) ?: CaptureRegion(0, 0, pixels.widthPx, pixels.heightPx) },
+                capture = { capturer.capture(session.mode, null, isCursorIncluded = false) },
+            ) ?: return@withLock ClipOutcome.Rejected(rejected(session).reason)
+            storeClip(session, request, recorded, roi)
+        }
+    }
+
+    private suspend fun storeClip(
+        session: ActiveCapture,
+        request: RecordRequest,
+        recorded: RecordedFrames,
+        roi: CaptureRegion?,
+    ): ClipOutcome {
+        val full = recorded.last.pixels
+        val master = storeMaster(session, full) ?: return ClipOutcome.Rejected(ComputerUseFailure.CaptureFailed)
+        cache.put(master.reference, full, recorded.last.bounds)
+        val area = roi.within(full) ?: CaptureRegion(0, 0, full.widthPx, full.heightPx)
+        val framed = autoRoi(recorded.changed, area)
+        val sources = recorded.keyframes.dropLast(
+            1,
+        ).map { it to it.frame.region(framed.scaledTo(recorded.scale, it.frame)) } +
+            (recorded.keyframes.last().copy(offsetMillis = recorded.durationMillis) to full.region(framed))
+        val encoding = request.encoding.copy(
+            maxBytes = request.encoding.maxBytes.takeIf { it > 0 }?.let { it / sources.size } ?: 0,
+        )
+        val frames = sources.map { (keyframe, pixels) ->
+            val produced = pipeline.derive(
+                session = session.session,
+                id = CaptureId(Uuid.random().toString()),
+                source = pixels,
+                roi = framed,
+                masterWidthPx = full.widthPx,
+                masterHeightPx = full.heightPx,
+                encoding = encoding,
+                sequence = nextSequence(),
+            ) ?: return ClipOutcome.Rejected(ComputerUseFailure.EncodingTooLarge)
+            cache.alias(produced.reference.id, master.reference.id)
+            ClipFrame(produced.reference, keyframe.offsetMillis, keyframe.changedFraction)
+        }
+        mutex.withLock {
+            session.masterReference = master.reference
+            session.bounds = recorded.last.bounds
+            session.preview = frames.last().capture
+            session.previewBounds = recorded.last.bounds
+            session.frameCount += frames.size
+        }
+        log.i {
+            "clip recorded session=${session.session} frames=${frames.size} duration=${recorded.durationMillis} " +
+                "stable=${recorded.isStable} auto=${framed != area}"
+        }
+        return ClipOutcome.Recorded(
+            CaptureClip(frames, framed, framed != area, recorded.isStable, recorded.durationMillis, master.reference),
         )
     }
 
@@ -641,6 +721,18 @@ internal class CaptureCoordinator(
         /** The ROI when it still fits [master]; a resized target makes it stale, and it is ignored. */
         fun CaptureRegion?.within(master: PixelGrid): CaptureRegion? =
             this?.takeIf { it.isInside(CaptureRegion(0, 0, master.widthPx, master.heightPx)) }
+
+        /** This master rectangle in the pixels of a working copy at [scale], kept inside [working]. */
+        fun CaptureRegion.scaledTo(scale: Double, working: PixelGrid): CaptureRegion {
+            val left = (x * scale).toInt().coerceIn(0, working.widthPx - 1)
+            val top = (y * scale).toInt().coerceIn(0, working.heightPx - 1)
+            return CaptureRegion(
+                left,
+                top,
+                (widthPx * scale).toInt().coerceIn(1, working.widthPx - left),
+                (heightPx * scale).toInt().coerceIn(1, working.heightPx - top),
+            )
+        }
 
         /** Tile `column:row` of the grid laid over this rectangle, in the rectangle's own coordinate space. */
         fun CaptureRegion.tile(column: Int, row: Int): CaptureRegion? =
