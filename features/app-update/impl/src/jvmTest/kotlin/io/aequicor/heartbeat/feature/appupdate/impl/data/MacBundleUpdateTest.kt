@@ -56,7 +56,7 @@ class MacBundleUpdateTest {
     }
 
     @Test
-    fun `the bundle of a release image is copied and checked`() = runTest {
+    fun `the bundle of a release image is copied and checked`() = runTest(timeout = MAC_DISK_IMAGE_TEST_TIMEOUT) {
         if (!isMacHost) return@runTest
         val image = releaseImage("1.4.0")
         val directory = Files.createDirectories(root.resolve("updates/1.4.0"))
@@ -68,7 +68,7 @@ class MacBundleUpdateTest {
     }
 
     @Test
-    fun `an image of another version is refused`() = runTest {
+    fun `an image of another version is refused`() = runTest(timeout = MAC_DISK_IMAGE_TEST_TIMEOUT) {
         if (!isMacHost) return@runTest
         val image = releaseImage("1.3.9")
         val directory = Files.createDirectories(root.resolve("updates/1.4.0"))

@@ -17,7 +17,9 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalPathApi::class)
 class MacBundleCancellationTest {
     @Test
-    fun `cancellation after attach finishes still detaches the image`() = runTest {
+    fun `cancellation after attach finishes still detaches the image`() = runTest(
+        timeout = MAC_DISK_IMAGE_TEST_TIMEOUT,
+    ) {
         if (!isMacHost) return@runTest
         val root = createTempDirectory("app-update-cancel")
         val directory = Files.createDirectories(root.resolve("update"))
