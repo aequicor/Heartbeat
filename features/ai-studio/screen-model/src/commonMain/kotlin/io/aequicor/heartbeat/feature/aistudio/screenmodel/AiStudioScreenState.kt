@@ -26,6 +26,8 @@ import kotlin.time.Instant
 data class AiStudioScreenState(
     /** Native app update offer; remote hosts never install it. */
     val appUpdate: AppUpdateUi? = null,
+    /** Load of the profile's automatic safety reviews; absent while the reviewer is idle. */
+    val safetyReviews: SafetyReviewsUi? = null,
     val enginePreparations: ImmutableList<EnginePreparationUi> = persistentListOf(),
     val models: ImmutableList<ModelUi> = persistentListOf(),
     val isResearchEnabled: Boolean = false,

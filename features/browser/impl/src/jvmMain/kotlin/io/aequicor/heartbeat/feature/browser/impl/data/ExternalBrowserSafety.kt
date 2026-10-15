@@ -38,13 +38,11 @@ internal class ExternalBrowserSafety(private val reviewer: AgentSafetyReviewer) 
     suspend fun authorize(
         context: AgentToolContext,
         request: ExternalBrowserSafetyRequest,
-    ): AgentToolAutomaticAuthorization = lock.withLock {
+    ): AgentToolAutomaticAuthorization {
         val key = requireNotNull(request.approval.binding)
-        val review = decisions[key] ?: assess(context, request).also {
-            if (decisions.size >= MAX_DECISIONS) decisions.remove(decisions.keys.first())
-            decisions[key] = it
-        }
-        if (review.isSafe) {
+        // The lock guards only the memo: reviews of different proposals wait in the reviewer's own bounded queue.
+        val review = lock.withLock { decisions[key] } ?: remember(key, assess(context, request))
+        return if (review.isSafe) {
             AgentToolAutomaticAuthorization.Allowed(request.approval)
         } else {
             AgentToolAutomaticAuthorization.Denied("Automatic safety review refused the action: ${review.reason}")
@@ -53,6 +51,14 @@ internal class ExternalBrowserSafety(private val reviewer: AgentSafetyReviewer) 
 
     suspend fun consume(context: AgentToolContext, request: ExternalBrowserSafetyRequest): Boolean = lock.withLock {
         context.authorization == request.approval && decisions.remove(request.approval.binding)?.isSafe == true
+    }
+
+    /** A concurrent review of the same proposal that stored first wins, so every verdict matches the memo. */
+    private suspend fun remember(key: String, assessed: AgentSafetyReview): AgentSafetyReview = lock.withLock {
+        decisions[key] ?: assessed.also {
+            if (decisions.size >= MAX_DECISIONS) decisions.remove(decisions.keys.first())
+            decisions[key] = it
+        }
     }
 
     private suspend fun assess(context: AgentToolContext, request: ExternalBrowserSafetyRequest): AgentSafetyReview {

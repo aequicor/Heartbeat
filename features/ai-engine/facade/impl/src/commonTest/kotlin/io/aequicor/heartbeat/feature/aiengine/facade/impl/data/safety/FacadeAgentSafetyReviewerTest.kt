@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.safety
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewLoad
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ArchivesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
@@ -62,6 +63,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -71,6 +73,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -78,6 +81,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 class FacadeAgentSafetyReviewerTest {
     @Test
@@ -155,6 +160,7 @@ class FacadeAgentSafetyReviewerTest {
         assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "second").isSafe)
         assertEquals(1, f.creations.size)
         assertEquals(ToolSwitch.Off, f.policy.policy(ToolPolicyScope(session = f.ref))?.native?.get("shell"))
+        assertEquals(AgentSafetyReviewLoad(capacity = 1, finishing = 1), f.slots.load.value)
     }
 
     @Test
@@ -217,15 +223,31 @@ class FacadeAgentSafetyReviewerTest {
     }
 
     @Test
-    fun `unknown cancellation holds the only reviewer slot and restrictions`() = runTest {
+    fun `unknown cancellation holds the only reviewer slot and restrictions within the grace period`() = runTest {
         val f = ReviewFixture(backgroundScope).apply {
             outcome = null
             ignoresCancel = true
         }
         assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "{}").isSafe)
         assertFalse(f.closed)
-        assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "second").isSafe)
+        val refused = f.reviewer.review(f.target, "Bounded local changes only", "second")
+        assertFalse(refused.isSafe)
+        assertTrue("Выполняется 1 из 1, в очереди 0." in refused.reason)
         assertEquals(1, f.creations.size)
+        assertEquals(ToolSwitch.Off, f.policy.policy(ToolPolicyScope(session = f.ref))?.native?.get("shell"))
+    }
+
+    @Test
+    fun `a running review ignoring cancellation is closed and abandoned after the grace period`() = runTest {
+        val f = ReviewFixture(backgroundScope).apply {
+            outcome = null
+            ignoresCancel = true
+        }
+        assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "{}").isSafe)
+        assertEquals(AgentSafetyReviewLoad(capacity = 1, finishing = 1), f.slots.load.value)
+        advanceTimeBy(GRACE + 1.seconds)
+        assertEquals(AgentSafetyReviewLoad(capacity = 1, abandoned = 1), f.slots.load.value)
+        assertTrue(f.closed)
         assertEquals(ToolSwitch.Off, f.policy.policy(ToolPolicyScope(session = f.ref))?.native?.get("shell"))
     }
 
@@ -268,13 +290,81 @@ class FacadeAgentSafetyReviewerTest {
     }
 
     @Test
-    fun `unresponsive close is bounded and holds the reviewer slot`() = runTest {
+    fun `unresponsive close is bounded and releases the slot as abandoned`() = runTest {
         val f = ReviewFixture(backgroundScope).apply { hangsOnClose = true }
         assertTrue(f.reviewer.review(f.target, "Bounded local changes only", "{}").isSafe)
         assertFalse(f.closed)
-        assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "second").isSafe)
-        assertEquals(1, f.creations.size)
+        assertEquals(1, f.slots.load.value.finishing)
+        advanceTimeBy(30.seconds)
+        assertEquals(AgentSafetyReviewLoad(capacity = 1, abandoned = 1), f.slots.load.value)
+        assertEquals(ToolSwitch.Off, f.policy.policy(ToolPolicyScope(session = f.ref))?.native?.get("shell"))
         f.hangsOnClose = false
+        assertTrue(f.reviewer.review(f.target, "Bounded local changes only", "second").isSafe)
+        assertEquals(2, f.creations.size)
+    }
+
+    @Test
+    fun `a handle whose close failed is closed again when the profile closes`() = runTest {
+        val owner = CoroutineScope(backgroundScope.coroutineContext + Job())
+        val f = ReviewFixture(owner).apply { hangsOnClose = true }
+        assertTrue(f.reviewer.review(f.target, "Bounded local changes only", "{}").isSafe)
+        advanceTimeBy(30.seconds)
+        assertEquals(AgentSafetyReviewLoad(capacity = 1, abandoned = 1), f.slots.load.value)
+        assertFalse(f.closed)
+        f.hangsOnClose = false
+        owner.cancel()
+        runCurrent()
+        assertTrue(f.closed)
+    }
+
+    @Test
+    fun `a review leaving the queue after the profile started closing opens no session`() = runTest {
+        val owner = CoroutineScope(backgroundScope.coroutineContext + Job())
+        val gate = CompletableDeferred<Unit>()
+        val f = ReviewFixture(owner).apply { createGate = gate }
+        val first = async { f.reviewer.review(f.target, "Bounded local changes only", "first") }
+        val second = async { f.reviewer.review(f.target, "Bounded local changes only", "second") }
+        runCurrent()
+        owner.cancel()
+        gate.complete(Unit)
+        first.await()
+        val refused = second.await()
+        assertFalse(refused.isSafe)
+        assertTrue("Профиль закрывается" in refused.reason)
+        assertEquals(1, f.creations.size)
+    }
+
+    @Test
+    fun `unresolved review releases its slot after the grace period and keeps its restrictions`() = runTest {
+        val f = ReviewFixture(backgroundScope).apply {
+            failsOnSend = true
+            failsOnReconcile = true
+        }
+        assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "{}").isSafe)
+        assertEquals(AgentSafetyReviewLoad(capacity = 1, finishing = 1), f.slots.load.value)
+        advanceTimeBy(GRACE + 11.seconds)
+        assertEquals(AgentSafetyReviewLoad(capacity = 1, abandoned = 1), f.slots.load.value)
+        assertTrue(f.closed)
+        assertFalse(f.archived)
+        assertEquals(ToolSwitch.Off, f.policy.policy(ToolPolicyScope(session = f.ref))?.native?.get("shell"))
+        f.failsOnSend = false
+        assertTrue(f.reviewer.review(f.target, "Bounded local changes only", "second").isSafe)
+        assertEquals(2, f.creations.size)
+    }
+
+    @Test
+    fun `a review queued behind a running one waits for its slot instead of refusing`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val f = ReviewFixture(backgroundScope).apply { createGate = gate }
+        val first = async { f.reviewer.review(f.target, "Bounded local changes only", "first") }
+        val second = async { f.reviewer.review(f.target, "Bounded local changes only", "second") }
+        runCurrent()
+        assertEquals(AgentSafetyReviewLoad(capacity = 1, running = 1, queued = 1), f.slots.load.value)
+        gate.complete(Unit)
+        assertTrue(first.await().isSafe)
+        assertTrue(second.await().isSafe)
+        assertEquals(2, f.creations.size)
+        assertTrue(f.slots.load.value.isIdle)
     }
 
     @Test
@@ -297,6 +387,8 @@ class FacadeAgentSafetyReviewerTest {
     }
 }
 
+private val GRACE = 1.minutes
+
 private class ReviewFixture(scope: CoroutineScope) {
     val target = EngineTarget(EngineId("test"), EngineBindingId("binding"), ModelId("model"))
     val ref = SessionRef(target.engine, SessionSourceId("source"), "review")
@@ -314,6 +406,7 @@ private class ReviewFixture(scope: CoroutineScope) {
     var failsOnSend = false
     var failsOnReconcile = false
     var remainsActiveAfterReconcile = false
+    var createGate: CompletableDeferred<Unit>? = null
     var finishesUnavailable = false
     val creations = mutableListOf<CreateSessionRequest>()
     val prompts = mutableListOf<PromptRequest>()
@@ -407,6 +500,7 @@ private class ReviewFixture(scope: CoroutineScope) {
     }
     private val creates = object : CreatesSessions {
         override suspend fun create(request: CreateSessionRequest): ActiveSession {
+            createGate?.await()
             check(!failsOnCreate) { "private source and provider credentials" }
             creations += request
             state.value = ActiveSessionState.Ready()
@@ -455,7 +549,8 @@ private class ReviewFixture(scope: CoroutineScope) {
         override val models: ModelCatalog get() = error("unused")
         override val providerUsage: ProviderUsageCatalog get() = error("unused")
     }
-    val reviewer = FacadeAgentSafetyReviewer(lazyOf(facade), policy, scope)
+    val slots = AgentSafetyReviewSlots(capacity = 1, queueWait = 10.seconds)
+    val reviewer = FacadeAgentSafetyReviewer(lazyOf(facade), policy, slots, scope, GRACE)
 
     fun finish(turnId: TurnId = turn, isUnavailable: Boolean = false) {
         val completed = Turn(turnId, null, target, TurnOutcome.Cancelled)

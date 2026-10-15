@@ -24,9 +24,14 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.DefaultAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ToolPolicyResolver
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -43,6 +48,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 class DesktopCodingSafetyTest {
     private val directory = Files.createTempDirectory("coding-safety").toRealPath()
@@ -61,7 +67,7 @@ class DesktopCodingSafetyTest {
     private var evidence = ""
     private var policy = ""
     private var verdict = AgentSafetyReview("safe", "Bounded local change")
-    private var onReview: () -> Unit = {}
+    private var onReview: suspend () -> Unit = {}
     private val projects = object : LocalWorkspaces {
         override val isAvailable get() = available
         override fun observe() = flowOf(listOf(LocalWorkspace(workspace, "Project")))
@@ -109,6 +115,28 @@ class DesktopCodingSafetyTest {
         assertEquals(0, prompts)
         assertTrue(contribution.execute(context, "write_file", write()).isError)
         assertEquals(1, reviews)
+    }
+
+    @Test
+    fun `reviews of different calls run concurrently`() = runTest {
+        val bothStarted = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
+        onReview = {
+            if (reviews == 2) bothStarted.complete(Unit)
+            gate.await()
+        }
+        val tools = DefaultAgentTools(setOf(contribution))
+        val other = buildJsonObject {
+            put("path", "other.txt")
+            put("content", "other")
+        }
+        val first = async { tools.execute(context, "write_file", write()) }
+        val second = async { tools.execute(context.copy(callId = ToolCallId("other")), "write_file", other) }
+        withContext(Dispatchers.Default) { withTimeout(10.seconds) { bothStarted.await() } }
+        gate.complete(Unit)
+        assertFalse(first.await().isError)
+        assertFalse(second.await().isError)
+        assertEquals("other", Files.readString(directory.resolve("other.txt")))
     }
 
     @Test

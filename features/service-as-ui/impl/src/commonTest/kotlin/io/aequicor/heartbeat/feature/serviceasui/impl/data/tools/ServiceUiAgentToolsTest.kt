@@ -58,7 +58,6 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -549,7 +548,7 @@ class ServiceUiAgentToolsTest {
     }
 
     @Test
-    fun `a surface changed while waiting for another review cannot enter the transcript`() = runTest {
+    fun `a surface changed while another review runs cannot enter the transcript`() = runTest {
         assertFalse(call(ServiceUiTools.PUT, put(SPEC)).isError)
         val arguments = show(surface = "harness:h_1:start")
         val approved = approval(ServiceUiTools.SHOW, arguments)
@@ -561,9 +560,6 @@ class ServiceUiAgentToolsTest {
         }
         val otherReview = async { approval(ServiceUiTools.SHOW, show(spec = TEXT)) }
         entered.await()
-        val execution = async { execute(ServiceUiTools.SHOW, arguments, approved) }
-        runCurrent()
-        assertFalse(execution.isCompleted, "The exact-snapshot memo is locked by the other review")
 
         val ready = machine.state.value as ServiceUiState.Ready
         machine.state.value = ready.copy(
@@ -571,9 +567,10 @@ class ServiceUiAgentToolsTest {
                 surfaces = ready.library.surfaces.map { it.copy(content = it.content.copy(spec = TEXT)) },
             ),
         )
+        assertTrue(execute(ServiceUiTools.SHOW, arguments, approved).isError)
+        assertFalse(otherReview.isCompleted, "Execution reads the memo without waiting for another review")
         release.complete(Unit)
         otherReview.await()
-        assertTrue(execution.await().isError)
         assertTrue(cards.added.isEmpty())
         assertEquals(3, reviewer.proposals.size, "Execution cannot review the replacement implicitly")
 

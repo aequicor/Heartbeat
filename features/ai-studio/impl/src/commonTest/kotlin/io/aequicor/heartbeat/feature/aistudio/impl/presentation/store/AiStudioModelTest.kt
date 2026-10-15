@@ -117,6 +117,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -831,6 +832,8 @@ class AiStudioModelTest {
                     hostCommands: List<io.aequicor.heartbeat.feature.autocomplete.api.HostCommand>,
                 ): List<io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion> = emptyList()
             },
+        safetyReviews: io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewMonitor = IdleSafetyReviews,
+        showsSafetyReviews: kotlinx.coroutines.flow.Flow<Boolean> = flowOf(false),
     ) {
         val machine = FakeMachine(initial)
         val efforts = FakeEfforts(attachments)
@@ -852,6 +855,7 @@ class AiStudioModelTest {
                 override val showsResearch = researchEnabled
                 override val showsConnections = flowOf(false)
                 override val showsProfileSettings = flowOf(false)
+                override val showsSafetyReviews = showsSafetyReviews
             },
             efforts = efforts,
             machines = efforts,
@@ -866,6 +870,7 @@ class AiStudioModelTest {
             host = host,
             surfaceBinding = StudioSurfaceBinding(surfaces, backend, TestScopeHandle(scope.backgroundScope)),
             facade = EmptyStudioFacade(),
+            safetyReviewMonitor = safetyReviews,
         )
 
         suspend fun subscribe(): Provider<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction> {
@@ -1022,4 +1027,11 @@ private class EmptyStudioFacade : EngineFacade {
     override val models get() = error("Unused")
     override val sessions get() = error("Unused")
     override val providerUsage get() = error("Unused")
+}
+
+/** A reviewer that never runs: the sidebar shows no safety review status. */
+internal object IdleSafetyReviews : io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewMonitor {
+    override val load = kotlinx.coroutines.flow.MutableStateFlow(
+        io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewLoad(capacity = 0),
+    ).asStateFlow()
 }
