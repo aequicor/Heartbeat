@@ -18,15 +18,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.drawOutline
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -37,11 +30,11 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.LayoutDirection
 import io.aequicor.heartbeat.ds.components.HbChip
 import io.aequicor.heartbeat.ds.components.HbDismissRequestProvider
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
+import io.aequicor.heartbeat.ds.components.hbEdgeSurface
 import io.aequicor.heartbeat.ds.components.hbSurface
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
@@ -80,7 +73,7 @@ internal fun PaneContextToggle(
 
 /**
  * A non-modal summary at the top-end: a card beside the conversation when its controls fit, otherwise a panel
- * attached to the pane's top and end edges that overlays the conversation without moving or narrowing it.
+ * attached below the header and to the pane's end edge that overlays the conversation without moving or narrowing it.
  * The card intercepts only its own bounds, never captures focus on appearance, and leaves scrolling to its renderer.
  */
 @Composable
@@ -114,7 +107,7 @@ internal fun PaneContextPanel(
     }
 }
 
-/** Beside the conversation it is a card; over it, a panel continuing the pane's top and end edges. */
+/** Beside the conversation it is a card; over it, a panel below the header continuing the pane's end edge. */
 @Composable
 @ReadOnlyComposable
 private fun Modifier.contextPanelFrame(isBeside: Boolean, topInset: Dp, composerTop: Dp, paneSize: IntSize): Modifier {
@@ -127,40 +120,16 @@ private fun Modifier.contextPanelFrame(isBeside: Boolean, topInset: Dp, composer
     val surface = if (isBeside) {
         Modifier.hbSurface(HbTheme.colors.surface, HbTheme.shapes.large)
     } else {
-        Modifier.edgePanelSurface()
+        val square = CornerSize(none)
+        Modifier.hbEdgeSurface(
+            HbTheme.colors.surface,
+            HbTheme.shapes.large.copy(topStart = square, topEnd = square, bottomEnd = square),
+        )
     }
     return padding(top = topInset + inset, end = inset)
         .width(minOf(HbTheme.dimensions.inspectorPanelWidth, (width - inset * 2).coerceAtLeast(none)))
         .heightIn(max = (bottom - topInset - inset - gap).coerceAtLeast(none))
         .then(surface)
-}
-
-/**
- * The overlay panel's fill, with a hairline and a rounded corner only on the chat-facing sides. Its top and end
- * outline is drawn past its bounds and clipped, so the panel reads as part of the pane edge rather than a popup.
- */
-@Composable
-@ReadOnlyComposable
-private fun Modifier.edgePanelSurface(): Modifier {
-    val colors = HbTheme.colors
-    val stroke = HbTheme.dimensions.borderWidth
-    val square = CornerSize(HbTheme.spacing.none)
-    val shape = HbTheme.shapes.large.copy(topStart = square, topEnd = square, bottomEnd = square)
-    return drawBehind {
-        val hidden = stroke.toPx()
-        clipRect {
-            translate(left = if (layoutDirection == LayoutDirection.Rtl) -hidden else 0f, top = -hidden) {
-                val outline = shape.createOutline(
-                    Size(size.width + hidden, size.height + hidden),
-                    layoutDirection,
-                    this,
-                )
-                drawOutline(outline, colors.surface)
-                // A centred stroke of twice the width leaves exactly one border width inside the outline.
-                drawOutline(outline, colors.outlineSubtle, style = Stroke(hidden * 2))
-            }
-        }
-    }.clip(shape)
 }
 
 /** The chat first shifts into its leading gutter, then narrows only while its whole context toolbar fits. */

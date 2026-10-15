@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -17,6 +18,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SkikoComposeUiTest
@@ -40,6 +42,7 @@ import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbDivider
@@ -123,15 +126,14 @@ class StudioContextPanelUiTest {
         val panel = onNodeWithTag("pane-context-panel-0").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val header = onNodeWithTag("pane-header-0").fetchSemanticsNode().boundsInRoot
         assertEquals(120f, onNodeWithTag("context-body").fetchSemanticsNode().boundsInRoot.height)
-        assertTrue(panel.top >= header.bottom, "The floating card must leave the header reachable")
-        assertTrue(panel.bottom <= composer.top, "The floating card must leave the composer reachable")
-        assertTrue(panel.left >= 0f && panel.right <= width, "The floating card must fit its pane")
-        assertTrue(panel.center.x > width / 2, "The floating card stays aligned to the trailing edge")
+        assertTrue(panel.top >= header.bottom, "The summary must leave the header reachable")
+        assertTrue(panel.bottom <= composer.top, "The summary must leave the composer reachable")
+        assertTrue(panel.left >= 0f && panel.right <= width, "The summary must fit its pane")
+        assertTrue(panel.center.x > width / 2, "The summary stays aligned to the trailing edge")
         if (width < 1000f) {
             assertEquals(header.bottom, panel.top, 1f, "The overlay panel must continue directly below the header")
             assertEquals(width, panel.right, 1f, "The overlay panel must be attached to the pane's end edge")
-        }
-        if (width >= 1000f) {
+        } else {
             val message = onNodeWithTag("message-footer:r").fetchSemanticsNode().boundsInRoot
             assertTrue(panel.left > message.right, "The card must remain beside the message with a gap")
             assertTrue(panel.left > openedComposer.right, "The card must remain beside the composer with a gap")
@@ -249,6 +251,23 @@ class StudioContextPanelUiTest {
         editor.requestFocus().assertIsFocused()
         onNodeWithTag("pane-context-panel-0").assertIsDisplayed()
         assertEquals(1, slot.mounts)
+    }
+
+    @Test
+    fun `an overlay summary is attached to the start edge in a right to left layout`() = runSkikoComposeUiTest(
+        size = Size(420f, 820f),
+    ) {
+        setContent {
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                Pane(state(), ContextSlot(), isCompact = true)
+            }
+        }
+        onNodeWithTag("pane-open-context-0").performClick()
+        val panel = onNodeWithTag("pane-context-panel-0").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val header = onNodeWithTag("pane-header-0").fetchSemanticsNode().boundsInRoot
+        assertEquals(0f, panel.left, 1f, "The end edge is on the left in a right to left layout")
+        assertEquals(header.bottom, panel.top, 1f)
+        assertTrue(panel.right < 420f, "The panel must not span the conversation")
     }
 
     @Test
