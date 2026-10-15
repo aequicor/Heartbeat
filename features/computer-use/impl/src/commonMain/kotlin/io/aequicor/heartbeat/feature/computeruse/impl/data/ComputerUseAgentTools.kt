@@ -89,6 +89,7 @@ internal class ComputerUseAgentTools(
     override val group: String = "computer"
     override val title: String = "Управление компьютером"
     override val catalog: List<ToolCatalogEntry> get() = computerToolSpecs(isRecordingEnabled = true).toolCatalog()
+    override val legacyNames: Map<String, Set<String>> get() = legacyToolNames
 
     private val log = Log.tag("ComputerUseAgentTools")
     private val requests = Mutex()

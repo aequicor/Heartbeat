@@ -41,3 +41,24 @@ internal fun mergedToolPolicy(
         hostedDenied = policies.flatMap { it.hostedOff }.map(::hostedToolName).toSet(),
     )
 }
+
+/**
+ * Applies renamed hosted tools: a policy that disables a legacy name disables every tool that replaced it. Every
+ * consumer of the resolved policy (declarations, execution, adapter-operated tools) sees the expanded set.
+ */
+internal class LegacyToolNamesResolver(
+    private val delegate: ToolPolicyResolver,
+    private val legacyNames: () -> Map<String, Set<String>>,
+) : ToolPolicyResolver {
+    override suspend fun resolve(
+        scope: ToolPolicyScope,
+        hostedNames: Set<String>,
+        isExecuting: Boolean,
+    ): ResolvedToolPolicy? = delegate.resolve(scope, hostedNames, isExecuting)?.withLegacyNames(legacyNames())
+}
+
+/** [ResolvedToolPolicy.hostedDenied] extended by the replacements of every denied legacy name. */
+internal fun ResolvedToolPolicy.withLegacyNames(legacyNames: Map<String, Set<String>>): ResolvedToolPolicy {
+    val replacements = hostedDenied.flatMap { legacyNames[it].orEmpty() }
+    return if (replacements.isEmpty()) this else copy(hostedDenied = hostedDenied + replacements)
+}

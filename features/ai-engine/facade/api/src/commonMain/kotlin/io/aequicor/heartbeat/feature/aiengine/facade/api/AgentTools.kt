@@ -134,6 +134,12 @@ public interface AgentToolContribution {
     public val catalog: List<ToolCatalogEntry> get() = emptyList()
 
     /**
+     * Names this contribution used before a rename, mapped to every current tool that replaced them. A saved policy
+     * that disables a legacy name disables all of its replacements, so renaming never lifts a restriction.
+     */
+    public val legacyNames: Map<String, Set<String>> get() = emptyMap()
+
+    /**
      * Whether the tools also serve sessions without a project. Others are never asked about a null workspace,
      * so enabling hosted tools for such sessions does not expose project or desktop tools there. The dispatcher
      * answers any request without a workspace with these; adapters attach them only to sessions opened with

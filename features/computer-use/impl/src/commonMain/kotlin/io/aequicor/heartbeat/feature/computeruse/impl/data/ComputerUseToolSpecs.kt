@@ -75,6 +75,15 @@ internal sealed interface ComputerTool {
 }
 
 internal const val STATUS_TOOL = "computer_status"
+
+/**
+ * Before the split one `computer_<verb>` drove both modes: a saved policy that disables it must keep disabling the
+ * window family as well, and the old window list maps to `window_list`.
+ */
+internal val legacyToolNames: Map<String, Set<String>> =
+    ToolVerb.entries.filterNot { it.isRecording }.associate { verb ->
+        ToolFamily.Desktop.tool(verb) to setOf(ToolFamily.Window.tool(verb))
+    } + ("computer_windows" to setOf(WINDOW_LIST_TOOL))
 internal const val WINDOW_LIST_TOOL = "window_list"
 internal const val OVERVIEW_WIDTH_PX = 1568
 

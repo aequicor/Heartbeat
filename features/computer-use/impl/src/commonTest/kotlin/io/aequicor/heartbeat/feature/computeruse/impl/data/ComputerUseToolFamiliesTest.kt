@@ -127,4 +127,12 @@ class ComputerUseToolFamiliesTest {
         assertEquals("OutsideRoi", reply.text)
         assertTrue(fixture.machine.sent.isEmpty())
     }
+
+    @Test
+    fun `old tool names map to the window family so saved policies keep restricting it`() = runTest {
+        val legacy = Fixture(this, Capturing).tools.legacyNames
+        assertEquals(setOf("window_click"), legacy["computer_click"])
+        assertEquals(setOf("window_type"), legacy["computer_type"])
+        assertEquals(setOf("window_list"), legacy["computer_windows"])
+    }
 }

@@ -56,6 +56,20 @@ internal class DefaultAgentToolsPolicyTest {
     }
 
     @Test
+    fun `a policy disabling a legacy name disables every tool that replaced it`() = runTest {
+        val owner = object : Owner() {
+            override val legacyNames: Map<String, Set<String>> = mapOf("modify" to setOf("edit"))
+        }
+        val tools = DefaultAgentTools(
+            setOf(owner),
+            policies = ToolPolicyResolver { _, _, _ -> ResolvedToolPolicy(hostedDenied = setOf("modify")) },
+        )
+        assertEquals(listOf("read"), tools.specifications(scope).map { it.name })
+        assertTrue(tools.execute(context, "edit", empty).isError)
+        assertEquals(setOf("modify", "edit"), tools.nativeTools(ToolPolicyScope(session = session)).hostedDenied)
+    }
+
+    @Test
     fun `scoped declarations receive refresh flag and intersect frozen names with policy`() = runTest {
         var received: AgentToolScope? = null
         val owner = object : Owner() {
