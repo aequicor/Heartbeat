@@ -17,3 +17,6 @@
     public static java.util.concurrent.CompletionStage run(java.lang.String,java.lang.String);
     public static java.util.concurrent.CompletionStage run(java.lang.String,java.lang.String,java.lang.String[]);
 }
+
+# The isolated worker loads its feature classes by name after the pinned engine JAR has been prepared.
+-keep class io.aequicor.heartbeat.feature.plantumlsupport.impl.** { *; }

@@ -241,7 +241,7 @@ afterEvaluate {
                 "kotlin-daemon-embeddable",
                 "kotlin-build-tools-api",
                 "kotlin-scripting-jvm-host",
-            ).map { "$it-${libs.versions.kotlin.get()}-" },
+            ).map { "$it-${libs.versions.kotlin.get()}-" } + "plantuml-mit-${libs.versions.plantuml.get()}-",
         )
     }
     val releaseImage = tasks.named<AbstractJPackageTask>("createReleaseDistributable")

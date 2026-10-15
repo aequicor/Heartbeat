@@ -11,9 +11,12 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.core.network.release.VerifiedArtifactCache
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlRenderer
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.DefaultPlantUmlRenderer
+import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.PlantUmlRuntime
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.ProcessPlantUmlEngine
+import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.JavaPlantUmlWorkerLauncher
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.domain.PlantUmlEnabled
 
 /**
@@ -29,13 +32,22 @@ public object PlantUmlBindings {
     internal fun renderer(
         toggles: FeatureToggles,
         dispatchers: DispatcherProvider,
+        cache: VerifiedArtifactCache,
         @ForScope(AppScope::class) app: ScopeHandle,
-    ): PlantUmlRenderer = DefaultPlantUmlRenderer(
-        engine = ProcessPlantUmlEngine(scope = app.coroutineScope, timers = dispatchers.default),
-        toggles = toggles,
-        scope = app.coroutineScope,
-        worker = dispatchers.io.limitedParallelism(1),
-    )
+    ): PlantUmlRenderer {
+        val runtime = PlantUmlRuntime(cache, app.coroutineScope, dispatchers.io)
+        return DefaultPlantUmlRenderer(
+            engine = ProcessPlantUmlEngine(
+                scope = app.coroutineScope,
+                timers = dispatchers.default,
+                launcher = JavaPlantUmlWorkerLauncher(runtime = runtime::file),
+            ),
+            toggles = toggles,
+            scope = app.coroutineScope,
+            worker = dispatchers.io.limitedParallelism(1),
+            prepare = { runtime.prepare() },
+        )
+    }
 
     /** Registers [PlantUmlEnabled] for the toggles panel. */
     @Provides

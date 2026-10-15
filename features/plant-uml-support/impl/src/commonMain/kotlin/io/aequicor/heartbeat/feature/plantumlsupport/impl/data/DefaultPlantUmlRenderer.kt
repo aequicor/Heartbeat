@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.plantumlsupport.impl.data
 
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlFailure
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlRenderer
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlRequest
@@ -30,7 +31,8 @@ import kotlin.time.TimeSource
  * drawing per request, and time limits. Drawings run in the application [scope] on the single-threaded [worker], so a
  * caller that leaves (a row scrolled away) still gets the cached result later. A caller waits at most one time limit
  * for its drawing to start (else busy) and one more for it to finish (else timeout). The engine is expected to end a
- * drawing that outlives its limit; while one still runs past it — whether or not anyone still waits for it — new
+ * drawing that outlives its limit; initial engine preparation happens before either time limit. While a drawing
+ * still runs past its limit — whether or not anyone still waits for it — new
  * requests fail fast as busy instead of queueing behind it. [timeSource] measures how long the current drawing runs.
  */
 internal class DefaultPlantUmlRenderer(
@@ -40,6 +42,7 @@ internal class DefaultPlantUmlRenderer(
     private val worker: CoroutineDispatcher,
     private val limits: PlantUmlLimits = PlantUmlLimits(),
     private val timeSource: TimeSource = TimeSource.Monotonic,
+    private val prepare: suspend () -> Unit = {},
 ) : PlantUmlRenderer {
     private val lock = Mutex()
     private val cache = PlantUmlResultCache(limits.cacheEntries, limits.cacheBytes)
@@ -58,6 +61,7 @@ internal class DefaultPlantUmlRenderer(
             return PlantUmlResult.Failed(PlantUmlFailure.TooLarge)
         }
         val source = PlantUmlSource.parse(request.source) ?: return unsupportedType()
+        if (!prepareEngine()) return PlantUmlResult.Failed(PlantUmlFailure.Internal)
         val key = request.copy(scale = request.scale.coerceIn(1f, limits.maxScale))
         val drawing = lock.withLock {
             cache[key]?.let { cached ->
@@ -79,6 +83,16 @@ internal class DefaultPlantUmlRenderer(
             log.d { "PlantUML drawing did not finish within ${limits.timeout}" }
             PlantUmlResult.Failed(PlantUmlFailure.Timeout)
         }
+    }
+
+    private suspend fun prepareEngine(): Boolean = try {
+        prepare()
+        true
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        log.w(error.redactedFailure()) { "PlantUML component preparation failed" }
+        false
     }
 
     private fun unsupportedType(): PlantUmlResult {
