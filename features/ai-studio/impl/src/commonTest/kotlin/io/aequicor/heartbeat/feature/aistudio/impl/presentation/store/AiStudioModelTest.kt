@@ -833,6 +833,7 @@ class AiStudioModelTest {
                 ): List<io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion> = emptyList()
             },
         safetyReviews: io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewMonitor = IdleSafetyReviews,
+        showsSafetyReviews: kotlinx.coroutines.flow.Flow<Boolean> = flowOf(false),
     ) {
         val machine = FakeMachine(initial)
         val efforts = FakeEfforts(attachments)
@@ -854,6 +855,7 @@ class AiStudioModelTest {
                 override val showsResearch = researchEnabled
                 override val showsConnections = flowOf(false)
                 override val showsProfileSettings = flowOf(false)
+                override val showsSafetyReviews = showsSafetyReviews
             },
             efforts = efforts,
             machines = efforts,

@@ -69,7 +69,7 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > `TrustLevel` не заменяет автоматический гейт. Ревью разных сессий и проектов идут параллельно (до 3 сессий ревью
 > профиля, очередь до 16 вызовов и 2 мин); отменённое ревью держит слот до подтверждённой остановки, но не дольше
 > минуты — затем слот освобождается, а Off-политика его сессии остаётся. Нагрузку (`AgentSafetyReviewMonitor`)
-> показывает индикатор со щитом в шапке сайдбара студии. Другие хосты сохраняют `Interactive` по умолчанию;
+> показывает индикатор со щитом в шапке сайдбара студии (тогл `ai_studio.safety_reviews_indicator`, по умолчанию false). Другие хосты сохраняют `Interactive` по умолчанию;
 > на Android/iOS — заглушка «не поддерживается».
 > Дизайн-система: `design-system:{tokens,adaptive,theme,resources,layouts,components,catalog}`;
 > отдельная `platform-main:uikit-sandbox:{desktop,android,shared}` и iOS Xcode app — [запуск](platform-main/uikit-sandbox/README.md).

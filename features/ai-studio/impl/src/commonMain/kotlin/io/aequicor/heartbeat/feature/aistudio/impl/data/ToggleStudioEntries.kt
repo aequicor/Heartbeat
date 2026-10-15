@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningEnabled
@@ -22,6 +23,12 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+
+/** The sidebar header indicator of running and queued automatic safety reviews. */
+internal val StudioSafetyReviewsToggle: FeatureToggle.Flag = FeatureToggle.Flag(
+    key = "ai_studio.safety_reviews_indicator",
+    description = "Индикатор автоматических проверок безопасности в шапке сайдбара студии",
+)
 
 /**
  * Entry points gated by feature toggles. Connection settings are profile routes, so they are offered only while
@@ -71,6 +78,8 @@ internal class ToggleStudioEntries(
         }
 
     override val showsUnifiedSettings: Flow<Boolean> = toggles.observe(UnifiedSettings)
+
+    override val showsSafetyReviews: Flow<Boolean> = toggles.observe(StudioSafetyReviewsToggle)
 
     // The demo runtime has no engine tools, so the command would reach no remember tool.
     override val showsRemember: Flow<Boolean> = combine(

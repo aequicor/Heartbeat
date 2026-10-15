@@ -146,7 +146,7 @@ class AiStudioModel(
 
     private val organisms = StudioOrganismView(machine, machines, backend) { it.withAttachmentMetadata() }
     private val appUpdate = StudioAppUpdate(machines)
-    private val safetyReviews = StudioSafetyReviews(safetyReviewMonitor)
+    private val safetyReviews = StudioSafetyReviews(safetyReviewMonitor, entries.showsSafetyReviews)
 
     /** Late-bound file attach of an accepted suggestion: the store itself is created below. */
     private var attachSuggestedFile: suspend (paneId: Int, location: String) -> Unit = { _, _ -> }
