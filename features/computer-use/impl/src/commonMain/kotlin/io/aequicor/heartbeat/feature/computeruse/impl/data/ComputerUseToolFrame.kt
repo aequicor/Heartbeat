@@ -37,8 +37,15 @@ private fun frameText(reference: CaptureRef, tiles: TileGrid?, master: CaptureRe
     put("masterWidthPx", reference.masterWidthPx)
     put("masterHeightPx", reference.masterHeightPx)
     put("previewScale", reference.previewScale)
-    put("regionX", reference.roi.x)
-    put("regionY", reference.roi.y)
+    put(
+        "roi",
+        buildJsonObject {
+            put("x", reference.roi.x)
+            put("y", reference.roi.y)
+            put("width", reference.roi.widthPx)
+            put("height", reference.roi.heightPx)
+        },
+    )
     put("hasTiles", tiles != null)
     tiles?.let { grid ->
         put(
@@ -53,5 +60,9 @@ private fun frameText(reference: CaptureRef, tiles: TileGrid?, master: CaptureRe
             },
         )
     }
-    put("hint", "The image is included in this response; use computer_zoom for a native-resolution crop.")
+    put(
+        "hint",
+        "The image is included in this response and shows the roi of the master frame; frame pixels are relative " +
+            "to it. Use the zoom tool of the active family for a native-resolution crop.",
+    )
 }.toString()

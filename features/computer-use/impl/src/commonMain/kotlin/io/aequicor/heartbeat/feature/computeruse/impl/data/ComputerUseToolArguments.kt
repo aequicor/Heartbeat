@@ -3,13 +3,18 @@ package io.aequicor.heartbeat.feature.computeruse.impl.data
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureEncoding
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureFormat
+import io.aequicor.heartbeat.feature.computeruse.api.CaptureId
 import io.aequicor.heartbeat.feature.computeruse.api.CapturePresets
+import io.aequicor.heartbeat.feature.computeruse.api.CaptureRef
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRegion
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
 import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
 import io.aequicor.heartbeat.feature.computeruse.api.FrameSpace
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.MouseButton
 import io.aequicor.heartbeat.feature.computeruse.api.NormalizedRegion
+import io.aequicor.heartbeat.feature.computeruse.api.TileGrid
+import io.aequicor.heartbeat.feature.computeruse.api.TileRef
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_CLICKS
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_TYPED_CHARS
 import kotlinx.serialization.json.JsonObject
@@ -66,30 +71,64 @@ private fun point(arguments: JsonObject, xName: String, yName: String): FramePoi
     return FramePoint(x, y)
 }
 
-internal fun region(arguments: JsonObject): CaptureRegion? {
-    val x = arguments.int("regionX") ?: return null
-    val y = arguments.int("regionY") ?: return null
-    val width = arguments.int("regionWidth") ?: return null
-    val height = arguments.int("regionHeight") ?: return null
+/** The `roi` argument of a frame or ROI tool, mapped into master pixels. */
+internal sealed interface RoiArgument {
+    /** The call names no ROI. */
+    data object Absent : RoiArgument
+
+    /** The ROI is malformed, empty or cannot be mapped; the call is refused instead of widened to the full frame. */
+    data object Invalid : RoiArgument
+
+    /** A well-formed ROI in master pixels; whether it fits the master and the active ROI is checked by the host. */
+    data class Master(val region: CaptureRegion) : RoiArgument
+}
+
+/**
+ * Reads `roi: {x, y, width, height, space}`. Preview coordinates are pixels of [frame], the frame the caller last
+ * received; normalized ones are fractions of the master; master ones pass through.
+ */
+internal fun roiArgument(arguments: JsonObject, frame: CaptureRef?): RoiArgument {
+    if ("roi" !in arguments) return RoiArgument.Absent
+    val roi = arguments["roi"] as? JsonObject ?: return RoiArgument.Invalid
+    val rectangle = rectangle(roi) ?: return RoiArgument.Invalid
     return try {
-        CaptureRegion(x, y, width, height)
+        when (roi.text("space")?.lowercase() ?: "preview") {
+            "master" -> RoiArgument.Master(rectangle.toRegion())
+            "normalized" -> frame?.let { RoiArgument.Master(rectangle.toNormalized(it)) } ?: RoiArgument.Invalid
+            "preview" -> frame?.let { RoiArgument.Master(it.toMaster(rectangle)) } ?: RoiArgument.Invalid
+            else -> RoiArgument.Invalid
+        }
     } catch (e: IllegalArgumentException) {
-        argumentLog.w(e) { "region refused" }
-        null
+        argumentLog.w(e) { "roi refused" }
+        RoiArgument.Invalid
     }
 }
 
-internal fun normalized(arguments: JsonObject): NormalizedRegion? {
-    val x = arguments.number("nx") ?: return null
-    val y = arguments.number("ny") ?: return null
-    val width = arguments.number("nw") ?: return null
-    val height = arguments.number("nh") ?: return null
-    return try {
-        NormalizedRegion(x, y, width, height)
-    } catch (e: IllegalArgumentException) {
-        argumentLog.w(e) { "normalized region refused" }
-        null
-    }
+private data class Rectangle(val x: Double, val y: Double, val width: Double, val height: Double) {
+    fun toRegion(): CaptureRegion = CaptureRegion(x.toInt(), y.toInt(), width.toInt(), height.toInt())
+
+    fun toNormalized(frame: CaptureRef): CaptureRegion =
+        NormalizedRegion(x, y, width, height).toRegion(frame.masterWidthPx, frame.masterHeightPx)
+}
+
+/** Finite numbers with a positive size; anything else is refused. */
+private fun rectangle(roi: JsonObject): Rectangle? {
+    val values = listOf("x", "y", "width", "height").map { roi.number(it) ?: return null }
+    if (values.any { !it.isFinite() }) return null
+    val rectangle = Rectangle(values[0], values[1], values[2], values[3])
+    return rectangle.takeIf { it.width > 0.0 && it.height > 0.0 }
+}
+
+/** Maps a rectangle in this frame's pixels into master pixels through the ROI the frame shows. */
+private fun CaptureRef.toMaster(rectangle: Rectangle): CaptureRegion {
+    val scaleX = roi.widthPx.toDouble() / widthPx
+    val scaleY = roi.heightPx.toDouble() / heightPx
+    return CaptureRegion(
+        roi.x + (rectangle.x * scaleX).toInt(),
+        roi.y + (rectangle.y * scaleY).toInt(),
+        (rectangle.width * scaleX).toInt().coerceAtLeast(1),
+        (rectangle.height * scaleY).toInt().coerceAtLeast(1),
+    )
 }
 
 internal fun encoding(arguments: JsonObject, default: CaptureEncoding): CaptureEncoding {
@@ -125,4 +164,43 @@ private fun space(name: String?): FrameSpace = when (name?.lowercase()) {
     "normalized" -> FrameSpace.Normalized
     "screen" -> FrameSpace.Screen
     else -> FrameSpace.Preview
+}
+
+/** An explicit `roi` or a `tile` laid over the active ROI of [identifier]'s master; `null` area means none. */
+internal fun areaArgument(
+    arguments: JsonObject,
+    state: ComputerUseState.Capturing,
+    identifier: CaptureId,
+): AreaArgument {
+    val source = listOfNotNull(state.master, state.lastPreview, state.lastCrop).firstOrNull { it.id == identifier }
+    val tile = arguments.text("tile")?.let { TileRef.parse(it) }
+    if ("tile" in arguments && tile == null) return AreaArgument.Invalid
+    val roi = roiArgument(arguments, state.lastPreview)
+    return when {
+        roi == RoiArgument.Invalid -> AreaArgument.Invalid
+
+        tile != null && roi != RoiArgument.Absent -> AreaArgument.Invalid
+
+        tile != null ->
+            source?.let { tileRegion(tile, it, state.roi) }?.let { AreaArgument.Area(it) } ?: AreaArgument.Invalid
+
+        roi is RoiArgument.Master -> AreaArgument.Area(roi.region)
+
+        else -> AreaArgument.Area(null)
+    }
+}
+
+private fun tileRegion(tile: TileRef, source: CaptureRef, activeRoi: CaptureRegion?): CaptureRegion? {
+    val base = activeRoi?.takeIf { it.isInside(CaptureRegion(0, 0, source.masterWidthPx, source.masterHeightPx)) }
+        ?: CaptureRegion(0, 0, source.masterWidthPx, source.masterHeightPx)
+    return TileGrid.forMaster(base.widthPx, base.heightPx)
+        .region(tile.column, tile.row, base.widthPx, base.heightPx)
+        ?.let { CaptureRegion(base.x + it.x, base.y + it.y, it.widthPx, it.heightPx) }
+}
+
+/** A frame area argument: a `roi` or a `tile`; `Area(null)` means the active ROI. */
+internal sealed interface AreaArgument {
+    data object Invalid : AreaArgument
+
+    data class Area(val region: CaptureRegion?) : AreaArgument
 }

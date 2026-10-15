@@ -447,13 +447,10 @@ class ComputerUseAgentToolsTest {
     fun `malformed screenshot geometry never falls back to a full frame`() = runTest {
         val cases = listOf(
             buildJsonObject { put("tile", "broken") },
-            buildJsonObject { put("regionX", 5) },
-            buildJsonObject {
-                put("regionX", 0)
-                put("regionY", 0)
-                put("regionWidth", 0)
-                put("regionHeight", 10)
-            },
+            buildJsonObject { put("roi", buildJsonObject { put("x", 5) }) },
+            buildJsonObject { put("roi", "0,0,10,10") },
+            buildJsonObject { put("roi", roi(0, 0, 0, 10)) },
+            buildJsonObject { put("roi", roi(0, 0, 10, 10, space = "galaxy")) },
         )
         for (arguments in cases) {
             val fixture = Fixture(this, Capturing)
@@ -468,11 +465,10 @@ class ComputerUseAgentToolsTest {
         val cases = listOf(
             buildJsonObject { put("tile", "broken") },
             buildJsonObject { put("tile", "2:2") },
+            buildJsonObject { put("roi", roi(0, 0, 2, 1, space = "normalized")) },
             buildJsonObject {
-                put("nx", 0.0)
-                put("ny", 0.0)
-                put("nw", 2.0)
-                put("nh", 1.0)
+                put("tile", "0:0")
+                put("roi", roi(0, 0, 5, 5))
             },
             buildJsonObject { put("scale", 0.0) },
         )
@@ -591,7 +587,7 @@ class ComputerUseAgentToolsTest {
     fun `a stopped turn cannot use the computer again while other turns still can`() = runTest {
         val fixture = Fixture(this, ComputerUseState.Ready(Capabilities))
         fixture.stoppedTurns.stop(Owner)
-        for (tool in listOf("computer_status", "computer_windows", "computer_screenshot")) {
+        for (tool in listOf("computer_status", "window_list", "computer_screenshot")) {
             val reply = fixture.tools.execute(fixture.context, tool, EmptyArguments)
             assertTrue(reply.isError, tool)
             assertEquals("StoppedByUser", reply.text, tool)
@@ -786,6 +782,15 @@ class ComputerUseAgentToolsTest {
     }
 
     internal companion object {
+        fun roi(x: Number, y: Number, width: Number, height: Number, space: String? = null): JsonObject =
+            buildJsonObject {
+                put("x", x)
+                put("y", y)
+                put("width", width)
+                put("height", height)
+                space?.let { put("space", it) }
+            }
+
         val Capabilities = ComputerUseCapabilities(
             true,
             true,
