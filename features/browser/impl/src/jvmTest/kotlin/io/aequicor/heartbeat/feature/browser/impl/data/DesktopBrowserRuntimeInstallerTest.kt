@@ -106,6 +106,35 @@ class DesktopBrowserRuntimeInstallerTest {
     }
 
     @Test
+    fun `download requirement never waits and remembers a verified cache without downloading`() = runTest {
+        val root = Files.createTempDirectory("browser-runtime-required")
+        try {
+            val fixture = RuntimeFixture()
+            val dispatchers = browserRuntimeDispatchers(StandardTestDispatcher(testScheduler))
+            val installer = fixture.installer(root, dispatchers)
+            assertTrue(installer.requiresDownload(RELEASE_TAG, PLATFORM))
+            assertTrue(fixture.requests.isEmpty())
+            assertFalse(fixture.installer(root, dispatchers, bundled = true).requiresDownload(RELEASE_TAG, PLATFORM))
+
+            fixture.hold = true
+            val pending = async { installer.prepare(RELEASE_TAG, PLATFORM) }
+            fixture.started.await()
+            assertTrue(installer.requiresDownload(RELEASE_TAG, PLATFORM), "A running download is not awaited")
+            pending.cancelAndJoin()
+            fixture.hold = false
+            installer.prepare(RELEASE_TAG, PLATFORM)
+            assertFalse(installer.requiresDownload(RELEASE_TAG, PLATFORM))
+
+            val restarted = fixture.installer(root, dispatchers)
+            assertFalse(restarted.requiresDownload(RELEASE_TAG, PLATFORM))
+            assertEquals(BrowserRuntimePreparation.Ready, restarted.preparation.value)
+            assertEquals(2, fixture.requests.size, "The cache check never downloads")
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
     fun `cancelled download cleans staging resets progress and allows retry`() = runTest {
         val root = Files.createTempDirectory("browser-runtime-cancel")
         try {

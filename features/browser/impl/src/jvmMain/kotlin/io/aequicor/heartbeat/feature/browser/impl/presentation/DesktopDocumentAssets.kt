@@ -9,6 +9,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -85,6 +86,8 @@ private class AssetResponse(
 
     override fun processRequest(request: CefRequest, callback: CefCallback): Boolean = start(callback)
 
+    // ATOMIC is required: a scope cancelled before dispatch must still run `finally` and resolve the accepted callback.
+    @OptIn(DelicateCoroutinesApi::class)
     private fun start(callback: CefCallback): Boolean {
         if (isClosed() || isFinished.get() || !isStarted.compareAndSet(false, true)) return false
         request = scope.launch(start = CoroutineStart.ATOMIC) {

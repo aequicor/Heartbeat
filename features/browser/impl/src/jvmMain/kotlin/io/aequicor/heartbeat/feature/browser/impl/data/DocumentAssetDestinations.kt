@@ -21,11 +21,13 @@ internal fun interface DocumentAssetDestinations {
 }
 
 /**
- * Rejects a host when any resolved address is loopback, private, link-local, CGNAT, ULA, multicast or unspecified.
+ * Rejects a host when any resolved address is loopback, private, link-local, CGNAT, ULA, NAT64, multicast or
+ * unspecified.
  *
- * The shared OkHttp engine resolves through the same JVM [InetAddress] cache (`networkaddress.cache.ttl`, 30 s by
- * default), so the connection uses the addresses checked here; a rebinding answer arriving between the check and
- * the connect can only win if that cache entry expires in the intervening milliseconds.
+ * The shared engine resolves again when it connects (or a configured proxy resolves for it), so DNS rebinding and
+ * split-horizon proxies can still answer differently. Assets are HTTPS-only with certificate validation: such a
+ * local endpoint cannot present a valid certificate for the public name, so no request reaches it. This check
+ * keeps literal and plainly resolving local destinations off the TLS path.
  */
 @ContributesBinding(ProfileScope::class)
 @Inject

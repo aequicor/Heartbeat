@@ -67,12 +67,7 @@ internal class DesktopBrowserDocumentPreviews(
         panels: DesktopDocumentPanels,
         lease: PreviewLease,
     ): BrowserDocumentPreviewResult = try {
-        if (resources.requiresRuntimeDownload()) {
-            log.i { "Isolated document preview refused: browser component is not installed" }
-            failed(BrowserDocumentPreviewFailure.RuntimeUnavailable)
-        } else {
-            render(request, panels, lease)
-        }
+        render(request, panels, lease)
     } catch (error: CancellationException) {
         throw error
     } catch (error: PreviewRuntimeUnavailable) {
@@ -94,13 +89,18 @@ internal class DesktopBrowserDocumentPreviews(
         panels: DesktopDocumentPanels,
         lease: PreviewLease,
     ): BrowserDocumentPreviewResult = withTimeoutOrNull(RENDER_TIMEOUT_MILLIS) {
-        val isOpened = withContext(dispatchers.main) { lease.open(request, documents, registry, panels, themes) }
-        if (isOpened) {
-            val runtime = checkNotNull(lease.panel).awaitPreviewRuntime(dispatchers)
-            captureDocumentPreview(runtime, request)
-        } else {
-            log.w { "Isolated document preview refused: profile document limit reached" }
-            failed(BrowserDocumentPreviewFailure.Busy)
+        when {
+            resources.requiresRuntimeDownload() -> {
+                log.i { "Isolated document preview refused: browser component is not ready" }
+                failed(BrowserDocumentPreviewFailure.RuntimeUnavailable)
+            }
+
+            !withContext(dispatchers.main) { lease.open(request, documents, registry, panels, themes) } -> {
+                log.w { "Isolated document preview refused: profile document limit reached" }
+                failed(BrowserDocumentPreviewFailure.Busy)
+            }
+
+            else -> captureDocumentPreview(checkNotNull(lease.panel).awaitPreviewRuntime(dispatchers), request)
         }
     } ?: failed(BrowserDocumentPreviewFailure.TimedOut).also { log.w { "Isolated document preview timed out" } }
 
@@ -135,11 +135,22 @@ internal class DesktopBrowserDocumentPreviews(
             throw error
         } catch (error: Exception) {
             log.e(error.redactedFailure()) { "Isolated document preview close failed" }
-            lease.disposePeer()
+            disposeAfterFailedClose(lease)
         } finally {
             if (!isPending) rendering.unlock()
         }
         return isPending
+    }
+
+    /** The computed preview result must survive a native peer that also fails to dispose. */
+    private suspend fun disposeAfterFailedClose(lease: PreviewLease) {
+        try {
+            lease.disposePeer()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.e(error.redactedFailure()) { "Isolated document preview peer disposal failed" }
+        }
     }
 
     private fun failed(reason: BrowserDocumentPreviewFailure) = BrowserDocumentPreviewResult.Failure(reason)
@@ -192,8 +203,11 @@ private class PreviewLease(private val dispatchers: DispatcherProvider) {
 
     suspend fun close(): Boolean = withContext(NonCancellable) {
         withContext(dispatchers.main) {
-            handle?.close()
-            panel?.release()
+            try {
+                handle?.close()
+            } finally {
+                panel?.release()
+            }
         }
         withTimeoutOrNull(CLOSE_TIMEOUT_MILLIS) {
             finishClosing()

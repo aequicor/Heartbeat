@@ -86,7 +86,7 @@ internal class DesktopDefaultBrowserResources(
 
     override suspend fun requiresRuntimeDownload(): Boolean {
         if (nativeApp != null) return false
-        val info = CefBuildInfo.fromClasspath()
+        val info = withContext(dispatchers.io) { CefBuildInfo.fromClasspath() }
         return runtime.requiresDownload(info.releaseTag, EnumPlatform.getCurrentPlatform().identifier)
     }
 

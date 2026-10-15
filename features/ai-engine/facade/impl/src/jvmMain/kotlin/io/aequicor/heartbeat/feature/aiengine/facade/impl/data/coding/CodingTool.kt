@@ -45,6 +45,8 @@ internal data class ToolDescriptor(
             put("additionalProperties", false)
         },
         action,
+        // File reads and searches bound themselves by lines and matches; they were never capped in context.
+        resultChars = AgentToolSpec.MAX_RESULT_CHARS,
     )
 }
 

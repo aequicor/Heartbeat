@@ -17,7 +17,6 @@ import kotlinx.serialization.json.putJsonObject
 private const val BOUNDED_RESULT_CHARS = 2 * RESULT_BYTES
 
 /** Interface tool declarations; mutations, display and agent calls use contribution-owned automatic review. */
-
 internal val ServiceUiToolSpecs: List<AgentToolSpec> = listOf(
     AgentToolSpec(
         ServiceUiTools.REFERENCE,

@@ -213,11 +213,12 @@ private fun BrowserDocumentPreviewElement.json(): JsonObject = buildJsonObject {
 private fun BrowserDocumentPreviewFailure.recovery(): String = when (this) {
     BrowserDocumentPreviewFailure.InvalidRequest -> "Check the argument limits."
 
-    BrowserDocumentPreviewFailure.Busy -> "Another preview is rendering; retry shortly."
+    BrowserDocumentPreviewFailure.Busy ->
+        "Another preview is rendering or too many web documents are open; retry later."
 
     BrowserDocumentPreviewFailure.RuntimeUnavailable ->
-        "The browser component is not installed or failed to prepare; ask the user to open a web mini-app " +
-            "once to install it, then retry. Do not retry repeatedly."
+        "The browser component is not installed, is still being prepared or failed to prepare; ask the user to " +
+            "open a web mini-app once to install it, then retry. Do not retry repeatedly."
 
     BrowserDocumentPreviewFailure.TimedOut -> "Simplify scripts that block loading, then retry once."
 

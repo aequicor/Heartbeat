@@ -34,7 +34,7 @@ kotlin {
             implementation(libs.apache.commons.compress)
             // Scoped macOS content-view clipping through public JCEF/AppKit APIs.
             implementation(libs.jna.platform)
-            // Agent navigation without approval is limited to the same public URLs as web_fetch.
+            // Agent navigation without approval and document asset hosts share the public URL rules of web_fetch.
             implementation(projects.features.searchEngine.api)
             // External Chromium browser driven through the Heartbeat extension (ex_control_* tools).
             implementation(projects.features.chromiumBridge.api)
