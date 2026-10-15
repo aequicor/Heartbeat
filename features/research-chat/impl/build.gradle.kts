@@ -1,3 +1,6 @@
+import io.aequicor.heartbeat.buildlogic.useNativeDesktop
+import org.gradle.api.tasks.testing.Test
+
 plugins {
     alias(libs.plugins.heartbeat.kmp.compose)
     alias(libs.plugins.heartbeat.metro)
@@ -33,5 +36,8 @@ kotlin {
         }
     }
 }
+
+// Clipboard fixtures share the desktop with ai-studio and opt-in native tests in other JVM workers.
+tasks.named<Test>("jvmTest") { useNativeDesktop() }
 
 compose.resources { packageOfResClass = "io.aequicor.heartbeat.feature.researchchat.impl.resources" }

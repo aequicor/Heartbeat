@@ -139,21 +139,14 @@ open class JcefRuntimeExtension(private val project: Project) {
         configure: Action<Test> = Action { },
     ): TaskProvider<Test> {
         val regular = project.tasks.named<Test>("jvmTest")
-        val desktop = project.gradle.sharedServices.registerIfAbsent(
-            "heartbeatNativeDesktopTests",
-            NativeDesktopTestService::class.java,
-        ) {
-            maxParallelUsages.set(1)
-        }
         return project.tasks.register<Test>(name) {
             group = "verification"
             this.description = description
             testClassesDirs = regular.get().testClassesDirs
             classpath = regular.get().classpath
             filter { includeTestsMatching("*.$testClass") }
-            maxParallelForks = 1
             forkEvery = 1
-            usesService(desktop)
+            useNativeDesktop()
             outputs.upToDateWhen { false }
             outputs.doNotCacheIf("Native checks must execute in a fresh worker") { true }
             systemProperty(enablingProperty, "true")
