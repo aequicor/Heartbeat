@@ -81,11 +81,11 @@ val piArch = when (piArchName.lowercase()) {
 }
 val piTarget = if (piOs != null && piArch != null) "$piOs-$piArch" else null
 
-// One bundled native archive per host distribution; the browser never downloads a runtime at launch.
+// Development uses the host archive; release staging retains bridge classes and defers Chromium installation.
 heartbeatJcef.nativeBundle?.let { dependencies { runtimeOnly(it) } }
 // Module roots that keep the pinned API/native pair ahead of JBR's own jcef module, see heartbeat.jcef.
 val jcefJvmArgs = heartbeatJcef.jvmArguments
-// Packaging checks the JCEF jars this application actually ships, not another module's test classpath.
+// Verify the pinned inputs before release staging removes the native archive.
 val verifyBrowserRuntime = heartbeatJcef.registerRuntimeVerification("runtimeClasspath")
 val verifyWindowRuntime = tasks.register<JavaExec>("verifyWindowRuntime") {
     group = "verification"
@@ -231,6 +231,7 @@ afterEvaluate {
         outputDirectory.set(layout.buildDirectory.dir("compose/tmp/host-release-jars"))
         targetOs.set(if (piOs == "darwin") "macos" else piOs.orEmpty())
         targetArch.set(piArch.orEmpty())
+        deferredJcefPlatform.set(heartbeatJcef.hostPlatform.orEmpty())
     }
     val releaseImage = tasks.named<AbstractJPackageTask>("createReleaseDistributable")
     tasks.register<Exec>("verifyReleaseHarnessCompiler") {

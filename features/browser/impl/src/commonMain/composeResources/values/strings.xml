@@ -39,4 +39,12 @@
     <string name="browser_document_closed">This page is closed</string>
     <string name="browser_document_unsupported">This page opens in the desktop app</string>
     <string name="browser_document_page">Web page</string>
+    <string name="browser_runtime_downloading">Downloading browser components… %1$d MiB</string>
+    <string name="browser_runtime_downloading_percent">Downloading browser components… %1$d%</string>
+    <string name="browser_runtime_installing">Installing browser components…</string>
+    <string name="browser_runtime_network">Browser components could not download. Check your connection and retry.</string>
+    <string name="browser_runtime_storage">Browser components could not be saved. Check available disk space and retry.</string>
+    <string name="browser_runtime_invalid">The downloaded browser components could not be verified. Retry the download.</string>
+    <string name="browser_runtime_unavailable">The browser could not start. Try again.</string>
+    <string name="browser_runtime_retry">Retry</string>
 </resources>

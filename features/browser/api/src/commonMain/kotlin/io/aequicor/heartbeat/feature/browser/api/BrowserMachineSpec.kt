@@ -8,7 +8,7 @@ import kotlin.coroutines.cancellation.CancellationException
  * Transition table: Idle + Start -> Running [Observe]. Running + AvailabilityChanged -> stay,
  * updating availability and clearing transient native history when disabled. Enabled + Open(valid
  * HTTP/S) -> stay loading [Load]; invalid input -> stay with InvalidAddress. Enabled + Back/Forward
- * (history guard) -> stay loading [Back/Forward]. Enabled + Reload (nonempty URL) -> stay loading
+ * (history guard) -> stay loading [Back/Forward]. Enabled + Reload (nonempty URL or unavailable engine) -> stay loading
  * [Reload]; Stop (loading guard) -> stay stopped [Stop]. Enabled + PageChanged (HTTP/S or empty) ->
  * stay with the current native page. Enabled + Display/SelectTab -> retain the profile runtime,
  * change presentation/selection only; a disabled browser accepts only Display(Hidden).
@@ -129,7 +129,10 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
                 effect { BrowserEffect.Forward }
             }
             on<BrowserIntent.Public.Reload>(
-                guard = { state.isEnabled && state.page.url.isNotEmpty() },
+                guard = {
+                    state.isEnabled &&
+                        (state.page.url.isNotEmpty() || state.page.error == BrowserError.EngineUnavailable)
+                },
             ) {
                 stay { state.copy(page = state.page.copy(isLoading = true, error = null)) }
                 effect { BrowserEffect.Reload }

@@ -86,6 +86,46 @@ class PrepareReleaseRuntimeJarsTest {
     }
 
     @Test
+    fun `deferred JCEF preserves bridge classes and removes only the exact host archive on all targets`() {
+        val platforms = listOf("macosx-arm64", "macosx-amd64", "windows-arm64", "windows-amd64", "linux-amd64")
+        for (platform in platforms) {
+            val task = fixture()
+            task.deferredJcefPlatform.set(platform)
+            val name = "jcef-natives-$platform-jcef-locked+heartbeat-hb5.tar.gz"
+            val kept = mapOf(
+                "org/cef/browser/mac/CefBrowserWindowMac.class" to "bridge class bytes",
+                "META-INF/LICENSE.txt" to "license",
+                "other-resource.tar.gz" to "another feature archive",
+            )
+            val source = writeJar(
+                task.inputDirectory.file("native.jar").get().asFile,
+                kept + (name to "native archive"),
+            )
+            val original = source.readBytes()
+
+            task.prepare()
+
+            assertEquals(kept, contents(task.outputDirectory.file("native.jar").get().asFile))
+            assertContentEquals(original, source.readBytes())
+        }
+    }
+
+    @Test
+    fun `missing duplicate or signed deferred JCEF archives fail instead of silently bundling a large runtime`() {
+        for (scenario in listOf("missing", "duplicate", "signed")) {
+            val task = fixture()
+            task.deferredJcefPlatform.set("macosx-arm64")
+            val archive = "jcef-natives-macosx-arm64-jcef-locked.tar.gz"
+            val entries = if (scenario == "missing") emptyMap() else mapOf(archive to "native archive")
+            val signature = if (scenario == "signed") mapOf("META-INF/VENDOR.SF" to "signature") else emptyMap()
+            writeJar(task.inputDirectory.file("native.jar").get().asFile, entries + signature)
+            if (scenario == "duplicate") writeJar(task.inputDirectory.file("other.jar").get().asFile, entries)
+
+            assertFailsWith<IllegalStateException> { task.prepare() }
+        }
+    }
+
+    @Test
     fun `staging removes stale outputs and archive bytes are reproducible`() {
         val task = fixture()
         val source = task.inputDirectory.file("app.jar").get().asFile

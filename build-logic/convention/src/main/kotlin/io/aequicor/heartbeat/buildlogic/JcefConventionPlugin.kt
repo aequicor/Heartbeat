@@ -43,7 +43,10 @@ open class JcefRuntimeExtension(private val project: Project) {
     /** jcefmaven platform of this host (`macosx-arm64`, `windows-amd64`…), `null` where no runtime is published. */
     val hostPlatform: String? = jcefNativePlatform(osName, architecture)
 
-    /** The checksum-pinned native jar for [hostPlatform]; the app never downloads a runtime at launch. */
+    /**
+     * The checksum-pinned native jar for [hostPlatform]. Development and native tests use its archive;
+     * release packaging keeps its bridge classes and defers the archive until the first browser use.
+     */
     val nativeBundle: Provider<MinimalExternalModuleDependency>? =
         hostPlatform?.let { platform -> libs.findLibrary(NATIVE_ALIASES.getValue(platform)).get() }
 

@@ -122,7 +122,10 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > Оба дополнительных флага выключены по умолчанию. Desktop-вкладки разделяют постоянное Chromium-хранилище своего
 > профиля (cookies, localStorage, IndexedDB); очистка браузера и удаление профиля закрывают вкладки до удаления данных.
 > Согласованные Java/JNI-артефакты для Windows/macOS x64/ARM64 и Linux x64 собираются из `native/jcef` локально или в CI (`jcef-runtime.yml`, вручную), проверяются
-> по SHA-256 (`heartbeat.jcef`, `verifyBrowserRuntime`) и входят в дистрибутив. Нативные проверки с настоящим Chromium —
+> по SHA-256 (`heartbeat.jcef`, `verifyBrowserRuntime`). В релизе Java-мост входит в дистрибутив, а нативный Chromium
+> скачивается при первом открытии браузера или web-документа: версия и SHA-256 закреплены в `native/jcef/source-lock.json`.
+> UI показывает прогресс и позволяет повторить попытку; установленный runtime повторно используется без сети.
+> Development и нативные тесты продолжают использовать архив из classpath. Нативные проверки с настоящим Chromium —
 > отдельные задачи `browserNativeTest`, `browserComposeNativeTest`, `browserViewportNativeTest`, `browserRecoveryNativeTest`, `browserDocumentNativeTest` (нужен рабочий стол, вне `check`); Linux-этап релиза запускает `browserNativeTest` и `browserDocumentNativeTest` под Xvfb. Восстановление источника запускается только кнопкой пользователя и использует тот же профиль.
 > Сервисный контракт `BrowserDocuments` (`browser:api`) — изолированные локальные HTML-документы, которые фича рисует
 > в своём экране маршрутом `BrowserDocumentRoute`: только Desktop, свой origin и контекст в памяти на документ, CSP без

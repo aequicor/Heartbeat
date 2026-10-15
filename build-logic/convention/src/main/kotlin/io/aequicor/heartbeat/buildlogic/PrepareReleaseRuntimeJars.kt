@@ -26,7 +26,9 @@ import javax.inject.Inject
  * [targetOs] is `macos`, `windows` or `linux`; [targetArch] is `x64` or `arm64` (Linux releases support x64).
  *
  * Unknown platforms/resources, signed jars and native families missing their host binary are preserved. Jars with
- * no removable entries are copied byte for byte, including the checksum-pinned JCEF archive. Rewritten jars use
+ * no removable entries are copied byte for byte. When [deferredJcefPlatform] is set, the host's JCEF native archive
+ * is omitted for download on first use; all bridge classes stay on the packaged classpath. Original JCEF artifacts
+ * are still checked by `verifyBrowserRuntime` before packaging. Rewritten jars use
  * sorted entries and a fixed ZIP timestamp so cache results do not depend on the input archive's timestamps.
  */
 @CacheableTask
@@ -41,7 +43,14 @@ abstract class PrepareReleaseRuntimeJars : DefaultTask() {
 
     @get:Input abstract val targetArch: Property<String>
 
+    /** Empty keeps JCEF bundled; otherwise exactly one archive for this jcefmaven platform must be removed. */
+    @get:Input abstract val deferredJcefPlatform: Property<String>
+
     @get:Inject abstract val files: FileSystemOperations
+
+    init {
+        deferredJcefPlatform.convention("")
+    }
 
     /** Replaces the staging directory with the release payload, then filters eligible native resource families. */
     @TaskAction
@@ -56,24 +65,46 @@ abstract class PrepareReleaseRuntimeJars : DefaultTask() {
             into(outputDirectory)
         }
         val families = nativeFamilies(targetOs.get(), targetArch.get())
-        if (families.isEmpty()) return
+        val jars = destination.toFile().walkTopDown().filter { it.isFile && it.extension == "jar" }.toList()
+        val deferredArchive = findDeferredJcefArchive(jars)
+        if (families.isEmpty() && deferredArchive == null) return
         var removedBytes = 0L
-        for (jar in destination.toFile().walkTopDown().filter { it.isFile && it.extension == "jar" }) {
+        for (jar in jars) {
             val originalSize = jar.length()
-            prune(jar, families)
+            prune(jar, families, deferredArchive)
             removedBytes += originalSize - jar.length()
         }
-        logger.lifecycle("Release runtime jars: saved {} bytes after filtering foreign native resources", removedBytes)
+        logger.lifecycle("Release runtime jars: saved {} bytes after filtering native resources", removedBytes)
     }
 
-    private fun prune(jar: File, families: List<NativeFamily>) {
+    private fun findDeferredJcefArchive(jars: List<File>): String? {
+        val platform = deferredJcefPlatform.get()
+        if (platform.isEmpty()) return null
+        require(platform in setOf("macosx-arm64", "macosx-amd64", "windows-arm64", "windows-amd64", "linux-amd64")) {
+            "Unsupported deferred JCEF platform: $platform"
+        }
+        val candidates = jars.flatMap { jar ->
+            ZipFile(jar).use { archive ->
+                val names = archive.entries().toList().map { it.name }
+                val matches = names.filter {
+                    it.startsWith("jcef-natives-$platform-") && it.endsWith(".tar.gz") && '/' !in it
+                }
+                check(matches.isEmpty() || names.none(::isSignature)) { "Cannot defer JCEF from a signed jar: $jar" }
+                matches
+            }
+        }
+        check(candidates.size == 1) { "Expected one JCEF archive for $platform, found ${candidates.size}" }
+        return candidates.single()
+    }
+
+    private fun prune(jar: File, families: List<NativeFamily>, deferredArchive: String?) {
         val temporary = ZipFile(jar).use { input ->
             val entries = input.entries().toList()
             if (entries.any { isSignature(it.name) }) return
             val names = entries.map { it.name }.toSet()
             val removed = families.filter { it.host in names }.flatMap { family ->
                 (family.paths - family.host).flatMap { listOf(it, "$it.sha256") }
-            }.toSet()
+            }.toSet() + listOfNotNull(deferredArchive)
             if (names.none { it in removed }) return
             val temporary = Files.createTempFile(jar.parentFile.toPath(), jar.name, ".tmp")
             ZipOutputStream(Files.newOutputStream(temporary)).use { output ->
