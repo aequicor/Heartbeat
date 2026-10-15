@@ -1,3 +1,6 @@
+import io.aequicor.heartbeat.buildlogic.useNativeDesktop
+import org.gradle.api.tasks.testing.Test
+
 // Composables and strings of the AI Studio screen over the screen model: the desktop window (ai-studio:impl) and the
 // browser side panel (:chromium-plugin:panel, Kotlin/Wasm) draw the same screen.
 plugins {
@@ -25,6 +28,9 @@ kotlin {
         }
     }
 }
+
+// Clipboard fixtures share the desktop with research-chat and opt-in native tests in other JVM workers.
+tasks.named<Test>("jvmTest") { useNativeDesktop() }
 
 // The package stays the one of ai-studio:impl until the package rename step; impl tests find texts through it.
 compose.resources {
