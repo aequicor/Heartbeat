@@ -192,10 +192,14 @@ class ExternalBrowserToolsTest {
         val calls = mutableListOf<Triple<String, ExternalOperation, JsonObject>>()
         var answer = BrowserResult("r", JsonObject(emptyMap()))
 
+        override suspend fun snapshot(owner: String, operation: ExternalOperation, arguments: JsonObject): JsonObject =
+            JsonObject(emptyMap())
+
         override suspend fun execute(
             owner: String,
             operation: ExternalOperation,
             arguments: JsonObject,
+            expected: JsonObject?,
         ): BrowserResult {
             calls += Triple(owner, operation, arguments)
             return answer

@@ -89,6 +89,17 @@ internal class DesktopBrowserAutomation(
         .getValue("frame")
         .jsonObject
 
+    /**
+     * A synchronous observation for independent safety review. It does not replace the agent's last read or its
+     * element references. Document, node identity, focus, form and target geometry are compared again before input.
+     */
+    suspend fun safetySnapshot(operation: BrowserOperation?, arguments: JsonObject): JsonObject {
+        if (operation in setOf(BrowserOperation.Click, BrowserOperation.Scroll, BrowserOperation.Drag)) {
+            validate(arguments)
+        }
+        return evaluate(browserSafetyScript(GEOMETRY_SCRIPT, operation, arguments)).jsonObject
+    }
+
     suspend fun perform(request: BrowserRequest): BrowserResult {
         if (request.operation == BrowserOperation.Screenshot) return screenshot(request)
         val args = request.arguments

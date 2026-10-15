@@ -9,6 +9,9 @@ const PROTOCOL = '1.3';
 /** DevTools methods the app's automation driver uses; everything else is refused. */
 const ALLOWED_METHODS = new Set([
   'Page.getFrameTree',
+  'Page.getNavigationHistory',
+  'Page.navigateToHistoryEntry',
+  'Page.reload',
   'Page.createIsolatedWorld',
   'Page.captureScreenshot',
   'Runtime.evaluate',
@@ -203,32 +206,32 @@ export function createTabControl({ chrome, notify, isAllowed, timers = globalThi
   }
 
   /**
-   * Waits until the tab finished loading after a navigation started.
+   * Waits for a document load or same-document history change, distinguishing timeout from revocation.
    * @param {number} tabId
    */
   function loaded(tabId) {
-    /** @type {(completed: boolean) => void} */
+    /** @type {(outcome: 'complete' | 'released' | 'timeout') => void} */
     let finish;
     const promise = new Promise((resolve) => { finish = resolve; });
     let settled = false;
     const waiters = navigationWaiters.get(tabId) ?? new Set();
     navigationWaiters.set(tabId, waiters);
-    const cancel = () => done(false);
+    const cancel = () => done('released');
     waiters.add(cancel);
-    const timer = timers.setTimeout(() => done(true), NAVIGATION_TIMEOUT_MS);
-    /** @param {number} id @param {any} change */
-    function listener(id, change) {
-      if (id === tabId && change.status === 'complete') done(true);
+    const timer = timers.setTimeout(() => done('timeout'), NAVIGATION_TIMEOUT_MS);
+    /** @param {number} id @param {any} change @param {any} tab */
+    function listener(id, change, tab) {
+      if (id === tabId && (change.status === 'complete' || (change.url && tab?.status === 'complete'))) done('complete');
     }
-    /** @param {boolean} completed */
-    function done(completed) {
+    /** @param {'complete' | 'released' | 'timeout'} outcome */
+    function done(outcome) {
       if (settled) return;
       settled = true;
       timers.clearTimeout(timer);
       chrome.tabs.onUpdated.removeListener(listener);
       waiters.delete(cancel);
       if (waiters.size === 0) navigationWaiters.delete(tabId);
-      finish(completed);
+      finish(outcome);
     }
     chrome.tabs.onUpdated.addListener(listener);
     return { promise, cancel };
@@ -237,14 +240,25 @@ export function createTabControl({ chrome, notify, isAllowed, timers = globalThi
   /** @param {number} tabId @param {string} url */
   async function navigate(tabId, url) {
     requireUrl(url);
+    await navigateCommand(tabId, 'Page.navigate', { url });
+    return describe(tabId);
+  }
+
+  /** The Fetch document guard stays attached throughout history navigation and reload.
+   * @param {number} tabId @param {string} method @param {Record<string, any>} params */
+  async function navigateCommand(tabId, method, params) {
     const expected = generation;
+    const tab = controlled.get(tabId);
     const done = loaded(tabId);
     try {
-      const result = await send(tabId, 'Page.navigate', { url });
+      const result = await send(tabId, method, params);
       if (result?.errorText) throw new BridgeError(ErrorCode.FORBIDDEN, 'Navigation was blocked');
-      if (!(await done.promise)) throw new BridgeError(ErrorCode.NO_SUCH_TAB, 'Tab was released');
+      const outcome = await done.promise;
+      if (outcome === 'released') throw new BridgeError(ErrorCode.NO_SUCH_TAB, 'Tab was released');
+      if (outcome === 'timeout') throw new BridgeError(ErrorCode.TIMEOUT, 'Navigation timed out');
       checkGeneration(expected);
-      return await describe(tabId);
+      if (!tab || controlled.get(tabId) !== tab) throw new BridgeError(ErrorCode.NO_SUCH_TAB, 'Tab was released');
+      return result ?? {};
     } finally {
       done.cancel();
     }
@@ -399,9 +413,13 @@ export function createTabControl({ chrome, notify, isAllowed, timers = globalThi
       }
       case 'tabs.navigate':
         return { tab: await navigate(tabIdOf(params), String(params.url)) };
-      case 'tabs.activate':
-        await chrome.tabs.update(tabIdOf(params), { active: true });
+      case 'tabs.activate': {
+        const tab = await chrome.tabs.update(tabIdOf(params), { active: true });
+        checkGeneration(expected);
+        tabIdOf(params);
+        await chrome.windows.update(tab.windowId, { focused: true });
         return {};
+      }
       case 'tabs.release':
         owned.delete(tabIdOf(params));
         await detach(tabIdOf(params));
@@ -445,6 +463,16 @@ export function createTabControl({ chrome, notify, isAllowed, timers = globalThi
   async function devTools(tabId, method, params) {
     if (!ALLOWED_METHODS.has(method)) throw new BridgeError(ErrorCode.FORBIDDEN, 'Method is not allowed');
     const tab = /** @type {Controlled} */ (controlled.get(tabId));
+    if (method === 'Page.reload') {
+      if (Object.keys(params).length !== 0) throw new BridgeError(ErrorCode.FORBIDDEN, 'Reload parameters are not allowed');
+      return navigateCommand(tabId, method, {});
+    }
+    if (method === 'Page.navigateToHistoryEntry') {
+      if (!Number.isInteger(params.entryId) || Object.keys(params).some((key) => key !== 'entryId')) {
+        throw new BridgeError(ErrorCode.FORBIDDEN, 'A history entry is required');
+      }
+      return navigateCommand(tabId, method, { entryId: params.entryId });
+    }
     if (method === 'Runtime.evaluate' && !tab.contexts.has(Number(params.contextId))) {
       throw new BridgeError(ErrorCode.FORBIDDEN, 'Evaluation outside the agent world is not allowed');
     }

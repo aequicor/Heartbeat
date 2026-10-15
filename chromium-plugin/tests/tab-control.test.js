@@ -10,7 +10,7 @@ function fakeBrowser() {
   /** @type {any[]} */
   const commands = [];
   /** @type {Map<number, any>} */
-  const tabs = new Map([[1, { id: 1, url: 'https://user.example/', title: 'Mail', status: 'complete' }]]);
+  const tabs = new Map([[1, { id: 1, windowId: 3, url: 'https://user.example/', title: 'Mail', status: 'complete' }]]);
   let nextTab = 10;
   let nextContext = 100;
   const chrome = {
@@ -42,17 +42,21 @@ function fakeBrowser() {
       },
       query: async (query) => query.active ? [tabs.get(1)] : [...tabs.values()],
       create: async () => {
-        const tab = { id: nextTab++, url: 'about:blank', title: '', status: 'complete' };
+        const tab = { id: nextTab++, windowId: 3, url: 'about:blank', title: '', status: 'complete' };
         tabs.set(tab.id, tab);
         return tab;
       },
-      update: async (/** @type {number} */ id, /** @type {any} */ change) => commands.push([id, 'update', change]),
+      update: async (/** @type {number} */ id, /** @type {any} */ change) => {
+        commands.push([id, 'update', change]);
+        return Object.assign(tabs.get(id), change);
+      },
       remove: async (/** @type {number} */ id) => tabs.delete(id),
       group: async ({ tabIds }) => {
         for (const id of tabIds) tabs.get(id).groupId = 7;
         return 7;
       },
     },
+    windows: { update: async (/** @type {number} */ id, /** @type {any} */ change) => commands.push([id, 'window', change]) },
     tabGroups: { update: async (/** @type {number} */ id, /** @type {any} */ change) => commands.push([id, 'group', change]) },
   };
   return { chrome, commands, tabs };
@@ -106,6 +110,19 @@ test('nothing is controlled without consent and other tabs are refused', async (
   await assert.rejects(control.handle('tabs.navigate', { tabId: '1', url: 'https://x/' }), (error) => error.code === 'no_such_tab');
 });
 
+test('activating a controlled tab also brings its own browser window to the front', async () => {
+  const { control, commands, tabs } = setup();
+  tabs.get(1).windowId = 17;
+  await control.handle('tabs.control', { tabId: '1', expectedUrl: 'https://user.example/' });
+  await control.handle('tabs.activate', { tabId: '1' });
+  assert.deepEqual(commands.filter((command) => ['update', 'window'].includes(command[1])), [
+    [1, 'update', { active: true }],
+    [17, 'window', { focused: true }],
+  ]);
+  await control.handle('tabs.release', { tabId: '1' });
+  await assert.rejects(control.handle('tabs.activate', { tabId: '1' }), (error) => error.code === 'no_such_tab');
+});
+
 test('DevTools calls are limited to the driver methods and its own isolated worlds', async () => {
   const { control } = setup();
   await control.handle('tabs.control', { tabId: '1', expectedUrl: 'https://user.example/' });
@@ -130,6 +147,83 @@ test('DevTools calls are limited to the driver methods and its own isolated worl
     control.handle('cdp.send', { tabId: '1', method: 'Network.getCookies', params: {} }),
     (error) => error.code === 'forbidden',
   );
+});
+
+test('history and reload wait for completion while their document guard remains attached', async () => {
+  for (const [method, params] of [['Page.navigateToHistoryEntry', { entryId: 7 }], ['Page.reload', {}]]) {
+    const { control, chrome, commands, events, timers } = setup();
+    await control.handle('tabs.control', { tabId: '1', expectedUrl: 'https://user.example/' });
+    const send = chrome.debugger.sendCommand;
+    const entered = deferred();
+    chrome.debugger.sendCommand = async (...args) => {
+      const result = await send(...args);
+      if (args[1] === method) entered.resolve();
+      return result;
+    };
+    let finished = false;
+    const navigation = control.handle('cdp.send', { tabId: '1', method, params }).then(() => { finished = true; });
+    await entered.promise;
+    assert.equal(finished, false);
+    chrome.debugger.onEvent.emit({ tabId: 1 }, 'Fetch.requestPaused', {
+      requestId: 'history-document', frameId: 'frame-1', request: { url: 'https://next.example/' },
+    });
+    assert.equal(events.some(([event, params]) => event === 'guard.paused' && params.requestId === 'history-document'), true);
+    await control.handle('guard.resolve', { tabId: '1', requestId: 'history-document', allow: true });
+    chrome.tabs.onUpdated.emit(1, { status: 'complete' }, { url: 'https://next.example/', status: 'complete' });
+    await navigation;
+    assert.equal(finished, true);
+    assert.equal(chrome.debugger.attached.has(1), true);
+    assert.equal(commands.some((command) => command[1] === 'Fetch.disable'), false);
+    assert.equal(timers.tasks.size, 0);
+  }
+});
+
+test('same-document history completes on its URL update and reload cannot inject a script', async () => {
+  const { control, chrome, timers } = setup();
+  await control.handle('tabs.control', { tabId: '1', expectedUrl: 'https://user.example/' });
+  const send = chrome.debugger.sendCommand;
+  const entered = deferred();
+  chrome.debugger.sendCommand = async (...args) => {
+    const result = await send(...args);
+    if (args[1] === 'Page.navigateToHistoryEntry') entered.resolve();
+    return result;
+  };
+  const history = control.handle('cdp.send', { tabId: '1', method: 'Page.navigateToHistoryEntry', params: { entryId: 7 } });
+  await entered.promise;
+  chrome.tabs.onUpdated.emit(1, { url: 'https://user.example/#section' }, { status: 'complete' });
+  await history;
+  assert.equal(timers.tasks.size, 0);
+  for (const [method, params] of [
+    ['Page.reload', { scriptToEvaluateOnLoad: 'window.pageWorld = true' }],
+    ['Page.navigateToHistoryEntry', { entryId: '7' }],
+    ['Page.navigateToHistoryEntry', { entryId: 7, url: 'https://other.example/' }],
+    ['Page.navigate', { url: 'https://other.example/' }],
+  ]) {
+    await assert.rejects(control.handle('cdp.send', { tabId: '1', method, params }), (error) => error.code === 'forbidden');
+  }
+});
+
+test('navigation timeout is an error and disposes the waiting listener', async () => {
+  for (const method of ['Page.navigate', 'Page.reload', 'Page.navigateToHistoryEntry']) {
+    const { control, chrome, timers } = setup();
+    await control.handle('tabs.control', { tabId: '1', expectedUrl: 'https://user.example/' });
+    const listeners = chrome.tabs.onUpdated.listeners.length;
+    const send = chrome.debugger.sendCommand;
+    const entered = deferred();
+    chrome.debugger.sendCommand = async (...args) => {
+      if (args[1] === method) { entered.resolve(); return {}; }
+      return send(...args);
+    };
+    const navigation = method === 'Page.navigate'
+      ? control.handle('tabs.navigate', { tabId: '1', url: 'https://next.example/' })
+      : control.handle('cdp.send', { tabId: '1', method, params: method === 'Page.reload' ? {} : { entryId: 7 } });
+    const rejected = assert.rejects(navigation, (error) => error.code === 'timeout');
+    await entered.promise;
+    timers.advance(30_000);
+    await rejected;
+    assert.equal(chrome.tabs.onUpdated.listeners.length, listeners);
+    assert.equal(timers.tasks.size, 0);
+  }
 });
 
 test('guarded loads wait for the app and fail closed', async () => {
