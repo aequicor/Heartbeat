@@ -195,7 +195,8 @@ class StudioAppWorkspaceUiTest {
             assertTrue(openedApp.top >= panel.bottom, "A native start document must not overlap the summary")
             val header = onNodeWithTag("pane-header-0").fetchSemanticsNode().boundsInRoot
             assertEquals(header.bottom, panel.top, 1f, "Even in a wide pane the summary is a panel below the header")
-            assertEquals(2000f, panel.right, 1f, "The summary over a start app is attached to the pane's end edge")
+            val paneRight = onNodeWithTag("pane-0").fetchSemanticsNode().boundsInRoot.right
+            assertEquals(paneRight, panel.right, 1f, "The summary over a start app is attached to the pane's end edge")
             assertEquals(originalApp.width, openedApp.width, "The start document keeps the full available width")
             assertEquals(composer, onNodeWithTag("composer-0").fetchSemanticsNode().boundsInRoot)
             assertEquals(1, mounts)

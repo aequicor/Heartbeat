@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
@@ -120,11 +119,7 @@ private fun Modifier.contextPanelFrame(isBeside: Boolean, topInset: Dp, composer
     val surface = if (isBeside) {
         Modifier.hbSurface(HbTheme.colors.surface, HbTheme.shapes.large)
     } else {
-        val square = CornerSize(none)
-        Modifier.hbEdgeSurface(
-            HbTheme.colors.surface,
-            HbTheme.shapes.large.copy(topStart = square, topEnd = square, bottomEnd = square),
-        )
+        Modifier.hbEdgeSurface(HbTheme.colors.surface)
     }
     return padding(top = topInset + inset, end = inset)
         .width(minOf(HbTheme.dimensions.inspectorPanelWidth, (width - inset * 2).coerceAtLeast(none)))
