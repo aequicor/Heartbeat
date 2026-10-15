@@ -154,7 +154,6 @@ internal fun StudioPaneView(
     var paneSize by remember { mutableStateOf(IntSize.Zero) }
     var panePosition by remember { mutableStateOf(Offset.Zero) }
     var composerPosition by remember { mutableStateOf(Offset.Zero) }
-    var contextHeight by remember { mutableIntStateOf(0) }
     var contextRowWidth by remember(pane.sessionId, pane.projectId) { mutableStateOf<Int?>(null) }
     val ownCards = remember(cards, pane.id) { paneCards(cards, pane.id).toImmutableMap() }
     var headerHeight by remember { mutableIntStateOf(0) }
@@ -175,7 +174,6 @@ internal fun StudioPaneView(
     val isBesideAvailable = placement.isBesideAvailable && !hasStartApp
     val context = rememberPaneContextPanel(content, contextSlot, isBesideAvailable)
     val contextInset = placement.insetFor(contextSlot, context.isOpen, isBesideAvailable)
-    val appContextInset = startAppContextInset(hasStartApp, context.isOpen, contextHeight)
     Box(
         modifier.onSizeChanged { paneSize = it }
             .onGloballyPositioned { panePosition = it.positionInRoot() }.onFocusChanged {
@@ -184,67 +182,77 @@ internal fun StudioPaneView(
             .focusOnPress(content.isFocused, pane.id) { onIntent(StudioIntent.FocusPane(pane.id)) }
             .background(HbTheme.surfaces.assistant).testTag("pane-${pane.id}"),
     ) {
-        PaneConversation(
-            content,
-            feed,
-            timelineState,
-            onIntent,
-            startSlot,
-            appHost,
-            ownCards,
-            checklists,
-            topInset + appContextInset,
-            bottomInset,
-            isCenteredComposer,
-            hasStartApp,
-            Modifier.fillMaxSize().padding(end = contextInset)
-                .padding(conversationInsets(hasStartApp, layout.isCompact)),
-        )
-        HbColumn(
-            Modifier.align(Alignment.TopCenter).fillMaxWidth()
-                .onSizeChanged { headerHeight = it.height }
-                .testTag("pane-header-${pane.id}"),
-            gap = HbTheme.spacing.none,
-        ) {
-            PaneHeader(
-                content,
-                layout,
-                onIntent,
-                isAtWindowLeadingEdge,
-                onToggleContext = context.toggle,
-                isContextOpen = context.isOpen,
-                contextFocus = context.focus,
-            )
-            content.enginePreparations.forEach { StudioEnginePreparation(it) }
-        }
-        // The composer keeps the same parents; changing its placement must not detach its focus target.
-        Box(Modifier.fillMaxSize().padding(top = topInset, end = contextInset)) {
-            PaneComposerRegion(
-                content,
-                onIntent,
-                questions,
-                layout.isCompact,
-                onOpenResearch,
-                isCenteredComposer,
-                PaneSlots(composerSlot, startSlot),
-                onContextWidthChange = { contextRowWidth = it },
-                modifier = Modifier.align(
-                    composerRegionAlignment(isCenteredComposer),
-                ).onSizeChanged { footerHeight = it.height }
-                    .onGloballyPositioned { composerPosition = it.positionInRoot() },
-            )
-        }
-        PaneContextPanel(
-            contextSlot,
-            context.isOpen,
-            isBesideAvailable,
-            context.dismiss,
-            pane.id,
-            topInset,
-            with(density) { (composerPosition.y - panePosition.y).toDp() },
-            paneSize,
-            onHeightChange = { contextHeight = it },
-            modifier = Modifier.align(Alignment.TopEnd),
+        PaneLayersLayout(
+            reserveContextBand = hasStartApp,
+            headerInset = topInset,
+            modifier = Modifier.fillMaxSize(),
+            conversation = {
+                PaneConversation(
+                    content,
+                    feed,
+                    timelineState,
+                    onIntent,
+                    startSlot,
+                    appHost,
+                    ownCards,
+                    checklists,
+                    topInset,
+                    bottomInset,
+                    isCenteredComposer,
+                    hasStartApp,
+                    Modifier.fillMaxSize().padding(end = contextInset)
+                        .padding(conversationInsets(hasStartApp, layout.isCompact)),
+                )
+            },
+            header = {
+                HbColumn(
+                    Modifier.fillMaxWidth().onSizeChanged { headerHeight = it.height }
+                        .testTag("pane-header-${pane.id}"),
+                    gap = HbTheme.spacing.none,
+                ) {
+                    PaneHeader(
+                        content,
+                        layout,
+                        onIntent,
+                        isAtWindowLeadingEdge,
+                        onToggleContext = context.toggle,
+                        isContextOpen = context.isOpen,
+                        contextFocus = context.focus,
+                    )
+                    content.enginePreparations.forEach { StudioEnginePreparation(it) }
+                }
+            },
+            composer = {
+                // Its parents stay mounted when the summary opens, grows, or changes responsive placement.
+                Box(Modifier.fillMaxSize().padding(top = topInset, end = contextInset)) {
+                    PaneComposerRegion(
+                        content,
+                        onIntent,
+                        questions,
+                        layout.isCompact,
+                        onOpenResearch,
+                        isCenteredComposer,
+                        PaneSlots(composerSlot, startSlot),
+                        onContextWidthChange = { contextRowWidth = it },
+                        modifier = Modifier.align(
+                            composerRegionAlignment(isCenteredComposer),
+                        ).onSizeChanged { footerHeight = it.height }
+                            .onGloballyPositioned { composerPosition = it.positionInRoot() },
+                    )
+                }
+            },
+            context = {
+                PaneContextPanel(
+                    contextSlot,
+                    context.isOpen,
+                    isBesideAvailable,
+                    context.dismiss,
+                    pane.id,
+                    topInset,
+                    with(density) { (composerPosition.y - panePosition.y).toDp() },
+                    paneSize,
+                )
+            },
         )
     }
 }

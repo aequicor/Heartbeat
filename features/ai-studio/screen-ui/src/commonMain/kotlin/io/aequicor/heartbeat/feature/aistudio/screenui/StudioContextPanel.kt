@@ -25,7 +25,6 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
@@ -84,7 +83,6 @@ internal fun PaneContextPanel(
     topInset: Dp,
     composerTop: Dp,
     paneSize: IntSize,
-    onHeightChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (slot != null && isOpen) {
@@ -101,7 +99,6 @@ internal fun PaneContextPanel(
             modifier.padding(top = topInset + gap, end = gap)
                 .width(cardWidth)
                 .heightIn(max = (bottom - topInset - gap * 2).coerceAtLeast(HbTheme.spacing.none))
-                .onSizeChanged { onHeightChange(it.height) }
                 .hbSurface(HbTheme.colors.surface, HbTheme.shapes.large)
                 .onPreviewKeyEvent { event ->
                     if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
@@ -126,16 +123,6 @@ internal data class ContextPanelPlacement(val isBesideAvailable: Boolean, val en
     fun insetFor(slot: StudioEmbed?, isOpen: Boolean, isBeside: Boolean): Dp =
         if (slot != null && isOpen && isBeside) endInset else HbTheme.spacing.none
 }
-
-/** Native Start apps must not overlap the card; only its measured top band is reserved, never composer width. */
-@Composable
-@ReadOnlyComposable
-internal fun startAppContextInset(hasStartApp: Boolean, isOpen: Boolean, contextHeight: Int): Dp =
-    if (hasStartApp && isOpen) {
-        with(LocalDensity.current) { contextHeight.toDp() } + HbTheme.spacing.l * 2
-    } else {
-        HbTheme.spacing.none
-    }
 
 @Composable
 @ReadOnlyComposable

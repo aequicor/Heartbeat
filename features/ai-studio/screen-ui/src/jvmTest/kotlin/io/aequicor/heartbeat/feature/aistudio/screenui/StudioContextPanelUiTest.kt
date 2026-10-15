@@ -44,7 +44,7 @@ import androidx.compose.ui.unit.dp
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbText
-import io.aequicor.heartbeat.ds.components.LocalHbDialogDismissRequest
+import io.aequicor.heartbeat.ds.components.LocalHbSurfaceDismissRequest
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
@@ -573,7 +573,7 @@ class StudioContextPanelUiTest {
 
         @Composable
         override fun Content(modifier: Modifier) {
-            val dismiss = LocalHbDialogDismissRequest.current
+            val dismiss = LocalHbSurfaceDismissRequest.current
             SideEffect { dismissRequest = dismiss }
             DisposableEffect(Unit) {
                 mounted++

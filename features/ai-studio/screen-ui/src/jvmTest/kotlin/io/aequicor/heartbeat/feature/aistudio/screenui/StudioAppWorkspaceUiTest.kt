@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.screenui
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
@@ -9,17 +10,24 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
+import androidx.compose.ui.unit.dp
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
@@ -196,6 +204,64 @@ class StudioAppWorkspaceUiTest {
         }
 
     @Test
+    fun `the start app stays below the summary in every placement when it opens and grows`() = runSkikoComposeUiTest(
+        size = Size(2000f, 900f),
+    ) {
+        val state = initial.copy(
+            models = StudioModelOptions,
+            contextPanels = persistentMapOf(0 to StudioContextPanelUi(null, null, persistentSetOf("gym"))),
+        )
+        var appBounds: Rect? = null
+        val placements = mutableListOf<Pair<Rect, Rect>>()
+        var summaryHeight by mutableStateOf(120.dp)
+        var mounts = 0
+        val appHost = App(isStart = { true }, onMount = { mounts++ }, onPlaced = { appBounds = it })
+        val summary = object : StudioEmbed {
+            @Composable
+            override fun Content(modifier: Modifier) {
+                Box(
+                    modifier.height(summaryHeight).onPlaced { coordinates ->
+                        appBounds?.let { placements += it to coordinates.boundsInRoot() }
+                    }.testTag("context-body"),
+                )
+            }
+        }
+        setContent {
+            HbTheme(dimensions = HbDimensions.Desktop) {
+                StudioPaneView(
+                    state.paneContent(state.panes.single()),
+                    {},
+                    layout,
+                    Modifier.fillMaxSize(),
+                    slots = persistentMapOf(studioAppKey(0) to appHost, studioContextSlotKey(0) to summary),
+                )
+            }
+        }
+        val composer = onNodeWithTag("composer-0").fetchSemanticsNode().boundsInRoot
+        onNodeWithTag("pane-open-context-0").performClick()
+        waitForIdle()
+        assertTrue(placements.isNotEmpty())
+        assertTrue(
+            placements.all { (app, card) -> app.top >= card.bottom },
+            "The first opening must reserve the card band in the same layout: $placements",
+        )
+        val editor = onNode(hasSetTextAction()).requestFocus()
+        runOnIdle {
+            placements.clear()
+            summaryHeight = 240.dp
+        }
+        waitForIdle()
+        assertTrue(placements.isNotEmpty())
+        assertTrue(
+            placements.all { (app, card) -> app.top >= card.bottom },
+            "Growing content must move the app before the taller card is placed: $placements",
+        )
+        editor.assertIsFocused()
+        assertEquals(composer, onNodeWithTag("composer-0").fetchSemanticsNode().boundsInRoot)
+        assertEquals(1, mounts, "Changing the card band must retain the app host")
+    }
+
+    @Test
     fun `the same app host stays mounted when a new chat becomes a transcript`() = runSkikoComposeUiTest(
         size = Size(1200f, 900f),
     ) {
@@ -237,6 +303,7 @@ class StudioAppWorkspaceUiTest {
         private val isStart: () -> Boolean,
         private val onMount: () -> Unit = {},
         private val onDispose: () -> Unit = {},
+        private val onPlaced: (Rect) -> Unit = {},
     ) : StudioEmbed {
         @Composable
         override fun Content(modifier: Modifier) {
@@ -244,7 +311,11 @@ class StudioAppWorkspaceUiTest {
                 onMount()
                 onDispose { onDispose() }
             }
-            if (isStart()) Box(modifier.testTag("app-body")) { HbText("Full application") }
+            if (isStart()) {
+                Box(modifier.onPlaced { onPlaced(it.boundsInRoot()) }.testTag("app-body")) {
+                    HbText("Full application")
+                }
+            }
         }
     }
 

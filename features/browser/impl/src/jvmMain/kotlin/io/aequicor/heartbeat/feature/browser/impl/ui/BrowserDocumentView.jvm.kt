@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import io.aequicor.heartbeat.ds.components.LocalHbDialogDismissRequest
 import io.aequicor.heartbeat.ds.components.LocalHbDialogOverlayInsets
 import io.aequicor.heartbeat.ds.components.LocalHbDocumentFocusExit
+import io.aequicor.heartbeat.ds.components.LocalHbSurfaceDismissRequest
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserDocumentSurface
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserRuntimeUi
@@ -79,7 +80,8 @@ private fun RetainedDocumentPanel(
         density.fontScale,
         overlay,
     )
-    val dismiss = LocalHbDialogDismissRequest.current
+    val modalDismiss = LocalHbDialogDismissRequest.current
+    val dismiss = modalDismiss ?: LocalHbSurfaceDismissRequest.current
     val focusExit = LocalHbDocumentFocusExit.current
     val cornerRadius = if (overlay.width.value > 0 && overlay.height.value > 0) {
         HbTheme.shapes.large.topStart.toPx(Size.Zero, density).toDouble() / density.density
@@ -88,7 +90,7 @@ private fun RetainedDocumentPanel(
     }
     // SwingPanel clears the Compose backing under the entire native rectangle. Its masked corners
     // need the final opaque backdrop: a translucent scrim alone composites over the empty black hole.
-    val backdrop = if (dismiss != null) {
+    val backdrop = if (modalDismiss != null) {
         HbTheme.colors.scrim.compositeOver(HbTheme.surfaces.assistant)
     } else {
         HbTheme.surfaces.assistant
@@ -98,7 +100,7 @@ private fun RetainedDocumentPanel(
         // Prepare before mounting Swing, whose heavyweight background would otherwise hide this viewport's status.
         panel.createComponent()
         panel.updateTheme(theme)
-        attachment.updateDismissRequest(dismiss)
+        attachment.updateDismissRequest(dismiss, isModal = modalDismiss != null)
         attachment.updateFocusExitRequest(focusExit)
         attachment.updateCornerRadius(cornerRadius, cornerColor)
     }
