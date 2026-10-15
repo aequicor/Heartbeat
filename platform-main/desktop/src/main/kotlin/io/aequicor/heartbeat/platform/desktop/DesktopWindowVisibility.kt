@@ -26,7 +26,14 @@ internal fun rememberDesktopWindowVisibility(
     val visibility = remember(windowState) { DesktopWindowVisibility(windowState) { currentQuit() } }
     DisposableEffect(visibility, image) {
         visibility.installTray { open, quit -> installDesktopTray(image, open, quit) }
-        onDispose { visibility.close() }
+        val reopen = installDesktopReopenHandler(visibility::openWindow)
+        onDispose {
+            try {
+                reopen?.close()
+            } finally {
+                visibility.close()
+            }
+        }
     }
     DisposableEffect(visibility, isComputerUseActive) {
         if (isComputerUseActive) visibility.openWindow()

@@ -2,10 +2,9 @@ package io.aequicor.heartbeat.platform.desktop
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberUpdatedState
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.AppShutdownParticipant
 import io.aequicor.heartbeat.core.logging.Log
@@ -16,7 +15,6 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -38,24 +36,12 @@ internal fun rememberDesktopCloseHandler(
     exit: () -> Unit,
 ): DesktopQuitRequests {
     val scope = rememberCoroutineScope()
-    var isClosing by remember { mutableStateOf(false) }
-    val log = remember { Log.tag("DesktopShutdown") }
-    fun request(isRestart: Boolean) {
-        if (!isClosing) {
-            isClosing = true
-            scope.launch {
-                log.i { "Application quit requested restart=$isRestart" }
-                shutdownDesktop(
-                    participants,
-                    destroy,
-                    exit,
-                    stopScopes = stopScopes,
-                    processes = if (isRestart) null else DesktopChildProcesses(dispatchers),
-                )
-            }
-        }
+    val currentShutdown by rememberUpdatedState<suspend (DesktopProcessCleanup) -> Unit> { processes ->
+        shutdownDesktop(participants, destroy, exit, stopScopes = stopScopes, processes = processes)
     }
-    return DesktopQuitRequests(quit = { request(false) }, restart = { request(true) })
+    return remember(scope, dispatchers) {
+        DesktopQuitController(scope, DesktopChildProcesses(dispatchers)) { currentShutdown(it) }
+    }.requests
 }
 
 /**
@@ -94,8 +80,8 @@ internal class DesktopSystemQuit {
 /**
  * Captures child identities before native owners can orphan them, flushes native resources while the event loop
  * is alive, closes and awaits application scopes, destroys UI, then stops retained children before exiting.
- * Failures are collected without skipping later cleanup. Update restart omits [processes] because its installer
- * is intentionally detached from feature ownership and must survive until the old JVM exits.
+ * Failures are collected without skipping later cleanup. [DesktopQuitController] decides whether to stop children
+ * at the final stage, so an update restart requested during cleanup preserves its waiting installer.
  */
 internal suspend fun shutdownDesktop(
     participants: Set<AppShutdownParticipant>,

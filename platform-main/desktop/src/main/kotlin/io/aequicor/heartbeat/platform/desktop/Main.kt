@@ -17,7 +17,6 @@ import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.window.FrameWindowScope
-import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
@@ -79,9 +78,7 @@ private fun launchLoggedHeartbeat(isDevelopment: Boolean, classes: Result<Path?>
     val applicationIcons = runOnUiThread { loadDesktopIcons().also(::configureDockIcon) }
     val lifecycle = LifecycleRegistry()
     val graph = runOnUiThread { createHeartbeatGraph(isDevelopment) }
-    val root = runOnUiThread {
-        createAppRoot(DefaultComponentContext(lifecycle), graph).also { startAppWork(graph) }
-    }
+    val root = createDesktopRoot(lifecycle, graph)
     val dimensions = HbDimensions()
     application {
         val systemQuit = remember { DesktopSystemQuit() }
@@ -115,23 +112,29 @@ private fun launchLoggedHeartbeat(isDevelopment: Boolean, classes: Result<Path?>
         val areDiagramsAvailable by plantUml.availability.collectAsState(false)
         LifecycleController(lifecycle, windowState)
         var hasModal by remember { mutableStateOf(false) }
-        Window(
+        DesktopWindowHost(
             onCloseRequest = visibility::closeWindow,
-            visible = visibility.isVisible,
-            title = "Heartbeat",
+            isVisible = visibility.isVisible,
             icon = icon,
             state = windowState,
-            alwaysOnTop = computerUse.isActive,
+            isAlwaysOnTop = computerUse.isActive,
             onPreviewKeyEvent = { event -> !hasModal && openSettingsOnShortcut(event, root) },
+            nativePresentation = { window ->
+                RestoreDesktopWindowFocus(window, visibility)
+                DesktopComputerUsePresentation(window, windowState, computerUse, graph.capturePresentation)
+            },
         ) {
-            RestoreDesktopWindowFocus(window, visibility)
             HeartbeatWindowContent(windowState, applicationIcons, { hasModal = it }) {
                 App(root, diagramRenderer = diagrams.takeIf { areDiagramsAvailable })
             }
-            DesktopComputerUsePresentation(window, windowState, computerUse, graph.capturePresentation)
         }
         DesktopPermissionGuide(graph)
     }
+}
+
+/** Creates the root and starts application work once, while the desktop event loop is available. */
+private fun createDesktopRoot(lifecycle: LifecycleRegistry, graph: HeartbeatGraph): HeartbeatRoot = runOnUiThread {
+    createAppRoot(DefaultComponentContext(lifecycle), graph).also { startAppWork(graph) }
 }
 
 @Composable
