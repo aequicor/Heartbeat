@@ -45,6 +45,8 @@ kotlin {
             implementation(libs.jcef.gluegen)
         }
         jvmTest.dependencies {
+            implementation(libs.ktor.client.mock)
+            implementation(libs.ktor.client.okhttp)
             implementation(libs.kotlinx.coroutinesSwing)
             heartbeatJcef.nativeBundle?.let { runtimeOnly(it) }
             implementation(libs.compose.uiTest)

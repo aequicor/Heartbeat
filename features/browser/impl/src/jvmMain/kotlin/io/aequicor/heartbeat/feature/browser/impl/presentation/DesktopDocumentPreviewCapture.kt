@@ -46,7 +46,7 @@ internal suspend fun captureDocumentPreview(
     val evaluated = runtime.previewCommand(
         "Runtime.evaluate",
         buildJsonObject {
-            put("expression", documentPreviewScript)
+            put("expression", documentPreviewScript(request.resourcePolicy))
             put("contextId", world)
             put("awaitPromise", true)
             put("returnByValue", true)

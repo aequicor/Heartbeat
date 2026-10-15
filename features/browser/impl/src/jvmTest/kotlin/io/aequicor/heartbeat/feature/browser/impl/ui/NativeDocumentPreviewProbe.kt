@@ -6,8 +6,10 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewFailure
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewIssueKind
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewResult
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentResourcePolicy
 import io.aequicor.heartbeat.feature.browser.impl.data.ProfileBrowserDocuments
 import io.aequicor.heartbeat.feature.browser.impl.di.BrowserDocumentPreviewBindings
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserDocumentAssets
 import io.aequicor.heartbeat.feature.browser.impl.domain.DesktopBrowserResources
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserTestScope
 import io.aequicor.heartbeat.feature.browser.impl.presentation.DesktopBrowserDocumentPreviews
@@ -142,10 +144,11 @@ private fun verifyPreviewCancellation(dispatchers: DispatcherProvider, scope: Co
     }
 }
 
-private class NativePreviewFixture(
+internal class NativePreviewFixture(
     resources: DesktopBrowserResources,
     dispatchers: DispatcherProvider,
     scope: CoroutineScope,
+    assets: BrowserDocumentAssets = BrowserDocumentAssets.None,
 ) {
     val documents = ProfileBrowserDocuments()
     private val owner = BrowserTestScope(
@@ -155,7 +158,17 @@ private class NativePreviewFixture(
         override fun register(panel: DesktopDocumentPanel) = Unit
         override fun closed(panel: DesktopDocumentPanel) = Unit
     }
-    private val panels = nativeEdt { DesktopDocumentPanels(resources, dispatchers, owner, owner, views, documents) }
+    private val panels = nativeEdt {
+        DesktopDocumentPanels(
+            resources,
+            dispatchers,
+            owner,
+            owner,
+            views,
+            documents,
+            assets,
+        )
+    }
     val previews = DesktopBrowserDocumentPreviews(
         documents,
         documents,
@@ -170,6 +183,7 @@ private class NativePreviewFixture(
         width: Int,
         isDark: Boolean = false,
         fontScale: Float = 1f,
+        resourcePolicy: BrowserDocumentResourcePolicy = BrowserDocumentResourcePolicy.Isolated,
     ): BrowserDocumentPreviewResult.Rendered = runBlocking {
         withTimeout(30_000) {
             assertIs<BrowserDocumentPreviewResult.Rendered>(
@@ -181,6 +195,7 @@ private class NativePreviewFixture(
                         480,
                         isDark,
                         fontScale,
+                        resourcePolicy,
                     ),
                 ),
             )

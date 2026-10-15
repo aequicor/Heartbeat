@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserDocumentAssets
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserDocumentNatives
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserDocumentRegistry
 import io.aequicor.heartbeat.feature.browser.impl.domain.DesktopBrowserResources
@@ -49,6 +50,7 @@ internal class DesktopDocumentPanels(
     @ForScope(AppScope::class) private val app: ScopeHandle,
     private val browsers: DesktopDocumentViews,
     private val registry: BrowserDocumentRegistry,
+    private val assets: BrowserDocumentAssets = BrowserDocumentAssets.None,
 ) : BrowserDocumentNatives {
     private val panels = mutableMapOf<String, DesktopDocumentPanel>()
 
@@ -69,7 +71,7 @@ internal class DesktopDocumentPanels(
     }
 
     private fun create(document: OpenBrowserDocument): DesktopDocumentPanel =
-        DesktopDocumentPanel(document, resources, dispatchers, scope.coroutineScope) { released ->
+        DesktopDocumentPanel(document, resources, dispatchers, scope.coroutineScope, assets) { released ->
             panels.remove(document.id, released)
             // The app scope outlives the profile, so the barrier holds until the native close completes.
             app.coroutineScope.launch {
@@ -92,6 +94,7 @@ internal class DesktopDocumentPanel(
     private val resources: DesktopBrowserResources,
     private val dispatchers: DispatcherProvider,
     parent: CoroutineScope,
+    private val assets: BrowserDocumentAssets = BrowserDocumentAssets.None,
     private val onReleased: (DesktopDocumentPanel) -> Unit,
 ) {
     private val log = Log.tag("DesktopDocumentPanel")
@@ -244,6 +247,7 @@ internal class DesktopDocumentPanel(
                     { isReleased || attempt != generation },
                     { fail(attempt) },
                     presentation,
+                    assets,
                 )
                 engines += runtime
                 if (isReleased || attempt != generation) {

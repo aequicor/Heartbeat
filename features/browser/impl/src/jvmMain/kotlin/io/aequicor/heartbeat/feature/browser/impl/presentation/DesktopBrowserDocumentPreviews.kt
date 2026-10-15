@@ -106,7 +106,16 @@ private class PreviewLease(private val dispatchers: DispatcherProvider) {
         panels: DesktopDocumentPanels,
         themes: DesktopDocumentPreviewThemes,
     ) {
-        val opened = checkNotNull(documents.open(BrowserDocument(request.html, "Document preview", request.data)))
+        val opened = checkNotNull(
+            documents.open(
+                BrowserDocument(
+                    request.html,
+                    "Document preview",
+                    request.data,
+                    resourcePolicy = request.resourcePolicy,
+                ),
+            ),
+        )
         handle = opened
         val view = checkNotNull(panels.retain(registry.documents.value.getValue(opened.route.id)))
         panel = view

@@ -4,7 +4,9 @@ import kotlinx.serialization.json.JsonElement
 
 /**
  * One-shot visual checks of supplied HTML in the isolated document renderer. A preview has no owner bridge,
- * network, saved browser context or library registration. It never captures a desktop window or another page.
+ * direct network connections, saved browser context or library registration. Its trusted
+ * [BrowserDocumentPreviewRequest] may permit bounded external assets, using the same resource policy as visible
+ * documents. It never captures a desktop window or another page.
  * Desktop only; unsupported platforms return [BrowserDocumentPreviewResult.Unavailable].
  */
 public interface BrowserDocumentPreviews {
@@ -15,7 +17,8 @@ public interface BrowserDocumentPreviews {
 /**
  * An independent page with sample [data], measured in CSS pixels at device scale one. [isDark] and [fontScale]
  * select reproducible host design-system tokens. HTML and data use [BrowserDocumentLimits]; viewport and output
- * use [BrowserDocumentPreviewLimits]. There is deliberately no owner, callback, URL or script-evaluation option.
+ * use [BrowserDocumentPreviewLimits]. [resourcePolicy] is chosen by the trusted opener, not by page source.
+ * There is deliberately no owner, callback, URL or script-evaluation option.
  */
 public data class BrowserDocumentPreviewRequest(
     val html: String,
@@ -24,6 +27,7 @@ public data class BrowserDocumentPreviewRequest(
     val height: Int = 640,
     val isDark: Boolean = false,
     val fontScale: Float = 1f,
+    val resourcePolicy: BrowserDocumentResourcePolicy = BrowserDocumentResourcePolicy.Isolated,
 ) {
     override fun toString(): String = "BrowserDocumentPreviewRequest(${width}x$height,dark=$isDark,scale=$fontScale)"
 }

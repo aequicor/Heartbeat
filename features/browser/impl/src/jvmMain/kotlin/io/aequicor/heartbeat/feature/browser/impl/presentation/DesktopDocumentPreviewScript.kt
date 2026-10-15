@@ -1,10 +1,18 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentPreviewLimits
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentResourcePolicy
 
 /** Fixed code in a fresh isolated world: authored scripts cannot replace its JS builtins or read its diagnostics. */
-internal val documentPreviewScript: String = """
+internal fun documentPreviewScript(policy: BrowserDocumentResourcePolicy): String = DOCUMENT_PREVIEW_SCRIPT.replace(
+    "EXTERNAL_ASSETS",
+    (policy == BrowserDocumentResourcePolicy.ExternalAssets).toString(),
+)
+
+private val DOCUMENT_PREVIEW_SCRIPT: String = """
     (async()=>{
+      const externalAssets=EXTERNAL_ASSETS;
+      const external=url=>externalAssets&&/^https?:\/\//i.test(url);
       await document.fonts.ready;
       await new Promise(resolve=>setTimeout(resolve,50));
       const cap=${BrowserDocumentPreviewLimits.ISSUES}, sampleCap=${BrowserDocumentPreviewLimits.SAMPLES};
@@ -53,14 +61,16 @@ internal val documentPreviewScript: String = """
         const sheet=tag==='style'?el.textContent:'',inline=el.getAttribute('style')||'';
         if(sheet.length>8192||inline.length>4096)truncated=true;
         const css=sheet.slice(0,8192)+';'+inline.slice(0,4096);
-        let remoteCss=/@import\b/i.test(css);
+        let remoteCss=!externalAssets&&/@import\b/i.test(css);
         for(const match of css.matchAll(/url\(\s*(['"]?)(.*?)\1\s*\)/gi)){
-          if(!/^(data:|blob:|#)/i.test(match[2].trim())){remoteCss=true;break;}
+          if(!/^(data:|blob:|#)/i.test(match[2].trim())&&!external(match[2].trim())){remoteCss=true;break;}
         }
         if(remoteCss)add('ExternalResource',el);
         const src=el.getAttribute('src'),href=el.getAttribute('href');
-        if((tag==='script'&&src)||(tag==='link'&&href&&el.rel==='stylesheet')||
-          (['img','video','audio','source','iframe'].includes(tag)&&src&&!/^(data:|blob:)/i.test(src)))
+        if((tag==='script'&&src&&!external(src))||
+          (tag==='link'&&href&&el.rel==='stylesheet'&&!external(href))||
+          (['img','video','audio','source'].includes(tag)&&src&&!/^(data:|blob:)/i.test(src)&&!external(src))||
+          (tag==='iframe'&&src))
           add('ExternalResource',el);
       }
       return {metrics:{viewportWidth:innerWidth,viewportHeight:innerHeight,contentWidth:number(width),
