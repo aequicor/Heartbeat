@@ -98,7 +98,8 @@ class NativeIllegalName(config: Config) :
         startsWith(prefix) && (length == prefix.length || this[prefix.length].isUpperCase())
 
     private companion object {
-        val SOURCE_SET = Regex("(?:^|/)src/([^/]+)/kotlin/")
+        // Zero-width boundary: consecutive `src/<x>/kotlin/src/<y>/kotlin/` segments all match.
+        val SOURCE_SET = Regex("(?<![^/])src/([^/]+)/kotlin/")
 
         /** `FirNativeIdentifierChecker.invalidChars` (Kotlin 2.4.20). */
         const val ILLEGAL_CHARACTERS = ".;,()[]{}/<>:\\$&~*?#|§%@"

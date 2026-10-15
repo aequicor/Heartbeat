@@ -122,6 +122,11 @@ class NativeIllegalNameTest {
         Files.writeString(file, "fun `a,b`() = Unit")
 
         assertEquals(0, rule.lint(compileForTest(file)).size)
+
+        val adjacent = root.resolve("src/commonMain/kotlin/src/jvmTest/kotlin/Example.kt")
+        Files.createDirectories(adjacent.parent)
+        Files.writeString(adjacent, "fun `a,b`() = Unit")
+        assertEquals(0, rule.lint(compileForTest(adjacent)).size)
     }
 
     @Test
