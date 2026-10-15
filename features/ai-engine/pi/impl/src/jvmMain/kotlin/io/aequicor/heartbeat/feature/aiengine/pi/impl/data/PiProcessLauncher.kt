@@ -177,7 +177,7 @@ internal class PiProcessLauncher(
         val tools = plan.names.joinToString(",")
         val extensions = piExtensions(agentDir, areSearchToolsEnabled, hosted != null)
         // The user opened the workspace folder explicitly, so its instructions and skills may load.
-        val command = piCommand(executable, sessionDir, extensions, tools, isProject = workspace != null)
+        val command = piCommand(executable, sessionDir, extensions, tools, workspace != null, plan.emptySessionId)
         val builder = ProcessBuilder(command).directory(workingDir.toFile())
         val environment = builder.environment()
         applyPiEnvironment(environment, startup)
@@ -336,6 +336,7 @@ internal fun piCommand(
     extensions: List<Path>,
     tools: String,
     isProject: Boolean = false,
+    emptySessionId: String? = null,
 ): List<String> = listOf(
     executable.toString(),
     "--mode",
@@ -349,7 +350,7 @@ internal fun piCommand(
     } else {
         listOf("--no-approve", "--no-skills", "--no-context-files")
     } +
-    listOf(
+    emptySessionId?.let { listOf("--session-id", it) }.orEmpty() + listOf(
         "--no-prompt-templates",
         "--no-themes",
         "--tools",

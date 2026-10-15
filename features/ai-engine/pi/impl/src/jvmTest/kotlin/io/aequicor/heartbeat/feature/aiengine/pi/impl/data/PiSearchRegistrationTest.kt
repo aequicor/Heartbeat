@@ -81,6 +81,20 @@ class PiSearchRegistrationTest {
     }
 
     @Test
+    fun `empty session restart selects its original id without enabling tools`() {
+        val arguments = piCommand(
+            Path.of("pi"),
+            Path.of("sessions"),
+            piExtensions(Path.of("runtime"), searchTools = false),
+            "",
+            emptySessionId = "review-session",
+        )
+        assertEquals("review-session", arguments[arguments.indexOf("--session-id") + 1])
+        assertEquals("", arguments[arguments.indexOf("--tools") + 1])
+        assertTrue("--no-context-files" in arguments)
+    }
+
+    @Test
     fun `the command line leaves model selection to the session over RPC`() {
         val arguments = piCommand(
             Path.of("pi"),

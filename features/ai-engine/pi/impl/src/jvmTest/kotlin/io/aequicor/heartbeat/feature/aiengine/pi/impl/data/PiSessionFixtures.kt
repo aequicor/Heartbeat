@@ -109,6 +109,7 @@ internal suspend fun fixture(
         { plan, event, failed ->
             FakeConnection().also {
                 it.plan = plan
+                plan.emptySessionId?.let { id -> it.sessionId = id }
                 it.event = event
                 it.failed = failed
                 configure(connections.size, it)

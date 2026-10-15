@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
@@ -42,6 +43,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionDiscoveryReport
@@ -104,6 +107,105 @@ class FacadeAgentSafetyReviewerTest {
         assertFalse(review.reason.contains("private source"))
         f.failsOnCreate = false
         assertTrue(f.reviewer.review(f.target, "Bounded local changes only", "{}").isSafe)
+    }
+
+    @Test
+    fun `failed submission reconciles an idle session and releases the reviewer slot`() = runTest {
+        val f = ReviewFixture(backgroundScope).apply { failsOnSend = true }
+        val review = f.reviewer.review(f.target, "Bounded local changes only", "{}")
+        assertFalse(review.isSafe)
+        assertFalse(review.reason.contains("private source"))
+        assertEquals(1, f.reconciles)
+        assertEquals(0, f.cancels)
+        assertTrue(f.closed)
+        assertTrue(f.archived)
+        assertNull(f.policy.policy(ToolPolicyScope(session = f.ref)))
+        f.failsOnSend = false
+        assertTrue(f.reviewer.review(f.target, "Bounded local changes only", "second").isSafe)
+        assertEquals(2, f.creations.size)
+    }
+
+    @Test
+    fun `reconciliation revealing an active review cancels it before releasing the slot`() = runTest {
+        val f = ReviewFixture(backgroundScope).apply {
+            failsOnSend = true
+            remainsActiveAfterReconcile = true
+        }
+        assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "{}").isSafe)
+        assertEquals(1, f.reconciles)
+        assertEquals(1, f.cancels)
+        assertTrue(f.closed)
+        assertTrue(f.archived)
+        assertNull(f.policy.policy(ToolPolicyScope(session = f.ref)))
+        f.failsOnSend = false
+        assertTrue(f.reviewer.review(f.target, "Bounded local changes only", "second").isSafe)
+    }
+
+    @Test
+    fun `failed reconciliation retains an unresolved review and its restrictions`() = runTest {
+        val f = ReviewFixture(backgroundScope).apply {
+            failsOnSend = true
+            failsOnReconcile = true
+        }
+        assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "{}").isSafe)
+        assertEquals(1, f.reconciles)
+        assertEquals(0, f.cancels)
+        assertFalse(f.closed)
+        assertFalse(f.archived)
+        assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "second").isSafe)
+        assertEquals(1, f.creations.size)
+        assertEquals(ToolSwitch.Off, f.policy.policy(ToolPolicyScope(session = f.ref))?.native?.get("shell"))
+    }
+
+    @Test
+    fun `terminal unavailable session releases the slot without unnecessary recovery`() = runTest {
+        val f = ReviewFixture(backgroundScope).apply { finishesUnavailable = true }
+        assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "{}").isSafe)
+        assertEquals(0, f.reconciles)
+        assertEquals(0, f.cancels)
+        assertTrue(f.closed)
+        assertTrue(f.archived)
+        assertNull(f.policy.policy(ToolPolicyScope(session = f.ref)))
+        f.finishesUnavailable = false
+        assertTrue(f.reviewer.review(f.target, "Bounded local changes only", "second").isSafe)
+    }
+
+    @Test
+    fun `late unavailable outcome releases the retained review only for its own turn`() = runTest {
+        val f = ReviewFixture(backgroundScope).apply {
+            failsOnSend = true
+            failsOnReconcile = true
+        }
+        assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "{}").isSafe)
+        f.finish(TurnId("unrelated"), isUnavailable = true)
+        runCurrent()
+        assertFalse(f.closed)
+        assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "second").isSafe)
+        assertEquals(1, f.creations.size)
+        assertEquals(ToolSwitch.Off, f.policy.policy(ToolPolicyScope(session = f.ref))?.native?.get("shell"))
+        f.finish(isUnavailable = true)
+        runCurrent()
+        assertTrue(f.closed)
+        assertTrue(f.archived)
+        assertNull(f.policy.policy(ToolPolicyScope(session = f.ref)))
+        f.failsOnSend = false
+        assertTrue(f.reviewer.review(f.target, "Bounded local changes only", "third").isSafe)
+        assertEquals(2, f.creations.size)
+    }
+
+    @Test
+    fun `detached handle does not prove an unresolved review has stopped`() = runTest {
+        val f = ReviewFixture(backgroundScope).apply {
+            failsOnSend = true
+            failsOnReconcile = true
+        }
+        assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "{}").isSafe)
+        f.detach()
+        runCurrent()
+        assertFalse(f.archived)
+        assertFalse(f.reviewer.review(f.target, "Bounded local changes only", "second").isSafe)
+        assertEquals(1, f.creations.size)
+        assertEquals(ToolSwitch.Off, f.policy.policy(ToolPolicyScope(session = f.ref))?.native?.get("shell"))
     }
 
     @Test
@@ -203,11 +305,16 @@ private class ReviewFixture(scope: CoroutineScope) {
     var closed = false
     var archived = false
     var cancels = 0
+    var reconciles = 0
     var outcome: TurnOutcome? = TurnOutcome.Completed
     var ignoresCancel = false
     var hangsOnClose = false
     var asks = false
     var failsOnCreate = false
+    var failsOnSend = false
+    var failsOnReconcile = false
+    var remainsActiveAfterReconcile = false
+    var finishesUnavailable = false
     val creations = mutableListOf<CreateSessionRequest>()
     val prompts = mutableListOf<PromptRequest>()
     private val state = MutableStateFlow<ActiveSessionState>(ActiveSessionState.Ready())
@@ -218,6 +325,10 @@ private class ReviewFixture(scope: CoroutineScope) {
             sawOffBeforeSend = policy.policy(ToolPolicyScope(session = ref))?.native?.get("shell") == ToolSwitch.Off
             assertEquals(TrustLevel.Ask, request.trust)
             val current = Turn(turn, request.id, target)
+            if (failsOnSend) {
+                state.value = ActiveSessionState.Unavailable(failure, activeTurn = current)
+                error("private source and provider credentials")
+            }
             state.value = when {
                 asks -> ActiveSessionState.AwaitingUserAction(
                     current,
@@ -231,6 +342,9 @@ private class ReviewFixture(scope: CoroutineScope) {
                     ),
                 )
 
+                outcome != null && finishesUnavailable ->
+                    ActiveSessionState.Unavailable(failure, lastTurn = current.copy(outcome = outcome))
+
                 outcome != null -> ActiveSessionState.Ready(current.copy(outcome = outcome))
 
                 else -> ActiveSessionState.Running(current)
@@ -241,7 +355,20 @@ private class ReviewFixture(scope: CoroutineScope) {
     private val cancel = object : CancelsTurns {
         override suspend fun cancel(turn: TurnId) {
             cancels++
+            check(state.value is ActiveSessionState.Running || state.value is ActiveSessionState.AwaitingUserAction)
             if (!ignoresCancel) state.value = ActiveSessionState.Ready(Turn(turn, null, target, TurnOutcome.Cancelled))
+        }
+    }
+    private val reconciler = object : ReconcilesSession {
+        override suspend fun synchronize() {
+            reconciles++
+            check(!failsOnReconcile) { "private source and provider credentials" }
+            val current = checkNotNull((state.value as ActiveSessionState.Unavailable).activeTurn)
+            state.value = if (remainsActiveAfterReconcile) {
+                ActiveSessionState.Running(current)
+            } else {
+                ActiveSessionState.Ready(current.copy(outcome = TurnOutcome.Unknown))
+            }
         }
     }
     private val history = object : SessionHistory {
@@ -268,6 +395,7 @@ private class ReviewFixture(scope: CoroutineScope) {
             mapOf(
                 SendsPrompts to sends,
                 CancelsTurns to cancel,
+                ReconcilesSession to reconciler,
                 SessionHistory to history,
             ),
         )
@@ -329,9 +457,20 @@ private class ReviewFixture(scope: CoroutineScope) {
     }
     val reviewer = FacadeAgentSafetyReviewer(lazyOf(facade), policy, scope)
 
-    fun finish(turnId: TurnId = turn) {
-        state.value = ActiveSessionState.Ready(Turn(turnId, null, target, TurnOutcome.Cancelled))
+    fun finish(turnId: TurnId = turn, isUnavailable: Boolean = false) {
+        val completed = Turn(turnId, null, target, TurnOutcome.Cancelled)
+        state.value = if (isUnavailable) {
+            ActiveSessionState.Unavailable(failure, lastTurn = completed)
+        } else {
+            ActiveSessionState.Ready(completed)
+        }
     }
+
+    fun detach() {
+        state.value = ActiveSessionState.Closed
+    }
+
+    private val failure = EngineFailure.Request(RequestFailureReason.OutcomeUnknown)
 }
 
 private fun reviewFeatures(entries: Map<EngineFeatureKey<*>, EngineFeature>) = object : EngineFeatures {

@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HookedToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
@@ -127,15 +128,11 @@ internal class FacadeAgentSafetyReviewer(
             is ActiveSessionState.Running -> state.turn
             is ActiveSessionState.AwaitingUserAction -> state.turn
             is ActiveSessionState.Interrupting -> state.turn
-            is ActiveSessionState.Unavailable -> state.activeTurn
-            else -> null
+            is ActiveSessionState.Unavailable -> state.activeTurn ?: state.lastTurn
+            is ActiveSessionState.Ready -> state.lastTurn
+            is ActiveSessionState.Closing, ActiveSessionState.Closed -> null
         }?.id
-        val isSettled = cleanup("stop") {
-            if (turn != null) {
-                (session.features.resolve(CancelsTurns) as? FeatureAccess.Available)?.feature?.cancel(turn)
-            }
-            awaitTerminal(session, turn)
-        }
+        val isSettled = cleanup("stop") { stop(session, turn) }
         if (isSettled && finish(session)) {
             slot.unlock()
             return
@@ -153,8 +150,28 @@ internal class FacadeAgentSafetyReviewer(
         }
     }
 
+    /** A failed submission may not have reached the runtime; Unavailable must be reconciled before cancellation. */
+    private suspend fun stop(session: ActiveSession, turn: TurnId?) {
+        if (session.state.value is ActiveSessionState.Unavailable && !session.state.value.hasFinished(turn)) {
+            (session.features.resolve(ReconcilesSession) as? FeatureAccess.Available)?.feature?.synchronize()
+        }
+        val cancellable = when (val state = session.state.value) {
+            is ActiveSessionState.Running -> state.turn.id
+
+            is ActiveSessionState.AwaitingUserAction -> state.turn.id
+
+            is ActiveSessionState.Ready, is ActiveSessionState.Submitting, is ActiveSessionState.Interrupting,
+            is ActiveSessionState.Unavailable, is ActiveSessionState.Closing, ActiveSessionState.Closed,
+            -> null
+        }
+        if (turn != null && cancellable == turn) {
+            (session.features.resolve(CancelsTurns) as? FeatureAccess.Available)?.feature?.cancel(turn)
+        }
+        awaitTerminal(session, turn)
+    }
+
     private suspend fun awaitTerminal(session: ActiveSession, turn: TurnId?) {
-        session.state.first { it is ActiveSessionState.Ready && (turn == null || it.lastTurn?.id == turn) }
+        session.state.first { it.hasFinished(turn) }
     }
 
     private suspend fun finish(session: ActiveSession): Boolean {
@@ -181,6 +198,17 @@ internal class FacadeAgentSafetyReviewer(
         log.w(IllegalStateException(e::class.simpleName.orEmpty())) { "Safety reviewer $phase failed" }
         false
     }
+}
+
+/** Unavailable retains correlated completion; Closed only proves handle detachment, never native termination. */
+private fun ActiveSessionState.hasFinished(turn: TurnId?): Boolean = when (this) {
+    is ActiveSessionState.Ready -> turn == null || lastTurn?.id == turn
+
+    is ActiveSessionState.Unavailable -> activeTurn == null && lastTurn != null && lastTurn?.id == turn
+
+    is ActiveSessionState.Submitting, is ActiveSessionState.Running, is ActiveSessionState.AwaitingUserAction,
+    is ActiveSessionState.Interrupting, is ActiveSessionState.Closing, ActiveSessionState.Closed,
+    -> false
 }
 
 /** Blocks tool calls reaching the facade during review, independent of profile feature switches. */

@@ -101,13 +101,11 @@ internal class PiSession(
             processLifetime.connection = value
         }
     private var connector: PiConnector? = null
-    private var persistedTranscript: suspend (String) -> String? = { null }
     private var nativeRef: SessionRef? = null
     private val usage = PiSessionUsage(environment, handle)
     val contextRevision: PiContextRevision get() = processLifetime.contextRevision
 
-    // Native transcript path, used only to reattach a restarted process; never logged.
-    private var sessionFile: String? = null
+    private val continuation = PiSessionContinuation()
     private var isHandleClosed = false
     private var isReleased = false
 
@@ -226,7 +224,6 @@ internal class PiSession(
         var isStarted = false
         try {
             connector = factory
-            this@PiSession.persistedTranscript = persistedTranscript
             nativeRef = transcript?.ref
             if (transcript != null && turnJournal.restoreForOpening() != restored) {
                 piFailure(EngineFailure.Session(SessionFailureReason.Changed))
@@ -246,7 +243,7 @@ internal class PiSession(
             }
             stored?.let { promptResources.restore(ref, it) }
             stored?.let { journal.restore(it, answers.restore()) }
-            sessionFile = snapshot.string("sessionFile")
+            continuation.start(snapshot, transcript == null && restored == null, persistedTranscript)
             sessionConfiguration.start(snapshot)
             isStarted = true
         } finally {
@@ -450,29 +447,30 @@ internal class PiSession(
         released(this)
     }
 
-    private suspend fun open(factory: PiConnector): PiConnection = processLifetime.open(factory) {
-        val plan = toolPlans.launch()
-        ensureOpen()
-        if (nativeRef != null) turnJournal.restoreForOpening()
-        ensureOpen()
-        plan
-    }
+    private suspend fun open(factory: PiConnector, emptySessionId: String? = null): PiConnection =
+        processLifetime.open(factory) {
+            val plan = toolPlans.launch().copy(emptySessionId = emptySessionId)
+            ensureOpen()
+            if (nativeRef != null) turnJournal.restoreForOpening()
+            ensureOpen()
+            plan
+        }
 
-    /** Refresh frozen declarations between turns, under the send mutex, on the same saved transcript. */
+    /** Refresh declarations under the send mutex, preserving history or the id of a never-submitted session. */
     private suspend fun refreshTools() {
         val process = connection?.takeIf { it.isOpen } ?: return
-        // get_state may advertise an allocated path before Pi writes its first assistant message.
-        // Only a transcript found in profile storage is safe to reattach after closing this process.
-        val file = toolPlans.refreshedTranscript(processLifetime.launchedTools, processLifetime.launchedInstructions) {
-            nativeRef?.nativeId?.let { persistedTranscript(it) }
-        } ?: return
-        sessionFile = file
+        val isRefreshRequired = continuation.refresh(
+            toolPlans,
+            processLifetime.launchedTools,
+            processLifetime.launchedInstructions,
+        )
+        if (!isRefreshRequired) return
         log.i { "Restarting Pi between turns to update tool declarations" }
         process.close()
         connected(isRecovery = false)
     }
 
-    /** Returns the live connection, restarting Pi on the same native transcript after process loss. */
+    /** Restarts Pi with the same native identity and, after any submission, its existing transcript. */
     private suspend fun connected(isRecovery: Boolean = true): PiConnection {
         connection?.takeIf { it.isOpen }?.let { return it }
         val previous = connection
@@ -485,13 +483,13 @@ internal class PiSession(
             usage.clear()
             // Approvals belonged to the lost process; its extension can no longer receive an answer.
             sessionPermissions.clear()
-            val file = sessionFile ?: piFailure(EngineFailure.Session(SessionFailureReason.NotResumable))
+            val file = continuation.file()
             val factory = connector ?: piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable))
             if (isRecovery) log.i { "Restarting Pi process for session recovery" }
             val (fresh, snapshot) = sessionConfiguration.reconnect(
                 file,
                 nativeRef?.nativeId,
-                open = { open(factory) },
+                open = { open(factory, emptySessionId = nativeRef?.nativeId?.takeIf { file == null }) },
                 ensureOpen = {
                     ensureOpen()
                     turnJournal.restoreForOpening()
@@ -499,6 +497,7 @@ internal class PiSession(
                 discarded = processLifetime::discard,
             )
             connection = fresh
+            continuation.capture(snapshot)
             val model = snapshot["model"] as? JsonObject
             usage.model(model, fresh.contextCapacity(model))
             fresh
@@ -571,6 +570,7 @@ internal class PiSession(
         promptResources.submit(origin, sessionConfiguration, effect.request) {
             validate()
             ensureOpen()
+            continuation.submitted()
             entry.nativeMayStart(origin)
         }
         if (entry.isStopRequested) return
