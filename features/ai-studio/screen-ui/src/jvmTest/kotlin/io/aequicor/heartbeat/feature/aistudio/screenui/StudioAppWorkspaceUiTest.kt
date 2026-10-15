@@ -133,7 +133,7 @@ class StudioAppWorkspaceUiTest {
             HbTheme(darkTheme = dark, dimensions = HbDimensions.Desktop) {
                 val spacing = HbTheme.spacing
                 val density = LocalDensity.current
-                SideEffect { gutter = with(density) { (if (compact) spacing.m else spacing.l).toPx() } }
+                SideEffect { gutter = with(density) { (if (compact) spacing.m else spacing.xl).toPx() } }
                 StudioPaneView(
                     state.paneContent(state.panes.single()),
                     {},
@@ -149,15 +149,51 @@ class StudioAppWorkspaceUiTest {
         val pane = onNodeWithTag("pane-0").fetchSemanticsNode().boundsInRoot
         val body = onNodeWithTag("app-body").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val header = onNodeWithTag("pane-header-0").fetchSemanticsNode().boundsInRoot
-        val boundary = if (compact) {
-            pane.right
-        } else {
-            onNodeWithTag("pane-context-panel-0").fetchSemanticsNode().boundsInRoot.left
-        }
+        onNodeWithTag("pane-open-context-0").assertIsDisplayed()
+        onNodeWithTag("context-body").assertDoesNotExist()
         assertEquals(gutter, body.left - pane.left, 1f)
-        assertEquals(gutter, boundary - body.right, 1f)
+        assertEquals(gutter, pane.right - body.right, 1f)
         assertEquals(header.bottom, body.top, 1f, "The gutter must not reintroduce a header gap")
     }
+
+    @Test
+    fun `an open start summary reserves only its height and keeps the app mounted and composer unchanged`() =
+        runSkikoComposeUiTest(size = Size(2000f, 900f)) {
+            val state = initial.copy(
+                contextPanels = persistentMapOf(0 to StudioContextPanelUi(null, null, persistentSetOf("gym"))),
+            )
+            var mounts = 0
+            val appHost = App(isStart = { true }, onMount = { mounts++ })
+            setContent {
+                HbTheme(darkTheme = false, dimensions = HbDimensions.Desktop) {
+                    StudioPaneView(
+                        state.paneContent(state.panes.single()),
+                        {},
+                        layout,
+                        Modifier.fillMaxSize(),
+                        slots = persistentMapOf(
+                            studioAppKey(0) to appHost,
+                            studioContextSlotKey(0) to Label("context-body"),
+                        ),
+                    )
+                }
+            }
+            val originalApp = onNodeWithTag("app-body").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            val composer = onNodeWithTag("composer-0").fetchSemanticsNode().boundsInRoot
+            onNodeWithTag("context-body").assertDoesNotExist()
+            onNodeWithTag("pane-open-context-0").performClick()
+            val panel = onNodeWithTag("pane-context-panel-0").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            val openedApp = onNodeWithTag("app-body").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            assertTrue(openedApp.top >= panel.bottom, "A native start document must not overlap the summary")
+            assertEquals(originalApp.width, openedApp.width, "The start document keeps the full available width")
+            assertEquals(composer, onNodeWithTag("composer-0").fetchSemanticsNode().boundsInRoot)
+            assertEquals(1, mounts)
+            onNodeWithTag("pane-open-context-0").performClick()
+            onNodeWithTag("context-body").assertDoesNotExist()
+            assertEquals(originalApp, onNodeWithTag("app-body").fetchSemanticsNode().boundsInRoot)
+            assertEquals(composer, onNodeWithTag("composer-0").fetchSemanticsNode().boundsInRoot)
+            assertEquals(1, mounts, "Opening and closing the summary must preserve the app host")
+        }
 
     @Test
     fun `the same app host stays mounted when a new chat becomes a transcript`() = runSkikoComposeUiTest(

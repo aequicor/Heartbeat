@@ -96,7 +96,7 @@ internal class PlaceModel(
     /** Whether this place is the panel of a dock rather than a slot. */
     val isPanel: Boolean = place.isPanel
 
-    /** The compact context card is available independently of whether its responsive host is currently drawn. */
+    /** The context slot is available independently of whether its floating summary is currently shown. */
     val isContext: Boolean = (target as? PlaceTarget.Slot)?.slot == UiSlot.Context
 
     /** Stores of the drawn surfaces and the modal one, by [PlaceSurfaceUi.key]. */
@@ -121,7 +121,7 @@ internal class PlaceModel(
     }
 
     /**
-     * Publish only availability while the narrow host is closed. Surface stores and owner data sources still start
+     * Publish only availability while the floating summary is collapsed. Surface stores and owner data sources start
      * on UI subscription. This avoids a cycle where the host waits for content before mounting its resolving slot.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -183,7 +183,7 @@ internal class PlaceModel(
             try {
                 shown.collect { show(it) }
             } finally {
-                // A compact context dialog can disappear while its route stays retained. Its hidden web pages
+                // A floating context summary can disappear while its route stays retained. Its hidden web pages
                 // must lose their bridges and stop, rather than outlive the host context until the next opening.
                 if (isContext) {
                     active.value = ActiveOwners()

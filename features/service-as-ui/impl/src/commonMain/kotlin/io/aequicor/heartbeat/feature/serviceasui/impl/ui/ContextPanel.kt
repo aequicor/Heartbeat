@@ -14,7 +14,6 @@ import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbMenuButton
 import io.aequicor.heartbeat.ds.components.HbMenuItem
-import io.aequicor.heartbeat.ds.components.hbSurface
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
@@ -30,7 +29,7 @@ import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.stringResource
 
 /**
- * One content-sized context card. Multiple active owners share a selector instead of stacking full applications.
+ * Content of the host's floating summary. Multiple active owners share a selector instead of stacking applications.
  * The selected body alone is mounted: native content has one scroll; a web body owns its bounded viewport.
  * The spec provides its own heading, so the host does not repeat the surface title above it.
  */
@@ -93,11 +92,11 @@ internal fun ContextPlaceContent(
     }
 }
 
-/** The context extension uses one rounded surface and never imposes a minimum content height. */
+/** The host owns the card surface; its summary body adds no nested border or minimum content height. */
 @Composable
 internal fun ContextPanelFrame(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     HbColumn(
-        modifier.fillMaxWidth().hbSurface(HbTheme.colors.surface, HbTheme.shapes.large),
+        modifier.fillMaxWidth(),
         gap = HbTheme.spacing.none,
         content = content,
     )
