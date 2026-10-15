@@ -5,6 +5,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -14,6 +16,8 @@ import kotlinx.coroutines.sync.withLock
 
 /**
  * Stored-ref probes cached per enabled engine set; a history write never reopens every other conversation.
+ * A failure is cached only for an engine outside the enabled set, so it is not reported again on every recompute;
+ * any other failure, including an adapter's transient `Unavailable`, is probed again on the next recompute.
  * A live handle makes its conversation continuable; a released one (its runtime was retired or restarted) does not
  * end the conversation: the next send resumes the stored session, so the stored reference decides.
  */
@@ -39,16 +43,34 @@ internal class StudioContinuability(
         }
         return try {
             val isResumable = facade.sessions.get(ref).features.resolve(ResumesSessions) is FeatureAccess.Available
-            lock.withLock { byRef[ref] = isResumable }
+            cache(enabled, ref, isResumable)
             isResumable
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            log.w(e) { "Stored chat cannot currently be resumed" }
+            // A disabled engine is decided by the enabled set, the cache key: probe and warn once per set.
+            val isDisabled = ref.engine !in enabled
+            log.w(e) { "Stored chat cannot currently be resumed engine=${ref.engine.value} cached=$isDisabled" }
+            if (isDisabled) cache(enabled, ref, false)
             false
         }
     }
+
+    /** A probe that outlived its enabled set is not cached under the next one. */
+    private suspend fun cache(enabled: Set<EngineId>, ref: SessionRef, isResumable: Boolean) = lock.withLock {
+        if (engines == enabled) byRef[ref] = isResumable
+    }
 }
+
+/**
+ * Catalog state that can change a failed probe's outcome: enablement, availability, bindings, observation and
+ * preparation stage. Download progress changes many times a second and is collapsed into its stage.
+ */
+internal fun List<EngineInfo>.continuabilityKey(): List<EngineInfo> = map { info ->
+    if (info.preparation is EnginePreparation.Downloading) info.copy(preparation = DownloadStage) else info
+}
+
+private val DownloadStage = EnginePreparation.Downloading(bytes = 0, total = null)
 
 /** A closing or closed handle runs no more turns; its conversation continues through a resumed handle. */
 internal fun ActiveSession.isReleased(): Boolean =

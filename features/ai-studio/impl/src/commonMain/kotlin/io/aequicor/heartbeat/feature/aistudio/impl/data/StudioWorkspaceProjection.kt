@@ -39,7 +39,8 @@ internal class StudioWorkspaceProjection(
         val probes = StudioContinuability(facade, handle)
         val continuability = combine(
             records.map { rows -> rows.orEmpty().map { it.id to it.ref } }.distinctUntilChanged(),
-            facade.engines.state,
+            // Download progress changes many times a second; failed probes still retry when readiness changes.
+            facade.engines.state.map { it.continuabilityKey() }.distinctUntilChanged(),
             running.distinctUntilChanged(),
         ) { refs, _, _ ->
             log.d { "Recompute conversation continuability count=${refs.size}" }

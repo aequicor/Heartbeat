@@ -7,7 +7,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
@@ -15,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
@@ -35,6 +39,7 @@ import kotlin.reflect.safeCast
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -93,6 +98,57 @@ class StudioContinuabilityTest {
     }
 
     @Test
+    fun `a disabled engine is probed once until the enabled engines change`() = runTest {
+        val facade = ContinuityFacade(isResumable = true)
+        facade.engines.state.value = emptyList()
+        facade.failure = EngineFailure.Engine(EngineFailureReason.Unavailable)
+        val probes = StudioContinuability(facade) { null }
+
+        assertFalse(probes.isContinuable("chat", StoredRef))
+        assertFalse(probes.isContinuable("chat", StoredRef))
+        assertEquals(1, facade.lookups)
+
+        facade.failure = null
+        facade.engines.state.value = listOf(ContinuityInfo)
+        assertTrue(probes.isContinuable("chat", StoredRef))
+        assertEquals(2, facade.lookups)
+    }
+
+    @Test
+    fun `an enabled engine that is unavailable for now is probed again`() = runTest {
+        val facade = ContinuityFacade(isResumable = true)
+        facade.failure = EngineFailure.Engine(EngineFailureReason.Unavailable)
+        val probes = StudioContinuability(facade) { null }
+
+        assertFalse(probes.isContinuable("chat", StoredRef))
+        facade.failure = null
+        assertTrue(probes.isContinuable("chat", StoredRef))
+        assertEquals(2, facade.lookups)
+    }
+
+    @Test
+    fun `download progress does not change the recompute key but readiness does`() {
+        fun key(info: EngineInfo) = listOf(info).continuabilityKey()
+        val downloading = ContinuityInfo.copy(preparation = EnginePreparation.Downloading(1, 10))
+
+        assertEquals(key(downloading), key(downloading.copy(preparation = EnginePreparation.Downloading(9, 10))))
+        assertNotEquals(key(downloading), key(ContinuityInfo))
+        assertNotEquals(key(ContinuityInfo), key(ContinuityInfo.copy(availability = EngineAvailability.Unknown)))
+    }
+
+    @Test
+    fun `a transient failure is probed again on the next recompute`() = runTest {
+        val facade = ContinuityFacade(isResumable = true)
+        facade.failure = EngineFailure.Engine(EngineFailureReason.Crashed)
+        val probes = StudioContinuability(facade) { null }
+
+        assertFalse(probes.isContinuable("chat", StoredRef))
+        facade.failure = null
+        assertTrue(probes.isContinuable("chat", StoredRef))
+        assertEquals(2, facade.lookups)
+    }
+
+    @Test
     fun `a released handle is dropped so the conversation resumes instead of reusing it`() = runTest {
         val open = ContinuitySession(ActiveSessionState.Ready())
         val closed = ContinuitySession(ActiveSessionState.Closed)
@@ -115,9 +171,21 @@ class StudioContinuabilityTest {
 
 private val ContinuityEngine = EngineId("continuity")
 private val StoredRef = SessionRef(ContinuityEngine, SessionSourceId("history"), "native")
+private val ContinuityInfo = EngineInfo(
+    EngineDescriptor(
+        ContinuityEngine,
+        "Continuity",
+        EngineFamily.Vendor,
+        setOf(EnginePlatform.DesktopMacOs),
+        FeatureToggle.Flag("continuity.engine", "Continuity"),
+    ),
+    EngineAvailability.Available,
+    emptyList(),
+)
 
 private class ContinuityFacade(private val isResumable: Boolean) : EngineFacade {
     var lookups = 0
+    var failure: EngineFailure? = null
     override val engines = ContinuityEngines()
     override val bindings: EngineBindings get() = error("Continuability never reads bindings")
     override val models: ModelCatalog get() = error("Continuability never discovers models")
@@ -127,6 +195,7 @@ private class ContinuityFacade(private val isResumable: Boolean) : EngineFacade 
 
         override suspend fun get(ref: SessionRef): EngineSession {
             lookups++
+            failure?.let { throw EngineException(it) }
             return ContinuityStored(ref, isResumable)
         }
 
@@ -135,21 +204,7 @@ private class ContinuityFacade(private val isResumable: Boolean) : EngineFacade 
 }
 
 private class ContinuityEngines : EngineCatalog {
-    override val state = MutableStateFlow(
-        listOf(
-            EngineInfo(
-                EngineDescriptor(
-                    ContinuityEngine,
-                    "Continuity",
-                    EngineFamily.Vendor,
-                    setOf(EnginePlatform.DesktopMacOs),
-                    FeatureToggle.Flag("continuity.engine", "Continuity"),
-                ),
-                EngineAvailability.Available,
-                emptyList(),
-            ),
-        ),
-    )
+    override val state = MutableStateFlow(listOf(ContinuityInfo))
 
     override suspend fun refresh(engine: EngineId) = error("unused")
     override fun features(engine: EngineId): EngineFeatures = error("unused")
