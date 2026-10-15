@@ -67,7 +67,7 @@ class StudioSafetyReviewsTest {
     }
 
     @Test
-    fun `running, queued and finishing reviews are shown with their details`() {
+    fun `running and queued and finishing reviews are shown with their details`() {
         assertEquals(
             SafetyReviewsUi(capacity = 3, running = 1, queued = 2, finishing = 1, abandoned = 1),
             AgentSafetyReviewLoad(capacity = 3, running = 1, queued = 2, finishing = 1, abandoned = 1).toUi(),
