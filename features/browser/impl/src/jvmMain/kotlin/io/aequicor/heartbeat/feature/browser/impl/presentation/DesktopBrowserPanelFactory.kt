@@ -75,7 +75,12 @@ internal class DefaultDesktopBrowserPanelFactory(
     ): DesktopBrowserPanel = synchronized(monitor) {
         check(profile.isAvailable) { "Browser profile is unavailable" }
         panels.getOrPut(surface) {
-            DesktopBrowserPanel(surface, scope.coroutineScope, dispatchers) { isReleased, changed ->
+            DesktopBrowserPanel(
+                surface,
+                scope.coroutineScope,
+                dispatchers,
+                resources.preparation,
+            ) { isReleased, changed ->
                 val app = resources.app()
                 profile.useContext { shared ->
                     check(!isReleased()) { "Browser surface is closed" }

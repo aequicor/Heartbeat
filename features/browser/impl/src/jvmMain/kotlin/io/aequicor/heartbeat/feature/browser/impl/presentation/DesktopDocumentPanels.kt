@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserDocumentNatives
@@ -24,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.BorderLayout
@@ -81,9 +83,9 @@ internal class DesktopDocumentPanels(
 }
 
 /**
- * One view of a document: a Swing container whose browser starts once the app's CEF runtime is ready (extracted on
- * IO, EDT stays free) and then follows the document's data. [unavailable] turns true when the runtime or the browser
- * is unavailable; the view then shows a note instead. All methods run on EDT.
+ * One view of a document: a Swing container whose browser starts once the app's CEF runtime is ready (downloaded
+ * and extracted on IO, EDT stays free) and then follows the document's data. Failed preparation can be retried on
+ * the same registration; callbacks of earlier attempts cannot change the new page. All methods run on EDT.
  */
 internal class DesktopDocumentPanel(
     private val document: OpenBrowserDocument,
@@ -95,17 +97,25 @@ internal class DesktopDocumentPanel(
     private val log = Log.tag("DesktopDocumentPanel")
     private val scope = CoroutineScope(parent.coroutineContext + SupervisorJob(parent.coroutineContext[Job]))
     private val failure = MutableStateFlow(false)
+    private val preparationState = MutableStateFlow<BrowserRuntimeUi>(BrowserRuntimeUi.Preparing)
     private val presentation = DesktopDocumentPresentation()
     private var container: JPanel? = null
     private var engine: DesktopDocumentEngine? = null
     private var attachment: DesktopDocumentAttachment? = null
     private val engines = mutableListOf<DesktopDocumentEngine>()
+    private var initialization: Job? = null
+
+    @Volatile
+    private var generation = 0
 
     @Volatile
     private var isReleased = false
 
     /** True once the runtime or the browser is unavailable for this view. */
     val unavailable: StateFlow<Boolean> = failure.asStateFlow()
+
+    /** Preparation is shared by every attachment of this document, just like its retained DOM. */
+    val preparation = preparationState.asStateFlow()
 
     /** Measurement of this native view, reset for every served page and revoked on release. */
     val contentSize: StateFlow<DesktopDocumentSize?> = presentation.measurements.size
@@ -123,6 +133,12 @@ internal class DesktopDocumentPanel(
         container = panel
         if (!isReleased) start()
         return panel
+    }
+
+    /** Retries only a failed attempt; repeated clicks and closed registrations cannot start another browser. */
+    fun retry() {
+        check(SwingUtilities.isEventDispatchThread())
+        if (!isReleased && failure.value) start()
     }
 
     /** A host lease; creating it does not attach, start or duplicate the native page. */
@@ -183,6 +199,7 @@ internal class DesktopDocumentPanel(
         if (isReleased) return
         attachment?.let(::detach)
         isReleased = true
+        generation++
         scope.cancel()
         presentation.measurements.close()
         engine?.release()
@@ -195,26 +212,39 @@ internal class DesktopDocumentPanel(
 
     /** Waits until every browser this view started has closed natively; call after [release]. */
     suspend fun awaitClosed() {
+        val starting = withContext(dispatchers.main) { initialization }
+        starting?.join()
         val started = withContext(dispatchers.main) { engines.toList() }
         started.forEach { it.awaitClosed() }
     }
 
     private fun start() {
-        scope.launch(dispatchers.main) {
+        initialization?.cancel()
+        val attempt = ++generation
+        failure.value = false
+        preparationState.value = BrowserRuntimeUi.Preparing
+        initialization = scope.launch(dispatchers.main) {
+            val progress = observePreparation(attempt)
             try {
                 val app = resources.app()
-                if (isReleased) return@launch
+                if (isReleased || attempt != generation) return@launch
                 val runtime = DesktopDocumentEngine(
                     app,
                     document,
                     scope,
                     dispatchers.default,
-                    { isReleased },
-                    ::fail,
+                    { isReleased || attempt != generation },
+                    { fail(attempt) },
                     presentation,
                 )
-                engine = runtime
                 engines += runtime
+                if (isReleased || attempt != generation) {
+                    runtime.release()
+                    return@launch
+                }
+                engine = runtime
+                preparationState.value = BrowserRuntimeUi.Ready
+                progress.cancel()
                 runtime.updateCornerRadius(attachment?.cornerRadius ?: 0.0)
                 container?.apply {
                     add(runtime.component, BorderLayout.CENTER)
@@ -226,20 +256,43 @@ internal class DesktopDocumentPanel(
                 throw error
             } catch (error: Exception) {
                 log.e(error.redactedFailure()) { "Desktop document initialization failed" }
-                fail()
+                failPreparation(attempt)
             } catch (error: LinkageError) {
                 log.e(error.redactedFailure()) { "Desktop document native runtime is unavailable" }
-                fail()
+                failPreparation(attempt)
+            } finally {
+                progress.cancel()
             }
         }
     }
 
-    private fun fail() {
-        if (isReleased) return
+    @HighFrequency
+    private fun observePreparation(attempt: Int): Job = scope.launch(dispatchers.main) {
+        resources.preparation.collect {
+            if (!isReleased && attempt == generation && engine == null) {
+                log.v { "Document preparation progress changed" }
+                preparationState.value = it.toPresentation()
+            }
+        }
+    }
+
+    private suspend fun failPreparation(attempt: Int) {
+        val current = resources.preparation.first().toPresentation()
+        if (isReleased || attempt != generation) return
+        log.v { "Document preparation failed" }
+        preparationState.value = current
+        fail(attempt)
+    }
+
+    private fun fail(attempt: Int) {
+        if (isReleased || attempt != generation) return
+        generation++
+        initialization?.cancel()
         engine?.release()
         engine = null
         container?.removeAll()
         failure.value = true
+        preparationState.value = preparationState.value.failed()
         log.i { "Document view unavailable" }
     }
 }

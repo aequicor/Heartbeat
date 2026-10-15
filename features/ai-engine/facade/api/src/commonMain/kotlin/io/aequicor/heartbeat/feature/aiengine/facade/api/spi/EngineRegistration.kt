@@ -14,12 +14,15 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 /** Engine-specific authentication context. Only the factory decides which parts contribute to its context key. */
 public data class EngineContext(
@@ -69,6 +72,15 @@ public class EngineRegistration(
 
 /** Adapter factory. Facade applies ownership/toggle gates before delegating. No method silently changes sources. */
 public interface EngineFactory {
+    /** Current first-use preparation, emitted immediately; observing never starts preparation or a process. */
+    public val preparation: Flow<EnginePreparation> get() = flowOf(EnginePreparation.Ready)
+
+    /**
+     * Prepares optional runtime files for an actual operation. The facade calls this before non-cancellable native
+     * creation. Cancellation must propagate; adapters also prepare before standalone model-discovery processes.
+     */
+    public suspend fun prepareRuntime(): Unit = Unit
+
     /**
      * Current revision of [source] as the owner sees it, read before [bind] when a binding is connected.
      * A CLI login reports its account revision without importing credentials; by default the stored one.

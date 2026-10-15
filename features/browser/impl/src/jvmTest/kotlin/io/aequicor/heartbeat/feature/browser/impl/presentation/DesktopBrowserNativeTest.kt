@@ -2,13 +2,13 @@ package io.aequicor.heartbeat.feature.browser.impl.presentation
 
 import com.sun.net.httpserver.HttpServer
 import io.aequicor.heartbeat.core.common.DispatcherProvider
-import io.aequicor.heartbeat.core.datastore.StorageRoot
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.impl.data.DefaultBrowserUrlResolver
 import io.aequicor.heartbeat.feature.browser.impl.data.DesktopBrowserProfiles
 import io.aequicor.heartbeat.feature.browser.impl.data.DesktopDefaultBrowserResources
+import io.aequicor.heartbeat.feature.browser.impl.data.bundledBrowserRuntimeInstaller
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -396,7 +396,7 @@ class DesktopBrowserNativeTest {
     private fun nativeResources(handle: BrowserTestScope): DesktopDefaultBrowserResources {
         val cache = Files.createTempDirectory("heartbeat-jcef-native-test")
         return DesktopDefaultBrowserResources(
-            StorageRoot { cache.toString() },
+            bundledBrowserRuntimeInstaller(cache, nativeDispatchers()),
             nativeDispatchers(),
             DesktopBrowserProfiles(handle, nativeDispatchers(), lazy { BrowserNativeTestStores(cache) }),
             handle,

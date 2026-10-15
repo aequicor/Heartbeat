@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -29,6 +30,81 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class DocumentViewportTest {
+    @Test
+    fun `unobstructed document uses its current clip on the first layout and after content resizes`() {
+        for (scale in listOf(1f, 2f)) {
+            runSkikoComposeUiTest(size = Size(600f * scale, 700f * scale)) {
+                var height by mutableStateOf(300.dp)
+                val layouts = mutableListOf<Pair<Rect, Rect>>()
+                setContent {
+                    CompositionLocalProvider(
+                        LocalDensity provides Density(scale),
+                        LocalHbNativeContentViewport provides null,
+                    ) {
+                        Box(Modifier.fillMaxSize()) {
+                            DocumentViewport(Modifier.offset(100.dp, 80.dp).size(400.dp, height)) {
+                                Box(
+                                    Modifier.onGloballyPositioned {
+                                        layouts += it.boundsInWindow(clipBounds = false) to it.boundsInWindow()
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+                runOnIdle {
+                    assertTrue(layouts.isNotEmpty())
+                    assertTrue(layouts.all { (full, clipped) -> full == clipped }, "First layouts: $layouts")
+                }
+                for (nextHeight in listOf(500, 180)) {
+                    runOnIdle {
+                        layouts.clear()
+                        height = nextHeight.dp
+                    }
+                    runOnIdle {
+                        assertTrue(layouts.isNotEmpty())
+                        assertTrue(layouts.all { (full, clipped) -> full == clipped }, "Resized layouts: $layouts")
+                        assertEquals(Rect(100f, 80f, 500f, 80f + nextHeight) * scale, layouts.last().first)
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `document without a separate viewport respects its ancestor clip from the first layout`() {
+        for (scale in listOf(1f, 2f)) {
+            runSkikoComposeUiTest(size = Size(600f * scale, 700f * scale)) {
+                val layouts = mutableListOf<Pair<Rect, Rect>>()
+                setContent {
+                    CompositionLocalProvider(
+                        LocalDensity provides Density(scale),
+                        LocalHbNativeContentViewport provides null,
+                    ) {
+                        Box(Modifier.fillMaxSize()) {
+                            Box(Modifier.size(300.dp, 220.dp).clipToBounds()) {
+                                DocumentViewport(Modifier.offset(100.dp, (-40).dp).size(300.dp, 220.dp)) {
+                                    Box(
+                                        Modifier.onGloballyPositioned {
+                                            layouts += it.boundsInWindow(clipBounds = false) to it.boundsInWindow()
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                runOnIdle {
+                    assertTrue(layouts.isNotEmpty())
+                    for ((full, clipped) in layouts) {
+                        assertEquals(Rect(100f, -40f, 400f, 180f) * scale, full)
+                        assertEquals(Rect(100f, 0f, 300f, 180f) * scale, clipped)
+                    }
+                }
+            }
+        }
+    }
+
     @Test
     fun `window intersection becomes an inward rounded offset in Compose pixels`() {
         assertEquals(

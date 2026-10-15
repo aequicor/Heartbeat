@@ -174,6 +174,7 @@ internal fun ConnectWizardContent(
             gap = HbTheme.spacing.l,
         ) {
             WizardHeader(state)
+            state.preparation?.let { EnginePreparationStatus(it) }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (state.step) {
                     WizardStep.Engine -> EngineStep(state, onIntent)

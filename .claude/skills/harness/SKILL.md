@@ -93,15 +93,24 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
 ## После апгрейда Kotlin
 
 Скрипты компилирует K2 (`kotlin-scripting-jvm-host`) в процессе-воркере (`data/script/worker`, запуск —
-`ProcessHarnessCompiler`), а исполняются они в процессе приложения. После смены версии Kotlin:
+`ProcessHarnessCompiler`), а исполняются они в процессе приложения. В релизном установщике тяжёлых библиотек
+компилятора нет: первое изменение исходника скачивает шесть оригинальных Maven JAR через `VerifiedArtifactCache`.
+Worker перед загрузкой повторно проверяет имя, размер и SHA-256 каждого файла. Валидный кэш скомпилированного
+кода исполняется офлайн без подготовки компилятора.
+
+При смене версии Kotlin обнови `HarnessCompilerArtifacts`: версию, имена, размеры и SHA-256 всех шести оригинальных
+JAR, а также защиту версии в `features/harness/impl/build.gradle.kts`. Не бери хеши JAR после ProGuard. Закреплённый
+набор входит в ключ кэша скриптов; несовпадение с каталогом блокирует конфигурацию сборки. Затем выполни:
 
 ```bash
 ./gradlew :features:harness:impl:jvmTest
-./gradlew :platform-main:desktop:createReleaseDistributable
+./gradlew :platform-main:desktop:verifyReleaseHarnessCompiler
 ```
 
-Затем запусти собранное приложение с `--heartbeat-harness-probe` и проверь код выхода 0: проба компилирует и
-исполняет скрипт и workflow в релизной раскладке (ProGuard, jlink), компилятор — в упакованном воркере.
+Вторая задача собирает приложение и передаёт пробе `--heartbeat-harness-probe` шесть закреплённых оригинальных
+JAR из Gradle, поэтому проверка не зависит от сети. Проба компилирует и исполняет скрипт и workflow в релизной
+раскладке (ProGuard, jlink), компилятор — в упакованном воркере. При ручном вызове флага в тонкой релизной сборке
+передай абсолютные пути всех шести JAR в порядке `HarnessCompilerArtifacts.artifacts`.
 Ненулевой код — смотри `HarnessHostProbe.kt` и keep-правила. На другой ОС пробу собирает `module-build.yml` с задачей
 `:platform-main:desktop:verifyReleaseHarnessCompiler` — сборка приложения целиком, только по просьбе пользователя.
 

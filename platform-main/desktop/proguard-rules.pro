@@ -1,5 +1,5 @@
 # JCEF binds Java entry points from JNI by their exact names; jcefmaven reads build metadata with Gson.
-# Keep the native tar.gz and build_meta.json resources in the runtime dependency jars.
+# Preserve build metadata and bridge classes; release staging removes the native tar.gz after ProGuard.
 -keep class org.cef.** { *; }
 -keep class me.friwi.jcefmaven.** { *; }
 

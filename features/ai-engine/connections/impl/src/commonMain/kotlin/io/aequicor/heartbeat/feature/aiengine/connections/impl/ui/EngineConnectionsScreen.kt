@@ -119,6 +119,9 @@ internal fun EngineConnectionsContent(
                 ConnectionsToolbar(onAddEngine = { onAddConnection(null) })
                 SettingsStatus(state, onIntent)
                 EnginesSection(state, onIntent)
+                state.engines.firstOrNull { it.id == state.selectedEngine }?.preparation?.let {
+                    EnginePreparationStatus(it)
+                }
                 state.panel?.let { EngineManagementSection(it, state.loginCode, state.isSaving, onIntent) }
                 ConnectionsSection(state, onIntent, onAddConnection)
                 ModelsSection(state, onIntent)

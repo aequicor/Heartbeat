@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.chromiumbridge.api.BridgeServerStatus
 import io.aequicor.heartbeat.feature.chromiumbridge.api.BrowserHost
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBrowser
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ConnectedBrowser
+import io.aequicor.heartbeat.feature.chromiumbridge.api.ExtensionPreparation
 import io.aequicor.heartbeat.feature.chromiumbridge.api.HostRegistrationFailure
 import kotlinx.coroutines.flow.Flow
 
@@ -44,10 +45,13 @@ internal interface BridgeServer {
     suspend fun revokeTabs(): Int
 }
 
-/** The extension folder this build ships or, in development, the repository's. */
+/** The extension prepared on demand or, in development, the repository's. */
 internal interface ExtensionFolder {
-    /** The folder to load unpacked, or `null` when there is none. */
+    /** Local lookup only: never starts a download when the bridge is enabled. */
     suspend fun locate(): String?
+
+    /** Prepares the pinned component after an explicit user action; cancellation leaves no partial folder. */
+    suspend fun prepare(progress: suspend (ExtensionPreparation) -> Unit): String
 
     /** Opens [folder] in the system file manager. */
     suspend fun reveal(folder: String)

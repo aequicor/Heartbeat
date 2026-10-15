@@ -37,6 +37,8 @@ kotlin {
             implementation(libs.flowmvi.test)
         }
         jvmMain.dependencies {
+            implementation(projects.core.network.api)
+            implementation(libs.apache.commons.compress)
             implementation(libs.jna.platform)
         }
     }

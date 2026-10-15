@@ -55,6 +55,30 @@ class ConnectionEffectsTest {
     private val settingsScope = RecordingScope<EngineConnectionsIntent>()
 
     @Test
+    fun `closing settings cancels first use preparation during model refresh`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        facade.discoverGate = gate
+        val discovery = launch {
+            settings.handle(
+                EngineConnectionsEffect.Execute(
+                    ConnectionOperation.RefreshModels(KoogId, EngineBindingId("binding-1")),
+                ),
+                settingsScope,
+            )
+        }
+        runCurrent()
+        assertEquals(listOf("discover"), facade.calls)
+        discovery.cancel()
+        runCurrent()
+        try {
+            assertTrue(discovery.isCompleted)
+            assertTrue(settingsScope.intents.isEmpty())
+        } finally {
+            gate.complete(Unit)
+        }
+    }
+
+    @Test
     fun `connecting creates a source and a binding and closes the key`() = runTest {
         val key = Secret("sk-test".toCharArray())
         val credential = CredentialInput.ApiKey("Work", ApiKeyMethod.origin, key)

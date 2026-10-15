@@ -26,6 +26,7 @@ import kotlin.time.Instant
 data class AiStudioScreenState(
     /** Native app update offer; remote hosts never install it. */
     val appUpdate: AppUpdateUi? = null,
+    val enginePreparations: ImmutableList<EnginePreparationUi> = persistentListOf(),
     val models: ImmutableList<ModelUi> = persistentListOf(),
     val isResearchEnabled: Boolean = false,
     val isProjectAddingAvailable: Boolean = false,

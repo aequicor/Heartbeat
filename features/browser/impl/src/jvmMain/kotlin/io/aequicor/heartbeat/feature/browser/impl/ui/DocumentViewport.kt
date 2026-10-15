@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.browser.impl.ui
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -22,20 +23,29 @@ import kotlin.math.ceil
 import kotlin.math.floor
 
 /**
- * Keeps a bounded document's full layout footprint while placing its full-size content inside the
- * unobstructed viewport. The smaller clipping layout lets SwingPanel's own interop holder position
- * its native clip group; no additional Swing hierarchy participates in Chromium's initial painting.
- * Coordinates remain Compose pixels, snapped inward to the AWT grid; SwingPanel performs the final
- * native density conversion.
+ * Keeps a bounded document's full layout footprint inside the unobstructed viewport. Without a separate
+ * host viewport, SwingPanel follows the current ancestor clip directly; feeding its previous layout back
+ * into measurement would hide the first native frame and apply stale clipping during content resizes.
+ * An explicit host viewport uses a smaller clipping layout, snapped inward to the AWT grid before
+ * SwingPanel performs the final native density conversion. Neither path adds a Swing container.
  */
 @Composable
 internal fun DocumentViewport(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val host = LocalHbNativeContentViewport.current
+    if (host == null) {
+        Box(modifier.fillMaxSize(), propagateMinConstraints = true) { content() }
+        return
+    }
+    HostDocumentViewport(host, modifier, content)
+}
+
+@Composable
+private fun HostDocumentViewport(host: Rect, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val density = LocalDensity.current.density
     var bounds by remember { mutableStateOf(Rect.Zero) }
     var clippedBounds by remember { mutableStateOf(Rect.Zero) }
     var rootOrigin by remember { mutableStateOf(Offset.Zero) }
-    val visible = if (host == null) clippedBounds else clippedBounds.intersect(host)
+    val visible = clippedBounds.intersect(host)
     val clip = documentViewportBounds(bounds, visible, density, rootOrigin)
     Layout(
         modifier = modifier.fillMaxSize().onGloballyPositioned {

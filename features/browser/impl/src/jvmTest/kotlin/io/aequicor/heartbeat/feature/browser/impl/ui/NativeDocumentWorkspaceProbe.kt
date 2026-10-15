@@ -64,7 +64,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-/** Exercises the real Compose interop and in-window HbDialog layer, including the document's top-level scroll. */
+/** Exercises a document first opened in the modal, then moved between it and Start without losing its DOM. */
 internal fun verifyNativeDocumentWorkspace(
     resources: DesktopBrowserResources,
     dispatchers: DispatcherProvider,
@@ -98,11 +98,14 @@ private class NativeDocumentWorkspaceProbe(
         CoroutineScope(parent.coroutineContext + SupervisorJob(parent.coroutineContext[Job])),
     )
     private val closed = CompletableFuture<Unit>()
+    private val registeredCount = AtomicInteger()
     private val closeCount = AtomicInteger()
     private val views = object : DesktopDocumentViews {
-        override fun register(panel: DesktopDocumentPanel) = Unit
+        override fun register(panel: DesktopDocumentPanel) {
+            registeredCount.incrementAndGet()
+        }
         override fun closed(panel: DesktopDocumentPanel) {
-            if (closeCount.incrementAndGet() == 2) closed.complete(Unit)
+            if (closeCount.incrementAndGet() == registeredCount.get()) closed.complete(Unit)
         }
     }
     private val panels = nativeEdt { DesktopDocumentPanels(resources, dispatchers, owner, owner, views, documents) }
@@ -116,9 +119,10 @@ private class NativeDocumentWorkspaceProbe(
         panels,
         BrowserDocumentPresentation.Fill,
     )
-    private var isExpanded by mutableStateOf(false)
+    private var isExpanded by mutableStateOf(true)
     private var isDocumentOnly by mutableStateOf(false)
     private var isShown by mutableStateOf(true)
+    private var isSiblingShown by mutableStateOf(false)
     private var overlayInset = 0.0
     private var closeLabel = ""
     private val window = nativeEdt {
@@ -132,7 +136,14 @@ private class NativeDocumentWorkspaceProbe(
     }
 
     fun verify() {
-        awaitReport(0)
+        val firstModal = awaitReport(0)
+        // A compact card opens an unmounted document directly in the modal. No Start attachment has
+        // loaded or sized its native page; verify that first attachment before any transfer can repair it.
+        awaitFirstModal()
+        nativeEdt {
+            isExpanded = false
+            isSiblingShown = true
+        }
         siblingMarker = siblingReport(0)["marker"]
         awaitClippedDocument()
         if (OS.isMacintosh()) {
@@ -144,6 +155,7 @@ private class NativeDocumentWorkspaceProbe(
         }
         handle.update(command(1, "seed"))
         val seeded = awaitReport(1)
+        assertEquals(firstModal["marker"], seeded["marker"], "First modal transfer recreated the document")
         assertEquals(JsonPrimitive(650), seeded["scroll"])
         for (request in 2..5) {
             nativeEdt { isExpanded = !isExpanded }
@@ -159,6 +171,14 @@ private class NativeDocumentWorkspaceProbe(
         assertRetained(seeded, awaitReport(6))
         verifyIntrinsicHeight(seeded)
         verifyCloseFocus()
+    }
+
+    private fun awaitFirstModal() {
+        if (OS.isMacintosh()) NativeDocumentClipSnapshot().await(window.rootPane, 1, areAllClipped = true)
+        awaitOverlay(isOccupied = true)
+        awaitMacShape(window, isRounded = true)
+        awaitOverlayPosition(window)
+        assertInWindowModal()
     }
 
     private fun verifyCloseFocus() {
@@ -233,7 +253,7 @@ private class NativeDocumentWorkspaceProbe(
                 overlayInset = inset / host.graphicsConfiguration.defaultTransform.scaleX
                 closeLabel = close
             }
-            BrowserDocumentView(siblingSurface, Modifier.size(120.dp, 80.dp))
+            if (isSiblingShown) BrowserDocumentView(siblingSurface, Modifier.size(120.dp, 80.dp))
             if (isExpanded) {
                 HbDialog(
                     "Retained app",

@@ -86,6 +86,19 @@ class BrowserMachineTest {
     }
 
     @Test
+    fun `reload retries unavailable runtime even before a first URL but not an untouched empty page`() {
+        val failed = ready.copy(page = BrowserPage(error = BrowserError.EngineUnavailable))
+        BrowserMachineSpec.assertTransition(
+            failed,
+            BrowserIntent.Public.Reload,
+            ready.copy(page = BrowserPage(isLoading = true)),
+            listOf(BrowserEffect.Reload),
+        )
+        BrowserMachineSpec.assertIgnored(ready, BrowserIntent.Public.Reload)
+        BrowserMachineSpec.assertIgnored(failed.copy(isEnabled = false), BrowserIntent.Public.Reload)
+    }
+
+    @Test
     fun `disabling clears loading and surface history but retains the address`() {
         val from = ready.copy(
             page = BrowserPage("https://example.com", isLoading = true, isBackAvailable = true),

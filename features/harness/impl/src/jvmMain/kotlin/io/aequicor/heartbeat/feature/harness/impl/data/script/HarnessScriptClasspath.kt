@@ -16,7 +16,6 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import java.security.MessageDigest
 import kotlin.script.experimental.api.ScriptCompilationConfiguration
-import kotlin.script.experimental.jvmhost.BasicJvmScriptingHost
 
 /** URI conversion preserves escaped spaces and Windows drive letters in installed application paths. */
 internal class HarnessScriptClasspath {
@@ -34,10 +33,8 @@ internal class HarnessScriptClasspath {
         (
             entries + listOf(
                 location(ScriptCompilationConfiguration::class.java),
-                location(BasicJvmScriptingHost::class.java),
-                location(org.jetbrains.kotlin.cli.jvm.K2JVMCompiler::class.java),
             )
-        ).distinct().map { it.contentFingerprint() }.joinToString("\n").encodeUtf8().sha256().hex()
+        ).distinct().map { it.contentFingerprint() }.joinToString("\n") + HarnessCompilerArtifacts.fingerprint
     }
 
     fun key(request: HarnessCompilationRequest, appVersion: String): String = Json.encodeToString(

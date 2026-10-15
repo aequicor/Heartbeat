@@ -201,6 +201,7 @@ private fun WideWorkspace(
         if (chatArea != null) {
             StudioChatArea(
                 chatArea,
+                state = state,
                 exits = exits,
                 onToggleSidebar = { onIntent(StudioIntent.ToggleSidebar) },
                 isAtWindowLeadingEdge = !state.sidebar.isVisible,
@@ -265,6 +266,7 @@ private fun CompactWorkspace(
         if (chatArea != null) {
             StudioChatArea(
                 chatArea,
+                state = state,
                 exits = exits,
                 onToggleSidebar = { onIntent(StudioIntent.SetDrawerOpen(true)) },
                 isAtWindowLeadingEdge = true,
@@ -396,6 +398,7 @@ private fun workspaceAttachmentCapture(
 @Composable
 private fun StudioChatArea(
     component: StudioEmbed,
+    state: AiStudioScreenState,
     exits: StudioExits,
     onToggleSidebar: () -> Unit,
     isAtWindowLeadingEdge: Boolean,
@@ -408,6 +411,7 @@ private fun StudioChatArea(
             stringResource(Res.string.research_mode),
             exits.onCloseChatArea,
         )
+        state.enginePreparations.forEach { StudioEnginePreparation(it) }
         Box(Modifier.weight(1f).fillMaxWidth()) { component.Content(Modifier.fillMaxSize()) }
     }
 }

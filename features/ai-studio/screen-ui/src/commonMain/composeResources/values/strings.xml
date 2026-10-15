@@ -322,4 +322,10 @@
     <string name="pane_context_panel">Summary</string>
     <string name="pane_context_hide">Hide summary</string>
     <string name="pane_context_show">Show summary</string>
+    <string name="engine_preparation_download">Downloading %1$s components…</string>
+    <string name="engine_preparation_install">Preparing %1$s components…</string>
+    <string name="engine_preparation_network">Could not download %1$s. Check your connection and retry the message.</string>
+    <string name="engine_preparation_storage">Could not save %1$s. Check free disk space and retry the message.</string>
+    <string name="engine_preparation_invalid">Could not verify %1$s. Retry the message to download its components again.</string>
+    <string name="engine_preparation_unavailable">%1$s components are unavailable. Retry the message.</string>
 </resources>

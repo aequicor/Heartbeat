@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Observation
@@ -55,6 +56,21 @@ class EngineCatalogServiceTest {
         assertEquals(Observation(), info.observation)
         assertEquals(bindings.value, info.bindings)
         assertEquals(0, factory.probes)
+        assertEquals(0, factory.preparations)
+    }
+
+    @Test
+    fun `catalog projects preparation progress without starting or probing the engine`() = runTest {
+        val catalog = catalog()
+        runCurrent()
+        factory.preparation.value = EnginePreparation.Downloading(10, 100)
+        runCurrent()
+        assertEquals(EnginePreparation.Downloading(10, 100), catalog.state.value.single().preparation)
+        factory.preparation.value = EnginePreparation.Ready
+        runCurrent()
+        assertEquals(EnginePreparation.Ready, catalog.state.value.single().preparation)
+        assertEquals(0, factory.probes)
+        assertEquals(0, factory.preparations)
     }
 
     @Test

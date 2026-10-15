@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardOutpu
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState
 import io.aequicor.heartbeat.feature.aiengine.connections.api.CredentialInput
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.ApiKeyMethod
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.FakeEngineFacade
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.KoogId
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.engineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
@@ -32,6 +33,7 @@ class ConnectWizardModelTest {
         testScopeHandle(),
         testStoreFactory(),
         storage(SecretStorageProtection.System),
+        FakeEngineFacade(),
     )
 
     private fun storage(value: SecretStorageProtection) = object : SecretStorageInfo {
@@ -46,6 +48,7 @@ class ConnectWizardModelTest {
             testScopeHandle(),
             testStoreFactory(),
             storage(SecretStorageProtection.LocalDevelopment),
+            FakeEngineFacade(),
         )
         val screen = subscribe(model.store)
         machine.state.value = ConnectWizardState.ChoosingMethod(engineInfo())

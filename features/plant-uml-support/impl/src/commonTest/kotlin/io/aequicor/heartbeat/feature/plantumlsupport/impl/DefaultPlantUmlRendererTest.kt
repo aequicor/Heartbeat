@@ -10,8 +10,10 @@ import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.DefaultPlantUmlRe
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.PlantUmlEngine
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.domain.PlantUmlEnabled
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.domain.PlantUmlLimits
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
@@ -27,10 +29,12 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class DefaultPlantUmlRendererTest {
     private val style = PlantUmlStyle(0, 0, 0, 0, 0, 0, fontSize = 14f, isDark = false)
     private val request = PlantUmlRequest("@startuml\nA -> B\n@enduml", style, scale = 2f)
@@ -42,18 +46,21 @@ class DefaultPlantUmlRendererTest {
         draw()
     }
 
-    private fun TestScope.renderer(worker: CoroutineDispatcher = StandardTestDispatcher(testScheduler)) =
-        DefaultPlantUmlRenderer(
-            engine = engine,
-            toggles = toggles,
-            // Like the application scope, a failed drawing does not cancel its siblings.
-            scope = CoroutineScope(
-                backgroundScope.coroutineContext + SupervisorJob(backgroundScope.coroutineContext.job),
-            ),
-            worker = worker,
-            limits = PlantUmlLimits(maxSourceCharacters = 100),
-            timeSource = testScheduler.timeSource,
-        )
+    private fun TestScope.renderer(
+        worker: CoroutineDispatcher = StandardTestDispatcher(testScheduler),
+        prepare: suspend () -> Unit = {},
+    ) = DefaultPlantUmlRenderer(
+        engine = engine,
+        toggles = toggles,
+        // Like the application scope, a failed drawing does not cancel its siblings.
+        scope = CoroutineScope(
+            backgroundScope.coroutineContext + SupervisorJob(backgroundScope.coroutineContext.job),
+        ),
+        worker = worker,
+        limits = PlantUmlLimits(maxSourceCharacters = 100),
+        timeSource = testScheduler.timeSource,
+        prepare = prepare,
+    )
 
     @Test
     fun `nothing is drawn while the feature is off`() = runTest {
@@ -136,6 +143,37 @@ class DefaultPlantUmlRendererTest {
         assertEquals(PlantUmlResult.Failed(PlantUmlFailure.Internal), renderer.render(request))
         assertEquals(PlantUmlResult.Failed(PlantUmlFailure.Internal), renderer.render(request))
         assertEquals(2, preambles.size)
+    }
+
+    @Test
+    fun `initial engine preparation is outside the render timeout`() = runTest {
+        val prepared = CompletableDeferred<Unit>()
+        val renderer = renderer(prepare = { prepared.await() })
+        val result = async { renderer.render(request) }
+        testScheduler.runCurrent()
+        advanceTimeBy(120.seconds)
+        assertFalse(result.isCompleted)
+        assertTrue(preambles.isEmpty())
+        prepared.complete(Unit)
+        assertTrue(result.await() is PlantUmlResult.Image)
+    }
+
+    @Test
+    fun `a failed preparation is not cached and the next render retries it`() = runTest {
+        var attempts = 0
+        val renderer = renderer(prepare = { if (++attempts == 1) error("download unavailable") })
+        assertEquals(PlantUmlResult.Failed(PlantUmlFailure.Internal), renderer.render(request))
+        assertTrue(preambles.isEmpty())
+        assertTrue(renderer.render(request) is PlantUmlResult.Image)
+        assertEquals(2, attempts)
+    }
+
+    @Test
+    fun `disabled and unsupported drawings do not prepare the engine`() = runTest {
+        val renderer = renderer(prepare = { error("must not prepare") })
+        assertEquals(PlantUmlResult.Unsupported, renderer.render(request.copy(source = "@startdot\na\n@enddot")))
+        toggles.isEnabled.value = false
+        assertEquals(PlantUmlResult.Unsupported, renderer.render(request))
     }
 
     /** Holds drawings until the test releases them, like an engine thread that is still busy. */

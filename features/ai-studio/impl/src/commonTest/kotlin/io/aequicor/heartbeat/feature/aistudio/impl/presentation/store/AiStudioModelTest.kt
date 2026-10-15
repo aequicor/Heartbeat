@@ -16,7 +16,11 @@ import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
@@ -861,6 +865,7 @@ class AiStudioModelTest {
             embeddedScreens = embeds,
             host = host,
             surfaceBinding = StudioSurfaceBinding(surfaces, backend, TestScopeHandle(scope.backgroundScope)),
+            facade = EmptyStudioFacade(),
         )
 
         suspend fun subscribe(): Provider<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction> {
@@ -1004,4 +1009,17 @@ internal class TestScopeHandle(override val coroutineScope: CoroutineScope) : Sc
     }
 
     override fun onClose(action: () -> Unit) = DisposableHandle { }
+}
+
+/** The demo-store fixture observes an empty engine catalog and never uses execution services. */
+private class EmptyStudioFacade : EngineFacade {
+    override val engines = object : EngineCatalog {
+        override val state = MutableStateFlow(emptyList<EngineInfo>())
+        override suspend fun refresh(engine: EngineId): EngineInfo = error("Unused")
+        override fun features(engine: EngineId): EngineFeatures = error("Unused")
+    }
+    override val bindings get() = error("Unused")
+    override val models get() = error("Unused")
+    override val sessions get() = error("Unused")
+    override val providerUsage get() = error("Unused")
 }

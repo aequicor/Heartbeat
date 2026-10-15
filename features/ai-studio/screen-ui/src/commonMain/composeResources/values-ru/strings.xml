@@ -316,4 +316,10 @@
     <string name="pane_context_panel">Сводка</string>
     <string name="pane_context_hide">Скрыть сводку</string>
     <string name="pane_context_show">Показать сводку</string>
+    <string name="engine_preparation_download">Скачивание компонентов %1$s…</string>
+    <string name="engine_preparation_install">Подготовка компонентов %1$s…</string>
+    <string name="engine_preparation_network">Не удалось скачать %1$s. Проверьте подключение и повторите сообщение.</string>
+    <string name="engine_preparation_storage">Не удалось сохранить %1$s. Проверьте свободное место и повторите сообщение.</string>
+    <string name="engine_preparation_invalid">Не удалось проверить %1$s. Повторите сообщение для повторного скачивания компонентов.</string>
+    <string name="engine_preparation_unavailable">Компоненты %1$s недоступны. Повторите сообщение.</string>
 </resources>

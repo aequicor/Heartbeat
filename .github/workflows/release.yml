@@ -177,6 +177,8 @@ jobs:
           fi
           mkdir release
           cp "${packages[0]}" "release/Heartbeat-$VERSION-linux-x64.deb"
+          # The installers pin this portable first-use component; publish it in the same release and checksum set.
+          cp "platform-main/desktop/build/release-components/Heartbeat-$VERSION-chromium-extension.zip" release/
       - uses: actions/upload-artifact@v7
         with:
           name: desktop-linux-x64

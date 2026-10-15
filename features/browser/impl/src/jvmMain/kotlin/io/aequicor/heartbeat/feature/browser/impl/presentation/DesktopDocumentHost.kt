@@ -14,7 +14,8 @@ import javax.swing.JPanel
 /**
  * Compose punches a rectangular hole for a heavyweight Swing view, including its surrounding surface at the corners.
  * The native page's mask exposes that hole. Restore only the missing backdrop outside the rounded page; the page
- * itself and its inner spacing remain untouched. The host supplies its surface color or the owning dialog's scrim.
+ * itself and its inner spacing remain untouched. The host supplies its opaque surrounding surface, with the
+ * owning dialog's scrim already composited: translucent pixels have no Compose backing inside the interop hole.
  */
 internal class DesktopDocumentHost : JPanel(BorderLayout()) {
     private var radius = 0.0

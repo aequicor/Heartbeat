@@ -200,10 +200,11 @@ internal fun StudioPaneView(
             Modifier.fillMaxSize().padding(end = contextInset)
                 .padding(conversationInsets(hasStartApp, layout.isCompact)),
         )
-        Box(
+        HbColumn(
             Modifier.align(Alignment.TopCenter).fillMaxWidth()
                 .onSizeChanged { headerHeight = it.height }
                 .testTag("pane-header-${pane.id}"),
+            gap = HbTheme.spacing.none,
         ) {
             PaneHeader(
                 content,
@@ -214,6 +215,7 @@ internal fun StudioPaneView(
                 isContextOpen = context.isOpen,
                 contextFocus = context.focus,
             )
+            content.enginePreparations.forEach { StudioEnginePreparation(it) }
         }
         // The composer keeps the same parents; changing its placement must not detach its focus target.
         Box(Modifier.fillMaxSize().padding(top = topInset, end = contextInset)) {

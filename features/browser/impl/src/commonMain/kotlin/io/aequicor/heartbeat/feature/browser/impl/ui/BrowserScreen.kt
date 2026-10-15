@@ -79,8 +79,11 @@ internal fun BrowserScreenContent(
     ) {
         BrowserTabs(state, onIntent)
         BrowserToolbar(state, onIntent)
-        state.error?.let { HbBanner(stringResource(it.message()), Modifier.testTag("browser-error")) }
-        if (state.isLoading) {
+        // Desktop viewports show the runtime failure with its own recovery action and download diagnostics.
+        state.error?.takeUnless { state.hasTabs && it == BrowserScreenError.EngineUnavailable }?.let {
+            HbBanner(stringResource(it.message()), Modifier.testTag("browser-error"))
+        }
+        if (state.isLoading && !state.hasTabs) {
             HbLoadingState(
                 stringResource(Res.string.browser_loading),
                 Modifier.testTag("browser-loading"),
@@ -106,7 +109,7 @@ private fun BrowserViewport(
             )
 
             BrowserPhase.Ready -> {
-                if (state.url.isNotEmpty()) browser()
+                if (state.url.isNotEmpty() || state.error == BrowserScreenError.EngineUnavailable) browser()
                 if (state.url.isEmpty() && state.error == null) {
                     HbEmptyState(
                         stringResource(Res.string.browser_empty),
@@ -196,7 +199,7 @@ private fun BrowserToolbar(
                 )
             },
             Modifier.testTag("browser-reload-stop"),
-            enabled = isEnabled && state.url.isNotEmpty(),
+            enabled = isEnabled && (state.url.isNotEmpty() || state.error == BrowserScreenError.EngineUnavailable),
         )
         BrowserAddressField(state.address, isEnabled, onIntent, Modifier.weight(1f))
     }

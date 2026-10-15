@@ -13,9 +13,11 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.rethrowFatalHarnessFailure
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.CompiledHarnessCode
+import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeDiagnostic
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeKind
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCompilationRequest
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCompilationResult
+import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessDiagnosticSeverity
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationContext
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessScriptHost
@@ -36,10 +38,10 @@ import kotlin.script.experimental.api.ResultValue
 import kotlin.script.experimental.api.ResultWithDiagnostics
 import kotlin.script.experimental.api.ScriptEvaluationConfiguration
 import kotlin.script.experimental.api.constructorArgs
+import kotlin.script.experimental.jvm.BasicJvmScriptEvaluator
 import kotlin.script.experimental.jvm.baseClassLoader
 import kotlin.script.experimental.jvm.jvm
 import kotlin.script.experimental.jvm.loadDependencies
-import kotlin.script.experimental.jvmhost.BasicJvmScriptingHost
 
 /**
  * Profile-owned harness code host. K2 compiles in a killable worker process ([ProcessHarnessCompiler]) under the
@@ -60,11 +62,13 @@ internal class JvmHarnessScriptHost(
         @ForScope(ProfileScope::class) stores: DataStores,
         @ForScope(ProfileScope::class) scope: ScopeHandle,
         dispatchers: DispatcherProvider,
+        compiler: HarnessKotlinCompiler,
     ) : this(
         Paths.get(stores.filesDirectory("harness_cache")),
         System.getProperty("heartbeat.app.version") ?: "development",
         scope.coroutineScope,
         dispatchers,
+        compiler,
     )
 
     override val isAvailable: Boolean = true
@@ -78,11 +82,16 @@ internal class JvmHarnessScriptHost(
     private var isCachePrepared = false
 
     override suspend fun compile(request: HarnessCompilationRequest): HarnessCompilationResult {
-        val failures = validateHarnessSource(request.source)
-        if (failures.isNotEmpty()) return HarnessCompilationResult.Failure(failures)
         val item = cache.itemKey(request)
         val invalidated = AtomicBoolean(false)
         synchronized(pending) { pending.getOrPut(item) { mutableSetOf() }.add(invalidated) }
+        var isPrepared = false
+        val preparation = try {
+            prepareCompiler(request).also { isPrepared = it == null }
+        } finally {
+            if (!isPrepared) releasePending(item, invalidated)
+        }
+        if (preparation != null) return preparation
         val ticket = HarnessCompilationTicket()
         val work = scope.async(dispatchers.io) {
             queue.run(request.isAgentInitiated) {
@@ -91,14 +100,7 @@ internal class JvmHarnessScriptHost(
             }
         }
         // Completion cleanup must also run when the profile was already cancelled before async started.
-        work.invokeOnCompletion {
-            synchronized(pending) {
-                pending[item]?.let { tokens ->
-                    tokens.remove(invalidated)
-                    if (tokens.isEmpty()) pending.remove(item)
-                }
-            }
-        }
+        work.invokeOnCompletion { releasePending(item, invalidated) }
         try {
             return select {
                 work.onAwait { ticket.claim() }
@@ -108,6 +110,56 @@ internal class JvmHarnessScriptHost(
             // A waiter that leaves before its permit withdraws the queued request; an admitted compiler is detached.
             if (ticket.drop()) work.cancel()
         }
+    }
+
+    private fun releasePending(item: String, invalidated: AtomicBoolean) {
+        synchronized(pending) {
+            pending[item]?.let { tokens ->
+                tokens.remove(invalidated)
+                if (tokens.isEmpty()) pending.remove(item)
+            }
+        }
+    }
+
+    /** A valid cached artifact needs only the evaluator; network preparation does not consume the compile budget. */
+    private suspend fun prepareCompiler(request: HarnessCompilationRequest): HarnessCompilationResult.Failure? {
+        val preparing = compiler as? PreparingHarnessCompiler ?: return null
+        val work = scope.async(dispatchers.io) { prepareCompilerOwned(request, preparing) }
+        return try {
+            work.await()
+        } finally {
+            // Profile closure or a departing waiter releases this awaiter, while the app still owns the download.
+            work.cancel()
+        }
+    }
+
+    private suspend fun prepareCompilerOwned(
+        request: HarnessCompilationRequest,
+        preparing: PreparingHarnessCompiler,
+    ): HarnessCompilationResult.Failure? = try {
+        val key = classpath.key(request, appVersion)
+        val isReusable = lock.withLock {
+            prepareCache()
+            readCache(cache.itemKey(request), key, request.kind)?.let {
+                it.code.close()
+                true
+            } ?: false
+        }
+        if (!isReusable) preparing.prepare()
+        null
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        error.rethrowFatalHarnessFailure()
+        log.w(error.safeHarnessFailure()) { "Compiler components could not be prepared" }
+        HarnessCompilationResult.Failure(
+            listOf(
+                HarnessCodeDiagnostic(
+                    HarnessDiagnosticSeverity.Error,
+                    "Compiler components are unavailable. Check your connection and free disk space, then retry.",
+                ),
+            ),
+        )
     }
 
     private suspend fun compileOwned(
@@ -210,7 +262,7 @@ internal class JvmHarnessScriptHost(
                 }
             }
             val (script, loader) = (borrowed as HarnessMemoryCode).content()
-            val result = BasicJvmScriptingHost().evaluator(
+            val result = BasicJvmScriptEvaluator()(
                 script,
                 ScriptEvaluationConfiguration {
                     constructorArgs(argument)

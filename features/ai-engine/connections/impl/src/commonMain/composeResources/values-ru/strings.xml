@@ -226,4 +226,10 @@
     <string name="engine_launch_add_override">Добавить переопределение</string>
     <string name="engine_launch_add_variable">Добавить переменную</string>
     <string name="engine_login_code_label">Код со страницы входа</string>
+    <string name="engine_preparation_download">Скачивание компонентов движка…</string>
+    <string name="engine_preparation_install">Подготовка компонентов движка…</string>
+    <string name="engine_preparation_network">Не удалось скачать компоненты движка. Проверьте подключение и повторите операцию.</string>
+    <string name="engine_preparation_storage">Не удалось сохранить компоненты движка. Проверьте свободное место и повторите операцию.</string>
+    <string name="engine_preparation_invalid">Не удалось проверить компоненты движка. Повторите операцию для повторного скачивания.</string>
+    <string name="engine_preparation_unavailable">Компоненты движка недоступны. Повторите операцию.</string>
 </resources>

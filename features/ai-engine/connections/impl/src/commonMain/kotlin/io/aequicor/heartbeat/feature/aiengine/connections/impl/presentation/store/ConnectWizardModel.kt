@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.CredentialInput
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.di.scope.ConnectWizardScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibleProtocol
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
@@ -33,6 +34,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.isCompatibleOriginAllow
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import pro.respawn.flowmvi.api.MVIAction
@@ -89,6 +92,7 @@ data class ConnectWizardScreenState(
     val isCancelAllowed: Boolean = true,
     val isKeyStorageProtected: Boolean = true,
     val failure: FailureUi? = null,
+    val preparation: EnginePreparationUi? = null,
 ) : MVIState
 
 /** User events of the wizard. */
@@ -159,6 +163,7 @@ class ConnectWizardModel(
     @ForScope(ConnectWizardScope::class) scope: ScopeHandle,
     factory: HeartbeatStoreFactory,
     storage: SecretStorageInfo,
+    facade: EngineFacade,
 ) {
     private val log = Log.tag("ConnectWizardModel")
     private val sentKeys = mutableListOf<Secret>()
@@ -170,6 +175,30 @@ class ConnectWizardModel(
         onError = { copy(isBusy = false, failure = FailureUi.Unknown) },
     ) {
         init {
+            launch {
+                combine(machine.state, facade.engines.state) { state, engines ->
+                    val id = when (state) {
+                        is ConnectWizardState.ChoosingMethod -> state.engine.descriptor.id
+
+                        is ConnectWizardState.Connecting -> state.engine.descriptor.id
+
+                        is ConnectWizardState.ChoosingModels -> state.engine
+
+                        is ConnectWizardState.Saving -> state.engine
+
+                        ConnectWizardState.Idle,
+                        ConnectWizardState.Cancelled,
+                        is ConnectWizardState.ChoosingEngine,
+                        is ConnectWizardState.RollingBack,
+                        is ConnectWizardState.Finished,
+                        -> null
+                    }
+                    engines.firstOrNull { it.descriptor.id == id }?.preparation?.toUi()
+                }.distinctUntilChanged().collect { setup ->
+                    log.v { "Wizard runtime preparation changed" }
+                    updateState { copy(preparation = setup) }
+                }
+            }
             // Closing follows the terminal machine state for the whole store lifetime, so a result reached while
             // the screen is not subscribed is still delivered once it is back.
             launch {

@@ -7,9 +7,15 @@ plugins {
 
 compose.resources { packageOfResClass = "io.aequicor.heartbeat.feature.harness.impl.resources" }
 
+// The worker loads original Maven artifacts by SHA-256; a Kotlin upgrade needs a deliberate lock refresh.
+check(libs.versions.kotlin.get() == "2.4.20") {
+    "Refresh HarnessCompilerArtifacts and its pinned Kotlin version before upgrading the harness compiler"
+}
+
 kotlin {
     sourceSets {
         jvmMain.dependencies {
+            implementation(projects.core.network.api)
             implementation(libs.kotlin.compiler.embeddable)
             implementation(libs.kotlin.scripting.common)
             implementation(libs.kotlin.scripting.jvm)

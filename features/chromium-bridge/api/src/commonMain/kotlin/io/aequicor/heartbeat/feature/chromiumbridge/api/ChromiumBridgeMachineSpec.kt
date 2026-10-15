@@ -25,11 +25,14 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Enabled | TabsChanged | | stay(controlledTabs) | |
  * | Enabled | RevokeTabs | | stay | RevokeTabs |
  * | Enabled | ExtensionLocated | | stay(extensionFolder) | |
- * | Enabled | RevealExtension | extension folder known | stay | RevealExtension |
+ * | Enabled | RevealExtension | not preparing | stay(Downloading) | PrepareExtension |
+ * | Enabled | ExtensionProgress | preparing | stay(preparation) | |
+ * | Enabled | ExtensionPrepared | preparing | stay(folder, Idle) | RevealExtension |
+ * | Enabled | ExtensionFailed | preparing | stay(Failed) | |
  * | any | EffectFailed | | stay | |
  *
  * A failed registration effect becomes RegistrationFailed(WriteFailed), a failed Serve becomes
- * ServerChanged(Failed); other failures are EffectFailed.
+ * ServerChanged(Failed), and a failed PrepareExtension becomes ExtensionFailed; other failures are EffectFailed.
  */
 public val ChromiumBridgeMachineSpec: MachineSpec<
     ChromiumBridgeState,
@@ -87,9 +90,22 @@ public val ChromiumBridgeMachineSpec: MachineSpec<
         on<ChromiumBridgeIntent.Internal.ConnectionsChanged> { stay { state.copy(connections = intent.connections) } }
         on<ChromiumBridgeIntent.Internal.TabsChanged> { stay { state.copy(controlledTabs = intent.controlledTabs) } }
         on<ChromiumBridgeIntent.Public.RevokeTabs> { effect { ChromiumBridgeEffect.RevokeTabs } }
-        on<ChromiumBridgeIntent.Internal.ExtensionLocated> { stay { state.copy(extensionFolder = intent.folder) } }
-        on<ChromiumBridgeIntent.Public.RevealExtension>(guard = { state.extensionFolder != null }) {
-            effect { ChromiumBridgeEffect.RevealExtension(checkNotNull(state.extensionFolder)) }
+        on<ChromiumBridgeIntent.Internal.ExtensionLocated> {
+            stay { state.copy(extensionFolder = state.extensionFolder ?: intent.folder) }
+        }
+        on<ChromiumBridgeIntent.Public.RevealExtension>(guard = { !state.extensionPreparation.isPreparing }) {
+            stay { state.copy(extensionPreparation = ExtensionPreparation.Downloading()) }
+            effect { ChromiumBridgeEffect.PrepareExtension }
+        }
+        on<ChromiumBridgeIntent.Internal.ExtensionProgress>(guard = { state.extensionPreparation.isPreparing }) {
+            stay { state.copy(extensionPreparation = intent.preparation) }
+        }
+        on<ChromiumBridgeIntent.Internal.ExtensionPrepared>(guard = { state.extensionPreparation.isPreparing }) {
+            stay { state.copy(extensionFolder = intent.folder, extensionPreparation = ExtensionPreparation.Idle) }
+            effect { ChromiumBridgeEffect.RevealExtension(intent.folder) }
+        }
+        on<ChromiumBridgeIntent.Internal.ExtensionFailed>(guard = { state.extensionPreparation.isPreparing }) {
+            stay { state.copy(extensionPreparation = ExtensionPreparation.Failed) }
         }
     }
     any { on<ChromiumBridgeIntent.Internal.EffectFailed>() }
@@ -102,6 +118,8 @@ public val ChromiumBridgeMachineSpec: MachineSpec<
                 ChromiumBridgeIntent.Internal.RegistrationFailed(effect.browser, HostRegistrationFailure.WriteFailed)
 
             ChromiumBridgeEffect.Serve -> ChromiumBridgeIntent.Internal.ServerChanged(BridgeServerStatus.Failed)
+
+            ChromiumBridgeEffect.PrepareExtension -> ChromiumBridgeIntent.Internal.ExtensionFailed
 
             ChromiumBridgeEffect.ScanHosts,
             ChromiumBridgeEffect.RevokeTabs,
@@ -119,3 +137,6 @@ private fun ChromiumBridgeIntent.Internal.AvailabilityChanged.enabledState() =
 
 private fun List<BrowserHost>.replacing(host: BrowserHost): List<BrowserHost> =
     if (any { it.browser == host.browser }) map { if (it.browser == host.browser) host else it } else this + host
+
+private val ExtensionPreparation.isPreparing: Boolean
+    get() = this is ExtensionPreparation.Downloading || this == ExtensionPreparation.Extracting

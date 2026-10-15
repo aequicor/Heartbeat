@@ -99,6 +99,7 @@ internal class FakeEngineFacade : EngineFacade {
     var discoverFailure: EngineFailure? = null
     var refreshFailure: EngineFailure? = null
     var connectGate: CompletableDeferred<Unit>? = null
+    var discoverGate: CompletableDeferred<Unit>? = null
     var disconnectFailure: Exception? = null
     var disconnectCleanupFailure: Exception? = null
     val calls = mutableListOf<String>()
@@ -147,6 +148,7 @@ internal class FakeEngineFacade : EngineFacade {
 
         override suspend fun refresh(engine: EngineId, binding: EngineBindingId): ModelCatalogSnapshot {
             calls += "discover"
+            discoverGate?.await()
             discoverFailure?.let { throw EngineException(it) }
             val snapshot = ModelCatalogSnapshot(discovered.map { modelInfo(binding, it) }, Observation(isStale = false))
             snapshotOf(binding).value = snapshot

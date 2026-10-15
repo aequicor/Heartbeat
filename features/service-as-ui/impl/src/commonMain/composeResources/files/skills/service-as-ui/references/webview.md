@@ -43,6 +43,100 @@ The host supplies a system-sans body and inherited form fonts. Use semantic toke
 
 `heartbeat.theme` contains `colorScheme` (`light` or `dark`) and `variables`. Listen to `heartbeat:theme` if a canvas or other non-CSS view needs a repaint. The CSS variables update directly; do not infer the app theme only from `prefers-color-scheme`. Theme changes neither change data nor grant method access.
 
+Use `--hb-font-size` / `--hb-line-height` for controls and labels, and `--hb-body-size` / `--hb-body-line-height` for explanations and empty states. Reserve `--hb-caption-size` for secondary metadata; do not make meaningful text smaller. These tokens include the user's font scale. Use `--hb-text` and `--hb-text-muted` without extra opacity, and check text contrast against its actual background in both themes (at least 4.5:1 for normal text). Avoid tiny uppercase labels with wide letter spacing. Keep implementation details such as storage paths out of the working UI.
+
+## Responsive charts and drawings
+
+Expansion changes the viewport of the **same document**; it does not rerun initialization. A chart drawn only on load can become blurred or horizontally stretched when CSS resizes its old bitmap. Render labels, legends and empty states as HTML where possible so they retain normal text proportions and accessibility.
+
+- For canvas, observe the chart container with `ResizeObserver`. Set its CSS size from the layout and its backing `width`/`height` to the measured CSS size multiplied by `devicePixelRatio`. Reset the transform with `setTransform` and redraw from current data after resizing; changing either backing dimension clears the canvas and its context state. Never stretch a stale bitmap or accumulate `scale()` calls on every draw.
+- Redraw on data, theme, container size and device-pixel-ratio changes, including moving between monitors and returning from a hidden tab. Skip zero-sized containers and let the observer redraw when visible again. Do not change the observed container's size from the drawing callback.
+- For SVG, retain its aspect ratio (`viewBox` with the default `xMidYMid meet`); do not stretch text with `preserveAspectRatio="none"` or nonuniform CSS transforms. If a chart must fill independent width/height constraints, recompute plot coordinates for the measured viewport while keeping labels at the host font size.
+- Check the same page at narrow and wide widths, Start → expanded modal → Start, both themes and different display scales. Text must remain readable, circles round, and canvas X/Y pixel scales equal; draft input and the selected tab must survive.
+
+This standalone chart example uses `{values:number[]}` as its illustrative `heartbeat.data` snapshot. Adapt that data shape to the owner; it does not write records or call methods. The host still measures natural document height.
+
+```html
+<!doctype html>
+<html lang="en">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body { margin: 0; color: var(--hb-text); background: var(--hb-surface); }
+main { padding: var(--hb-space-l); }
+header { padding-inline-end: var(--hb-overlay-width, 0px); min-height: var(--hb-overlay-height, 0px); }
+h1 { font-size: var(--hb-title-size); margin: 0 0 var(--hb-space-m); }
+.plot { position: relative; width: 100%; height: 12rem; }
+canvas { display: block; width: 100%; height: 100%; }
+.empty {
+  position: absolute; inset: 0; margin: 0; padding: var(--hb-space-l);
+  display: grid; place-items: center; text-align: center; color: var(--hb-text-muted);
+  font-size: var(--hb-body-size); line-height: var(--hb-body-line-height);
+}
+.empty[hidden] { display: none; }
+</style>
+<main data-heartbeat-root>
+  <header><h1>Progress</h1></header>
+  <div class="plot">
+    <canvas role="img" aria-label="Progress chart" aria-describedby="chart-summary"></canvas>
+    <p class="empty">No records yet. Add your first entry to see progress.</p>
+  </div>
+  <p id="chart-summary" aria-live="polite"></p>
+</main>
+<script>
+const plot = document.querySelector('.plot');
+const canvas = plot.querySelector('canvas');
+const empty = plot.querySelector('.empty');
+const summary = document.getElementById('chart-summary');
+const ctx = canvas.getContext('2d');
+let values = [], pending = false;
+function draw() {
+  pending = false;
+  const {width, height} = plot.getBoundingClientRect();
+  if (width <= 0 || height <= 0) return;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.max(1, Math.round(width * dpr));
+  canvas.height = Math.max(1, Math.round(height * dpr));
+  ctx.setTransform(canvas.width / width, 0, 0, canvas.height / height, 0, 0);
+  if (!values.length) return;
+  const color = getComputedStyle(document.documentElement).getPropertyValue('--hb-accent').trim();
+  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2;
+  const low = Math.min(...values), high = Math.max(...values), range = high - low || 1;
+  const inset = 16;
+  const points = values.map((value, index) => ({
+    x: values.length === 1 ? width / 2 : inset + index / (values.length - 1) * (width - inset * 2),
+    y: high === low ? height / 2 : height - inset - (value - low) / range * (height - inset * 2)
+  }));
+  ctx.beginPath();
+  points.forEach((point, index) => index ? ctx.lineTo(point.x, point.y) : ctx.moveTo(point.x, point.y));
+  ctx.stroke();
+  for (const point of points) {
+    ctx.beginPath(); ctx.arc(point.x, point.y, 3, 0, Math.PI * 2); ctx.fill();
+  }
+}
+function schedule() {
+  if (!pending) { pending = true; requestAnimationFrame(draw); }
+}
+function receive(data) {
+  values = Array.isArray(data?.values) ? data.values.filter(Number.isFinite) : [];
+  empty.hidden = values.length > 0;
+  summary.textContent = values.length ? 'Recorded values: ' + values.join(', ') : '';
+  schedule();
+}
+new ResizeObserver(schedule).observe(plot);
+window.addEventListener('resize', schedule);
+window.addEventListener('heartbeat:theme', schedule);
+window.addEventListener('heartbeat:data', event => receive(event.detail));
+document.addEventListener('visibilitychange', () => { if (!document.hidden) schedule(); });
+function watchDensity() {
+  const query = matchMedia('(resolution: ' + (window.devicePixelRatio || 1) + 'dppx)');
+  query.addEventListener('change', () => { watchDensity(); schedule(); }, {once: true});
+}
+watchDensity();
+receive(heartbeat.data);
+</script>
+</html>
+```
+
 ## Minimal working page
 
 This HTML is the value of a `web.html` field, JSON-encoded as a string. Pair it with `bridge:true`, `data:"{{data.snapshot}}"`, `height:"content"`, and a read-only `snapshot` source. The illustrative owner publishes `save_note({text})` and `snapshot` returns `{note:string}`. Adapt those methods to the actual owner; this example does not create them.

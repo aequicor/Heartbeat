@@ -1,6 +1,8 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.toArgb
+import io.aequicor.heartbeat.ds.tokens.HbColors
 import io.aequicor.heartbeat.ds.tokens.HbSurfaceColors
 import java.awt.Color
 import java.awt.image.BufferedImage
@@ -24,16 +26,23 @@ class DesktopDocumentHostTest {
     }
 
     @Test
-    fun `modal restores only the missing scrim with original alpha at retina scale`() = onEdt {
+    fun `modal corners restore the dimmed surface over an empty native backing in both themes`() = onEdt {
         val host = host()
-        val scrim = Color(0, 0, 0, 80)
-        host.updateBackdrop(12.0, scrim)
-        val image = raster(host, scale = 2)
-        assertEquals(scrim.rgb, image.getRGB(0, 0))
-        assertEquals(0, image.getRGB(50, 50), "The document center must stay transparent")
-        assertEquals(0, image.getRGB(50, 0), "No top padding or header may be painted")
-        assertEquals(0, image.getRGB(0, 50), "No side padding may be painted")
-        assertEquals(scrim.rgb, image.getRGB(99, 99))
+        val themes = listOf(
+            HbColors.DesktopLight to HbSurfaceColors.DesktopLight,
+            HbColors.DesktopDark to HbSurfaceColors.DesktopDark,
+        )
+        for ((colors, surfaces) in themes) {
+            val backdrop = Color(colors.scrim.compositeOver(surfaces.assistant).toArgb(), true)
+            host.updateBackdrop(12.0, backdrop)
+            val image = raster(host, scale = 2)
+            assertEquals(255, image.getRGB(0, 0) ushr 24, "Corners must not depend on the cleared native backing")
+            assertEquals(backdrop.rgb, image.getRGB(0, 0))
+            assertEquals(0, image.getRGB(50, 50), "The document center must stay transparent")
+            assertEquals(0, image.getRGB(50, 0), "No top padding or header may be painted")
+            assertEquals(0, image.getRGB(0, 50), "No side padding may be painted")
+            assertEquals(backdrop.rgb, image.getRGB(99, 99))
+        }
     }
 
     @Test

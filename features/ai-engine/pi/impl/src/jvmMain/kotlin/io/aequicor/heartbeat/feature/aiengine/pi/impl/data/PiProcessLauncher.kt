@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
 import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.datastore.StorageOwner
@@ -8,7 +9,10 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.network.release.ReleaseException
+import io.aequicor.heartbeat.core.network.release.ReleaseFailure
 import io.aequicor.heartbeat.core.secrets.SecretKey
 import io.aequicor.heartbeat.core.secrets.SecretStore
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
@@ -16,6 +20,9 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparation
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparationFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
@@ -26,6 +33,10 @@ import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeAttachment
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import java.io.IOException
@@ -39,6 +50,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 @Inject
+@SingleIn(ProfileScope::class)
 internal class PiProcessLauncher(
     private val dispatchers: DispatcherProvider,
     private val secrets: SecretStore,
@@ -51,10 +63,15 @@ internal class PiProcessLauncher(
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     @ForScope(ProfileScope::class) private val stores: DataStores,
     private val launches: EngineLaunchConfig = EngineLaunchConfig.Default,
+    private val distribution: PiRuntimeDistribution,
 ) : PiProcesses {
     private val log = Log.tag("PiProcessLauncher")
     private val isMissingResourcesReported = AtomicBoolean(false)
     private val nativeSearch = AtomicReference<SearchBridgeAttachment?>(null)
+    private val preparationLock = Mutex()
+    private val preparationState = MutableStateFlow<EnginePreparation>(EnginePreparation.Idle)
+
+    val preparation: StateFlow<EnginePreparation> = preparationState
 
     /** The Pi the profile's launch context starts: a custom executable, Heartbeat's newer copy or the bundled one. */
     suspend fun startup(launch: LaunchContext? = null): PiStartup =
@@ -62,8 +79,44 @@ internal class PiProcessLauncher(
 
     suspend fun executable(): Path? = startup().executable
 
-    /** The version `preparePiRuntime` recorded next to the bundled executable, or null when it is unknown. */
-    fun bundledVersion(): String? {
+    /** Resolves and prepares the selected executable while the caller can still cancel native startup. */
+    suspend fun prepare(): PiStartup = preparationLock.withLock {
+        try {
+            val selected = withContext(dispatchers.io) { startup() }
+            if (selected.source == InstallSource.Missing ||
+                (selected.source == InstallSource.Bundled && selected.executable?.let(Files::isRegularFile) != true)
+            ) {
+                distribution.prepare(::publishPreparation)
+            } else if (selected.source == InstallSource.Bundled && distribution.executable() == selected.executable) {
+                distribution.prepare(::publishPreparation)
+            }
+            publishPreparation(EnginePreparation.Ready)
+            withContext(dispatchers.io) { startup() }
+        } catch (e: CancellationException) {
+            publishPreparation(EnginePreparation.Idle)
+            throw e
+        } catch (e: Exception) {
+            log.w(e.withoutDetails()) { "Pi runtime preparation failed" }
+            publishPreparation(EnginePreparation.Failed(preparationFailure(e)))
+            piFailure(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+        }
+    }
+
+    /** Requirements probes may report a pinned runtime as usable without downloading it. */
+    suspend fun canPrepare(): Boolean = startup().source.let { source ->
+        source != InstallSource.Custom && source != InstallSource.Managed && distribution.release != null
+    }
+
+    @HighFrequency
+    private fun publishPreparation(value: EnginePreparation) {
+        log.v { "Pi runtime preparation changed: ${value::class.simpleName.orEmpty()}" }
+        preparationState.value = value
+    }
+
+    /** The build's pinned baseline version, falling back to legacy packaged metadata for development builds. */
+    fun bundledVersion(): String? = distribution.release?.version ?: legacyBundledVersion()
+
+    private fun legacyBundledVersion(): String? {
         val file = bundledExecutable()?.resolveSibling(VERSION_FILE)?.takeIf { Files.isRegularFile(it) } ?: return null
         return try {
             Files.readString(file).trim().takeIf { it.isNotEmpty() && it.length <= MAX_VERSION_CHARS }
@@ -73,7 +126,9 @@ internal class PiProcessLauncher(
         }
     }
 
-    fun bundledExecutable(): Path? {
+    fun bundledExecutable(): Path? = distribution.executable() ?: legacyBundledExecutable()
+
+    private fun legacyBundledExecutable(): Path? {
         val root = System.getProperty("compose.application.resources.dir")
         if (root == null) {
             // Asked on every availability check; the missing directory is reported once.
@@ -83,7 +138,7 @@ internal class PiProcessLauncher(
             return null
         }
         val name = if (System.getProperty("os.name").startsWith("Windows")) "pi.exe" else "pi"
-        return Path.of(root, "pi", name)
+        return Path.of(root, "pi", name).takeIf { Files.isRegularFile(it) }
     }
 
     override suspend fun credentialFingerprint(source: AuthSource.ManagedKey): String = withContext(dispatchers.io) {
@@ -119,9 +174,10 @@ internal class PiProcessLauncher(
         failed: suspend (EngineFailure) -> Unit,
         plan: PiLaunchPlan?,
     ): PiConnection {
+        val startup = prepare()
         // Fetched before the non-cancellable launch so a slow compatible server stays cancellable.
         val modelsJson = modelsJson(source)
-        return launch(source, workspace, modelsJson, event, failed, plan ?: discoveryPlan())
+        return launch(source, workspace, modelsJson, event, failed, plan ?: discoveryPlan(), startup)
     }
 
     private suspend fun discoveryPlan(): PiLaunchPlan = PiLaunchPlan(
@@ -158,8 +214,8 @@ internal class PiProcessLauncher(
         event: suspend (JsonObject) -> Unit,
         failed: suspend (EngineFailure) -> Unit,
         plan: PiLaunchPlan,
+        startup: PiStartup,
     ): PiConnection = withContext(NonCancellable + dispatchers.io) {
-        val startup = startup()
         val executable = startup.executable?.takeIf { Files.isRegularFile(it) }
             ?: piFailure(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
         val provider = provider(source) ?: authenticationFailure(AuthFailureReason.AuthMismatch, source.info.id)
@@ -284,6 +340,27 @@ internal fun retainPiEnvironment(environment: MutableMap<String, String>) {
 
 private const val VERSION_FILE = "VERSION"
 private const val MAX_VERSION_CHARS = 64
+
+private fun preparationFailure(error: Exception): EnginePreparationFailure = when (error) {
+    is ReleaseException -> when (error.failure) {
+        ReleaseFailure.Http, ReleaseFailure.Network -> EnginePreparationFailure.Network
+
+        ReleaseFailure.Storage, ReleaseFailure.NotEnoughSpace -> EnginePreparationFailure.Storage
+
+        ReleaseFailure.InvalidMetadata,
+        ReleaseFailure.UntrustedSource,
+        ReleaseFailure.TooLarge,
+        ReleaseFailure.SizeMismatch,
+        ReleaseFailure.ChecksumMismatch,
+        -> EnginePreparationFailure.InvalidRuntime
+    }
+
+    is IOException, is SecurityException -> EnginePreparationFailure.Storage
+
+    is IllegalArgumentException -> EnginePreparationFailure.InvalidRuntime
+
+    else -> EnginePreparationFailure.Unavailable
+}
 
 private val PI_HOST_ENVIRONMENT = setOf(
     "PATH", "PATHEXT", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "OS", "PROCESSOR_ARCHITECTURE",

@@ -11,6 +11,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -22,6 +23,7 @@ import io.aequicor.heartbeat.ds.components.LocalHbDialogOverlayInsets
 import io.aequicor.heartbeat.ds.components.LocalHbDocumentFocusExit
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserDocumentSurface
+import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserRuntimeUi
 import io.aequicor.heartbeat.feature.browser.impl.presentation.DesktopDocumentAttachment
 import io.aequicor.heartbeat.feature.browser.impl.presentation.DesktopDocumentPanel
 import io.aequicor.heartbeat.feature.browser.impl.presentation.DesktopDocumentPanels
@@ -64,7 +66,7 @@ private fun RetainedDocumentPanel(
     modifier: Modifier = Modifier,
 ) {
     val attachment = remember(panel) { RememberedAttachment(panel.newAttachment()) }.attachment
-    val isUnavailable by panel.unavailable.collectAsState()
+    val preparation by panel.preparation.collectAsState()
     val size by panel.contentSize.collectAsState()
     var viewportWidth by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
@@ -84,9 +86,17 @@ private fun RetainedDocumentPanel(
     } else {
         0.0
     }
-    val backdrop = if (dismiss != null) HbTheme.colors.scrim else HbTheme.surfaces.assistant
+    // SwingPanel clears the Compose backing under the entire native rectangle. Its masked corners
+    // need the final opaque backdrop: a translucent scrim alone composites over the empty black hole.
+    val backdrop = if (dismiss != null) {
+        HbTheme.colors.scrim.compositeOver(HbTheme.surfaces.assistant)
+    } else {
+        HbTheme.surfaces.assistant
+    }
     val cornerColor = java.awt.Color(backdrop.toArgb(), true)
     SideEffect {
+        // Prepare before mounting Swing, whose heavyweight background would otherwise hide this viewport's status.
+        panel.createComponent()
         panel.updateTheme(theme)
         attachment.updateDismissRequest(dismiss)
         attachment.updateFocusExitRequest(focusExit)
@@ -94,8 +104,8 @@ private fun RetainedDocumentPanel(
     }
     val intrinsicHeight = size?.logicalHeight(viewportWidth / density.density)?.dp ?: dimensions.webDocumentHeight
     val sized = modifier.documentSize(surface, intrinsicHeight, dimensions)
-    if (isUnavailable) {
-        BrowserDocumentNote(stringResource(Res.string.browser_engine_unavailable), sized)
+    if (preparation != BrowserRuntimeUi.Ready) {
+        BrowserRuntimeStatus(preparation, panel::retry, sized)
     } else {
         // The panel's own background shows until the page paints: the surface color, not Swing's white.
         val name = surface.title.ifBlank { stringResource(Res.string.browser_document_page) }
