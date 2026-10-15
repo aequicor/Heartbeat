@@ -27,6 +27,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.FacadeContext
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ProfileEngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.RouteResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.RuntimePool
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.RuntimePoolShutdown
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.SessionCatalogService
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.SessionLauncher
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.SessionPolicy
@@ -62,7 +63,7 @@ object AiEngineSessionBindings {
     fun assembler(policy: SessionPolicy, context: FacadeContext): ActiveSessionAssembler =
         ActiveSessionAssembler(policy, context.scope)
 
-    /** Runtimes live with the profile; closing it releases them on the app scope. */
+    /** Runtimes live with the profile; application shutdown awaits any unfinished profile cleanup. */
     @Provides
     @SingleIn(ProfileScope::class)
     fun pool(
@@ -71,8 +72,10 @@ object AiEngineSessionBindings {
         launch: EngineLaunchConfig,
         @ForScope(ProfileScope::class) profile: ScopeHandle,
         @ForScope(AppScope::class) app: ScopeHandle,
+        shutdown: RuntimePoolShutdown,
     ): RuntimePool = RuntimePool(context, handles::hasActiveTurn, handles::closeHandles, launch::context).also { pool ->
-        profile.onClose { app.coroutineScope.launch { pool.closeAll() } }
+        val cleanup = shutdown.register(pool::closeAll)
+        profile.onClose { app.coroutineScope.launch { cleanup() } }
     }
 
     /** Session creation and resumption. */

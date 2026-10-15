@@ -11,8 +11,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -24,6 +25,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -207,18 +209,15 @@ class RuntimePool(
         // Registration must not be cancelled between creation and the pool, or the runtime would leak.
         val isStored = withContext(NonCancellable) {
             mutex.withLock {
-                if (isClosed) {
-                    false
-                } else {
-                    runtimes[key] = Pooled(created, context.clock.now(), launch)
-                    publish()
-                    true
-                }
+                // Shutdown waits for this source lock and owns retries if stopping this late runtime fails.
+                runtimes[key] = Pooled(created, context.clock.now(), launch)
+                publish()
+                !isClosed
             }
         }
         if (!isStored) {
             log.w { "runtime started during profile shutdown engine=${identity.engine.value}" }
-            withContext(NonCancellable) { closeQuietly(created) }
+            withContext(NonCancellable) { closeOwned(key) }
             fail(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
         }
         // A disconnect waiting for this source lock owns its shutdown, including retry if close fails.
@@ -329,25 +328,40 @@ class RuntimePool(
         }
     }
 
-    /** Closes every runtime at profile shutdown; later [runtime] calls fail with ProfileClosed. */
+    /**
+     * Closes every runtime, including creation already in flight; later [runtime] calls fail with ProfileClosed.
+     * Concurrent callers await the same source locks. Failed closes remain owned and are retried on the next call.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
     suspend fun closeAll() {
         val keys = mutex.withLock {
             isClosed = true
-            runtimes.keys.toList()
+            keyLocks.keys.toList()
         }
         log.i { "close runtimes count=${keys.size}" }
         // Share retirement's source locks: an explicit disconnect may already be closing the same runtime.
         // Each close has its own child, so a cancellation thrown by one adapter does not skip the others.
         withContext(NonCancellable) {
-            coroutineScope {
-                keys.forEach { key ->
-                    launch {
-                        locked(key) {
-                            val current = mutex.withLock { runtimes.remove(key).also { publish() } }
-                            current?.let { closeQuietly(it.runtime) }
-                        }
-                    }
-                }
+            val failures = supervisorScope {
+                val jobs = keys.map { key -> async { locked(key) { closeOwned(key) } } }
+                jobs.forEach { it.join() }
+                jobs.mapNotNull { it.getCompletionExceptionOrNull() }
+            }
+            failures.firstOrNull()?.let { first ->
+                failures.drop(1).forEach(first::addSuppressed)
+                throw first
+            }
+        }
+    }
+
+    /** Called under the source lock; removes ownership only after the adapter confirms cleanup completed. */
+    private suspend fun closeOwned(key: Pair<EngineId, AuthSourceId>) {
+        val current = mutex.withLock { runtimes[key] } ?: return
+        current.runtime.close()
+        mutex.withLock {
+            if (runtimes[key] === current) {
+                runtimes.remove(key)
+                publish()
             }
         }
     }

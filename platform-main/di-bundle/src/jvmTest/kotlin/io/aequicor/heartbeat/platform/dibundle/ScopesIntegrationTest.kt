@@ -3,20 +3,29 @@ package io.aequicor.heartbeat.platform.dibundle
 import com.arkivanov.essenty.instancekeeper.InstanceKeeperDispatcher
 import com.arkivanov.essenty.statekeeper.SerializableContainer
 import com.arkivanov.essenty.statekeeper.StateKeeperDispatcher
+import dev.zacsweers.metro.AppScope
+import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.createGraphFactory
+import io.aequicor.heartbeat.core.di.AppShutdownParticipant
 import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.di.ext.retainedGraph
 import io.aequicor.heartbeat.core.di.ext.retainedShared
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.profilefacade.ProfileSession
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.RuntimePoolShutdown
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -78,6 +87,49 @@ class ScopesIntegrationTest {
         assertTrue(work.isCancelled)
         assertNull(app.profileSessions.active.value)
         assertFalse(app.appScope.isClosed)
+    }
+
+    @Test
+    fun `desktop quit awaits scope cleanup and preserves the active profile`() = runTest {
+        val disk = PersistedProfile()
+        val app = newProcess(disk)
+        val session = app.profileSessions.open(ProfileId("p1"))
+        val cleanup = CompletableDeferred<Unit>()
+        val started = CompletableDeferred<Unit>()
+        val work = session.graph.scope.coroutineScope.launch {
+            try {
+                started.complete(Unit)
+                awaitCancellation()
+            } finally {
+                withContext(NonCancellable) { cleanup.await() }
+            }
+        }
+        started.await()
+        val closing = async { (app as AppShutdownAccessors).closeScopes() }
+        runCurrent()
+
+        assertTrue(app.appScope.isClosed)
+        assertTrue(session.graph.scope.isClosed)
+        assertFalse(closing.isCompleted)
+        assertEquals(ProfileId("p1"), disk.id)
+        cleanup.complete(Unit)
+        closing.await()
+        assertTrue(work.isCompleted)
+        assertEquals(ProfileId("p1"), newProcess(disk).profileSessions.restore()?.id)
+    }
+
+    @Test
+    fun `profile pool registration and application shutdown share one owner`() = runTest {
+        val app = newProcess(PersistedProfile())
+        val registry = (app as TestRuntimePoolShutdownAccessors).runtimePoolShutdown
+        val participant = (app as AppShutdownAccessors).shutdownParticipants
+            .filterIsInstance<RuntimePoolShutdown>().single()
+
+        assertSame(registry, participant)
+        var closes = 0
+        registry.register { closes++ }
+        (participant as AppShutdownParticipant).shutdown()
+        assertEquals(1, closes)
     }
 
     @Test
@@ -211,4 +263,10 @@ class ScopesIntegrationTest {
         second.close()
         assertTrue(second.value.scope.isClosed)
     }
+}
+
+/** Resolves the same pool shutdown owner used by profile bindings through its explicit registration contract. */
+@ContributesTo(AppScope::class)
+interface TestRuntimePoolShutdownAccessors {
+    val runtimePoolShutdown: RuntimePoolShutdown
 }
