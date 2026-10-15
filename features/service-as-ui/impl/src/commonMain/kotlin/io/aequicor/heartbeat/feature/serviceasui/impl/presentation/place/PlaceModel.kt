@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiState
 import io.aequicor.heartbeat.feature.serviceasui.api.UiCallContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwner
 import io.aequicor.heartbeat.feature.serviceasui.api.UiPlacement
+import io.aequicor.heartbeat.feature.serviceasui.api.UiSlot
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSurface
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSurfaceId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSurfaceName
@@ -48,11 +49,14 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import pro.respawn.flowmvi.api.PipelineContext
 import pro.respawn.flowmvi.api.Store
 import pro.respawn.flowmvi.plugins.reduce
 import pro.respawn.flowmvi.plugins.whileSubscribed
+import kotlin.time.Duration
 
 private typealias PlacePipeline = PipelineContext<PlaceState, PlaceIntent, PlaceAction>
 
@@ -92,6 +96,9 @@ internal class PlaceModel(
     /** Whether this place is the panel of a dock rather than a slot. */
     val isPanel: Boolean = place.isPanel
 
+    /** The compact context card is available independently of whether its responsive host is currently drawn. */
+    val isContext: Boolean = (target as? PlaceTarget.Slot)?.slot == UiSlot.Context
+
     /** Stores of the drawn surfaces and the modal one, by [PlaceSurfaceUi.key]. */
     val surfaces: StateFlow<ImmutableMap<String, SurfaceModel>> = models.asStateFlow()
 
@@ -100,12 +107,41 @@ internal class PlaceModel(
         initial = PlaceState(),
         onError = { this },
     ) {
-        whileSubscribed { Work(this).observe() }
+        if (isContext) {
+            whileSubscribed(stopDelay = Duration.ZERO) { Work(this).observe() }
+        } else {
+            whileSubscribed { Work(this).observe() }
+        }
         reduce { intent -> Work(this).handle(intent) }
     }
 
     init {
         store.start(scope)
+        if (isContext) scope.launch { observePresence() }
+    }
+
+    /**
+     * Publish only availability while the narrow host is closed. Surface stores and owner data sources still start
+     * on UI subscription. This avoids a cycle where the host waits for content before mounting its resolving slot.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private suspend fun observePresence() {
+        val slot = target as? PlaceTarget.Slot ?: return
+        machine.state.map { state ->
+            val ready = state as? ServiceUiState.Ready ?: return@map null
+            ready.hosts[slot.host]?.let { context -> ready.library to context }
+        }.distinctUntilChanged().flatMapLatest { snapshot ->
+            if (snapshot == null) return@flatMapLatest flowOf(null)
+            val (library, context) = snapshot
+            calls.activeOwners(context.call).map { owners ->
+                val isPresent = library.surfaces.any { surface ->
+                    surface.isEnabled && surface.content.owner in owners &&
+                        (surface.content.placement == slot.slot.placement || slot.slot in surface.content.launchers) &&
+                        decodeUiSpec(surface.content.spec) is UiSpecDecoding.Decoded
+                }
+                ServiceUiIntent.Internal.ResolveSlot(slot.host, slot.slot, isPresent, context, library.revision)
+            }
+        }.distinctUntilChanged().collect { request -> request?.let { machine.send(it) } }
     }
 
     /** Owners a provider reported active in [context] (null before the place shows a host). */
@@ -134,7 +170,7 @@ internal class PlaceModel(
                     call?.let { calls.activeOwners(it).map { owners -> ActiveOwners(call, owners) } }
                         ?: flowOf(ActiveOwners())
                 }
-            combine(machine.state, reported, modal) { state, owners, open ->
+            val shown = combine(machine.state, reported, modal) { state, owners, open ->
                 // Rebinding revokes the old surfaces immediately, including their running actions, while the new
                 // provider snapshot is still pending. Keeping the old state would leave another chat's UI live.
                 val context = target.host(state)?.second?.call
@@ -143,7 +179,18 @@ internal class PlaceModel(
                 }
                 val shown = open?.let { target.modal(state, owners.owners, it) }
                 Shown(target.content(state, owners.owners), shown, open, owners)
-            }.distinctUntilChanged().collect { show(it) }
+            }.distinctUntilChanged()
+            try {
+                shown.collect { show(it) }
+            } finally {
+                // A compact context dialog can disappear while its route stays retained. Its hidden web pages
+                // must lose their bridges and stop, rather than outlive the host context until the next opening.
+                if (isContext) {
+                    active.value = ActiveOwners()
+                    modal.value = null
+                    keep(emptyList())
+                }
+            }
         }
 
         suspend fun handle(intent: PlaceIntent) {
@@ -243,7 +290,7 @@ internal class PlaceModel(
             context = placed.context.call,
             args = placed.args,
             facts = UiFacts(platform, hasSession = placed.context.call.session != null),
-            host = PlaceSurfaceHost(placed),
+            host = PlaceSurfaceHost(placed, child),
             title = placed.surface.content.title,
         )
         return try {
@@ -266,24 +313,28 @@ internal class PlaceModel(
     }
 
     /** Prompts go to the host place of the surface; panels open in its dock, or over the place without one. */
-    private inner class PlaceSurfaceHost(private val placed: PlacedSurface) : SurfaceHost {
+    private inner class PlaceSurfaceHost(private val placed: PlacedSurface, private val drawingScope: CoroutineScope) :
+        SurfaceHost {
+        override fun isActive(): Boolean = drawingScope.isActive && isCurrent(placed)
+
         override suspend fun prompt(text: String, isSubmitted: Boolean): Boolean {
-            if (!isCurrent(placed)) return false
+            if (!isActive()) return false
             val request = ServiceUiIntent.Internal.RequestPrompt(placed.host, text, isSubmitted, placed.context)
             return machine.send(request) == SendResult.Accepted
         }
 
-        override suspend fun focusCard(name: String): Boolean = isCurrent(placed) &&
+        override suspend fun focusCard(name: String): Boolean = isActive() &&
             machine.focusSurfaceCard(cards, placed.host, placed.surface.content.owner, name, placed.context)
 
         override suspend fun openPanel(name: String, args: JsonObject): Boolean {
-            if (!isCurrent(placed)) return false
+            if (!isActive()) return false
             if (placed.context.dock == null) return openOver(placed, name, args)
             val surface = surfaceOver(placed.surface.content.owner, name) ?: return false
             val request = ServiceUiIntent.Public.OpenPanel(placed.host, surface.id, args, placed.context)
             return machine.send(request) == SendResult.Accepted
         }
 
-        override suspend fun openSurface(name: String, args: JsonObject): Boolean = openOver(placed, name, args)
+        override suspend fun openSurface(name: String, args: JsonObject): Boolean =
+            isActive() && openOver(placed, name, args)
     }
 }

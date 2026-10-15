@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfaceApp
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfacePlace
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSurfacePrompt
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiEnabled
@@ -20,12 +21,20 @@ import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiIntent
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiMachineKey
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiOutput
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiState
+import io.aequicor.heartbeat.feature.serviceasui.api.UiApp
 import io.aequicor.heartbeat.feature.serviceasui.api.UiCallContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiDockId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostId
+import io.aequicor.heartbeat.feature.serviceasui.api.UiLibrary
+import io.aequicor.heartbeat.feature.serviceasui.api.UiOwner
 import io.aequicor.heartbeat.feature.serviceasui.api.UiPanel
+import io.aequicor.heartbeat.feature.serviceasui.api.UiPlacement
+import io.aequicor.heartbeat.feature.serviceasui.api.UiSlot
+import io.aequicor.heartbeat.feature.serviceasui.api.UiSurface
+import io.aequicor.heartbeat.feature.serviceasui.api.UiSurfaceContent
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSurfaceId
+import io.aequicor.heartbeat.feature.serviceasui.api.UiSurfaceName
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -39,6 +48,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.time.Instant
 
 class MachineStudioSurfacesTest {
     private val native = SessionRef(EngineId("engine"), SessionSourceId("source"), "chat")
@@ -178,6 +188,72 @@ class MachineStudioSurfacesTest {
 
         surfaces.closePanel()
         assertEquals(listOf<ServiceUiIntent.Public>(ServiceUiIntent.Public.ClosePanel(dock)), machine.sent)
+        job.cancel()
+    }
+
+    @Test
+    fun `app metadata stays within its window and opens with the exact captured context`() = runTest {
+        val machine = FakeSurfaceMachine()
+        val surfaces = MachineStudioSurfaces(Registry(machine), Toggles(true))
+        val host = UiHostId(surfaces.host(2))
+        val context = UiHostContext(UiCallContext(session = native), UiDockId(surfaces.dock))
+        val content = UiSurfaceContent(
+            UiOwner("harness", "gym"),
+            UiSurfaceName("app"),
+            UiPlacement.Card,
+            "Gym",
+            spec = "{}",
+        )
+        val surface = UiSurface(content, createdAt = Instant.DISTANT_PAST, updatedAt = Instant.DISTANT_PAST)
+        val app = UiApp(surface.id, context)
+        val seen = mutableListOf<Map<Int, StudioSurfaceApp>>()
+        val job = launch { surfaces.apps.toList(seen) }
+        runCurrent()
+        machine.state.value = ServiceUiState.Ready(
+            library = UiLibrary(listOf(surface)),
+            hosts = mapOf(host to context),
+            apps = mapOf(host to app, UiHostId("other.pane-2") to app),
+        )
+        runCurrent()
+        val selected = seen.last().getValue(2)
+        assertEquals(setOf(2), seen.last().keys)
+        assertEquals("gym", selected.harnessId)
+        assertEquals("Gym", selected.title)
+        surfaces.openApp(2, selected)
+        assertEquals(ServiceUiIntent.Public.OpenApp(host, surface.id, context), machine.sent.last())
+
+        machine.state.value = (machine.state.value as ServiceUiState.Ready).copy(
+            hosts = mapOf(host to context.copy(call = UiCallContext(session = native.copy(nativeId = "other")))),
+        )
+        runCurrent()
+        assertTrue(seen.last().isEmpty(), "Old app metadata must disappear before a new host resolves")
+        job.cancel()
+    }
+
+    @Test
+    fun `context presence is scoped to this window and disappears with its binding`() = runTest {
+        val machine = FakeSurfaceMachine()
+        val surfaces = MachineStudioSurfaces(Registry(machine), Toggles(true))
+        val host = UiHostId(surfaces.host(2))
+        val foreign = UiHostId("other.pane-2")
+        val unbound = UiHostId(surfaces.host(3))
+        val context = UiHostContext(UiCallContext(session = native))
+        val seen = mutableListOf<Map<Int, StudioSurfacePlace>>()
+        val job = launch { surfaces.contextPanels.toList(seen) }
+        runCurrent()
+        machine.state.value = ServiceUiState.Ready(
+            hosts = mapOf(host to context, foreign to context),
+            slots = mapOf(
+                host to setOf(UiSlot.Context),
+                foreign to setOf(UiSlot.Context),
+                unbound to setOf(UiSlot.Context),
+            ),
+        )
+        runCurrent()
+        assertEquals(mapOf(2 to StudioSurfacePlace(chat = native)), seen.last())
+        machine.state.value = (machine.state.value as ServiceUiState.Ready).copy(hosts = emptyMap())
+        runCurrent()
+        assertTrue(seen.last().isEmpty())
         job.cancel()
     }
 

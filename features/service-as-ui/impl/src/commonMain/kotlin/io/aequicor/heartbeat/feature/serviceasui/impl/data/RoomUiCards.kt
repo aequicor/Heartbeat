@@ -44,6 +44,9 @@ internal class RoomUiCards(
 
     override fun observe(id: String): Flow<UiCard?> = dao.observe(id).map { it?.card() }
 
+    override fun observeLive(chat: SessionRef): Flow<UiCard?> =
+        dao.observeLive(Json.encodeToString(SessionRef.serializer(), chat)).map { it?.card() }
+
     override suspend fun latest(chat: SessionRef, surface: UiSurfaceId): UiCard? =
         dao.latest(Json.encodeToString(SessionRef.serializer(), chat), surface.value)?.card()
 

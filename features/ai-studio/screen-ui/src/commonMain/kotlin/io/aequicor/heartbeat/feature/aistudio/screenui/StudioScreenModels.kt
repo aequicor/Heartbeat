@@ -23,13 +23,16 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionTreeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SettingsUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioAppUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioNoticeDismissalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.appFor
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.attachmentSupport
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.availableHarnesses
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.collapsed
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.contextPanelFor
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.dismissedNotices
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.isAttachmentPending
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.noticeDismissal
@@ -61,7 +64,7 @@ data class StudioExits(
     val onCloseChatArea: (() -> Unit)? = null,
     val questions: ImmutableMap<String, StudioEmbed> = persistentMapOf(),
     val checklists: ImmutableMap<String, StudioEmbed> = persistentMapOf(),
-    /** Interface slots keyed by the shared composer/start slot helpers. */
+    /** Interface slots and the single app host keyed by the shared composer/start/context/app helpers. */
     val slots: ImmutableMap<String, StudioEmbed> = persistentMapOf(),
     /** Cards of interfaces shown in replies, keyed by `studioCardKey(pane, cardId)`. */
     val cards: ImmutableMap<String, StudioEmbed> = persistentMapOf(),
@@ -95,6 +98,8 @@ data class PaneContent(
     val models: ImmutableList<ModelUi> = persistentListOf(),
     val dismissedNotices: ImmutableSet<StudioNoticeUi> = persistentSetOf(),
     val cardFocus: CardFocusRequestUi? = null,
+    val app: StudioAppUi? = null,
+    val isContextPanelAvailable: Boolean = false,
     val permissions: ImmutableList<PermissionUi> = persistentListOf(),
     val isStopFailed: Boolean = false,
     val isStoppable: Boolean = true,
@@ -185,6 +190,8 @@ fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         dismissedNotices = dismissedNotices(pane.id),
         noticeTargets = StudioNoticeUi.entries.associateWith { noticeDismissal(pane, it) }.toImmutableMap(),
         cardFocus = cardFocusRequests[pane.id]?.takeIf { it.chatId == pane.sessionId },
+        app = appFor(pane),
+        isContextPanelAvailable = contextPanelFor(pane) != null,
         session = session,
         project = project(pane.projectId ?: session?.projectId),
         projects = projects,
@@ -217,10 +224,7 @@ fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         isStoppable = pane.sessionId !in uncancellable,
         isResearchAvailable = isResearchEnabled && pane.sessionId == null && pane.projectId == null &&
             models.any { it.id == settings.modelId && it.isResearchSupported },
-        models = modelsForProject(
-            pane.projectId ?: session?.projectId,
-            paneModelId(session, configuration, organism),
-        ),
+        models = modelsForProject(pane.projectId ?: session?.projectId, paneModelId(session, configuration, organism)),
         isProjectAddingAvailable = isProjectAddingAvailable && addingProjectTo == null,
         isPickingProject = addingProjectTo == pane.id,
         isProjectFailed = projectErrorPane == pane.id,

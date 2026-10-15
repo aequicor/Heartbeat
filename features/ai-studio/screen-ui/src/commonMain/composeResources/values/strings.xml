@@ -1,4 +1,5 @@
 <resources>
+    <string name="miniapp_open">Open %1$s</string>
     <string name="session_tree_root">Root session</string>
     <string name="session_tree_unknown">unknown</string>
     <string name="session_tree_activity">Active descendants; + or ? means some activity is unknown</string>
@@ -318,4 +319,5 @@
     <string name="harness_picker_one">Harness · %1$s</string>
     <string name="harness_picker_many">Harnesses · %1$d</string>
     <string name="attachments_page">Attach current page</string>
+    <string name="pane_context_panel">Context panel</string>
 </resources>

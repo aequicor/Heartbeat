@@ -48,6 +48,9 @@ internal fun AiStudioScreenState.reflectMachine(machine: AiStudioState): AiStudi
         cardFocusRequests = cardFocusRequests.filter { (pane, request) ->
             machine.panes.any { it.id == pane && it.sessionId == request.chatId }
         }.toImmutableMap(),
+        apps = apps.filter { (pane, app) ->
+            machine.panes.any { it.id == pane && it.sessionId == app.sessionId && it.projectId == app.projectId }
+        }.toImmutableMap(),
         focusedPaneId = machine.focusedPaneId,
         running = machine.running.toImmutableSet(),
         runStartedAt = machine.runStartedAt.toImmutableMap(),

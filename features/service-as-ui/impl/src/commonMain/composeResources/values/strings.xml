@@ -1,4 +1,6 @@
 <resources>
+    <string name="service_ui_app_open">Open app</string>
+    <string name="service_ui_app_expand">Expand app</string>
     <string name="service_ui_busy">Running</string>
     <string name="service_ui_cancel">Cancel</string>
     <string name="service_ui_continue">Continue</string>
@@ -40,6 +42,9 @@
     <string name="service_ui_show_surface">Show “%1$s”</string>
     <string name="service_ui_placement_composer">Above the input</string>
     <string name="service_ui_placement_start">New chat</string>
+    <string name="service_ui_context_actions">Actions</string>
+    <string name="service_ui_context_surfaces">Context panels</string>
+    <string name="service_ui_placement_context">Chat context</string>
     <string name="service_ui_placement_card">In a chat response</string>
     <string name="service_ui_placement_panel">Side panel</string>
     <string name="service_ui_placement_modal">Dialog</string>

@@ -53,6 +53,7 @@ internal data class OpenModal(val name: String, val args: JsonObject) {
  * The drawn surface: [root] and the top [modal] are evaluated from [values]; [isMethodsAvailable] tells whether the
  * owner's code runs here, [hasStarted] whether the automatic data sources were loaded. [loadedRevision] and
  * [loadedMethodsGeneration] identify the durable data and published code last read by automatic sources.
+ * [inputBinding] identifies the authority that rendered this state; callbacks retain it across queued UI events.
  */
 @Immutable
 internal data class SurfaceState(
@@ -65,6 +66,7 @@ internal data class SurfaceState(
     val hasStarted: Boolean = false,
     val loadedRevision: Long? = null,
     val loadedMethodsGeneration: String? = null,
+    val inputBinding: SurfaceInputBinding? = null,
 ) : MVIState {
     override fun toString(): String =
         "SurfaceState(modals=${modals.size}, notice=${notice?.let { it::class.simpleName } ?: "none"}, " +
@@ -73,6 +75,12 @@ internal data class SurfaceState(
 
 /** User input of a surface. */
 internal sealed interface SurfaceIntent : MVIIntent {
+    /** Captured before enqueue, or by the rendered view before a delayed callback; never rebound at dequeue. */
+    data class Bound(val binding: SurfaceInputBinding, val input: SurfaceIntent) : SurfaceIntent
+
+    /** The retained app changed authority; refresh facts and auto-source admission without replacing its DOM. */
+    data object BindingChanged : SurfaceIntent
+
     /** A button or a row was pressed (after its confirmation, if any). */
     data class Press(val press: UiPress) : SurfaceIntent
 
@@ -114,6 +122,9 @@ internal sealed interface SurfaceAction : MVIAction {
 
 /** The host side of a surface: the place it is drawn in. */
 internal interface SurfaceHost {
+    /** Current host authority, checked again before queued work and after suspended owner calls. */
+    fun isActive(): Boolean = true
+
     /** Puts [text] into the host's composer, or sends it when [isSubmitted]; false when no host can take it. */
     suspend fun prompt(text: String, isSubmitted: Boolean): Boolean
 

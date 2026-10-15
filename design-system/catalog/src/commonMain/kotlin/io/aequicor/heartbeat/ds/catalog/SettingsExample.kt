@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.ds.catalog
 
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -13,9 +14,11 @@ import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonSize
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbDialog
+import io.aequicor.heartbeat.ds.components.HbDialogWidth
 import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbEmptyState
 import io.aequicor.heartbeat.ds.components.HbIcon
+import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbLoadingState
 import io.aequicor.heartbeat.ds.components.HbSettingsRow
@@ -37,6 +40,7 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 internal fun SettingsExample(modifier: Modifier = Modifier) {
     var isPreferred by rememberSaveable { mutableStateOf(true) }
     var isDialogOpen by rememberSaveable { mutableStateOf(false) }
+    var isWorkspaceOpen by rememberSaveable { mutableStateOf(false) }
     HbColumn(modifier.fillMaxWidth().testTag("settings-example"), gap = HbTheme.spacing.l) {
         HbText(hbString(HbString.SettingsCatalog), style = HbTheme.typography.title)
         HbButtonSize.entries.forEach { size ->
@@ -63,6 +67,11 @@ internal fun SettingsExample(modifier: Modifier = Modifier) {
                 HbIcon(HbIcons.ChevronRight, null, tint = HbTheme.colors.textSecondary)
             }
             HbDivider()
+            HbSettingsRow(
+                "${hbString(HbString.OpenDialog)} · ${HbDialogWidth.Wide.name}",
+                onClick = { isWorkspaceOpen = true },
+            ) { HbIcon(HbIcons.Maximize, null) }
+            HbDivider()
             HbSettingsRow(hbString(HbString.Disabled), enabled = false) {
                 HbSwitch(false, {}, hbString(HbString.Disabled), enabled = false)
             }
@@ -83,6 +92,20 @@ internal fun SettingsExample(modifier: Modifier = Modifier) {
             },
         ) {
             HbText(hbString(HbString.DialogBody), color = HbTheme.colors.textSecondary)
+        }
+    }
+    if (isWorkspaceOpen) {
+        HbDialog(
+            hbString(HbString.DialogTitle),
+            onDismissRequest = { isWorkspaceOpen = false },
+            width = HbDialogWidth.Wide,
+            isContentFill = true,
+            isContentScrollable = false,
+            headerActions = {
+                HbIconButton(HbIcons.Close, hbString(HbString.CancelAction), { isWorkspaceOpen = false })
+            },
+        ) {
+            HbEmptyState(hbString(HbString.EmptyTitle), Modifier.fillMaxSize(), hbString(HbString.EmptyHint))
         }
     }
 }

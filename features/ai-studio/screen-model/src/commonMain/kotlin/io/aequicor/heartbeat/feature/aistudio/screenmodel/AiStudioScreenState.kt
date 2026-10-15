@@ -63,6 +63,10 @@ data class AiStudioScreenState(
     val diagramSubmissions: ImmutableMap<String, DiagramSubmissionUi> = persistentMapOf(),
     /** Pending requests to reveal an exact inline card; consumed only by its owning pane and sequence. */
     val cardFocusRequests: ImmutableMap<Int, CardFocusRequestUi> = persistentMapOf(),
+    /** Canonical app launchers, resolved for each pane independently of lazy transcript cards. */
+    val apps: ImmutableMap<Int, StudioAppUi> = persistentMapOf(),
+    /** Context panels available for the exact captured pane selection. */
+    val contextPanels: ImmutableMap<Int, StudioContextPanelUi> = persistentMapOf(),
     val diagramFocusRequests: ImmutableMap<Int, Long> = persistentMapOf(),
     val diagramDraftReasons: ImmutableMap<String, DiagramDraftReasonUi> = persistentMapOf(),
     val attachmentRequests: ImmutableMap<String, String> = persistentMapOf(),

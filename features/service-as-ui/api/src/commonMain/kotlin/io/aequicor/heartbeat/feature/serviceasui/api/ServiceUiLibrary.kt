@@ -16,6 +16,10 @@ public enum class UiPlacement {
     @SerialName("start")
     Start,
 
+    /** In the compact context card at the top right of the chat while the owner is active or preselected. */
+    @SerialName("context")
+    Context,
+
     /** In a chat response via `ui_show`, with live owner data and actions, without a slot launcher. */
     @SerialName("card")
     Card,
@@ -30,7 +34,7 @@ public enum class UiPlacement {
     ;
 
     /** Whether the surface is drawn inline in a slot instead of being opened. */
-    public val isInline: Boolean get() = this == Composer || this == Start
+    public val isInline: Boolean get() = this == Composer || this == Start || this == Context
 }
 
 /** Inline slots of a host: they draw inline surfaces and the launchers of surfaces that open. */
@@ -43,6 +47,10 @@ public enum class UiSlot {
     /** The start window of a new chat. */
     @SerialName("start")
     Start,
+
+    /** The content-sized context card at the top right of the chat; the host adapts it to narrow windows. */
+    @SerialName("context")
+    Context,
     ;
 
     /** Placement of the surfaces drawn inline in this slot. */
@@ -50,6 +58,7 @@ public enum class UiSlot {
         get() = when (this) {
             Composer -> UiPlacement.Composer
             Start -> UiPlacement.Start
+            Context -> UiPlacement.Context
         }
 }
 

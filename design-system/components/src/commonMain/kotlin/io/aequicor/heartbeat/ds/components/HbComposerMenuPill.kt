@@ -27,6 +27,7 @@ internal fun ComposerMenuPill(
     icon: ImageVector? = null,
     enabled: Boolean = true,
     isAccent: Boolean = false,
+    isLabelVisible: Boolean = true,
 ) {
     val interactions = remember { MutableInteractionSource() }
     val isFocused by interactions.collectIsFocusedAsState()
@@ -60,13 +61,15 @@ internal fun ComposerMenuPill(
         gap = HbTheme.spacing.xs,
     ) {
         if (icon != null) HbIcon(icon, null, tint = foreground)
-        HbText(
-            label,
-            Modifier.weight(1f, fill = false).widthIn(max = HbTheme.dimensions.composerLabelMaxWidth),
-            style = HbTheme.typography.label,
-            color = foreground,
-            maxLines = 1,
-        )
+        if (isLabelVisible) {
+            HbText(
+                label,
+                Modifier.weight(1f, fill = false).widthIn(max = HbTheme.dimensions.composerLabelMaxWidth),
+                style = HbTheme.typography.label,
+                color = foreground,
+                maxLines = 1,
+            )
+        }
         HbIcon(HbIcons.ChevronDown, null, tint = foreground)
     }
 }

@@ -16,6 +16,8 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiCallContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwner
+import io.aequicor.heartbeat.feature.serviceasui.api.UiPlacement
+import io.aequicor.heartbeat.feature.serviceasui.api.UiSurface
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSurfaceId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSurfaceName
 import io.aequicor.heartbeat.feature.serviceasui.impl.di.scope.ServiceUiCardScope
@@ -50,6 +52,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.JsonObject
 import pro.respawn.flowmvi.api.PipelineContext
 import pro.respawn.flowmvi.api.Store
+import pro.respawn.flowmvi.plugins.reduce
 import pro.respawn.flowmvi.plugins.whileSubscribed
 
 private typealias CardPipeline = PipelineContext<CardState, CardIntent, CardAction>
@@ -59,7 +62,8 @@ private typealias CardPipeline = PipelineContext<CardState, CardIntent, CardActi
  * card's arguments. Owned cards load live data; every card only inserts prompts into the composer of the place it is
  * drawn in, while that place shows its chat; an evicted card, a gone or disabled surface or a switched-off feature
  * shows a placeholder. The drawn surface restarts when its spec, owner, place or arguments change, and releases
- * native documents while its transcript row is hidden. Reappearing loads durable state again.
+ * native documents while its transcript row is hidden. Library Card apps instead render only a native entry to
+ * the host's retained app; they never create a second SurfaceModel or native document.
  */
 @SingleIn(ServiceUiCardScope::class)
 @Inject
@@ -82,6 +86,7 @@ internal class CardModel(
     private var running: Running? = null
     private var unreadable: DrawnCard? = null
     private var drawings = 0L
+    private var appRequest: ServiceUiIntent.Public.OpenApp? = null
 
     /** The store of the drawn surface by [CardState.key]. */
     val surfaces: StateFlow<ImmutableMap<String, SurfaceModel>> = models.asStateFlow()
@@ -92,6 +97,11 @@ internal class CardModel(
         onError = { this },
     ) {
         whileSubscribed { Work(this).observe() }
+        reduce { intent ->
+            when (intent) {
+                CardIntent.OpenApp -> appRequest?.let { machine.send(it) }
+            }
+        }
     }
 
     init {
@@ -146,15 +156,46 @@ internal class CardModel(
         }
 
         private suspend fun show(card: UiCard?, state: ServiceUiState, drawn: DrawnCard?) {
-            keep(drawn)
-            val key = running?.key
-            val shown = when {
-                card == null -> CardState(CardPhase.Missing)
-                state is ServiceUiState.Loading -> CardState(CardPhase.Loading, card.title)
-                drawn == null || key == null -> CardState(CardPhase.Unavailable, card.title)
-                else -> CardState(CardPhase.Drawn, card.title, key)
-            }
-            pipeline.updateState { shown }
+            val ready = state as? ServiceUiState.Ready
+            val source = card?.source as? UiCardSource.Surface
+            val library = source?.let { ready?.library?.get(it.surface) }
+            val appSurface = library?.takeIf { it.content.placement == UiPlacement.Card }
+            appRequest = appSurface?.let { openAppRequest(ready, it.id, drawn) }
+            keep(drawn.takeUnless { appSurface != null })
+            pipeline.updateState { cardState(card, state, drawn, appSurface) }
+        }
+    }
+
+    private fun openAppRequest(
+        state: ServiceUiState.Ready?,
+        surface: UiSurfaceId,
+        drawn: DrawnCard?,
+    ): ServiceUiIntent.Public.OpenApp? {
+        val host = place ?: return null
+        return state?.apps?.get(host)?.takeIf { it.surface == surface && it.context == drawn?.context }
+            ?.let { ServiceUiIntent.Public.OpenApp(host, it.surface, it.context) }
+    }
+
+    private fun cardState(card: UiCard?, state: ServiceUiState, drawn: DrawnCard?, app: UiSurface?): CardState {
+        val key = running?.key
+        return when {
+            card == null -> CardState(CardPhase.Missing)
+
+            state is ServiceUiState.Loading -> CardState(CardPhase.Loading, card.title)
+
+            drawn == null -> CardState(CardPhase.Unavailable, card.title)
+
+            app != null -> CardState(
+                CardPhase.Drawn,
+                app.content.title,
+                isApp = true,
+                description = app.content.description,
+                isOpenEnabled = appRequest != null,
+            )
+
+            key == null -> CardState(CardPhase.Unavailable, card.title)
+
+            else -> CardState(CardPhase.Drawn, card.title, key)
         }
     }
 

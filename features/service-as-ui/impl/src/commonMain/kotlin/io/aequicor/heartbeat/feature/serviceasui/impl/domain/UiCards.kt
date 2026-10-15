@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.serviceasui.impl.domain
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSurfaceId
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.serialization.json.JsonObject
 import kotlin.time.Instant
 
@@ -55,6 +56,9 @@ internal interface UiCardStorage {
 
     /** The card [id]; legacy library ids resolve to their chat's current live slot. Missing ids return null. */
     fun observe(id: String): Flow<UiCard?>
+
+    /** The canonical live receipt of [chat], independent of lazy transcript composition. */
+    fun observeLive(chat: SessionRef): Flow<UiCard?> = flowOf(null)
 
     /** The current live slot, only if it still shows [surface] in [chat]; replaced surfaces return null. */
     suspend fun latest(chat: SessionRef, surface: UiSurfaceId): UiCard?

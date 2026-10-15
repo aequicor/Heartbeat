@@ -118,6 +118,11 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     @SerialName("AiStudioScreenIntent.CardFocusApplied")
     data class CardFocusApplied(val paneId: Int, val sequence: Long) : AiStudioScreenIntent
 
+    /** Opens the native app viewer only if this surface still belongs to the pane's current context. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.OpenApp")
+    data class OpenApp(val paneId: Int, val surfaceId: String) : AiStudioScreenIntent
+
     /** Local sidebar presentation. */
     @Serializable
     @SerialName("AiStudioScreenIntent.Sidebar")

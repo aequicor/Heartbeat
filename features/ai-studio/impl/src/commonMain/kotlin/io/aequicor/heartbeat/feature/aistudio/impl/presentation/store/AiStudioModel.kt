@@ -123,7 +123,7 @@ class AiStudioModel(
     private val compactions: StudioCompactionPort = StudioCompactionPort.None,
     private val host: StudioScreenHost = StudioScreenHost.Window,
     private val embeddedScreens: StudioEmbeds = StudioEmbeds.None,
-    surfaceBinding: StudioSurfaceBinding = StudioSurfaceBinding(StudioSurfaces.None, backend, scope),
+    private val surfaceBinding: StudioSurfaceBinding = StudioSurfaceBinding(StudioSurfaces.None, backend, scope),
 ) {
     private val log = Log.tag("AiStudioModel")
     private val inputContexts = StudioInputContexts()
@@ -438,20 +438,19 @@ class AiStudioModel(
         pipeline: StudioPipeline,
         intent: AiStudioScreenIntent,
         environment: StudioChatEnvironment?,
-    ) = with(
-        pipeline,
     ) {
         when (intent) {
-            is AiStudioScreenIntent.DismissNotice -> updateState { dismissNotice(intent) }
-            is AiStudioScreenIntent.CardFocusApplied -> updateState { withCardFocusApplied(intent) }
+            is AiStudioScreenIntent.DismissNotice -> pipeline.updateState { dismissNotice(intent) }
+            is AiStudioScreenIntent.CardFocusApplied -> pipeline.updateState { withCardFocusApplied(intent) }
+            is AiStudioScreenIntent.OpenApp -> surfaceBinding.openApp(pipeline, intent)
             is AiStudioScreenIntent.Navigation -> navigate(pipeline, intent)
             is AiStudioScreenIntent.Composer -> compose(pipeline, intent, environment)
             is AiStudioScreenIntent.DiagramAction -> handleStudioDiagramAction(pipeline, machine, intent, environment)
             is AiStudioScreenIntent.SessionAction -> act(pipeline, intent)
-            is AiStudioScreenIntent.Sidebar -> updateState { copy(sidebar = sidebar.reduce(intent)) }
+            is AiStudioScreenIntent.Sidebar -> pipeline.updateState { copy(sidebar = sidebar.reduce(intent)) }
             is AiStudioScreenIntent.Organism -> organisms.handle(pipeline, intent)
             is AiStudioScreenIntent.SelectHarness -> harnessSelection.select(pipeline, intent)
-            is AiStudioScreenIntent.RemoteApplied -> updateState { copy(remoteSeq = intent.seq) }
+            is AiStudioScreenIntent.RemoteApplied -> pipeline.updateState { copy(remoteSeq = intent.seq) }
             is AiStudioScreenIntent.Embed -> embeddedScreens.handle(pipeline, intent, environment)
             AiStudioScreenIntent.InstallAppUpdate -> installAppUpdate()
         }

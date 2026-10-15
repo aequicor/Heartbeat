@@ -16,8 +16,16 @@ import kotlinx.serialization.json.putJsonObject
 internal val ServiceUiToolSpecs: List<AgentToolSpec> = listOf(
     AgentToolSpec(
         ServiceUiTools.REFERENCE,
-        "Reference of the interface spec format: places, nodes, actions, bindings, limits. Read it before ui_put.",
-        schema(),
+        "Read built-in skills: mini-app-design for UX; service-as-ui for rendering, placements and tools. " +
+            "Select a reference topic for details, or spec for the schema. Without arguments returns all documents; " +
+            "no project or harness is required.",
+        schema {
+            choice(
+                "topic",
+                "A built-in skill, a focused service-as-ui reference, or spec for the format. Omit to read all.",
+                ServiceUiReferenceTopics,
+            )
+        },
     ),
     AgentToolSpec(
         ServiceUiTools.LIST,
@@ -38,8 +46,8 @@ internal val ServiceUiToolSpecs: List<AgentToolSpec> = listOf(
             text("name", "Short lowercase slug, unique for the owner; other interfaces open it by this name.")
             choice(
                 "placement",
-                "Use card for a mini-app inside the conversation; composer for compact status.",
-                listOf("card", "composer", "start", "panel", "modal"),
+                "Use card for a mini-app; context for an automatic top-right summary; composer for input status.",
+                listOf("card", "composer", "start", "context", "panel", "modal"),
             )
             text("title", "Title for people, at most 80 characters.")
             text("description", "What it is for, at most 500 characters.")
@@ -51,6 +59,7 @@ internal val ServiceUiToolSpecs: List<AgentToolSpec> = listOf(
                     putJsonArray("enum") {
                         add(JsonPrimitive("composer"))
                         add(JsonPrimitive("start"))
+                        add(JsonPrimitive("context"))
                     }
                 }
             }

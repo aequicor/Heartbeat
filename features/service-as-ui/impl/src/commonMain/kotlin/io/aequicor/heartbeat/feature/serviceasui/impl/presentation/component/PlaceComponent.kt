@@ -23,7 +23,14 @@ class PlaceComponent internal constructor(
     hosts: NavHostFactory,
     @ForScope(ServiceUiPlaceScope::class) scope: ScopeHandle,
 ) : ComponentContext by context {
-    internal val documents = WebDocumentHosts(this, navigator, hosts, scope.coroutineScope, model.surfaces)
+    internal val documents = WebDocumentHosts(
+        this,
+        navigator,
+        hosts,
+        scope.coroutineScope,
+        model.surfaces,
+        isApp = model.isContext,
+    )
 
     /** Creates the component within its retained graph. */
     @AssistedFactory

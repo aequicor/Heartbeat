@@ -244,7 +244,7 @@ private fun rememberComposerFocus(content: PaneContent): Pair<FocusRequester, ()
 /** Available harnesses also need the context row in chats without a project. */
 private fun PaneContent.hasComposerContext(): Boolean {
     val hasWorktree = worktree != null || session?.isWorktree == true
-    return pane.sessionId == null || project != null || hasWorktree || harnesses.isNotEmpty() ||
+    return pane.sessionId == null || project != null || hasWorktree || harnesses.isNotEmpty() || app != null ||
         contextUsage != null || providerUsage?.isVisible == true
 }
 
@@ -347,6 +347,7 @@ private fun StudioComposerContext(
 ) {
     HbFlowRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
         StudioComposerIdentity(content, onIntent, presentation)
+        content.app?.let { StudioAppChip(it, content.pane.id, onIntent) }
         StudioComposerModes(content, onIntent)
     }
 }

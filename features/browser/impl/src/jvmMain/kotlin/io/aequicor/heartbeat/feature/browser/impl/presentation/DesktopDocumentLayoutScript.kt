@@ -3,7 +3,11 @@ package io.aequicor.heartbeat.feature.browser.impl.presentation
 import kotlinx.serialization.json.JsonPrimitive
 
 /** Private presentation channel and the generation of the served page, never the owner-call router. */
-internal data class DesktopDocumentLayoutScript(val query: String, val generation: Long)
+internal data class DesktopDocumentLayoutScript(
+    val query: String,
+    val generation: Long,
+    val hasContentStyles: Boolean = true,
+)
 
 /**
  * Observes intrinsic body content, not documentElement.scrollHeight (which is floored by the current viewport and
@@ -15,9 +19,7 @@ internal fun desktopDocumentLayoutBootstrap(layout: DesktopDocumentLayoutScript?
 (() => {
   const query = window[${JsonPrimitive(it.query).scriptLiteral()}];
   if (typeof query !== 'function') return;
-  const style = document.createElement('style');
-  style.textContent = ':where(body){display:flow-root}html{scrollbar-gutter:stable}';
-  (document.head || document.documentElement).appendChild(style);
+  ${if (it.hasContentStyles) contentLayoutStyles else ""}
   let scheduled = false;
   let previous = '';
   const measure = () => {
@@ -50,3 +52,10 @@ internal fun desktopDocumentLayoutBootstrap(layout: DesktopDocumentLayoutScript?
 })();
     """.trimIndent()
 }.orEmpty()
+
+/** Legacy intrinsic registrations retain their layout defaults; observing a fixed page never changes its CSS. */
+private val contentLayoutStyles = """
+const style = document.createElement('style');
+style.textContent = ':where(body){display:flow-root}html{scrollbar-gutter:stable}';
+(document.head || document.documentElement).appendChild(style);
+""".trimIndent()

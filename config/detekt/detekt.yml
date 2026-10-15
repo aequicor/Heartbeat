@@ -314,4 +314,8 @@ Compose:
     # LocalNav*: core:navigation:compose passes host-wide rendering context (animations, shared transition scope) to nested hosts
     # LocalPaneExpansionAvailable: workspace layout capability, derived from the host's available width.
     # LocalHbNativeContentViewport: DS host clipping geometry for native peers outside Compose alpha masks.
-    allowedCompositionLocals: LocalHbColors,LocalHbGradients,LocalHbTypography,LocalHbSpacing,LocalHbShapes,LocalHbElevation,LocalHbDimensions,LocalHbSurfaces,LocalHbMotion,LocalHbVisualStyle,LocalHbLocale,LocalComposerAnchor,LocalHbWindowScope,LocalHbWindowChrome,LocalHbWindowWidth,LocalHbCaptionControls,LocalHbDiagrams,LocalHbNativeContentViewport,LocalAdaptiveColors,LocalPlatformUi,LocalNavAnimations,LocalNavSharedTransitionScope,LocalNavEntryScopes,LocalPaneExpansionAvailable
+    # LocalHbDialogDismissRequest: nearest modal Escape callback for native controls outside Compose key dispatch.
+    # LocalHbDialogOverlayInsets: measured modal corner controls shared with native and declarative document content.
+    # LocalHbActiveNativeModalOwner: window-local foremost modal also gates native interop's Compose Clear draw.
+    # LocalHbDocumentFocusExit: native document Tab boundaries return to their current overlay's keyboard target.
+    allowedCompositionLocals: LocalHbColors,LocalHbGradients,LocalHbTypography,LocalHbSpacing,LocalHbShapes,LocalHbElevation,LocalHbDimensions,LocalHbSurfaces,LocalHbMotion,LocalHbVisualStyle,LocalHbLocale,LocalComposerAnchor,LocalHbWindowScope,LocalHbWindowChrome,LocalHbWindowWidth,LocalHbCaptionControls,LocalHbDiagrams,LocalHbNativeContentViewport,LocalHbDialogDismissRequest,LocalHbDocumentFocusExit,LocalHbInWindowDialogs,LocalHbNativeModalOwner,LocalHbActiveNativeModalOwner,LocalHbDialogOverlayInsets,LocalAdaptiveColors,LocalPlatformUi,LocalNavAnimations,LocalNavSharedTransitionScope,LocalNavEntryScopes,LocalPaneExpansionAvailable

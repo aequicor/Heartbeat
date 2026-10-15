@@ -8,10 +8,12 @@ import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReview
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
@@ -34,15 +36,19 @@ import io.aequicor.heartbeat.feature.serviceasui.api.UiMethods
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwner
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwnerInfo
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwners
+import io.aequicor.heartbeat.feature.serviceasui.api.UiPlacement
+import io.aequicor.heartbeat.feature.serviceasui.api.UiSlot
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSurfaceId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiWrite
 import io.aequicor.heartbeat.feature.serviceasui.api.UiWriteResult
 import io.aequicor.heartbeat.feature.serviceasui.api.apply
+import io.aequicor.heartbeat.feature.serviceasui.impl.di.BundledUiAuthoringKnowledge
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCard
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardAdded
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardSource
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiCardStorage
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.UiMethodCalls
+import io.aequicor.heartbeat.feature.serviceasui.impl.resources.Res
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -54,6 +60,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -85,6 +93,7 @@ class ServiceUiAgentToolsTest {
         toggles,
         FixedClock,
         ServiceUiToolSafety(reviewer),
+        BundledUiAuthoringKnowledge(),
     )
     private val context = AgentToolContext(
         SessionRef(EngineId("pi"), SessionSourceId("s"), "chat"),
@@ -118,6 +127,122 @@ class ServiceUiAgentToolsTest {
     }
 
     @Test
+    fun `reference routes every bundled document and gives legacy callers all resources`() = runTest {
+        val spec = call(ServiceUiTools.REFERENCE, referenceTopic("spec"))
+        val all = call(ServiceUiTools.REFERENCE)
+        val resources = mapOf(
+            "mini-app-design" to "mini-app-design/SKILL.md",
+            "service-as-ui" to "service-as-ui/SKILL.md",
+            "service-as-ui/layout" to "service-as-ui/references/layout.md",
+            "service-as-ui/actions-data" to "service-as-ui/references/actions-data.md",
+            "service-as-ui/webview" to "service-as-ui/references/webview.md",
+            "service-as-ui/examples" to "service-as-ui/references/examples.md",
+        )
+        val documents = resources.map { (topic, path) ->
+            val bundled = Res.readBytes("files/skills/$path").decodeToString()
+            val result = call(ServiceUiTools.REFERENCE, referenceTopic(topic))
+            assertFalse(result.isError, result.text)
+            assertTrue(bundled.isNotBlank(), path)
+            assertEquals(bundled, result.text, topic)
+            assertFalse(bundled in spec.text)
+            bundled
+        }
+        assertFalse(spec.isError, spec.text)
+        assertFalse(all.isError, all.text)
+        assertTrue(spec.text.isNotBlank())
+        assertEquals((listOf(spec.text) + documents).joinToString("\n\n"), all.text)
+        assertEquals(0, machine.writes)
+        assertTrue(cards.added.isEmpty())
+        assertTrue(calls.invoked.isEmpty())
+        assertTrue(reviewer.proposals.isEmpty())
+    }
+
+    @Test
+    fun `reference is read only and requires neither a project nor an initialized library`() = runTest {
+        val knowledge = ServiceUiAgentTools(
+            lazy { error("Reference must not load the library") },
+            lazy { error("Reference must not resolve owner methods") },
+            lazy { error("Reference must not load chat cards") },
+            toggles,
+            FixedClock,
+            ServiceUiToolSafety(reviewer),
+            BundledUiAuthoringKnowledge(),
+        )
+        val declaration = knowledge.specifications(null).single { it.name == ServiceUiTools.REFERENCE }
+        assertTrue(knowledge.isDetachedSupported)
+        assertEquals(AgentToolAction.Read, declaration.action)
+        assertEquals(null, context.workspace)
+        assertEquals(
+            null,
+            knowledge.automaticAuthorization(context, declaration, referenceTopic("mini-app-design")),
+        )
+        ServiceUiReferenceTopics.forEach { topic ->
+            assertFalse(knowledge.execute(context, ServiceUiTools.REFERENCE, referenceTopic(topic)).isError)
+        }
+        assertTrue(reviewer.proposals.isEmpty())
+
+        toggles.isEnabled.value = false
+        assertTrue(knowledge.execute(context, ServiceUiTools.REFERENCE, referenceTopic("mini-app-design")).isError)
+        assertEquals(emptyList(), knowledge.specifications(null))
+    }
+
+    @Test
+    fun `reference schema advertises an optional closed topic choice and instructions discover the skill`() = runTest {
+        val schema = tools.specifications(null).single { it.name == ServiceUiTools.REFERENCE }.inputSchema
+        val properties = schema.getValue("properties").jsonObject
+        assertEquals(setOf("topic"), properties.keys)
+        assertEquals(JsonPrimitive(false), schema["additionalProperties"])
+        assertTrue(schema.getValue("required").jsonArray.isEmpty())
+        val topic = properties.getValue("topic").jsonObject
+        assertEquals(JsonPrimitive("string"), topic["type"])
+        assertEquals(
+            listOf(
+                "spec",
+                "mini-app-design",
+                "service-as-ui",
+                "service-as-ui/layout",
+                "service-as-ui/actions-data",
+                "service-as-ui/webview",
+                "service-as-ui/examples",
+            ),
+            topic.getValue("enum").jsonArray.map { it.jsonPrimitive.content },
+        )
+
+        val scope = AgentToolScope(null, declared = setOf(ServiceUiTools.PUT, ServiceUiTools.REFERENCE))
+        assertTrue("mini-app-design" in tools.instructions(scope))
+        assertTrue("service-as-ui" in tools.instructions(scope))
+        assertEquals("", tools.instructions(scope.copy(declared = emptySet())))
+        toggles.isEnabled.value = false
+        assertEquals("", tools.instructions(scope))
+    }
+
+    @Test
+    fun `reference rejects malformed topics and unknown arguments`() = runTest {
+        val invalidTopics = listOf(
+            JsonNull,
+            JsonPrimitive(false),
+            JsonPrimitive(1),
+            JsonPrimitive(""),
+            JsonPrimitive("unknown"),
+            JsonPrimitive("service-as-ui/../../private"),
+            JsonPrimitive(" spec "),
+            JsonArray(emptyList()),
+            JsonObject(emptyMap()),
+        )
+        val invalidArguments = invalidTopics.map { JsonObject(mapOf("topic" to it)) } + listOf(
+            JsonObject(mapOf("extra" to JsonPrimitive(true))),
+            JsonObject(referenceTopic("spec") + ("extra" to JsonPrimitive(true))),
+        )
+        invalidArguments.forEach { arguments ->
+            val result = call(ServiceUiTools.REFERENCE, arguments)
+            assertTrue(result.isError, arguments.toString())
+            assertTrue("topic" in result.text, result.text)
+        }
+        assertEquals(0, machine.writes)
+        assertTrue(reviewer.proposals.isEmpty())
+    }
+
+    @Test
     fun `an approved put saves the interface which list and get show`() = runTest {
         val saved = call(ServiceUiTools.PUT, put(SPEC))
         assertFalse(saved.isError, saved.text)
@@ -141,6 +266,39 @@ class ServiceUiAgentToolsTest {
         assertTrue(again.isError)
         assertTrue("pass expectedRevision 1" in again.text, again.text)
         assertFalse(call(ServiceUiTools.PUT, put(SPEC, revision = 1)).isError)
+    }
+
+    @Test
+    fun `context is advertised and saved with reviewed methods and context launchers`() = runTest {
+        val properties = tools.specifications(null).first { it.name == ServiceUiTools.PUT }.inputSchema
+            .getValue("properties").jsonObject
+        val placements = properties.getValue("placement").jsonObject.getValue("enum").jsonArray
+        val launchers = properties.getValue("launchers").jsonObject.getValue("items").jsonObject
+            .getValue("enum").jsonArray
+        assertTrue(JsonPrimitive("context") in placements)
+        assertTrue(JsonPrimitive("context") in launchers)
+        assertTrue("`context`: automatically shown" in call(ServiceUiTools.REFERENCE).text)
+
+        val saved = call(ServiceUiTools.PUT, put(SPEC, placement = "context"))
+        assertFalse(saved.isError, saved.text)
+        val contextSurface = (machine.state.value as ServiceUiState.Ready).library.surfaces.single()
+        assertEquals(UiPlacement.Context, contextSurface.content.placement)
+        assertEquals(1, reviewer.proposals.size)
+        val got = Json.parseToJsonElement(
+            call(ServiceUiTools.GET, buildJsonObject { put("id", contextSurface.id.value) }).text,
+        ).jsonObject
+        assertEquals(JsonPrimitive("context"), got["placement"])
+
+        val panel = JsonObject(
+            put(SPEC, placement = "panel", revision = 1) +
+                ("launchers" to JsonArray(listOf(JsonPrimitive("context")))),
+        )
+        val updated = call(ServiceUiTools.PUT, panel)
+        assertFalse(updated.isError, updated.text)
+        assertEquals(
+            setOf(UiSlot.Context),
+            (machine.state.value as ServiceUiState.Ready).library.surfaces.single().content.launchers,
+        )
     }
 
     @Test
@@ -445,6 +603,8 @@ class ServiceUiAgentToolsTest {
         put("owner", "pr_map")
         put("method", "prs")
     }
+
+    private fun referenceTopic(topic: String) = buildJsonObject { put("topic", topic) }
 
     private fun show(spec: String? = null, surface: String? = null) = buildJsonObject {
         put("title", "PRs")
