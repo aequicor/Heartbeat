@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.chromiumbridge.api.BridgeServerStatus
 import io.aequicor.heartbeat.feature.chromiumbridge.api.BrowserHost
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBrowser
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ConnectedBrowser
+import io.aequicor.heartbeat.feature.chromiumbridge.api.ExtensionPreparation
 import io.aequicor.heartbeat.feature.chromiumbridge.api.HostRegistration
 import io.aequicor.heartbeat.feature.chromiumbridge.api.HostRegistrationFailure
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.BridgeServer
@@ -49,6 +50,9 @@ public object UnsupportedChromiumBridgeBindings {
     @Provides
     internal fun extension(): ExtensionFolder = object : ExtensionFolder {
         override suspend fun locate(): String? = null
+
+        override suspend fun prepare(progress: suspend (ExtensionPreparation) -> Unit): String =
+            error("Chromium extension is unavailable on this platform")
 
         override suspend fun reveal(folder: String) = Unit
     }

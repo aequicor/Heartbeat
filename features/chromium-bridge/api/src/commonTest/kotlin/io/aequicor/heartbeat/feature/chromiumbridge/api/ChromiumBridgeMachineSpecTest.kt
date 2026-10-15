@@ -98,16 +98,58 @@ class ChromiumBridgeMachineSpecTest {
     }
 
     @Test
-    fun `the extension folder is remembered and shown only once known`() {
-        spec.assertIgnored(enabled, ChromiumBridgeIntent.Public.RevealExtension)
+    fun `known folders are rechecked before revealing so removed or corrupted installations can be repaired`() {
         val located = enabled.copy(extensionFolder = "/app/chromium-plugin")
         spec.assertTransition(enabled, ChromiumBridgeIntent.Internal.ExtensionLocated("/app/chromium-plugin"), located)
         spec.assertTransition(
             located,
             ChromiumBridgeIntent.Public.RevealExtension,
-            located,
-            effects = listOf(ChromiumBridgeEffect.RevealExtension("/app/chromium-plugin")),
+            located.copy(extensionPreparation = ExtensionPreparation.Downloading()),
+            effects = listOf(ChromiumBridgeEffect.PrepareExtension),
         )
+    }
+
+    @Test
+    fun `missing extension prepares once and can be retried after failure`() {
+        val downloading = enabled.copy(extensionPreparation = ExtensionPreparation.Downloading())
+        spec.assertTransition(
+            enabled,
+            ChromiumBridgeIntent.Public.RevealExtension,
+            downloading,
+            effects = listOf(ChromiumBridgeEffect.PrepareExtension),
+        )
+        spec.assertIgnored(downloading, ChromiumBridgeIntent.Public.RevealExtension)
+        val progress = ExtensionPreparation.Downloading(30, 100)
+        spec.assertTransition(
+            downloading,
+            ChromiumBridgeIntent.Internal.ExtensionProgress(progress),
+            enabled.copy(extensionPreparation = progress),
+        )
+        val failed = enabled.copy(extensionPreparation = ExtensionPreparation.Failed)
+        spec.assertTransition(downloading, ChromiumBridgeIntent.Internal.ExtensionFailed, failed)
+        spec.assertTransition(
+            failed,
+            ChromiumBridgeIntent.Public.RevealExtension,
+            downloading,
+            effects = listOf(ChromiumBridgeEffect.PrepareExtension),
+        )
+        spec.assertTransition(
+            downloading,
+            ChromiumBridgeIntent.Internal.ExtensionPrepared("/cache/extension"),
+            enabled.copy(extensionFolder = "/cache/extension"),
+            effects = listOf(ChromiumBridgeEffect.RevealExtension("/cache/extension")),
+        )
+    }
+
+    @Test
+    fun `disabling cancels extension preparation and late results are ignored`() {
+        val downloading = enabled.copy(extensionPreparation = ExtensionPreparation.Downloading())
+        val disabled = ChromiumBridgeState.Disabled(isSupported = true)
+        spec.assertTransition(downloading, availability(isEnabled = false), disabled)
+        spec.assertIgnored(disabled, ChromiumBridgeIntent.Internal.ExtensionPrepared("/cache/extension"))
+        spec.assertIgnored(disabled, ChromiumBridgeIntent.Public.RevealExtension)
+        val ready = enabled.copy(extensionFolder = "/cache/extension")
+        spec.assertTransition(ready, ChromiumBridgeIntent.Internal.ExtensionLocated(null), ready)
     }
 
     @Test
@@ -177,6 +219,10 @@ class ChromiumBridgeMachineSpecTest {
         assertEquals(
             ChromiumBridgeIntent.Internal.EffectFailed,
             spec.onEffectFailure(ChromiumBridgeEffect.ScanHosts, error),
+        )
+        assertEquals(
+            ChromiumBridgeIntent.Internal.ExtensionFailed,
+            spec.onEffectFailure(ChromiumBridgeEffect.PrepareExtension, error),
         )
         spec.assertTransition(enabled, ChromiumBridgeIntent.Internal.EffectFailed, enabled)
     }

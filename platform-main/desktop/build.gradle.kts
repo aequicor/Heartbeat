@@ -3,6 +3,7 @@ import io.aequicor.heartbeat.buildlogic.PackageInnoSetup
 import io.aequicor.heartbeat.buildlogic.PreparePiRuntime
 import io.aequicor.heartbeat.buildlogic.PrepareReleaseRuntimeJars
 import io.aequicor.heartbeat.buildlogic.VerifyChromiumPanelArtifact
+import io.aequicor.heartbeat.buildlogic.WriteComponentMetadata
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
 import org.jetbrains.compose.desktop.application.tasks.AbstractCheckNativeDistributionRuntime
@@ -130,8 +131,8 @@ piTarget?.let { target ->
     }
 }
 
-// App resources of the distribution: the Chromium extension folder that settings offer for
-// "Load unpacked". Runs from a checkout use the repository's extension folder instead (DesktopExtensionFolder).
+// The optional extension is a separate release asset; only its pinned metadata enters the installer.
+// Runs from a checkout use the repository's extension folder instead (DesktopExtensionFolder).
 // CI passes the artifact exported by prepareChromiumPanelArtifact from this release's Linux build.
 // Without the property, local packaging continues to build the panel from the checkout.
 val prebuiltChromiumPanel = providers.gradleProperty("heartbeat.chromiumPanelDir").orNull?.let { path ->
@@ -147,24 +148,47 @@ val verifyChromiumPanelArtifact = if (prebuiltChromiumPanel != null) {
 } else {
     null
 }
-val collectAppResources = tasks.register<Sync>("collectAppResources") {
+val collectExtensionResources = tasks.register<Sync>("collectExtensionResources") {
     if (verifyChromiumPanelArtifact != null) {
         dependsOn(verifyChromiumPanelArtifact)
         from(verifyChromiumPanelArtifact.flatMap { it.panelDirectory }) {
-            into("common/chromium-plugin/app")
+            into("app")
             exclude("SHA256SUMS")
         }
     } else {
         dependsOn(":chromium-plugin:panel:syncChromiumPanel")
     }
-    from(layout.projectDirectory.file("pi/LICENSE")) { into("common/licenses/pi") }
     from(layout.settingsDirectory.dir("chromium-plugin")) {
-        into("common/chromium-plugin")
         // Tests, editor typings, a private signing key and the Kotlin sources of the side panel (built into app/)
         // are not part of the extension.
-        exclude("tests/**", "jsconfig.json", "src/types/**", "*.pem", "panel/**")
+        exclude("tests/**", "jsconfig.json", "src/types/**", "*.pem", "panel/**", "**/*.map")
         if (prebuiltChromiumPanel != null) exclude("app/**")
     }
+    exclude("**/*.map")
+    into(layout.buildDirectory.dir("generated/chromiumExtension"))
+}
+// Every platform imports the same Wasm panel and produces the same ZIP, recorded in its installer metadata.
+val packageChromiumExtension = tasks.register<Zip>("packageChromiumExtension") {
+    group = "distribution"
+    description = "Packages the optional Chromium extension for publication with the desktop release."
+    from(collectExtensionResources)
+    archiveFileName.set("Heartbeat-$heartbeatApplicationVersion-chromium-extension.zip")
+    destinationDirectory.set(layout.buildDirectory.dir("release-components"))
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+}
+val prepareExtensionMetadata = tasks.register<WriteComponentMetadata>("prepareExtensionMetadata") {
+    artifact.set(packageChromiumExtension.flatMap { it.archiveFile })
+    version.set(heartbeatApplicationVersion)
+    downloadUrl.set(
+        "https://github.com/$heartbeatUpdateRepository/releases/download/v$heartbeatApplicationVersion/" +
+            "Heartbeat-$heartbeatApplicationVersion-chromium-extension.zip",
+    )
+    outputFile.set(layout.buildDirectory.file("generated/extensionMetadata/chromium-extension.properties"))
+}
+val collectAppResources = tasks.register<Sync>("collectAppResources") {
+    from(prepareExtensionMetadata) { into("common") }
+    from(layout.projectDirectory.file("pi/LICENSE")) { into("common/licenses/pi") }
     into(layout.buildDirectory.dir("generated/appResources"))
 }
 

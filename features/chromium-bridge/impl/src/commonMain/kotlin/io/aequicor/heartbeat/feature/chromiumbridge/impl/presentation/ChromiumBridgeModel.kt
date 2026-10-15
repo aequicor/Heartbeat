@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeOutput
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeState
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBrowser
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ConnectedBrowser
+import io.aequicor.heartbeat.feature.chromiumbridge.api.ExtensionPreparation
 import io.aequicor.heartbeat.feature.chromiumbridge.api.HostRegistration
 import io.aequicor.heartbeat.feature.chromiumbridge.api.HostRegistrationFailure
 import io.aequicor.heartbeat.feature.chromiumbridge.impl.domain.ExtensionIdentity
@@ -72,6 +73,7 @@ internal data class ChromiumBridgeScreenState(
     val extensionId: String = ExtensionIdentity.ids.first(),
     /** The folder to load unpacked, or `null` when this build has none. */
     val extensionFolder: String? = null,
+    val extensionPreparation: ExtensionPreparationUi = ExtensionPreparationUi(),
     val error: RegistrationError? = null,
 ) : MVIState
 
@@ -173,6 +175,7 @@ internal fun ChromiumBridgeScreenState.reflectState(state: ChromiumBridgeState):
             isAgentControlEnabled = state.isAgentControlEnabled,
             controlledTabs = state.controlledTabs,
             extensionFolder = state.extensionFolder,
+            extensionPreparation = state.extensionPreparation.toUi(),
         )
     }
 
@@ -215,3 +218,27 @@ private fun HostRegistrationFailure.toUi(): FailureUi = when (this) {
     HostRegistrationFailure.NoLauncher -> FailureUi.NoLauncher
     HostRegistrationFailure.WriteFailed -> FailureUi.WriteFailed
 }
+
+/** The view renders preparation without exposing download metadata or IO to composition. */
+@Immutable
+internal data class ExtensionPreparationUi(
+    val phase: ExtensionPreparationPhase = ExtensionPreparationPhase.Idle,
+    val percent: Int? = null,
+)
+
+internal enum class ExtensionPreparationPhase { Idle, Downloading, Extracting, Failed }
+
+private fun ExtensionPreparation.toUi(): ExtensionPreparationUi = when (this) {
+    ExtensionPreparation.Idle -> ExtensionPreparationUi()
+
+    is ExtensionPreparation.Downloading -> ExtensionPreparationUi(
+        ExtensionPreparationPhase.Downloading,
+        total?.takeIf { it > 0 }?.let { ((received.coerceIn(0, it).toDouble() / it) * PERCENT_SCALE).toInt() },
+    )
+
+    ExtensionPreparation.Extracting -> ExtensionPreparationUi(ExtensionPreparationPhase.Extracting)
+
+    ExtensionPreparation.Failed -> ExtensionPreparationUi(ExtensionPreparationPhase.Failed)
+}
+
+private const val PERCENT_SCALE = 100
