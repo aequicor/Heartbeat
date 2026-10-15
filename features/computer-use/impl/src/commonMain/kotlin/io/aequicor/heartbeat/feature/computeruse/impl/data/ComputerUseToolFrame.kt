@@ -37,8 +37,8 @@ private fun frameText(reference: CaptureRef, tiles: TileGrid?, master: CaptureRe
     put("masterWidthPx", reference.masterWidthPx)
     put("masterHeightPx", reference.masterHeightPx)
     put("previewScale", reference.previewScale)
-    put("regionX", reference.region.x)
-    put("regionY", reference.region.y)
+    put("regionX", reference.roi.x)
+    put("regionY", reference.roi.y)
     put("hasTiles", tiles != null)
     tiles?.let { grid ->
         put(

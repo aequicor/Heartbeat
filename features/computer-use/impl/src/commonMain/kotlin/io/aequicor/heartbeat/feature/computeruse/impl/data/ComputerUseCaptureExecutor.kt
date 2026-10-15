@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.computeruse.api.CapturePresets
+import io.aequicor.heartbeat.feature.computeruse.api.CaptureRegion
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRequest
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureResult
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapturePresentation
@@ -38,25 +39,27 @@ internal class ComputerUseCaptureExecutor(
 ) {
     private val log = Log.tag("ComputerUseCaptureExecutor")
 
-    /** Captures only in the currently open session, after fresh toggle and operating system checks. */
-    suspend fun capture(request: CaptureRequest): CaptureResult = presentation.withoutPresentation {
-        captureWithoutPresentation(request)
-    }
+    /**
+     * Captures only in the currently open session, after fresh toggle and operating system checks; the frame is
+     * limited to the active [roi].
+     */
+    suspend fun capture(request: CaptureRequest, roi: CaptureRegion? = null): CaptureResult =
+        presentation.withoutPresentation { captureWithoutPresentation(request, roi) }
 
-    private suspend fun captureWithoutPresentation(request: CaptureRequest): CaptureResult {
+    private suspend fun captureWithoutPresentation(request: CaptureRequest, roi: CaptureRegion?): CaptureResult {
         val refusal = access.captureFailure()
         if (refusal != null) return CaptureResult(failure = refusal)
-        val native = captureNative(request)
+        val native = captureNative(request, roi)
         if (native != null) return native
         val fallbackRefusal = access.captureFailure()
         if (fallbackRefusal != null) return CaptureResult(failure = fallbackRefusal)
-        return when (val outcome = coordinator.capture(request)) {
+        return when (val outcome = coordinator.capture(request, roi)) {
             is CaptureOutcome.Produced -> outcome.result
             is CaptureOutcome.Rejected -> CaptureResult(failure = outcome.reason)
         }
     }
 
-    private suspend fun captureNative(request: CaptureRequest): CaptureResult? {
+    private suspend fun captureNative(request: CaptureRequest, roi: CaptureRegion?): CaptureResult? {
         val mode = access.active()?.mode as? ComputerUseMode.Desktop ?: return null
         if (mode.monitor != null) return null
         val native = nativeControl() ?: return null
@@ -64,7 +67,7 @@ internal class ComputerUseCaptureExecutor(
         if (refusal != null) return CaptureResult(failure = refusal)
         val session = access.active()?.session ?: return null
         val captured = try {
-            native.capture(request.copy(region = null, tile = null, encoding = CapturePresets.Master))
+            native.capture(request.copy(roi = null, tile = null, encoding = CapturePresets.Master))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -74,7 +77,7 @@ internal class ComputerUseCaptureExecutor(
         val failure = access.captureFailure()
         if (failure != null) return CaptureResult(failure = failure)
         if (access.active()?.session != session) return CaptureResult(failure = ComputerUseFailure.Unavailable)
-        val imported = coordinator.importNative(captured, request)
+        val imported = coordinator.importNative(captured, request, roi)
         if (!imported.isUsable) {
             log.w { "native frame refused reason=${imported.failure?.name ?: "unusable"}, falling back to the host" }
         }

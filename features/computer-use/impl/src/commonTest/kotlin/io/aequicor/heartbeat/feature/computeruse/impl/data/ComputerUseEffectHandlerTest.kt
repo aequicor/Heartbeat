@@ -314,7 +314,7 @@ class ComputerUseEffectHandlerTest {
         val first = assertIs<CaptureOutcome.Produced>(fixture.coordinator.capture(CaptureRequest())).result
         val master = assertNotNull(first.master)
         fixture.coordinator.capture(CaptureRequest())
-        fixture.run(ComputerUseEffect.ProduceCrop(CropRequest(master.id, region = CaptureRegion(0, 0, 10, 10)), "crop"))
+        fixture.run(ComputerUseEffect.ProduceCrop(CropRequest(master.id, roi = CaptureRegion(0, 0, 10, 10)), "crop"))
         val produced = assertIs<ComputerUseIntent.Internal.CropProduced>(fixture.feedback.intents.single())
         assertEquals(master, produced.master)
         assertEquals("crop", produced.requestId)

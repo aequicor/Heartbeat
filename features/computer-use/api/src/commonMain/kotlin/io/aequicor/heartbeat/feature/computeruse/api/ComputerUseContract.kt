@@ -47,6 +47,11 @@ public sealed interface ComputerUseState : MachineState {
         public val inputActivity: ComputerUseInputActivity = ComputerUseInputActivity(),
         /** Agent turns the user stopped while capturing; carried into Ready, see [Ready.stoppedOwners]. */
         public val stoppedOwners: Set<CaptureOwner.Agent> = emptySet(),
+        /**
+         * The active ROI (rectangle of interest) in master pixels: frames, crops and input are limited to it.
+         * `null` means the whole captured area; a new session or a master that no longer contains it resets it.
+         */
+        public val roi: CaptureRegion? = null,
     ) : ComputerUseState
 
     /** The session ended because of an error; [Public.Retry][ComputerUseIntent.Public.Retry] probes again. */
@@ -120,6 +125,16 @@ public sealed interface ComputerUseIntent : MachineIntent {
         public data class Crop(
             public val request: CropRequest,
             public val requestId: String? = null,
+            public val expectedSession: CaptureSessionId? = null,
+            public val expectedOwner: CaptureOwner? = null,
+        ) : Public
+
+        /**
+         * Sets the active ROI of the running session in master pixels, or clears it with `null`. Rejected unless
+         * the session is open, a named [expectedOwner] owns it and the ROI lies inside the latest master frame.
+         */
+        public data class SetRoi(
+            public val roi: CaptureRegion?,
             public val expectedSession: CaptureSessionId? = null,
             public val expectedOwner: CaptureOwner? = null,
         ) : Public
@@ -237,19 +252,26 @@ public sealed interface ComputerUseEffect : MachineEffect {
         public val reason: ComputerUseFailure? = null,
     ) : ComputerUseEffect
 
-    /** Captures one frame and stores its master and preview artifacts. */
-    public data class CaptureFrame(public val request: CaptureRequest, public val requestId: String? = null) :
-        ComputerUseEffect
+    /** Captures one frame and stores its master and preview artifacts, limited to the active [roi]. */
+    public data class CaptureFrame(
+        public val request: CaptureRequest,
+        public val requestId: String? = null,
+        public val roi: CaptureRegion? = null,
+    ) : ComputerUseEffect
 
-    /** Cuts a region out of a stored master frame. */
-    public data class ProduceCrop(public val request: CropRequest, public val requestId: String? = null) :
-        ComputerUseEffect
+    /** Cuts a region out of a stored master frame, limited to the active [roi]. */
+    public data class ProduceCrop(
+        public val request: CropRequest,
+        public val requestId: String? = null,
+        public val roi: CaptureRegion? = null,
+    ) : ComputerUseEffect
 
-    /** Applies one input action. */
+    /** Applies one input action; pointer points must lie inside the active [roi]. */
     public data class ApplyInput(
         public val action: InputAction,
         public val requestId: String? = null,
         public val expectedCapture: CaptureId? = null,
+        public val roi: CaptureRegion? = null,
     ) : ComputerUseEffect
 
     /** Deletes the master frames of the finished session. */
@@ -305,13 +327,19 @@ public object ComputerUseMachineKey :
     override val name: String = "computer-use"
 }
 
-/** The region this crop addresses in master pixels, or `null` when it leaves the master frame. */
-public fun CropRequest.regionIn(master: CaptureRef): CaptureRegion? {
+/**
+ * The ROI this crop addresses in master pixels, or `null` when it leaves the master frame. Without an explicit
+ * [CropRequest.roi] or fractions the crop covers [activeRoi], or the whole master without one.
+ */
+public fun CropRequest.roiIn(master: CaptureRef, activeRoi: CaptureRegion? = null): CaptureRegion? {
     val bounds = CaptureRegion(0, 0, master.masterWidthPx, master.masterHeightPx)
-    val requested = normalized?.toRegion(master.masterWidthPx, master.masterHeightPx) ?: region ?: bounds
+    val requested = normalized?.toRegion(master.masterWidthPx, master.masterHeightPx) ?: roi ?: activeRoi ?: bounds
     val clipped = requested.intersect(bounds) ?: return null
     return if (clipped == requested) clipped else null
 }
+
+/** `true` when this rectangle lies inside the active [roi]; anything fits while no ROI is set. */
+public fun CaptureRegion.fitsRoi(roi: CaptureRegion?): Boolean = roi == null || isInside(roi)
 
 /** `true` when the probed capabilities cover [mode]. */
 public fun ComputerUseCapabilities.supports(mode: ComputerUseMode): Boolean = when (mode) {

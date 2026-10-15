@@ -111,9 +111,9 @@ class ComputerUseEncodingTest {
     }
 
     @Test
-    fun `a capture request selects either a region or a tile`() {
+    fun `a capture request selects either an ROI or a tile`() {
         assertFailsWith<IllegalArgumentException> {
-            CaptureRequest(region = CaptureRegion(0, 0, 10, 10), tile = TileRef(0, 0))
+            CaptureRequest(roi = CaptureRegion(0, 0, 10, 10), tile = TileRef(0, 0))
         }
     }
 

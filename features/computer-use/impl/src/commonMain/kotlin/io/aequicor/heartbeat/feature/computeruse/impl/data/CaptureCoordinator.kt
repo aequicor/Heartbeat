@@ -20,7 +20,8 @@ import io.aequicor.heartbeat.feature.computeruse.api.NativeCapture
 import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
 import io.aequicor.heartbeat.feature.computeruse.api.TileGrid
 import io.aequicor.heartbeat.feature.computeruse.api.WindowTarget
-import io.aequicor.heartbeat.feature.computeruse.api.regionIn
+import io.aequicor.heartbeat.feature.computeruse.api.fitsRoi
+import io.aequicor.heartbeat.feature.computeruse.api.roiIn
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.CaptureRegionPolicy
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.InputInjector
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.PixelGrid
@@ -49,6 +50,10 @@ internal sealed interface CaptureOutcome {
  * It owns the coordinate spaces: the master frame is captured in physical screen pixels, previews and crops are
  * derived from it, and every caller-supplied point is mapped back through the frame the caller received. Input
  * outside the captured area is refused instead of clamped, so an agent cannot click something it never saw.
+ *
+ * The active ROI (rectangle of interest) comes with every operation from the machine: frames default to it, tiles
+ * are laid over it, and frames, crops or input points leaving it are refused with [ComputerUseFailure.OutsideRoi].
+ * An ROI that no longer fits the master frame (the target was resized) is ignored.
  */
 @Suppress("TooManyFunctions") // One coordinator serializes all operations on the single active capture.
 internal class CaptureCoordinator(
@@ -152,40 +157,54 @@ internal class CaptureCoordinator(
     suspend fun currentBounds(): ScreenBounds? = mutex.withLock { active?.bounds }
 
     /** Captures one frame: a fresh master when asked, otherwise the stored one, then the requested reduction. */
-    suspend fun capture(request: CaptureRequest): CaptureOutcome = withContext(dispatchers.io) {
-        operations.withLock {
-            val session = active ?: return@withLock CaptureOutcome.Rejected(ComputerUseFailure.Unavailable)
-            val master = masterFrame(session, request.isFresh, request.isCursorIncluded)
-                ?: return@withLock rejected(session)
-            val region = requestedRegion(request, master.pixels)
-                ?: return@withLock CaptureOutcome.Rejected(ComputerUseFailure.RegionOutOfBounds)
-            val produced = pipeline.derive(
-                session = session.session,
-                id = CaptureId(Uuid.random().toString()),
-                source = master.pixels.region(region),
-                region = region,
-                masterWidthPx = master.reference.masterWidthPx,
-                masterHeightPx = master.reference.masterHeightPx,
-                encoding = request.encoding,
-                sequence = nextSequence(),
-            ) ?: return@withLock CaptureOutcome.Rejected(ComputerUseFailure.EncodingTooLarge)
-            cache.alias(produced.reference.id, master.reference.id)
-            mutex.withLock {
-                session.preview = produced.reference
-                session.previewBounds = cache.bounds(master.reference.id)
-            }
-            CaptureOutcome.Produced(
-                CaptureResult(
-                    reference = produced.reference,
-                    master = master.reference,
-                    tiles = tilesFor(master.reference),
-                ),
-            )
+    suspend fun capture(request: CaptureRequest, roi: CaptureRegion? = null): CaptureOutcome =
+        withContext(dispatchers.io) {
+            operations.withLock { captureLocked(request, roi) }
         }
+
+    private suspend fun captureLocked(request: CaptureRequest, roi: CaptureRegion?): CaptureOutcome {
+        val session = active ?: return CaptureOutcome.Rejected(ComputerUseFailure.Unavailable)
+        val master = masterFrame(session, request.isFresh, request.isCursorIncluded) ?: return rejected(session)
+        val activeRoi = roi.within(master.pixels)
+        val region = requestedRegion(request, master.pixels, activeRoi)
+            ?: return CaptureOutcome.Rejected(ComputerUseFailure.RegionOutOfBounds)
+        if (!region.fitsRoi(activeRoi)) return CaptureOutcome.Rejected(ComputerUseFailure.OutsideRoi)
+        return produceFrame(session, master, region, request, activeRoi)
     }
 
-    /** Cuts a region out of an already stored master frame, optionally upscaled. */
-    suspend fun crop(request: CropRequest): CaptureOutcome = withContext(dispatchers.io) {
+    private suspend fun produceFrame(
+        session: ActiveCapture,
+        master: StoredMaster,
+        region: CaptureRegion,
+        request: CaptureRequest,
+        activeRoi: CaptureRegion?,
+    ): CaptureOutcome {
+        val produced = pipeline.derive(
+            session = session.session,
+            id = CaptureId(Uuid.random().toString()),
+            source = master.pixels.region(region),
+            roi = region,
+            masterWidthPx = master.reference.masterWidthPx,
+            masterHeightPx = master.reference.masterHeightPx,
+            encoding = request.encoding,
+            sequence = nextSequence(),
+        ) ?: return CaptureOutcome.Rejected(ComputerUseFailure.EncodingTooLarge)
+        cache.alias(produced.reference.id, master.reference.id)
+        mutex.withLock {
+            session.preview = produced.reference
+            session.previewBounds = cache.bounds(master.reference.id)
+        }
+        return CaptureOutcome.Produced(
+            CaptureResult(
+                reference = produced.reference,
+                master = master.reference,
+                tiles = tilesFor(master.reference, activeRoi),
+            ),
+        )
+    }
+
+    /** Cuts a region out of an already stored master frame, optionally upscaled, inside the active [roi]. */
+    suspend fun crop(request: CropRequest, roi: CaptureRegion? = null): CaptureOutcome = withContext(dispatchers.io) {
         operations.withLock {
             val session = active ?: return@withLock CaptureOutcome.Rejected(ComputerUseFailure.Unavailable)
             val master = cache.reference(request.capture)
@@ -193,15 +212,21 @@ internal class CaptureCoordinator(
             if (master.session != session.session) {
                 return@withLock CaptureOutcome.Rejected(ComputerUseFailure.UnknownCapture)
             }
-            val region = request.regionIn(master)
+            val activeRoi = roi?.takeIf {
+                it.isInside(
+                    CaptureRegion(0, 0, master.masterWidthPx, master.masterHeightPx),
+                )
+            }
+            val region = request.roiIn(master, activeRoi)
                 ?: return@withLock CaptureOutcome.Rejected(ComputerUseFailure.RegionOutOfBounds)
+            if (!region.fitsRoi(activeRoi)) return@withLock CaptureOutcome.Rejected(ComputerUseFailure.OutsideRoi)
             val pixels = cache.pixels(master.id)
                 ?: return@withLock CaptureOutcome.Rejected(ComputerUseFailure.CaptureExpired)
             val produced = pipeline.derive(
                 session = session.session,
                 id = CaptureId(Uuid.random().toString()),
                 source = upscale(pixels.region(region), request.scale),
-                region = region,
+                roi = region,
                 masterWidthPx = master.masterWidthPx,
                 masterHeightPx = master.masterHeightPx,
                 encoding = request.encoding,
@@ -217,11 +242,14 @@ internal class CaptureCoordinator(
         }
     }
 
-    /** Applies one input action inside the captured area. */
+    /** Applies one input action inside the captured area and its active [roi]. */
+    // The input contract carries its frame binding, ROI, live guard and feedback sink together.
+    @Suppress("LongParameterList")
     suspend fun input(
         action: InputAction,
         expectedCapture: CaptureId? = null,
         isFrameBound: Boolean = false,
+        roi: CaptureRegion? = null,
         guard: suspend () -> ComputerUseFailure? = { null },
         onProgress: suspend (CaptureSessionId, ComputerUseInputActivity) -> Unit = { _, _ -> },
     ): InputOutcome = withContext(dispatchers.io) {
@@ -230,20 +258,19 @@ internal class CaptureCoordinator(
             if (failure != null) {
                 InputOutcome.Rejected(failure)
             } else {
-                applyInput(action, expectedCapture, isFrameBound, guard, onProgress)
+                applyInput(action, InputBinding(expectedCapture, isFrameBound, roi), guard, onProgress)
             }
         }
     }
 
     private suspend fun applyInput(
         action: InputAction,
-        expectedCapture: CaptureId?,
-        isFrameBound: Boolean,
+        binding: InputBinding,
         guard: suspend () -> ComputerUseFailure?,
         onProgress: suspend (CaptureSessionId, ComputerUseInputActivity) -> Unit,
     ): InputOutcome {
         val session = active ?: return InputOutcome.Rejected(ComputerUseFailure.Unavailable)
-        val failure = inputFailure(session, expectedCapture, isFrameBound, guard)
+        val failure = inputFailure(session, binding.expectedCapture, binding.isFrameBound, guard)
         if (failure != null) return InputOutcome.Rejected(failure)
         val bounds = capturer.currentBounds(session.mode)
             ?: return InputOutcome.Rejected(ComputerUseFailure.TargetClosed)
@@ -256,6 +283,7 @@ internal class CaptureCoordinator(
             Frames(session.masterReference, session.preview)
         }
         if (!injector.isAvailable) return InputOutcome.Rejected(ComputerUseFailure.Unavailable)
+        if (frames.leavesRoi(action, bounds, binding.roi)) return InputOutcome.Rejected(ComputerUseFailure.OutsideRoi)
         val map: (FramePoint) -> ScreenPoint? = { point -> mapPoint(point, action.space, bounds, frames) }
         var hasStarted = false
         val outcome = guard()?.let(InputOutcome::Rejected)
@@ -401,7 +429,7 @@ internal class CaptureCoordinator(
         session = session.session,
         id = CaptureId(Uuid.random().toString()),
         source = pixels,
-        region = CaptureRegion(0, 0, pixels.widthPx, pixels.heightPx),
+        roi = CaptureRegion(0, 0, pixels.widthPx, pixels.heightPx),
         sequence = nextSequence(),
     )
 
@@ -413,19 +441,45 @@ internal class CaptureCoordinator(
         )
     }
 
-    private fun requestedRegion(request: CaptureRequest, master: PixelGrid): CaptureRegion? {
+    /** A tile is laid over the active ROI; without an explicit ROI or tile the frame shows the active ROI. */
+    private fun requestedRegion(request: CaptureRequest, master: PixelGrid, activeRoi: CaptureRegion?): CaptureRegion? {
         val full = CaptureRegion(0, 0, master.widthPx, master.heightPx)
+        val base = activeRoi ?: full
         val tile = request.tile
-        if (tile != null) {
-            val grid = TileGrid.forMaster(master.widthPx, master.heightPx)
-            return grid.region(tile.column, tile.row, master.widthPx, master.heightPx)
-        }
-        return request.region?.takeIf { it.isInside(full) } ?: if (request.region == null) full else null
+        if (tile != null) return base.tile(tile.column, tile.row)
+        return request.roi?.takeIf { it.isInside(full) } ?: if (request.roi == null) base else null
     }
 
-    private fun tilesFor(master: CaptureRef): TileGrid? {
-        val grid = TileGrid.forMaster(master.masterWidthPx, master.masterHeightPx)
+    private fun tilesFor(master: CaptureRef, activeRoi: CaptureRegion?): TileGrid? {
+        val grid = TileGrid.forMaster(
+            activeRoi?.widthPx ?: master.masterWidthPx,
+            activeRoi?.heightPx ?: master.masterHeightPx,
+        )
         return if (grid.columns * grid.rows > 1) grid else null
+    }
+
+    /** `true` when a pointer point of [action] maps into the master outside the active [roi]. */
+    private fun Frames.leavesRoi(action: InputAction, bounds: ScreenBounds, roi: CaptureRegion?): Boolean {
+        if (roi == null) return false
+        return action.points().any { point ->
+            val inMaster = masterOf(point, action.space, bounds, this)
+            inMaster != null && (inMaster.x !in roi.x until roi.right || inMaster.y !in roi.y until roi.bottom)
+        }
+    }
+
+    private fun masterOf(point: FramePoint, space: FrameSpace?, bounds: ScreenBounds, frames: Frames): ScreenPoint? {
+        if (!point.x.isFinite() || !point.y.isFinite()) return null
+        val master = frames.master ?: return null
+        val preview = frames.preview ?: master
+        val sourceMaster = if (frames.preview != null) preview else master
+        if (space == FrameSpace.Screen) {
+            val screen = screenPoint(point, bounds) ?: return null
+            return ScreenPoint(
+                ((screen.x - bounds.x).toDouble() * sourceMaster.masterWidthPx / bounds.widthPx).toInt(),
+                ((screen.y - bounds.y).toDouble() * sourceMaster.masterHeightPx / bounds.heightPx).toInt(),
+            )
+        }
+        return masterPoint(point, space, sourceMaster, preview)
     }
 
     private fun upscale(source: PixelGrid, scale: Double): PixelGrid {
@@ -439,9 +493,8 @@ internal class CaptureCoordinator(
         if (!point.x.isFinite() || !point.y.isFinite()) return null
         if (space == FrameSpace.Screen) return screenPoint(point, bounds)
         val master = frames.master ?: return null
-        val preview = frames.preview ?: master
-        val sourceMaster = if (frames.preview != null) preview else master
-        val inMaster = masterPoint(point, space, sourceMaster, preview) ?: return null
+        val sourceMaster = frames.preview ?: master
+        val inMaster = masterOf(point, space, bounds, frames) ?: return null
         val x = bounds.x + (inMaster.x.toDouble() * bounds.widthPx / sourceMaster.masterWidthPx).toInt()
         val y = bounds.y + (inMaster.y.toDouble() * bounds.heightPx / sourceMaster.masterHeightPx).toInt()
         return screenPoint(FramePoint(x.toDouble(), y.toDouble()), bounds)
@@ -473,49 +526,54 @@ internal class CaptureCoordinator(
         val isVerticalInside = point.y >= 0 && point.y < preview.heightPx
         if (!isHorizontalInside || !isVerticalInside) return null
         return ScreenPoint(
-            preview.region.x + (point.x * preview.region.widthPx / preview.widthPx).toInt(),
-            preview.region.y + (point.y * preview.region.heightPx / preview.heightPx).toInt(),
+            preview.roi.x + (point.x * preview.roi.widthPx / preview.widthPx).toInt(),
+            preview.roi.y + (point.y * preview.roi.heightPx / preview.heightPx).toInt(),
         )
     }
 
-    /** Imports an engine frame into this session, then applies the same preview budget and crop cache. */
-    suspend fun importNative(capture: NativeCapture, request: CaptureRequest): CaptureResult =
-        withContext(dispatchers.io) {
-            operations.withLock {
-                val session = active ?: return@withLock CaptureResult(failure = ComputerUseFailure.Unavailable)
-                val bounds = capturer.currentBounds(session.mode)
-                    ?: return@withLock CaptureResult(failure = ComputerUseFailure.TargetClosed)
-                val pixels = pipeline.decode(capture.content)
-                    ?: return@withLock CaptureResult(failure = ComputerUseFailure.CaptureFailed)
-                val stored = storeMaster(session, pixels)
-                    ?: return@withLock CaptureResult(failure = ComputerUseFailure.CaptureFailed)
-                cache.put(stored.reference, pixels, bounds)
-                val region = requestedRegion(request, pixels)
-                    ?: return@withLock CaptureResult(failure = ComputerUseFailure.RegionOutOfBounds)
-                val produced = pipeline.derive(
-                    session.session,
-                    CaptureId(Uuid.random().toString()),
-                    pixels.region(region),
-                    region,
-                    pixels.widthPx,
-                    pixels.heightPx,
-                    request.encoding,
-                    nextSequence(),
-                ) ?: return@withLock CaptureResult(failure = ComputerUseFailure.EncodingTooLarge)
-                cache.alias(produced.reference.id, stored.reference.id)
-                mutex.withLock {
-                    session.masterReference = stored.reference
-                    session.preview = produced.reference
-                    session.previewBounds = bounds
-                    session.bounds = bounds
-                }
-                CaptureResult(
-                    reference = produced.reference,
-                    master = stored.reference,
-                    tiles = tilesFor(stored.reference),
-                )
+    /** Imports an engine frame into this session, then applies the same preview budget, ROI and crop cache. */
+    suspend fun importNative(
+        capture: NativeCapture,
+        request: CaptureRequest,
+        roi: CaptureRegion? = null,
+    ): CaptureResult = withContext(dispatchers.io) {
+        operations.withLock {
+            val session = active ?: return@withLock CaptureResult(failure = ComputerUseFailure.Unavailable)
+            val bounds = capturer.currentBounds(session.mode)
+                ?: return@withLock CaptureResult(failure = ComputerUseFailure.TargetClosed)
+            val pixels = pipeline.decode(capture.content)
+                ?: return@withLock CaptureResult(failure = ComputerUseFailure.CaptureFailed)
+            val stored = storeMaster(session, pixels)
+                ?: return@withLock CaptureResult(failure = ComputerUseFailure.CaptureFailed)
+            cache.put(stored.reference, pixels, bounds)
+            val activeRoi = roi.within(pixels)
+            val region = requestedRegion(request, pixels, activeRoi)
+                ?: return@withLock CaptureResult(failure = ComputerUseFailure.RegionOutOfBounds)
+            if (!region.fitsRoi(activeRoi)) return@withLock CaptureResult(failure = ComputerUseFailure.OutsideRoi)
+            val produced = pipeline.derive(
+                session.session,
+                CaptureId(Uuid.random().toString()),
+                pixels.region(region),
+                region,
+                pixels.widthPx,
+                pixels.heightPx,
+                request.encoding,
+                nextSequence(),
+            ) ?: return@withLock CaptureResult(failure = ComputerUseFailure.EncodingTooLarge)
+            cache.alias(produced.reference.id, stored.reference.id)
+            mutex.withLock {
+                session.masterReference = stored.reference
+                session.preview = produced.reference
+                session.previewBounds = bounds
+                session.bounds = bounds
             }
+            CaptureResult(
+                reference = produced.reference,
+                master = stored.reference,
+                tiles = tilesFor(stored.reference, activeRoi),
+            )
         }
+    }
 
     private fun ScreenBounds.hasSameSize(other: ScreenBounds): Boolean =
         widthPx == other.widthPx && heightPx == other.heightPx
@@ -549,7 +607,27 @@ internal class CaptureCoordinator(
 
     private data class Frames(val master: CaptureRef?, val preview: CaptureRef?)
 
+    private data class InputBinding(val expectedCapture: CaptureId?, val isFrameBound: Boolean, val roi: CaptureRegion?)
+
     private companion object {
         fun ComputerUseMode.label(): String = this::class.simpleName ?: "Mode"
+
+        /** The ROI when it still fits [master]; a resized target makes it stale, and it is ignored. */
+        fun CaptureRegion?.within(master: PixelGrid): CaptureRegion? =
+            this?.takeIf { it.isInside(CaptureRegion(0, 0, master.widthPx, master.heightPx)) }
+
+        /** Tile `column:row` of the grid laid over this rectangle, in the rectangle's own coordinate space. */
+        fun CaptureRegion.tile(column: Int, row: Int): CaptureRegion? =
+            TileGrid.forMaster(widthPx, heightPx).region(column, row, widthPx, heightPx)?.let { tile ->
+                CaptureRegion(x + tile.x, y + tile.y, tile.widthPx, tile.heightPx)
+            }
+
+        fun InputAction.points(): List<FramePoint> = when (this) {
+            is InputAction.MoveTo -> listOf(point)
+            is InputAction.Click -> listOf(point)
+            is InputAction.Drag -> listOf(from, to)
+            is InputAction.Scroll -> listOf(point)
+            is InputAction.Type, is InputAction.Key -> emptyList()
+        }
     }
 }

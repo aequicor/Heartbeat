@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.FrameSpace
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
 import io.aequicor.heartbeat.feature.computeruse.api.NormalizedRegion
+import io.aequicor.heartbeat.feature.computeruse.api.TileRef
 import io.aequicor.heartbeat.feature.computeruse.api.VisionBudget
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.PixelGrid
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ScreenPoint
@@ -53,7 +54,7 @@ class CapturePipelineTest {
             session = Session,
             id = CaptureId("p"),
             source = grid(200, 100),
-            region = CaptureRegion(0, 0, 200, 100),
+            roi = CaptureRegion(0, 0, 200, 100),
             masterWidthPx = 200,
             masterHeightPx = 100,
             encoding = CaptureEncoding(format = CaptureFormat.Jpeg, maxWidthPx = 100, maxHeightPx = 100),
@@ -73,7 +74,7 @@ class CapturePipelineTest {
             session = Session,
             id = CaptureId("p"),
             source = grid(2000, 1000),
-            region = CaptureRegion(0, 0, 2000, 1000),
+            roi = CaptureRegion(0, 0, 2000, 1000),
             masterWidthPx = 2000,
             masterHeightPx = 1000,
             encoding = CaptureEncoding(format = CaptureFormat.Png),
@@ -92,7 +93,7 @@ class CapturePipelineTest {
             session = Session,
             id = CaptureId("p"),
             source = grid(400, 300),
-            region = CaptureRegion(0, 0, 400, 300),
+            roi = CaptureRegion(0, 0, 400, 300),
             masterWidthPx = 400,
             masterHeightPx = 300,
             encoding = CaptureEncoding(format = CaptureFormat.Jpeg, quality = 90, maxBytes = 40_000),
@@ -111,7 +112,7 @@ class CapturePipelineTest {
             session = Session,
             id = CaptureId("p"),
             source = grid(100, 100),
-            region = CaptureRegion(0, 0, 100, 100),
+            roi = CaptureRegion(0, 0, 100, 100),
             masterWidthPx = 100,
             masterHeightPx = 100,
             encoding = CaptureEncoding(maxBytes = 1024),
@@ -169,7 +170,7 @@ class CapturePipelineTest {
             format = CaptureFormat.Png,
             widthPx = 4,
             heightPx = 4,
-            region = CaptureRegion(0, 0, 4, 4),
+            roi = CaptureRegion(0, 0, 4, 4),
             masterWidthPx = 4,
             masterHeightPx = 4,
             bytes = HEADER_BYTES.toLong(),
@@ -293,12 +294,12 @@ class CaptureCoordinatorTest {
         fixture.coordinator.open(Session, Desktop)
         val captured = assertIs<CaptureOutcome.Produced>(fixture.coordinator.capture(CaptureRequest()))
         val master = captured.result.master ?: error("master frame is missing")
-        val crop = fixture.coordinator.crop(CropRequest(master.id, region = CaptureRegion(10, 10, 40, 20)))
+        val crop = fixture.coordinator.crop(CropRequest(master.id, roi = CaptureRegion(10, 10, 40, 20)))
         val reference = assertIs<CaptureOutcome.Produced>(crop).result.reference ?: error("crop is missing")
         assertEquals(40, reference.widthPx)
         assertEquals(20, reference.heightPx)
         assertEquals(200, reference.masterWidthPx)
-        assertEquals(CaptureRegion(10, 10, 40, 20), reference.region)
+        assertEquals(CaptureRegion(10, 10, 40, 20), reference.roi)
         assertEquals(1, fixture.capturer.captures, "a crop must not capture the screen again")
     }
 
@@ -313,7 +314,7 @@ class CaptureCoordinatorTest {
             CropRequest(master.id, normalized = NormalizedRegion(0.25, 0.25, 0.5, 0.5)),
         )
         val reference = assertNotNull(assertIs<CaptureOutcome.Produced>(crop).result.reference)
-        assertEquals(CaptureRegion(50, 25, 100, 50), reference.region)
+        assertEquals(CaptureRegion(50, 25, 100, 50), reference.roi)
     }
 
     @Test
@@ -324,7 +325,7 @@ class CaptureCoordinatorTest {
             assertIs<CaptureOutcome.Produced>(fixture.coordinator.capture(CaptureRequest())).result.master,
         )
         val crop = fixture.coordinator.crop(
-            CropRequest(master.id, region = CaptureRegion(0, 0, 20, 10), scale = 2.0),
+            CropRequest(master.id, roi = CaptureRegion(0, 0, 20, 10), scale = 2.0),
         )
         val reference = assertNotNull(assertIs<CaptureOutcome.Produced>(crop).result.reference)
         assertEquals(40, reference.widthPx)
@@ -453,17 +454,78 @@ class CaptureCoordinatorTest {
         val fixture = fixture()
         fixture.coordinator.open(Session, Desktop)
         val frame = assertIs<CaptureOutcome.Produced>(
-            fixture.coordinator.capture(CaptureRequest(region = CaptureRegion(80, 30, 40, 20))),
+            fixture.coordinator.capture(CaptureRequest(roi = CaptureRegion(80, 30, 40, 20))),
         ).result
         val preview = assertNotNull(frame.reference)
         assertEquals(InputOutcome.Applied, fixture.coordinator.input(InputAction.Click(FramePoint(20.0, 10.0))))
         assertEquals(ScreenPoint(110, 60), fixture.injector.points.single())
         val zoom = assertIs<CaptureOutcome.Produced>(
-            fixture.coordinator.crop(CropRequest(preview.id, region = CaptureRegion(100, 40, 20, 10))),
+            fixture.coordinator.crop(CropRequest(preview.id, roi = CaptureRegion(100, 40, 20, 10))),
         ).result
         assertNotNull(zoom.reference)
         assertEquals(InputOutcome.Applied, fixture.coordinator.input(InputAction.Click(FramePoint(5.0, 5.0))))
         assertEquals(ScreenPoint(115, 65), fixture.injector.points.last())
+    }
+
+    @Test
+    fun `an active ROI frames the capture and confines crops`() = runTest {
+        val fixture = fixture(400, 200)
+        fixture.coordinator.open(Session, Desktop)
+        val roi = CaptureRegion(100, 50, 200, 100)
+        val frame = assertIs<CaptureOutcome.Produced>(fixture.coordinator.capture(CaptureRequest(), roi)).result
+        assertEquals(roi, assertNotNull(frame.reference).roi)
+        val master = assertNotNull(frame.master)
+        assertEquals(
+            ComputerUseFailure.OutsideRoi,
+            assertIs<CaptureOutcome.Rejected>(
+                fixture.coordinator.capture(CaptureRequest(roi = CaptureRegion(0, 0, 50, 50), isFresh = false), roi),
+            ).reason,
+        )
+        assertEquals(
+            ComputerUseFailure.OutsideRoi,
+            assertIs<CaptureOutcome.Rejected>(
+                fixture.coordinator.crop(CropRequest(master.id, roi = CaptureRegion(0, 0, 50, 50)), roi),
+            ).reason,
+        )
+        val defaultCrop = assertIs<CaptureOutcome.Produced>(fixture.coordinator.crop(CropRequest(master.id), roi))
+        assertEquals(roi, assertNotNull(defaultCrop.result.reference).roi)
+    }
+
+    @Test
+    fun `frame coordinates are relative to the ROI and input outside it is refused`() = runTest {
+        val fixture = fixture(400, 200)
+        fixture.coordinator.open(Session, Desktop)
+        val roi = CaptureRegion(100, 50, 200, 100)
+        fixture.coordinator.capture(CaptureRequest(), roi)
+        assertEquals(
+            InputOutcome.Applied,
+            fixture.coordinator.input(InputAction.Click(FramePoint(10.0, 10.0)), roi = roi),
+        )
+        assertEquals(ScreenPoint(120, 80), fixture.injector.points.single())
+        assertEquals(
+            InputOutcome.Rejected(ComputerUseFailure.OutsideRoi),
+            fixture.coordinator.input(InputAction.Click(FramePoint(10.0, 10.0), space = FrameSpace.Master), roi = roi),
+        )
+        assertEquals(
+            InputOutcome.Rejected(ComputerUseFailure.OutsideRoi),
+            fixture.coordinator.input(
+                InputAction.Drag(FramePoint(10.0, 10.0), FramePoint(390.0, 190.0), space = FrameSpace.Master),
+                roi = roi,
+            ),
+        )
+        assertEquals(1, fixture.injector.applied.size)
+    }
+
+    @Test
+    fun `tiles are laid over the active ROI`() = runTest {
+        val fixture = fixture(4000, 2000)
+        fixture.coordinator.open(Session, Desktop)
+        val roi = CaptureRegion(1000, 500, 2000, 1000)
+        val frame = assertIs<CaptureOutcome.Produced>(
+            fixture.coordinator.capture(CaptureRequest(tile = TileRef(1, 0)), roi),
+        ).result
+        assertEquals(CaptureRegion(1960, 500, 1024, 1000), assertNotNull(frame.reference).roi)
+        assertEquals(3, assertNotNull(frame.tiles).columns)
     }
 
     @Test

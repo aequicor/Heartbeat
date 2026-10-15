@@ -134,16 +134,21 @@ public object CapturePresets {
     private const val DETAIL_MAX_BYTES: Int = 2 * 1024 * 1024
 }
 
-/** One frame request. Geometry is interpreted in master-frame pixels. */
+/**
+ * One frame request. Geometry is interpreted in master-frame pixels.
+ *
+ * [roi] is a one-off ROI of this frame and must lie inside the active ROI of the capture; [tile] is a tile of the
+ * grid laid over the active ROI (or over the whole master without one). Without either the frame shows the active ROI.
+ */
 public data class CaptureRequest(
-    public val region: CaptureRegion? = null,
+    public val roi: CaptureRegion? = null,
     public val tile: TileRef? = null,
     public val encoding: CaptureEncoding = CapturePresets.AgentOverview,
     public val isCursorIncluded: Boolean = true,
     public val isFresh: Boolean = true,
 ) {
     init {
-        require(region == null || tile == null) { "A capture request selects either a region or a tile" }
+        require(roi == null || tile == null) { "A capture request selects either an ROI or a tile" }
     }
 }
 
@@ -166,16 +171,21 @@ public data class TileRef(public val column: Int, public val row: Int) {
     }
 }
 
-/** A crop request against one stored master frame. */
+/**
+ * A crop request against one stored master frame.
+ *
+ * [roi] is the cropped ROI in master pixels; without [roi] and [normalized] the crop covers the active ROI, or the
+ * whole master without one.
+ */
 public data class CropRequest(
     public val capture: CaptureId,
-    public val region: CaptureRegion? = null,
+    public val roi: CaptureRegion? = null,
     public val normalized: NormalizedRegion? = null,
     public val scale: Double = 1.0,
     public val encoding: CaptureEncoding = CapturePresets.AgentDetail,
 ) {
     init {
-        require(region == null || normalized == null) { "A crop selects either master pixels or fractions" }
+        require(roi == null || normalized == null) { "A crop selects either master pixels or fractions" }
         require(scale in MIN_SCALE..MAX_SCALE) { "Crop scale must be in $MIN_SCALE..$MAX_SCALE: $scale" }
     }
 

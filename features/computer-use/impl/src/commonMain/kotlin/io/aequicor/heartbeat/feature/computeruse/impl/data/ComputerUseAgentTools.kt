@@ -421,7 +421,7 @@ internal class ComputerUseAgentTools(
         if (arguments.hasAny(regionKeys) && region == null) return failure("InvalidRegion")
         if ("tile" in arguments && tile == null) return failure("InvalidTile")
         val request = CaptureRequest(
-            region = region,
+            roi = region,
             tile = tile,
             encoding = encoding(arguments, CapturePresets.AgentOverview),
             isCursorIncluded = arguments.flag("includeCursor") ?: true,
@@ -447,7 +447,7 @@ internal class ComputerUseAgentTools(
         val request = try {
             CropRequest(
                 capture = identifier,
-                region = geometry.region,
+                roi = geometry.region,
                 normalized = geometry.normalized,
                 scale = scale,
                 encoding = encoding(arguments, CapturePresets.AgentDetail),
@@ -606,7 +606,7 @@ internal class ComputerUseAgentTools(
             ComputerUseIntent.Public.Revoke, is ComputerUseIntent.Public.ArmInput,
             is ComputerUseIntent.Public.BeginCapture, is ComputerUseIntent.Public.CancelSession,
             is ComputerUseIntent.Public.SwitchMode, is ComputerUseIntent.Public.OwnerReleased,
-            is ComputerUseIntent.Public.StopAgent,
+            is ComputerUseIntent.Public.StopAgent, is ComputerUseIntent.Public.SetRoi,
             -> error("Only operation intents have correlated replies")
         }
         val answered = async(start = CoroutineStart.UNDISPATCHED) {

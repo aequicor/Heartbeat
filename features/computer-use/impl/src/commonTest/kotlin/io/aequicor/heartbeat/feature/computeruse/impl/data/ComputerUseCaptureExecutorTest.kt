@@ -66,7 +66,7 @@ class ComputerUseCaptureExecutorTest {
         val fixture = fixture(ComputerUseMode.Desktop())
         val region = CaptureRegion(40, 16, 20, 10)
         val request = CaptureRequest(
-            region = region,
+            roi = region,
             encoding = CaptureEncoding(maxWidthPx = 10, maxHeightPx = 10),
             isCursorIncluded = false,
             isFresh = false,
@@ -76,11 +76,11 @@ class ComputerUseCaptureExecutorTest {
         val preview = assertNotNull(result.reference)
         assertEquals(64, master.masterWidthPx)
         assertEquals(32, master.masterHeightPx)
-        assertEquals(region, preview.region)
+        assertEquals(region, preview.roi)
         assertTrue(preview.widthPx <= 10 && preview.heightPx <= 10)
         assertEquals(0, fixture.capturer.captures)
         assertEquals(
-            request.copy(region = null, tile = null, encoding = CapturePresets.Master),
+            request.copy(roi = null, tile = null, encoding = CapturePresets.Master),
             fixture.native.requests.single(),
         )
     }
@@ -114,7 +114,7 @@ class ComputerUseCaptureExecutorTest {
             paused?.await()
             failure?.let { throw it }
             val full = solidGrid(64, 32, 0)
-            val pixels = request.region?.let(full::region) ?: full
+            val pixels = request.roi?.let(full::region) ?: full
             val encoded = encoder.encode(pixels, request.encoding)
             return NativeCapture(encoded.format, encoded.widthPx, encoded.heightPx, encoded.content)
         }

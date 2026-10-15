@@ -105,7 +105,7 @@ internal class ComputerUseEffectHandler(
     }
 
     private suspend fun capture(effect: ComputerUseEffect.CaptureFrame, machine: EffectScope<ComputerUseIntent>) {
-        val outcome = captures.capture(effect.request)
+        val outcome = captures.capture(effect.request, effect.roi)
         val reference = outcome.reference
         if (reference == null) {
             reject(machine, outcome.failure ?: ComputerUseFailure.CaptureFailed, effect.requestId)
@@ -127,7 +127,7 @@ internal class ComputerUseEffectHandler(
             reject(machine, failure, effect.requestId)
             return
         }
-        when (val outcome = coordinator.crop(effect.request)) {
+        when (val outcome = coordinator.crop(effect.request, effect.roi)) {
             is CaptureOutcome.Produced -> {
                 val reference = outcome.result.reference
                 if (reference == null) {
@@ -159,6 +159,7 @@ internal class ComputerUseEffectHandler(
                 effect.action,
                 effect.expectedCapture,
                 isFrameBound = true,
+                roi = effect.roi,
                 guard = access::inputFailure,
                 onProgress = { session, activity ->
                     machine.send(ComputerUseIntent.Internal.InputProgress(session, activity))

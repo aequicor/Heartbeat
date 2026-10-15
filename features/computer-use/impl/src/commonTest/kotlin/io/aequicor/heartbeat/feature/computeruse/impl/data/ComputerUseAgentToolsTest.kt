@@ -488,7 +488,7 @@ class ComputerUseAgentToolsTest {
     fun `zoom tile uses the stored native master and preserves its session`() = runTest {
         val master = Frame.copy(
             id = CaptureId("native-master"),
-            region = CaptureRegion(0, 0, 2200, 1200),
+            roi = CaptureRegion(0, 0, 2200, 1200),
             masterWidthPx = 2200,
             masterHeightPx = 1200,
         )
@@ -500,7 +500,7 @@ class ComputerUseAgentToolsTest {
         assertFalse(reply.isError)
         val crop = fixture.machine.sent.filterIsInstance<ComputerUseIntent.Public.Crop>().single()
         assertEquals(master.id, crop.request.capture)
-        assertEquals(CaptureRegion(960, 960, 1024, 240), crop.request.region)
+        assertEquals(CaptureRegion(960, 960, 1024, 240), crop.request.roi)
         assertEquals(Session, crop.expectedSession)
     }
 

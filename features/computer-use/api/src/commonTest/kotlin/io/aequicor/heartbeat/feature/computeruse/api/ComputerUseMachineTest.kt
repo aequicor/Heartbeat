@@ -118,7 +118,7 @@ class ComputerUseMachineTest {
     @Test
     fun `a crop inside the master is produced`() {
         val withMaster = capturing.copy(master = master)
-        val crop = CropRequest(master.id, region = CaptureRegion(0, 0, 100, 80))
+        val crop = CropRequest(master.id, roi = CaptureRegion(0, 0, 100, 80))
         ComputerUseMachineSpec.assertTransition(
             from = withMaster,
             intent = ComputerUseIntent.Public.Crop(crop),
@@ -132,7 +132,7 @@ class ComputerUseMachineTest {
         val withMaster = capturing.copy(master = master)
         ComputerUseMachineSpec.assertIgnored(
             withMaster,
-            ComputerUseIntent.Public.Crop(CropRequest(master.id, region = CaptureRegion(900, 0, 200, 80))),
+            ComputerUseIntent.Public.Crop(CropRequest(master.id, roi = CaptureRegion(900, 0, 200, 80))),
         )
     }
 
@@ -140,7 +140,94 @@ class ComputerUseMachineTest {
     fun `a crop without a stored master is ignored`() {
         ComputerUseMachineSpec.assertIgnored(
             capturing,
-            ComputerUseIntent.Public.Crop(CropRequest(CaptureId("unknown"), region = CaptureRegion(0, 0, 10, 10))),
+            ComputerUseIntent.Public.Crop(CropRequest(CaptureId("unknown"), roi = CaptureRegion(0, 0, 10, 10))),
+        )
+    }
+
+    @Test
+    fun `an ROI inside the master becomes the working area and travels with capture effects`() {
+        val roi = CaptureRegion(100, 100, 400, 300)
+        val withMaster = capturing.copy(master = master)
+        ComputerUseMachineSpec.assertTransition(
+            from = withMaster,
+            intent = ComputerUseIntent.Public.SetRoi(roi, session, owner),
+            to = withMaster.copy(roi = roi),
+        )
+        val framed = withMaster.copy(roi = roi)
+        ComputerUseMachineSpec.assertTransition(
+            from = framed,
+            intent = ComputerUseIntent.Public.Capture(CaptureRequest(), "r1"),
+            to = framed,
+            effects = listOf(ComputerUseEffect.CaptureFrame(CaptureRequest(), "r1", roi)),
+        )
+        ComputerUseMachineSpec.assertTransition(
+            from = framed,
+            intent = ComputerUseIntent.Public.SetRoi(null, session, owner),
+            to = withMaster,
+        )
+    }
+
+    @Test
+    fun `an ROI is refused outside the master, without a master and for another owner`() {
+        val withMaster = capturing.copy(master = master)
+        ComputerUseMachineSpec.assertIgnored(
+            withMaster,
+            ComputerUseIntent.Public.SetRoi(CaptureRegion(900, 0, 200, 80), session, owner),
+        )
+        ComputerUseMachineSpec.assertIgnored(
+            capturing,
+            ComputerUseIntent.Public.SetRoi(CaptureRegion(0, 0, 10, 10), session, owner),
+        )
+        ComputerUseMachineSpec.assertIgnored(
+            withMaster,
+            ComputerUseIntent.Public.SetRoi(CaptureRegion(0, 0, 10, 10), session, otherOwner),
+        )
+    }
+
+    @Test
+    fun `a crop must stay inside the active ROI`() {
+        val roi = CaptureRegion(100, 100, 400, 300)
+        val framed = capturing.copy(master = master, roi = roi)
+        ComputerUseMachineSpec.assertIgnored(
+            framed,
+            ComputerUseIntent.Public.Crop(CropRequest(master.id, roi = CaptureRegion(0, 0, 50, 50))),
+        )
+        val inside = CropRequest(master.id, roi = CaptureRegion(150, 150, 50, 50))
+        ComputerUseMachineSpec.assertTransition(
+            from = framed,
+            intent = ComputerUseIntent.Public.Crop(inside),
+            to = framed,
+            effects = listOf(ComputerUseEffect.ProduceCrop(inside, roi = roi)),
+        )
+    }
+
+    @Test
+    fun `a master that no longer contains the ROI clears it`() {
+        val framed = capturing.copy(master = master, roi = CaptureRegion(600, 500, 400, 300))
+        val smaller = master.copy(id = CaptureId("m-2"), masterWidthPx = 800, masterHeightPx = 600)
+        ComputerUseMachineSpec.assertTransition(
+            from = framed,
+            intent = ComputerUseIntent.Internal.FrameCaptured(smaller, preview),
+            to = framed.copy(master = smaller, lastPreview = preview, frameCount = 1, roi = null),
+            outputs = listOf(ComputerUseOutput.FrameReady(preview, master = smaller)),
+        )
+    }
+
+    @Test
+    fun `armed input carries the active ROI to the host`() {
+        val roi = CaptureRegion(100, 100, 400, 300)
+        val armed = capturing.copy(
+            mode = windowMode,
+            isInputArmed = true,
+            master = master,
+            lastPreview = preview,
+            roi = roi,
+        )
+        ComputerUseMachineSpec.assertTransition(
+            from = armed,
+            intent = ComputerUseIntent.Public.Input(click, "i1"),
+            to = armed,
+            effects = listOf(ComputerUseEffect.ApplyInput(click, "i1", preview.id, roi)),
         )
     }
 
@@ -595,7 +682,7 @@ class ComputerUseMachineTest {
             format = CaptureFormat.Png,
             widthPx = 1000,
             heightPx = 800,
-            region = CaptureRegion(0, 0, 1000, 800),
+            roi = CaptureRegion(0, 0, 1000, 800),
             masterWidthPx = 1000,
             masterHeightPx = 800,
             bytes = 40_000,
