@@ -194,6 +194,30 @@ class HarnessMachineWritesTest {
     }
 
     @Test
+    fun `content replaces metadata items and tools in one revision keeping item identities`() {
+        val skill = HarnessItem.Skill(ItemId("skill"), ItemName("tests"), "When testing", "Run the tests")
+        val content = HarnessChange.Content("New", "Imported", listOf(skill), ToolPolicySpec(setOf("search")))
+        val intent = HarnessIntent.Internal.Update(request, harness.id, content, 0, HarnessAuthor.User, now)
+        val pending = ready.send(intent)
+        val candidate = saveOf(pending).harness
+
+        assertEquals(1, candidate.revision)
+        assertEquals("New", candidate.title)
+        assertEquals("Imported", candidate.description)
+        assertEquals(listOf(skill), candidate.items)
+        assertEquals(setOf("search"), candidate.tools.hostedOff)
+        assertTrue(candidate.isEnabled)
+        ready.refuses(
+            intent.copy(change = content.copy(items = listOf(skill.copy(id = code.id)))),
+            HarnessRejection.Invalid,
+        )
+        ready.refuses(intent.copy(change = content.copy(items = listOf(skill, skill))), HarnessRejection.Invalid)
+        val many = (0..HarnessLimits.ITEMS).map { skill.copy(id = ItemId("s$it"), name = ItemName("s$it")) }
+        ready.refuses(intent.copy(change = content.copy(items = many)), HarnessRejection.Limit)
+        assertFalse("Imported" in content.toString())
+    }
+
+    @Test
     fun `concurrent creates reserve count and profile storage limits`() {
         val entries = (1..HarnessLimits.HARNESSES).map { index ->
             HarnessEntry(harness.copy(id = HarnessId("id$index"), name = HarnessName("name$index")))
