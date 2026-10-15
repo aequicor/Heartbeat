@@ -4,12 +4,15 @@ import io.aequicor.heartbeat.feature.computeruse.api.CaptureRegion
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRequest
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureSessionId
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseGesture
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseInputActivity
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.CropRequest
 import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
 import io.aequicor.heartbeat.feature.computeruse.api.RecordRequest
+import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
 import io.aequicor.heartbeat.feature.computeruse.api.VisionBudget
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.PixelGrid
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ScreenPoint
@@ -99,15 +102,62 @@ class ClipRecordingTest {
         fixture.injector.isProgressReported = true
         fixture.coordinator.open(Session, ComputerUseMode.Desktop())
         fixture.coordinator.capture(CaptureRequest())
-        var checks = 0
-        val activities = mutableListOf<io.aequicor.heartbeat.feature.computeruse.api.ComputerUseInputActivity>()
+        var hasArrived = false
+        val activities = mutableListOf<ComputerUseInputActivity>()
         val outcome = fixture.coordinator.input(
             InputAction.Click(FramePoint(10.0, 10.0)),
-            guard = { if (++checks > 3) ComputerUseFailure.PermissionLost else null },
-            onProgress = { _, activity -> activities += activity },
+            guard = { if (hasArrived) ComputerUseFailure.PermissionLost else null },
+            onProgress = { _, activity ->
+                hasArrived = true
+                activities += activity
+            },
         )
         assertEquals(InputOutcome.Rejected(ComputerUseFailure.PermissionLost), outcome)
         assertTrue(activities.none { it.effectSequence > 0 })
+        assertTrue(fixture.injector.applied.isEmpty())
+    }
+
+    @Test
+    fun `a target that moved while the pointer glided refuses the click before its effect`() = runTest {
+        val fixture = fixture()
+        fixture.injector.isProgressReported = true
+        fixture.coordinator.open(Session, ComputerUseMode.Desktop())
+        fixture.coordinator.capture(CaptureRequest())
+        val outcome = fixture.coordinator.input(
+            InputAction.Click(FramePoint(10.0, 10.0)),
+            onProgress = { _, _ -> fixture.capturer.bounds = ScreenBounds(40, 20, 200, 100) },
+        )
+        assertEquals(InputOutcome.Rejected(ComputerUseFailure.TargetResized), outcome)
+        assertTrue(fixture.injector.applied.isEmpty())
+    }
+
+    @Test
+    fun `a finished drag reports the released button to the cursor`() = runTest {
+        val fixture = fixture()
+        fixture.injector.isProgressReported = true
+        fixture.coordinator.open(Session, ComputerUseMode.Desktop())
+        fixture.coordinator.capture(CaptureRequest())
+        val activities = mutableListOf<ComputerUseInputActivity>()
+        val outcome = fixture.coordinator.input(
+            InputAction.Drag(FramePoint(10.0, 10.0), FramePoint(50.0, 20.0)),
+            onProgress = { _, activity -> activities += activity },
+        )
+        assertEquals(InputOutcome.Applied, outcome)
+        assertTrue(activities.any { it.gesture is ComputerUseGesture.Drag })
+        assertEquals(ComputerUseGesture.Move, activities.last().gesture)
+        assertEquals(1L, activities.last().effectSequence)
+    }
+
+    @Test
+    fun `input glides only inside the captured area narrowed to the active ROI`() = runTest {
+        val fixture = fixture()
+        fixture.coordinator.open(Session, ComputerUseMode.Desktop())
+        fixture.coordinator.capture(CaptureRequest())
+        val roi = CaptureRegion(100, 50, 200, 100)
+        fixture.coordinator.input(InputAction.Click(FramePoint(150.0, 80.0)), roi = roi)
+        assertEquals(ScreenBounds(60, 45, 100, 50), fixture.injector.lastArea)
+        fixture.coordinator.input(InputAction.Click(FramePoint(10.0, 10.0)))
+        assertEquals(ScreenBounds(10, 20, 200, 100), fixture.injector.lastArea)
     }
 
     @Test
@@ -117,7 +167,7 @@ class ClipRecordingTest {
         fixture.capturer.bounds = null
         val outcome = fixture.coordinator.record(RecordRequest())
         assertEquals(ClipOutcome.Rejected(ComputerUseFailure.TargetClosed), outcome)
-        fixture.capturer.bounds = io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds(10, 20, 200, 100)
+        fixture.capturer.bounds = ScreenBounds(10, 20, 200, 100)
         assertIs<CaptureOutcome.Produced>(fixture.coordinator.capture(CaptureRequest()))
     }
 
@@ -129,7 +179,7 @@ class ClipRecordingTest {
 
     private fun TestScope.fixture(): Fixture {
         val capturer = FakeScreenCapturer(400, 200).apply {
-            bounds = io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds(10, 20, 200, 100)
+            bounds = ScreenBounds(10, 20, 200, 100)
             pixels = { Blank }
         }
         val injector = FakeInputInjector()

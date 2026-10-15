@@ -64,7 +64,9 @@ internal class ComputerUsePointerOverlay(private val clock: () -> Long = ::monot
     fun update(activity: ComputerUseInputActivity, style: AgentCursorStyle) = onOverlayThread {
         if (this.style != style) {
             this.style = style
-            animator = AgentCursorAnimator(style.timing)
+            // One animator per overlay: a new one would replay the last effect after a theme or motion change.
+            animator?.timing = style.timing
+            if (animator == null) animator = AgentCursorAnimator(style.timing)
             canvas?.style = style
         }
         this.activity = activity
@@ -78,7 +80,7 @@ internal class ComputerUsePointerOverlay(private val clock: () -> Long = ::monot
                 clock(),
             )
         } else {
-            animator?.reset()
+            animator?.reset(activity.effectSequence)
         }
         renderFrame()
     }

@@ -37,8 +37,11 @@ internal data class CursorBadge(val text: String, val alpha: Float)
 /**
  * Pure animation state of the agent cursor, advanced by the overlay's frame timer. The tip eases between the
  * acknowledged pointer steps; a new effect (click, drag start, wheel, typing) starts its ring, trail or label once.
+ * A drag trail stays while the button is held and fades from the moment it is released.
+ *
+ * [timing] can change (theme or reduced motion) without forgetting which effects were already shown.
  */
-internal class AgentCursorAnimator(private val timing: CursorTiming) {
+internal class AgentCursorAnimator(var timing: CursorTiming) {
     private var from: CursorPoint? = null
     private var to: CursorPoint? = null
     private var movedAtMillis = 0L
@@ -54,6 +57,7 @@ internal class AgentCursorAnimator(private val timing: CursorTiming) {
         if (current == null) {
             from = point
             to = point
+            movedAtMillis = nowMillis
         } else if (current != point) {
             from = tip(nowMillis)
             to = point
@@ -63,18 +67,30 @@ internal class AgentCursorAnimator(private val timing: CursorTiming) {
             effect = Effect(gesture, nowMillis)
             trail.clear()
         }
+        val isReleased = this.gesture is ComputerUseGesture.Drag && gesture !is ComputerUseGesture.Drag
+        if (isReleased) {
+            // The trail fades from the release, not from when each point was drawn.
+            val held = trail.map { (trailPoint, _) -> trailPoint to nowMillis }
+            trail.clear()
+            trail.addAll(held)
+        }
         this.effectSequence = effectSequence
         this.gesture = gesture
-        if (gesture is ComputerUseGesture.Drag) trail.addLast(point to nowMillis)
+        if (gesture is ComputerUseGesture.Drag && trail.lastOrNull()?.first != point) trail.addLast(point to nowMillis)
         while (trail.size > MAX_TRAIL_POINTS) trail.removeFirst()
     }
 
-    /** Forgets the position: the next pointer appears in place instead of gliding from a stale one. */
-    fun reset() {
+    /**
+     * Forgets the position: the next pointer appears in place instead of gliding from a stale one. Effects up to
+     * [effectSequence] happened while the cursor was hidden and are never replayed.
+     */
+    fun reset(effectSequence: Long = this.effectSequence) {
         from = null
         to = null
         effect = null
+        gesture = null
         trail.clear()
+        this.effectSequence = maxOf(this.effectSequence, effectSequence)
     }
 
     /** Called on every frame of the overlay timer. */

@@ -17,6 +17,26 @@ class MotionAnalysisTest {
     }
 
     @Test
+    fun `a tall caret across a cell boundary is noise while a small control is a change`() {
+        val frame = solidGrid(128, 96, WHITE)
+        val caret = frame.painted(CaptureRegion(7, 10, 2, 36), BLACK)
+        assertFalse(frame.motionSignature().compare(caret.motionSignature()).isChanged, "a 2x36 caret at 2x")
+        val checkbox = frame.painted(CaptureRegion(20, 20, 14, 14), BLACK)
+        assertTrue(frame.motionSignature().compare(checkbox.motionSignature()).isChanged)
+        val line = frame.painted(CaptureRegion(20, 20, 60, 10), BLACK)
+        assertTrue(frame.motionSignature().compare(line.motionSignature()).isChanged)
+    }
+
+    @Test
+    fun `frames of different sizes differ as a whole`() {
+        val before = solidGrid(30, 20, WHITE)
+        val after = solidGrid(31, 24, WHITE)
+        val change = before.motionSignature().compare(after.motionSignature())
+        assertEquals(CaptureRegion(0, 0, 30, 20), change.bounds)
+        assertEquals(1.0, change.changedFraction)
+    }
+
+    @Test
     fun `a changed block is bounded by whole cells`() {
         val before = solidGrid(64, 48, WHITE)
         val after = before.painted(CaptureRegion(20, 12, 20, 10), BLACK)

@@ -12,6 +12,7 @@ import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 /** `<family>_record` and `observeMs` of the input tools. */
@@ -49,6 +50,9 @@ class ComputerUseRecordToolTest {
     fun `recording is refused while the toggle is off or the request is out of range`() = runTest {
         val off = Fixture(this, Capturing)
         assertEquals("RecordingDisabled", off.tools.execute(off.context, "computer_record", EmptyArguments).text)
+        val observed = buildJsonObject { put("observeMs", 500) }
+        val screenshot = off.tools.execute(off.context, "computer_screenshot", observed)
+        assertNotEquals("RecordingDisabled", screenshot.text, "observeMs belongs to input tools only")
         val on = Fixture(this, Capturing, isRecording = true)
         val reply = on.tools.execute(on.context, "computer_record", buildJsonObject { put("fps", 60) })
         assertEquals("InvalidRecording", reply.text)

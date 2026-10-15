@@ -117,6 +117,34 @@ class ComputerUseToolFamiliesTest {
     }
 
     @Test
+    fun `oversized or mistyped roi values are refused as an invalid roi`() = runTest {
+        val fixture = Fixture(this, Capturing)
+        val oversized = fixture.tools.execute(
+            fixture.context,
+            "computer_roi",
+            buildJsonObject { put("roi", roi(10, 0, 1e12, 10, space = "master")) },
+        )
+        assertEquals("InvalidRoi", oversized.text)
+        val mistyped = fixture.tools.execute(
+            fixture.context,
+            "computer_roi",
+            buildJsonObject {
+                put(
+                    "roi",
+                    buildJsonObject {
+                        put("x", buildJsonObject { })
+                        put("y", 0)
+                        put("width", 10)
+                        put("height", 10)
+                    },
+                )
+            },
+        )
+        assertEquals("InvalidRoi", mistyped.text)
+        assertTrue(fixture.machine.sent.isEmpty())
+    }
+
+    @Test
     fun `a one-off frame outside the active roi is refused before sending`() = runTest {
         val fixture = Fixture(this, Capturing.copy(roi = CaptureRegion(0, 0, 10, 5)))
         val reply = fixture.tools.execute(

@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_CLICKS
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_TYPED_CHARS
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlin.math.abs
 
 // Argument parsing of the hosted computer tools: pure conversions of model-supplied JSON, bounded and validated.
 
@@ -105,6 +106,9 @@ internal fun roiArgument(arguments: JsonObject, frame: CaptureRef?): RoiArgument
     }
 }
 
+/** Far beyond any screen in pixels, far below the integer range: edges of such values cannot overflow. */
+private const val MAX_ROI_COORDINATE = 1_000_000.0
+
 private data class Rectangle(val x: Double, val y: Double, val width: Double, val height: Double) {
     fun toRegion(): CaptureRegion = CaptureRegion(x.toInt(), y.toInt(), width.toInt(), height.toInt())
 
@@ -112,10 +116,13 @@ private data class Rectangle(val x: Double, val y: Double, val width: Double, va
         NormalizedRegion(x, y, width, height).toRegion(frame.masterWidthPx, frame.masterHeightPx)
 }
 
-/** Finite numbers with a positive size; anything else is refused. */
+/**
+ * Finite numbers with a positive size, each within [MAX_ROI_COORDINATE]; anything else is refused, so integer
+ * conversion never saturates and edges (`x + width`) never overflow into a region that passes bounds checks.
+ */
 private fun rectangle(roi: JsonObject): Rectangle? {
     val values = listOf("x", "y", "width", "height").map { roi.number(it) ?: return null }
-    if (values.any { !it.isFinite() }) return null
+    if (values.any { !it.isFinite() || abs(it) > MAX_ROI_COORDINATE }) return null
     val rectangle = Rectangle(values[0], values[1], values[2], values[3])
     return rectangle.takeIf { it.width > 0.0 && it.height > 0.0 }
 }

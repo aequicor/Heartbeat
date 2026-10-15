@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
+import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_GLIDE_STEPS
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_TYPED_CHARS
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_WHEEL_NOTCHES
@@ -61,6 +62,7 @@ class DesktopInputInjectorTest {
                 assertTrue(driver.events.none { it.startsWith("pressButton") })
                 null
             },
+            area = Area,
         )
         assertEquals(InputOutcome.Applied, outcome)
         assertEquals(MAX_GLIDE_STEPS, progress.size)
@@ -69,6 +71,22 @@ class DesktopInputInjectorTest {
         val first = assertNotNull(progress.first())
         val second = assertNotNull(progress[1])
         assertTrue(first.x > second.x - first.x, "the glide eases out: the first step is the longest")
+    }
+
+    @Test
+    fun `a last point outside the authorized area makes the pointer jump`() = runTest {
+        val driver = RecordingDriver(location = ScreenPoint(500, 500))
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        val map: (FramePoint) -> ScreenPoint? = { ScreenPoint(it.x.toInt(), it.y.toInt()) }
+        injector.applyObserved(InputAction.MoveTo(FramePoint(0.0, 0.0)), map, onProgress = { }, area = Area)
+        driver.movements = 0
+        // The capture moved or its ROI narrowed: the old point is no longer inside the authorized area.
+        val narrowed = ScreenBounds(800, 1000, 400, 400)
+        injector.applyObserved(InputAction.Click(FramePoint(900.0, 1200.0)), map, onProgress = { }, area = narrowed)
+        assertEquals(1, driver.movements)
+        driver.movements = 0
+        injector.applyObserved(InputAction.Click(FramePoint(1000.0, 1300.0)), map, onProgress = { }, area = null)
+        assertEquals(1, driver.movements, "without an authorized area the pointer never glides")
     }
 
     @Test
@@ -410,5 +428,10 @@ class DesktopInputInjectorTest {
             events += "typeUnicode:$text"
             return !isUnicodeRefused
         }
+    }
+
+    private companion object {
+        /** An authorized area that holds every point of the glide tests. */
+        val Area = ScreenBounds(0, 0, 2000, 2000)
     }
 }

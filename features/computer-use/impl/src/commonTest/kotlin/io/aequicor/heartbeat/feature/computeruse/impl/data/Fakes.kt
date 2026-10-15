@@ -157,6 +157,9 @@ internal class FakeInputInjector(override val isAvailable: Boolean = true) : Inp
     var onInput: () -> Unit = {}
     var isProgressReported: Boolean = false
 
+    /** The authorized area of the last observed action. */
+    var lastArea: ScreenBounds? = null
+
     /** Holds every input until completed, like a device busy with a long action. */
     var awaitInput: CompletableDeferred<Unit>? = null
 
@@ -165,18 +168,26 @@ internal class FakeInputInjector(override val isAvailable: Boolean = true) : Inp
         map: (FramePoint) -> ScreenPoint?,
         onProgress: suspend (ScreenPoint?) -> Unit,
         onEffect: suspend () -> ComputerUseFailure?,
+        area: ScreenBounds?,
     ): InputOutcome {
-        val outcome = apply(action, map)
-        if (outcome == InputOutcome.Applied && isProgressReported) {
+        lastArea = area
+        onInput()
+        awaitInput?.await()
+        // Like the driver: the pointer arrives, the effect is announced (or refused), and only then is input applied.
+        if (isProgressReported && refusal == null) {
             onProgress(action.firstPoint()?.let(map))
             if (action !is InputAction.MoveTo) onEffect()?.let { return InputOutcome.Rejected(it) }
         }
-        return outcome
+        return applyEntered(action, map)
     }
 
     override suspend fun apply(action: InputAction, map: (FramePoint) -> ScreenPoint?): InputOutcome {
         onInput()
         awaitInput?.await()
+        return applyEntered(action, map)
+    }
+
+    private fun applyEntered(action: InputAction, map: (FramePoint) -> ScreenPoint?): InputOutcome {
         val refused = refusal ?: return mappedOutcome(action, map)
         return InputOutcome.Rejected(refused)
     }

@@ -47,4 +47,17 @@ class ClipPlannerTest {
         assertTrue(busy.isSettled(1_300))
         assertTrue(busy.hasChanged)
     }
+
+    @Test
+    fun `a slow drift below the threshold per frame still counts once it adds up`() {
+        val planner = ClipPlanner<String>(maxFrames = 4, quietMillis = 500, idleMillis = 1_500)
+        planner.offer("a", 0, none, none)
+        planner.offer("b", 400, none, none)
+        assertNull(planner.offer("c", 800, none, change(30, 0.1)))
+        assertEquals(listOf("a", "c"), planner.keyframes.map { it.frame })
+        assertEquals(CaptureRegion(30, 0, 10, 10), planner.changedArea)
+        assertTrue(planner.hasChanged)
+        assertFalse(planner.isSettled(1_200))
+        assertTrue(planner.isSettled(1_300))
+    }
 }

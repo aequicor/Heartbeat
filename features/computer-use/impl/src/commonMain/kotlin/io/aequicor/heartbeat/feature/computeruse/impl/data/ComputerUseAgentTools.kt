@@ -281,8 +281,12 @@ internal class ComputerUseAgentTools(
 
     private suspend fun isRecording(): Boolean = toggles.get(ComputerUseRecording)
 
-    private fun ComputerTool.needsRecording(arguments: JsonObject): Boolean =
-        this is ComputerTool.Family && (verb.isRecording || (arguments.int(OBSERVE_ARGUMENT) ?: 0) > 0)
+    /** `observeMs` belongs to the input tools only; elsewhere it is ignored, never refused. */
+    private fun ComputerTool.needsRecording(arguments: JsonObject): Boolean {
+        if (this !is ComputerTool.Family) return false
+        val isObserved = verb.isInput && (arguments.int(OBSERVE_ARGUMENT) ?: 0) > 0
+        return verb.isRecording || isObserved
+    }
 
     /** The machine is created lazily; a tool call is what starts the availability probe. */
     private suspend fun started(): MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>? {
@@ -661,7 +665,10 @@ internal class ComputerUseAgentTools(
             is ComputerUseOutput.FrameReady, is ComputerUseOutput.InputApplied, is ComputerUseOutput.CaptureChanged,
             is ComputerUseOutput.PermissionRequired, ComputerUseOutput.Revoked,
             -> failure("UnexpectedOutput")
-        }.also { log.d { "clip served frames=${(output as? ComputerUseOutput.ClipReady)?.clip?.frames?.size ?: 0}" } }
+        }.also {
+            val count = (output as? ComputerUseOutput.ClipReady)?.clip?.frames?.size ?: 0
+            log.d { "clip served outcome=${output::class.simpleName.orEmpty()} frames=$count" }
+        }
     }
 
     private fun authorizedSession(context: AgentToolContext): CaptureSessionId? =

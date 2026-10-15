@@ -19,14 +19,17 @@ internal class MotionSignature(
 ) {
     /**
      * Cells whose mean luma moved by more than [threshold]; fewer than [minCells] changed cells count as no change
-     * (a blinking caret, a clock digit). The bounds are in source pixels of the analyzed frame.
+     * (a clock digit), and so does a change that is only a thin vertical sliver (a blinking text caret, which spans
+     * several cells at high DPI and blinks faster than the screen is expected to settle). The bounds are in source
+     * pixels of this frame; frames of different sizes differ as a whole.
      */
     fun compare(
         other: MotionSignature,
         threshold: Int = LUMA_THRESHOLD,
         minCells: Int = MIN_CHANGED_CELLS,
     ): MotionChange {
-        if (other.columns != columns || other.rows != rows || other.cellPx != cellPx) {
+        val isSameGrid = other.columns == columns && other.rows == rows && other.cellPx == cellPx
+        if (!isSameGrid || other.sourceWidthPx != sourceWidthPx || other.sourceHeightPx != sourceHeightPx) {
             return MotionChange(CaptureRegion(0, 0, sourceWidthPx, sourceHeightPx), 1.0)
         }
         var left = Int.MAX_VALUE
@@ -46,7 +49,7 @@ internal class MotionSignature(
                 }
             }
         }
-        if (changed < minCells) return MotionChange(null, 0.0)
+        if (changed < minCells || isCaret(right - left + 1, bottom - top + 1)) return MotionChange(null, 0.0)
         val x = left * cellPx
         val y = top * cellPx
         val bounds = CaptureRegion(
@@ -58,6 +61,10 @@ internal class MotionSignature(
         return MotionChange(bounds, changed.toDouble() / (columns * rows))
     }
 
+    /** A change at most [CARET_MAX_COLUMNS] cells wide, at least twice as tall, and short enough to be a caret. */
+    private fun isCaret(columnSpan: Int, rowSpan: Int): Boolean =
+        columnSpan <= CARET_MAX_COLUMNS && rowSpan >= columnSpan * 2 && rowSpan <= CARET_MAX_ROWS
+
     companion object {
         /** Mean luma difference of one cell that counts as a change, out of 255. */
         const val LUMA_THRESHOLD: Int = 6
@@ -67,6 +74,12 @@ internal class MotionSignature(
 
         /** Default cell side in source pixels. */
         const val CELL_PX: Int = 8
+
+        /** A caret one or two pixels wide covers at most two cell columns, even across a cell boundary. */
+        private const val CARET_MAX_COLUMNS: Int = 2
+
+        /** Tallest caret treated as noise, in cells (64 px at the default cell): a caret of large text at 2x scale. */
+        private const val CARET_MAX_ROWS: Int = 8
     }
 }
 

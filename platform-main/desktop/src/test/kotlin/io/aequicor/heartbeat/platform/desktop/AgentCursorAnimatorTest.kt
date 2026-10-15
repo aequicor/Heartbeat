@@ -64,9 +64,26 @@ class AgentCursorAnimatorTest {
         val drag = ComputerUseGesture.Drag(MouseButton.Left)
         animator.update(CursorPoint(0.0, 0.0), drag, 1, nowMillis = 0)
         animator.update(CursorPoint(20.0, 0.0), drag, 1, nowMillis = 500)
+        animator.update(CursorPoint(20.0, 0.0), drag, 1, nowMillis = 600)
         assertEquals(listOf(1f, 1f), assertNotNull(animator.scene(900)).trail.map { it.second })
         animator.update(CursorPoint(20.0, 0.0), ComputerUseGesture.Move, 1, nowMillis = 900)
-        assertTrue(assertNotNull(animator.scene(1_000)).trail.isEmpty())
+        assertEquals(listOf(0.5f, 0.5f), assertNotNull(animator.scene(1_000)).trail.map { it.second })
+        val faded = assertNotNull(animator.scene(1_100))
+        assertTrue(faded.trail.isEmpty())
+        assertFalse(faded.isAnimating, "the frame timer stops once the released trail faded")
+    }
+
+    @Test
+    fun `new timing and hidden effects never replay an effect already seen`() {
+        val animator = AgentCursorAnimator(timing)
+        val keys = ComputerUseGesture.Keys(listOf("enter"))
+        animator.update(CursorPoint(0.0, 0.0), keys, 1, nowMillis = 0)
+        animator.timing = timing.copy(isReducedMotion = true)
+        animator.update(CursorPoint(0.0, 0.0), keys, 1, nowMillis = 5_000)
+        assertNull(assertNotNull(animator.scene(5_000)).badge)
+        animator.reset(effectSequence = 2)
+        animator.update(CursorPoint(0.0, 0.0), keys, 2, nowMillis = 6_000)
+        assertNull(assertNotNull(animator.scene(6_000)).badge)
     }
 
     @Test

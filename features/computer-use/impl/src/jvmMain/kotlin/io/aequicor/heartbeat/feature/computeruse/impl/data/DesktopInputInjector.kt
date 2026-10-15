@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
 import io.aequicor.heartbeat.feature.computeruse.api.MouseButton
+import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.InputInjector
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_CLICKS
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_TYPED_CHARS
@@ -131,6 +132,9 @@ internal class DesktopInputInjector(
     /** The last pointer target of an agent action; guarded by [mutex]. */
     private var lastTarget: ScreenPoint? = null
 
+    /** The authorized screen area of the running action; guarded by [mutex]. */
+    private var glideArea: ScreenBounds? = null
+
     override val isAvailable: Boolean get() = devices.isAvailable
 
     override suspend fun apply(action: InputAction, map: (FramePoint) -> ScreenPoint?): InputOutcome =
@@ -141,12 +145,14 @@ internal class DesktopInputInjector(
         map: (FramePoint) -> ScreenPoint?,
         onProgress: suspend (ScreenPoint?) -> Unit,
         onEffect: suspend () -> ComputerUseFailure?,
+        area: ScreenBounds?,
     ): InputOutcome = withContext(dispatchers.io) {
         mutex.withLock {
             currentCoroutineContext().ensureActive()
             val driver = driver() ?: return@withLock InputOutcome.Rejected(ComputerUseFailure.Unavailable)
             currentCoroutineContext().ensureActive()
             var hasStarted = false
+            glideArea = area
             val progress: suspend (ScreenPoint?) -> Unit = { point ->
                 if (point != null || !hasStarted) {
                     hasStarted = true
@@ -189,15 +195,17 @@ internal class DesktopInputInjector(
 
     /**
      * Moves the pointer along an eased path to [target], reporting every step. It glides only from the point the agent
-     * itself moved to last: that point was inside the captured area, and so is the straight path between the two.
-     * When the user moved the pointer since, it jumps instead of crossing windows outside the capture.
+     * itself moved to last, and only while that point lies in the action's authorized area: the target is inside it
+     * too, so the straight path between them never crosses windows outside the capture. When the user moved the
+     * pointer since, or the capture, its ROI or its position changed, it jumps instead.
      */
     private suspend fun glide(
         driver: DesktopInputDriver,
         target: ScreenPoint,
         onProgress: suspend (ScreenPoint?) -> Unit,
     ) {
-        val start = lastTarget?.takeIf { it == driver.location() }
+        val area = glideArea
+        val start = lastTarget?.takeIf { it == driver.location() && area != null && area.contains(it) }
         val path = start?.let { glidePath(it, target) } ?: listOf(target)
         lastTarget = target
         path.forEachIndexed { index, point ->
@@ -564,3 +572,5 @@ internal class DesktopInputInjector(
         )
     }
 }
+
+private fun ScreenBounds.contains(point: ScreenPoint): Boolean = point.x in x until right && point.y in y until bottom

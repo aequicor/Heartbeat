@@ -2,7 +2,7 @@ package io.aequicor.heartbeat.feature.computeruse.impl.domain
 
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRegion
 
-/** One kept frame of a recording and how much it differs from the frame kept before it. */
+/** One kept frame of a recording and how much it differed from the last frame kept when it was offered. */
 internal data class Keyframe<T>(val frame: T, val offsetMillis: Long, val changedFraction: Double)
 
 /**
@@ -10,8 +10,9 @@ internal data class Keyframe<T>(val frame: T, val offsetMillis: Long, val change
  *
  * The first frame is the baseline; a later frame is kept when it differs from the last kept one. At most
  * [maxFrames] are kept: the baseline and the latest frame always stay, and the interior frame with the smallest
- * change gives way first. All changes between consecutive frames are united into [changedArea], which the recorder
- * frames the clip to. The screen has settled once nothing changed for [quietMillis] after the last change, or for
+ * change gives way first. All changes between consecutive frames, and from the last kept frame, are united into
+ * [changedArea], which the recorder frames the clip to: a slow drift below the threshold per frame still counts once
+ * it adds up. The screen has settled once nothing changed for [quietMillis] after the last change, or for
  * [idleMillis] when nothing changed at all.
  */
 internal class ClipPlanner<T>(
@@ -21,6 +22,7 @@ internal class ClipPlanner<T>(
 ) {
     init {
         require(maxFrames >= 2) { "A clip keeps the baseline and the final frame: $maxFrames" }
+        require(quietMillis > 0 && idleMillis > 0) { "Settle times must be positive: $quietMillis, $idleMillis" }
     }
 
     private val kept = mutableListOf<Keyframe<T>>()
@@ -37,12 +39,13 @@ internal class ClipPlanner<T>(
      * [sinceKept] with the last kept frame. Returns the frame that left the clip, if any.
      */
     fun offer(frame: T, offsetMillis: Long, sincePrevious: MotionChange, sinceKept: MotionChange): T? {
-        if (sincePrevious.isChanged) {
+        val isBaseline = kept.isEmpty()
+        listOf(sincePrevious, sinceKept).filter { it.isChanged && !isBaseline }.forEach { change ->
             lastChangeMillis = offsetMillis
-            changedArea = changedArea.union(sincePrevious.bounds)
+            changedArea = changedArea.union(change.bounds)
         }
         return when {
-            kept.isEmpty() -> {
+            isBaseline -> {
                 kept += Keyframe(frame, offsetMillis, 0.0)
                 null
             }

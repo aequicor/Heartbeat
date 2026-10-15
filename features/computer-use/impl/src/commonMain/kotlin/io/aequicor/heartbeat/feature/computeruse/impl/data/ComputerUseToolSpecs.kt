@@ -78,10 +78,15 @@ internal const val STATUS_TOOL = "computer_status"
 
 /**
  * Before the split one `computer_<verb>` drove both modes: a saved policy that disables it must keep disabling the
- * window family as well, and the old window list maps to `window_list`.
+ * window family as well, and the old window list maps to `window_list`. Only verbs that existed before the split are
+ * aliased. Those names are still the desktop tools, so disabling a desktop verb also disables its window verb: a
+ * rename never lifts a restriction, at the cost of not restricting the desktop alone.
  */
 internal val legacyToolNames: Map<String, Set<String>> =
-    ToolVerb.entries.filterNot { it.isRecording }.associate { verb ->
+    listOf(
+        ToolVerb.Capture, ToolVerb.Screenshot, ToolVerb.Zoom, ToolVerb.Click, ToolVerb.Drag, ToolVerb.Scroll,
+        ToolVerb.Type, ToolVerb.Key, ToolVerb.Release,
+    ).associate { verb ->
         ToolFamily.Desktop.tool(verb) to setOf(ToolFamily.Window.tool(verb))
     } + ("computer_windows" to setOf(WINDOW_LIST_TOOL))
 internal const val WINDOW_LIST_TOOL = "window_list"

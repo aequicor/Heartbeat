@@ -33,7 +33,7 @@ internal fun approvalDescription(spec: AgentToolSpec, arguments: JsonObject): St
         ToolVerb.Release -> "Stop the capture and delete its stored frames"
 
         ToolVerb.Screenshot, ToolVerb.Zoom, ToolVerb.Roi, ToolVerb.Record, null -> spec.description
-    } + observed(arguments)
+    } + if (tool?.verb?.isInput == true) observed(arguments) else ""
 }
 
 /** Input that records afterwards says so, since the user approves what the agent will see. */

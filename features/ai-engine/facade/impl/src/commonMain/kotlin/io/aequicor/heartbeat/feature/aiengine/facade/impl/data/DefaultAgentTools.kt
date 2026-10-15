@@ -84,9 +84,12 @@ internal class DefaultAgentTools(
     ),
 ) : ProfileAgentTools {
     private val log = Log.tag("AgentTools")
-    private val policyLookup: ToolPolicyResolver = LegacyToolNamesResolver(policies) {
-        contributions.fold(emptyMap()) { names, owner -> names + owner.legacyNames }
+    private val legacyNames: Map<String, Set<String>> by lazy {
+        contributions.flatMap { it.legacyNames.entries }
+            .groupBy({ it.key }, { it.value })
+            .mapValues { (_, replacements) -> replacements.flatten().toSet() }
     }
+    private val policyLookup: ToolPolicyResolver = LegacyToolNamesResolver(policies) { legacyNames }
     private val nativeGate = NativeToolGate(policyLookup, hooks, safety) {
         catalog().flatMap { it.tools }.map { it.name }.toSet()
     }

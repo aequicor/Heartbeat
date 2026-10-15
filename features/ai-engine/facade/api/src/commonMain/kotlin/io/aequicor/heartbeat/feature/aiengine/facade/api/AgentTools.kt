@@ -136,6 +136,10 @@ public interface AgentToolContribution {
     /**
      * Names this contribution used before a rename, mapped to every current tool that replaced them. A saved policy
      * that disables a legacy name disables all of its replacements, so renaming never lifts a restriction.
+     *
+     * A key may still be a current tool name (a tool split into several): then every policy that disables it also
+     * disables its replacements, including policies saved after the rename. Replacements of the same key declared by
+     * several contributions are merged. The map is static for the profile and reading it performs no IO.
      */
     public val legacyNames: Map<String, Set<String>> get() = emptyMap()
 

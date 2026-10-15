@@ -20,12 +20,14 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseIntent
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineSpec
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseOutput
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRecording
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
 import io.aequicor.heartbeat.feature.computeruse.api.CropRequest
 import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
 import io.aequicor.heartbeat.feature.computeruse.api.RecordRequest
+import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
 import io.aequicor.heartbeat.feature.computeruse.api.VisionBudget
 import io.aequicor.heartbeat.feature.computeruse.impl.di.ComputerUseBindings
 import io.aequicor.heartbeat.feature.computeruse.impl.di.ComputerUseCoordinatorResources
@@ -322,14 +324,27 @@ class ComputerUseEffectHandlerTest {
     }
 
     @Test
-    fun `a recording reports its clip and hides the session only per frame`() = runTest {
+    fun `a recording reports its clip and hides the session once for the whole clip`() = runTest {
         val fixture = fixture()
         fixture.run(ComputerUseEffect.RecordClip(RecordRequest(), "clip"))
         val recorded = assertIs<ComputerUseIntent.Internal.ClipRecorded>(fixture.feedback.intents.single())
         assertEquals("clip", recorded.requestId)
-        assertEquals(fixture.capturer.captures, fixture.presentation.suppressions)
-        assertTrue(fixture.presentation.suppressions > 1)
+        assertTrue(fixture.capturer.captures > 1)
+        assertEquals(1, fixture.presentation.suppressions)
         assertFalse(fixture.presentation.isSuppressed)
+    }
+
+    @Test
+    fun `a recording is refused while the recording toggle is off`() = runTest {
+        val fixture = fixture()
+        fixture.toggles.set(ComputerUseRecording.key, false)
+        fixture.run(ComputerUseEffect.RecordClip(RecordRequest(), "clip"))
+        assertEquals(
+            ComputerUseIntent.Internal.Rejected(ComputerUseFailure.Unavailable, "clip"),
+            fixture.feedback.intents.single(),
+        )
+        assertEquals(0, fixture.capturer.captures)
+        assertEquals(0, fixture.presentation.suppressions)
     }
 
     @Test
@@ -362,6 +377,7 @@ class ComputerUseEffectHandlerTest {
             map: (FramePoint) -> ScreenPoint?,
             onProgress: suspend (ScreenPoint?) -> Unit,
             onEffect: suspend () -> ComputerUseFailure?,
+            area: ScreenBounds?,
         ): InputOutcome = apply(action, map)
 
         override suspend fun apply(action: InputAction, map: (FramePoint) -> ScreenPoint?): InputOutcome {
@@ -458,6 +474,7 @@ class ComputerUseEffectHandlerTest {
         val toggles = FakeToggles(
             mapOf(
                 ComputerUseEnabled.key to true,
+                ComputerUseRecording.key to true,
             ),
         )
         val registry = RoutedComputerControlTest.FakeMachineRegistry(RoutedComputerControlTest.FakeMachineRef())

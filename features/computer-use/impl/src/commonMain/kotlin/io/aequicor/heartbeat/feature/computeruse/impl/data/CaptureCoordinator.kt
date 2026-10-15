@@ -31,7 +31,6 @@ import io.aequicor.heartbeat.feature.computeruse.impl.domain.CaptureRegionPolicy
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.InputInjector
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_CLICKS
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.PixelGrid
-import io.aequicor.heartbeat.feature.computeruse.impl.domain.RawFrame
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ScreenCapturer
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ScreenPoint
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.WindowCatalog
@@ -229,20 +228,14 @@ internal class CaptureCoordinator(
      * becomes the master and the frame input coordinates refer to; earlier keyframes are cut from bounded working
      * copies and alias that master. Frames are captured without the cursor, so only the application moves.
      */
-    suspend fun record(
-        request: RecordRequest,
-        roi: CaptureRegion? = null,
-        eachFrame: suspend (suspend () -> RawFrame?) -> RawFrame? = { it() },
-    ): ClipOutcome = withContext(dispatchers.io) {
+    suspend fun record(request: RecordRequest, roi: CaptureRegion? = null): ClipOutcome = withContext(dispatchers.io) {
         operations.withLock {
             val session = active ?: return@withLock ClipOutcome.Rejected(ComputerUseFailure.Unavailable)
             val recorded = recorder.record(
                 request,
                 area = { pixels -> roi.within(pixels) ?: CaptureRegion(0, 0, pixels.widthPx, pixels.heightPx) },
                 capture = {
-                    eachFrame {
-                        runLogged("recording frame") { capturer.capture(session.mode, null, isCursorIncluded = false) }
-                    }
+                    runLogged("recording frame") { capturer.capture(session.mode, null, isCursorIncluded = false) }
                 },
             ) ?: return@withLock ClipOutcome.Rejected(rejected(session).reason)
             storeClip(session, request, recorded, roi)
@@ -380,32 +373,23 @@ internal class CaptureCoordinator(
         if (!injector.isAvailable) return InputOutcome.Rejected(ComputerUseFailure.Unavailable)
         if (frames.leavesRoi(action, bounds, binding.roi)) return InputOutcome.Rejected(ComputerUseFailure.OutsideRoi)
         val map: (FramePoint) -> ScreenPoint? = { point -> mapPoint(point, action.space, bounds, frames) }
-        var hasStarted = false
-        var gesture: ComputerUseGesture = ComputerUseGesture.Move
-        val report: suspend (ScreenPoint?, Boolean) -> Unit = { point, isEffect ->
-            val step = ProgressStep(point, isFirst = !hasStarted, gesture = gesture, isEffect = isEffect)
-            val activity = recordProgress(session, bounds, step)
-            hasStarted = true
-            onProgress(session.session, activity)
-        }
+        val feedback = InputFeedback { step -> onProgress(session.session, recordProgress(session, bounds, step)) }
         val outcome = guard()?.let(InputOutcome::Rejected)
             ?: runLogged("input injection") {
                 injector.applyObserved(
                     action,
                     map,
-                    onProgress = { point -> report(point, false) },
+                    onProgress = { point -> feedback.report(point, isEffect = false) },
                     onEffect = {
-                        // The pointer glided after the first check: focus or permissions may have changed meanwhile.
-                        (guard() ?: activationFailure(session.mode)).also { refusal ->
-                            if (refusal == null) {
-                                gesture = action.gesture()
-                                report(null, true)
-                            }
-                        }
+                        val refusal = arrivalFailure(session.mode, bounds, guard)
+                        if (refusal == null) feedback.effect(action.gesture())
+                        refusal
                     },
+                    area = (frames.preview ?: frames.master)?.let { bounds.narrowedTo(binding.roi, it) },
                 )
             }
             ?: InputOutcome.Rejected(ComputerUseFailure.InputRejected)
+        feedback.release()
         log.i {
             "input session=${session.session} outcome=${outcome::class.simpleName.orEmpty()} " +
                 "reason=${(outcome as? InputOutcome.Rejected)?.reason?.name.orEmpty()} action=${action::class.simpleName.orEmpty()}"
@@ -462,6 +446,27 @@ internal class CaptureCoordinator(
         return capturer.failure(
             session.mode,
         ) ?: activationFailure(session.mode) ?: guard() ?: capturer.failure(session.mode)
+    }
+
+    /**
+     * Repeats the checks once the pointer glided to the target: focus, permissions or the target itself may have
+     * changed, and the target must still be where the action's points were mapped, or the effect would land elsewhere.
+     */
+    private suspend fun arrivalFailure(
+        mode: ComputerUseMode,
+        authorized: ScreenBounds,
+        guard: suspend () -> ComputerUseFailure?,
+    ): ComputerUseFailure? {
+        val current = capturer.currentBounds(mode)
+        val placement = when {
+            current == null -> ComputerUseFailure.TargetClosed
+
+            current.x != authorized.x || current.y != authorized.y || !current.hasSameSize(authorized) ->
+                ComputerUseFailure.TargetResized
+
+            else -> null
+        }
+        return guard() ?: capturer.failure(mode) ?: placement ?: activationFailure(mode)
     }
 
     private suspend fun activationFailure(mode: ComputerUseMode): ComputerUseFailure? {
@@ -724,13 +729,6 @@ internal class CaptureCoordinator(
 
     private data class Frames(val master: CaptureRef?, val preview: CaptureRef?)
 
-    private data class ProgressStep(
-        val point: ScreenPoint?,
-        val isFirst: Boolean,
-        val gesture: ComputerUseGesture,
-        val isEffect: Boolean,
-    )
-
     private data class InputBinding(val expectedCapture: CaptureId?, val isFrameBound: Boolean, val roi: CaptureRegion?)
 
     private companion object {
@@ -763,5 +761,49 @@ internal class CaptureCoordinator(
             is InputAction.Scroll -> listOf(point)
             is InputAction.Type, is InputAction.Key -> emptyList()
         }
+    }
+}
+
+/** The screen rectangle input may cross: these bounds narrowed to the active [roi] of [source]; `null` when empty. */
+private fun ScreenBounds.narrowedTo(roi: CaptureRegion?, source: CaptureRef): ScreenBounds? {
+    if (roi == null) return this
+    val left = x + ceilDiv(roi.x.toLong() * widthPx, source.masterWidthPx)
+    val top = y + ceilDiv(roi.y.toLong() * heightPx, source.masterHeightPx)
+    val right = x + (roi.right.toLong() * widthPx / source.masterWidthPx).toInt()
+    val bottom = y + (roi.bottom.toLong() * heightPx / source.masterHeightPx).toInt()
+    return if (right > left && bottom > top) ScreenBounds(left, top, right - left, bottom - top) else null
+}
+
+private fun ceilDiv(value: Long, divisor: Int): Int = ((value + divisor - 1) / divisor).toInt()
+
+private data class ProgressStep(
+    val point: ScreenPoint?,
+    val isFirst: Boolean,
+    val gesture: ComputerUseGesture,
+    val isEffect: Boolean,
+)
+
+/** Cursor feedback of one input action: its steps, the gesture of its effect and the release of a drag. */
+private class InputFeedback(private val sink: suspend (ProgressStep) -> Unit) {
+    private var gesture: ComputerUseGesture = ComputerUseGesture.Move
+    private var hasStarted = false
+
+    suspend fun report(point: ScreenPoint?, isEffect: Boolean) {
+        val step = ProgressStep(point, isFirst = !hasStarted, gesture = gesture, isEffect = isEffect)
+        hasStarted = true
+        sink(step)
+    }
+
+    /** The effect of [effectGesture] reaches the driver now. */
+    suspend fun effect(effectGesture: ComputerUseGesture) {
+        gesture = effectGesture
+        report(null, isEffect = true)
+    }
+
+    /** A finished drag released its button: the cursor stops showing it held, and its trail fades. */
+    suspend fun release() {
+        if (gesture !is ComputerUseGesture.Drag) return
+        gesture = ComputerUseGesture.Move
+        report(null, isEffect = false)
     }
 }

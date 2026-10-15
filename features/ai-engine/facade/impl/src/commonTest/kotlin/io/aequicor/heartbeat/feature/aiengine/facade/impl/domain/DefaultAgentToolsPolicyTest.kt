@@ -70,6 +70,24 @@ internal class DefaultAgentToolsPolicyTest {
     }
 
     @Test
+    fun `replacements of one legacy name declared by several contributions are merged`() = runTest {
+        val first = object : Owner() {
+            override val legacyNames: Map<String, Set<String>> = mapOf("modify" to setOf("edit"))
+        }
+        val second = object : Owner() {
+            override val legacyNames: Map<String, Set<String>> = mapOf("modify" to setOf("patch"))
+        }
+        val tools = DefaultAgentTools(
+            setOf(first, second),
+            policies = ToolPolicyResolver { _, _, _ -> ResolvedToolPolicy(hostedDenied = setOf("modify")) },
+        )
+        assertEquals(
+            setOf("modify", "edit", "patch"),
+            tools.nativeTools(ToolPolicyScope(session = session)).hostedDenied,
+        )
+    }
+
+    @Test
     fun `scoped declarations receive refresh flag and intersect frozen names with policy`() = runTest {
         var received: AgentToolScope? = null
         val owner = object : Owner() {
