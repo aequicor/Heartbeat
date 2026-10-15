@@ -83,7 +83,9 @@ internal class RoomContextOutputs(
         val LIFETIME = 7.days
         const val ID_LENGTH = 12
         const val MAX_OUTPUTS = 64
-        const val MAX_OUTPUT_CHARS = 500_000
-        const val MAX_TOTAL_CHARS = 4_000_000L
+
+        // Keep a complete hosted tool result, including compiled mini-app source, available through paged recall.
+        const val MAX_OUTPUT_CHARS = 4 * 1024 * 1024
+        const val MAX_TOTAL_CHARS = 32L * 1024 * 1024
     }
 }

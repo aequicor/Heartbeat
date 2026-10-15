@@ -32,8 +32,11 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -117,6 +120,88 @@ class DesktopAgentToolBridgeTest {
             val images = output.getValue("images") as JsonArray
             assertEquals(content[1], images.single())
             assertEquals(2, tools.calls.size)
+        } finally {
+            capability.close()
+            profile.close()
+        }
+    }
+
+    @Test
+    fun `execute and MCP round trip bundled source above the previous request and response limits`() = runBlocking {
+        val source = """<style>.i::before{content:"я";}</style>""".repeat(20_000)
+        val arguments = buildJsonObject { put("html", source) }
+        val call = buildJsonObject {
+            put("name", "tool")
+            put("arguments", arguments)
+        }
+        val rpc = buildJsonObject {
+            put("jsonrpc", "2.0")
+            put("id", 1)
+            put("method", "tools/call")
+            put("params", call)
+        }
+        val tools = CapturingTools(AgentToolResult(arguments.toString()))
+        val profile = BridgeProfile()
+        val capability = DesktopAgentToolBridge(tools, profile).attach(PROJECT) { context() }
+        try {
+            assertTrue(call.toString().toByteArray().size > 512 * 1024)
+            for ((path, body) in listOf("/execute" to call, "/mcp" to rpc)) {
+                val response = HttpClient.newHttpClient().send(
+                    request(capability.endpoint.url, body.toString(), capability.endpoint.token, path),
+                    HttpResponse.BodyHandlers.ofString(),
+                )
+                assertEquals(200, response.statusCode())
+                val output = Json.parseToJsonElement(response.body()).jsonObject
+                val text = if (path == "/execute") {
+                    output.getValue("text")
+                } else {
+                    val content = output.getValue("result").jsonObject.getValue("content").jsonArray
+                    content.first().jsonObject.getValue("text")
+                }
+                val returned = Json.parseToJsonElement(text.jsonPrimitive.content).jsonObject
+                assertEquals(source, returned["html"]?.jsonPrimitive?.content)
+            }
+            assertEquals(listOf(arguments, arguments), tools.arguments)
+        } finally {
+            capability.close()
+            profile.close()
+        }
+    }
+
+    @Test
+    fun `oversized or deeply nested requests fail before execution and leave the bridge usable`() = runBlocking {
+        val profile = BridgeProfile()
+        val tools = CapturingTools()
+        val capability = DesktopAgentToolBridge(tools, profile).attach(PROJECT) { context() }
+        try {
+            val endpoint = capability.endpoint
+            val tooLarge = " ".repeat(HostedToolPayloads.REQUEST_BYTES + 1)
+            val tooDeep = """{"arguments": """ + "[".repeat(1000) + "0" + "]".repeat(1000) + "}"
+            for (body in listOf(tooLarge, tooDeep)) {
+                assertEquals(400, post(endpoint.url, body, endpoint.token).statusCode())
+            }
+            assertTrue(tools.calls.isEmpty())
+            assertEquals(200, post(endpoint.url, CALL, endpoint.token).statusCode())
+            assertEquals(1, tools.calls.size)
+        } finally {
+            capability.close()
+            profile.close()
+        }
+    }
+
+    @Test
+    fun `oversized result is an explicit error instead of silently truncated success`() = runBlocking {
+        val profile = BridgeProfile()
+        val tools = CapturingTools(AgentToolResult("x".repeat(HostedToolPayloads.RESPONSE_CHARS + 1)))
+        val capability = DesktopAgentToolBridge(tools, profile).attach(PROJECT) { context() }
+        try {
+            val endpoint = capability.endpoint
+            val output = Json.parseToJsonElement(post(endpoint.url, CALL, endpoint.token).body()).jsonObject
+                .getValue("result").jsonObject
+            assertEquals("true", output.getValue("isError").jsonPrimitive.content)
+            val text = output.getValue("content").jsonArray.first().jsonObject.getValue("text").jsonPrimitive.content
+            assertTrue(text.contains("The tool ran"))
+            assertEquals(1, tools.calls.size)
         } finally {
             capability.close()
             profile.close()
@@ -294,12 +379,14 @@ class DesktopAgentToolBridgeTest {
 
 private class CapturingTools(private val result: AgentToolResult = AgentToolResult("done")) : ProfileAgentTools {
     val calls = mutableListOf<AgentToolContext>()
+    val arguments = mutableListOf<JsonObject>()
     override suspend fun specifications(workspace: WorkspaceRef?) = listOf(
         AgentToolSpec("tool", "Tool", JsonObject(emptyMap())),
     )
     override suspend fun instructions(workspace: WorkspaceRef?) = "Host instructions"
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
         calls += context
+        this.arguments += arguments
         return result
     }
 }
