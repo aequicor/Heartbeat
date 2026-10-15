@@ -1,10 +1,12 @@
 import io.aequicor.heartbeat.buildlogic.PackageInnoSetup
 import io.aequicor.heartbeat.buildlogic.PreparePiRuntime
+import io.aequicor.heartbeat.buildlogic.PrepareReleaseRuntimeJars
 import io.aequicor.heartbeat.buildlogic.VerifyChromiumPanelArtifact
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
 import org.jetbrains.compose.desktop.application.tasks.AbstractCheckNativeDistributionRuntime
 import org.jetbrains.compose.desktop.application.tasks.AbstractJvmToolOperationTask
+import org.jetbrains.compose.desktop.application.tasks.AbstractProguardTask
 import org.jetbrains.compose.reload.gradle.ComposeHotRun
 import java.time.Duration
 
@@ -221,6 +223,15 @@ tasks.withType<ComposeHotRun>().configureEach {
 // The default Compose build is development; release tasks retain the protected MainKt entry point.
 // Configure after Compose has registered and initialized its tasks, without an environment/property escape hatch.
 afterEvaluate {
+    val releaseJars = tasks.named<AbstractProguardTask>("proguardReleaseJars")
+    val prepareReleaseRuntimeJars = tasks.register<PrepareReleaseRuntimeJars>("prepareReleaseRuntimeJars") {
+        group = "compose desktop"
+        description = "Removes native libraries for other hosts from release jars before packaging."
+        inputDirectory.set(releaseJars.flatMap { it.destinationDir })
+        outputDirectory.set(layout.buildDirectory.dir("compose/tmp/host-release-jars"))
+        targetOs.set(if (piOs == "darwin") "macos" else piOs.orEmpty())
+        targetArch.set(piArch.orEmpty())
+    }
     val releaseImage = tasks.named<AbstractJPackageTask>("createReleaseDistributable")
     tasks.register<Exec>("verifyReleaseHarnessCompiler") {
         group = "verification"
@@ -281,6 +292,13 @@ afterEvaluate {
         if (!name.contains("Release")) {
             launcherMainClass.set("io.aequicor.heartbeat.platform.desktop.DevelopmentMainKt")
         } else {
+            // Stage the ProGuard output separately: development and verified upstream JCEF jars stay intact.
+            // Compose still extracts and signs the host's Skiko dylib from the filtered jar on macOS.
+            dependsOn(prepareReleaseRuntimeJars)
+            files.setFrom(fileTree(prepareReleaseRuntimeJars.flatMap { it.outputDirectory }))
+            launcherMainJar.set(prepareReleaseRuntimeJars.flatMap { prepared ->
+                releaseJars.flatMap { original -> prepared.outputDirectory.file(original.mainJar.get().asFile.name) }
+            })
             // Only the release launcher names the update source: development launches never replace themselves.
             launcherJvmArgs.add("-Dheartbeat.app.update.repository=$heartbeatUpdateRepository")
         }
