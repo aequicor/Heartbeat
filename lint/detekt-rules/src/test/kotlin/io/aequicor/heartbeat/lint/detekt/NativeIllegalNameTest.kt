@@ -60,6 +60,34 @@ class NativeIllegalNameTest {
     }
 
     @Test
+    fun `checks type parameters objects destructuring lambdas and locals`() {
+        val code = """
+            object `O,P`
+            fun <`T,U`> f() {
+                val (`a,b`, c) = 1 to 2
+                listOf(1).forEach { `i,j` -> }
+                fun `local,fun`() = Unit
+            }
+        """.trimIndent()
+
+        assertEquals(5, rule.lint(source("commonMain", code)).size)
+    }
+
+    @Test
+    fun `reports package segments`() {
+        val findings = rule.lint(source("commonMain", "package io.`a,b`.c\n\nfun f() = Unit"))
+
+        assertEquals(1, findings.size)
+    }
+
+    @Test
+    fun `ignores parameter names of function types`() {
+        val code = "val f: (`a,b`: Int) -> Unit = {}"
+
+        assertEquals(0, rule.lint(source("commonMain", code)).size)
+    }
+
+    @Test
     fun `checks every source set compiled by kotlin native`() {
         listOf(
             "commonMain",
@@ -85,6 +113,22 @@ class NativeIllegalNameTest {
                 assertEquals(0, rule.lint(source(sourceSet, "fun `a,b`() = Unit")).size, sourceSet)
             }
         assertEquals(0, rule.lint("fun `a,b`() = Unit").size)
+    }
+
+    @Test
+    fun `uses the innermost source set of the path`() {
+        val file = root.resolve("src/commonMain/kotlin/repo/module/src/jvmTest/kotlin/Example.kt")
+        Files.createDirectories(file.parent)
+        Files.writeString(file, "fun `a,b`() = Unit")
+
+        assertEquals(0, rule.lint(compileForTest(file)).size)
+    }
+
+    @Test
+    fun `a prefix matches only at a word boundary`() {
+        listOf("commonly", "iosevka", "nativeish").forEach { sourceSet ->
+            assertEquals(0, rule.lint(source(sourceSet, "fun `a,b`() = Unit")).size, sourceSet)
+        }
     }
 
     @Test

@@ -36,4 +36,15 @@ heartbeat:
     active: true
   NativeIllegalName:
     active: true
-    excludes: ['**/chromium-plugin/panel/**']
+    nativeSourceSets:
+      - 'common'
+      - 'native'
+      - 'apple'
+      - 'ios'
+      - 'macos'
+      - 'tvos'
+      - 'watchos'
+      - 'linux'
+      - 'mingw'
+      - 'androidNative'
+      - 'mobile'

@@ -7,17 +7,22 @@ import dev.detekt.api.Rule
 import dev.detekt.api.config
 import org.jetbrains.kotlin.psi.KtConstructor
 import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.psi.KtFunctionType
 import org.jetbrains.kotlin.psi.KtNamedDeclaration
+import org.jetbrains.kotlin.psi.KtPackageDirective
+import org.jetbrains.kotlin.psi.KtParameter
 
 /**
  * Kotlin/Native rejects declaration names with certain characters ("Name contains illegal characters"),
  * while the JVM compiler accepts some of them (comma, parentheses, `$`, `%`, …). A backtick test name such as
  * `` `loads, then saves` `` in `commonTest` passes `jvmTest` and fails only in `compileTestKotlinIos*`,
- * which local verification does not run. The rule checks every declaration in source sets that compile
- * to Kotlin/Native, recognised by the `src/<sourceSet>/kotlin/` path.
+ * which local verification does not run. The rule checks every declaration and package segment in source sets
+ * that compile to Kotlin/Native, recognised by the `src/<sourceSet>/kotlin/` path.
  *
- * The character set mirrors `FirNativeIdentifierChecker` of the Kotlin/Native compiler. Modules whose
- * common source sets have no native target (e.g. the wasmJs/jvm Chromium panel) are excluded in config.
+ * The character set mirrors `FirNativeIdentifierChecker` and `FirNativePackageDirectiveChecker` of the
+ * Kotlin/Native compiler. Parameter names of function types are not declarations there and are not checked.
+ * Modules whose common source sets have no native target (e.g. the wasmJs/jvm Chromium panel) are excluded
+ * in config.
  *
  * <noncompliant>
  * // src/commonTest/kotlin/...
@@ -36,7 +41,8 @@ class NativeIllegalName(config: Config) :
 
     /**
      * Source set name prefixes compiled by Kotlin/Native: `commonTest`, `iosSimulatorArm64Main`, `mobileMain`.
-     * A prefix matches the whole name or is followed by an upper-case letter.
+     * A prefix matches the whole name or is followed by an upper-case letter, so a JVM-only intermediate set
+     * such as `commonJvmMain` counts as native and a custom native one such as `darwinMain` needs its own prefix.
      */
     private val nativeSourceSets: List<String> by config(
         listOf(
@@ -55,7 +61,9 @@ class NativeIllegalName(config: Config) :
     )
 
     override fun visitKtFile(file: KtFile) {
-        val sourceSet = SOURCE_SET.find(file.virtualFilePath.replace('\\', '/'))?.groupValues?.get(1) ?: return
+        // The innermost `src/<x>/kotlin/` wins: the checkout path itself may contain such segments.
+        val path = file.virtualFilePath.replace('\\', '/')
+        val sourceSet = SOURCE_SET.findAll(path).lastOrNull()?.groupValues?.get(1) ?: return
         if (nativeSourceSets.any { sourceSet.isSourceSetOf(it) }) super.visitKtFile(file)
     }
 
@@ -63,11 +71,22 @@ class NativeIllegalName(config: Config) :
         super.visitNamedDeclaration(declaration)
         // A constructor reports the class name, which the class itself already reports.
         if (declaration is KtConstructor<*>) return
-        val illegal = declaration.name.orEmpty().filter { it in ILLEGAL_CHARACTERS }.toSet()
+        // `(name: Int) -> Unit`: the name becomes `@ParameterName`, which the native compiler does not check.
+        if (declaration is KtParameter && declaration.parent?.parent is KtFunctionType) return
+        reportIllegal(declaration.name, Entity.atName(declaration))
+    }
+
+    override fun visitPackageDirective(directive: KtPackageDirective) {
+        super.visitPackageDirective(directive)
+        directive.packageNames.forEach { segment -> reportIllegal(segment.getReferencedName(), Entity.from(segment)) }
+    }
+
+    private fun reportIllegal(name: String?, entity: Entity) {
+        val illegal = name.orEmpty().filter { it in ILLEGAL_CHARACTERS }.toSet()
         if (illegal.isNotEmpty()) {
             report(
                 Finding(
-                    Entity.atName(declaration),
+                    entity,
                     "Name contains characters Kotlin/Native rejects: " +
                         illegal.joinToString { "'$it'" } + ".",
                 ),
@@ -81,7 +100,7 @@ class NativeIllegalName(config: Config) :
     private companion object {
         val SOURCE_SET = Regex("(?:^|/)src/([^/]+)/kotlin/")
 
-        /** `FirNativeIdentifierChecker.invalidChars` (Kotlin 2.4). */
+        /** `FirNativeIdentifierChecker.invalidChars` (Kotlin 2.4.20). */
         const val ILLEGAL_CHARACTERS = ".;,()[]{}/<>:\\$&~*?#|§%@"
     }
 }
