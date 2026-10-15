@@ -4,7 +4,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.awt.SwingPanel
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserSurface
 import io.aequicor.heartbeat.feature.browser.impl.presentation.createDesktopPanel
 
@@ -12,8 +11,8 @@ import io.aequicor.heartbeat.feature.browser.impl.presentation.createDesktopPane
 internal actual fun BrowserWebView(surface: BrowserSurface, modifier: Modifier) {
     key(surface) {
         val panel = remember(surface) { surface.createDesktopPanel() }
-        SwingPanel(
-            factory = panel::createComponent,
+        BrowserNativeView(
+            factory = remember(panel) { panel::createComponent },
             modifier = modifier,
         )
     }

@@ -1,6 +1,9 @@
 package io.aequicor.heartbeat.feature.serviceasui.impl.ui
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -25,13 +28,16 @@ import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTone
 import io.aequicor.heartbeat.ds.components.hbCopyText
 import io.aequicor.heartbeat.ds.layouts.HbColumn
+import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.model.UiNodeUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.FailureUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.NoticeUi
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceAction
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceIntent
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceModel
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.SurfaceState
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.store.inputsFor
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.Res
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_broken
 import io.aequicor.heartbeat.feature.serviceasui.impl.resources.service_ui_cancel
@@ -70,12 +76,16 @@ internal fun SurfaceScreen(
     model: SurfaceModel,
     modifier: Modifier = Modifier,
     documents: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
+    isApp: Boolean = false,
+    scrollState: ScrollState = rememberScrollState(),
+    isContentFill: Boolean = true,
+    isBodyInset: Boolean = false,
 ) {
     val shown by model.webDocuments.collectAsState()
     val webs = remember(shown, documents) {
         shown.mapValues { (_, id) -> documents[id] ?: OpeningDocument }.toImmutableMap()
     }
-    SurfaceScreen(model.store, modifier, webs)
+    SurfaceScreen(model.store, modifier, webs, isApp, scrollState, isContentFill, isBodyInset)
 }
 
 /**
@@ -87,6 +97,10 @@ internal fun SurfaceScreen(
     store: Store<SurfaceState, SurfaceIntent, SurfaceAction>,
     modifier: Modifier = Modifier,
     webs: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
+    isApp: Boolean = false,
+    scrollState: ScrollState = rememberScrollState(),
+    isContentFill: Boolean = true,
+    isBodyInset: Boolean = false,
 ) {
     val uriHandler = LocalUriHandler.current
     val clipboard = LocalClipboard.current
@@ -109,7 +123,8 @@ internal fun SurfaceScreen(
             states.collect { value = it }
         }
     }
-    SurfaceContent(state, store::intent, modifier, webs)
+    val onIntent = remember(store, state.inputBinding) { store.inputsFor(state) }
+    SurfaceContent(state, onIntent, modifier, webs, isApp, scrollState, isContentFill, isBodyInset)
     link?.let { url ->
         HbDialog(
             title = stringResource(Res.string.service_ui_open_link_title),
@@ -135,8 +150,13 @@ internal fun SurfaceContent(
     onIntent: (SurfaceIntent) -> Unit,
     modifier: Modifier = Modifier,
     webs: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
+    isApp: Boolean = false,
+    scrollState: ScrollState = rememberScrollState(),
+    isContentFill: Boolean = true,
+    isBodyInset: Boolean = false,
 ) {
-    HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.m) {
+    val inset = if (isBodyInset) HbTheme.spacing.xl else HbTheme.spacing.none
+    HbColumn(modifier.fillMaxWidth().padding(inset), gap = HbTheme.spacing.m) {
         state.notice?.let { notice ->
             HbBanner(
                 message = notice.text(),
@@ -151,7 +171,10 @@ internal fun SurfaceContent(
                 },
             )
         }
-        state.root?.let { UiNodeView(it, onIntent, webs = webs) }
+        state.root?.let { root ->
+            val body = if (isApp) Modifier.weight(1f, fill = isContentFill).fillMaxWidth() else Modifier
+            SurfaceBody(root, onIntent, body, webs, isApp, scrollState, isContentFill)
+        }
     }
     val modal = state.modal ?: return
     HbDialog(
@@ -166,6 +189,23 @@ internal fun SurfaceContent(
             )
         },
     ) { modal.body?.let { UiNodeView(it, onIntent, webs = webs) } }
+}
+
+@Composable
+private fun SurfaceBody(
+    root: UiNodeUi,
+    onIntent: (SurfaceIntent) -> Unit,
+    modifier: Modifier = Modifier,
+    webs: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
+    isApp: Boolean = false,
+    scrollState: ScrollState = rememberScrollState(),
+    isContentFill: Boolean = true,
+) {
+    if (isApp && root.containsWeb()) {
+        AppNodeView(root, onIntent, modifier, webs, isContentFill)
+    } else {
+        UiNodeView(root, onIntent, if (isApp) modifier.hbVerticalScroll(scrollState) else modifier, webs)
+    }
 }
 
 @Composable

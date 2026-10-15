@@ -7,9 +7,16 @@ import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class BrowserDocumentsTest {
+    @Test
+    fun `ordinary bridges keep their callback when captured`() {
+        val bridge = BrowserDocumentBridge { _, arguments -> BrowserBridgeResult.Value(arguments) }
+        assertSame(bridge, bridge.capture())
+    }
+
     @Test
     fun `documents and bridge results never print their content`() {
         val secret = "secret-value"
@@ -35,5 +42,17 @@ class BrowserDocumentsTest {
         assertEquals("""{"id":"0123456789abcdef0123456789abcdef"}""", json)
         assertEquals("browser_document", BrowserDocumentRoute.serializer().descriptor.serialName)
         assertEquals(route, Json.decodeFromString(BrowserDocumentRoute.serializer(), json))
+    }
+
+    @Test
+    fun `fill and content are route presentations of the same registration and round trip`() {
+        val original = BrowserDocumentRoute("document")
+        for (presentation in listOf(BrowserDocumentPresentation.Fill, BrowserDocumentPresentation.Content)) {
+            val route = original.copy(presentation = presentation)
+            assertEquals(original.id, route.id)
+            val json = Json.encodeToString(BrowserDocumentRoute.serializer(), route)
+            assertEquals(route, Json.decodeFromString(BrowserDocumentRoute.serializer(), json))
+        }
+        assertEquals(BrowserDocumentPresentation.Document, original.presentation)
     }
 }

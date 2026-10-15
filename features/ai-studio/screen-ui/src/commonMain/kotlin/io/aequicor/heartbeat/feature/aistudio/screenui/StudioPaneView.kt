@@ -29,6 +29,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -41,6 +44,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import io.aequicor.heartbeat.ds.components.HbActivityIndicator
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbChatTranscript
@@ -73,6 +77,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.new_heading
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.new_heading_general
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.new_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_close
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_context_panel
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_general
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_open_sidebar
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_split
@@ -106,7 +111,9 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.paneCards
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioAppKey
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioComposerSlotKey
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioContextSlotKey
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioStartSlotKey
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
@@ -141,30 +148,126 @@ internal fun StudioPaneView(
     val pane = content.pane
     val composerSlot = slots[studioComposerSlotKey(pane.id)]
     val startSlot = slots[studioStartSlotKey(pane.id)]
+    val appHost = slots[studioAppKey(pane.id)]
+    val contextSlot = slots[studioContextSlotKey(pane.id)].takeIf { content.isContextPanelAvailable }
+    var paneSize by remember { mutableStateOf(IntSize.Zero) }
     val ownCards = remember(cards, pane.id) { paneCards(cards, pane.id).toImmutableMap() }
     var headerHeight by remember { mutableIntStateOf(0) }
     var footerHeight by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     val topInset = with(density) { headerHeight.toDp() }
     val bottomInset = with(density) { footerHeight.toDp() }
+    val paneWidth = with(density) { paneSize.width.toDp() }
+    val paneHeight = with(density) { paneSize.height.toDp() }
+    val context = rememberPaneContextPanel(content, contextSlot, layout.isCompact, paneWidth)
     Box(
-        modifier.onFocusChanged {
+        modifier.onSizeChanged { paneSize = it }.onFocusChanged {
             if (it.hasFocus && !content.isFocused) onIntent(StudioIntent.FocusPane(pane.id))
-        }.focusGroup().focusOnPress(content.isFocused, pane.id) { onIntent(StudioIntent.FocusPane(pane.id)) }
+        }.focusRestorer().focusGroup()
+            .focusOnPress(content.isFocused, pane.id) { onIntent(StudioIntent.FocusPane(pane.id)) }
             .background(HbTheme.surfaces.assistant).testTag("pane-${pane.id}"),
     ) {
-        val worktreeFeed = content.worktreeFeed()
-        val feedId = content.feedId() ?: worktreeFeed?.key
-        val worktree = if (worktreeFeed == null) {
-            NoWorktree
-        } else {
-            val labels = worktreeLabels()
-            val shownCards = timelineState.session(feedId ?: worktreeFeed.key).cards.keys
-            remember(worktreeFeed, labels, shownCards) { worktreeTimeline(worktreeFeed, labels, shownCards) }
+        val feed = paneFeed(content, timelineState)
+        val feedId = feed.id
+        val hasStartApp = feedId == null && content.app != null
+        val isCenteredComposer = feedId == null && HbTheme.dimensions.isDesktop && !hasStartApp
+        PaneConversation(
+            content,
+            feed,
+            timelineState,
+            onIntent,
+            startSlot,
+            appHost,
+            ownCards,
+            checklists,
+            topInset,
+            bottomInset,
+            isCenteredComposer,
+            hasStartApp,
+            Modifier.fillMaxSize().padding(conversationInsets(hasStartApp, layout.isCompact, context)),
+        )
+        Box(
+            Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                .onSizeChanged { headerHeight = it.height }
+                .testTag("pane-header-${pane.id}"),
+        ) {
+            PaneHeader(
+                content,
+                layout,
+                onIntent,
+                isAtWindowLeadingEdge,
+                onOpenContext = context.open,
+                contextFocus = context.focus,
+            )
         }
-        val transcript = content.transcript ?: persistentListOf<MessageUi>().takeIf { worktree.messages.isNotEmpty() }
-        val isCenteredComposer = feedId == null && HbTheme.dimensions.isDesktop
-        if (feedId == null && !isCenteredComposer) {
+        // The composer keeps the same parents; changing its placement must not detach its focus target.
+        Box(Modifier.fillMaxSize().padding(top = topInset, end = context.inset)) {
+            PaneComposerRegion(
+                content,
+                onIntent,
+                questions,
+                layout.isCompact,
+                onOpenResearch,
+                isCenteredComposer,
+                PaneSlots(composerSlot, startSlot),
+                Modifier.align(
+                    composerRegionAlignment(isCenteredComposer),
+                ).onSizeChanged { footerHeight = it.height },
+            )
+        }
+        PaneContextPanel(
+            contextSlot,
+            context.isDocked,
+            context.isOpen,
+            context.dismiss,
+            pane.id,
+            topInset,
+            paneHeight,
+            Modifier.align(Alignment.TopEnd),
+        )
+    }
+}
+
+/** The docked context already reserves one trailing gap; standalone start apps use the composer's edge insets. */
+@Composable
+@ReadOnlyComposable
+private fun conversationInsets(
+    hasStartApp: Boolean,
+    isCompact: Boolean,
+    context: ContextPanelPresentation,
+): PaddingValues {
+    val gutter = when {
+        !hasStartApp -> HbTheme.spacing.none
+        context.isDocked -> HbTheme.spacing.l
+        isCompact -> HbTheme.spacing.m
+        else -> HbTheme.spacing.xl
+    }
+    return PaddingValues(start = gutter, end = context.inset + if (context.isDocked) HbTheme.spacing.none else gutter)
+}
+
+/** The conversation column shares one trailing inset with its composer while the context panel is docked. */
+@Composable
+private fun PaneConversation(
+    content: PaneContent,
+    feed: PaneFeed,
+    timelineState: StudioTimelineState,
+    onIntent: (StudioIntent) -> Unit,
+    startSlot: StudioEmbed?,
+    appHost: StudioEmbed?,
+    ownCards: ImmutableMap<String, StudioEmbed>,
+    checklists: ImmutableMap<String, StudioEmbed>,
+    topInset: Dp,
+    bottomInset: Dp,
+    isCenteredComposer: Boolean,
+    hasStartApp: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val feedId = feed.id
+    val transcript = feed.messages
+    val worktree = feed.worktree
+    val pane = content.pane
+    Box(modifier) {
+        if (feedId == null && !isCenteredComposer && !hasStartApp) {
             Box(
                 Modifier.fillMaxSize().padding(top = topInset, bottom = bottomInset),
             ) {
@@ -208,26 +311,44 @@ internal fun StudioPaneView(
                 )
             }
         }
-        Box(
-            Modifier.align(Alignment.TopCenter).fillMaxWidth()
-                .onSizeChanged { headerHeight = it.height }
-                .testTag("pane-header-${pane.id}"),
-        ) {
-            PaneHeader(content, layout, onIntent, isAtWindowLeadingEdge)
-        }
-        // The composer keeps the same parents; changing its placement must not detach its focus target.
-        Box(Modifier.fillMaxSize().padding(top = topInset)) {
-            PaneComposerRegion(
-                content,
-                onIntent,
-                questions,
-                layout.isCompact,
-                onOpenResearch,
-                isCenteredComposer,
-                PaneSlots(composerSlot, startSlot),
-                Modifier.align(
-                    composerRegionAlignment(isCenteredComposer),
-                ).onSizeChanged { footerHeight = it.height },
+        // This mount stays outside the lazy feed and at the same position when a new chat starts.
+        PaneAppWorkspace(
+            appHost,
+            startSlot,
+            hasStartApp,
+            if (hasStartApp) Modifier.fillMaxSize().padding(top = topInset, bottom = bottomInset) else Modifier,
+        )
+    }
+}
+
+@Immutable
+private data class PaneFeed(val id: String?, val worktree: WorktreeTimeline, val messages: ImmutableList<MessageUi>?)
+
+/** Resolve the normal or preparing-worktree transcript independently of the pane's app placement. */
+@Composable
+private fun paneFeed(content: PaneContent, timelineState: StudioTimelineState): PaneFeed {
+    val worktreeFeed = content.worktreeFeed()
+    val feedId = content.feedId() ?: worktreeFeed?.key
+    val worktree = if (worktreeFeed == null) {
+        NoWorktree
+    } else {
+        val labels = worktreeLabels()
+        val shownCards = timelineState.session(feedId ?: worktreeFeed.key).cards.keys
+        remember(worktreeFeed, labels, shownCards) { worktreeTimeline(worktreeFeed, labels, shownCards) }
+    }
+    val transcript = content.transcript ?: persistentListOf<MessageUi>().takeIf { worktree.messages.isNotEmpty() }
+    return PaneFeed(feedId, worktree, transcript)
+}
+
+/** One full app body on start, a zero-layout modal host in a chat, and any unrelated legacy start blocks. */
+@Composable
+private fun PaneAppWorkspace(app: StudioEmbed?, start: StudioEmbed?, isStart: Boolean, modifier: Modifier = Modifier) {
+    HbColumn(modifier) {
+        app?.Content(if (isStart) Modifier.weight(1f).fillMaxWidth() else Modifier)
+        if (isStart) {
+            start?.Content(
+                Modifier.fillMaxWidth().heightIn(max = HbTheme.dimensions.toolPayloadMaxHeight)
+                    .hbVerticalScroll(rememberScrollState()),
             )
         }
     }
@@ -438,6 +559,8 @@ private fun PaneHeader(
     layout: PaneLayout,
     onIntent: (StudioIntent) -> Unit,
     isAtWindowLeadingEdge: Boolean,
+    onOpenContext: (() -> Unit)?,
+    contextFocus: FocusRequester,
 ) {
     val pane = content.pane
     HbWindowDragArea(Modifier.fillMaxWidth().background(HbTheme.surfaces.header)) {
@@ -474,6 +597,14 @@ private fun PaneHeader(
             PaneTitle(content, onIntent, Modifier.weight(1f))
             OrganismSwitcher(content, onIntent)
             PaneSessionMenu(content, onIntent)
+            if (onOpenContext != null) {
+                HbIconButton(
+                    HbIcons.Sidebar,
+                    stringResource(Res.string.pane_context_panel),
+                    onOpenContext,
+                    Modifier.focusRequester(contextFocus).testTag("pane-open-context-${pane.id}"),
+                )
+            }
             PaneLayoutActions(pane.id, layout, onIntent)
         }
     }

@@ -324,6 +324,7 @@ private fun AiStudioScreenState.auditIntent(intent: StudioIntent): AiStudioScree
     is StudioIntent.Organism,
     is StudioIntent.SelectHarness,
     is StudioIntent.CardFocusApplied,
+    is StudioIntent.OpenApp,
     is StudioIntent.RemoteApplied,
     is StudioIntent.Embed,
     StudioIntent.InstallAppUpdate,

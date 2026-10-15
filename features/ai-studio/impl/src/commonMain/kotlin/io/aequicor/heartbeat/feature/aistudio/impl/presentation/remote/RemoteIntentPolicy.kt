@@ -16,6 +16,7 @@ internal fun isAllowedRemotely(intent: AiStudioScreenIntent): Boolean = when (in
     is AiStudioScreenIntent.OpenBeside,
     is AiStudioScreenIntent.RemoteApplied,
     is AiStudioScreenIntent.CardFocusApplied,
+    is AiStudioScreenIntent.OpenApp,
     is AiStudioScreenIntent.SelectOrganism,
     -> false
 
@@ -64,8 +65,7 @@ internal fun isAllowedRemotely(intent: AiStudioScreenIntent): Boolean = when (in
     is AiStudioScreenIntent.CommitRename,
     is AiStudioScreenIntent.CancelRename,
     is AiStudioScreenIntent.ShowSidebarMode,
-    is AiStudioScreenIntent.ToggleSearch,
-    is AiStudioScreenIntent.SearchChanged,
+    is AiStudioScreenIntent.ToggleSearch, is AiStudioScreenIntent.SearchChanged,
     is AiStudioScreenIntent.ToggleProject, is AiStudioScreenIntent.ToggleProjectSessions,
     is AiStudioScreenIntent.ToggleProjectsSection,
     is AiStudioScreenIntent.ToggleRecentSection, is AiStudioScreenIntent.ToggleNoProjectSection,

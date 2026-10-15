@@ -9,6 +9,9 @@ import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocument
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentHandle
+import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiIntent
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiOutput
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiPanelRoute
@@ -42,6 +45,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -55,6 +59,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
@@ -105,6 +110,127 @@ class PlaceModelTest {
         runCurrent()
         assertEquals(PlaceState(), place.states.value)
         assertEquals(emptySet(), fixture.model.surfaces.value.keys)
+    }
+
+    @Test
+    fun `context presence resolves without mounting the UI or loading surface models`() = runTest {
+        val summary = surface("summary", UiPlacement.Context)
+        val library = UiLibrary(listOf(summary), revision = 3)
+        val fixture = Fixture(
+            this,
+            ServiceUiPlace.of(ServiceUiSlotRoute(host.value, UiSlot.Context)),
+            ready(docked, library),
+        )
+        fixture.calls.report(docked.call, setOf(PrMap))
+        runCurrent()
+        val expected = ServiceUiIntent.Internal.ResolveSlot(host, UiSlot.Context, true, docked, 3)
+        assertEquals(listOf<ServiceUiIntent>(expected), fixture.machine.sent)
+        assertTrue(fixture.drawings.isEmpty())
+        assertTrue(fixture.model.surfaces.value.isEmpty())
+
+        val disabled = library.copy(surfaces = listOf(summary.copy(isEnabled = false)), revision = 4)
+        fixture.machine.state.value = ready(docked, disabled)
+        runCurrent()
+        assertEquals(expected.copy(isPresent = false, expectedLibraryRevision = 4), fixture.machine.sent.last())
+
+        val changed = docked.copy(call = UiCallContext(preselected = mapOf("harness" to setOf("h_2"))))
+        fixture.machine.state.value = ready(changed, library)
+        runCurrent()
+        val beforeReport = fixture.machine.sent.toList()
+        fixture.calls.report(docked.call, emptySet())
+        runCurrent()
+        assertEquals(beforeReport, fixture.machine.sent)
+        fixture.calls.report(changed.call, emptySet())
+        runCurrent()
+        assertEquals(expected.copy(isPresent = false, expectedContext = changed), fixture.machine.sent.last())
+        assertTrue(fixture.drawings.isEmpty())
+    }
+
+    @Test
+    fun `unmounting context closes its documents and revokes retained hosts before reopening`() = runTest {
+        val summary = surface("summary", UiPlacement.Context).let {
+            it.copy(content = it.content.copy(spec = """{"version":1,"body":{"type":"web","html":"<p>Context</p>"}}"""))
+        }
+        val web = ContextWeb()
+        val fixture = Fixture(
+            this,
+            ServiceUiPlace.of(ServiceUiSlotRoute(host.value, UiSlot.Context)),
+            ready(docked, UiLibrary(listOf(summary))),
+            web,
+        )
+        fixture.calls.report(docked.call, setOf(PrMap))
+        val place = fixture.subscribe()
+        val oldDrawing = place.states.value.surfaces.single().key
+        val original = fixture.drawings.single()
+        val document = web.opened.single()
+        assertTrue(original.first.host.isActive())
+        assertFalse(document.isClosed)
+
+        fixture.unsubscribe()
+        assertTrue(fixture.model.surfaces.value.isEmpty())
+        assertFalse(original.second.isActive)
+        assertFalse(original.first.host.isActive())
+        assertFalse(original.first.host.prompt("Hidden context", isSubmitted = false))
+        assertTrue(document.isClosed)
+
+        val reopened = fixture.subscribe()
+        assertNotEquals(oldDrawing, reopened.states.value.surfaces.single().key)
+        assertEquals(2, web.opened.size)
+        assertFalse(web.opened.last().isClosed)
+        assertFalse(original.first.host.isActive())
+        assertFalse(original.first.host.prompt("Old drawing after reopening", isSubmitted = false))
+        assertTrue(fixture.drawings.last().first.host.isActive())
+    }
+
+    @Test
+    fun `unreadable context does not reserve space until its spec is repaired`() = runTest {
+        val summary = surface("summary", UiPlacement.Context)
+        val broken = summary.copy(content = summary.content.copy(spec = "{"))
+        val fixture = Fixture(
+            this,
+            ServiceUiPlace.of(ServiceUiSlotRoute(host.value, UiSlot.Context)),
+            ready(docked, UiLibrary(listOf(broken), revision = 2)),
+        )
+        fixture.calls.report(docked.call, setOf(PrMap))
+        runCurrent()
+        val expected = ServiceUiIntent.Internal.ResolveSlot(host, UiSlot.Context, false, docked, 2)
+        assertEquals(listOf<ServiceUiIntent>(expected), fixture.machine.sent)
+        assertTrue(fixture.drawings.isEmpty())
+
+        fixture.machine.state.value = ready(docked, UiLibrary(listOf(summary), revision = 3))
+        runCurrent()
+        assertEquals(expected.copy(isPresent = true, expectedLibraryRevision = 3), fixture.machine.sent.last())
+        assertTrue(fixture.drawings.isEmpty())
+    }
+
+    @Test
+    fun `context actions and models are revoked immediately when the chat changes`() = runTest {
+        val summary = surface("summary", UiPlacement.Context)
+        val contextLibrary = UiLibrary(listOf(summary, map, details))
+        val contextSlot = ServiceUiSlotRoute(host.value, UiSlot.Context)
+        val fixture = Fixture(this, ServiceUiPlace.of(contextSlot), ready(docked, contextLibrary))
+        fixture.calls.report(docked.call, setOf(PrMap))
+        val place = fixture.subscribe()
+        assertEquals(listOf("SUMMARY"), place.states.value.surfaces.map { it.title })
+        val original = fixture.drawings.single()
+        assertTrue(original.first.host.isActive())
+        assertTrue(original.first.host.prompt("From context", isSubmitted = false))
+        assertEquals(1, fixture.machine.sent.filterIsInstance<ServiceUiIntent.Internal.RequestPrompt>().size)
+
+        val changed = docked.copy(call = UiCallContext(preselected = mapOf("harness" to setOf("h_2"))))
+        fixture.machine.state.value = ready(changed, contextLibrary)
+        assertFalse(original.first.host.isActive())
+        assertFalse(original.first.host.prompt("Stale context", isSubmitted = true))
+        assertFalse(original.first.host.openPanel("map", JsonObject(emptyMap())))
+        runCurrent()
+        assertEquals(PlaceState(), place.states.value)
+        assertFalse(original.second.isActive)
+
+        fixture.calls.report(changed.call, setOf(PrMap))
+        runCurrent()
+        assertEquals(listOf("SUMMARY"), place.states.value.surfaces.map { it.title })
+        assertFalse(original.first.host.prompt("Still stale", isSubmitted = false))
+        assertEquals(1, fixture.machine.sent.filterIsInstance<ServiceUiIntent.Internal.RequestPrompt>().size)
     }
 
     @Test
@@ -285,10 +411,16 @@ class PlaceModelTest {
     private fun button(surface: Provider<SurfaceState, *, *>, index: Int): UiNodeUi.Button =
         assertIs<UiNodeUi.Button>(assertIs<UiNodeUi.Column>(surface.states.value.root).children[index])
 
-    private class Fixture(private val scope: TestScope, place: ServiceUiPlace, state: ServiceUiState) {
+    private class Fixture(
+        private val scope: TestScope,
+        place: ServiceUiPlace,
+        state: ServiceUiState,
+        web: UiWebDocuments = UiWebDocuments.Off,
+    ) {
         val machine = FakeMachine(state)
         val calls = FakeCalls()
         val drawings = mutableListOf<Pair<SurfaceSession, CoroutineScope>>()
+        private val subscriptions = mutableListOf<Job>()
         private val stores = HeartbeatStoreFactory(TestDispatchers(StandardTestDispatcher(scope.testScheduler)))
         val model = PlaceModel(
             place,
@@ -307,7 +439,7 @@ class PlaceModelTest {
                     UnsupportedUiPlatform,
                     stores,
                     child,
-                    UiWebDocuments.Off,
+                    web,
                 )
             },
             Desktop,
@@ -317,9 +449,15 @@ class PlaceModelTest {
 
         suspend fun subscribe(): Provider<PlaceState, PlaceIntent, PlaceAction> = subscribe(model.store)
 
+        fun unsubscribe() {
+            subscriptions.forEach { it.cancel() }
+            subscriptions.clear()
+            scope.runCurrent()
+        }
+
         suspend fun <S : MVIState, I : MVIIntent, A : MVIAction> subscribe(store: Store<S, I, A>): Provider<S, I, A> {
             val provider = CompletableDeferred<Provider<S, I, A>>()
-            scope.backgroundScope.launch {
+            subscriptions += scope.backgroundScope.launch {
                 store.collect {
                     provider.complete(this)
                     awaitCancellation()
@@ -327,6 +465,27 @@ class PlaceModelTest {
             }
             scope.runCurrent()
             return provider.await()
+        }
+    }
+
+    private class ContextWeb : UiWebDocuments {
+        override val availability: Flow<Boolean> = flowOf(true)
+        val opened = mutableListOf<ContextDocument>()
+
+        override fun open(document: BrowserDocument): BrowserDocumentHandle =
+            ContextDocument(BrowserDocumentRoute("context-${opened.size}")).also { opened += it }
+    }
+
+    private class ContextDocument(override val route: BrowserDocumentRoute) : BrowserDocumentHandle {
+        val updates = mutableListOf<JsonElement?>()
+        var isClosed = false
+
+        override fun update(data: JsonElement?) {
+            updates += data
+        }
+
+        override fun close() {
+            isClosed = true
         }
     }
 

@@ -1,4 +1,5 @@
 <resources>
+    <string name="miniapp_open">Открыть %1$s</string>
     <string name="session_tree_root">Корневая сессия</string>
     <string name="session_tree_unknown">неизвестно</string>
     <string name="session_tree_activity">Активные потомки; + или ? означает, что часть состояний неизвестна</string>
@@ -312,4 +313,5 @@
     <string name="harness_picker_one">Харнесс · %1$s</string>
     <string name="harness_picker_many">Харнессы · %1$d</string>
     <string name="attachments_page">Прикрепить страницу</string>
+    <string name="pane_context_panel">Панель контекста</string>
 </resources>

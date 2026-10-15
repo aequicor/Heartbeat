@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.feature.browser.api.BrowserBridgeResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentBridge
+import io.aequicor.heartbeat.feature.serviceasui.api.UiCallContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodFailure
 import io.aequicor.heartbeat.feature.serviceasui.api.UiMethodResult
 import io.aequicor.heartbeat.feature.serviceasui.api.UiOwner
@@ -20,6 +21,7 @@ import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiPresentation
 import io.aequicor.heartbeat.feature.serviceasui.impl.domain.spec.UiSpecLimits
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiBindings
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiEvaluator
+import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiFacts
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiScope
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiSourceStatus
 import io.aequicor.heartbeat.feature.serviceasui.impl.presentation.UiValues
@@ -30,7 +32,9 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -57,7 +61,7 @@ private typealias SurfacePipeline = PipelineContext<SurfaceState, SurfaceIntent,
  */
 @AssistedInject
 internal class SurfaceModel(
-    @Assisted private val session: SurfaceSession,
+    @Assisted session: SurfaceSession,
     private val calls: UiMethodCalls,
     private val platform: UiPlatform,
     factory: HeartbeatStoreFactory,
@@ -70,6 +74,10 @@ internal class SurfaceModel(
         fun create(session: SurfaceSession, scope: CoroutineScope): SurfaceModel
     }
 
+    private val executions = MutableStateFlow(SurfaceExecution(session, scope))
+    private val session: SurfaceSession get() = executions.value.session
+    private val parentScope = scope
+    private var observedExecution: SurfaceExecution? = null
     private val log = Log.tag("ServiceUiSurface")
     private val evaluator = UiEvaluator(session.spec)
     private val calling = Semaphore(UiSpecLimits.CALLS)
@@ -82,17 +90,17 @@ internal class SurfaceModel(
     // Only approved live library surfaces get a bridge, including cards; previews never execute owner code.
     private val documents = SurfaceWebDocuments(
         web,
-        callableOwner?.let { BrowserDocumentBridge(PageCalls(it)::call) },
+        callableOwner?.let(::PageCalls),
         session.title,
     )
 
     /** Route ids of the browser documents drawn for `web` nodes, by node key. */
     val webDocuments: StateFlow<ImmutableMap<String, String>> = documents.shown
 
-    val store: Store<SurfaceState, SurfaceIntent, SurfaceAction> =
+    private val pipelineStore: Store<SurfaceState, SurfaceIntent, SurfaceAction> =
         factory.create<SurfaceState, SurfaceIntent, SurfaceAction>(
             name = "Surface",
-            initial = rendered(SurfaceState(values = initialValues())),
+            initial = rendered(SurfaceState(values = initialValues(), inputBinding = executions.value.inputBinding)),
             onError = { copy(notice = NoticeUi.Broken) },
         ) {
             install {
@@ -105,24 +113,78 @@ internal class SurfaceModel(
                 onStop { documents.close() }
             }
             whileSubscribed { Work(this).observeMethods() }
-            reduce { intent -> Work(this).handle(intent) }
+            reduce { intent ->
+                val bound = intent as? SurfaceIntent.Bound ?: return@reduce
+                val execution = executions.value
+                if (bound.binding === execution.inputBinding &&
+                    (execution.isActive || bound.input == SurfaceIntent.BindingChanged)
+                ) {
+                    Work(this, execution).handle(bound.input)
+                }
+            }
         }
+
+    val store: Store<SurfaceState, SurfaceIntent, SurfaceAction> =
+        SurfaceInputStore(pipelineStore) { executions.value.inputBinding }
 
     init {
         store.start(scope)
     }
 
+    /** Stops old context work immediately while a start app waits for its first chat's owner admission. */
+    fun pause() {
+        executions.value.cancel()
+        store.intent(SurfaceIntent.BindingChanged)
+    }
+
+    /**
+     * Rebinds only a host-validated continuation of the same app. The document/DOM and local inputs survive;
+     * old page calls, actions and source results are revoked before new-context calls may start.
+     */
+    fun rebind(context: UiCallContext, host: SurfaceHost, facts: UiFacts) {
+        val previous = executions.value
+        previous.cancel()
+        log.v { "Surface authority rebound; previous work cancelled" }
+        executions.value = SurfaceExecution(
+            previous.session.copy(context = context, host = host, facts = facts),
+            parentScope,
+        )
+    }
+
     /** Calls of a page into the methods of [owner]: JSON object arguments (or none), bounded with the surface's own. */
-    private inner class PageCalls(private val owner: UiOwner) {
-        suspend fun call(method: String, arguments: JsonElement): BrowserBridgeResult {
+    private inner class PageCalls(private val owner: UiOwner) : BrowserDocumentBridge {
+        override fun capture(): BrowserDocumentBridge {
+            val execution = executions.value
+            return BrowserDocumentBridge { method, arguments -> call(execution, method, arguments) }
+        }
+
+        override suspend fun call(method: String, arguments: JsonElement): BrowserBridgeResult =
+            call(executions.value, method, arguments)
+
+        private suspend fun call(
+            execution: SurfaceExecution,
+            method: String,
+            arguments: JsonElement,
+        ): BrowserBridgeResult {
             val objectArguments = when (arguments) {
                 is JsonObject -> arguments
                 JsonNull -> JsonObject(emptyMap())
                 is JsonPrimitive, is JsonArray -> return BrowserBridgeResult.Failure("Arguments must be a JSON object")
             }
-            val result = pageCalling.withPermit {
-                calls.callFromPage(owner, method, objectArguments, session.context)
-            }
+            val result = execution.execute {
+                pageCalling.withPermit {
+                    if (execution.isActive) {
+                        calls.callFromPage(
+                            owner,
+                            method,
+                            objectArguments,
+                            execution.session.context,
+                        )
+                    } else {
+                        UiMethodResult.Failure(UiMethodFailure.Inactive)
+                    }
+                }
+            } ?: return BrowserBridgeResult.Failure("This app context is no longer active")
             return when (result) {
                 is UiMethodResult.Success -> BrowserBridgeResult.Value(result.value)
                 is UiMethodResult.UserError -> BrowserBridgeResult.Failure(result.message)
@@ -147,13 +209,25 @@ internal class SurfaceModel(
     }
 
     /** Work of one intent or subscription on the store [pipeline]. */
-    private inner class Work(private val pipeline: SurfacePipeline) {
+    private inner class Work(
+        private val pipeline: SurfacePipeline,
+        private val execution: SurfaceExecution = executions.value,
+    ) {
+        private val session: SurfaceSession get() = execution.session
+        private val isCurrent: Boolean get() = executions.value === execution && execution.isActive
+
         suspend fun observeMethods() {
+            executions.collectLatest { current -> Work(pipeline, current).observeCurrentMethods() }
+        }
+
+        private suspend fun observeCurrentMethods() {
+            resetBinding()
             val owner = callableOwner ?: return
             combine(calls.methods(owner), calls.dataRevision(owner)) { methods, revision -> methods to revision }
                 .collect { (methods, revision) ->
                     var isLoadNeeded = false
                     pipeline.updateState {
+                        if (!isCurrent) return@updateState this
                         isLoadNeeded = methods.isAvailable && (
                             !hasStarted || loadedRevision != revision || loadedMethodsGeneration != methods.generation
                         )
@@ -168,6 +242,7 @@ internal class SurfaceModel(
                             }
                         }
                         pipeline.updateState {
+                            if (!isCurrent) return@updateState this
                             copy(
                                 hasStarted = true,
                                 loadedRevision = revision,
@@ -178,12 +253,37 @@ internal class SurfaceModel(
                 }
         }
 
+        private suspend fun resetBinding() {
+            if (observedExecution !== execution) {
+                observedExecution = execution
+                pipeline.updateState {
+                    if (!isCurrent) return@updateState this
+                    rendered(
+                        copy(
+                            isMethodsAvailable = false,
+                            hasStarted = false,
+                            loadedRevision = null,
+                            loadedMethodsGeneration = null,
+                            inputBinding = execution.inputBinding,
+                            values = values.copy(facts = session.facts, busy = emptySet()),
+                        ),
+                    )
+                }
+            }
+        }
+
         suspend fun handle(intent: SurfaceIntent) {
             when (intent) {
+                is SurfaceIntent.Bound -> error("Surface input binding must be checked before handling")
+
+                SurfaceIntent.BindingChanged -> pipeline.updateState {
+                    if (executions.value.isActive) this else copy(isMethodsAvailable = false)
+                }
+
                 is SurfaceIntent.Press -> {
                     val type = intent.press.action::class.simpleName ?: "UiAction"
                     log.i { "Surface action $type" }
-                    pipeline.launch { press(intent.press) }
+                    pipeline.launch { execution.execute { press(intent.press) } }
                 }
 
                 is SurfaceIntent.Input -> update { it.withInput(intent.key, intent.value) }
@@ -193,17 +293,19 @@ internal class SurfaceModel(
                     openUrl(intent.url, isTrusted = false)
                 }
 
-                is SurfaceIntent.Pick -> pipeline.launch { pick(intent) }
+                is SurfaceIntent.Pick -> pipeline.launch { execution.execute { pick(intent) } }
 
-                is SurfaceIntent.Reload -> {
-                    val sources = intent.source?.let { listOf(it) } ?: session.spec.data.keys.toList()
-                    sources.forEach { pipeline.launch { load(it) } }
-                }
+                is SurfaceIntent.Reload -> reload(intent.source)
 
                 SurfaceIntent.DismissModal -> closeModal()
 
                 SurfaceIntent.DismissNotice -> pipeline.updateState { copy(notice = null) }
             }
+        }
+
+        private fun reload(source: String?) {
+            val sources = source?.let { listOf(it) } ?: session.spec.data.keys.toList()
+            sources.forEach { pipeline.launch { execution.execute { load(it) } } }
         }
 
         private suspend fun press(press: UiPress) {
@@ -218,6 +320,7 @@ internal class SurfaceModel(
         /** Runs [action] with the item it was pressed on; false stops a sequence. */
         @Suppress("CyclomaticComplexMethod") // One branch per action type keeps the catalog in one readable place.
         private suspend fun run(action: UiAction, scope: UiScope): Boolean {
+            if (!isCurrent) return false
             val bindings = bindings()
             return when (action) {
                 is UiAction.Call -> call(action, bindings.arguments(action.args, scope))
@@ -272,7 +375,16 @@ internal class SurfaceModel(
 
         private suspend fun call(action: UiAction.Call, arguments: JsonObject): Boolean {
             val owner = callableOwner ?: return notice(NoticeUi.Unsupported)
-            val result = calling.withPermit { calls.call(owner, action.method, arguments, session.context) }
+            val result = execution.execute {
+                calling.withPermit {
+                    if (isCurrent) {
+                        calls.call(owner, action.method, arguments, session.context)
+                    } else {
+                        UiMethodResult.Failure(UiMethodFailure.Inactive)
+                    }
+                }
+            } ?: return false
+            if (!isCurrent) return false
             val into = action.into
             if (result is UiMethodResult.Success && into != null) update { it.withInput(into, result.value) }
             return reported(result)
@@ -319,11 +431,23 @@ internal class SurfaceModel(
         }
 
         private suspend fun loadSource(name: String): Boolean {
-            val owner = callableOwner ?: return false
-            val source = session.spec.data[name] ?: return false
+            val owner = checkNotNull(callableOwner)
+            val source = session.spec.data.getValue(name)
             update { it.copy(status = it.status + (name to UiSourceStatus.Loading)) }
             val arguments = bindings().arguments(source.args, UiScope())
-            val result = calling.withPermit { calls.call(owner, source.method, arguments, session.context) }
+            val result = execution.execute {
+                calling.withPermit {
+                    if (isCurrent) {
+                        calls.call(owner, source.method, arguments, session.context)
+                    } else {
+                        UiMethodResult.Failure(UiMethodFailure.Inactive)
+                    }
+                }
+            }
+            return if (result == null || !isCurrent) false else loaded(name, result)
+        }
+
+        private suspend fun loaded(name: String, result: UiMethodResult): Boolean {
             update { values ->
                 val status = when (result) {
                     is UiMethodResult.Success -> UiSourceStatus.Ready
@@ -366,12 +490,12 @@ internal class SurfaceModel(
 
         /** Shows [notice]; false, so a sequence stops. */
         private suspend fun notice(notice: NoticeUi): Boolean {
-            pipeline.updateState { copy(notice = notice) }
+            pipeline.updateState { if (isCurrent) copy(notice = notice) else this }
             return false
         }
 
         private suspend fun update(change: (UiValues) -> UiValues) {
-            pipeline.updateState { rendered(copy(values = change(values))) }
+            pipeline.updateState { if (isCurrent) rendered(copy(values = change(values))) else this }
         }
 
         private suspend fun bindings(): UiBindings {

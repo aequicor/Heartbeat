@@ -147,7 +147,10 @@ internal class NativeComposeBrowserFixture(isViewportProbe: Boolean = false, isA
 
     fun viewportRuntime(): NativeViewportBrowserRuntime = viewportRuntime.awaitNative()
 
-    fun verifyDocumentPresentation() = verifyNativeDocumentPresentation(resources, dispatchers, scope)
+    fun verifyDocumentPresentation() {
+        verifyNativeDocumentPresentation(resources, dispatchers, scope)
+        verifyNativeDocumentWorkspace(resources, dispatchers, scope)
+    }
 
     /** A second real browser in the same native runtime, so an existing sibling cannot prove target attachment. */
     fun createViewportSibling(): NativeViewportSibling {

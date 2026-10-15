@@ -37,8 +37,10 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioAtta
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioSurfaceBinding
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.toUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioAppKey
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioCardKey
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioComposerSlotKey
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioContextSlotKey
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.studioStartSlotKey
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentPreviewRoute
@@ -53,6 +55,7 @@ import io.aequicor.heartbeat.feature.checklist.api.ChecklistRoute
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRoute
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatRoute
 import io.aequicor.heartbeat.feature.searchengine.api.ProfileSettingsRoute
+import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiAppRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiCardRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiSlotRoute
 import io.aequicor.heartbeat.feature.serviceasui.api.UiSlot
@@ -205,14 +208,14 @@ class AiStudioComponent(
         initialItems = { Items() },
         key = "interface-slots",
     ) { key, context ->
-        val (paneId, slot) = studioSlotOf(key)
+        val paneId = key.substringBefore('.').toInt()
         hosts.stack(
             context = context,
             parent = navigator,
             name = "interface-slot-$key",
-            initial = listOf(ServiceUiSlotRoute(surfaces.host(paneId), slot)),
+            initial = listOf(studioSurfaceRoute(key, surfaces.host(paneId))),
             local = emptyList(),
-            global = GlobalRoutes.Only(setOf(ServiceUiSlotRoute::class)),
+            global = GlobalRoutes.Only(setOf(ServiceUiSlotRoute::class, ServiceUiAppRoute::class)),
         )
     }
     private val slotHosts = MutableStateFlow<Map<String, StackHost>>(emptyMap())
@@ -243,8 +246,8 @@ class AiStudioComponent(
     val cards: StateFlow<Map<String, StackHost>> = cardHosts.asStateFlow()
 
     /**
-     * Hosts of interface slots by [studioSlotKey] while interfaces are on: the composer row of every pane and the
-     * start window of a new chat.
+     * Hosts of interface slots by [studioSlotKey] and one retained app host by [studioAppKey] while interfaces are
+     * on. An app host survives lazy card disposal and the new-chat to existing-chat transition of its pane.
      */
     val slots: StateFlow<Map<String, StackHost>> = slotHosts.asStateFlow()
 
@@ -295,7 +298,9 @@ class AiStudioComponent(
                 } else {
                     panes.flatMap { (paneId, pane) ->
                         listOfNotNull(
+                            studioAppKey(paneId),
                             studioSlotKey(paneId, UiSlot.Composer),
+                            studioSlotKey(paneId, UiSlot.Context),
                             studioSlotKey(paneId, UiSlot.Start).takeIf { pane.chatId == null },
                         )
                     }
@@ -501,11 +506,13 @@ enum class BrowserPaneMode {
 internal fun studioSlotKey(paneId: Int, slot: UiSlot): String = when (slot) {
     UiSlot.Composer -> studioComposerSlotKey(paneId)
     UiSlot.Start -> studioStartSlotKey(paneId)
+    UiSlot.Context -> studioContextSlotKey(paneId)
 }
 
-private fun studioSlotOf(key: String): Pair<Int, UiSlot> {
-    val (pane, slot) = key.split('.', limit = 2)
-    return pane.toInt() to UiSlot.entries.first { it.name.lowercase() == slot }
+/** App hosts share the lifecycle registry of slots but always resolve to their own single retained route. */
+internal fun studioSurfaceRoute(key: String, host: String): Route = when (val slot = key.substringAfter('.')) {
+    "app" -> ServiceUiAppRoute(host)
+    else -> ServiceUiSlotRoute(host, UiSlot.entries.first { it.name.lowercase() == slot })
 }
 
 private fun cardKeys(panes: Map<Int, Set<String>>): List<String> =

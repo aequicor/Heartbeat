@@ -5,6 +5,10 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 
 @Composable
-internal actual fun HbPlatformDialog(onDismissRequest: () -> Unit, content: @Composable () -> Unit) {
+internal actual fun HbPlatformDialog(
+    onDismissRequest: () -> Unit,
+    isInWindow: Boolean,
+    content: @Composable () -> Unit,
+) {
     Dialog(onDismissRequest, DialogProperties(usePlatformDefaultWidth = false), content)
 }

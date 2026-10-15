@@ -48,7 +48,7 @@ internal fun PlaceScreen(
 ) {
     val state by produceState(PlaceState(), model) { model.store.collect { states.collect { value = it } } }
     val surfaces by model.surfaces.collectAsState()
-    PlaceView(state, surfaces, model.store::intent, model.isPanel, modifier, documents)
+    PlaceView(state, surfaces, model.store::intent, model.isPanel, modifier, documents, model.isContext)
 }
 
 /** The drawn surfaces from [surfaces], launchers and the modal of [state]. */
@@ -60,10 +60,13 @@ internal fun PlaceView(
     isPanel: Boolean,
     modifier: Modifier = Modifier,
     documents: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
+    isContext: Boolean = false,
 ) {
     // An empty slot emits nothing, so the host's spacing around it stays as without interfaces.
     if (!isPanel && state.isEmpty) return
-    if (isPanel) {
+    if (isContext) {
+        ContextPlaceContent(state, surfaces, onIntent, modifier, documents)
+    } else if (isPanel) {
         // A panel can cover the whole chat on a phone: its header always offers a way out.
         HbColumn(modifier.fillMaxSize(), gap = HbTheme.spacing.none) {
             HbPaneHeader(

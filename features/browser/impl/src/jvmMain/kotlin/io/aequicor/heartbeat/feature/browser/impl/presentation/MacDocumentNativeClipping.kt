@@ -24,6 +24,7 @@ internal class MacDocumentNativeClipping(
     private val onFailure: () -> Unit,
     private val access: MacDocumentClipAccess = CocoaDocumentClipAccess(),
     private val retries: DocumentClipRetries = SwingDocumentClipRetries(),
+    private val onClipped: () -> Unit = {},
 ) : AutoCloseable {
     private val log = Log.tag("MacDocumentNativeClipping")
     private var generation = 0L
@@ -87,6 +88,7 @@ internal class MacDocumentNativeClipping(
         if (isClosed || generation != current || !isNativeVisible()) return
         try {
             val count = access.apply(component)
+            if (count > 0) onClipped()
             if (index < RETRY_DELAYS.size) {
                 pending = retries.after(RETRY_DELAYS[index]) { attempt(current, index + 1) }
             } else if (hasLoaded && count == 0) {

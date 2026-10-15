@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.serviceasui.impl.presentation.place
 
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiState
+import io.aequicor.heartbeat.feature.serviceasui.api.UiApp
 import io.aequicor.heartbeat.feature.serviceasui.api.UiCallContext
 import io.aequicor.heartbeat.feature.serviceasui.api.UiDockId
 import io.aequicor.heartbeat.feature.serviceasui.api.UiHostContext
@@ -37,6 +38,48 @@ class PlaceSelectionTest {
             ),
         ),
     )
+
+    @Test
+    fun `the canonical app absorbs only its own old start and composer surfaces`() {
+        val app = surface("app", UiPlacement.Card)
+        val selected = ready.copy(
+            library = ready.library.copy(surfaces = ready.library.surfaces + app),
+            apps = mapOf(host to UiApp(app.id, context)),
+        )
+        val startContent = PlaceTarget.Slot(host, UiSlot.Start).content(selected, setOf(PrMap, Other))
+        assertEquals(listOf("foreign"), startContent.surfaces.map { it.surface.content.name.value })
+        assertEquals(emptyList(), PlaceTarget.Slot(host, UiSlot.Composer).content(selected, setOf(PrMap)).surfaces)
+        assertEquals(listOf(map), startContent.launchers, "Unrelated explicit panel launchers keep their contract")
+    }
+
+    @Test
+    fun `context stays visible beside its owner app and shows only active enabled content`() {
+        val app = surface("app", UiPlacement.Card)
+        val summary = surface("summary", UiPlacement.Context, at = 2)
+        val first = surface("context_first", UiPlacement.Context, at = 1)
+        val launcher = surface("context_details", UiPlacement.Modal, launchers = setOf(UiSlot.Context))
+        val selected = ready.copy(
+            library = UiLibrary(
+                listOf(
+                    app,
+                    summary,
+                    launcher,
+                    first,
+                    surface("context_off", UiPlacement.Context, isEnabled = false),
+                    surface("context_foreign", UiPlacement.Context, owner = Other),
+                ),
+            ),
+            apps = mapOf(host to UiApp(app.id, context)),
+        )
+        val slot = PlaceTarget.Slot(host, UiSlot.Context)
+        val content = slot.content(selected, setOf(PrMap))
+        assertEquals(listOf(first, summary), content.surfaces.map { it.surface })
+        assertEquals(listOf(launcher), content.launchers)
+        assertEquals(context, content.context)
+        assertEquals(emptyList(), slot.content(selected, emptySet()).surfaces)
+        assertEquals(emptyList(), slot.content(selected, emptySet()).launchers)
+        assertEquals(PlaceContent(), slot.content(selected.copy(hosts = emptyMap()), setOf(PrMap)))
+    }
 
     @Test
     fun `a slot shows enabled surfaces of its placement and launchers of active owners oldest first`() {

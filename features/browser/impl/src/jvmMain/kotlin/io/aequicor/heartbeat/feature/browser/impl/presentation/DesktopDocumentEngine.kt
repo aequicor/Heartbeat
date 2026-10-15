@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
+import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentSizing
@@ -80,7 +81,9 @@ internal class DesktopDocumentEngine(
         throw error
     }
     private val browser: CefBrowser
+    private val cursor = DesktopDocumentCursor(isReleased = { isClosed.get() || isReleased() })
     private var nativeClipping: MacDocumentNativeClipping? = null
+    private var nativeRounding: MacDocumentNativeRounding? = null
 
     /** Added to the client as soon as it exists, so disposing the client always disposes the native router. */
     private var router: DesktopDocumentRouter? = null
@@ -105,16 +108,22 @@ internal class DesktopDocumentEngine(
                     client.addMessageRouter(it.router)
                 }
             }
-            if (document.document.sizing == BrowserDocumentSizing.Content) {
-                layoutRouter = DesktopDocumentLayoutRouter(url, presentation.measurements).also {
-                    client.addMessageRouter(it.router)
-                }
+            // Every retained page can later be mounted with Content presentation without being reloaded.
+            layoutRouter = DesktopDocumentLayoutRouter(url, presentation.measurements).also {
+                client.addMessageRouter(it.router)
             }
             client.addRequestHandler(policy.requestHandler)
             client.addLifeSpanHandler(LifeSpan())
             client.addLoadHandler(Load())
+            val keyboard = DesktopDocumentKeyboard(presentation.dismissal, focusExit = presentation.focusExit)
+            client.addKeyboardHandler(keyboard)
+            client.addFocusHandler(keyboard)
             client.addDisplayHandler(
                 object : CefDisplayHandlerAdapter() {
+                    @HighFrequency
+                    override fun onCursorChange(browser: CefBrowser, cursorType: Int): Boolean =
+                        cursor.change(browser.uiComponent, cursorType)
+
                     override fun onConsoleMessage(
                         browser: CefBrowser,
                         level: CefSettings.LogSeverity,
@@ -147,6 +156,19 @@ internal class DesktopDocumentEngine(
     fun nativePainted() {
         check(SwingUtilities.isEventDispatchThread())
         if (!isClosed.get() && !isReleased()) nativeClipping?.nativePainted()
+    }
+
+    /** Restores the previous modal mask synchronously before the retained page moves to a different host. */
+    fun updateCornerRadius(radius: Double) {
+        check(SwingUtilities.isEventDispatchThread())
+        if (!OS.isMacintosh() || isClosed.get() || isReleased()) return
+        val rounding = nativeRounding ?: if (radius > 0) {
+            MacDocumentNativeRounding().also { nativeRounding = it }
+        } else {
+            null
+        }
+        rounding?.update(radius)
+        if (radius > 0 && isNativeCreated.get()) nativeClipping?.request()
     }
 
     /** Sends [data] to the loaded page unless it already holds it; a page still loading reads it when served. */
@@ -188,7 +210,11 @@ internal class DesktopDocumentEngine(
         served = Delivered(data, theme)
         val query = router?.let { desktopDocumentQueryFunction }
         val layout = layoutRouter?.let {
-            DesktopDocumentLayoutScript(desktopDocumentLayoutFunction, presentation.measurements.beginPage())
+            DesktopDocumentLayoutScript(
+                desktopDocumentLayoutFunction,
+                presentation.measurements.beginPage(),
+                hasContentStyles = document.document.sizing == BrowserDocumentSizing.Content,
+            )
         }
         return desktopDocumentBody(desktopDocumentHtml(document.document.html, data, query, theme, layout))
     }
@@ -202,7 +228,11 @@ internal class DesktopDocumentEngine(
     private fun requestNativeClipping(isDocumentLoaded: Boolean) {
         if (!OS.isMacintosh()) return
         try {
-            val clipping = nativeClipping ?: MacDocumentNativeClipping(browser.uiComponent as JComponent, ::fail).also {
+            val clipping = nativeClipping ?: MacDocumentNativeClipping(
+                browser.uiComponent as JComponent,
+                ::fail,
+                onClipped = { nativeRounding?.apply(browser.uiComponent as JComponent) },
+            ).also {
                 nativeClipping = it
             }
             if (isDocumentLoaded) clipping.documentLoaded() else clipping.request()
@@ -216,6 +246,8 @@ internal class DesktopDocumentEngine(
     private fun closeNativeClipping() {
         nativeClipping?.close()
         nativeClipping = null
+        nativeRounding?.close()
+        nativeRounding = null
     }
 
     private fun dispose() {
@@ -265,7 +297,11 @@ internal class DesktopDocumentEngine(
             if (rejected.isEmpty()) {
                 isBootstrap.set(false)
                 browser.loadURL(url)
-                onSwing { requestNativeClipping(isDocumentLoaded = false) }
+                onSwing {
+                    // Creation may finish after a modal has suspended this page's host.
+                    if (OS.isMacintosh()) browser.setWindowVisibility(browser.uiComponent.isShowing)
+                    requestNativeClipping(isDocumentLoaded = false)
+                }
             } else {
                 log.e(IllegalStateException("JCEF document preferences rejected: ${rejected.map { it.first }}")) {
                     "Desktop document initialization failed"
@@ -277,6 +313,20 @@ internal class DesktopDocumentEngine(
         override fun onBeforeClose(browser: CefBrowser) {
             isClosed.set(true)
             SwingUtilities.invokeLater(::closeNativeClipping)
+        }
+
+        override fun onAfterParentChanged(browser: CefBrowser) {
+            onSwing {
+                // Native reparenting completes asynchronously after Swing addNotify/paint. Refresh the current
+                // visible host only after that acknowledgement; the earlier paint may have targeted the old window.
+                val view = browser.uiComponent as JComponent
+                if (OS.isMacintosh()) browser.setWindowVisibility(view.isShowing)
+                if (view.isShowing) {
+                    view.revalidate()
+                    view.repaint()
+                    requestNativeClipping(isDocumentLoaded = isLoaded)
+                }
+            }
         }
 
         override fun onAfterClose(browser: CefBrowser) {

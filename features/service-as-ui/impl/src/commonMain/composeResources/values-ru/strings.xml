@@ -1,4 +1,6 @@
 <resources>
+    <string name="service_ui_app_open">Открыть</string>
+    <string name="service_ui_app_expand">Развернуть приложение</string>
     <string name="service_ui_busy">Выполняется</string>
     <string name="service_ui_cancel">Отмена</string>
     <string name="service_ui_continue">Продолжить</string>
@@ -40,6 +42,9 @@
     <string name="service_ui_show_surface">Показывать «%1$s»</string>
     <string name="service_ui_placement_composer">Над полем ввода</string>
     <string name="service_ui_placement_start">Новый чат</string>
+    <string name="service_ui_context_actions">Действия</string>
+    <string name="service_ui_context_surfaces">Контекстные панели</string>
+    <string name="service_ui_placement_context">Контекст чата</string>
     <string name="service_ui_placement_card">В ответе чата</string>
     <string name="service_ui_placement_panel">Боковая панель</string>
     <string name="service_ui_placement_modal">Диалог</string>

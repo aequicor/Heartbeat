@@ -18,14 +18,26 @@ import androidx.compose.ui.window.DialogProperties
 import io.aequicor.heartbeat.ds.theme.HbTheme
 
 /**
- * The desktop host uses WINDOW Compose layers. Their normal scrim is drawn below native children,
- * and they cannot intercept input outside their own window. Cover the whole client area with the
- * owned layer instead. The upstream transition must not shrink or move this input barrier.
- * Native clipping starts afresh in this layer; a transcript's viewport belongs to its original window.
+ * Edge-to-edge documents use the existing window's modal portal. Native background peers are hidden
+ * by the portal's owner lease; other dialogs retain the platform layer fallback.
+ * Native clipping starts afresh: a transcript's viewport belongs to its original attachment.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-internal actual fun HbPlatformDialog(onDismissRequest: () -> Unit, content: @Composable () -> Unit) {
+internal actual fun HbPlatformDialog(
+    onDismissRequest: () -> Unit,
+    isInWindow: Boolean,
+    content: @Composable () -> Unit,
+) {
+    val isInline = isInWindow && hbInWindowDialog(onDismissRequest, content)
+    if (!isInline) {
+        HbLayerDialog(onDismissRequest, content)
+    }
+}
+
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun HbLayerDialog(onDismissRequest: () -> Unit, content: @Composable () -> Unit) {
     Dialog(
         onDismissRequest,
         DialogProperties(
@@ -35,7 +47,10 @@ internal actual fun HbPlatformDialog(onDismissRequest: () -> Unit, content: @Com
             animateTransition = false,
         ),
     ) {
-        CompositionLocalProvider(LocalHbNativeContentViewport provides null) {
+        CompositionLocalProvider(
+            LocalHbNativeContentViewport provides null,
+            LocalHbDialogDismissRequest provides onDismissRequest,
+        ) {
             HbDesktopDialogContent(onDismissRequest, content = content)
         }
     }

@@ -18,7 +18,6 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_picker_clea
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_picker_done
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_picker_empty
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_picker_many
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_picker_one
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_picker_search
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_picker_selected
 import kotlinx.collections.immutable.toImmutableList
@@ -38,13 +37,7 @@ internal fun StudioHarnessPicker(
     val selected = content.harnesses.filter { it.isSelected }
     val label = when (selected.size) {
         0 -> stringResource(Res.string.harness_menu_section)
-
-        1 -> if (isCompact) {
-            selected.single().title
-        } else {
-            stringResource(Res.string.harness_picker_one, selected.single().title)
-        }
-
+        1 -> selected.single().title
         else -> stringResource(Res.string.harness_picker_many, selected.size)
     }
     val actions = content.harnesses.map {
@@ -74,5 +67,6 @@ internal fun StudioHarnessPicker(
         modifier = modifier.testTag("harness-picker-${content.pane.id}"),
         enabled = !content.pane.isCreating,
         icon = HbIcons.Layers,
+        isLabelVisible = content.app == null || !isCompact,
     )
 }

@@ -55,6 +55,12 @@ internal abstract class CardDao {
         "SELECT * FROM ui_cards WHERE chat = :chat AND surface IS NOT NULL " +
             "ORDER BY createdAt DESC, rowid DESC LIMIT 1",
     )
+    abstract fun observeLive(chat: String): Flow<CardEntity?>
+
+    @Query(
+        "SELECT * FROM ui_cards WHERE chat = :chat AND surface IS NOT NULL " +
+            "ORDER BY createdAt DESC, rowid DESC LIMIT 1",
+    )
     protected abstract suspend fun live(chat: String): CardEntity?
 
     @Query("SELECT COUNT(*) FROM ui_cards WHERE chat = :chat")

@@ -41,6 +41,8 @@ public data class HbMultiSelectLabels(
  * The flat Foundation implementation is shared by all kits; host tokens provide desktop/touch sizing, and the
  * platform popup owns input interception. Wide windows use an anchored popup, compact windows a bottom sheet.
  * Selection and expansion belong to the caller; only the transient search and keyboard focus live here.
+ * [isLabelVisible] keeps an icon-only toolbar trigger when another control already names the selection; its
+ * accessible label and the full selection popup remain unchanged.
  */
 @Composable
 public fun HbComposerMultiSelect(
@@ -54,6 +56,7 @@ public fun HbComposerMultiSelect(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     icon: ImageVector? = null,
+    isLabelVisible: Boolean = true,
 ) {
     require(actions.map { it.id }.distinct().size == actions.size) { "Selection ids must be unique" }
     val focus = remember { FocusRequester() }
@@ -87,6 +90,7 @@ public fun HbComposerMultiSelect(
                 icon = icon,
                 enabled = enabled && actions.isNotEmpty(),
                 isAccent = actions.any { it.isSelected },
+                isLabelVisible = isLabelVisible,
             )
         }
         if (isOpen) {

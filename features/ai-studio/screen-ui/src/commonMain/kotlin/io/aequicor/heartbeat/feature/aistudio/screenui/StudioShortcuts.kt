@@ -13,6 +13,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
@@ -86,7 +87,7 @@ internal fun Modifier.studioShortcuts(
             dispatchStudioShortcut(event.key, state, isCompact, focus, onIntent)
         }
         true
-    }.focusRequester(focus.workspace).onFocusChanged { if (!it.hasFocus) pressed.clear() }.focusable()
+    }.focusRequester(focus.workspace).onFocusChanged { if (!it.hasFocus) pressed.clear() }.focusRestorer().focusable()
 }
 
 private fun KeyEvent.hasStudioModifier(): Boolean {
