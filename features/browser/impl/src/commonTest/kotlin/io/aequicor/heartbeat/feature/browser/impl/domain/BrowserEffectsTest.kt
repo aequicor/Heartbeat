@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserPage
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
+import io.aequicor.heartbeat.feature.browser.api.BrowserZoom
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -211,11 +212,14 @@ class BrowserEffectsTest {
     }
 
     @Test
-    fun `zoom effect sets the level for the tab's site`() = runTest {
+    fun `zoom effect preserves the direction and target site`() = runTest {
         val session = TestBrowserSession(isZoomSupported = true)
         BrowserEffects(BrowserAvailability { MutableStateFlow(true) }, session)
-            .handle(BrowserEffect.Zoom("tab", 125), RecordingFeedback())
-        assertEquals(listOf<Pair<String?, Int>>("tab" to 125), session.zooms)
+            .handle(BrowserEffect.Zoom("tab", BrowserZoom.In, "https://example.com/"), RecordingFeedback())
+        assertEquals<List<Triple<String?, BrowserZoom, String?>>>(
+            listOf(Triple("tab", BrowserZoom.In, "https://example.com/")),
+            session.zooms,
+        )
     }
 }
 
@@ -241,14 +245,14 @@ private class TestBrowserSession(
     val availability = mutableListOf<Boolean>()
     val commands = mutableListOf<BrowserCommand>()
     val zoomAvailability = mutableListOf<Boolean>()
-    val zooms = mutableListOf<Pair<String?, Int>>()
+    val zooms = mutableListOf<Triple<String?, BrowserZoom, String?>>()
 
     override suspend fun setZoomEnabled(isEnabled: Boolean) {
         zoomAvailability += isEnabled
     }
 
-    override suspend fun zoom(tabId: String?, percent: Int) {
-        zooms += tabId to percent
+    override suspend fun zoom(tabId: String?, direction: BrowserZoom, url: String?) {
+        zooms += Triple(tabId, direction, url)
     }
 
     override suspend fun perform(request: BrowserRequest): BrowserResult = perform()

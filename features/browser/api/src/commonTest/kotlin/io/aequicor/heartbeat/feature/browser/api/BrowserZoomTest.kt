@@ -59,35 +59,26 @@ class BrowserZoomTest {
     }
 
     @Test
-    fun `zoom applies the next level to the selected tab's site at once`() {
+    fun `zoom queues a direction without guessing the level of earlier pending commands`() {
+        BrowserZoom.entries.forEach { direction ->
+            BrowserMachineSpec.assertTransition(
+                zoomable,
+                BrowserIntent.Public.Zoom(direction),
+                zoomable,
+                listOf(BrowserEffect.Zoom("tab", direction, page.url)),
+            )
+        }
+        val atLimit = zoomable.copy(page = page.copy(zoomPercent = 500))
         BrowserMachineSpec.assertTransition(
-            zoomable,
+            atLimit,
             BrowserIntent.Public.Zoom(BrowserZoom.In),
-            zoomable.copy(page = page.copy(zoomPercent = 110)),
-            listOf(BrowserEffect.Zoom("tab", 110)),
-        )
-        val zoomed = zoomable.copy(page = page.copy(zoomPercent = 150))
-        BrowserMachineSpec.assertTransition(
-            zoomed,
-            BrowserIntent.Public.Zoom(BrowserZoom.Out),
-            zoomed.copy(page = page.copy(zoomPercent = 125)),
-            listOf(BrowserEffect.Zoom("tab", 125)),
-        )
-        BrowserMachineSpec.assertTransition(
-            zoomed,
-            BrowserIntent.Public.Zoom(BrowserZoom.Reset),
-            zoomable,
-            listOf(BrowserEffect.Zoom("tab", BROWSER_DEFAULT_ZOOM)),
+            atLimit,
+            listOf(BrowserEffect.Zoom("tab", BrowserZoom.In, page.url)),
         )
     }
 
     @Test
-    fun `zoom that changes nothing or has nothing to zoom is ignored`() {
-        BrowserMachineSpec.assertIgnored(zoomable, BrowserIntent.Public.Zoom(BrowserZoom.Reset))
-        BrowserMachineSpec.assertIgnored(
-            zoomable.copy(page = page.copy(zoomPercent = 500)),
-            BrowserIntent.Public.Zoom(BrowserZoom.In),
-        )
+    fun `zoom without an enabled web page is ignored`() {
         BrowserMachineSpec.assertIgnored(
             zoomable.copy(isZoomEnabled = false),
             BrowserIntent.Public.Zoom(BrowserZoom.In),
@@ -98,12 +89,12 @@ class BrowserZoomTest {
     }
 
     @Test
-    fun `the page's own level replaces the optimistic one`() {
-        val optimistic = zoomable.copy(page = page.copy(zoomPercent = 110))
+    fun `the confirmed page level updates the machine`() {
+        val previous = zoomable.copy(page = page.copy(zoomPercent = 110))
         BrowserMachineSpec.assertTransition(
-            optimistic,
+            previous,
             BrowserIntent.Internal.PageChanged(page.copy(zoomPercent = 125)),
-            optimistic.copy(page = page.copy(zoomPercent = 125)),
+            previous.copy(page = page.copy(zoomPercent = 125)),
         )
     }
 }

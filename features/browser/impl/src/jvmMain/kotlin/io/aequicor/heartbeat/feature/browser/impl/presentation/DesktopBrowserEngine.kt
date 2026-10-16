@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.browser.impl.presentation
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
+import io.aequicor.heartbeat.feature.browser.api.BROWSER_DEFAULT_ZOOM
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserUrlResolver
 import kotlinx.coroutines.CancellableContinuation
@@ -28,6 +29,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import javax.swing.SwingUtilities
+import kotlin.math.ln
 
 /**
  * Windowed Swing embedding works on macOS, Windows (including ARM64 without JOGL), and Linux X11. Each instance
@@ -85,6 +87,32 @@ internal class DesktopBrowserEngine(
     private val browser: CefBrowser
     private var isReady = false
 
+    @Volatile
+    private var isZoomEnabled = false
+    private var zoomPercent = 100
+    private var zoomUrl = ""
+    private var committedUrl = ""
+    private val wheelZoom = onShortcut?.let {
+        DesktopBrowserWheelZoom({ isZoomEnabled && !isClosed.get() && !isReleased() }, it)
+    }
+
+    override fun setZoom(isEnabled: Boolean, percent: Int, url: String) = onSwing {
+        isZoomEnabled = isEnabled
+        zoomUrl = url
+        zoomPercent = if (isEnabled) percent else BROWSER_DEFAULT_ZOOM
+        if (isReady) {
+            applyZoom()
+            browser.frameIdentifiers.forEach { id -> browser.getFrameByIdentifier(id)?.let { wheelZoom?.install(it) } }
+        }
+    }
+
+    private fun applyZoom() {
+        // A provisional Load already changes the UI URL, but must never change the old document's host setting.
+        if (!isZoomEnabled || browserZoomHost(committedUrl) == browserZoomHost(zoomUrl)) {
+            browser.zoomLevel = ln(zoomPercent.toDouble() / BROWSER_DEFAULT_ZOOM) / ln(CHROMIUM_ZOOM_FACTOR)
+        }
+    }
+
     override suspend fun captureResource(url: String): JsonObject = downloads.capture(url)
 
     override suspend fun loadIcon(url: String): ByteArray = icons.capture(url)
@@ -106,6 +134,7 @@ internal class DesktopBrowserEngine(
         try {
             check(!context.isGlobal) { "Browser request context must be isolated" }
             client.addRequestHandler(policy.requestHandler)
+            wheelZoom?.let { client.addMessageRouter(it.router) }
             client.addLifeSpanHandler(
                 object : CefLifeSpanHandlerAdapter() {
                     override fun onBeforePopup(
@@ -129,6 +158,7 @@ internal class DesktopBrowserEngine(
                         log.v { "Browser $traceId received after-close" }
                         // This hook follows JCEF's wrapper disposal and browser registry removal.
                         // A queued Swing callback alone cannot establish that barrier on AppKit.
+                        wheelZoom?.close()
                         client.dispose()
                         completeClose()
                     }
@@ -190,7 +220,13 @@ internal class DesktopBrowserEngine(
             client.addDisplayHandler(
                 object : CefDisplayHandlerAdapter() {
                     override fun onAddressChange(browser: CefBrowser, frame: CefFrame, url: String) {
-                        if (frame.isMain) onSwing { navigation?.address(url) }
+                        if (frame.isMain) {
+                            onSwing {
+                                committedUrl = url
+                                applyZoom()
+                                navigation?.address(url)
+                            }
+                        }
                     }
 
                     override fun onTitleChange(browser: CefBrowser, title: String) {
@@ -224,7 +260,15 @@ internal class DesktopBrowserEngine(
                         frame: CefFrame,
                         transitionType: CefRequest.TransitionType,
                     ) {
-                        if (frame.isMain && !isBootstrap.get()) onSwing { navigation?.started() }
+                        wheelZoom?.install(frame)
+                        val url = frame.url
+                        if (frame.isMain && !isBootstrap.get()) {
+                            onSwing {
+                                committedUrl = url
+                                applyZoom()
+                                navigation?.started()
+                            }
+                        }
                     }
 
                     override fun onLoadError(
@@ -245,7 +289,11 @@ internal class DesktopBrowserEngine(
                     }
                 },
             )
-            onShortcut?.let { client.addKeyboardHandler(DesktopBrowserShortcuts(it)) }
+            onShortcut?.let {
+                client.addKeyboardHandler(
+                    DesktopBrowserShortcuts(it, isZoomEnabled = { isZoomEnabled }),
+                )
+            }
             installDesktopBrowserRestrictions(client)
             browser = client.createBrowser("about:blank", false, false, context)
             navigation = DesktopBrowserNavigation(browser, changed, policy::prepareNavigation)
@@ -300,6 +348,7 @@ internal class DesktopBrowserEngine(
             // The component has never escaped and creation has never been queued: no native
             // callback can race.
             browser.onBeforeClose()
+            wheelZoom?.close()
             client.dispose()
             completeClose()
         } else if (isNativeCreated.get()) {
@@ -320,6 +369,7 @@ internal class DesktopBrowserEngine(
 
     private fun creationFailed() {
         // JCEF has already disposed the unregistered browser wrapper on this terminal path.
+        wheelZoom?.close()
         isClosed.set(true)
         cancelTransfers()
         failDevToolsCalls()
@@ -431,3 +481,5 @@ internal class DesktopBrowserDevToolsCalls(private val log: Log) {
         }
     }
 }
+
+private const val CHROMIUM_ZOOM_FACTOR = 1.2

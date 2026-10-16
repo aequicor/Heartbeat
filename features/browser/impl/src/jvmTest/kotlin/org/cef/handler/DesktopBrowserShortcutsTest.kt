@@ -1,6 +1,7 @@
 package org.cef.handler
 
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserShortcut
+import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserZoomDirection
 import io.aequicor.heartbeat.feature.browser.impl.presentation.DesktopBrowserShortcuts
 import org.cef.browser.CefBrowser
 import org.cef.handler.CefKeyboardHandler.CefKeyEvent
@@ -55,6 +56,26 @@ class DesktopBrowserShortcutsTest {
         assertFalse(keys.pre(event(CefKeyEvent.EventType.KEYEVENT_RAWKEYDOWN, KeyEvent.VK_T, 0)))
         assertTrue(keys.pre(event(CefKeyEvent.EventType.KEYEVENT_RAWKEYDOWN, KeyEvent.VK_W, command)))
         assertEquals(listOf<BrowserShortcut>(BrowserShortcut.CloseTab), received)
+    }
+
+    @Test
+    fun `zoom handles OEM and keypad keys once and respects the live flag`() {
+        var enabled = true
+        val keys = DesktopBrowserShortcuts(received::add, isMac = false, isZoomEnabled = { enabled })
+        val control = EventFlags.EVENTFLAG_CONTROL_DOWN
+        for ((code, direction) in listOf(
+            0xBB to BrowserZoomDirection.In,
+            0xBD to BrowserZoomDirection.Out,
+            KeyEvent.VK_NUMPAD0 to BrowserZoomDirection.Reset,
+        )) {
+            assertTrue(keys.pre(event(CefKeyEvent.EventType.KEYEVENT_RAWKEYDOWN, code, control)))
+            assertTrue(keys.pre(event(CefKeyEvent.EventType.KEYEVENT_KEYDOWN, code, control)))
+            keys.pre(event(CefKeyEvent.EventType.KEYEVENT_KEYUP, code, control))
+            assertEquals(BrowserShortcut.Zoom(direction), received.last())
+        }
+        assertEquals(3, received.size)
+        enabled = false
+        assertFalse(keys.pre(event(CefKeyEvent.EventType.KEYEVENT_RAWKEYDOWN, 0xBB, control)))
     }
 
     private fun DesktopBrowserShortcuts.pre(event: CefKeyEvent) = onPreKeyEvent(browser, event, BoolRef())

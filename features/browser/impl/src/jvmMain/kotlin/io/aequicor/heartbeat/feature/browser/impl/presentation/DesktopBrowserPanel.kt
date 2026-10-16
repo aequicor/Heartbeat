@@ -40,6 +40,16 @@ internal class DesktopBrowserPanel(
     private val log = Log.tag("DesktopBrowserPanel")
     private val isReleased = AtomicBoolean(false)
     private var native: DesktopBrowserRuntime? = null
+    private var zoom = Triple(false, 100, "")
+
+    /** Retains the live setting while Chromium initializes or recovers, without starting a hidden tab. */
+    fun setZoom(isEnabled: Boolean, percent: Int, url: String) = onSwing {
+        val next = Triple(isEnabled, percent, url)
+        if (next != zoom) {
+            zoom = next
+            native?.setZoom(isEnabled, percent, url)
+        }
+    }
     private val runtimes = mutableListOf<DesktopBrowserRuntime>()
     private val ready = MutableStateFlow<DesktopBrowserRuntime?>(null)
     private val preparationState = MutableStateFlow<BrowserRuntimeUi>(BrowserRuntimeUi.Preparing)
@@ -191,6 +201,7 @@ internal class DesktopBrowserPanel(
                 }
                 // Pending commands supersede restoration, including Stop during initialization.
                 val hasNavigation = pending.any { it is BrowserViewCommand.Load || it == BrowserViewCommand.Stop }
+                runtime.setZoom(zoom.first, zoom.second, zoom.third)
                 runtime.start(if (hasNavigation) "" else currentUrl)
                 pending.toList().also { pending.clear() }.forEach(runtime::execute)
             } catch (error: CancellationException) {
@@ -263,6 +274,9 @@ internal class DesktopBrowserPanel(
 
 /** Testable presentation port, independent of the CEF JNI lifetime. */
 internal interface DesktopBrowserRuntime : BrowserViewController {
+    /** Live zoom settings; the real engine reapplies them after a main-frame navigation. */
+    fun setZoom(isEnabled: Boolean, percent: Int, url: String) = Unit
+
     suspend fun devTools(method: String, arguments: JsonObject): String =
         throw UnsupportedOperationException("Browser automation is unavailable")
 

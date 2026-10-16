@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
+import io.aequicor.heartbeat.feature.browser.api.BrowserZoomLevels
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserFaviconImage
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserShortcut
 import kotlinx.collections.immutable.ImmutableList
@@ -32,6 +33,8 @@ internal data class BrowserScreenState(
     val isAddressEdited: Boolean = false,
     val url: String = "",
     val title: String = "",
+    val zoomPercent: Int = 100,
+    val isZoomEnabled: Boolean = false,
     val isLoading: Boolean = false,
     val isBackAvailable: Boolean = false,
     val isForwardAvailable: Boolean = false,
@@ -44,6 +47,9 @@ internal data class BrowserScreenState(
     /** Addresses of tabs the user closed here, most recent last; [MAX_CLOSED_TABS] at most. */
     val closedTabUrls: ImmutableList<String> = persistentListOf(),
 ) : MVIState {
+    val isZoomInAvailable: Boolean get() = zoomPercent < BrowserZoomLevels.last()
+    val isZoomOutAvailable: Boolean get() = zoomPercent > BrowserZoomLevels.first()
+
     /** The tabs of the selected tab's group: the ones the strip shows. */
     val visibleTabs: List<BrowserTabUi>
         get() {

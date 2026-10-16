@@ -61,7 +61,7 @@ internal class BrowserEffects(
 
             BrowserEffect.Stop -> session.execute(BrowserCommand.Stop)
 
-            is BrowserEffect.Zoom -> session.zoom(effect.tabId, effect.percent)
+            is BrowserEffect.Zoom -> session.zoom(effect.tabId, effect.direction, effect.url)
         }
     }
 

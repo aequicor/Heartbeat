@@ -176,8 +176,11 @@ public sealed interface BrowserEffect : MachineEffect {
     /** Cancels a native load. */
     public data object Stop : BrowserEffect
 
-    /** Sets [percent] for the site of tab [tabId] (the selected one when null), remembering it for that site. */
-    public data class Zoom(val tabId: String?, val percent: Int) : BrowserEffect
+    /**
+     * Applies [direction] to the latest persisted level for tab [tabId]'s site, serializing rapid commands.
+     * [url] binds the command before navigation or IO can race; null [tabId] targets the selected tab.
+     */
+    public data class Zoom(val tabId: String?, val direction: BrowserZoom, val url: String) : BrowserEffect
 }
 
 /** All browser feedback is retained state rather than one-off outputs. */
