@@ -343,7 +343,7 @@ private fun ReadyTransitions.creationResults() {
     on<AiStudioIntent.Internal.CreateFailed>(guard = {
         state.ownsCreateRequest(intent.paneId, intent.requestId)
     }) {
-        stay { state.updatePane(intent.paneId) { it.copy(isCreating = false) } }
+        stay { state.updatePane(intent.paneId) { state.afterCreateFailure(it) } }
         output {
             AiStudioOutput.SubmitFailed(
                 intent.paneId,
@@ -569,4 +569,14 @@ private fun ReadyTransitions.executionModes() {
             }
         }
     }
+}
+
+/** A failed attempt returns to a fresh pane under the current availability, which may have changed during IO. */
+private fun AiStudioState.Ready.afterCreateFailure(pane: StudioPane): StudioPane {
+    val isIsolated = pane.isWorktree && isWorktreeAvailable && pane.projectId in repositoryProjects
+    return pane.copy(
+        isCreating = false,
+        isWorktree = isIsolated,
+        isSandbox = isIsolated && pane.isSandbox && isSandboxAvailable,
+    )
 }

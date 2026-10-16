@@ -6,6 +6,39 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import kotlin.test.Test
 
 class AiStudioWorktreeTest {
+    @Test
+    fun `failed creation drops isolation options disabled during preparation`() {
+        for (worktree in listOf(false, true)) {
+            val pane = StudioPane(
+                0,
+                projectId = "project",
+                isCreating = true,
+                createRequestId = 17,
+                isWorktree = true,
+                isSandbox = true,
+            )
+            val creating = ready.copy(panes = listOf(pane), isSandboxAvailable = true)
+            val unavailable = creating.copy(isWorktreeAvailable = worktree, isSandboxAvailable = false)
+            AiStudioMachineSpec.assertTransition(
+                creating,
+                AiStudioIntent.Internal.ProjectAvailabilityChanged(
+                    false,
+                    isWorktreeAvailable = worktree,
+                    repositoryProjects = creating.repositoryProjects,
+                ),
+                unavailable,
+            )
+            AiStudioMachineSpec.assertTransition(
+                unavailable,
+                AiStudioIntent.Internal.CreateFailed(0, "Draft", requestId = 17),
+                unavailable.copy(
+                    panes = listOf(pane.copy(isCreating = false, isWorktree = worktree, isSandbox = false)),
+                ),
+                outputs = listOf(AiStudioOutput.SubmitFailed(0, "Draft", requestId = 17)),
+            )
+        }
+    }
+
     private val settings = RunSettings("route", ReasoningEffort.High, ApprovalMode.Ask)
     private val ready = AiStudioState.Ready(
         panes = listOf(StudioPane(0, projectId = "project"), StudioPane(1, projectId = "project")),
