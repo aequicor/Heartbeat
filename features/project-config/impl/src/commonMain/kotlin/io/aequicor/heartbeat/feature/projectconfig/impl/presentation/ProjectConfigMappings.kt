@@ -62,28 +62,25 @@ internal fun entitiesOf(entities: Map<ConfigSectionId, List<ConfigEntity>>): Imm
         }
     }.toImmutableList()
 
-/** Notice of a finished task. */
-internal fun ConfigTaskResult.toNotice(): NoticeUi = when (this) {
+/** Notice of a finished task; null when the task asks the user instead. */
+internal fun ConfigTaskResult.toNotice(): NoticeUi? = when (this) {
     is ConfigTaskResult.Saved -> NoticeUi.Saved(units, skipped)
-
     is ConfigTaskResult.Exported -> NoticeUi.Exported(units)
-
     is ConfigTaskResult.Opened -> NoticeUi.Opened(proposals)
+    is ConfigTaskResult.Imported -> NoticeUi.Imported(units, skipped)
+    is ConfigTaskResult.ImportConflicts -> null
+    is ConfigTaskResult.Failed -> NoticeUi.Failed(reason.toUi())
+}
 
-    is ConfigTaskResult.Imported -> NoticeUi.Imported(units)
-
-    is ConfigTaskResult.Failed -> NoticeUi.Failed(
-        when (reason) {
-            ConfigTaskFailure.Busy -> TaskFailureUi.Busy
-            ConfigTaskFailure.Unavailable -> TaskFailureUi.Unavailable
-            ConfigTaskFailure.Unreadable -> TaskFailureUi.Unreadable
-            ConfigTaskFailure.Format -> TaskFailureUi.Format
-            ConfigTaskFailure.Version -> TaskFailureUi.Version
-            ConfigTaskFailure.Limit -> TaskFailureUi.Limit
-            ConfigTaskFailure.Unwritable -> TaskFailureUi.Unwritable
-            ConfigTaskFailure.Empty -> TaskFailureUi.Empty
-        },
-    )
+private fun ConfigTaskFailure.toUi(): TaskFailureUi = when (this) {
+    ConfigTaskFailure.Busy -> TaskFailureUi.Busy
+    ConfigTaskFailure.Unavailable -> TaskFailureUi.Unavailable
+    ConfigTaskFailure.Unreadable -> TaskFailureUi.Unreadable
+    ConfigTaskFailure.Format -> TaskFailureUi.Format
+    ConfigTaskFailure.Version -> TaskFailureUi.Version
+    ConfigTaskFailure.Limit -> TaskFailureUi.Limit
+    ConfigTaskFailure.Unwritable -> TaskFailureUi.Unwritable
+    ConfigTaskFailure.Empty -> TaskFailureUi.Empty
 }
 
 private fun ConfigProposal.toUi(state: ProjectConfigState.Ready, names: Map<String, String>): ProposalUi {

@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ConfigTaskFailure
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigTaskResult
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigUnit
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigUnitRef
+import io.aequicor.heartbeat.feature.projectconfig.api.ExistingUnits
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigEffect
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Internal
 import io.aequicor.heartbeat.feature.projectconfig.api.bundleProposals
@@ -118,7 +119,11 @@ internal class ConfigTasks(private val access: ConfigFolderAccess, private val b
         return Internal.BundleOpened(effect.requestId, ConfigBundle(effect.requestId, fileName(effect.path)), proposals)
     }
 
-    /** Copies a bundle's units into a project folder; the next sync proposes them. */
+    /**
+     * Copies a bundle's units into a project folder; the next sync proposes them. Units the folder already has with
+     * the same files are skipped; units it has with other files follow [ProjectConfigEffect.ImportToProject.existing]:
+     * asking writes nothing and names them, overwriting replaces their files, skipping keeps them.
+     */
     suspend fun import(effect: ProjectConfigEffect.ImportToProject): Internal {
         val tree = when (val read = bundles.read(effect.path)) {
             is ConfigRead.Read -> access.group(read.tree)
@@ -126,10 +131,25 @@ internal class ConfigTasks(private val access: ConfigFolderAccess, private val b
             ConfigRead.Absent -> return failed(effect.requestId, ConfigTaskFailure.Unreadable)
         }
         if (tree.units.isEmpty()) return failed(effect.requestId, ConfigTaskFailure.Empty)
+        val folder = access.folder(effect.project) as? FolderRead.Read
+            ?: return failed(effect.requestId, ConfigTaskFailure.Unreadable)
+        val changed = tree.units.filterNot { folder.tree[it.ref]?.digest == it.digest }
+        val existing = changed.filter { folder.tree[it.ref] != null }
+        if (existing.isNotEmpty() && effect.existing == ExistingUnits.Ask) {
+            log.i { "A bundle import into a project found ${existing.size} existing units" }
+            return Internal.TaskDone(effect.requestId, ConfigTaskResult.ImportConflicts(existing.map { it.ref }))
+        }
+        val written = if (effect.existing == ExistingUnits.Skip) changed - existing.toSet() else changed
+        // A replaced unit keeps no file of its old version: the bundle's files are the whole unit.
+        val stale = written.flatMap { unit ->
+            val paths = unit.files.map { it.path }.toSet()
+            folder.tree[unit.ref]?.files.orEmpty().mapNotNull { file -> file.path.takeUnless { it in paths } }
+        }
         return try {
-            access.write(effect.project, tree.units.flatMap { it.files }, emptyList())
-            log.i { "Imported a bundle into a project: ${tree.units.size} units" }
-            Internal.TaskDone(effect.requestId, ConfigTaskResult.Imported(tree.units.size))
+            if (written.isNotEmpty()) access.write(effect.project, written.flatMap { it.files }, stale)
+            val skipped = tree.units.size - written.size
+            log.i { "Imported a bundle into a project: ${written.size} units, skipped $skipped" }
+            Internal.TaskDone(effect.requestId, ConfigTaskResult.Imported(written.size, skipped))
         } catch (e: ConfigWriteException) {
             log.w(e.redactedFailure()) { "Bundle import into a project failed" }
             failed(effect.requestId, e.reason.taskFailure())

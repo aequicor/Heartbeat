@@ -238,6 +238,28 @@ class ProjectConfigMachineTest {
     }
 
     @Test
+    fun `an import that finds existing units ends asking and the next one carries the user's choice`() {
+        val importing = ConfigTask("i1", ConfigTaskKind.ImportToProject, project)
+        spec.assertTransition(
+            idle,
+            Internal.ImportToProject("i1", "/tmp/a.hbai", project),
+            idle.copy(task = importing),
+            effects = listOf(ProjectConfigEffect.ImportToProject("i1", "/tmp/a.hbai", project, ExistingUnits.Ask)),
+        )
+        val conflicts = ConfigTaskResult.ImportConflicts(listOf(review))
+        val asked = checkNotNull(spec.resolve(idle.copy(task = importing), Internal.TaskDone("i1", conflicts)))
+        assertEquals(null, asked.to.ready.task)
+        assertEquals(listOf(ProjectConfigOutput.TaskFinished("i1", conflicts)), asked.outputs)
+
+        val overwrite = Internal.ImportToProject("i2", "/tmp/a.hbai", project, ExistingUnits.Overwrite)
+        assertEquals(
+            listOf(ProjectConfigEffect.ImportToProject("i2", "/tmp/a.hbai", project, ExistingUnits.Overwrite)),
+            checkNotNull(spec.resolve(idle, overwrite)).effects,
+        )
+        spec.assertIgnored(idle, Internal.ImportToProject("i3", "/tmp/a.hbai", WorkspaceRef("unknown")))
+    }
+
+    @Test
     fun `an opened bundle replaces the previous one and is reviewed, closing drops its proposals`() {
         val previous = ConfigBundle("old", "old.hbai")
         val incoming = ConfigProposal(ConfigSource.Bundle("r1"), review, ProposalKind.Create, null, ConfigDigest("b1"))

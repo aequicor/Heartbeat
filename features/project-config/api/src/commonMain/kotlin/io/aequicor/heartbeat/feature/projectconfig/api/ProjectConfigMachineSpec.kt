@@ -187,7 +187,7 @@ private fun ReadyBuilder.tasks() {
         step {
             state.started(
                 ConfigTask(intent.requestId, ConfigTaskKind.ImportToProject, intent.project),
-                ProjectConfigEffect.ImportToProject(intent.requestId, intent.path, intent.project),
+                ProjectConfigEffect.ImportToProject(intent.requestId, intent.path, intent.project, intent.existing),
             )
         }
     }

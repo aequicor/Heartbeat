@@ -8,6 +8,8 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ConfigRejection
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigSectionId
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigTaskFailure
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigTaskResult
+import io.aequicor.heartbeat.feature.projectconfig.api.ConfigUnitRef
+import io.aequicor.heartbeat.feature.projectconfig.api.ExistingUnits
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigEffect
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Internal
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Public
@@ -171,6 +173,30 @@ class ProjectConfigEffectsTest {
 
         fixture.run(Internal.ImportToProject("i", "/tmp/out.hbai", PROJECT))
         assertEquals(ProjectConfigOutput.TaskFinished("i", ConfigTaskResult.Imported(2)), fixture.outputs.last())
+        assertEquals("rules\n", fixture.files["harnesses/review.md"])
+    }
+
+    @Test
+    fun `an import asks before replacing units the project has with other files, then overwrites or skips`() = runTest {
+        harnesses.state.value = listOf(FakeEntity("h1", "review", "rules"), FakeEntity("h2", "audit", "checks"))
+        fixture.run(Internal.Enabled(setOf(PROJECT)))
+        val refs = listOf("h1", "h2").map { ConfigEntityRef(ConfigSectionId.Harnesses, ConfigEntityKey(it)) }
+        fixture.run(Internal.Export("e", "/tmp/out.hbai", refs))
+        fixture.files["harnesses/review.md"] = "mine\n"
+        // The same files are already there: nothing to ask about.
+        fixture.files["harnesses/audit.md"] = "checks\n"
+
+        fixture.run(Internal.ImportToProject("i1", "/tmp/out.hbai", PROJECT))
+        val conflicts = ConfigTaskResult.ImportConflicts(listOf(ConfigUnitRef(ConfigSectionId.Harnesses, "review")))
+        assertEquals(ProjectConfigOutput.TaskFinished("i1", conflicts), fixture.outputs.last())
+        assertEquals("mine\n", fixture.files["harnesses/review.md"])
+
+        fixture.run(Internal.ImportToProject("i2", "/tmp/out.hbai", PROJECT, ExistingUnits.Skip))
+        assertEquals(ProjectConfigOutput.TaskFinished("i2", ConfigTaskResult.Imported(0, 2)), fixture.outputs.last())
+        assertEquals("mine\n", fixture.files["harnesses/review.md"])
+
+        fixture.run(Internal.ImportToProject("i3", "/tmp/out.hbai", PROJECT, ExistingUnits.Overwrite))
+        assertEquals(ProjectConfigOutput.TaskFinished("i3", ConfigTaskResult.Imported(1, 1)), fixture.outputs.last())
         assertEquals("rules\n", fixture.files["harnesses/review.md"])
     }
 

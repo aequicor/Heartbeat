@@ -47,6 +47,20 @@ internal data class ContentUi(val kind: ContentKindUi, val name: String)
 /** A unit waiting for the confirmation of its removal from a project folder. */
 internal data class RemovalUi(val projectKey: String, val projectName: String, val unit: BoundUnitUi)
 
+/**
+ * Import [requestId] of the bundle at [path] into project [projectKey]; [existing] names the units the folder already
+ * has with other files while the user chooses to overwrite or skip them. [toString] never shows the path.
+ */
+internal data class ImportUi(
+    val requestId: String,
+    val path: String,
+    val projectKey: String,
+    val projectName: String,
+    val existing: ImmutableList<String>? = null,
+) {
+    override fun toString(): String = "ImportUi($requestId, existing=${existing?.size ?: 0})"
+}
+
 /** Why a file or unit cannot be used. */
 internal enum class ProblemCodeUi { Syntax, Missing, Unsupported, Name, Limit, Compile, Parent }
 
@@ -128,8 +142,8 @@ internal sealed interface NoticeUi {
     /** A bundle was opened with [proposals] for the profile. */
     data class Opened(val proposals: Int) : NoticeUi
 
-    /** A bundle's [units] were copied into a project. */
-    data class Imported(val units: Int) : NoticeUi
+    /** A bundle's [units] were copied into a project; [skipped] were already there or kept. */
+    data class Imported(val units: Int, val skipped: Int) : NoticeUi
 
     /** A task failed for [reason]. */
     data class Failed(val reason: TaskFailureUi) : NoticeUi
@@ -154,6 +168,7 @@ internal data class ProjectConfigScreenState(
     val confirming: ProposalVersionUi? = null,
     val picker: PickerUi? = null,
     val removing: RemovalUi? = null,
+    val importing: ImportUi? = null,
     val projectNames: ImmutableMap<String, String> = persistentMapOf(),
 ) : MVIState {
     /** The proposal awaiting confirmation of its risk, while it is in the version the user saw. */
@@ -167,6 +182,9 @@ internal sealed interface ProjectConfigScreenIntent : MVIIntent {
 
     /** Choosers, file dialogs, tasks and the notice. */
     sealed interface Task : ProjectConfigScreenIntent
+
+    /** Copying a bundle into a project and the choice on units it already has. */
+    sealed interface Import : Task
 
     /** Trusts a proposal in the shown [version]; a risky one asks for confirmation first. */
     data class Trust(val version: ProposalVersionUi) : Decision
@@ -211,7 +229,16 @@ internal sealed interface ProjectConfigScreenIntent : MVIIntent {
     data object OpenBundle : Task
 
     /** Picks a bundle to copy into a project. */
-    data class ImportToProject(val projectKey: String) : Task
+    data class ImportToProject(val projectKey: String) : Import
+
+    /** Imports the bundle waiting for a choice again, replacing the units the project already has. */
+    data object OverwriteExisting : Import
+
+    /** Imports the bundle waiting for a choice again, keeping the units the project already has. */
+    data object SkipExisting : Import
+
+    /** Drops the import waiting for a choice. */
+    data object CancelImport : Import
 
     /** Closes the open bundle. */
     data object CloseBundle : Task

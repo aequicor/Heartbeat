@@ -30,6 +30,7 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.BoundUnitUi
 import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.ContentKindUi
 import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.ContentUi
+import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.ImportUi
 import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.NoticeUi
 import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.PhaseUi
 import io.aequicor.heartbeat.feature.projectconfig.impl.presentation.ProjectConfigModel
@@ -123,6 +124,9 @@ internal fun ProjectConfigContent(
     state.confirmed?.let { RiskDialog(it, onIntent) }
     state.picker?.let { EntityPicker(it, state.entities, onIntent) }
     state.removing?.let { RemovalDialog(it, onIntent) }
+    val pending = state.importing
+    val existing = pending?.existing
+    if (pending != null && existing != null) ImportDialog(pending, existing, onIntent)
 }
 
 private fun LazyListScope.screenItems(state: ProjectConfigScreenState, onIntent: (ProjectConfigScreenIntent) -> Unit) {
@@ -163,7 +167,7 @@ private fun NoticeBanner(
         is NoticeUi.Saved -> stringResource(Res.string.pc_notice_saved, notice.units, notice.skipped)
         is NoticeUi.Exported -> stringResource(Res.string.pc_notice_exported, notice.units)
         is NoticeUi.Opened -> stringResource(Res.string.pc_notice_opened, notice.proposals)
-        is NoticeUi.Imported -> stringResource(Res.string.pc_notice_imported, notice.units)
+        is NoticeUi.Imported -> stringResource(Res.string.pc_notice_imported, notice.units, notice.skipped)
         is NoticeUi.Failed -> stringResource(notice.reason.message())
         NoticeUi.StorageFailed -> stringResource(Res.string.pc_notice_storage)
     }
@@ -247,6 +251,14 @@ private fun ProjectConfigDarkPreview() {
 private fun ProjectConfigRiskPreview() {
     val state = previewState.copy(confirming = ProposalVersionUi("p", "d"))
     HbTheme(darkTheme = false) { ProjectConfigContent(state, {}, null) }
+}
+
+@Preview
+@Composable
+private fun ProjectConfigImportPreview() {
+    val existing = persistentListOf("harnesses/review", "learning/code-style")
+    val state = previewState.copy(importing = ImportUi("r", "team.hbai", "p", "Heartbeat", existing))
+    HbTheme(darkTheme = true) { ProjectConfigContent(state, {}, null) }
 }
 
 @Preview

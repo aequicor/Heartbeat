@@ -10,13 +10,16 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ConfigEntityKey
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigEntityRef
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigLayout
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigSectionId
+import io.aequicor.heartbeat.feature.projectconfig.api.ConfigTaskResult
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigUnitRef
+import io.aequicor.heartbeat.feature.projectconfig.api.ExistingUnits
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Internal
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Public
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigOutput
 import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigDialogs
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ProjectConfigMachine
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.coroutines.CoroutineScope
@@ -31,9 +34,26 @@ private typealias ConfigPipeline =
     PipelineContext<ProjectConfigScreenState, ProjectConfigScreenIntent, ProjectConfigScreenAction>
 
 /**
+ * The screen after task [requestId] ended with [result]: an import of this screen that found existing units waits for
+ * the user's choice, any other result is a notice.
+ */
+private fun ProjectConfigScreenState.finished(requestId: String, result: ConfigTaskResult): ProjectConfigScreenState {
+    val pending = importing?.takeIf { it.requestId == requestId }
+    return when {
+        result is ConfigTaskResult.ImportConflicts && pending != null ->
+            copy(importing = pending.copy(existing = result.units.map { it.toString() }.toImmutableList()))
+
+        result is ConfigTaskResult.ImportConflicts -> this
+
+        else -> copy(notice = result.toNotice(), importing = importing.takeIf { pending == null })
+    }
+}
+
+/**
  * Configuration screen store. It mirrors the profile machine, the names of the user's projects and the entities of
  * the sections; every decision goes to the machine. The store keeps only the open chooser, the confirmation of a risky
- * proposal and the last notice. File dialogs are opened here, before the machine gets a path.
+ * proposal, an import waiting for the user's choice on existing units and the last notice. File dialogs are opened
+ * here, before the machine gets a path.
  */
 internal class ProjectConfigModel(
     private val machine: ProjectConfigMachine,
@@ -50,11 +70,12 @@ internal class ProjectConfigModel(
         onError = { this },
     ) {
         reflect(machine, onOutput = { output ->
-            val notice = when (output) {
-                is ProjectConfigOutput.TaskFinished -> output.result.toNotice()
-                ProjectConfigOutput.StorageFailed -> NoticeUi.StorageFailed
+            updateState {
+                when (output) {
+                    is ProjectConfigOutput.TaskFinished -> finished(output.requestId, output.result)
+                    ProjectConfigOutput.StorageFailed -> copy(notice = NoticeUi.StorageFailed)
+                }
             }
-            updateState { copy(notice = notice) }
         }) { reflecting(it, dialogs.isAvailable) }
         whileSubscribed {
             workspaces.observe().collect { projects ->
@@ -167,9 +188,7 @@ internal class ProjectConfigModel(
                 sendTo(machine, Public.OpenBundle(requestId(), it))
             }
 
-            is ProjectConfigScreenIntent.ImportToProject -> dialogs.pickBundle()?.let {
-                sendTo(machine, Internal.ImportToProject(requestId(), it, WorkspaceRef(intent.projectKey)))
-            }
+            is ProjectConfigScreenIntent.Import -> import(intent)
 
             ProjectConfigScreenIntent.CloseBundle -> sendTo(machine, Public.CloseBundle)
 
@@ -194,6 +213,36 @@ internal class ProjectConfigModel(
         } else {
             dialogs.pickBundleTarget(BUNDLE_NAME)?.let { sendTo(machine, Internal.Export(requestId(), it, refs)) }
         }
+    }
+
+    // PipelineContext is FlowMVI's coroutine-backed receiver for store updates and sendTo.
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
+    private suspend fun ConfigPipeline.import(intent: ProjectConfigScreenIntent.Import) {
+        when (intent) {
+            is ProjectConfigScreenIntent.ImportToProject -> dialogs.pickBundle()?.let { path ->
+                val id = requestId()
+                updateState {
+                    val name = projects.firstOrNull { it.key == intent.projectKey }?.name ?: intent.projectKey
+                    copy(importing = ImportUi(id, path, intent.projectKey, name))
+                }
+                sendTo(machine, Internal.ImportToProject(id, path, WorkspaceRef(intent.projectKey)))
+            }
+
+            ProjectConfigScreenIntent.OverwriteExisting -> importAgain(ExistingUnits.Overwrite)
+
+            ProjectConfigScreenIntent.SkipExisting -> importAgain(ExistingUnits.Skip)
+
+            ProjectConfigScreenIntent.CancelImport -> updateState { copy(importing = null) }
+        }
+    }
+
+    // PipelineContext is FlowMVI's coroutine-backed receiver for store updates and sendTo.
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
+    private suspend fun ConfigPipeline.importAgain(existing: ExistingUnits) = withState {
+        val pending = importing?.takeIf { it.existing != null } ?: return@withState
+        val id = requestId()
+        updateState { copy(importing = pending.copy(requestId = id, existing = null)) }
+        sendTo(machine, Internal.ImportToProject(id, pending.path, WorkspaceRef(pending.projectKey), existing))
     }
 
     private fun requestId(): String = Uuid.random().toString()

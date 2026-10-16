@@ -68,11 +68,32 @@ public sealed interface ConfigTaskResult {
     /** A bundle was opened with [proposals] for the profile. */
     public data class Opened(val proposals: Int) : ConfigTaskResult
 
-    /** A bundle's [units] were copied into a project folder, to be proposed by its next sync. */
-    public data class Imported(val units: Int) : ConfigTaskResult
+    /**
+     * A bundle's [units] were copied into a project folder, to be proposed by its next sync; [skipped] were already
+     * there with the same files or were kept by [ExistingUnits.Skip].
+     */
+    public data class Imported(val units: Int, val skipped: Int = 0) : ConfigTaskResult
+
+    /**
+     * Nothing was imported: the project folder already has [units] of the bundle with other files, and the import
+     * asked first ([ExistingUnits.Ask]). The user chooses to overwrite or skip them and imports again.
+     */
+    public data class ImportConflicts(val units: List<ConfigUnitRef>) : ConfigTaskResult
 
     /** Nothing or only part was done. */
     public data class Failed(val reason: ConfigTaskFailure) : ConfigTaskResult
+}
+
+/** What an import into a project does with units its folder already has with other files. */
+public enum class ExistingUnits {
+    /** Nothing is written while there are such units: the task ends with [ConfigTaskResult.ImportConflicts]. */
+    Ask,
+
+    /** The bundle's files replace them; files of a replaced unit that the bundle lacks are deleted. */
+    Overwrite,
+
+    /** They stay as they are; only the other units are copied. */
+    Skip,
 }
 
 /** Why a [ConfigTask] failed. */
@@ -163,10 +184,14 @@ public sealed interface ProjectConfigIntent : MachineIntent {
             override fun toString(): String = "Export($requestId, ${entities.size} entities)"
         }
 
-        /** Copies the units of the bundle at [path] into the folder of [project]. */
-        public data class ImportToProject(val requestId: String, val path: String, val project: WorkspaceRef) :
-            Internal {
-            override fun toString(): String = "ImportToProject($requestId)"
+        /** Copies the units of the bundle at [path] into the folder of [project]; [existing] decides on clashes. */
+        public data class ImportToProject(
+            val requestId: String,
+            val path: String,
+            val project: WorkspaceRef,
+            val existing: ExistingUnits = ExistingUnits.Ask,
+        ) : Internal {
+            override fun toString(): String = "ImportToProject($requestId, $existing)"
         }
 
         /** The feature is on for the local [projects]. */
@@ -269,10 +294,14 @@ public sealed interface ProjectConfigEffect : MachineEffect {
         override fun toString(): String = "OpenBundle($requestId)"
     }
 
-    /** Copies the bundle at [path] into the folder of [project]; answers with TaskDone. */
-    public data class ImportToProject(val requestId: String, val path: String, val project: WorkspaceRef) :
-        ProjectConfigEffect {
-        override fun toString(): String = "ImportToProject($requestId)"
+    /** Copies the bundle at [path] into the folder of [project] as [existing] says; answers with TaskDone. */
+    public data class ImportToProject(
+        val requestId: String,
+        val path: String,
+        val project: WorkspaceRef,
+        val existing: ExistingUnits,
+    ) : ProjectConfigEffect {
+        override fun toString(): String = "ImportToProject($requestId, $existing)"
     }
 
     /** Forgets the files of bundle [id]. */

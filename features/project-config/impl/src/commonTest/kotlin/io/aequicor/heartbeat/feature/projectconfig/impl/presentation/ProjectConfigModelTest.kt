@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ConfigSource
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigSummary
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigTaskResult
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigUnitRef
+import io.aequicor.heartbeat.feature.projectconfig.api.ExistingUnits
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Internal
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Public
@@ -158,6 +159,37 @@ class ProjectConfigModelTest {
         screen.intent(ProjectConfigScreenIntent.DismissNotice)
         runCurrent()
         assertNull(screen.states.value.notice)
+    }
+
+    @Test
+    fun `an import that finds existing units asks and repeats with the user's choice`() = runTest {
+        val fixture = Fixture(this, ready)
+        val screen = fixture.subscribe()
+
+        screen.intent(ProjectConfigScreenIntent.ImportToProject(PROJECT.value))
+        runCurrent()
+        val asking = fixture.machine.sent.single() as Internal.ImportToProject
+        assertEquals(ExistingUnits.Ask, asking.existing)
+        fixture.machine.outputs.emit(
+            ProjectConfigOutput.TaskFinished(asking.requestId, ConfigTaskResult.ImportConflicts(listOf(review))),
+        )
+        runCurrent()
+        assertEquals(listOf("harnesses/review"), screen.states.value.importing?.existing?.toList())
+        assertNull(screen.states.value.notice)
+
+        screen.intent(ProjectConfigScreenIntent.OverwriteExisting)
+        runCurrent()
+        val overwriting = fixture.machine.sent.last() as Internal.ImportToProject
+        assertEquals(ExistingUnits.Overwrite, overwriting.existing)
+        assertEquals(asking.path to PROJECT, overwriting.path to overwriting.project)
+        assertNull(screen.states.value.importing?.existing)
+
+        fixture.machine.outputs.emit(
+            ProjectConfigOutput.TaskFinished(overwriting.requestId, ConfigTaskResult.Imported(1, 1)),
+        )
+        runCurrent()
+        assertNull(screen.states.value.importing)
+        assertEquals(NoticeUi.Imported(1, 1), screen.states.value.notice)
     }
 
     @Test
