@@ -35,6 +35,8 @@ data class AiStudioScreenState(
     val isResearchEnabled: Boolean = false,
     val isProjectAddingAvailable: Boolean = false,
     val isWorktreeAvailable: Boolean = false,
+    /** Projects whose folder is a Git repository; the worktree mode is offered only for them. */
+    val repositoryProjects: ImmutableSet<String> = persistentSetOf(),
     val worktrees: ImmutableMap<String, WorktreeUi> = persistentMapOf(),
     val worktreeJournal: WorktreeJournalUi = WorktreeJournalUi.Ready,
     val addingProjectTo: Int? = null,
@@ -82,6 +84,8 @@ data class AiStudioScreenState(
     val isRememberEnabled: Boolean = false,
     /** Whether the composer offers `/compact` and the context indicator its compaction action. */
     val isCompactEnabled: Boolean = false,
+    /** Chats whose context is being compacted right now. */
+    val compactingChats: ImmutableSet<String> = persistentSetOf(),
     /** How the feed collapses agent work. */
     val feedCollapse: FeedCollapseUi = FeedCollapseUi(),
     /** Whether a new chat may be started as an organic AI organism. */

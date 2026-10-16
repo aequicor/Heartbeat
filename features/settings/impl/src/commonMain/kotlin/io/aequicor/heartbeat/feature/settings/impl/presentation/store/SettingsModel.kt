@@ -23,6 +23,7 @@ import pro.respawn.flowmvi.plugins.reduce
 enum class SettingsSectionUi {
     Models,
     Security,
+    Subagents,
     Search,
     ComputerUse,
     ChromiumBrowser,
@@ -39,6 +40,7 @@ enum class SettingsSectionUi {
 fun SettingsSection.toUi(): SettingsSectionUi = when (this) {
     SettingsSection.Models -> SettingsSectionUi.Models
     SettingsSection.Security -> SettingsSectionUi.Security
+    SettingsSection.Subagents -> SettingsSectionUi.Subagents
     SettingsSection.Search -> SettingsSectionUi.Search
     SettingsSection.ComputerUse -> SettingsSectionUi.ComputerUse
     SettingsSection.ChromiumBrowser -> SettingsSectionUi.ChromiumBrowser
@@ -55,6 +57,7 @@ fun SettingsSection.toUi(): SettingsSectionUi = when (this) {
 fun SettingsSectionUi.toSection(): SettingsSection = when (this) {
     SettingsSectionUi.Models -> SettingsSection.Models
     SettingsSectionUi.Security -> SettingsSection.Security
+    SettingsSectionUi.Subagents -> SettingsSection.Subagents
     SettingsSectionUi.Search -> SettingsSection.Search
     SettingsSectionUi.ComputerUse -> SettingsSection.ComputerUse
     SettingsSectionUi.ChromiumBrowser -> SettingsSection.ChromiumBrowser
@@ -112,7 +115,7 @@ class SettingsModel(
 ) {
     private val log = Log.tag("SettingsModel")
 
-    val store = factory.create<SettingsScreenState, SettingsScreenIntent, SettingsScreenAction>(
+    private val screen = factory.createScreen<SettingsScreenState, SettingsScreenIntent, SettingsScreenAction>(
         "Settings",
         SettingsScreenState(),
         onError = { this },
@@ -147,6 +150,10 @@ class SettingsModel(
             }
         }
     }
+    val store = screen.store
+
+    /** Latest screen state, read synchronously for the first frame. */
+    val current = screen.current
 
     init {
         store.start(scope.coroutineScope)

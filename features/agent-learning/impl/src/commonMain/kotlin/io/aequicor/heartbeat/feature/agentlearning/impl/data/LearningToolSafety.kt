@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.reviewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -56,7 +57,7 @@ internal class LearningToolSafety(private val reviewer: AgentSafetyReviewer) {
     }
 
     private suspend fun assess(context: AgentToolContext, request: LearningSafetyRequest): AgentSafetyReview {
-        val target = context.target ?: return AgentSafetyReview("uncertain", "The current model is unavailable.")
+        val target = context.reviewModel ?: return AgentSafetyReview("uncertain", "The current model is unavailable.")
         return try {
             reviewer.review(target, SAFETY_POLICY, request.change).also {
                 log.i { "Learned instruction assessed safe=${it.isSafe}" }
@@ -96,6 +97,7 @@ internal fun learningSafetyRequest(
         put("request", context.request?.value)
         put("call", context.callId?.value)
         put("target", Json.encodeToJsonElement(context.target))
+        context.reviewTarget?.let { put("reviewTarget", Json.encodeToJsonElement(it)) }
         put("decisionMode", context.decisionMode.name)
         put("approvalPolicy", original.binding)
         put("policy", SAFETY_POLICY)

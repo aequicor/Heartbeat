@@ -23,42 +23,43 @@ internal fun availableSections(
     isHarnessEnabled: Boolean = false,
     isContextEnabled: Boolean = false,
     isInterfacesEnabled: Boolean = false,
+    isSubagentsEnabled: Boolean = false,
     isProjectConfigEnabled: Boolean = false,
     isLogsEnabled: Boolean = false,
     isDesktop: Boolean = false,
-): ImmutableList<SettingsSection> = SettingsSection.entries.filter { section ->
-    val isToggledOn = when (section) {
-        SettingsSection.Models -> isModelsEnabled
-        SettingsSection.Security -> isSecurityEnabled
-        SettingsSection.Search -> isSearchEnabled
-        SettingsSection.ComputerUse -> isComputerUseEnabled
-        SettingsSection.ChromiumBrowser -> isChromiumBridgeEnabled
-        SettingsSection.AgentLearning -> isLearningEnabled
-        SettingsSection.Context -> isContextEnabled
-        SettingsSection.Harness -> isHarnessEnabled
-        SettingsSection.Interfaces -> isInterfacesEnabled
-        SettingsSection.ProjectConfig -> isProjectConfigEnabled
-        SettingsSection.Logs -> isLogsEnabled
-        SettingsSection.FeatureFlags -> true
-    }
-    isToggledOn && section.isInScope(hasProfile, isDesktop)
-}.toImmutableList()
+): ImmutableList<SettingsSection> {
+    val profileToggles = mapOf(
+        SettingsSection.Models to isModelsEnabled,
+        SettingsSection.Security to isSecurityEnabled,
+        SettingsSection.Subagents to isSubagentsEnabled,
+        SettingsSection.Search to isSearchEnabled,
+        SettingsSection.ComputerUse to isComputerUseEnabled,
+        SettingsSection.ChromiumBrowser to isChromiumBridgeEnabled,
+        SettingsSection.AgentLearning to isLearningEnabled,
+        SettingsSection.Context to isContextEnabled,
+        SettingsSection.Harness to isHarnessEnabled,
+        SettingsSection.Interfaces to isInterfacesEnabled,
+        SettingsSection.ProjectConfig to isProjectConfigEnabled,
+    )
+    return SettingsSection.entries.filter { section ->
+        // App diagnostics and feature flags need no profile; other sections belong to the active profile.
+        when (section) {
+            SettingsSection.Logs -> isLogsEnabled && isDesktop
 
-/** App diagnostics and feature flags need no profile; other sections belong to the active profile. */
-private fun SettingsSection.isInScope(hasProfile: Boolean, isDesktop: Boolean): Boolean = when (this) {
-    SettingsSection.Logs -> isDesktop
+            SettingsSection.FeatureFlags -> true
 
-    SettingsSection.FeatureFlags -> true
-
-    SettingsSection.Models,
-    SettingsSection.Security,
-    SettingsSection.Search,
-    SettingsSection.ComputerUse,
-    SettingsSection.ChromiumBrowser,
-    SettingsSection.AgentLearning,
-    SettingsSection.Context,
-    SettingsSection.Harness,
-    SettingsSection.Interfaces,
-    SettingsSection.ProjectConfig,
-    -> hasProfile
+            SettingsSection.Models,
+            SettingsSection.Security,
+            SettingsSection.Subagents,
+            SettingsSection.Search,
+            SettingsSection.ComputerUse,
+            SettingsSection.ChromiumBrowser,
+            SettingsSection.AgentLearning,
+            SettingsSection.Context,
+            SettingsSection.Harness,
+            SettingsSection.Interfaces,
+            SettingsSection.ProjectConfig,
+            -> hasProfile && profileToggles.getValue(section)
+        }
+    }.toImmutableList()
 }

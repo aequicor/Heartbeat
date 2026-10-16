@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.BackgroundCapacityState
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 import io.aequicor.heartbeat.feature.scheduler.api.HelperOutcome
 import io.aequicor.heartbeat.feature.scheduler.api.HelperProgress
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
@@ -61,6 +62,18 @@ class HelperAgentsTest {
         assertEquals(0, fixture.active)
         assertFailsWith<IllegalStateException> { fixture.service.prompt(helper, prompt) }
         assertTrue(fixture.service.isHelper(OTHER))
+    }
+
+    @Test
+    fun `the creator's effort and review model reach the host with the helper`() = runTest {
+        val fixture = HelpersFixture(this)
+        val lease = fixture.service.acquire(owner)
+        val options = HelperModelOptions(reasoningEffort = "low", reviewTarget = TARGET)
+        fixture.service.create(lease, PROJECT, TARGET, "Helper", TrustLevel.Ask, options)
+        assertEquals(options, fixture.host.creations.single().model)
+        val other = fixture.service.acquire(ActionId("wf_other"))
+        fixture.service.create(other, PROJECT, TARGET, "Default")
+        assertEquals(HelperModelOptions(), fixture.host.creations.last().model)
     }
 
     @Test
@@ -377,6 +390,7 @@ internal class HelperHostFake : ScheduledSessionHost by FakeHost(100) {
     val revocations = mutableListOf<RequestId>()
     val results = mutableMapOf<RequestId, HelperResult>()
     var createdRequest: RequestId? = null
+    val creations = mutableListOf<HelperCreateRequest>()
     var beforeMetadata: suspend () -> Unit = {}
     var beforeCreate: suspend () -> Unit = {}
     var beforePrompt: suspend () -> Unit = {}
@@ -391,6 +405,7 @@ internal class HelperHostFake : ScheduledSessionHost by FakeHost(100) {
 
     override suspend fun createHelper(request: HelperCreateRequest): HelperId {
         beforeCreate()
+        creations += request
         val id = HelperId("helper${metadata.size}")
         metadata[id] = HelperMetadata(id, request.owner, request.parent, null, createdRequest)
         return id

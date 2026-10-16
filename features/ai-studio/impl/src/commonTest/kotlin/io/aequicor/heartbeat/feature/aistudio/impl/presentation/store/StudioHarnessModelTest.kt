@@ -19,7 +19,10 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.TestClock
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModelTest.Fixture
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenIntent
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
+import io.aequicor.heartbeat.feature.aistudio.screenui.harnessChoices
 import io.aequicor.heartbeat.feature.aistudio.screenui.paneContent
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -34,6 +37,78 @@ class StudioHarnessModelTest {
         settings = DefaultRunSettings,
         defaultProjectId = "p-heartbeat",
     )
+
+    @Test
+    fun `submission waits for initial defaults while keeping the editable draft`() = runTest {
+        val harnesses = FakeStudioHarnesses()
+        harnesses.choices.value = StudioHarnessChoices(isReady = false)
+        val fixture = Fixture(this, ready.copy(panes = listOf(StudioPane(0))), harnesses = harnesses)
+        val screen = fixture.subscribe()
+        assertTrue(screen.states.value.harnessChoices.options.isEmpty())
+        assertTrue(!screen.states.value.paneContent(PaneUi(0)).isHarnessSelectionReady)
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "Build the screen"))
+        fixture.model.store.intent(AiStudioScreenIntent.Submit(0))
+        runCurrent()
+        assertTrue(fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.Submit>().isEmpty())
+        assertTrue(harnesses.claims.isEmpty())
+        assertEquals("Build the screen", screen.states.value.draft(0))
+        harnesses.choices.value = StudioHarnessChoices(
+            listOf(StudioHarness("compose", "Compose", isDefaultForNewSessions = true)),
+        )
+        runCurrent()
+        assertTrue(screen.states.value.harnessChoices(PaneUi(0)).single().isSelected)
+        assertTrue(screen.states.value.paneContent(PaneUi(0)).isHarnessSelectionReady)
+
+        fixture.model.store.intent(AiStudioScreenIntent.Submit(0))
+        runCurrent()
+        val submitted = fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.Submit>().single()
+        assertEquals(listOf(submitted.submissionId to setOf("compose")), harnesses.claims)
+        assertTrue(harnesses.connections.isEmpty())
+    }
+
+    @Test
+    fun `an initial harness failure offers retry without losing the draft`() = runTest {
+        val harnesses = FakeStudioHarnesses()
+        harnesses.choices.value = StudioHarnessChoices(isReady = false, isLoadFailed = true)
+        val fixture = Fixture(this, ready.copy(panes = listOf(StudioPane(0))), harnesses = harnesses)
+        val screen = fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "Build the screen"))
+        runCurrent()
+        assertTrue(screen.states.value.paneContent(PaneUi(0)).isHarnessLoadFailed)
+        assertTrue(!screen.states.value.paneContent(PaneUi(0)).isHarnessSelectionReady)
+
+        fixture.model.store.intent(AiStudioScreenIntent.ReloadHarnesses)
+        runCurrent()
+        assertEquals(1, harnesses.reloads)
+        assertTrue(!screen.states.value.paneContent(PaneUi(0)).isHarnessLoadFailed)
+        assertEquals("Build the screen", screen.states.value.draft(0))
+        harnesses.choices.value = StudioHarnessChoices()
+        runCurrent()
+        assertTrue(screen.states.value.paneContent(PaneUi(0)).isHarnessSelectionReady)
+    }
+
+    @Test
+    fun `clearing all defaults stays empty after library refresh and first submission rejection`() = runTest {
+        val harnesses = FakeStudioHarnesses()
+        harnesses.choices.value = StudioHarnessChoices(
+            listOf(StudioHarness("compose", "Compose", isDefaultForNewSessions = true)),
+        )
+        val fixture = Fixture(this, ready.copy(panes = listOf(StudioPane(0))), harnesses = harnesses)
+        val screen = fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.SelectHarness(0, "compose", false))
+        runCurrent()
+        harnesses.choices.value = StudioHarnessChoices(
+            listOf(StudioHarness("compose", "Compose updated", isDefaultForNewSessions = true)),
+        )
+        runCurrent()
+        assertTrue(screen.states.value.harnessChoices(PaneUi(0)).none { it.isSelected })
+        fixture.machine.result = SendResult.Ignored
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "Build the screen"))
+        fixture.model.store.intent(AiStudioScreenIntent.Submit(0))
+        runCurrent()
+        assertTrue(harnesses.claims.isEmpty())
+        assertTrue(screen.states.value.harnessChoices(PaneUi(0)).none { it.isSelected })
+    }
 
     @Test
     fun `a new chat keeps its harness choice on the pane and hands it to its submission`() = runTest {
@@ -147,10 +222,16 @@ private class FakeStudioHarnesses : StudioHarnesses {
     val released = mutableListOf<String>()
     val connections = mutableListOf<Triple<SessionRef, String, Boolean>>()
     var isConfirmed = true
+    var reloads = 0
 
-    override val choices = flowOf(
+    override val choices = MutableStateFlow(
         StudioHarnessChoices(listOf(StudioHarness("compose", "Compose"))),
     )
+
+    override suspend fun reload(): Boolean {
+        reloads++
+        return true
+    }
 
     override suspend fun connect(session: SessionRef, harness: String, isSelected: Boolean): Boolean {
         connections += Triple(session, harness, isSelected)

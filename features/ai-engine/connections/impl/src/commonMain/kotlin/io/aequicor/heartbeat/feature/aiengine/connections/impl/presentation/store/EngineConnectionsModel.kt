@@ -15,15 +15,18 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsI
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsOutput
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsState
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.di.scope.EngineConnectionsScope
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.ModelDescriptions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginCode
+import kotlinx.collections.immutable.toImmutableSet
 import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
 import pro.respawn.flowmvi.api.PipelineContext
 import pro.respawn.flowmvi.plugins.init
 import pro.respawn.flowmvi.plugins.reduce
+import pro.respawn.flowmvi.plugins.whileSubscribed
 
 /** User events of the settings space. Navigation is handled by the component, not the store. */
 sealed interface EngineConnectionsScreenIntent : MVIIntent {
@@ -143,10 +146,11 @@ class EngineConnectionsModel(
     private val machine: Machine<EngineConnectionsState, EngineConnectionsIntent, EngineConnectionsOutput>,
     @ForScope(EngineConnectionsScope::class) scope: ScopeHandle,
     factory: HeartbeatStoreFactory,
+    library: ModelDescriptions,
 ) {
     private val log = Log.tag("EngineConnectionsModel")
 
-    val store = factory.create<
+    private val screen = factory.createScreen<
         EngineConnectionsScreenState,
         EngineConnectionsScreenIntent,
         EngineConnectionsScreenAction,
@@ -157,8 +161,17 @@ class EngineConnectionsModel(
     ) {
         init { sendTo(machine, EngineConnectionsIntent.Public.Start) }
         reflect(machine) { reflect(it) }
+        whileSubscribed {
+            library.observe().collect { found ->
+                updateState { copy(descriptions = found?.toImmutableSet()).reflect(machine.state.value) }
+            }
+        }
         reduce { intent -> handle(intent) }
     }
+    val store = screen.store
+
+    /** Latest screen state, read synchronously for the first frame. */
+    val current = screen.current
 
     init {
         store.start(scope.coroutineScope)

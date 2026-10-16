@@ -48,15 +48,18 @@ internal class LibraryModel(
 ) {
     private val log = Log.tag("ServiceUiLibrary")
 
-    val store: Store<LibraryState, LibraryIntent, LibraryAction> =
-        factory.create<LibraryState, LibraryIntent, LibraryAction>(
-            name = "ServiceUiLibrary",
-            initial = LibraryState().reflected(machine.state.value),
-            onError = { this },
-        ) {
-            reflect(machine) { reflected(it) }
-            reduce { intent -> Work(this).handle(intent) }
-        }
+    private val screen = factory.createScreen<LibraryState, LibraryIntent, LibraryAction>(
+        name = "ServiceUiLibrary",
+        initial = LibraryState().reflected(machine.state.value),
+        onError = { this },
+    ) {
+        reflect(machine) { reflected(it) }
+        reduce { intent -> Work(this).handle(intent) }
+    }
+    val store: Store<LibraryState, LibraryIntent, LibraryAction> = screen.store
+
+    /** Latest screen state, read synchronously for the first frame. */
+    val current = screen.current
 
     init {
         store.start(handle.coroutineScope)

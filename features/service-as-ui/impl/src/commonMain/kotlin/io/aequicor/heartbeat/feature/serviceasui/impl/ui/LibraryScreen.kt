@@ -64,7 +64,7 @@ internal fun LibraryScreen(
     modifier: Modifier = Modifier,
 ) {
     val open by rememberUpdatedState(onOpen)
-    val state by produceState(LibraryState(), model) {
+    val state by produceState(model.current.value, model) {
         model.store.collect {
             launch { actions.collect { action -> if (action is LibraryAction.OpenSurface) open(action.id) } }
             states.collect { value = it }

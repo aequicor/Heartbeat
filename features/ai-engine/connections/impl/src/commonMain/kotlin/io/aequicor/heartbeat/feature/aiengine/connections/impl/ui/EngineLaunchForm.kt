@@ -76,6 +76,7 @@ internal fun EngineLaunchForm(
     isIdle: Boolean,
     onIntent: (EngineConnectionsScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
+    isVisuallyIdle: Boolean = isIdle,
 ) {
     val draft = launch.draft
     HbColumn(modifier.fillMaxWidth().testTag("engine-launch"), gap = HbTheme.spacing.s) {
@@ -88,13 +89,24 @@ internal fun EngineLaunchForm(
         )
         HbSettingsRow(stringResource(Res.string.engine_launch_title), description = summary) {
             if (!launch.isEditing) {
-                ActionButton(stringResource(Res.string.engine_launch_edit), "engine-launch-edit", isIdle) {
+                ActionButton(
+                    stringResource(Res.string.engine_launch_edit),
+                    "engine-launch-edit",
+                    isIdle,
+                    visualEnabled = isVisuallyIdle,
+                ) {
                     onIntent(EngineConnectionsScreenIntent.EditLaunch(draft))
                 }
             }
         }
         if (launch.isEditing) {
-            LaunchEditor(launch, isIdle, onIntent, Modifier.padding(horizontal = HbTheme.spacing.m))
+            LaunchEditor(
+                launch,
+                isIdle,
+                onIntent,
+                Modifier.padding(horizontal = HbTheme.spacing.m),
+                isVisuallyIdle = isVisuallyIdle,
+            )
         } else {
             Problems(launch.warnings, Modifier.padding(horizontal = HbTheme.spacing.m), HbTone.Warning)
         }
@@ -107,6 +119,7 @@ private fun LaunchEditor(
     isIdle: Boolean,
     onIntent: (EngineConnectionsScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
+    isVisuallyIdle: Boolean = isIdle,
 ) {
     val draft = launch.draft
     val edit: (LaunchDraftUi) -> Unit = { onIntent(EngineConnectionsScreenIntent.EditLaunch(it)) }
@@ -139,6 +152,7 @@ private fun LaunchEditor(
                 stringResource(Res.string.engine_launch_save),
                 "engine-launch-save",
                 enabled = isIdle && launch.errors.isEmpty() && launch.isDirty,
+                visualEnabled = isVisuallyIdle && launch.errors.isEmpty() && launch.isDirty,
                 style = HbButtonStyle.Primary,
             ) { onIntent(EngineConnectionsScreenIntent.SaveLaunch) }
             ActionButton(stringResource(Res.string.engine_launch_discard), "engine-launch-discard", enabled = true) {

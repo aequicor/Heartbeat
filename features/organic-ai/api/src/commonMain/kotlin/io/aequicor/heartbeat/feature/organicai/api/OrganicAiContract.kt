@@ -111,13 +111,17 @@ public sealed interface OrganicAiIntent : MachineIntent {
             Internal,
             OrganismIntent
 
-        /** Working [parent] divides: [child] (the next cell id) starts on [task]. */
+        /**
+         * Working [parent] divides: [child] (the next cell id) starts on [task], on its own [configuration] when the
+         * host chose one adaptively.
+         */
         public data class Divide(
             override val organism: OrganismId,
             val parent: CellId,
             val child: CellId,
             val name: String,
             val task: String,
+            val configuration: CellConfiguration? = null,
         ) : Internal,
             OrganismIntent {
             init {

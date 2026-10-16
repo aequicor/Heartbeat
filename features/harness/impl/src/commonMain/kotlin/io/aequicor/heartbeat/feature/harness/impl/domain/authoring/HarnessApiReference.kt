@@ -82,7 +82,8 @@ private val GUIDE = """
 
 private val API = """
     Kotlin API (scripts: base class HarnessScriptBase; workflows: HarnessWorkflowBase). Imported by default:
-    ItemName, events.on<…>, AgentOptions, ScriptUiResult, ScriptDataSnapshot, ScriptDataWriteResult, launch,
+    ItemName, events.on<…>, AgentOptions, AdaptiveAgent, AgentPriority, AgentComplexity, AgentNeed, ScriptUiResult,
+    ScriptDataSnapshot, ScriptDataWriteResult, launch,
     JsonElement/JsonObject/JsonArray/JsonPrimitive/JsonNull, buildJsonObject/buildJsonArray, put/add/addJsonObject/putJsonArray/putJsonObject, seconds/minutes/hours.
     Import other types explicitly (package io.aequicor.heartbeat.feature.harness.api.*
     and io.aequicor.heartbeat.feature.aiengine.facade.api.*).
@@ -139,7 +140,8 @@ private val API = """
       data by writing on every load. Use defaults on read, initialize through an explicit user action.
     - sessions.list(), sessions.history(session) — only chats where this harness is active.
     - sessions.send(session, text) — a visible message to that chat (quota ${HarnessLimits.SENDS_PER_MINUTE}/min).
-    - sessions.spawn(parent, title, prompt) — a helper chat with Ask trust.
+    - sessions.spawn(parent, title, prompt, adaptive = null) — a helper chat with Ask trust; adaptive picks its
+      model like AgentOptions.adaptive below.
     - scheduler.every(5.minutes) { } / scheduler.at(instant) { } — in-process timers.
     - scheduler.wake(session, condition, note) / scheduler.cancel(id) — owned wakes of a chat; a wake shares the
       ${HarnessLimits.SENDS_PER_MINUTE}/min quota with sessions.send.
@@ -155,7 +157,13 @@ private val API = """
     the turn limit above are not failures: an uncaught one ends the callback without counting towards the limit.
 
     Workflow source registers one definition: workflow { input -> … JsonElement }. Inside (WorkflowScope):
-    - agent(prompt, AgentOptions(title, target = null)): String — runs a helper chat and returns its answer;
+    - agent(prompt, AgentOptions(title, target = null, adaptive = null)): String — runs a helper chat and returns
+      its answer. target pins the model; otherwise adaptive = AdaptiveAgent(priority, complexity, needs, tags) lets
+      the host choose engine, model and reasoning effort among the user's enabled models when adaptive subagents
+      are on: priority Quality/Balanced/Speed/Cost (null — the user's default), complexity Low/Medium/High, needs
+      Images/Pdf/LongContext, tags such as coding, review, research, docs. Without both, or when nothing fits,
+      the helper keeps the default model. The model is chosen once per step and kept on replay and recovery;
+      changing adaptive for a recorded step fails the run as Diverged;
     - parallel({ … }, { … }) — branches run concurrently;
     - step("name") { … JsonElement } — memoized local work; now() — memoized clock;
     - prompt(ItemName("t"), args) / skill(ItemName("s")) — pinned content of the harness.
@@ -329,6 +337,7 @@ internal val EXAMPLE_MINIAPP_SCRIPT = """
 internal val EXAMPLE_SCREEN_WORKFLOW = """
     workflow { input ->
         val screen = (input["screen"] as? JsonPrimitive)?.content ?: "Screen"
+        val checklist = AdaptiveAgent(AgentPriority.Cost, AgentComplexity.Low, tags = setOf("review"))
         val design = agent(
             prompt(ItemName("design_step"), mapOf("screen" to screen)),
             AgentOptions("Design ${'$'}screen"),
@@ -340,7 +349,7 @@ internal val EXAMPLE_SCREEN_WORKFLOW = """
             },
             {
                 val brief = "List previews and tests needed for ${'$'}screen"
-                JsonPrimitive(agent(brief, AgentOptions("Tests ${'$'}screen")))
+                JsonPrimitive(agent(brief, AgentOptions("Tests ${'$'}screen", adaptive = checklist)))
             },
         )
         buildJsonObject {
@@ -386,7 +395,8 @@ ${EXAMPLE_VERIFY_SCRIPT.prependIndent("    ")}
     harness_tools_set(harness="compose_ui", hosted_off=["web_search"], native={"claude": {"WebFetch": "off"}})
 
     Why: the instruction keeps every chat on tokens; the skill carries detail without filling the prompt; the
-    workflow splits design and implementation into helper chats; the script tightens destructive commands and
+    workflow splits design and implementation into helper chats, and the cheap test checklist may run on a
+    lighter model chosen by the host; the script tightens destructive commands and
     adds a reminder after edits; the policy removes tools the task does not need.
 
     Advanced external integration: only when the task actually needs repository data and gh is already available

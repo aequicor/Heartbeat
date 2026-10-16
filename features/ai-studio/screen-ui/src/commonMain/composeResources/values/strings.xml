@@ -113,6 +113,7 @@
     <string name="stopping">Stopping…</string>
     <string name="stopped_after">You stopped the run after %1$s</string>
     <string name="usage_compact">Compact context</string>
+    <string name="usage_compacting">Compacting context…</string>
     <string name="collapsed_tool_calls">Tool calls: %1$d</string>
     <string name="context_compacted">Context compacted: the agent continues from a summary</string>
     <string name="context_rolled_over">Continued in a new session with a summary of this one</string>
@@ -335,4 +336,6 @@
     <string name="engine_preparation_storage">Could not save %1$s. Check free disk space and retry the message.</string>
     <string name="engine_preparation_invalid">Could not verify %1$s. Retry the message to download its components again.</string>
     <string name="engine_preparation_unavailable">%1$s components are unavailable. Retry the message.</string>
+    <string name="harness_defaults_loading">Loading harnesses…</string>
+    <string name="harness_defaults_retry">Harnesses unavailable · Retry</string>
 </resources>

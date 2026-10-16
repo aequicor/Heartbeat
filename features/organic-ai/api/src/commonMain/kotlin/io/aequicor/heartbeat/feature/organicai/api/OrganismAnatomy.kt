@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.organicai.api
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 
 /** The progenitor of every other cell: the one cell without a parent. */
@@ -55,15 +56,19 @@ public fun Organism.isWaiting(id: CellId): Boolean = children(id).any(Cell::isAl
     it.filedBy == id || (it is ImmuneCase.Dispute && id in it.parties)
 }
 
+/** The model [cell] runs on: its own configuration's, else the organism's. */
+public fun Organism.targetOf(cell: Cell): EngineTarget? = cell.configuration?.target ?: target
+
 /**
  * The session of the sub-session [key] (a cell id, or a case id for its last judge) and how to reopen it as the
- * organism opened it: a cell on the organism's model and project with the detached hosted tools, a judge on the
- * immune model with neither. Reopening it so never changes what a cell may do. Null while it has no session.
+ * organism opened it: a cell on its model ([targetOf]) and the organism's project with the detached hosted tools, a
+ * judge on the immune model with neither. Reopening it so never changes what a cell may do. Null while it has no
+ * session.
  */
 public fun Organism.sessionOf(key: String): OrganismSession? {
     cells.firstOrNull { it.id.value == key }?.let { cell ->
         val ref = cell.session ?: return null
-        val target = target ?: return null
+        val target = targetOf(cell) ?: return null
         return OrganismSession(ref, ResumeSessionRequest(target, workspace, areDetachedToolsEnabled = true))
     }
     val judge = trials.firstOrNull { it.case.id.value == key }?.judge ?: return null

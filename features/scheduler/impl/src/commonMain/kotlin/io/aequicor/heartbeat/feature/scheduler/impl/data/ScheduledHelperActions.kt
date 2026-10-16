@@ -63,8 +63,12 @@ internal class ScheduledHelperActions(
 
     suspend fun isHelper(session: SessionRef): Boolean = helpers.isHelper(session)
 
-    /** Caller already journaled the action and reserved one scheduled slot; this method owns their cleanup. */
-    suspend fun start(record: ActionRecord, request: SpawnRequest): String? {
+    /**
+     * Caller already journaled the action and reserved one scheduled slot; this method owns their cleanup. Without
+     * [awaitAcceptance] it returns once the helper chat is journaled: the first prompt continues in the profile, and
+     * its exact barrier and result finish the action whatever that prompt's outcome.
+     */
+    suspend fun start(record: ActionRecord, request: SpawnRequest, awaitAcceptance: Boolean = true): String? {
         val entry = register(record)
         var lease: HelperLease? = null
         var helper: HelperId? = null
@@ -73,12 +77,23 @@ internal class ScheduledHelperActions(
         try {
             lease = helpers.adoptScheduled(record.id, request.parent)
                 ?: return "no chat host could start a helper agent"
-            helper = helpers.create(lease, request.workspace, request.target, request.title, TrustLevel.Ask)
+            helper = helpers.create(
+                lease,
+                request.workspace,
+                request.target,
+                request.title,
+                TrustLevel.Ask,
+                request.model,
+            )
             val saved = record.copy(helper = helper)
             journal.add(saved)
             entry.record = saved
             isPromptAttempted = true
-            launchWatch(entry, lease, submitFirst(record, request, helper))
+            if (awaitAcceptance) {
+                launchWatch(entry, lease, submitFirst(record, request, helper))
+            } else {
+                launchWatch(entry, lease) { observedFirstPayload(record, request, helper) }
+            }
             isWatching = true
             log.i { "action ${record.id}: supervised helper started" }
             return null
@@ -133,6 +148,25 @@ internal class ScheduledHelperActions(
             is HelperSubmission.NotSubmitted -> "status: failed (helper was not submitted)"
             null -> "status: timed out after $MAX_HELPER_TIME"
         }
+    }
+
+    /** [submitFirst] off the caller's path: a failed call settles through the same barrier as a waited start. */
+    private suspend fun firstPayload(record: ActionRecord, request: SpawnRequest, helper: HelperId): String? = try {
+        submitFirst(record, request, helper)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e) { "action ${record.id}: helper submission outcome unknown; settling its exact attempt" }
+        failedPromptPayload(record, helper, request.prompt.request)
+    }
+
+    /** A host-local cancellation cannot cancel the supervisor; profile cancellation still interrupts its join. */
+    private suspend fun observedFirstPayload(record: ActionRecord, request: SpawnRequest, helper: HelperId): String? {
+        val submission = scope.coroutineScope.async { firstPayload(record, request, helper) }
+        submission.join()
+        if (!submission.isCancelled) return submission.await()
+        log.w { "action ${record.id}: first prompt wait cancelled; settling its exact attempt" }
+        return failedPromptPayload(record, helper, request.prompt.request)
     }
 
     /**
@@ -250,12 +284,16 @@ internal class ScheduledHelperActions(
     }
 
     private fun launchWatch(entry: Entry, lease: HelperLease, payload: String?) {
-        scope.coroutineScope.launch { watch(entry, lease, payload) }
+        launchWatch(entry, lease) { payload }
     }
 
-    private suspend fun watch(entry: Entry, lease: HelperLease, initialPayload: String?) {
+    private fun launchWatch(entry: Entry, lease: HelperLease, initialPayload: suspend () -> String?) {
+        scope.coroutineScope.launch { watch(entry, lease, initialPayload) }
+    }
+
+    private suspend fun watch(entry: Entry, lease: HelperLease, initialPayload: suspend () -> String?) {
         try {
-            settle(entry, lease, initialPayload ?: observedPayload(entry))
+            settle(entry, lease, initialPayload() ?: observedPayload(entry))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

@@ -50,7 +50,7 @@ class AppLogsModel(
     @ForScope(AppLogsScope::class) scope: ScopeHandle,
     factory: HeartbeatStoreFactory,
 ) {
-    val store = factory.create<AppLogsScreenState, AppLogsScreenIntent, AppLogsScreenAction>(
+    private val screen = factory.createScreen<AppLogsScreenState, AppLogsScreenIntent, AppLogsScreenAction>(
         "AppLogs",
         machine.state.value.toScreenState(),
         onError = { copy(isBusy = false, notice = AppLogsNoticeUi.Failure) },
@@ -67,6 +67,11 @@ class AppLogsModel(
             }
         }
     }
+
+    val store = screen.store
+
+    /** Latest screen state, read synchronously for the first frame. */
+    val current = screen.current
 
     init {
         store.start(scope.coroutineScope)

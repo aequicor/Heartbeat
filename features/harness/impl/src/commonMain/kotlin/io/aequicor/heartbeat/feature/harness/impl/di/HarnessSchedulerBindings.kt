@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRequestOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessTimerSlots
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessHelperBindings
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessHelperModels
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSpawnJournal
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSpawnOperations
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessWakeOperations
@@ -29,7 +30,8 @@ public object HarnessSchedulerBindings {
         journal: HarnessSpawnJournal,
         helpers: Lazy<HelperAgents>,
         bindings: HarnessHelperBindings,
-    ): HarnessSpawnOperations = HarnessSpawnOperations(scope.coroutineScope, journal, helpers, bindings)
+        models: HarnessHelperModels,
+    ): HarnessSpawnOperations = HarnessSpawnOperations(scope.coroutineScope, journal, helpers, bindings, models)
 
     @Provides
     @SingleIn(ProfileScope::class)

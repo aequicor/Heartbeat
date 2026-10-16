@@ -4,16 +4,20 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.ds.tokens.HbMotion
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsState
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.CodexId
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineActionUi
@@ -51,7 +55,7 @@ class EngineManagementUiTest {
     @Test
     fun `without engine management the panel is not shown`() = runSkikoComposeUiTest {
         val state = EngineConnectionsScreenState().reflect(EngineConnectionsState.Active(settingsSnapshot()))
-        setContent { HbTheme { EngineConnectionsContent(state, {}, {}, {}) } }
+        setContent { HbTheme { EngineConnectionsContent(state, {}, {}, {}, { _, _ -> }) } }
         onNodeWithTag("engine-panel").assertDoesNotExist()
     }
 
@@ -63,7 +67,7 @@ class EngineManagementUiTest {
                 EngineEnablement(isUserEnabled = false, reasons = setOf(DisabledReason.DisabledByUser)),
                 installation = InstallationState(Installation(InstallSource.Missing), latest = "0.2.0"),
             )
-            setContent { HbTheme { EngineConnectionsContent(selected(codex), { intents += it }, {}, {}) } }
+            setContent { HbTheme { EngineConnectionsContent(selected(codex), { intents += it }, {}, {}, { _, _ -> }) } }
 
             onNodeWithTag("engine-panel").assertExists()
             onNodeWithTag("settings-connections").assertDoesNotExist()
@@ -90,7 +94,7 @@ class EngineManagementUiTest {
                 Instant.fromEpochSeconds(1),
             ),
         )
-        setContent { HbTheme { EngineConnectionsContent(selected(codex), { intents += it }, {}, {}) } }
+        setContent { HbTheme { EngineConnectionsContent(selected(codex), { intents += it }, {}, {}, { _, _ -> }) } }
 
         onNodeWithTag("engine-job-progress").assertExists()
         // Units are localized; the sizes are not.
@@ -109,7 +113,7 @@ class EngineManagementUiTest {
     fun `a stale runtime is restarted`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineConnectionsScreenIntent>()
         val codex = managedCodex().copy(runtime = RuntimeSummary(runtimes = 1, isStale = true))
-        setContent { HbTheme { EngineConnectionsContent(selected(codex), { intents += it }, {}, {}) } }
+        setContent { HbTheme { EngineConnectionsContent(selected(codex), { intents += it }, {}, {}, { _, _ -> }) } }
 
         onNodeWithTag("engine-restart").performClick()
         runOnIdle {
@@ -121,7 +125,7 @@ class EngineManagementUiTest {
     fun `a removal is confirmed first`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineConnectionsScreenIntent>()
         val state = selected(managedCodex()).copy(confirmAction = EngineActionUi.Uninstall)
-        setContent { HbTheme { EngineConnectionsContent(state, { intents += it }, {}, {}) } }
+        setContent { HbTheme { EngineConnectionsContent(state, { intents += it }, {}, {}, { _, _ -> }) } }
 
         onNodeWithTag("engine-action-confirm").performClick()
         runOnIdle {
@@ -146,7 +150,7 @@ class EngineManagementUiTest {
         )
         setContent {
             CompositionLocalProvider(LocalUriHandler provides uriHandler) {
-                HbTheme { EngineConnectionsContent(selected(codex), {}, {}, {}) }
+                HbTheme { EngineConnectionsContent(selected(codex), {}, {}, {}, { _, _ -> }) }
             }
         }
 
@@ -163,7 +167,7 @@ class EngineManagementUiTest {
                 managedCodex(job = EngineJob(EngineAction.Login(), JobPhase.AwaitingCode(), Instant.DISTANT_PAST)),
             ).copy(loginCode = "abc#def"),
         )
-        setContent { HbTheme { EngineConnectionsContent(state, { intents += it }, {}, {}) } }
+        setContent { HbTheme { EngineConnectionsContent(state, { intents += it }, {}, {}, { _, _ -> }) } }
 
         onNodeWithTag("engine-login-submit").performClick()
         runOnIdle {
@@ -181,7 +185,7 @@ class EngineManagementUiTest {
     fun `launch settings are edited and a draft with a secret cannot be saved`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineConnectionsScreenIntent>()
         var state by mutableStateOf(selected(managedCodex()))
-        setContent { HbTheme { EngineConnectionsContent(state, { intents += it }, {}, {}) } }
+        setContent { HbTheme { EngineConnectionsContent(state, { intents += it }, {}, {}, { _, _ -> }) } }
 
         onNodeWithTag("engine-launch-edit").performClick()
         runOnIdle {
@@ -200,6 +204,102 @@ class EngineManagementUiTest {
             assertEquals(EngineConnectionsScreenIntent.EditLaunch(LaunchDraftUi()), intents.last())
         }
     }
+
+    @Test
+    fun `management writes block panel actions before delayed feedback`() =
+        runSkikoComposeUiTest(size = Size(1000f, 1600f)) {
+            val loaded = selected(managedCodex())
+            var state by mutableStateOf(loaded)
+            val intents = mutableListOf<EngineConnectionsScreenIntent>()
+            val tags = listOf(
+                "engine-enabled",
+                "engine-inspect",
+                "engine-check-updates",
+                "engine-install",
+                "engine-launch-edit",
+            )
+            setContent { HbTheme { EngineConnectionsContent(state, intents::add, {}, null, { _, _ -> }) } }
+            tags.forEach { onNodeWithTag(it).assertIsEnabled() }
+            mainClock.autoAdvance = false
+            runOnIdle { state = loaded.copy(isSaving = true) }
+            mainClock.advanceTimeByFrame()
+            tags.forEach { tag ->
+                onNodeWithTag(tag).assertIsNotEnabled()
+                onNodeWithTag(tag).performMouseInput {
+                    moveTo(center)
+                    press()
+                    release()
+                    exit()
+                }
+            }
+            runOnIdle { assertEquals(emptyList(), intents) }
+            mainClock.advanceTimeBy(HbMotion().busyRevealDelayMillis.toLong() * 2)
+            tags.forEach { onNodeWithTag(it).assertIsNotEnabled() }
+            runOnIdle { state = loaded }
+            mainClock.advanceTimeByFrame()
+            tags.forEach { onNodeWithTag(it).assertIsEnabled() }
+        }
+
+    @Test
+    fun `a pending login code submission blocks repeated submit and job cancellation immediately`() =
+        runSkikoComposeUiTest(size = Size(1000f, 1600f)) {
+            val loaded = selected(
+                managedCodex(job = EngineJob(EngineAction.Login(), JobPhase.AwaitingCode(), Instant.DISTANT_PAST)),
+            ).copy(loginCode = "code")
+            var state by mutableStateOf(loaded)
+            val intents = mutableListOf<EngineConnectionsScreenIntent>()
+            setContent { HbTheme { EngineConnectionsContent(state, intents::add, {}, null, { _, _ -> }) } }
+            val tags = listOf("engine-login-submit", "engine-job-cancel")
+            tags.forEach { onNodeWithTag(it).assertIsEnabled() }
+            mainClock.autoAdvance = false
+            runOnIdle { state = loaded.copy(isSaving = true) }
+            mainClock.advanceTimeByFrame()
+            tags.forEach { tag ->
+                onNodeWithTag(tag).assertIsNotEnabled()
+                onNodeWithTag(tag).performMouseInput {
+                    moveTo(center)
+                    press()
+                    release()
+                    exit()
+                }
+            }
+            runOnIdle { assertEquals(emptyList(), intents) }
+            mainClock.advanceTimeBy(HbMotion().busyRevealDelayMillis.toLong() * 2)
+            tags.forEach { onNodeWithTag(it).assertIsNotEnabled() }
+            runOnIdle { state = loaded }
+            mainClock.advanceTimeByFrame()
+            tags.forEach { onNodeWithTag(it).assertIsEnabled() }
+        }
+
+    @Test
+    fun `saving a launch draft blocks a second save before visual feedback`() =
+        runSkikoComposeUiTest(size = Size(1000f, 1600f)) {
+            val draft = LaunchDraftUi(environment = persistentListOf(KeyValueUi("MY_SETTING", "value")))
+            val loaded = selected(managedCodex()).copy(launchDraft = draft)
+                .reflect(EngineConnectionsState.Active(managedSnapshot()))
+            var state by mutableStateOf(loaded)
+            val intents = mutableListOf<EngineConnectionsScreenIntent>()
+            setContent { HbTheme { EngineConnectionsContent(state, intents::add, {}, null, { _, _ -> }) } }
+            onNodeWithTag("engine-launch-save").assertIsEnabled()
+            mainClock.autoAdvance = false
+            runOnIdle { state = loaded.copy(isSaving = true) }
+            mainClock.advanceTimeByFrame()
+            onNodeWithTag("engine-launch-save").assertIsNotEnabled().performMouseInput {
+                moveTo(center)
+                press()
+                release()
+                exit()
+            }
+            runOnIdle { assertEquals(emptyList(), intents) }
+            mainClock.advanceTimeBy(HbMotion().busyRevealDelayMillis.toLong() * 2)
+            onNodeWithTag("engine-launch-save").assertIsNotEnabled()
+            runOnIdle { state = loaded }
+            mainClock.advanceTimeByFrame()
+            onNodeWithTag("engine-launch-save").assertIsEnabled().performClick()
+            runOnIdle {
+                assertEquals(listOf<EngineConnectionsScreenIntent>(EngineConnectionsScreenIntent.SaveLaunch), intents)
+            }
+        }
 
     @Test
     fun `every phase and installation failure has a text`() {

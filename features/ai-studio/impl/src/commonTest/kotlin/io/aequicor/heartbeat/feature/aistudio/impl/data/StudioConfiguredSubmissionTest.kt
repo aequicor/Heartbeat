@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
@@ -35,6 +36,7 @@ import io.aequicor.heartbeat.feature.contextwindowoptimization.api.HANDOFF_REQUE
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -138,6 +140,34 @@ class StudioConfiguredSubmissionTest {
     }
 
     @Test
+    fun `helper turns retain parent review and automatic policy under full profile trust`() = runTest {
+        val fixture = SubmissionFixture(this)
+        fixture.security.value = StudioSecurityLevel.Trust
+        val parent = fixture.configuration.target.copy(model = ModelId("parent"))
+        fixture.access.records["chat"] = fixture.access.records.getValue("chat").copy(
+            helper = StudioHelperIdentity(
+                ActionId("owner"),
+                null,
+                null,
+                TrustLevel.Ask,
+                HelperModelOptions(reviewTarget = parent),
+            ),
+        )
+
+        fixture.submit("helper-user-message")
+        fixture.submit("helper-host-message", isUserPrompt = false)
+        fixture.submit("helper-compact", compaction = ContextCompaction())
+
+        assertEquals(3, fixture.session.requests.size)
+        fixture.session.requests.forEach { request ->
+            assertEquals(parent, request.reviewTarget)
+            assertEquals(AgentToolDecisionMode.AutomaticSafety, request.decisionMode)
+            assertEquals(TrustLevel.Ask, request.trust)
+        }
+        assertEquals(0, fixture.securityReads)
+    }
+
+    @Test
     fun `a compaction keeps the chat's trust which the engine then reports back unchanged`() = runTest {
         val fixture = SubmissionFixture(this)
 
@@ -227,6 +257,14 @@ class StudioConfiguredSubmissionTest {
 
         assertFalse("the essence" in fixture.session.requests.single().text())
         assertEquals(0, fixture.access.consumedSeeds)
+    }
+
+    @Test
+    fun `a review model reaches the native prompt`() = runTest {
+        val fixture = SubmissionFixture(this)
+        val parent = fixture.configuration.target.copy(model = ModelId("parent"))
+        fixture.session.submitStudioPrompt("Hi", null, null, emptyList(), RequestId("review"), reviewTarget = parent)
+        assertEquals(parent, fixture.session.requests.single().reviewTarget)
     }
 
     private fun PromptRequest.text(): String = parts.filterIsInstance<ContentPart.Text>().joinToString { it.text }

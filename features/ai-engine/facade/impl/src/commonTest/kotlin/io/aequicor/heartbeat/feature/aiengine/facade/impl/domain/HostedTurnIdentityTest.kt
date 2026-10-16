@@ -10,6 +10,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
@@ -19,6 +22,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.reviewModel
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.DefaultAgentTools
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -72,6 +76,23 @@ class HostedTurnIdentityTest {
             AgentToolDecisionMode.AutomaticSafety,
             assertIs<ActiveSessionState.Running>(session.state.value).turn.decisionMode,
         )
+    }
+
+    @Test
+    fun `the prompt review model reaches the turn and hosted calls`() = runTest {
+        val owner = HostedIdentityOwner(action = AgentToolAction.Read)
+        val tools = DefaultAgentTools(setOf(owner))
+        val native = FakeNativeSession()
+        val session = open(native, tools)
+        val parent = EngineTarget(EngineId("parent"), EngineBindingId("binding"), ModelId("strong"))
+        native.onAccepted = {
+            val adapter = AgentToolContext(native.ref, WorkspaceRef("project"), it.id, it.request)
+            tools.execute(adapter, "tool", EMPTY_ARGUMENTS)
+        }
+        session.sender().send(PromptRequest(RequestId("child"), listOf(ContentPart.Text("Run")), reviewTarget = parent))
+        assertEquals(parent, owner.contexts.single().reviewTarget)
+        assertEquals(parent, owner.contexts.single().reviewModel)
+        assertEquals(parent, assertIs<ActiveSessionState.Running>(session.state.value).turn.reviewTarget)
     }
 
     @Test

@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.organicai.api.ReleaseMode
 import io.aequicor.heartbeat.feature.organicai.api.Settlement
 import io.aequicor.heartbeat.feature.organicai.api.Work
 import io.aequicor.heartbeat.feature.organicai.api.cell
+import io.aequicor.heartbeat.feature.organicai.api.targetOf
 
 /**
  * Runs one turn of a cell: opens its session, submits the turn's prompt (or adopts the native turn a recovery finds
@@ -28,14 +29,21 @@ internal class CellDriver(private val cells: CellSessions, private val journal: 
     suspend fun drive(organism: Organism, id: CellId, request: RequestId, machine: EffectScope<OrganicAiIntent>) {
         val cell = organism.cell(id)
         val phase = cell?.phase as? CellPhase.Working
-        val target = organism.target
+        val target = cell?.let { organism.targetOf(it) }
         if (cell == null || phase?.request != request || target == null) {
             log.w { "organism ${organism.id.value} cell ${id.value}: nothing to drive" }
             return
         }
         val key = CellKey(organism.id, id)
         log.i { "organism ${organism.id.value} cell ${id.value}: ${phase.kind()} turn ${cell.turns} starts" }
-        val handle = cells.open(key, CellRoute(target, organism.workspace, organism.trust), cell.session, cell.turns)
+        val route = CellRoute(
+            target,
+            organism.workspace,
+            organism.trust,
+            cell.configuration?.reasoningEffort,
+            organism.target?.takeIf { it != target },
+        )
+        val handle = cells.open(key, route, cell.session, cell.turns)
         if (cell.session == null) {
             val bound = OrganicAiIntent.Internal.SessionBound(organism.id, id, request, handle.session)
             if (machine.send(bound) != SendResult.Accepted) return abandon(key, handle, turn = null)

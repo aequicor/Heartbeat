@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCreateRequest
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
@@ -50,6 +51,48 @@ class StudioHelperChatRecordsTest {
         assertEquals(target, record.target)
         assertEquals(StudioHelperIdentity(request.owner, parent.id, session, TrustLevel.Full), record.helper)
         assertEquals(record, Json.decodeFromString<StudioChatRecord>(Json.encodeToString(record)))
+    }
+
+    @Test
+    fun `a helper on another model is reviewed by its parent's model and keeps the chosen effort`() {
+        val cheap = target.copy(model = ModelId("mini"))
+        val record = newStudioHelperRecord(
+            "helper",
+            at,
+            request.copy(target = cheap, model = HelperModelOptions(reasoningEffort = "low")),
+            parent.copy(target = target),
+        )
+        assertEquals(cheap, record.target)
+        assertEquals(HelperModelOptions("low", reviewTarget = target), record.helper?.model)
+        assertEquals(record, Json.decodeFromString<StudioChatRecord>(Json.encodeToString(record)))
+    }
+
+    @Test
+    fun `an explicit review model wins and the parent's own model needs no separate review`() {
+        val strong = target.copy(model = ModelId("strong"))
+        val explicit = newStudioHelperRecord(
+            "helper",
+            at,
+            request.copy(model = HelperModelOptions(reviewTarget = strong)),
+            parent.copy(target = target.copy(model = ModelId("other"))),
+        )
+        assertEquals(strong, explicit.helper?.model?.reviewTarget)
+        val same = newStudioHelperRecord("helper", at, request, parent.copy(target = target))
+        assertNull(same.helper?.model?.reviewTarget)
+    }
+
+    @Test
+    fun `a helper marker saved before model options decodes with defaults`() {
+        val legacy = """{"owner":{"value":"workflow"},"parentChatId":null,"parentSession":null,"trustCap":"Ask"}"""
+        assertEquals(HelperModelOptions(), Json.decodeFromString<StudioHelperIdentity>(legacy).model)
+    }
+
+    @Test
+    fun `a turn takes the helper effort only while the model advertises it`() {
+        val helper = StudioHelperIdentity(ActionId("a"), null, null, TrustLevel.Ask, HelperModelOptions("low"))
+        assertEquals("low", turnEffort(null, helper, listOf("low", "high")) { "high" })
+        assertEquals("high", turnEffort(null, helper, listOf("medium", "high")) { "high" })
+        assertEquals("high", turnEffort(null, null, listOf("low", "high")) { "high" })
     }
 
     @Test

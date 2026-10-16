@@ -56,7 +56,7 @@ import pro.respawn.flowmvi.dsl.collect
 /** Context settings of the profile. */
 @Composable
 internal fun ContextSettingsScreen(model: ContextSettingsModel, onBack: (() -> Unit)?, modifier: Modifier = Modifier) {
-    val state by produceState(ContextSettingsScreenState(), model) {
+    val state by produceState(model.current.value, model) {
         model.store.collect { states.collect { value = it } }
     }
     ContextSettingsContent(state, model.store::intent, onBack, modifier)

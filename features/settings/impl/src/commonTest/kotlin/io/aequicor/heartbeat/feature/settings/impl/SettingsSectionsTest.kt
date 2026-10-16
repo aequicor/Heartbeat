@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.settings.impl
 
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveSubagentsRoute
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningRoute
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityRoute
 import io.aequicor.heartbeat.feature.applogs.api.AppLogsRoute
@@ -42,6 +43,7 @@ class SettingsSectionsTest {
                 isHarnessEnabled = true,
                 isContextEnabled = true,
                 isInterfacesEnabled = true,
+                isSubagentsEnabled = true,
                 isProjectConfigEnabled = true,
                 isLogsEnabled = true,
                 isDesktop = true,
@@ -89,6 +91,18 @@ class SettingsSectionsTest {
             }
         }
         assertEquals(AgentLearningRoute(isEmbedded = true), SettingsSection.AgentLearning.route())
+    }
+
+    @Test
+    fun `subagents are offered only with their toggle and an active profile and open embedded`() {
+        for (enabled in listOf(false, true)) {
+            for (profile in listOf(false, true)) {
+                val sections = availableSections(false, false, profile, isSubagentsEnabled = enabled)
+                assertEquals(enabled && profile, SettingsSection.Subagents in sections)
+            }
+        }
+        assertEquals(AdaptiveSubagentsRoute(isEmbedded = true), SettingsSection.Subagents.route())
+        assertEquals("subagents", SettingsSection.Subagents.deepLinkName)
     }
 
     @Test

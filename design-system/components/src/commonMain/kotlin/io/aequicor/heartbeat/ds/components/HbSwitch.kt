@@ -27,6 +27,8 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 /**
  * Foundation switch with keyboard focus and mobile-sized hit area, shared by all visual kits.
  * The checked track uses the brand accent with its accessible thumb color; unchecked stays neutral.
+ * [enabled] controls input and accessibility immediately; [visualEnabled] controls only track and thumb opacity,
+ * so a pending write can delay dimming without accepting further changes.
  */
 @Composable
 fun HbSwitch(
@@ -35,13 +37,14 @@ fun HbSwitch(
     label: String,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    visualEnabled: Boolean = enabled,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val isFocused by interaction.collectIsFocusedAsState()
     val isHovered by interaction.collectIsHoveredAsState()
     val isPressed by interaction.collectIsPressedAsState()
     val colors = HbTheme.colors
-    val alpha = if (enabled) 1f else 0.45f
+    val alpha = if (visualEnabled) 1f else 0.45f
     val track = (if (checked) colors.brand else colors.outlineSubtle).copy(alpha = alpha)
     val thumb = (if (checked) colors.onBrand else colors.textSecondary).copy(alpha = alpha)
     val feedback = when {

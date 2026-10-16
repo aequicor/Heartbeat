@@ -30,6 +30,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalogSnapshot
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Observation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
@@ -176,6 +179,7 @@ internal class FakeFeatures(private val features: Map<EngineFeatureKey<*>, Featu
 internal class FakeFacade(
     private val created: ArrayDeque<FakeSession> = ArrayDeque(),
     private val stored: Map<SessionRef, FakeSession> = emptyMap(),
+    private val catalog: List<ModelInfo> = emptyList(),
     private val hasStoredHistory: Boolean = true,
 ) : EngineFacade {
     val creations = mutableListOf<CreateSessionRequest>()
@@ -240,5 +244,10 @@ internal class FakeFacade(
         override suspend fun check(target: EngineTarget, workspace: WorkspaceRef?): BindingCheck = error("unused")
     }
 
-    override val models: ModelCatalog get() = error("unused")
+    override val models: ModelCatalog = object : ModelCatalog {
+        override fun observe(engine: EngineId, binding: EngineBindingId): StateFlow<ModelCatalogSnapshot> =
+            MutableStateFlow(ModelCatalogSnapshot(catalog, Observation()))
+
+        override suspend fun refresh(engine: EngineId, binding: EngineBindingId) = error("unused")
+    }
 }

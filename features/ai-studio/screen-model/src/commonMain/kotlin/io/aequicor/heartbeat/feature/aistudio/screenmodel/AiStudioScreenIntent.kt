@@ -59,6 +59,11 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     @SerialName("AiStudioScreenIntent.SelectHarness")
     data class SelectHarness(val paneId: Int, val harness: String, val isSelected: Boolean) : AiStudioScreenIntent
 
+    /** Retries unavailable harness defaults before the first message creates a native session. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.ReloadHarnesses")
+    data object ReloadHarnesses : Composer
+
     /** Organic AI chats: the mode of a new chat, the shown sub-session, control and the user's decisions. */
     @Serializable
     @SerialName("AiStudioScreenIntent.Organism")

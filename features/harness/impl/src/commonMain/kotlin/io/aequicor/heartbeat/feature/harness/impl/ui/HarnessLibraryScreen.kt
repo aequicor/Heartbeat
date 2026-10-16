@@ -56,7 +56,7 @@ internal fun HarnessLibraryScreen(
     modifier: Modifier = Modifier,
 ) {
     val open by rememberUpdatedState(onOpen)
-    val state by produceState(HarnessLibraryState(), model) {
+    val state by produceState(model.current.value, model) {
         model.store.collect {
             launch { actions.collect { action -> if (action is HarnessLibraryAction.OpenDetail) open(action.id) } }
             states.collect { value = it }

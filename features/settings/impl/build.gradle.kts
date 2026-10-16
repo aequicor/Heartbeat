@@ -17,6 +17,7 @@ kotlin {
             implementation(projects.features.computerUse.api)
             implementation(projects.features.chromiumBridge.api)
             implementation(projects.features.agentLearning.api)
+            implementation(projects.features.adaptiveSubagents.api)
             implementation(projects.features.contextWindowOptimization.api)
             implementation(projects.features.harness.api)
             implementation(projects.features.serviceAsUi.api)

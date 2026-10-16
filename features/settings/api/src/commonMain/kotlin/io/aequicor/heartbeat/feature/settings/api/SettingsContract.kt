@@ -19,6 +19,10 @@ public enum class SettingsSection {
     @SerialName("security")
     Security,
 
+    /** Adaptive subagents: selection preferences, service models, connection billing and model descriptions. */
+    @SerialName("subagents")
+    Subagents,
+
     /** Search providers of the profile. */
     @SerialName("search")
     Search,
@@ -94,6 +98,7 @@ public val SettingsSection.deepLinkName: String
     get() = when (this) {
         SettingsSection.Models -> "models"
         SettingsSection.Security -> "security"
+        SettingsSection.Subagents -> "subagents"
         SettingsSection.Search -> "search"
         SettingsSection.ComputerUse -> "computer_use"
         SettingsSection.ChromiumBrowser -> "chromium_browser"

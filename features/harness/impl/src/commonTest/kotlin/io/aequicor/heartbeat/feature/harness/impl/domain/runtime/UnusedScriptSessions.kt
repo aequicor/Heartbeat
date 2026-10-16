@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.harness.api.script.ScriptSession
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptSessions
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSessionReader
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSessionSpawner
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSpawnTask
 
 internal fun unusedScriptSessions(owner: HarnessInstanceTarget, origins: HarnessCallOrigins): HarnessScriptSessions =
     HarnessScriptSessions(
@@ -31,8 +32,7 @@ private object UnusedSessionSpawner : HarnessSessionSpawner {
     override suspend fun spawn(
         owner: HarnessInstanceTarget,
         parent: SessionRef?,
-        title: String,
-        prompt: String,
+        task: HarnessSpawnTask,
         origin: HarnessCallOrigin,
     ): ScriptHelper = error("Not used")
     override fun retire(owner: HarnessInstanceTarget) = Unit

@@ -46,7 +46,15 @@ internal data class CellAddress(val organism: OrganismId, val cell: CellId)
 internal data class CellKey(val organism: OrganismId, val cell: CellId)
 
 /** How the sessions of an organism run. */
-internal data class CellRoute(val target: EngineTarget, val workspace: WorkspaceRef?, val trust: TrustLevel?)
+internal data class CellRoute(
+    val target: EngineTarget,
+    val workspace: WorkspaceRef?,
+    val trust: TrustLevel?,
+    /** The cell's own effort; null leaves the model's default. */
+    val reasoningEffort: String? = null,
+    /** Reviews the cell's automatic safety decisions when it runs a cheaper model than the organism. */
+    val reviewTarget: EngineTarget? = null,
+)
 
 /** Engine sessions of cells; one handle per cell is kept open while the cell lives. */
 internal interface CellSessions {

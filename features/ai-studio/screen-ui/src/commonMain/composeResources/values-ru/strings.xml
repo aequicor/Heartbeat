@@ -106,6 +106,7 @@
     <string name="stopping">Останавливаем…</string>
     <string name="stopped_after">Вы остановили выполнение через %1$s</string>
     <string name="usage_compact">Сжать контекст</string>
+    <string name="usage_compacting">Сжимаем контекст…</string>
     <string name="collapsed_tool_calls">Вызовов инструментов: %1$d</string>
     <string name="context_compacted">Контекст сжат: агент продолжает по выжимке</string>
     <string name="context_rolled_over">Продолжено в новой сессии с выжимкой этой</string>
@@ -329,4 +330,6 @@
     <string name="engine_preparation_storage">Не удалось сохранить %1$s. Проверьте свободное место и повторите сообщение.</string>
     <string name="engine_preparation_invalid">Не удалось проверить %1$s. Повторите сообщение для повторного скачивания компонентов.</string>
     <string name="engine_preparation_unavailable">Компоненты %1$s недоступны. Повторите сообщение.</string>
+    <string name="harness_defaults_loading">Загрузка харнессов…</string>
+    <string name="harness_defaults_retry">Харнессы недоступны · Повторить</string>
 </resources>

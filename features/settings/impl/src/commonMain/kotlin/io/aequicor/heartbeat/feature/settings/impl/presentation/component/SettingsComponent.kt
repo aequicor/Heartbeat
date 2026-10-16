@@ -18,6 +18,8 @@ import io.aequicor.heartbeat.core.navigation.Navigator
 import io.aequicor.heartbeat.core.navigation.Route
 import io.aequicor.heartbeat.core.navigation.StackHost
 import io.aequicor.heartbeat.core.navigation.routeEntry
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveSubagentsRoute
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfileRoute
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectEngineRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsRoute
@@ -152,6 +154,8 @@ class SettingsComponent(
         val SECTION_ROUTES = setOf(
             EngineConnectionsRoute::class,
             StudioSecurityRoute::class,
+            AdaptiveSubagentsRoute::class,
+            ModelProfileRoute::class,
             ComputerUseRoute::class,
             ChromiumBridgeRoute::class,
             AgentLearningRoute::class,
@@ -175,6 +179,7 @@ class SettingsComponent(
 internal fun SettingsSection.route(): Route = when (this) {
     SettingsSection.Models -> EngineConnectionsRoute(isEmbedded = true)
     SettingsSection.Security -> StudioSecurityRoute(isEmbedded = true)
+    SettingsSection.Subagents -> AdaptiveSubagentsRoute(isEmbedded = true)
     SettingsSection.Search -> ProfileSettingsRoute(isEmbedded = true)
     SettingsSection.ComputerUse -> ComputerUseRoute(isEmbedded = true)
     SettingsSection.ChromiumBrowser -> ChromiumBridgeRoute(isEmbedded = true)

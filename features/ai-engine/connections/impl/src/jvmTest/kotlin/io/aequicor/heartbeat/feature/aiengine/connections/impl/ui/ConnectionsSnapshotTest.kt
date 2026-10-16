@@ -62,7 +62,7 @@ class ConnectionsSnapshotTest {
     fun `renders snapshots`() {
         for (width in listOf(1280, 900, 420)) {
             for (isDark in listOf(false, true)) {
-                render("connections", width, isDark) { EngineConnectionsContent(connections, {}, {}, {}) }
+                render("connections", width, isDark) { EngineConnectionsContent(connections, {}, {}, {}, { _, _ -> }) }
                 render("wizard", width, isDark) { ConnectWizardContent(wizard, {}) }
                 render("preparing", width, isDark) {
                     ConnectWizardContent(

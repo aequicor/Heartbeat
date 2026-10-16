@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.EventKey
 import io.aequicor.heartbeat.feature.scheduler.api.EventNamespace
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 import io.aequicor.heartbeat.feature.scheduler.api.HelperProgress
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
@@ -47,6 +48,8 @@ public data class SpawnRequest(
     val prompt: WakePrompt,
     /** Exact saved causal requests, relayed before each initial or recovery native prompt. */
     val causes: Set<RequestInitiator> = emptySet(),
+    /** Effort and review model of the helper, see [HelperModelOptions]. */
+    val model: HelperModelOptions = HelperModelOptions(),
 ) {
     override fun toString(): String = "SpawnRequest(target=$target, hasWorkspace=${workspace != null})"
 }

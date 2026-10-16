@@ -7,7 +7,6 @@
     <string name="flags_reset_all">Сбросить все</string>
     <string name="flags_override">Переопределено локально · по умолчанию: %1$s</string>
     <string name="flags_loading">Загрузка флагов…</string>
-    <string name="flags_saving">Сохранение…</string>
     <string name="flags_empty">Флаги не найдены</string>
     <string name="flags_error">Не удалось загрузить флаги. Попробуйте ещё раз.</string>
     <string name="flags_write_error">Не удалось сохранить изменение. Предыдущее значение сохранено.</string>

@@ -76,6 +76,8 @@
     <string name="settings_disconnect_confirm">Удалить «%1$s»? Текущие запросы будут прерваны, подключение и выбор моделей — удалены. История чатов сохранится. Сохранённый ключ удаляется, если больше нигде не используется.</string>
     <string name="settings_default">По умолчанию</string>
     <string name="settings_make_default">Сделать основной</string>
+    <string name="settings_model_description">Описание</string>
+    <string name="settings_model_describe">Описать</string>
     <string name="settings_models_stale">Список из кэша. Обновите, чтобы получить актуальный.</string>
     <string name="settings_models_never">Модели ещё не получены.</string>
     <string name="settings_saving">Сохранение…</string>

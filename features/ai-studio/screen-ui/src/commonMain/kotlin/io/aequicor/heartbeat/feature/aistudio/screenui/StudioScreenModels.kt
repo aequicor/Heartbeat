@@ -37,7 +37,9 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.collapsed
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.contextPanelFor
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.dismissedNotices
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.isAttachmentPending
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.isHarnessSelectionReady
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.noticeDismissal
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.selectedHarnesses
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.selectedNative
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
@@ -123,8 +125,12 @@ data class PaneContent(
     val isAttachmentsEnabled: Boolean = false,
     val isRememberEnabled: Boolean = false,
     val isCompactEnabled: Boolean = false,
+    /** The chat's context is being compacted now: the indicator animates. */
+    val isCompacting: Boolean = false,
     val isOrganismEnabled: Boolean = false,
     val harnesses: ImmutableList<HarnessChoiceUi> = persistentListOf(),
+    val isHarnessSelectionReady: Boolean = true,
+    val isHarnessLoadFailed: Boolean = false,
     val isHarnessFailed: Boolean = false,
     val organism: OrganismUi? = null,
     val subSession: String = PRIMARY_SUB_SESSION,
@@ -167,13 +173,12 @@ data class SidebarInput(
 )
 
 /**
- * Harness choices of a pane: a chat shows its committed connections, a new chat the choice kept on its pane.
- * Only explicit connections are selected, regardless of a harness's stored legacy scope.
+ * Harness choices of a pane: a chat shows committed connections, a new chat its override or available defaults.
  */
 fun AiStudioScreenState.harnessChoices(pane: PaneUi): ImmutableList<HarnessChoiceUi> {
-    val selected = if (pane.sessionId != null) harnessChoices.chats[pane.sessionId] else harnessChoices.panes[pane.id]
+    val selected = selectedHarnesses(pane)
     return availableHarnesses(pane).map { harness ->
-        HarnessChoiceUi(harness.id, harness.title, selected?.contains(harness.id) == true, harness.description)
+        HarnessChoiceUi(harness.id, harness.title, harness.id in selected, harness.description)
     }.toImmutableList()
 }
 
@@ -184,11 +189,20 @@ private fun HarnessChoicesUi.isFailed(chat: String?): Boolean = chat != null && 
 internal fun paneOrigin(paneId: Int): String = "pane:$paneId"
 
 /** Everything pane [pane] draws, projected from the screen state. */
-fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
-    val session = displayedSession(pane.sessionId)
-    val startedAt = runStartedAt[pane.sessionId]
-    val configuration = configurations[pane.sessionId]
-    val organism = organisms[pane.sessionId]
+fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent = projectPaneContent(
+    pane,
+    displayedSession(pane.sessionId),
+    configurations[pane.sessionId],
+    organisms[pane.sessionId],
+)
+
+/** Projects a pane using its resolved chat and execution configuration. */
+private fun AiStudioScreenState.projectPaneContent(
+    pane: PaneUi,
+    session: SessionUi?,
+    configuration: SessionConfigurationUi?,
+    organism: OrganismUi?,
+): PaneContent {
     val effectiveSettings = paneSettings(session, configuration).forOrganism(organism)
     return PaneContent(
         pane = pane,
@@ -204,14 +218,17 @@ fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         transcript = transcriptOf(pane.sessionId, session)?.collapsed(feedCollapse),
         isFocused = pane.id == focusedPaneId,
         isStopping = session != null && session.id in stopping,
-        elapsed = if (session?.isRunning == true) startedAt?.let { (now - it).coerceAtLeast(Duration.ZERO) } else null,
+        elapsed = elapsed(session),
         draft = draft(pane.id),
         attachments = attachments(pane.id),
         isAttachmentsEnabled = isAttachmentsEnabled,
         isRememberEnabled = isRememberEnabled,
         isCompactEnabled = isCompactEnabled,
+        isCompacting = pane.sessionId in compactingChats,
         isOrganismEnabled = isOrganismEnabled,
         harnesses = harnessChoices(pane),
+        isHarnessSelectionReady = isHarnessSelectionReady(pane),
+        isHarnessLoadFailed = harnessChoices.isLoadFailed,
         isHarnessFailed = harnessChoices.isFailed(pane.sessionId),
         organism = organism,
         subSession = selectedSubSession(pane.sessionId, session),
@@ -229,8 +246,7 @@ fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         configuration = configuration,
         isStopFailed = pane.sessionId in stopFailures,
         isStoppable = pane.sessionId !in uncancellable,
-        isResearchAvailable = isResearchEnabled && pane.sessionId == null && pane.projectId == null &&
-            models.any { it.id == settings.modelId && it.isResearchSupported },
+        isResearchAvailable = isResearchOffered(pane),
         models = modelsForProject(pane.projectId ?: session?.projectId, paneModelId(session, configuration, organism)),
         isProjectAddingAvailable = isProjectAddingAvailable && addingProjectTo == null,
         isPickingProject = addingProjectTo == pane.id,
@@ -239,11 +255,27 @@ fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         calendar = studioCalendar(now),
         contextUsage = contextOf(pane.sessionId, session),
         providerUsage = providerUsage[effectiveSettings.modelId],
-        isWorktreeAvailable = isWorktreeAvailable && worktreeJournal == WorktreeJournalUi.Ready,
+        isWorktreeAvailable = isWorktreeOffered(pane),
         worktree = worktrees[pane.sessionId],
         worktreeJournal = worktreeJournal,
     )
 }
+
+/** Elapsed time is shown only while the session is running. */
+private fun AiStudioScreenState.elapsed(session: SessionUi?): Duration? = if (session?.isRunning == true) {
+    runStartedAt[session.id]?.let { (now - it).coerceAtLeast(Duration.ZERO) }
+} else {
+    null
+}
+
+/** Research can start in a new detached chat when the selected model supports it. */
+private fun AiStudioScreenState.isResearchOffered(pane: PaneUi): Boolean =
+    isResearchEnabled && pane.sessionId == null && pane.projectId == null &&
+        models.any { it.id == settings.modelId && it.isResearchSupported }
+
+/** The worktree mode is offered for a Git repository project once the journal is restored. */
+private fun AiStudioScreenState.isWorktreeOffered(pane: PaneUi): Boolean =
+    isWorktreeAvailable && worktreeJournal == WorktreeJournalUi.Ready && pane.projectId in repositoryProjects
 
 /** Context belongs to the selected organism cell or to the native session. */
 private fun AiStudioScreenState.contextOf(sessionId: String?, session: SessionUi?): ContextUsageUi? =

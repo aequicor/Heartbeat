@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperMetadataLimits
+import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCreateRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperMetadata
 import kotlinx.serialization.Serializable
@@ -14,6 +15,7 @@ import kotlin.time.Instant
 /**
  * The marker survives native reopen and identifies parentless helpers too. [parentChatId] groups the sidebar;
  * [parentSession] retains the caller identity used to authorize lease recovery, even if its native ref changes.
+ * [model] is the creator's effort and review model, applied to every turn of the helper.
  */
 @Serializable
 internal data class StudioHelperIdentity(
@@ -21,6 +23,7 @@ internal data class StudioHelperIdentity(
     val parentChatId: String?,
     val parentSession: SessionRef?,
     val trustCap: TrustLevel,
+    val model: HelperModelOptions = HelperModelOptions(),
 )
 
 /** Shares the chat repository's write lock with helper creation, so concurrent ordinary edits are preserved. */
@@ -53,6 +56,7 @@ internal interface StudioHelperChatRecords {
 /**
  * A helper borrows the parent's checkout, never its worktree provisioning or action ownership. A missing target
  * is resolved from the durable parent before saving; unknown parent routing must never fall back to defaults.
+ * A helper running another model than its parent is reviewed by the parent's model unless the creator chose one.
  */
 internal fun newStudioHelperRecord(
     id: String,
@@ -82,6 +86,9 @@ internal fun newStudioHelperRecord(
             parent?.id,
             request.parent,
             if (parent == null) TrustLevel.Ask else request.trustCap,
+            request.model.copy(
+                reviewTarget = request.model.reviewTarget ?: parent?.target?.takeIf { it != target },
+            ),
         ),
     )
 }

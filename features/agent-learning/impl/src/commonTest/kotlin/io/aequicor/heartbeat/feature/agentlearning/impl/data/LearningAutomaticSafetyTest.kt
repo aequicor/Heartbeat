@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
@@ -65,6 +66,43 @@ class LearningAutomaticSafetyTest {
             assertEquals(1, reviews)
             assertEquals(1, (machine.state.value as AgentLearningState.Ready).instructions.size)
         }
+    }
+
+    @Test
+    fun `helper remembers with its parent review model and a changed reviewer invalidates authorization`() = runTest {
+        val machine = SpecMachine()
+        val reviewedTargets = mutableListOf<EngineTarget>()
+        val tools = tools(
+            machine,
+            reviewer = AgentSafetyReviewer { target, _, _ ->
+                reviewedTargets += target
+                AgentSafetyReview("safe", "Bounded instruction")
+            },
+        )
+        val helper = TARGET.copy(model = ModelId("cheap-helper"))
+        val context = automaticContext().copy(target = helper, reviewTarget = TARGET)
+        val spec = tools.specifications(PROJECT).first()
+        val arguments = arguments("kind" to "model", "model_scope" to "model")
+        val original = assertIs<AgentToolAutomaticAuthorization.Allowed>(
+            tools.automaticAuthorization(context, spec, arguments),
+        )
+        assertEquals(listOf(TARGET), reviewedTargets)
+
+        val nextReviewer = TARGET.copy(model = ModelId("other-parent"))
+        val changed = context.copy(reviewTarget = nextReviewer)
+        val stale = tools.execute(changed.copy(authorization = original.approval), LearningTools.REMEMBER, arguments)
+        assertTrue(stale.isError)
+        assertTrue((machine.state.value as AgentLearningState.Ready).instructions.isEmpty())
+        val refreshed = assertIs<AgentToolAutomaticAuthorization.Allowed>(
+            tools.automaticAuthorization(changed, spec, arguments),
+        )
+        assertNotEquals(original.approval, refreshed.approval)
+        assertEquals(listOf(TARGET, nextReviewer), reviewedTargets)
+
+        val saved = tools.execute(changed.copy(authorization = refreshed.approval), LearningTools.REMEMBER, arguments)
+        assertFalse(saved.isError, saved.text)
+        val instruction = (machine.state.value as AgentLearningState.Ready).instructions.single()
+        assertEquals(helper.model, instruction.modelScope?.model)
     }
 
     @Test
