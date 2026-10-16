@@ -128,7 +128,11 @@ internal interface WorktreeBuildCoordinator {
 
 /** Current machine-wide budget; the application coordinator reads it on every admission. */
 internal interface BuildCapacity {
+    /** The effective budget: the user limit when set, otherwise [automatic]. */
     fun budget(): BuildBudget
+
+    /** Estimate from this machine's processors and memory, shown next to the user limit. */
+    val automatic: BuildBudget get() = budget()
 }
 
 /** Command workers inherit the same restricted environment as the facade's local command tools. */

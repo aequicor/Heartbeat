@@ -1,0 +1,106 @@
+package io.aequicor.heartbeat.feature.worktreemode.impl.data
+
+import androidx.room.RoomDatabase
+import io.aequicor.heartbeat.core.datastore.DataEvent
+import io.aequicor.heartbeat.core.datastore.DataStores
+import io.aequicor.heartbeat.core.datastore.DatabaseSpec
+import io.aequicor.heartbeat.core.datastore.KeyValueSpec
+import io.aequicor.heartbeat.core.datastore.KeyValueStore
+import io.aequicor.heartbeat.core.datastore.Retention
+import io.aequicor.heartbeat.core.datastore.StorageOwner
+import io.aequicor.heartbeat.core.datastore.StoreKey
+import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.di.ScopeSavedState
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+
+class BuildCapacitySettingsTest {
+    @Test
+    fun `user limit is normalized and clearing it restores the automatic estimate`() = runTest {
+        val settings = BuildCapacitySettings(lazy { SettingsStores() })
+        assertNull(settings.observe().first())
+        settings.set(3)
+        assertEquals(3, settings.observe().first())
+        settings.set(100)
+        assertEquals(BuildBudget.MAX_PARALLEL_BUILDS, settings.observe().first())
+        settings.set(0)
+        assertNull(settings.observe().first())
+    }
+
+    @Test
+    fun `desktop budget follows the stored limit`() = runTest {
+        withContext(RealTestDispatchers.default) {
+            val scope = SettingsScope()
+            try {
+                val settings = BuildCapacitySettings(lazy { SettingsStores() })
+                val capacity = DesktopBuildCapacity(scope, settings)
+                assertEquals(capacity.automatic, capacity.budget())
+                settings.set(2)
+                withTimeout(AWAIT_MILLIS) {
+                    while (capacity.budget() != BuildBudget.parallel(2)) kotlinx.coroutines.yield()
+                }
+                settings.set(null)
+                withTimeout(AWAIT_MILLIS) {
+                    while (capacity.budget() != capacity.automatic) kotlinx.coroutines.yield()
+                }
+            } finally {
+                scope.coroutineScope.cancel()
+            }
+        }
+    }
+
+    private companion object {
+        const val AWAIT_MILLIS = 5_000L
+    }
+}
+
+private class SettingsScope : ScopeHandle {
+    override val name = "capacity-test"
+    override val coroutineScope = CoroutineScope(SupervisorJob() + RealTestDispatchers.default)
+    override val savedState: ScopeSavedState get() = error("Not used")
+    override val isClosed = false
+    override fun onClose(action: () -> Unit): DisposableHandle = DisposableHandle {}
+}
+
+private class SettingsStores : DataStores {
+    private val store = SettingsStore()
+    override val owner: StorageOwner = StorageOwner.App
+    override fun keyValue(spec: KeyValueSpec): KeyValueStore = store.also { it.spec = spec }
+    override fun <T : RoomDatabase> database(spec: DatabaseSpec<T>): T = error("Unused")
+    override fun filesDirectory(name: String): String = error("Unused")
+    override suspend fun fire(event: DataEvent) = Unit
+}
+
+private class SettingsStore : KeyValueStore {
+    private val values = MutableStateFlow(emptyMap<String, Any>())
+    override var spec: KeyValueSpec = KeyValueSpec("unused")
+
+    // StoreKey defines the value type in this in-memory test fake.
+    @Suppress("UNCHECKED_CAST")
+    override fun <T : Any> observe(key: StoreKey<T>): Flow<T?> = values.map { it[key.name] as T? }
+
+    // StoreKey defines the value type in this in-memory test fake.
+    @Suppress("UNCHECKED_CAST")
+    override suspend fun <T : Any> get(key: StoreKey<T>): T? = values.value[key.name] as T?
+    override suspend fun <T : Any> set(key: StoreKey<T>, value: T, retention: Retention) {
+        values.value += key.name to value
+    }
+    override suspend fun remove(key: StoreKey<*>) {
+        values.value -= key.name
+    }
+    override suspend fun clear() {
+        values.value = emptyMap()
+    }
+}

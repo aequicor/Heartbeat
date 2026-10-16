@@ -39,3 +39,10 @@ internal class UnsupportedWorktreeBuildCoordinator : WorktreeBuildCoordinator {
         throw UnsupportedOperationException("Build workers require Desktop")
     override suspend fun releaseLease(execution: BuildExecution): Boolean = false
 }
+
+/** Builds never run on this platform; the settings screen still needs a stable value. */
+@Inject
+@ContributesBinding(AppScope::class)
+internal class UnsupportedBuildCapacity : BuildCapacity {
+    override fun budget(): BuildBudget = BuildBudget.parallel(1)
+}
