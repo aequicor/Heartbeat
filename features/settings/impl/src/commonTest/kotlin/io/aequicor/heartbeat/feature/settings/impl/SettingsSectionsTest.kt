@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.settings.impl
 
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningRoute
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlRoute
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeRoute
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRoute
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationRoute
@@ -32,6 +33,7 @@ class SettingsSectionsTest {
                 isModelsEnabled = true,
                 isSearchEnabled = true,
                 hasProfile = true,
+                isEnginesEnabled = true,
                 isComputerUseEnabled = true,
                 isChromiumBridgeEnabled = true,
                 isLearningEnabled = true,
@@ -48,6 +50,19 @@ class SettingsSectionsTest {
             listOf(SettingsSection.Search, SettingsSection.FeatureFlags),
             availableSections(isModelsEnabled = false, isSearchEnabled = true, hasProfile = true),
         )
+    }
+
+    @Test
+    fun `engines are offered only with engine management and an active profile and open embedded`() {
+        for (enabled in listOf(false, true)) {
+            for (profile in listOf(false, true)) {
+                val sections = availableSections(false, false, profile, isEnginesEnabled = enabled)
+                assertEquals(enabled && profile, SettingsSection.Engines in sections)
+            }
+        }
+        assertEquals(EngineControlRoute(isEmbedded = true), SettingsSection.Engines.route())
+        assertEquals("engines", SettingsSection.Engines.deepLinkName)
+        assertEquals(SettingsSection.Engines, all[all.indexOf(SettingsSection.Models) + 1])
     }
 
     @Test

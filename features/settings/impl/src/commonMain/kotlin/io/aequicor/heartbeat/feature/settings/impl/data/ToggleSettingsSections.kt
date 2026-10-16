@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningEnabled
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementEnabled
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeEnabled
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationEnabled
@@ -24,6 +25,7 @@ import kotlinx.coroutines.flow.onStart
 
 /**
  * Sections gated like their former entry points: models and search are profile routes behind their own toggles
+ * (engines behind engine management)
  * and need an active profile (the guest tree cannot show them); feature flags are always available, as the flag
  * panel was.
  */
@@ -31,7 +33,7 @@ import kotlinx.coroutines.flow.onStart
 @ContributesBinding(SettingsScope::class)
 internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: ProfileSessions) : SettingsSections {
     override val available: Flow<ImmutableList<SettingsSection>> = combine(
-        toggles.observe(EngineConnectionsEnabled),
+        combine(toggles.observe(EngineConnectionsEnabled), toggles.observe(EngineManagementEnabled), ::Pair),
         toggles.observe(SearchEngineTools),
         combine(toggles.observe(ComputerUseEnabled), toggles.observe(ChromiumBridgeEnabled)) { computer, chromium ->
             computer to chromium
@@ -44,9 +46,10 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             toggles.observe(ServiceUiEnabled),
         ) { learning, harness, context, interfaces -> ProfileSections(learning, harness, context, interfaces) },
         sessions.active,
-    ) { connections, search, (computerUse, chromium), profile, session ->
+    ) { (connections, management), search, (computerUse, chromium), profile, session ->
         availableSections(
             isModelsEnabled = connections,
+            isEnginesEnabled = management,
             isSearchEnabled = search,
             hasProfile = session != null,
             isComputerUseEnabled = computerUse,

@@ -15,6 +15,10 @@ public enum class SettingsSection {
     @SerialName("models")
     Models,
 
+    /** The engine control panel: managing, updating and configuring each engine. */
+    @SerialName("engines")
+    Engines,
+
     /** Search providers of the profile. */
     @SerialName("search")
     Search,
@@ -81,6 +85,7 @@ public val UnifiedSettings: FeatureToggle.Flag = FeatureToggle.Flag(
 public val SettingsSection.deepLinkName: String
     get() = when (this) {
         SettingsSection.Models -> "models"
+        SettingsSection.Engines -> "engines"
         SettingsSection.Search -> "search"
         SettingsSection.ComputerUse -> "computer_use"
         SettingsSection.ChromiumBrowser -> "chromium_browser"

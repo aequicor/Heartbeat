@@ -2,6 +2,7 @@
     <string name="settings_title">Settings</string>
     <string name="settings_back">Back</string>
     <string name="settings_section_models">Models and engines</string>
+    <string name="settings_section_engines">Engines</string>
     <string name="settings_section_search">Search</string>
     <string name="settings_section_feature_flags">Feature flags</string>
     <string name="settings_section_computer_use">Computer use</string>

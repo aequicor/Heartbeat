@@ -16,6 +16,7 @@ internal fun availableSections(
     isModelsEnabled: Boolean,
     isSearchEnabled: Boolean,
     hasProfile: Boolean,
+    isEnginesEnabled: Boolean = false,
     isComputerUseEnabled: Boolean = false,
     isChromiumBridgeEnabled: Boolean = false,
     isLearningEnabled: Boolean = false,
@@ -26,6 +27,7 @@ internal fun availableSections(
     // Feature flags are device-local and need no profile; every other section needs its toggle and a profile.
     val isToggledOn = when (section) {
         SettingsSection.Models -> isModelsEnabled
+        SettingsSection.Engines -> isEnginesEnabled
         SettingsSection.Search -> isSearchEnabled
         SettingsSection.ComputerUse -> isComputerUseEnabled
         SettingsSection.ChromiumBrowser -> isChromiumBridgeEnabled
