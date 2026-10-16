@@ -171,7 +171,8 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
             SandboxBuild(
                 snapshot = "",
                 pool = data.resolve(SLOT_POOL).toString(),
-                repository = record.directory,
+                // The original checkout outlives the task, so slots stay creatable after the sandbox is removed.
+                repository = record.sourceDirectory,
                 relativeDirectory = Path.of(record.directory).toRealPath().relativize(directory).toString()
                     .ifEmpty { "." },
                 affinity = record.provisioning,
@@ -199,6 +200,29 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
         Unit
     }
 
+    override suspend fun discardSnapshot(record: WorktreeRecord, id: String) = withContext(dispatchers.io) {
+        require(id.matches(IDENTIFIER)) { "InvalidBuildIdentity" }
+        gitOptional(record.sourceDirectory, "update-ref", "-d", "$SNAPSHOT_REFS$id")
+        Unit
+    }
+
+    override suspend fun pruneSnapshots(record: WorktreeRecord, active: Set<String>) = withContext(dispatchers.io) {
+        val listing = gitOptional(
+            record.sourceDirectory,
+            "for-each-ref",
+            "--format=%(refname) %(committerdate:unix)",
+            SNAPSHOT_REFS,
+        ) ?: return@withContext
+        val cutoff = System.currentTimeMillis() / MILLIS_PER_SECOND - SNAPSHOT_GRACE_SECONDS
+        val stale = listing.lineSequence().mapNotNull { line ->
+            val (ref, time) = line.split(' ').takeIf { it.size == 2 } ?: return@mapNotNull null
+            val id = ref.removePrefix(SNAPSHOT_REFS)
+            ref.takeIf { id.matches(IDENTIFIER) && id !in active && (time.toLongOrNull() ?: 0) < cutoff }
+        }.toList()
+        stale.forEach { gitOptional(record.sourceDirectory, "update-ref", "-d", it) }
+        if (stale.isNotEmpty()) log.i { "Pruned stale sandbox snapshots count=${stale.size}" }
+    }
+
     override suspend fun snapshot(record: WorktreeRecord, id: String): String = withContext(dispatchers.io) {
         require(id.matches(IDENTIFIER)) { "InvalidBuildIdentity" }
         check(record.task.isSandbox && exists(record)) { "SandboxUnavailable" }
@@ -215,7 +239,9 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
             val environment = mapOf("GIT_INDEX_FILE" to index.toString()) + SNAPSHOT_IDENTITY
             git(record.directory, "add", "--all", environment = environment)
             val tree = git(record.directory, "write-tree", environment = environment)
-            val head = git(record.directory, "rev-parse", "--verify", "HEAD^{commit}")
+            val head = checkNotNull(gitOptional(record.directory, "rev-parse", "--verify", "HEAD^{commit}")) {
+                "SandboxBaseUnavailable"
+            }
             val commit = git(
                 record.directory,
                 "commit-tree",
@@ -226,7 +252,7 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
                 "Heartbeat sandbox snapshot",
                 environment = environment,
             )
-            git(record.directory, "update-ref", "$SNAPSHOT_REFS$id", commit)
+            git(record.sourceDirectory, "update-ref", "$SNAPSHOT_REFS$id", commit)
             log.d { "Sandbox snapshot captured operation=$id" }
             commit
         } finally {
@@ -493,6 +519,10 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
         const val BRANCH_PREFIX = "heartbeat/worktree-"
         const val SLOT_POOL = "slots"
         const val SNAPSHOT_REFS = "refs/heartbeat/snapshots/"
+
+        /** Another profile may still queue a build of an older snapshot; a day covers any build timeout. */
+        const val SNAPSHOT_GRACE_SECONDS = 86_400L
+        const val MILLIS_PER_SECOND = 1_000L
 
         /** Snapshots are private build inputs and must not depend on a configured user identity. */
         val SNAPSHOT_IDENTITY = mapOf(

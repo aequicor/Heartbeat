@@ -55,7 +55,9 @@ private class WorkerRuntime(private val job: Path, private val execution: BuildE
     private val descendants = ConcurrentHashMap<Long, ProcessHandle>()
     private val child = java.util.concurrent.atomic.AtomicReference<Process?>()
     private val captured = BoundedBuildOutput()
-    private val startedAt = System.nanoTime()
+
+    // A sandbox build restarts the command timeout after its slot is prepared.
+    private var startedAt = System.nanoTime()
     private val shutdown = Thread({ terminateTree(child.get(), descendants) }, "heartbeat-build-shutdown")
 
     fun run() {
@@ -90,22 +92,38 @@ private class WorkerRuntime(private val job: Path, private val execution: BuildE
         }
     }
 
-    /** A sandbox build first moves its locked slot to the snapshot; failure ends the build before the command. */
+    /**
+     * A sandbox build first moves its locked slot to the snapshot; failure ends the build before the command.
+     * Cancellation and parent loss stay observable while Git runs.
+     */
     private fun syncSlot(): Boolean {
         val sandbox = execution.sandbox ?: return true
         publish(WorktreeBuildPhase.Running)
         return try {
-            captured.append(prepareSlot(sandbox))
+            captured.append(prepareSlot(sandbox) { stopped()?.takeUnless { it == "BuildTimedOut" } })
+            startedAt = System.nanoTime()
             true
+        } catch (error: SlotPreparationStopped) {
+            workerLog.w(error) { "Build slot preparation stopped" }
+            publishStopped(error.reason)
+            false
         } catch (error: IllegalStateException) {
-            workerLog.w(error) { "Build slot could not be prepared" }
-            publish(WorktreeBuildPhase.Failed, failure = "SlotPreparationFailed")
-            false
+            // IO messages may contain filesystem paths, so only the exception type is logged.
+            workerLog.w(IllegalStateException("SlotPreparationFailed (${error::class.simpleName.orEmpty()})")) {
+                "Build slot could not be prepared"
+            }
+            slotFailed()
         } catch (error: java.io.IOException) {
-            workerLog.w(error) { "Build slot could not be prepared" }
-            publish(WorktreeBuildPhase.Failed, failure = "SlotPreparationFailed")
-            false
+            workerLog.w(IllegalStateException("SlotPreparationFailed (${error::class.simpleName.orEmpty()})")) {
+                "Build slot could not be prepared"
+            }
+            slotFailed()
         }
+    }
+
+    private fun slotFailed(): Boolean {
+        publish(WorktreeBuildPhase.Failed, failure = "SlotPreparationFailed")
+        return false
     }
 
     private fun acquireLocks(): Boolean {

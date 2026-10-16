@@ -77,7 +77,6 @@ internal class WorktreeJournal(
         val saved = mutex.withLock { read() }
         saved.values.forEach { record ->
             reconcile(record.task.chatId, restart = true)
-            reclaimOutputs(record.task.chatId)
         }
         return mutex.withLock { read().mapValues { it.value.task } }
     }
@@ -98,6 +97,10 @@ internal class WorktreeJournal(
     }
 
     suspend fun observeWorkers(emit: suspend (WorktreeTask) -> Unit) {
+        val restored = mutex.withLock { read().values.toList() }
+        // Sandbox upkeep runs after Loaded is published, so restoration is never delayed by Git.
+        restored.forEach { reclaimOutputs(it.task.chatId) }
+        pruneSandboxSnapshots(git, restored)
         val saved = mutex.withLock { read().values.toList() }
         observeRecords(saved, emit)
     }
@@ -150,30 +153,10 @@ internal class WorktreeJournal(
         command.chatId()?.let { reclaimOutputs(it) }
     }
 
-    /**
-     * A retained sandbox keeps only sources: ignored outputs left by native agent builds are removed once, and the
-     * marker resets when the task resumes work.
-     */
+    /** See [reclaimRetainedSandbox]; the task's preparation lock guards the cleanup. */
     private suspend fun reclaimOutputs(chatId: String) {
-        val current = record(chatId) ?: return
-        val isIdle = current.task.phase == WorktreePhase.Retained && !current.task.hasActiveBuilds()
-        when {
-            !current.task.isSandbox || current.provisioning.isBlank() -> Unit
-
-            isIdle && !current.isOutputsReclaimed -> try {
-                git.reclaim(current)
-                markReclaimed(chatId, isReclaimed = true)
-                log.i { "Sandbox outputs reclaimed" }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                log.w(IllegalStateException("SandboxReclaimFailed (${error::class.simpleName.orEmpty()})")) {
-                    "Sandbox outputs remain until the next retained check"
-                }
-            }
-
-            !isIdle && current.isOutputsReclaimed -> markReclaimed(chatId, isReclaimed = false)
-        }
+        val lock = mutex.withLock { preparations.getOrPut(chatId) { Mutex() } }
+        reclaimRetainedSandbox(git, lock, { record(chatId) }) { markReclaimed(chatId, it) }
     }
 
     /** Path-side bookkeeping only: the visible task and its revision stay unchanged. */
@@ -599,7 +582,25 @@ internal class WorktreeJournal(
             val sandbox = prepared.sandbox ?: return@let prepared
             prepared.copy(sandbox = sandbox.copy(snapshot = git.snapshot(current, command.operation)))
         }
-        val queued = update(command.chatId) {
+        val queued = try {
+            queueBuild(command, execution)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            if (execution.sandbox != null) git.discardSnapshot(current, command.operation)
+            throw error
+        }
+        queued?.let { emit(it.task) }
+        val accepted = checkNotNull(queued?.jobs?.get(command.operation))
+        val projection = coroutineContext
+        val result = builds.execute(accepted) { build ->
+            project(projection) { buildUpdate(command.chatId, build)?.let { emit(it.task) } }
+        }
+        buildUpdate(command.chatId, result)?.let { emit(it.task) }
+    }
+
+    private suspend fun queueBuild(command: WorktreeIntent.Public.RunBuild, execution: BuildExecution) =
+        update(command.chatId) {
             check(
                 it.task.buildConfigurationRevision == command.expectedConfigurationRevision,
             ) { "BuildConfigurationChanged" }
@@ -620,14 +621,6 @@ internal class WorktreeJournal(
                 jobs = it.jobs + (command.operation to immutable),
             )
         }
-        queued?.let { emit(it.task) }
-        val accepted = checkNotNull(queued?.jobs?.get(command.operation))
-        val projection = coroutineContext
-        val result = builds.execute(accepted) { build ->
-            project(projection) { buildUpdate(command.chatId, build)?.let { emit(it.task) } }
-        }
-        buildUpdate(command.chatId, result)?.let { emit(it.task) }
-    }
 
     private suspend fun buildUpdate(chatId: String, build: WorktreeBuildOperation): WorktreeRecord? = update(chatId) {
         if (build.id !in it.task.builds) return@update it

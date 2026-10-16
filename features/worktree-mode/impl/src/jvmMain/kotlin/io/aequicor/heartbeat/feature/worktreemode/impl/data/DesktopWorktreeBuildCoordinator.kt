@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildOperation
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPhase
 import io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.WorkerState
+import io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.releaseSnapshot
 import io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.resourceLockKey
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -21,6 +22,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.nio.file.Path
@@ -59,7 +61,9 @@ internal class DesktopWorktreeBuildCoordinator(
         isReattachment: Boolean,
         update: suspend (WorktreeBuildOperation) -> Unit,
     ): WorktreeBuildOperation {
-        val job = enqueue(execution, isReattachment, update)
+        val adopted = if (isReattachment) adoptedSlot(execution) else execution
+        if (adopted == null) return execution.operation(WorktreeBuildPhase.Unknown, "WorkerOutcomeUnknown")
+        val job = enqueue(adopted, isReattachment, update)
         // Only the waiter is cancelled; an accepted job belongs to the app/worker until explicit cancellation.
         return job.result.await()
     }
@@ -84,11 +88,7 @@ internal class DesktopWorktreeBuildCoordinator(
         isReattachment: Boolean = false,
         update: suspend (WorktreeBuildOperation) -> Unit,
     ): Job = mutex.withLock {
-        jobs[execution.id]?.also { it.update.set(update) } ?: Job(
-            if (isReattachment) adoptedSlot(execution) else execution,
-            update,
-            isReattachment,
-        ).also {
+        jobs[execution.id]?.also { it.update.set(update) } ?: Job(execution, update, isReattachment).also {
             jobs[execution.id] = it
             if (isReattachment) launchJob(it) else waiting += it
             admit()
@@ -100,6 +100,7 @@ internal class DesktopWorktreeBuildCoordinator(
             val found = jobs[id] ?: return@withLock null
             if (waiting.remove(found)) {
                 found.result.complete(found.execution.operation(WorktreeBuildPhase.Cancelled))
+                releaseUnstartedSnapshot(found.execution)
                 found.started.completeExceptionally(IllegalStateException("LeaseCancelled"))
                 jobs.remove(id)
                 admit()
@@ -192,6 +193,7 @@ internal class DesktopWorktreeBuildCoordinator(
                 job.result.complete(job.execution.operation(WorktreeBuildPhase.Unknown, "WorkerMonitoringFailed"))
                 job.started.completeExceptionally(IllegalStateException("WorkerMonitoringFailed"))
             } finally {
+                releaseUnstartedSnapshot(job.execution)
                 if (!job.result.isCompleted) job.result.cancel()
                 if (!job.started.isCompleted) job.started.cancel()
                 withContext(NonCancellable) {
@@ -202,6 +204,13 @@ internal class DesktopWorktreeBuildCoordinator(
                 }
             }
         }
+    }
+
+    /** A sandbox build whose worker never started still owns its snapshot ref; the worker releases it otherwise. */
+    private fun releaseUnstartedSnapshot(execution: BuildExecution) {
+        val sandbox = execution.sandbox ?: return
+        if (Files.exists(Path.of(execution.jobDirectory).resolve("state.json"))) return
+        app.coroutineScope.launch(dispatchers.io) { releaseSnapshot(sandbox, execution.id) }
     }
 
     private suspend fun runWorker(job: Job): WorktreeBuildOperation {
@@ -291,14 +300,28 @@ internal class DesktopWorktreeBuildCoordinator(
         return listOf(packaged.toString(), "--heartbeat-worktree-build-worker", directory.toString())
     }
 
-    /** Reattached sandbox workers keep the slot recorded in their private job file. */
-    private fun adoptedSlot(execution: BuildExecution): BuildExecution {
-        if (execution.sandbox == null) return execution
+    /**
+     * Reattached sandbox workers keep the slot recorded in their private job file. An unreadable or foreign job
+     * file yields null: the outcome is unknown and no other reattachment is affected.
+     */
+    private suspend fun adoptedSlot(execution: BuildExecution): BuildExecution? = withContext(dispatchers.io) {
         val file = Path.of(execution.jobDirectory).resolve("job.json")
-        if (!Files.isRegularFile(file)) return execution
-        val recorded = Json.decodeFromString<BuildExecution>(Files.readString(file))
-        check(recorded.id == execution.id && recorded.sandbox?.slot != null) { "InvalidWorkerIdentity" }
-        return recorded
+        if (execution.sandbox == null || !Files.isRegularFile(file)) return@withContext execution
+        try {
+            Json.decodeFromString<BuildExecution>(Files.readString(file)).takeIf {
+                it.id == execution.id && it.sandbox?.slot != null
+            }
+        } catch (error: SerializationException) {
+            log.w(IllegalStateException("InvalidWorkerJob (${error::class.simpleName.orEmpty()})")) {
+                "Reattached sandbox job file is unreadable"
+            }
+            null
+        } catch (error: java.io.IOException) {
+            log.w(IllegalStateException("InvalidWorkerJob (${error::class.simpleName.orEmpty()})")) {
+                "Reattached sandbox job file is unreadable"
+            }
+            null
+        }
     }
 
     private class Job(

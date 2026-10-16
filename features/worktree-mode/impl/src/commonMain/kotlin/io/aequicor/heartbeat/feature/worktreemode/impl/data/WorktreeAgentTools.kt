@@ -132,11 +132,18 @@ internal class WorktreeAgentTools(
     ): AgentToolApproval {
         val command = arguments["command"]?.jsonPrimitive?.content ?: return approval(spec, arguments)
         val execution = journal.buildPreview(context, command) ?: return approval(spec, arguments)
+        // A sandbox command runs from a snapshot in a shared slot that keeps outputs of other tasks' builds.
+        val location = execution.sandbox?.let { sandbox ->
+            "Runs from a snapshot of the sandbox's current files in a shared warm build slot " +
+                "(created with git worktree add on first use).\n" +
+                "Slot pool: ${approvalJson.encodeToString(sandbox.pool)}\n" +
+                "Directory inside the slot: ${approvalJson.encodeToString(sandbox.relativeDirectory)}\n"
+        } ?: "Working directory: ${approvalJson.encodeToString(execution.directory)}\n"
         return reviewableApproval(
             spec,
             "Run build",
             "Configuration revision=${execution.configurationRevision}\n" +
-                "Working directory: ${approvalJson.encodeToString(execution.directory)}\n" +
+                location +
                 "Command: ${approvalJson.encodeToString(execution.command)}\n" +
                 "Exclusive resources: ${approvalJson.encodeToString(execution.resources)}",
             binding = execution.configurationRevision.toString(),

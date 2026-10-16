@@ -369,6 +369,44 @@ class WorktreeJournalTest {
     }
 
     @Test
+    fun `a sandbox snapshot whose build cannot be queued is discarded`() = runTest {
+        val fixture = Fixture()
+        fixture.toggles.isSandbox = true
+        fixture.completeCoding()
+        fixture.send(WorktreeIntent.Public.RunStarted(CHAT, RequestId("build-turn")))
+        fixture.send(WorktreeIntent.Public.RunAccepted(CHAT, RequestId("build-turn"), SESSION, MERGE_TURN))
+        val plan = WorktreeBuildPlan("test", listOf(WorktreeBuildCommand("test", "build")))
+        fixture.send(WorktreeIntent.Public.ProposeBuildPlan(CHAT, plan))
+        val started = CompletableDeferred<Unit>()
+        val proceed = CompletableDeferred<Unit>()
+        fixture.git.buildStarted = started
+        fixture.git.buildGate = proceed
+        val pending = async {
+            assertFailsWith<IllegalStateException> {
+                fixture.send(WorktreeIntent.Public.RunBuild(CHAT, "build", "test", 1, BUILD_IDENTITY))
+            }
+        }
+        started.await()
+        fixture.send(WorktreeIntent.Public.ProposeBuildPlan(CHAT, plan))
+        proceed.complete(Unit)
+        assertEquals("BuildConfigurationChanged", pending.await().message)
+        assertEquals(listOf("build"), fixture.git.discarded)
+        assertEquals(0, fixture.builds.executeCount)
+    }
+
+    @Test
+    fun `restoration prunes snapshot refs of repositories with sandbox tasks keeping active builds`() = runTest {
+        val fixture = Fixture()
+        fixture.toggles.isSandbox = true
+        fixture.completeCoding()
+        val restored = fixture.reopen()
+        restored.load()
+        assertEquals(emptyList(), fixture.git.pruned)
+        restored.observeWorkers {}
+        assertEquals(listOf(emptySet<String>()), fixture.git.pruned)
+    }
+
+    @Test
     fun `changing configuration during command preparation invalidates the approved revision atomically`() = runTest {
         val fixture = Fixture()
         fixture.completeCoding()
@@ -533,6 +571,14 @@ class WorktreeJournalTest {
             )
         }
         var reclaimCount = 0
+        val discarded = mutableListOf<String>()
+        val pruned = mutableListOf<Set<String>>()
+        override suspend fun discardSnapshot(record: WorktreeRecord, id: String) {
+            discarded += id
+        }
+        override suspend fun pruneSnapshots(record: WorktreeRecord, active: Set<String>) {
+            pruned += active
+        }
         override suspend fun reclaim(record: WorktreeRecord) {
             reclaimCount++
         }

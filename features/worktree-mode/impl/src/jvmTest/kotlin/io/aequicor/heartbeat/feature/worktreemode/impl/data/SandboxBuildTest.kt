@@ -51,7 +51,7 @@ class SandboxBuildTest {
             val execution = git.build(record, "operation-1", "compile")
             val target = assertNotNull(execution.sandbox)
             assertFalse(record.commonDirectory in execution.resources)
-            assertEquals(record.directory, target.repository)
+            assertEquals(record.sourceDirectory, target.repository)
             assertEquals(record.provisioning, target.affinity)
             assertEquals(".", target.relativeDirectory)
 
@@ -121,6 +121,62 @@ class SandboxBuildTest {
         }
     }
 
+    @Test
+    fun `stale unowned snapshot refs are pruned while active and recent ones stay`() = runTest {
+        val root = repository()
+        val git = DesktopWorktreeGit(RealTestDispatchers)
+        try {
+            val record = sandbox(git, root)
+            git.snapshot(record, "active")
+            git.snapshot(record, "recent")
+            val tree = command(root, "git", "rev-parse", "HEAD^{tree}")
+            val old = command(
+                root,
+                "git",
+                "commit-tree",
+                tree,
+                "-m",
+                "old",
+                environment = mapOf("GIT_COMMITTER_DATE" to "2000-01-01T00:00:00+0000"),
+            )
+            command(root, "git", "update-ref", "refs/heartbeat/snapshots/stale", old)
+            command(root, "git", "update-ref", "refs/heartbeat/snapshots/stale-active", old)
+
+            git.pruneSnapshots(record, active = setOf("active", "stale-active"))
+
+            val refs = command(root, "git", "for-each-ref", "--format=%(refname)", "refs/heartbeat/snapshots/")
+            assertEquals(
+                setOf("active", "recent", "stale-active").map { "refs/heartbeat/snapshots/$it" }.toSet(),
+                refs.lines().toSet(),
+            )
+            git.discardSnapshot(record, "recent")
+            assertFalse("snapshots/recent" in command(root, "git", "show-ref"))
+        } finally {
+            removeTestTree(root)
+        }
+    }
+
+    @Test
+    fun `a slot can still be created after the sandbox checkout is removed`() = runTest {
+        val root = repository()
+        val git = DesktopWorktreeGit(RealTestDispatchers)
+        try {
+            val record = sandbox(git, root)
+            Files.writeString(Path.of(record.directory).resolve("source.txt"), "kept in the snapshot")
+            val snapshot = git.snapshot(record, "operation-1")
+            val target = checkNotNull(git.build(record, "operation-1", "compile").sandbox)
+                .copy(snapshot = snapshot, slot = 0)
+            command(root, "git", "worktree", "remove", "--force", record.directory)
+
+            prepareSlot(target)
+
+            val slot = slotDirectory(target.pool, 0)
+            assertEquals("kept in the snapshot", Files.readString(slot.resolve("source.txt")))
+        } finally {
+            removeTestTree(root)
+        }
+    }
+
     private suspend fun sandbox(git: DesktopWorktreeGit, root: Path): WorktreeRecord {
         val plan = git.plan(root.toString(), "sandbox-test")
         val record = WorktreeRecord(
@@ -158,8 +214,13 @@ class SandboxBuildTest {
         return directory
     }
 
-    private fun command(directory: Path, vararg arguments: String): String {
-        val process = ProcessBuilder(arguments.toList()).directory(directory.toFile()).redirectErrorStream(true).start()
+    private fun command(
+        directory: Path,
+        vararg arguments: String,
+        environment: Map<String, String> = emptyMap(),
+    ): String {
+        val process = ProcessBuilder(arguments.toList()).directory(directory.toFile()).redirectErrorStream(true)
+            .apply { environment().putAll(environment) }.start()
         val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
         check(process.waitFor() == 0) { "Test command failed: $output" }
         return output

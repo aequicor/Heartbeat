@@ -94,6 +94,15 @@ internal interface SandboxGit {
 
     /** Removes ignored files (outputs of native builds the agent ran anyway) from a sandbox that no longer works. */
     suspend fun reclaim(record: WorktreeRecord) = Unit
+
+    /** Deletes the private ref of a snapshot whose build was never queued. */
+    suspend fun discardSnapshot(record: WorktreeRecord, id: String) = Unit
+
+    /**
+     * Deletes snapshot refs of the record's repository that no [active] operation owns and that are older than a
+     * grace period, so a build queued by another profile keeps its input.
+     */
+    suspend fun pruneSnapshots(record: WorktreeRecord, active: Set<String>) = Unit
 }
 
 /** Desktop-only Git/filesystem primitives; errors carry safe codes rather than process output. */
