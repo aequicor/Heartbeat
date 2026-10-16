@@ -63,8 +63,10 @@ class DesktopCommandRunnerTest {
 
     @Test
     fun `local command arguments and native exit codes survive stderr`() = runTest {
+        // The Windows Java launcher converts argv through CP_ACP; Windows-1252 cannot encode U+201B.
+        val typographicQuotes = if (isWindows) "\u2019\u2018\u201A" else "\u2019\u2018\u201A\u201B"
         val words = listOf(
-            "it's", "\$HOME", "a;b", "a=b", "number,title", "*", "two words", "C:\\dir\\", "\u2019\u2018\u201A\u201B",
+            "it's", "\$HOME", "a;b", "a=b", "number,title", "*", "two words", "C:\\dir\\", typographicQuotes,
         )
         val workspace = WorkspaceRef("local")
         val commands = RunnerLocalCommands(runner, Projects(mapOf(workspace to directory)))
