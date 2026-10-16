@@ -47,6 +47,8 @@ import io.aequicor.heartbeat.feature.harness.impl.resources.harness_attachments_
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_busy
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_cancel
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_conflict
+import io.aequicor.heartbeat.feature.harness.impl.resources.harness_default_new_sessions
+import io.aequicor.heartbeat.feature.harness.impl.resources.harness_default_new_sessions_hint
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_delete
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_delete_text
 import io.aequicor.heartbeat.feature.harness.impl.resources.harness_delete_title
@@ -182,6 +184,18 @@ private fun HeaderSection(
                 { onIntent(HarnessDetailIntent.SetEnabled(it)) },
                 stringResource(Res.string.harness_use, state.title.ifEmpty { state.name }),
                 Modifier.testTag("harness-detail-enabled"),
+            )
+        }
+        HbSettingsRow(
+            stringResource(Res.string.harness_default_new_sessions),
+            Modifier.fillMaxWidth(),
+            description = stringResource(Res.string.harness_default_new_sessions_hint),
+        ) {
+            HbSwitch(
+                state.isDefaultForNewSessions,
+                { onIntent(HarnessDetailIntent.SetDefaultForNewSessions(it)) },
+                stringResource(Res.string.harness_default_new_sessions),
+                Modifier.testTag("harness-detail-default-new-sessions"),
             )
         }
         HbRow(gap = HbTheme.spacing.s) {
@@ -409,6 +423,7 @@ private val previewState = HarnessDetailState(
     title = "Compose UI",
     description = "Native Compose screens with the design system",
     isEnabled = true,
+    isDefaultForNewSessions = true,
     attachments = persistentListOf(AttachmentUi("a", "claude · 7f3a91c2")),
     items = persistentListOf(
         ItemRowUi("1", "tokens", ItemKindUi.Instruction, "Use only tokens", true, ItemStatusUi.None),
