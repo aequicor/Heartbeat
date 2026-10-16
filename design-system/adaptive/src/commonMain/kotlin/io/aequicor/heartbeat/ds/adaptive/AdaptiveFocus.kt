@@ -17,11 +17,18 @@ import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalInputModeManager
+import androidx.compose.ui.platform.LocalWindowInfo
 import io.aequicor.heartbeat.ds.tokens.HbColors
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 
@@ -30,7 +37,9 @@ import io.aequicor.heartbeat.ds.tokens.HbDimensions
  * and any clipping modifier. Pointer presses suppress a control's ring until a key or new focus;
  * merely moving the pointer preserves keyboard focus. Text inputs always expose their active state:
  * outside macOS the field's own rounded edge takes an accent contour, so the highlight follows the
- * field instead of cutting a straight line across its corners.
+ * field instead of cutting a straight line across its corners. Modifier keys and system chords
+ * ([isFocusNavigation]) never reveal the ring: switching windows with Alt+Tab or Cmd+Tab leaves a
+ * pointer-focused control quiet, and so does the focus round trip of the window deactivation itself.
  */
 @Composable
 fun Modifier.adaptiveFocusOutline(
@@ -42,15 +51,15 @@ fun Modifier.adaptiveFocusOutline(
 ): Modifier {
     val inputMode = LocalInputModeManager.current
     var isPointerFocus by remember { mutableStateOf(false) }
+    val isWindowFocused = LocalWindowInfo.current.isWindowFocused
     SideEffect(isFocused) {
-        if (!isFocused) isPointerFocus = false
+        if (!isFocused && isWindowFocused) isPointerFocus = false
     }
     val isVisible = isFocused && (isTextInput || (!isPointerFocus && inputMode.inputMode == InputMode.Keyboard))
     val platform = LocalPlatformUi.current
-    return onPreviewKeyEvent {
+    return onFocusNavigation {
         isPointerFocus = false
         inputMode.requestInputMode(InputMode.Keyboard)
-        false
     }.pointerInput(Unit) {
         awaitPointerEventScope {
             while (true) {
@@ -64,6 +73,30 @@ fun Modifier.adaptiveFocusOutline(
         if (isVisible) drawFocusTreatment(platform, shape, colors, dimensions, isTextInput)
     }
 }
+
+private fun Modifier.onFocusNavigation(onKeyboard: () -> Unit): Modifier = onPreviewKeyEvent {
+    if (it.isFocusNavigation()) onKeyboard()
+    false
+}
+
+/**
+ * Whether a key event is keyboard work on the focused control. Bare modifier presses and chords with
+ * Alt, Ctrl or Meta (window switching, shortcuts) are not: they never move focus inside the window.
+ */
+internal fun KeyEvent.isFocusNavigation(): Boolean = !isAltPressed && !isCtrlPressed && !isMetaPressed && key !in ModifierKeys
+
+private val ModifierKeys = setOf(
+    Key.AltLeft,
+    Key.AltRight,
+    Key.CtrlLeft,
+    Key.CtrlRight,
+    Key.MetaLeft,
+    Key.MetaRight,
+    Key.ShiftLeft,
+    Key.ShiftRight,
+    Key.Function,
+    Key.CapsLock,
+)
 
 private fun DrawScope.drawFocusTreatment(
     platform: PlatformUi,
