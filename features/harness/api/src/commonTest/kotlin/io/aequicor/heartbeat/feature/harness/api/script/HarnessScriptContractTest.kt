@@ -89,7 +89,7 @@ class HarnessScriptContractTest {
         assertEquals(listOf<KClass<out HarnessEvent>>(SystemEvent.Started::class), subscribed)
         assertEquals(listOf(AgentToolAction.Command), actions)
         assertEquals(listOf(ItemName("prs")), methods)
-        assertEquals(4, HARNESS_API_VERSION)
+        assertEquals(5, HARNESS_API_VERSION)
     }
 
     @Test
@@ -99,6 +99,9 @@ class HarnessScriptContractTest {
             ScriptUiCall(JsonObject(mapOf("token" to JsonPrimitive(secret)))).toString(),
             ScriptUiResult.Value(JsonPrimitive(secret)).toString(),
             ScriptUiResult.Error(secret).toString(),
+            ScriptCommand(secret, listOf(secret)).toString(),
+            ScriptCommandResult.Exited(1, secret).toString(),
+            ScriptCommandResult.TimedOut(secret).toString(),
         )
         for (text in texts) assertFalse(secret in text, text)
     }
@@ -120,4 +123,5 @@ private class ContractScriptScope(
     override val scheduler: ScriptScheduler get() = error("unused")
     override val prompts: ScriptPrompts get() = error("unused")
     override val workflows: ScriptWorkflows get() = error("unused")
+    override val commands: ScriptCommands get() = error("unused")
 }
