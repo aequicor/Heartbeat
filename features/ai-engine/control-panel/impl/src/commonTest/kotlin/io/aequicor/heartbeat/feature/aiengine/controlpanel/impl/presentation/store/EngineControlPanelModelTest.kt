@@ -5,12 +5,21 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.ControlOperation
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlIntent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlOutput
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlState
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ControlTestData
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigDocument
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigEdit
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigValues
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigurationState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -96,4 +105,72 @@ class EngineControlPanelModelTest {
             machine.sent.drop(1),
         )
     }
+
+    @Test
+    fun `pages open and close and an unknown page stays closed`() = runTest {
+        machine.state.value = configured(ConfigRevision(0))
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(ConfigIntent.OpenPage("missing"))
+        runCurrent()
+        assertEquals(null, screen.states.value.openPage)
+
+        model.store.intent(ConfigIntent.OpenPage("network"))
+        runCurrent()
+        assertEquals("network", screen.states.value.openPage)
+        model.store.intent(ConfigIntent.ClosePage)
+        runCurrent()
+        assertEquals(null, screen.states.value.openPage)
+    }
+
+    @Test
+    fun `an edited configuration is saved against the revision it was read at`() = runTest {
+        machine.state.value = configured(ConfigRevision(2))
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(ConfigIntent.EditField("retries", FieldInputUi.Number("3")))
+        runCurrent()
+        assertEquals(true, screen.states.value.config?.canSave)
+
+        model.store.intent(ConfigIntent.SaveConfig)
+        runCurrent()
+
+        val values = EngineConfigValues(
+            mapOf(ControlTestData.settings to ConfigDocument.Json(buildJsonObject { put("retry", 3) })),
+        )
+        val save = ControlOperation.SaveProfile(CodexId, ConfigEdit(values), ConfigRevision(2))
+        assertEquals(
+            listOf(EngineControlIntent.Public.Apply(save)),
+            machine.sent.filterIsInstance<EngineControlIntent.Public.Apply>(),
+        )
+        assertEquals(true, screen.states.value.config?.isSubmitted)
+
+        machine.state.value = configured(ConfigRevision(3), values)
+        runCurrent()
+        assertEquals(null, screen.states.value.configDraft)
+        assertEquals(false, screen.states.value.config?.isDirty)
+        val retries = screen.states.value.config?.pages?.single()?.sections?.single()?.fields?.single()
+        assertEquals(FieldEditorUi.Number("3", null, 0, null, null), retries?.editor)
+    }
+
+    @Test
+    fun `a discarded draft shows the saved configuration again`() = runTest {
+        machine.state.value = configured(ConfigRevision(0))
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(ConfigIntent.EditField("retries", FieldInputUi.Number("3")))
+        model.store.intent(ConfigIntent.DiscardConfig)
+        runCurrent()
+
+        assertEquals(null, screen.states.value.configDraft)
+        assertEquals(false, screen.states.value.config?.isDirty)
+    }
+
+    private fun configured(revision: ConfigRevision, values: EngineConfigValues = EngineConfigValues()) =
+        (managedSnapshot() as EngineControlState.Active).let { active ->
+            val config = EngineConfigState(CodexId, ControlTestData.schema, values, revision)
+            active.copy(
+                snapshot = active.snapshot?.copy(configuration = EngineConfigurationState(true, listOf(config))),
+            )
+        }
 }

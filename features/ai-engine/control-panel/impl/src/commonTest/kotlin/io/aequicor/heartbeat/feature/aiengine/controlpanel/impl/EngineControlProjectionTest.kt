@@ -97,7 +97,7 @@ class EngineControlProjectionTest {
         assertEquals(FailureUi.Network, EngineControlPanelState("x").reflect(pi, failed).failure)
 
         val config = observed.copy(failed = FailedOperation(restart, ControlFailure.Config(ConfigFailure.Conflict)))
-        assertEquals(FailureUi.Unknown, EngineControlPanelState("x").reflect(pi, config).failure)
+        assertEquals(FailureUi.ConfigConflict, EngineControlPanelState("x").reflect(pi, config).failure)
         assertEquals(null, EngineControlPanelState("x").reflect(pi, observed).failure)
     }
 }

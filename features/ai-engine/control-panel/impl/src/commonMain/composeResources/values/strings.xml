@@ -172,6 +172,12 @@
     <string name="control_failure_connection_changed">The connection credentials changed or do not match the engine. Check the provider and authentication method, then connect it again.</string>
     <string name="control_failure_quota">The provider quota is exhausted. Check your subscription and remaining allowance in the provider account, or choose another connection.</string>
     <string name="control_failure_unknown">Something went wrong. Try again.</string>
+    <string name="control_failure_config_invalid">The settings have errors. Fix the marked values and save again.</string>
+    <string name="control_failure_config_conflict">The settings were changed elsewhere. Discard your changes to see the current settings.</string>
+    <string name="control_failure_project_unavailable">The project folder is unavailable. Check that it exists and can be read.</string>
+    <string name="control_failure_native_missing">No settings of this engine were found on this computer.</string>
+    <string name="control_failure_config_storage">Could not save the settings. Check free disk space and try again.</string>
+    <string name="control_failure_config_unsupported">This engine cannot be configured on this device.</string>
     <string name="control_dismiss">Dismiss</string>
     <string name="control_cancel">Cancel</string>
     <string name="control_probe">Check installation</string>

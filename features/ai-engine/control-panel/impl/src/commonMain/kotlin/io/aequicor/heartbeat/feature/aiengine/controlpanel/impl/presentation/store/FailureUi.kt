@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store
 
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 
@@ -15,6 +16,12 @@ enum class FailureUi {
     EngineUnavailable,
     Access,
     Rejected,
+    ConfigInvalid,
+    ConfigConflict,
+    ProjectUnavailable,
+    NativeMissing,
+    ConfigStorage,
+    ConfigUnsupported,
     Unknown,
 }
 
@@ -45,4 +52,13 @@ internal fun EngineFailure.toUi(): FailureUi = when (this) {
     is EngineFailure.ContextLimitExceeded, is EngineFailure.Session, is EngineFailure.History,
     is EngineFailure.Lifecycle, is EngineFailure.Unknown,
     -> FailureUi.Unknown
+}
+
+internal fun ConfigFailure.toUi(): FailureUi = when (this) {
+    is ConfigFailure.Invalid -> FailureUi.ConfigInvalid
+    ConfigFailure.Conflict -> FailureUi.ConfigConflict
+    ConfigFailure.ProjectUnavailable -> FailureUi.ProjectUnavailable
+    ConfigFailure.NativeMissing -> FailureUi.NativeMissing
+    ConfigFailure.Storage -> FailureUi.ConfigStorage
+    ConfigFailure.Unsupported -> FailureUi.ConfigUnsupported
 }

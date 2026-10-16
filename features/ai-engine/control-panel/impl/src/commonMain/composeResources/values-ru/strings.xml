@@ -172,6 +172,12 @@
     <string name="control_failure_connection_changed">Данные подключения изменились или не подходят движку. Проверьте провайдера и способ авторизации, затем подключите его заново.</string>
     <string name="control_failure_quota">Квота провайдера исчерпана. Проверьте подписку и доступный лимит в кабинете провайдера или выберите другое подключение.</string>
     <string name="control_failure_unknown">Что-то пошло не так. Повторите попытку.</string>
+    <string name="control_failure_config_invalid">В настройках есть ошибки. Исправьте отмеченные значения и сохраните снова.</string>
+    <string name="control_failure_config_conflict">Настройки изменились в другом месте. Сбросьте свои изменения, чтобы увидеть текущие.</string>
+    <string name="control_failure_project_unavailable">Папка проекта недоступна. Проверьте, что она существует и её можно прочитать.</string>
+    <string name="control_failure_native_missing">Настройки этого движка на компьютере не найдены.</string>
+    <string name="control_failure_config_storage">Не удалось сохранить настройки. Проверьте свободное место на диске и повторите.</string>
+    <string name="control_failure_config_unsupported">Этот движок нельзя настроить на этом устройстве.</string>
     <string name="control_dismiss">Скрыть</string>
     <string name="control_cancel">Отмена</string>
     <string name="control_probe">Проверить установку</string>

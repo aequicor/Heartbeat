@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlInte
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlOutput
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlState
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.di.scope.EngineControlScope
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigEdit
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -55,6 +56,12 @@ data class EngineControlPanelState(
     /** The failure of the last operation, until dismissed. */
     val failure: FailureUi? = null,
     val pages: ImmutableList<PageItemUi> = persistentListOf(),
+    /** The page shown instead of the overview, or null. */
+    val openPage: String? = null,
+    /** The profile configuration form; null while engine configuration is off or the engine declares no schema. */
+    val config: ConfigFormUi? = null,
+    /** Unsaved changes of the profile configuration. */
+    val configDraft: ConfigDraft? = null,
     val isConfigurationOff: Boolean = false,
     val isLoading: Boolean = true,
     val isMissing: Boolean = false,
@@ -118,6 +125,52 @@ class EngineControlPanelModel(
             }
 
             is EngineManagementIntent.EngineRequest -> request(intent)
+
+            is ConfigIntent -> configure(intent)
+        }
+    }
+
+    // PipelineContext is FlowMVI's pipeline receiver (a CoroutineScope); store DSL functions extend it the same way.
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
+    private suspend fun PanelContext.configure(intent: ConfigIntent) {
+        when (intent) {
+            is ConfigIntent.OpenPage -> updateState {
+                copy(openPage = intent.page.takeIf { id -> config?.pages?.any { it.id == id } == true })
+            }
+
+            ConfigIntent.ClosePage -> updateState { copy(openPage = null) }
+
+            is ConfigIntent.EditField -> updateState {
+                val config = machine.state.value.configOf(engineId) ?: return@updateState this
+                copy(configDraft = config.edit(configDraft, intent.field, intent.input))
+                    .reflect(engineId, machine.state.value)
+            }
+
+            ConfigIntent.DiscardConfig -> updateState {
+                copy(configDraft = null).reflect(engineId, machine.state.value)
+            }
+
+            ConfigIntent.SaveConfig -> save()
+        }
+    }
+
+    // PipelineContext is FlowMVI's pipeline receiver (a CoroutineScope); store DSL functions extend it the same way.
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
+    private suspend fun PanelContext.save() {
+        var screen = EngineControlPanelState(engineId.value)
+        withState { screen = this }
+        val draft = screen.configDraft
+        val config = machine.state.value.configOf(engineId)
+        if (draft == null || config == null || screen.config?.canSave != true) {
+            log.w { "ignore a configuration save without savable changes" }
+            return
+        }
+        val save = ControlOperation.SaveProfile(engineId, ConfigEdit(config.schema.cleaned(draft.values)), draft.base)
+        // The draft stays until the saved revision changes, so a failed save keeps the edits to fix.
+        if (sendTo(machine, EngineControlIntent.Public.Apply(save)) == SendResult.Accepted) {
+            updateState {
+                copy(configDraft = configDraft?.copy(isSubmitted = true)).reflect(engineId, machine.state.value)
+            }
         }
     }
 
@@ -153,7 +206,9 @@ internal fun EngineControlPanelState.reflect(engine: EngineId, state: EngineCont
     )
     if (snapshot == null) return base.copy(panel = null, loginCode = "", confirmAction = null)
     val managed = snapshot.management.engines.firstOrNull { it.descriptor.id == engine }
-    val config = snapshot.configuration.engine(engine)
+    val config = snapshot.configuration.engine(engine)?.takeIf { snapshot.configuration.isEnabled }
+    val draft = configDraft.settle(config, active)
+    val form = config?.form(draft)
     val panel = managed?.takeIf { snapshot.management.isEnabled }
         ?.toPanel(launchDraft, snapshot.management.platform)
     return base.copy(
@@ -162,7 +217,10 @@ internal fun EngineControlPanelState.reflect(engine: EngineId, state: EngineCont
         launchDraft = launchDraft.takeIf { panel != null },
         loginCode = loginCode.takeIf { panel?.job?.phase is JobPhaseUi.AwaitingCode }.orEmpty(),
         confirmAction = confirmAction.takeIf { panel != null && panel.job?.isRunning != true },
-        pages = config?.schema?.pages.orEmpty().map { PageItemUi(it.id, it.title.toUi()) }.toImmutableList(),
+        pages = form?.pages.orEmpty().map { PageItemUi(it.id, it.title) }.toImmutableList(),
+        openPage = openPage.takeIf { id -> form?.pages?.any { it.id == id } == true },
+        config = form,
+        configDraft = draft,
         isConfigurationOff = !snapshot.configuration.isEnabled,
         isMissing = managed == null,
     )
@@ -171,5 +229,5 @@ internal fun EngineControlPanelState.reflect(engine: EngineId, state: EngineCont
 /** The panel's failure text of an operation failure. */
 internal fun ControlFailure.toUi(): FailureUi = when (this) {
     is ControlFailure.Engine -> failure.toUi()
-    is ControlFailure.Config -> FailureUi.Unknown
+    is ControlFailure.Config -> failure.toUi()
 }

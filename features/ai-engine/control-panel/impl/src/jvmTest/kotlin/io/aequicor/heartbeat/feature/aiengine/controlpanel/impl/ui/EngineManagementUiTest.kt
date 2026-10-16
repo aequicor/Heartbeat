@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.sto
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineActionUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelState
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineManagementIntent
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.FailureUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.InstallFailureUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.JobPhaseUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.KeyValueUi
@@ -203,6 +204,7 @@ class EngineManagementUiTest {
     fun `every phase and installation failure has a text`() {
         LaunchProblemReasonUi.entries.forEach { ProblemTexts.getValue(it) }
         InstallFailureUi.entries.forEach { InstallFailureTexts.getValue(it) }
+        FailureUi.entries.forEach { FailureMessages.getValue(it) }
         listOf(
             JobPhaseUi.Preparing, JobPhaseUi.Verifying, JobPhaseUi.Unpacking, JobPhaseUi.Checking,
             JobPhaseUi.Activating, JobPhaseUi.Removing, JobPhaseUi.AwaitingBrowser("https://x", null),
