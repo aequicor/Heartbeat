@@ -53,7 +53,9 @@ internal data class EntityDigests(val digests: List<EntityDigest>, val unreadabl
 /**
  * Turns trees into scanned units and profile entities into digests for [reconcile][io.aequicor.heartbeat.feature
  * .projectconfig.api.reconcile]. Entity encodings are cached by key, revision and unit name, so an unchanged entity
- * is encoded once. Texts are never logged.
+ * is encoded once. Checks of units are not cached here: a verdict depends on the owner's own state (for harnesses the
+ * catalogs of native tools), which only the owner can invalidate, and the costly part — compiling harness code — is
+ * memoized by the owner for the exact request. Texts are never logged.
  */
 internal class ConfigReader(private val provider: () -> Collection<ConfigSection>) {
     private val log = Log.tag("ConfigReader")
