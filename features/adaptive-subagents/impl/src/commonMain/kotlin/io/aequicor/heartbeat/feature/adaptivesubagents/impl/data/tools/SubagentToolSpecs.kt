@@ -56,7 +56,7 @@ internal val SpawnSpec = AgentToolSpec(
 
 internal val ReceiveSpec = AgentToolSpec(
     SubagentTools.RECEIVE,
-    "Read a bounded batch of complete results of this session; each result is returned once. " +
+    "Read a bounded batch of complete results of this session; cleanup retries may repeat a result. " +
         "Call again when more results remain unread. With " +
         "${Arguments.WAIT}=true and none finished yet, request a wake when one finishes. " +
         "End your turn only when the result confirms the wake; on refusal keep working and read results later.",

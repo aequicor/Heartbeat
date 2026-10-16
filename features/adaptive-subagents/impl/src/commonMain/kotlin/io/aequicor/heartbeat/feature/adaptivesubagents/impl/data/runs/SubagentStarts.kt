@@ -61,12 +61,16 @@ internal class SubagentStarts(
 
     /** State of a reserved run, including starts that have not reached the scheduler yet. */
     suspend fun status(run: SubagentRun): BackgroundAgentStatus {
-        if (gate.withLock { run.id in pending }) return BackgroundAgentStatus.Running
-        val status = agents.value.status(ActionId(run.id), SubagentTools.OWNER)
-        return if (status == BackgroundAgentStatus.Unknown) {
-            BackgroundAgentStatus.Finished(false, "Startup was interrupted before a scheduler action was retained.")
+        run.result?.let { return BackgroundAgentStatus.Finished(it.isCompleted, it.text) }
+        return if (gate.withLock { run.id in pending }) {
+            BackgroundAgentStatus.Running
         } else {
-            status
+            val status = agents.value.status(ActionId(run.id), SubagentTools.OWNER)
+            if (status == BackgroundAgentStatus.Unknown) {
+                BackgroundAgentStatus.Finished(false, "Startup was interrupted before a scheduler action was retained.")
+            } else {
+                status
+            }
         }
     }
 

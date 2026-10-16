@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.adaptivesubagents.api.SubagentTools
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.FakeToggles
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.data.runs.SubagentStarts
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.runs.MAX_SUBAGENT_RUNS
+import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.runs.SubagentResult
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.runs.SubagentRun
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.runs.SubagentRunStore
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.target
@@ -44,6 +45,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.SchedulerActions
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEnabled
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -203,6 +205,136 @@ class SubagentAgentToolsTest {
     }
 
     @Test
+    fun `a failed acknowledgement preserves all results for the next receive`() = runTest {
+        val f = Fixture(backgroundScope)
+        val answers = mapOf("first" to "First completed answer", "second" to "Second completed answer")
+        answers.forEach { (id, text) ->
+            assertTrue(f.runs.reserve(SubagentRun(id, session, "Title", "Model", startedAt = Instant.DISTANT_PAST)))
+            f.agents.statuses[ActionId(id)] = BackgroundAgentStatus.Finished(true, text)
+        }
+        f.agents.beforeAcknowledge = { id ->
+            if (id == ActionId("second")) error("Scheduler journal unavailable")
+        }
+        val interrupted = f.tools.execute(context, SubagentTools.RECEIVE, JsonObject(emptyMap()))
+        answers.values.forEach { assertTrue(it in interrupted.text, interrupted.text) }
+        assertEquals(listOf(ActionId("first")), f.agents.acknowledged)
+        f.agents.beforeAcknowledge = {}
+        val retried = f.tools.execute(context, SubagentTools.RECEIVE, JsonObject(emptyMap()))
+        answers.values.forEach { assertTrue(it in retried.text, retried.text) }
+        assertFalse("Startup was interrupted" in retried.text)
+        assertTrue(f.runs.list().isEmpty())
+    }
+
+    @Test
+    fun `an inbox removal failure preserves the acknowledged answer for the next receive`() = runTest {
+        val f = Fixture(backgroundScope)
+        val id = ActionId("completed")
+        val answer = "A completed answer that must survive an inbox write failure"
+        assertTrue(f.runs.reserve(SubagentRun(id.value, session, "Title", "Model", startedAt = Instant.DISTANT_PAST)))
+        f.agents.statuses[id] = BackgroundAgentStatus.Finished(true, answer)
+        f.runs.removeFailure = IllegalStateException("Inbox storage unavailable")
+        val interrupted = f.tools.execute(context, SubagentTools.RECEIVE, JsonObject(emptyMap()))
+        assertTrue(answer in interrupted.text, interrupted.text)
+        assertEquals(listOf(id), f.agents.acknowledged)
+        f.runs.removeFailure = null
+        val retried = f.tools.execute(context, SubagentTools.RECEIVE, JsonObject(emptyMap()))
+        assertTrue(answer in retried.text, retried.text)
+        assertFalse("Startup was interrupted" in retried.text)
+        assertTrue(f.runs.list().isEmpty())
+    }
+
+    @Test
+    fun `an inbox removal failure after writing still returns the completed answer`() = runTest {
+        val f = Fixture(backgroundScope)
+        val id = ActionId("completed")
+        val answer = "A completed answer whose inbox removal was committed"
+        assertTrue(f.runs.reserve(SubagentRun(id.value, session, "Title", "Model", startedAt = Instant.DISTANT_PAST)))
+        f.agents.statuses[id] = BackgroundAgentStatus.Finished(true, answer)
+        f.runs.afterRemoveFailure = IllegalStateException("Inbox write outcome unavailable")
+        val received = f.tools.execute(context, SubagentTools.RECEIVE, JsonObject(emptyMap()))
+        assertTrue(answer in received.text, received.text)
+        assertTrue(f.runs.list().isEmpty())
+        f.runs.afterRemoveFailure = null
+        val retried = f.tools.execute(context, SubagentTools.RECEIVE, JsonObject(emptyMap()))
+        assertTrue("No subagent has finished" in retried.text)
+    }
+
+    @Test
+    fun `local cancellation of inbox removal cannot discard a prepared answer`() = runTest {
+        for (wasRemoved in listOf(false, true)) {
+            val f = Fixture(backgroundScope)
+            val id = ActionId("completed")
+            val answer = "A completed answer whose cleanup wait was cancelled"
+            val run = SubagentRun(id.value, session, "Title", "Model", startedAt = Instant.DISTANT_PAST)
+            assertTrue(f.runs.reserve(run))
+            f.agents.statuses[id] = BackgroundAgentStatus.Finished(true, answer)
+            val failure = CancellationException("Inbox owner closed")
+            if (wasRemoved) f.runs.afterRemoveFailure = failure else f.runs.removeFailure = failure
+            val received = f.tools.execute(context, SubagentTools.RECEIVE, JsonObject(emptyMap()))
+            assertTrue(answer in received.text, received.text)
+            assertEquals(listOf(id), f.agents.acknowledged)
+            assertEquals(if (wasRemoved) 0 else 1, f.runs.list().size)
+            f.runs.removeFailure = null
+            f.runs.afterRemoveFailure = null
+            val retried = f.tools.execute(context, SubagentTools.RECEIVE, JsonObject(emptyMap()))
+            if (wasRemoved) {
+                assertTrue("No subagent has finished" in retried.text)
+                assertEquals(listOf(id), f.agents.acknowledged)
+            } else {
+                assertTrue(answer in retried.text, retried.text)
+            }
+            assertTrue(f.runs.list().isEmpty())
+        }
+    }
+
+    @Test
+    fun `cancellation during acknowledgement preserves all answers for the next receive`() = runTest {
+        val f = Fixture(backgroundScope)
+        val answers = mapOf("first" to "First completed answer", "second" to "Second completed answer")
+        answers.forEach { (id, text) ->
+            assertTrue(f.runs.reserve(SubagentRun(id, session, "Title", "Model", startedAt = Instant.DISTANT_PAST)))
+            f.agents.statuses[ActionId(id)] = BackgroundAgentStatus.Finished(true, text)
+        }
+        f.agents.beforeAcknowledge = { id ->
+            if (id == ActionId("second")) throw CancellationException("Acknowledgement wait cancelled")
+        }
+        assertFailsWith<CancellationException> {
+            f.tools.execute(context, SubagentTools.RECEIVE, JsonObject(emptyMap()))
+        }
+        assertEquals(listOf(ActionId("first")), f.agents.acknowledged)
+        f.agents.beforeAcknowledge = {}
+        val retried = f.tools.execute(context, SubagentTools.RECEIVE, JsonObject(emptyMap()))
+        answers.values.forEach { assertTrue(it in retried.text, retried.text) }
+        assertFalse("Startup was interrupted" in retried.text)
+        assertTrue(f.runs.list().isEmpty())
+    }
+
+    @Test
+    fun `snapshot write failures never acknowledge results even when the write committed`() = runTest {
+        for (wasWritten in listOf(false, true)) {
+            val f = Fixture(backgroundScope)
+            val id = ActionId("completed")
+            val answer = "A completed answer awaiting a durable delivery snapshot"
+            val run = SubagentRun(id.value, session, "Title", "Model", startedAt = Instant.DISTANT_PAST)
+            assertTrue(f.runs.reserve(run))
+            f.agents.statuses[id] = BackgroundAgentStatus.Finished(true, answer)
+            val failure = IllegalStateException("Snapshot write unavailable")
+            if (wasWritten) f.runs.afterSaveResultsFailure = failure else f.runs.saveResultsFailure = failure
+            assertFailsWith<IllegalStateException> {
+                f.tools.execute(context, SubagentTools.RECEIVE, JsonObject(emptyMap()))
+            }
+            assertTrue(f.agents.acknowledged.isEmpty())
+            assertEquals(if (wasWritten) SubagentResult(true, answer) else null, f.runs.list().single().result)
+            f.runs.saveResultsFailure = null
+            f.runs.afterSaveResultsFailure = null
+            val retried = f.tools.execute(context, SubagentTools.RECEIVE, JsonObject(emptyMap()))
+            assertTrue(answer in retried.text, retried.text)
+            assertEquals(listOf(id), f.agents.acknowledged)
+            assertTrue(f.runs.list().isEmpty())
+        }
+    }
+
+    @Test
     fun `a full registry refuses the next start without evicting unread results`() = runTest {
         val f = Fixture(backgroundScope)
         repeat(MAX_SUBAGENT_RUNS) { assertFalse(f.tools.execute(context, SubagentTools.SPAWN, spawn).isError) }
@@ -322,6 +454,7 @@ class SubagentAgentToolsTest {
         val acknowledged = mutableListOf<ActionId>()
         var refusal: String? = null
         var beforeStart: suspend () -> Unit = {}
+        var beforeAcknowledge: suspend (ActionId) -> Unit = {}
         val wakes = mutableListOf<WakeRequest>()
         var wake: BackgroundAgentWake = BackgroundAgentWake.Scheduled
 
@@ -343,6 +476,7 @@ class SubagentAgentToolsTest {
         override suspend fun status(id: ActionId, owner: String) = statuses[id] ?: BackgroundAgentStatus.Unknown
         override suspend fun retained(owner: String) = statuses.keys.toList()
         override suspend fun acknowledge(id: ActionId, owner: String) {
+            beforeAcknowledge(id)
             acknowledged += id
             statuses.remove(id)
         }
@@ -352,6 +486,10 @@ class SubagentAgentToolsTest {
         private val runs = mutableListOf<SubagentRun>()
         override suspend fun list() = runs.toList()
         var reserveFailure: Exception? = null
+        var removeFailure: Exception? = null
+        var afterRemoveFailure: Exception? = null
+        var saveResultsFailure: Exception? = null
+        var afterSaveResultsFailure: Exception? = null
         override suspend fun reserve(run: SubagentRun): Boolean {
             reserveFailure?.let { throw it }
             if (runs.size >= MAX_SUBAGENT_RUNS || runs.any { it.id == run.id }) return false
@@ -359,8 +497,18 @@ class SubagentAgentToolsTest {
             return true
         }
 
+        override suspend fun saveResults(results: Map<String, SubagentResult>) {
+            saveResultsFailure?.let { throw it }
+            val updated = runs.map { run -> results[run.id]?.let { run.copy(result = it) } ?: run }
+            runs.clear()
+            runs.addAll(updated)
+            afterSaveResultsFailure?.let { throw it }
+        }
+
         override suspend fun remove(ids: Set<String>) {
+            removeFailure?.let { throw it }
             runs.removeAll { it.id in ids }
+            afterRemoveFailure?.let { throw it }
         }
     }
 

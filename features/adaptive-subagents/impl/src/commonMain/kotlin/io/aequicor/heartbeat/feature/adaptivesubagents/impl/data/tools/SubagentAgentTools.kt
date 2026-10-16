@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.adaptivesubagents.api.SubagentHost
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.SubagentTools
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.SubagentTools.Arguments
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.data.runs.SubagentStarts
+import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.runs.SubagentResult
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.runs.SubagentRun
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.runs.SubagentRunStore
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
@@ -44,6 +45,11 @@ import io.aequicor.heartbeat.feature.scheduler.api.WakeCondition
 import io.aequicor.heartbeat.feature.scheduler.api.WakeId
 import io.aequicor.heartbeat.feature.scheduler.api.WakeOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
@@ -153,13 +159,45 @@ internal class SubagentAgentTools(
         }.toMap()
         val pending = statuses.filterValues { it == BackgroundAgentStatus.Running }.keys
         val batch = resultBatch(finished, pending, ReceiveSpec.resultChars - WAKE_SUFFIX_BUDGET)
-        batch.delivered.forEach { agents.value.acknowledge(ActionId(it.id), SubagentTools.OWNER) }
-        runs.remove(batch.delivered.map { it.id }.toSet())
+        if (batch.delivered.isNotEmpty()) {
+            runs.saveResults(
+                batch.delivered.associate { run ->
+                    val result = finished.getValue(run)
+                    run.id to SubagentResult(result.isCompleted, result.text)
+                },
+            )
+            releaseResults(batch.delivered)
+        }
         val sleep = if (wait && finished.isEmpty() && pending.isNotEmpty()) sleep(context, pending) else null
         log.i {
             "subagent results read: finished=${batch.delivered.size} pending=${pending.size} wait=${sleep != null}"
         }
         if (sleep != null && sleep.isError) sleep else AgentToolResult(batch.text + sleep?.text.orEmpty())
+    }
+
+    /** The response is already built and backed up; cleanup errors may repeat it, but must not discard it. */
+    private suspend fun releaseResults(delivered: Set<SubagentRun>) {
+        try {
+            delivered.forEach { agents.value.acknowledge(ActionId(it.id), SubagentTools.OWNER) }
+            forgetResults(delivered.map { it.id }.toSet())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(IllegalStateException(e::class.simpleName.orEmpty())) {
+                "subagent result cleanup failed; returning the prepared batch"
+            }
+        }
+    }
+
+    /** A closing storage owner can cancel removal even after writing it; the prepared response must still return. */
+    private suspend fun forgetResults(ids: Set<String>) = withContext(NonCancellable) {
+        supervisorScope {
+            val cleanup = async { runs.remove(ids) }
+            cleanup.join()
+            if (cleanup.isCancelled) {
+                log.w { "subagent local result cleanup did not complete; returning the prepared batch" }
+            }
+        }
     }
 
     private suspend fun sleep(context: AgentToolContext, pending: Set<SubagentRun>): AgentToolResult {

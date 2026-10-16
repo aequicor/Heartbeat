@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.runs.MAX_SUBAGENT_RUNS
+import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.runs.SubagentResult
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.runs.SubagentRun
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.runs.SubagentRunStore
 import kotlinx.coroutines.sync.Mutex
@@ -34,6 +35,13 @@ internal class KeyValueSubagentRuns(
         if (current.size >= MAX_SUBAGENT_RUNS || current.any { it.id == run.id }) return@withLock false
         write(current + run)
         true
+    }
+
+    override suspend fun saveResults(results: Map<String, SubagentResult>) = lock.withLock {
+        if (results.isEmpty()) return@withLock
+        val current = store.get(KEY).orEmpty()
+        check(results.keys.all { id -> current.any { it.id == id } }) { "Subagent result has no reservation" }
+        write(current.map { run -> results[run.id]?.let { run.copy(result = it) } ?: run })
     }
 
     override suspend fun remove(ids: Set<String>) = lock.withLock {
