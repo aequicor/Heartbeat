@@ -47,6 +47,10 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_installation
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_job_status
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_not_runnable
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_packages
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_packages_description
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_packages_sync
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_packages_update
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_path_copied
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_path_copy
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_restart
@@ -100,6 +104,10 @@ internal fun EngineManagementSection(
         panel.job?.let { job ->
             HbDivider()
             JobBlock(job, isSaving, onIntent)
+        }
+        if (EngineActionKindUi.Packages in panel.actions) {
+            HbDivider()
+            PackagesRow(isIdle, onIntent)
         }
         HbDivider()
         RuntimeRow(panel, isIdle, onIntent)
@@ -280,6 +288,23 @@ private fun JobTitle(job: JobUi, modifier: Modifier = Modifier) {
 private fun JobFailure(failure: ManagementFailureUi, modifier: Modifier = Modifier) {
     val isInstruction = (failure as? ManagementFailureUi.Login)?.terminalCommand != null
     HbBanner(failureText(failure), modifier, tone = if (isInstruction) HbTone.Warning else HbTone.Danger)
+}
+
+/** Installs the packages the configuration lists, or updates the installed ones, as a job of the engine. */
+@Composable
+private fun PackagesRow(isIdle: Boolean, onIntent: (EngineManagementIntent) -> Unit, modifier: Modifier = Modifier) {
+    HbSettingsRow(
+        stringResource(Res.string.engine_packages),
+        modifier.testTag("engine-packages"),
+        description = stringResource(Res.string.engine_packages_description),
+    ) {
+        ActionButton(stringResource(Res.string.engine_packages_update), "engine-packages-update", isIdle) {
+            onIntent(EngineManagementIntent.RequestEngineAction(EngineActionUi.UpdatePackages))
+        }
+        ActionButton(stringResource(Res.string.engine_packages_sync), "engine-packages-sync", isIdle) {
+            onIntent(EngineManagementIntent.RequestEngineAction(EngineActionUi.SyncPackages))
+        }
+    }
 }
 
 @Composable

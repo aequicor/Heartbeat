@@ -134,10 +134,22 @@ class EngineControlPanelModel(
     private suspend fun PanelContext.configure(intent: ConfigIntent) {
         when (intent) {
             is ConfigIntent.OpenPage -> updateState {
-                copy(openPage = intent.page.takeIf { id -> config?.pages?.any { it.id == id } == true })
+                copy(
+                    openPage = intent.page.takeIf { config?.hasPage(it) == true },
+                )
             }
 
-            ConfigIntent.ClosePage -> updateState { copy(openPage = null) }
+            ConfigIntent.ClosePage -> updateState {
+                val schema = machine.state.value.configOf(engineId)?.schema
+                copy(openPage = null, configDraft = configDraft?.let { draft -> schema?.settleFiles(draft) ?: draft })
+                    .reflect(engineId, machine.state.value)
+            }
+
+            is ConfigIntent.EditFile -> updateState {
+                val config = machine.state.value.configOf(engineId) ?: return@updateState this
+                copy(configDraft = config.editFile(configDraft, intent.file, intent.text))
+                    .reflect(engineId, machine.state.value)
+            }
 
             is ConfigIntent.EditField -> updateState {
                 val config = machine.state.value.configOf(engineId) ?: return@updateState this
@@ -221,7 +233,7 @@ internal fun EngineControlPanelState.reflect(engine: EngineId, state: EngineCont
         loginCode = loginCode.takeIf { panel?.job?.phase is JobPhaseUi.AwaitingCode }.orEmpty(),
         confirmAction = confirmAction.takeIf { panel != null && panel.job?.isRunning != true },
         pages = form?.pages.orEmpty().map { PageItemUi(it.id, it.title) }.toImmutableList(),
-        openPage = openPage.takeIf { id -> form?.pages?.any { it.id == id } == true },
+        openPage = openPage?.takeIf { form?.hasPage(it) == true },
         config = form,
         configDraft = draft,
         isConfigurationOff = !snapshot.configuration.isEnabled,
@@ -233,4 +245,10 @@ internal fun EngineControlPanelState.reflect(engine: EngineId, state: EngineCont
 internal fun ControlFailure.toUi(): FailureUi = when (this) {
     is ControlFailure.Engine -> failure.toUi()
     is ControlFailure.Config -> failure.toUi()
+}
+
+/** The configuration page or file editor [page] exists. */
+internal fun ConfigFormUi.hasPage(page: String): Boolean {
+    val file = fileOf(page)
+    return if (file != null) files.any { it.id == file } else pages.any { it.id == page }
 }

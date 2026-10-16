@@ -166,6 +166,23 @@ class EngineControlPanelModelTest {
         assertEquals(false, screen.states.value.config?.isDirty)
     }
 
+    @Test
+    fun `a file editor opens as a page and leaving it shows the parsed document again`() = runTest {
+        machine.state.value = configured(ConfigRevision(0))
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(ConfigIntent.OpenPage(filePage("settings")))
+        model.store.intent(ConfigIntent.EditFile("settings", "{\"retry\": 4}"))
+        runCurrent()
+        assertEquals(filePage("settings"), screen.states.value.openPage)
+        assertEquals("{\"retry\": 4}", screen.states.value.config?.files?.single()?.text)
+
+        model.store.intent(ConfigIntent.ClosePage)
+        runCurrent()
+        assertEquals(null, screen.states.value.openPage)
+        assertEquals("{\n    \"retry\": 4\n}", screen.states.value.config?.files?.single()?.text)
+    }
+
     private fun configured(revision: ConfigRevision, values: EngineConfigValues = EngineConfigValues()) =
         (managedSnapshot() as EngineControlState.Active).let { active ->
             val config = EngineConfigState(CodexId, ControlTestData.schema, values, revision)

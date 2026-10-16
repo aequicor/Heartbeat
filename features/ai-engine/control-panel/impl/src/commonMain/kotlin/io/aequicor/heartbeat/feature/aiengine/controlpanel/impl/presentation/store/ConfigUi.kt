@@ -19,9 +19,27 @@ data class ConfigFormUi(
     val hasConflict: Boolean = false,
     val isSubmitted: Boolean = false,
     val otherProblems: ImmutableList<ConfigProblemUi> = persistentListOf(),
+    /** The profile's configuration files, each edited as a whole. */
+    val files: ImmutableList<ConfigFileUi> = persistentListOf(),
 ) {
     /** The draft has changes and nothing prevents saving them. */
     val canSave: Boolean get() = isDirty && blockingProblems == 0 && !hasConflict && !isSubmitted
+}
+
+/**
+ * A configuration file edited as a whole, keys the pages do not show included: its [text] as shown (as typed while
+ * it does not parse, [isInvalid]) in [language]. Never printed.
+ */
+@Immutable
+data class ConfigFileUi(
+    val id: String,
+    val title: TextUi,
+    val fileName: String,
+    val text: String,
+    val language: String?,
+    val isInvalid: Boolean = false,
+) {
+    override fun toString(): String = "ConfigFileUi(id=$id, isInvalid=$isInvalid)"
 }
 
 /** A configuration page of the engine. */
@@ -226,14 +244,16 @@ sealed interface FieldInputUi {
 
 /**
  * Unsaved profile configuration: [values] edited from the configuration at [base], typed numbers that are not
- * numbers yet by field, values typed for vault slots ([secrets]) and whether a save of it was accepted
- * ([isSubmitted]). Never printed.
+ * numbers yet by field, values typed for vault slots ([secrets]), whole files as typed ([files]) and whether a
+ * save of it was accepted ([isSubmitted]). Never printed.
  */
 data class ConfigDraft(
     val base: ConfigRevision,
     val values: EngineConfigValues,
     val invalidNumbers: Map<String, String> = emptyMap(),
     val secrets: Map<String, String> = emptyMap(),
+    /** Files as typed in their editors, by document id. */
+    val files: Map<String, String> = emptyMap(),
     val isSubmitted: Boolean = false,
 ) {
     override fun toString(): String = "ConfigDraft(base=${base.value}, isSubmitted=$isSubmitted)"

@@ -54,7 +54,7 @@ internal fun ConfigPageContent(
     var isAdvancedShown by remember(page.id) { mutableStateOf(false) }
     val isEditable = !isSaving && !form.isSubmitted
     HbColumn(modifier.fillMaxWidth().testTag("config-page:${page.id}"), gap = HbTheme.spacing.xxl) {
-        SaveBar(form, isSaving, onIntent)
+        ConfigSaveBar(form, isSaving, onIntent)
         if (form.otherProblems.any { it.isBlocking }) {
             HbBanner(stringResource(Res.string.control_config_other_problems))
         }
@@ -84,7 +84,7 @@ internal fun ConfigPageContent(
 
 /** Unsaved changes with save and discard, or a conflict that only a discard resolves. */
 @Composable
-private fun SaveBar(
+internal fun ConfigSaveBar(
     form: ConfigFormUi,
     isSaving: Boolean,
     onIntent: (ConfigIntent) -> Unit,

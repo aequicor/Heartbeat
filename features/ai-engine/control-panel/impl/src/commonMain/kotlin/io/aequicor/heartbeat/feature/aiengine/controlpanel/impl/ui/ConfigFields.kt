@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.ds.components.HbBanner
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonSize
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
+import io.aequicor.heartbeat.ds.components.HbCodeEditor
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbMenuButton
@@ -106,13 +107,13 @@ internal fun ConfigFieldRow(
             }
 
             is FieldEditorUi.Document -> WideField(field, enabled, onInput) {
-                HbTextField(
+                HbCodeEditor(
                     editor.text,
                     { onInput(FieldInputUi.Text(it)) },
+                    title,
                     Modifier.fillMaxWidth().testTag("config-document:${field.id}"),
-                    enabled = enabled,
-                    singleLine = false,
-                    accessibleLabel = title,
+                    language = editor.language,
+                    isReadOnly = !enabled,
                 )
             }
         }

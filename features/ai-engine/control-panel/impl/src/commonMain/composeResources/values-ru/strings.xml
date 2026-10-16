@@ -227,4 +227,11 @@
     <string name="control_config_secret_off">Хранить значение в файле</string>
     <string name="control_config_secret_saved">Секрет сохранён. Введите значение, чтобы заменить его.</string>
     <string name="control_config_secret_missing">Секрет не найден. Введите значение.</string>
+    <string name="control_panel_files">Файлы</string>
+    <string name="control_panel_files_description">Правка файла целиком, включая ключи, которых нет на страницах.</string>
+    <string name="control_config_invalid_json">Файл — не JSON-объект. Исправьте его, чтобы сохранить.</string>
+    <string name="engine_packages">Пакеты</string>
+    <string name="engine_packages_description">Устанавливает пакеты из списка и удаляет исключённые из него или обновляет установленные.</string>
+    <string name="engine_packages_sync">Установить по списку</string>
+    <string name="engine_packages_update">Обновить</string>
 </resources>

@@ -117,6 +117,25 @@ class EngineManagementUiTest {
     }
 
     @Test
+    fun `packages of an engine that has them are installed and updated as jobs`() = runSkikoComposeUiTest {
+        val intents = mutableListOf<EngineManagementIntent>()
+        val codex = managedCodex().let { it.copy(spec = it.spec.copy(hasPackages = true)) }
+        setContent { Host(selected(codex)) { intents += it } }
+
+        onNodeWithTag("engine-packages-sync").performClick()
+        onNodeWithTag("engine-packages-update").performClick()
+        runOnIdle {
+            assertEquals(
+                listOf<EngineManagementIntent>(
+                    EngineManagementIntent.RequestEngineAction(EngineActionUi.SyncPackages),
+                    EngineManagementIntent.RequestEngineAction(EngineActionUi.UpdatePackages),
+                ),
+                intents,
+            )
+        }
+    }
+
+    @Test
     fun `a removal is confirmed first`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineManagementIntent>()
         val state = selected(managedCodex()).copy(confirmAction = EngineActionUi.Uninstall)

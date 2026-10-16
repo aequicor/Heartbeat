@@ -16,4 +16,9 @@ sealed interface ConfigIntent : EngineControlPanelIntent {
 
     /** Drops the draft and shows the saved configuration. */
     data object DiscardConfig : ConfigIntent
+
+    /** Replaces the whole text of the file [file]. */
+    data class EditFile(val file: String, val text: String) : ConfigIntent {
+        override fun toString(): String = "EditFile(file=$file)"
+    }
 }

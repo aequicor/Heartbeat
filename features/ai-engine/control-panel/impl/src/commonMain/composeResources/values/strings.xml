@@ -227,4 +227,11 @@
     <string name="control_config_secret_off">Keep the value in the file</string>
     <string name="control_config_secret_saved">Saved secret. Type to replace it.</string>
     <string name="control_config_secret_missing">The secret is missing. Type the value.</string>
+    <string name="control_panel_files">Files</string>
+    <string name="control_panel_files_description">Edit a whole file, including keys the pages do not show.</string>
+    <string name="control_config_invalid_json">The file is not a JSON object. Fix it to save.</string>
+    <string name="engine_packages">Packages</string>
+    <string name="engine_packages_description">Installs the listed packages and removes the ones no longer listed, or updates the installed ones.</string>
+    <string name="engine_packages_sync">Install from the list</string>
+    <string name="engine_packages_update">Update</string>
 </resources>

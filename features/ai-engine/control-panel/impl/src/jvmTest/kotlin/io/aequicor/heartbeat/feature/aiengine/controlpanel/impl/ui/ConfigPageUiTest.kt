@@ -1,13 +1,18 @@
 package io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigFieldUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigFileUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigFormUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigIntent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigPageUi
@@ -26,6 +31,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.sto
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.TextRoleUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.TextUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.UnitUi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.filePage
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlin.test.Test
@@ -149,6 +155,27 @@ class ConfigPageUiTest {
                     edit("servers", inEnv(FieldInputUi.KeyValues(persistentListOf(saved, KeyValueRowUi())))),
                     edit("servers", FieldInputUi.RemoveEntry("github")),
                     edit("servers", FieldInputUi.AddEntry("stdio")),
+                ),
+                intents,
+            )
+        }
+    }
+
+    @Test
+    fun `a file opens from the overview and its editor sends the whole text`() = runSkikoComposeUiTest {
+        val intents = mutableListOf<EngineControlPanelIntent>()
+        val file = ConfigFileUi("settings", text("Settings"), "s.json", "{}", "json")
+        var state by mutableStateOf(overview.copy(config = form.copy(files = persistentListOf(file))))
+        setContent { HbTheme { EngineControlPanelContent(state, { intents += it }, {}) } }
+
+        onNodeWithTag("engine-control-file:settings").performClick()
+        state = state.copy(openPage = filePage("settings"))
+        onNode(hasContentDescription("s.json")).performTextReplacement("{\"a\": 1}")
+        runOnIdle {
+            assertEquals(
+                listOf<EngineControlPanelIntent>(
+                    ConfigIntent.OpenPage(filePage("settings")),
+                    ConfigIntent.EditFile("settings", "{\"a\": 1}"),
                 ),
                 intents,
             )

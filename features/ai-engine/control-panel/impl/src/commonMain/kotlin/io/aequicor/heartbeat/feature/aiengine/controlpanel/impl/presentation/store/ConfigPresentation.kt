@@ -59,13 +59,17 @@ internal fun EngineConfigState.form(draft: ConfigDraft?): ConfigFormUi {
         }
         ConfigPageUi(page.id, page.title.toUi(), sections.toImmutableList())
     }
+    val files = schema.files(values, draft?.files.orEmpty())
+    val invalidFiles = files.count { it.isInvalid }
+    val isChanged = draft != null && (draft.values != profile || draft.secrets.isNotEmpty())
     return ConfigFormUi(
         pages = pages.filter { it.sections.isNotEmpty() }.toImmutableList(),
-        isDirty = draft != null && (draft.values != profile || typed.isNotEmpty() || draft.secrets.isNotEmpty()),
-        blockingProblems = problems.count { it.isBlocking } + typed.size,
+        isDirty = isChanged || typed.isNotEmpty() || invalidFiles > 0,
+        blockingProblems = problems.count { it.isBlocking } + typed.size + invalidFiles,
         hasConflict = draft != null && !draft.isSubmitted && draft.base != revision,
         isSubmitted = draft?.isSubmitted == true,
         otherProblems = owned[null].orEmpty().map { it.toUi(emptyList()) }.toImmutableList(),
+        files = files.toImmutableList(),
     )
 }
 
@@ -91,6 +95,8 @@ internal fun EngineConfigState.edit(draft: ConfigDraft?, fieldId: String, input:
         else -> current.copy(
             values = current.values.write(field.binding, change.value),
             invalidNumbers = typed,
+            // The file editor of the changed document shows it anew.
+            files = current.files - field.binding.document.value,
             secrets = current.secrets + change.secrets.mapNotNull { (slot, text) -> text?.let { slot to it } } -
                 change.secrets.filterValues { it == null }.keys,
         )
