@@ -12,17 +12,21 @@ import io.aequicor.heartbeat.ds.components.HbButtonSize
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbEmptyState
+import io.aequicor.heartbeat.ds.components.HbIcon
+import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbLoadingState
 import io.aequicor.heartbeat.ds.components.HbSettingsRow
 import io.aequicor.heartbeat.ds.components.HbSettingsSection
 import io.aequicor.heartbeat.ds.components.HbTone
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigIntent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelIntent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelModel
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelState
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.FailureUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.Res
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_config_unsaved
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_dismiss
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_loading
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_configuration_off
@@ -45,7 +49,10 @@ internal fun EngineControlPanelScreen(
     EngineControlPanelContent(state, { model.store.intent(it) }, onBack, modifier)
 }
 
-/** One engine: its management block, then the pages of its configuration. */
+/**
+ * One engine: its management block, then the pages of its configuration. An open page replaces the overview and
+ * its back action returns to it.
+ */
 @Composable
 internal fun EngineControlPanelContent(
     state: EngineControlPanelState,
@@ -53,6 +60,19 @@ internal fun EngineControlPanelContent(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val form = state.config
+    val page = form?.pages?.firstOrNull { it.id == state.openPage }
+    if (form != null && page != null) {
+        ControlColumn(
+            page.title.text(),
+            { onIntent(ConfigIntent.ClosePage) },
+            modifier.testTag("engine-control-panel"),
+        ) {
+            state.failure?.let { OperationFailure(it, onDismiss = { onIntent(EngineControlPanelIntent.DismissError) }) }
+            ConfigPageContent(page, form, state.isSaving, onIntent)
+        }
+        return
+    }
     ControlColumn(state.title.ifEmpty { state.engine }, onBack, modifier.testTag("engine-control-panel")) {
         when {
             state.hasLoadFailure -> LoadFailure({ onIntent(EngineControlPanelIntent.RetryLoad) })
@@ -69,7 +89,7 @@ internal fun EngineControlPanelContent(
                     )
                 }
                 state.panel?.let { EngineManagementSection(it, state.loginCode, state.isSaving, onIntent) }
-                SettingsPages(state)
+                SettingsPages(state, onIntent)
             }
         }
     }
@@ -91,11 +111,21 @@ private fun OperationFailure(failure: FailureUi, onDismiss: () -> Unit, modifier
 }
 
 @Composable
-private fun SettingsPages(state: EngineControlPanelState, modifier: Modifier = Modifier) {
+private fun SettingsPages(
+    state: EngineControlPanelState,
+    onIntent: (EngineControlPanelIntent) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     HbSettingsSection(
         stringResource(Res.string.control_panel_settings),
         modifier,
-        description = stringResource(Res.string.control_panel_settings_description),
+        description = stringResource(
+            if (state.config?.isDirty == true) {
+                Res.string.control_config_unsaved
+            } else {
+                Res.string.control_panel_settings_description
+            },
+        ),
     ) {
         when {
             state.isConfigurationOff -> HbBanner(
@@ -108,7 +138,13 @@ private fun SettingsPages(state: EngineControlPanelState, modifier: Modifier = M
             else -> HbColumn(Modifier.fillMaxWidth().testTag("engine-control-pages"), gap = HbTheme.spacing.none) {
                 state.pages.forEachIndexed { index, page ->
                     if (index > 0) HbDivider()
-                    HbSettingsRow(page.title.text(), Modifier.testTag("engine-control-page:${page.id}"))
+                    HbSettingsRow(
+                        page.title.text(),
+                        Modifier.testTag("engine-control-page:${page.id}"),
+                        onClick = { onIntent(ConfigIntent.OpenPage(page.id)) },
+                    ) {
+                        HbIcon(HbIcons.ChevronRight, contentDescription = null)
+                    }
                 }
             }
         }
