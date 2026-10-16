@@ -5,6 +5,7 @@ import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigFile
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigLayout
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigLimits
@@ -55,13 +56,13 @@ internal fun readConfigBundle(file: Path): ConfigRead {
     return try {
         ConfigRead.Read(ZipFile(file.toFile()).use(::readEntries))
     } catch (e: BundleRefusedException) {
-        log.w(e) { "Configuration bundle refused: ${e.failure}" }
+        log.w(e.redactedFailure()) { "Configuration bundle refused: ${e.failure}" }
         ConfigRead.Failed(e.failure)
     } catch (e: ZipException) {
-        log.w(e) { "Configuration bundle is not a ZIP archive" }
+        log.w(e.redactedFailure()) { "Configuration bundle is not a ZIP archive" }
         ConfigRead.Failed(ConfigReadFailure.Format)
     } catch (e: IOException) {
-        log.w(e) { "Configuration bundle is unreadable" }
+        log.w(e.redactedFailure()) { "Configuration bundle is unreadable" }
         ConfigRead.Failed(ConfigReadFailure.Io)
     }
 }

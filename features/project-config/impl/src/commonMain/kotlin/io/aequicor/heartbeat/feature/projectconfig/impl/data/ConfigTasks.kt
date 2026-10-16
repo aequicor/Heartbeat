@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.projectconfig.impl.data
 
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigApplyContext
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigApplyResult
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigBinding
@@ -92,7 +93,7 @@ internal class ConfigTasks(private val access: ConfigFolderAccess, private val b
             log.i { "Exported a bundle of ${units.size} units" }
             Internal.TaskDone(effect.requestId, ConfigTaskResult.Exported(units.size))
         } catch (e: ConfigWriteException) {
-            log.w(e) { "Bundle export failed" }
+            log.w(e.redactedFailure()) { "Bundle export failed" }
             failed(effect.requestId, e.reason.taskFailure())
         }
     }
@@ -126,7 +127,7 @@ internal class ConfigTasks(private val access: ConfigFolderAccess, private val b
             log.i { "Imported a bundle into a project: ${tree.units.size} units" }
             Internal.TaskDone(effect.requestId, ConfigTaskResult.Imported(tree.units.size))
         } catch (e: ConfigWriteException) {
-            log.w(e) { "Bundle import into a project failed" }
+            log.w(e.redactedFailure()) { "Bundle import into a project failed" }
             failed(effect.requestId, e.reason.taskFailure())
         }
     }
@@ -149,7 +150,7 @@ internal class ConfigTasks(private val access: ConfigFolderAccess, private val b
         access.write(effect.project, unit.files, emptyList())
         true
     } catch (e: ConfigWriteException) {
-        log.w(e) { "Writing a ${unit.ref.section} unit into a project failed" }
+        log.w(e.redactedFailure()) { "Writing a ${unit.ref.section} unit into a project failed" }
         false
     }
 

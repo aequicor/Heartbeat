@@ -5,6 +5,7 @@ import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigFile
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigLayout
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigLimits
@@ -66,10 +67,10 @@ internal fun readProjectFolder(root: Path): ConfigRead {
         reader.manifest?.let(ConfigManifests::check)?.let { ConfigRead.Failed(it) }
             ?: ConfigRead.Read(ConfigTree.of(reader.files, reader.ignored))
     } catch (e: TreeLimitException) {
-        log.w(e) { "Project configuration exceeds its limits" }
+        log.w(e.redactedFailure()) { "Project configuration exceeds its limits" }
         ConfigRead.Failed(ConfigReadFailure.Limit)
     } catch (e: IOException) {
-        log.w(e) { "Project configuration is unreadable" }
+        log.w(e.redactedFailure()) { "Project configuration is unreadable" }
         ConfigRead.Failed(ConfigReadFailure.Io)
     }
 }
@@ -106,7 +107,7 @@ internal fun projectFolderFingerprint(root: Path): String? {
         entries.sorted().forEach { digest.update((it + "\n").encodeToByteArray()) }
         digest.digest().toHexString()
     } catch (e: IOException) {
-        log.w(e) { "Project configuration cannot be listed" }
+        log.w(e.redactedFailure()) { "Project configuration cannot be listed" }
         null
     }
 }
@@ -214,7 +215,7 @@ private class FolderReader(private val directory: Path) : SimpleFileVisitor<Path
     }
 
     override fun visitFileFailed(file: Path, exc: IOException): FileVisitResult {
-        log.w(exc) { "A project configuration file is unreadable" }
+        log.w(exc.redactedFailure()) { "A project configuration file is unreadable" }
         ignored += ConfigManifests.ignored(directory.relativize(file).joinToString("/"), ConfigProblemCode.Unsupported)
         return FileVisitResult.CONTINUE
     }

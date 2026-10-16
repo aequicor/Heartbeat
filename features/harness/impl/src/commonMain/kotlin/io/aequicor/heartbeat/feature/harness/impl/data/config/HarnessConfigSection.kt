@@ -109,7 +109,7 @@ internal class HarnessConfigSection(
         val sizeProblem = ConfigProblem(ConfigProblemCode.Limit, metadataPath(unit.ref.name), "harness is too large")
             .takeIf { candidate.storageBytes() > HarnessLimits.BYTES_PER_HARNESS }
         val all = problems + listOfNotNull(sizeProblem)
-        log.d { "Checked harness unit problems=${all.size}" }
+        log.v { "Checked harness unit problems=${all.size}" }
         return if (all.isNotEmpty()) {
             ConfigCheck.Invalid(all)
         } else {

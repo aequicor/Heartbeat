@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.projectconfig.impl.domain
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigFile
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigLayout
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigPath
@@ -123,10 +124,10 @@ internal object ConfigManifests {
     private fun decode(text: String): ConfigManifest? = try {
         json.decodeFromString(ConfigManifest.serializer(), text)
     } catch (e: SerializationException) {
-        log.w(e) { "Unreadable configuration manifest" }
+        log.w(e.redactedFailure()) { "Unreadable configuration manifest" }
         null
     } catch (e: IllegalArgumentException) {
-        log.w(e) { "Invalid configuration manifest" }
+        log.w(e.redactedFailure()) { "Invalid configuration manifest" }
         null
     }
 

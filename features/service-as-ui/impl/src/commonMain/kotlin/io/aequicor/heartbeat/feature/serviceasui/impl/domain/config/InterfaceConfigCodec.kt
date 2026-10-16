@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.serviceasui.impl.domain.config
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigContent
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigContentKind
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigFile
@@ -146,10 +147,10 @@ internal object InterfaceConfigCodec {
     private fun metadata(file: ConfigFile): InterfaceFile? = try {
         json.decodeFromString(InterfaceFile.serializer(), file.text)
     } catch (e: SerializationException) {
-        log.w(e) { "Interface metadata does not match the format" }
+        log.w(e.redactedFailure()) { "Interface metadata does not match the format" }
         null
     } catch (e: IllegalArgumentException) {
-        log.w(e) { "Interface metadata has invalid values" }
+        log.w(e.redactedFailure()) { "Interface metadata has invalid values" }
         null
     }
 

@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.config
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
@@ -156,10 +157,10 @@ internal object HarnessConfigCodec {
     private fun metadata(file: ConfigFile): HarnessFile? = try {
         json.decodeFromString(HarnessFile.serializer(), file.text)
     } catch (e: SerializationException) {
-        log.w(e) { "Harness metadata does not match the format" }
+        log.w(e.redactedFailure()) { "Harness metadata does not match the format" }
         null
     } catch (e: IllegalArgumentException) {
-        log.w(e) { "Harness metadata has invalid values" }
+        log.w(e.redactedFailure()) { "Harness metadata has invalid values" }
         null
     }
 

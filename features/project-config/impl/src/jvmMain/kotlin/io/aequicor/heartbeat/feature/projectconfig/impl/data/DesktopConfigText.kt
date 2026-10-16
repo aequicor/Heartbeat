@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.projectconfig.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigManifests
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigWriteException
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigWriteFailure
@@ -27,7 +28,7 @@ internal fun attributesOrNull(path: Path): BasicFileAttributes? {
     return try {
         Files.readAttributes(path, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
     } catch (e: IOException) {
-        log.w(e) { "Configuration file attributes are unreadable" }
+        log.w(e.redactedFailure()) { "Configuration file attributes are unreadable" }
         null
     }
 }
@@ -41,7 +42,7 @@ internal fun decodeConfigText(bytes: ByteArray): String? = try {
         .toString()
     ConfigManifests.normalized(text)
 } catch (e: CharacterCodingException) {
-    log.w(e) { "A configuration file is not UTF-8 text" }
+    log.w(e.redactedFailure()) { "A configuration file is not UTF-8 text" }
     null
 }
 
@@ -71,7 +72,7 @@ internal fun replaceAtomically(target: Path, bytes: ByteArray) {
         try {
             Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
         } catch (e: AtomicMoveNotSupportedException) {
-            log.w(e) { "Atomic replace is unsupported here, replacing in place" }
+            log.w(e.redactedFailure()) { "Atomic replace is unsupported here, replacing in place" }
             Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING)
         }
     } catch (e: IOException) {
@@ -80,7 +81,7 @@ internal fun replaceAtomically(target: Path, bytes: ByteArray) {
         try {
             Files.deleteIfExists(temporary)
         } catch (e: IOException) {
-            log.w(e) { "Temporary configuration file was not removed" }
+            log.w(e.redactedFailure()) { "Temporary configuration file was not removed" }
         }
     }
 }

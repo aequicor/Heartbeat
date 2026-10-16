@@ -27,12 +27,12 @@ internal class KeyValueConfigBindings(
 
     override suspend fun load(): List<ConfigBinding> {
         val bindings = store.get(BINDINGS)?.let(::decode).orEmpty()
-        log.d { "Read configuration bindings: ${bindings.size}" }
+        log.v { "Read configuration bindings: ${bindings.size}" }
         return bindings
     }
 
     override suspend fun save(bindings: List<ConfigBinding>) {
-        log.d { "Write configuration bindings: ${bindings.size}" }
+        log.v { "Write configuration bindings: ${bindings.size}" }
         store.set(BINDINGS, json.encodeToString(LIST, bindings))
     }
 

@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.projectconfig.impl.data
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
@@ -59,7 +60,7 @@ internal class ProjectConfigEffects(
         when (effect) {
             ProjectConfigEffect.Load -> {
                 val bindings = storage.load()
-                log.i { "Configuration bindings loaded: ${bindings.size}" }
+                log.d { "Configuration bindings loaded: ${bindings.size}" }
                 machine.send(Internal.Loaded(bindings))
             }
 
@@ -81,11 +82,11 @@ internal class ProjectConfigEffects(
 
     private suspend fun save(effect: ProjectConfigEffect.SaveBindings) = saving.withLock {
         if (effect.revision <= savedRevision) {
-            log.d { "Stale bindings save skipped: ${effect.revision} <= $savedRevision" }
+            log.v { "Stale bindings save skipped: ${effect.revision} <= $savedRevision" }
         } else {
             storage.save(effect.bindings)
             savedRevision = effect.revision
-            log.i { "Bindings saved: ${effect.bindings.size}, revision ${effect.revision}" }
+            log.v { "Bindings saved: ${effect.bindings.size}, revision ${effect.revision}" }
         }
     }
 
@@ -179,7 +180,7 @@ internal class ProjectConfigEffects(
             log.i { "Wrote back a ${writeBack.unit.section} unit: ${if (encoded == null) "deleted" else "updated"}" }
             Internal.WrittenBack(writeBack, encoded?.let { binding(writeBack, it) })
         } catch (e: ConfigWriteException) {
-            log.w(e) { "Write-back of a ${writeBack.unit.section} unit failed" }
+            log.w(e.redactedFailure()) { "Write-back of a ${writeBack.unit.section} unit failed" }
             Internal.WriteBackFailed(listOf(writeBack))
         }
     }

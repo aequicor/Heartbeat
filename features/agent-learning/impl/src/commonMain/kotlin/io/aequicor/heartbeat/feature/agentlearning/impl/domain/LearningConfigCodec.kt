@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.agentlearning.impl.domain
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.agentlearning.api.InstructionKind
 import io.aequicor.heartbeat.feature.agentlearning.api.LearnedInstruction
 import io.aequicor.heartbeat.feature.agentlearning.api.LearningLimits
@@ -184,10 +185,10 @@ internal object LearningConfigCodec {
     private fun metadata(file: ConfigFile): LearningMetadata? = try {
         json.decodeFromString(LearningMetadata.serializer(), file.text)
     } catch (e: SerializationException) {
-        log.w(e) { "Learned instruction metadata does not match the format" }
+        log.w(e.redactedFailure()) { "Learned instruction metadata does not match the format" }
         null
     } catch (e: IllegalArgumentException) {
-        log.w(e) { "Learned instruction metadata has invalid values" }
+        log.w(e.redactedFailure()) { "Learned instruction metadata has invalid values" }
         null
     }
 
