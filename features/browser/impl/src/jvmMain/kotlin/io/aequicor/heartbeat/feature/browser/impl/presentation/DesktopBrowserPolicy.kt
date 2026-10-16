@@ -234,10 +234,15 @@ internal class DesktopBrowserPolicy(
 
     fun allows(url: String?, kind: BrowserRequestKind): Boolean {
         if (isReleased() || !isBrowserRequestAllowed(url.orEmpty(), kind, isOwnBlank = isBootstrap())) return false
-        // Chromium caches accepted certificates across this profile. Never lend that trust to an agent tab.
-        if (guard.isRestricted && certificateExceptions.isWithheldFromAgents(url.orEmpty())) return false
+        if (withholds(url.orEmpty())) return false
         return guard.allows(url.orEmpty(), kind)
     }
+
+    /**
+     * Chromium caches accepted certificates across this profile. Never lend that trust to an agent tab, also not to
+     * the frameless requests it makes outside this handler (site icons and their redirects).
+     */
+    fun withholds(url: String): Boolean = guard.isRestricted && certificateExceptions.isWithheldFromAgents(url)
 }
 
 /**
