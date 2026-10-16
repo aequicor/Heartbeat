@@ -22,7 +22,6 @@ import io.aequicor.heartbeat.feature.browser.api.isBrowserUrlAllowed
 import io.aequicor.heartbeat.feature.browser.api.normalizeBrowserUrl
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserAgentPolicy
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
-import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserFaviconPolicy
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserNativeResources
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserRequestKind
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserSession
@@ -73,7 +72,7 @@ internal class DesktopBrowserSession(
     override val nativeResources: BrowserNativeResources,
     private val agentPolicy: BrowserAgentPolicy,
     private val storage: BrowserWorkspaceStorage,
-    private val faviconPolicy: BrowserFaviconPolicy,
+    private val favicons: DesktopBrowserFavicons,
 ) : BrowserSession,
     BrowserSurface {
     private val log = Log.tag("BrowserWorkspace")
@@ -232,6 +231,7 @@ internal class DesktopBrowserSession(
             // Remove recovery data before deleting native state; a restart during cleanup cannot resurrect tabs.
             storage.save(SavedBrowserWorkspace())
             entries.keys.toList().forEach { close(it) }
+            favicons.clear()
             factory.clearData()
             return BrowserResult(request.id)
         } finally {
@@ -499,6 +499,7 @@ internal class DesktopBrowserSession(
                 DesktopBrowserAutomation(panel::devTools, panel::captureResource),
                 guard,
                 DesktopBrowserFaviconProbe(panel::devTools),
+                panel::loadIcon,
             )
         restored?.takeIf { it.faviconUrl.isNotEmpty() }?.let { entry.favicon = Favicon(it.url, it.faviconUrl) }
         entry.syncGuard(approved = null)
@@ -553,7 +554,7 @@ internal class DesktopBrowserSession(
     private fun lookUpFavicon(entry: Entry, pageUrl: String) {
         entry.faviconLookup?.cancel()
         entry.faviconLookup = scope.coroutineScope.launch(dispatchers.main) {
-            if (!faviconPolicy.isEnabled()) return@launch
+            if (!favicons.isEnabled()) return@launch
             val candidates = try {
                 entry.favicons.candidates()
             } catch (error: CancellationException) {
@@ -570,6 +571,7 @@ internal class DesktopBrowserSession(
             entry.favicon = icon?.let { Favicon(pageUrl, it) }
             entry.update(entry.surface.pages.value)
             publish()
+            if (icon != null) favicons.load(icon, entry.loadIcon)
         }
     }
 
@@ -665,6 +667,7 @@ internal class DesktopBrowserSession(
         val driver: DesktopBrowserAutomation,
         val guard: DesktopBrowserAgentGuard,
         val favicons: DesktopBrowserFaviconProbe,
+        val loadIcon: suspend (String) -> ByteArray,
     ) {
         val lock = Mutex()
         var observer: Job? = null

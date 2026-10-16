@@ -434,6 +434,29 @@ class DesktopBrowserSessionTest {
     }
 
     @Test
+    fun `a found icon is fetched once through its tab and clearing browser data forgets it`() = runTest {
+        val fetched = mutableListOf<String>()
+        val fixture = Fixture(
+            this,
+            devTools = { method, _ -> iconResponse(method, "https://example.com/icon.png") },
+            icons = { url -> fetched.add(url).let { testPng(48, 48) } },
+        )
+        val tab = fixture.create()
+        fixture.attach()
+        runCurrent()
+        repeat(2) {
+            fixture.emit(BrowserViewState(url = "https://example.com/", isLoading = true))
+            fixture.emit(BrowserViewState(url = "https://example.com/"))
+            runCurrent()
+        }
+        assertEquals(listOf("https://example.com/icon.png"), fetched)
+        assertTrue(fixture.favicons.images.value.getValue("https://example.com/icon.png").png.isNotEmpty())
+        fixture.request(BrowserOperation.ClearData)
+        assertTrue(fixture.favicons.images.value.isEmpty())
+        assertTrue(tab.isNotEmpty())
+    }
+
+    @Test
     fun `an unreadable page falls back to the origin icon`() = runTest {
         val fixture = Fixture(this, devTools = { _, _ -> error("Page went away") })
         fixture.create()
@@ -475,6 +498,7 @@ class DesktopBrowserSessionTest {
         private val failCreateAt: Int? = null,
         private val devTools: (suspend (String, JsonObject) -> String)? = null,
         private val areFaviconsEnabled: Boolean = true,
+        private val icons: suspend (String) -> ByteArray = { error("No site icon") },
     ) {
         private val nativeStates = mutableListOf<(BrowserViewState) -> Unit>()
         val closed = mutableListOf<BrowserSurface>()
@@ -492,6 +516,12 @@ class DesktopBrowserSessionTest {
             override suspend fun isEnabled() = enabled.value
         }
         private val dispatchers = BrowserTestDispatchers(StandardTestDispatcher(scope.testScheduler))
+        val favicons = DesktopBrowserFaviconImages(
+            dispatchers,
+            object : BrowserFaviconPolicy {
+                override suspend fun isEnabled() = areFaviconsEnabled
+            },
+        )
         private val resources = object : DesktopBrowserPanelFactory {
             override suspend fun clearData() {
                 clearCount++
@@ -526,6 +556,8 @@ class DesktopBrowserSessionTest {
                         override fun execute(command: BrowserViewCommand) = Unit
                         override suspend fun devTools(method: String, arguments: JsonObject): String =
                             devTools?.invoke(method, arguments) ?: nativeCommand!!()
+
+                        override suspend fun loadIcon(url: String): ByteArray = icons(url)
                     }
                 }.also(panels::add)
         }
@@ -535,9 +567,7 @@ class DesktopBrowserSessionTest {
             resources,
             policy,
             storage,
-            object : BrowserFaviconPolicy {
-                override suspend fun isEnabled() = areFaviconsEnabled
-            },
+            favicons,
         )
 
         fun attach() = SwingUtilities.invokeAndWait { panels.single().createComponent() }
@@ -606,4 +636,13 @@ private fun iconResponse(method: String, url: String, type: String = ""): String
     "Page.getFrameTree" -> """{"frameTree":{"frame":{"id":"main"}}}"""
     "Page.createIsolatedWorld" -> """{"executionContextId":7}"""
     else -> """{"result":{"value":[{"url":"$url","rel":"icon","sizes":"","type":"$type"}]}}"""
+}
+
+internal fun testPng(width: Int, height: Int): ByteArray {
+    val image = java.awt.image.BufferedImage(width, height, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+    for (x in 0 until width) for (y in 0 until height) image.setRGB(x, y, 0xFF3366CC.toInt())
+    return java.io.ByteArrayOutputStream().use { output ->
+        javax.imageio.ImageIO.write(image, "png", output)
+        output.toByteArray()
+    }
 }

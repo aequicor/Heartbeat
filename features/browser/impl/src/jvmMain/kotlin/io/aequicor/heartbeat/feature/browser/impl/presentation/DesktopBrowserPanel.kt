@@ -59,6 +59,9 @@ internal class DesktopBrowserPanel(
             it.captureResource(url)
         }
 
+    /** The site icon [url] fetched through this tab's profile; fails when it is not a small image. */
+    suspend fun loadIcon(url: String): ByteArray = availableRuntime("Site icon", ICON_TIMEOUT) { it.loadIcon(url) }
+
     private suspend fun <T : Any> availableRuntime(
         operation: String,
         timeout: Long,
@@ -81,6 +84,7 @@ internal class DesktopBrowserPanel(
     private companion object {
         const val DEVTOOLS_TIMEOUT = 30_000L
         const val RESOURCE_TIMEOUT = 60_000L
+        const val ICON_TIMEOUT = 15_000L
     }
 
     private var container: JPanel? = null
@@ -264,6 +268,9 @@ internal interface DesktopBrowserRuntime : BrowserViewController {
 
     suspend fun captureResource(url: String): JsonObject =
         throw UnsupportedOperationException("Browser resource loading is unavailable")
+
+    suspend fun loadIcon(url: String): ByteArray =
+        throw UnsupportedOperationException("Browser icon loading is unavailable")
 
     val component: Component
     fun start(initialUrl: String)

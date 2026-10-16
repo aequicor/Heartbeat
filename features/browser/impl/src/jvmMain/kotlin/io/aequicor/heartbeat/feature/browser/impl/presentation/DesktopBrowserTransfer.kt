@@ -9,7 +9,6 @@ import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.serialization.json.JsonObject
 import org.cef.browser.CefRequestContext
 import org.cef.callback.CefAuthCallback
 import org.cef.callback.CefNativeAdapter
@@ -21,17 +20,22 @@ import java.util.concurrent.atomic.AtomicLong
 import javax.swing.SwingUtilities
 import kotlin.coroutines.resume
 
-/** Explicit redirect hops share one profile wrapper and bounded lifetime, without automatic redirect IO. */
-internal class DesktopBrowserTransfer(
+/**
+ * Explicit redirect hops share one profile wrapper and bounded lifetime, without automatic redirect IO. [createBody]
+ * bounds and interprets the final response; only [isCacheAllowed] transfers may be answered from the profile's cache.
+ */
+internal class DesktopBrowserTransfer<T>(
     private val createContext: (CefRequestContextHandler) -> CefRequestContext,
     url: String,
     urlResolver: BrowserUrlResolver,
+    private val isCacheAllowed: Boolean = false,
+    private val createBody: (reject: (String) -> Unit) -> DesktopBrowserResponseBody<T>,
 ) {
     private val log = Log.tag("BrowserTransfer")
     private val policy = DesktopBrowserTransferPolicy(url, urlResolver)
     private val downloadedBytes = AtomicLong()
 
-    suspend fun capture(): JsonObject {
+    suspend fun capture(): T {
         val context = createContext(policy)
         try {
             while (true) captureHop(context)?.let { return it }
@@ -44,7 +48,7 @@ internal class DesktopBrowserTransfer(
         }
     }
 
-    private suspend fun captureHop(context: CefRequestContext): JsonObject? {
+    private suspend fun captureHop(context: CefRequestContext): T? {
         val input = CefRequest.create()
         val client = Client()
         var request: CefURLRequest? = null
@@ -52,7 +56,8 @@ internal class DesktopBrowserTransfer(
             input.setURL(policy.currentUrl)
             input.method = "GET"
             input.firstPartyForCookies = policy.currentUrl
-            input.flags = CefRequest.CefUrlRequestFlags.UR_FLAG_SKIP_CACHE or
+            val cache = if (isCacheAllowed) 0 else CefRequest.CefUrlRequestFlags.UR_FLAG_SKIP_CACHE
+            input.flags = cache or
                 CefRequest.CefUrlRequestFlags.UR_FLAG_ALLOW_STORED_CREDENTIALS or
                 CefRequest.CefUrlRequestFlags.UR_FLAG_STOP_ON_REDIRECT
             request = checkNotNull(CefURLRequest.create(input, client, context)) {
@@ -97,7 +102,7 @@ internal class DesktopBrowserTransfer(
         }
     }
 
-    private fun response(request: CefURLRequest, body: DesktopBrowserDocumentBody): JsonObject? {
+    private fun response(request: CefURLRequest, body: DesktopBrowserResponseBody<T>): T? {
         val response = checkNotNull(request.response) { "Source response is unavailable" }
         return try {
             val isFinal = policy.accept(
@@ -122,7 +127,7 @@ internal class DesktopBrowserTransfer(
         CefURLRequestClient {
         val completed = CompletableDeferred<Unit>()
         val rejected = CompletableDeferred<String>()
-        val body = DesktopBrowserDocumentBody { rejected.complete(it) }
+        val body = createBody { rejected.complete(it) }
 
         override fun onRequestComplete(request: CefURLRequest) {
             log.v { "Managed source request completed" }

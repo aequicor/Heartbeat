@@ -79,11 +79,19 @@ internal class DesktopBrowserEngine(
         client.dispose()
         throw error
     }
-    private val downloads = DesktopBrowserDownload(createContext, dispatchers, urlResolver)
+    private val downloads = documentDownload(createContext, dispatchers, urlResolver)
+    private val icons = iconDownload(createContext, dispatchers, urlResolver)
     private val browser: CefBrowser
     private var isReady = false
 
     override suspend fun captureResource(url: String): JsonObject = downloads.capture(url)
+
+    override suspend fun loadIcon(url: String): ByteArray = icons.capture(url)
+
+    private fun cancelTransfers() {
+        cancelTransfers()
+        icons.cancel()
+    }
 
     override suspend fun devTools(method: String, arguments: JsonObject): String = devToolsCalls.call(
         post = { if (SwingUtilities.isEventDispatchThread()) it() else SwingUtilities.invokeLater(it) },
@@ -112,7 +120,7 @@ internal class DesktopBrowserEngine(
                     override fun onBeforeClose(browser: CefBrowser) {
                         log.v { "Browser $traceId received before-close (native=${browser.identifier})" }
                         isClosed.set(true)
-                        downloads.cancel()
+                        cancelTransfers()
                         failDevToolsCalls()
                     }
 
@@ -279,7 +287,7 @@ internal class DesktopBrowserEngine(
 
     override fun release() {
         check(SwingUtilities.isEventDispatchThread())
-        downloads.cancel()
+        cancelTransfers()
         failDevToolsCalls()
         if (!isClosed.compareAndSet(false, true)) return
         log.v {
@@ -302,6 +310,7 @@ internal class DesktopBrowserEngine(
     override suspend fun awaitClosed() {
         log.v { "Waiting for browser $traceId downloads to close" }
         downloads.awaitClosed()
+        icons.awaitClosed()
         log.v { "Waiting for browser $traceId native close callback" }
         closed.await()
         log.v { "Browser $traceId native close completed" }
@@ -310,7 +319,7 @@ internal class DesktopBrowserEngine(
     private fun creationFailed() {
         // JCEF has already disposed the unregistered browser wrapper on this terminal path.
         isClosed.set(true)
-        downloads.cancel()
+        cancelTransfers()
         failDevToolsCalls()
         client.dispose()
         completeClose()
