@@ -67,6 +67,7 @@ internal class DesktopBrowserEngine(
         unsupported = { onSwing { navigation?.unsupported() } },
         open = { load -> openTab?.invoke(load) ?: execute(BrowserViewCommand.Load(load.url, load.referrer)) },
         areLinksOpenedInTabs = openTab != null,
+        navigating = { onSwing { navigation?.navigating() } },
         unavailable = { onSwing { changed(BrowserViewState(error = BrowserViewError.EngineUnavailable)) } },
         guard = guard,
     )

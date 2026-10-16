@@ -585,7 +585,7 @@ internal class DesktopBrowserSession(
         entries.clear()
         ordered.forEach { entries[it.tab.id] = it }
         selected = id
-        if (!restored?.url.isNullOrEmpty()) surface.execute(BrowserCommand.Load(restored.url))
+        if (!restored?.url.isNullOrEmpty()) surface.restore(restored.url, restored.title)
         entry.observer = observeEntry(entry)
         publish()
         return entry
