@@ -65,6 +65,10 @@ internal fun EngineControlPanelContent(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    if (state.openProject != null) {
+        ProjectScreen(state, onIntent, modifier)
+        return
+    }
     val form = state.config
     val open = state.openPage
     if (form != null && open != null) {
@@ -81,7 +85,7 @@ internal fun EngineControlPanelContent(
 
             else -> {
                 state.failure?.let {
-                    OperationFailure(
+                    ControlFailureBanner(
                         it,
                         onDismiss = { onIntent(EngineControlPanelIntent.DismissError) },
                     )
@@ -89,6 +93,7 @@ internal fun EngineControlPanelContent(
                 state.panel?.let { EngineManagementSection(it, state.loginCode, state.isSaving, onIntent) }
                 SettingsPages(state, onIntent)
                 state.config?.takeIf { it.files.isNotEmpty() }?.let { ConfigFiles(it, onIntent) }
+                if (state.projects.isNotEmpty()) ProjectsSection(state.projects, onIntent)
             }
         }
     }
@@ -110,7 +115,7 @@ private fun ConfigScreen(
     val page = form.pages.firstOrNull { it.id == open }
     val title = file?.fileName ?: page?.title?.text() ?: state.title
     ControlColumn(title, { onIntent(ConfigIntent.ClosePage) }, modifier.testTag("engine-control-panel")) {
-        state.failure?.let { OperationFailure(it, onDismiss = { onIntent(EngineControlPanelIntent.DismissError) }) }
+        state.failure?.let { ControlFailureBanner(it, onDismiss = { onIntent(EngineControlPanelIntent.DismissError) }) }
         when {
             file != null -> ConfigFileContent(file, form, state.isSaving, onIntent)
             page != null -> ConfigPageContent(page, form, state.isSaving, onIntent)
@@ -144,8 +149,9 @@ private fun ConfigFiles(
     }
 }
 
+/** The failure of the last operation with its dismiss action. */
 @Composable
-private fun OperationFailure(failure: FailureUi, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+internal fun ControlFailureBanner(failure: FailureUi, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
     HbBanner(stringResource(failure.message()), modifier.testTag("engine-control-failure")) {
         HbButton(
             stringResource(Res.string.control_dismiss),

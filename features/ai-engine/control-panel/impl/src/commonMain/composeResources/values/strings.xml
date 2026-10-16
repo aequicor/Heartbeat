@@ -235,4 +235,13 @@
     <string name="engine_packages_sync">Install from the list</string>
     <string name="engine_packages_update">Update</string>
     <string name="control_problem_unparsed">The file has comments or is not plain JSON. Edit this value in the file editor.</string>
+    <string name="control_panel_projects">Projects</string>
+    <string name="control_panel_projects_description">Settings in a project's files apply on top of the profile in chats that work in it.</string>
+    <string name="control_project_trust">Trust</string>
+    <string name="control_project_trust_description">Whether the project's settings, tool servers and extensions load.</string>
+    <string name="control_trust_undecided">Ask in the studio</string>
+    <string name="control_trust_content">Instructions only</string>
+    <string name="control_trust_trusted">Trust the project</string>
+    <string name="control_project_loading">Reading the project's files…</string>
+    <string name="control_project_files">Project files</string>
 </resources>

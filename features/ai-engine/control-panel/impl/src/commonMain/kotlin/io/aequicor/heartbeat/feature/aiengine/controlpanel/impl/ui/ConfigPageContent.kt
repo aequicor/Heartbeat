@@ -39,10 +39,7 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.stringResource
 
-/**
- * One configuration page: what keeps the draft from being saved, then the page's sections. Advanced fields stay
- * folded unless they are set or have problems.
- */
+/** One configuration page: what keeps the draft from being saved, then the page's sections. */
 @Composable
 internal fun ConfigPageContent(
     page: ConfigPageUi,
@@ -51,17 +48,28 @@ internal fun ConfigPageContent(
     onIntent: (ConfigIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var isAdvancedShown by remember(page.id) { mutableStateOf(false) }
-    val isEditable = !isSaving && !form.isSubmitted
     HbColumn(modifier.fillMaxWidth().testTag("config-page:${page.id}"), gap = HbTheme.spacing.xxl) {
         ConfigSaveBar(form, isSaving, onIntent)
         if (form.otherProblems.any { it.isBlocking }) {
             HbBanner(stringResource(Res.string.control_config_other_problems))
         }
+        ConfigPageSections(page, isEditable = !isSaving && !form.isSubmitted, onIntent)
+    }
+}
+
+/** The sections of [page]; advanced fields stay folded unless they are set or have problems. */
+@Composable
+internal fun ConfigPageSections(
+    page: ConfigPageUi,
+    isEditable: Boolean,
+    onIntent: (ConfigIntent) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var isAdvancedShown by remember(page.id) { mutableStateOf(false) }
+    HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.xxl) {
         page.sections.forEach { section ->
             val fields = section.fields.filter {
-                isAdvancedShown || !it.isAdvanced || it.isSet ||
-                    it.problems.isNotEmpty()
+                isAdvancedShown || !it.isAdvanced || it.isSet || it.problems.isNotEmpty()
             }
             if (fields.isNotEmpty()) Section(section, fields.toImmutableList(), isEditable, isAdvancedShown, onIntent)
         }
@@ -74,7 +82,7 @@ internal fun ConfigPageContent(
             HbButton(
                 stringResource(toggle),
                 { isAdvancedShown = !isAdvancedShown },
-                Modifier.testTag("config-advanced"),
+                Modifier.testTag("config-advanced:${page.id}"),
                 HbButtonStyle.Ghost,
                 size = HbButtonSize.Small,
             )

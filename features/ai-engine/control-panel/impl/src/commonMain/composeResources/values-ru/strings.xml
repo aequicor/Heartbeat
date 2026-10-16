@@ -235,4 +235,13 @@
     <string name="engine_packages_sync">Установить по списку</string>
     <string name="engine_packages_update">Обновить</string>
     <string name="control_problem_unparsed">В файле есть комментарии, или это не простой JSON. Измените значение в редакторе файла.</string>
+    <string name="control_panel_projects">Проекты</string>
+    <string name="control_panel_projects_description">Настройки в файлах проекта применяются поверх профиля в чатах, которые работают в нём.</string>
+    <string name="control_project_trust">Доверие</string>
+    <string name="control_project_trust_description">Загружать ли настройки, серверы инструментов и расширения проекта.</string>
+    <string name="control_trust_undecided">Спросить в студии</string>
+    <string name="control_trust_content">Только инструкции</string>
+    <string name="control_trust_trusted">Доверять проекту</string>
+    <string name="control_project_loading">Чтение файлов проекта…</string>
+    <string name="control_project_files">Файлы проекта</string>
 </resources>
