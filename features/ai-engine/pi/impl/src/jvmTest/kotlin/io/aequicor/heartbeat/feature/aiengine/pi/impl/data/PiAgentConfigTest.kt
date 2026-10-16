@@ -101,7 +101,7 @@ class PiAgentConfigTest {
             {
               "defaultModel": "gpt", "defaultTools": ["read"], "sessionDir": "/elsewhere",
               "retry": {"maxRetries": 5},
-              "skills": ["skills", "+local/one", "!old/**", "/abs/skill", "~/mine", "!/abs/old"],
+              "skills": ["skills", "+local/one", "+local/*.ts", "!old/**", "/abs/skill", "~/mine", "!/abs/old"],
               "prompts": ["prompts/*.md", "-prompts/draft.md"],
               "packages": ["npm:@x/y", "./pkg", {"source": "git:github.com/a/b", "skills": []}]
             }
@@ -115,8 +115,16 @@ class PiAgentConfigTest {
         assertEquals(json("""{"maxRetries": 5}"""), written["retry"])
         // A relative pattern keeps its file name match and is anchored at the profile home for the relative one.
         assertEquals(
-            listOf("$home/skills", "+$home/local/one", "!old/**", "!$home/old/**", "/abs/skill", "~/mine", "!/abs/old")
-                .map(::JsonPrimitive),
+            listOf(
+                "$home/skills",
+                "+$home/local/one",
+                "+$home/local/*.ts",
+                "!old/**",
+                "!$home/old/**",
+                "/abs/skill",
+                "~/mine",
+                "!/abs/old",
+            ).map(::JsonPrimitive),
             (written.getValue("skills") as JsonArray).toList(),
         )
         assertEquals(

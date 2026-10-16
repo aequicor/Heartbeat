@@ -11,6 +11,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.AfterTest
@@ -27,6 +28,7 @@ class PiResourceInventoryTest {
 
     @AfterTest
     fun cleanUp() {
+        root.toFile().setReadableRecursively()
         root.toFile().deleteRecursively()
     }
 
@@ -179,6 +181,75 @@ class PiResourceInventoryTest {
         )
         assertTrue(result.isTruncated)
         assertTrue(result.resources.size <= 4096)
+    }
+
+    @Test
+    fun `untrusted project settings are not read at all`() = runTest {
+        write(project, ".pi/custom/x.ts")
+        write(project, ".pi/prompts/review.md")
+        val hostile = "!" + "{a,b,c}".repeat(6)
+        write(project, ".pi/settings.json", """{"extensions":["custom"],"prompts":["$hostile"]}""")
+        write(home, "prompts/mine.md")
+        val result = configurator.resources(
+            settings("""{"prompts":["prompts"]}"""),
+            project.toString(),
+            ProjectTrust.Content,
+        )
+        assertEquals(
+            listOf(".pi/prompts/review.md" to ResourceState.Enabled, "prompts/mine.md" to ResourceState.Enabled),
+            result.resources.map { it.path to it.state },
+        )
+        assertFalse(result.isTruncated)
+    }
+
+    @Test
+    fun `masks and ignore rules beyond the matching limits mark the listing incomplete without failing it`() = runTest {
+        write(project, ".pi/prompts/.gitignore", "x".repeat(5000))
+        write(project, ".pi/prompts/review.md")
+        write(home, "prompts/mine.md")
+        val tooMany = "!" + "{a,b,c}".repeat(6)
+        val result = configurator.resources(
+            settings("""{"prompts":["prompts","$tooMany"]}"""),
+            project.toString(),
+            ProjectTrust.Trusted,
+        )
+        assertEquals(listOf(".pi/prompts/review.md", "prompts/mine.md"), result.resources.map { it.path })
+        assertEquals(ResourceState.Enabled, result.resources.last().state)
+        assertTrue(result.isTruncated)
+    }
+
+    @Test
+    fun `unreadable folders and invalid entries are skipped instead of failing the listing`() = runTest {
+        write(home, "skills/open/SKILL.md")
+        write(home, "skills/locked/inner/SKILL.md")
+        write(home, "extensions/pkg/package.json", """{"pi":{"extensions":["a\u0000.ts","index.ts"]}}""")
+        write(home, "extensions/pkg/index.ts")
+        write(home, "extensions/ts")
+        val locked = home.resolve("skills/locked")
+        val isPosix = locked.fileSystem.supportedFileAttributeViews().contains("posix")
+        if (isPosix) Files.setPosixFilePermissions(locked, PosixFilePermissions.fromString("---------"))
+        val result = configurator.resources(
+            settings("""{"skills":["skills"],"extensions":["extensions"]}"""),
+            null,
+            ProjectTrust.Undecided,
+        )
+        assertEquals(
+            listOf("extensions/pkg/index.ts", "skills/open/SKILL.md"),
+            result.resources.map { it.path },
+        )
+        assertTrue(result.isTruncated)
+    }
+
+    @Test
+    fun `glob budget is shared and ends matching once spent`() {
+        val budget = GlobBudget(states = 10)
+        assertFalse(piResourceGlob("*a".repeat(30) + "b", "a".repeat(80), budget))
+        assertTrue(budget.isExceeded)
+        assertFalse(piResourceGlob("a", "a", budget))
+    }
+
+    private fun java.io.File.setReadableRecursively() {
+        walkTopDown().onEnter { it.setReadable(true) && it.setExecutable(true) }.forEach { it.setReadable(true) }
     }
 
     private fun settings(text: String) = EngineConfigValues(

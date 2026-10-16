@@ -8,19 +8,38 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import java.io.IOException
 import java.nio.file.Files
+import java.nio.file.InvalidPathException
 import java.nio.file.Path
 
-/** A bounded, confined view of resource files; links are followed only within the root and never recursively twice. */
-internal class PiResourceFiles(private val root: Path) {
+/**
+ * A bounded, confined view of resource files; links are followed only within the root and never recursively twice.
+ * An entry that cannot be read or named is skipped and marks the view incomplete, as Pi skips it too.
+ */
+internal class PiResourceFiles(private val root: Path, private val budget: GlobBudget = GlobBudget()) {
     var isTruncated: Boolean = false
+        private set
+
+    /** Entries skipped because they could not be read or are not valid paths. */
+    var skipped: Int = 0
         private set
     private val inspected = mutableSetOf<Path>()
     private var readBytes = 0
 
-    fun safe(path: Path): Boolean = reserve(
-        path,
-    ) && path.normalize().startsWith(root) && isInside(root, path, MAX_LINKS)
+    fun safe(path: Path): Boolean = reserve(path) && path.normalize().startsWith(root) && try {
+        isInside(root, path, PI_MAX_LINKS)
+    } catch (e: IOException) {
+        log.w(e.redactedFailure()) { "Pi resource link not resolved" }
+        skip()
+        false
+    }
+
+    /** Records an entry Pi would not load either; the caller logs why. */
+    fun skip() {
+        isTruncated = true
+        skipped++
+    }
 
     private fun reserve(path: Path): Boolean {
         if (path in inspected) return true
@@ -47,11 +66,17 @@ internal class PiResourceFiles(private val root: Path) {
 
     fun text(path: Path): String? {
         if (!safe(path) || !Files.isRegularFile(path)) return null
-        if (Files.size(path) > MAX_FILE_BYTES || readBytes >= MAX_READ_BYTES) {
-            isTruncated = true
+        val bytes = try {
+            if (Files.size(path) > MAX_FILE_BYTES || readBytes >= MAX_READ_BYTES) {
+                isTruncated = true
+                return null
+            }
+            Files.newInputStream(path).use { it.readNBytes(MAX_FILE_BYTES + 1) }
+        } catch (e: IOException) {
+            log.w(e.redactedFailure()) { "Pi resource file not readable" }
+            skip()
             return null
         }
-        val bytes = Files.newInputStream(path).use { it.readNBytes(MAX_FILE_BYTES + 1) }
         readBytes += bytes.size
         if (bytes.size > MAX_FILE_BYTES) {
             isTruncated = true
@@ -66,7 +91,13 @@ internal class PiResourceFiles(private val root: Path) {
             isTruncated = true
             return emptyList()
         }
-        val real = path.toRealPath()
+        val real = try {
+            path.toRealPath()
+        } catch (e: IOException) {
+            log.w(e.redactedFailure()) { "Pi resource folder not resolved" }
+            skip()
+            return emptyList()
+        }
         if (real in ancestors) return emptyList()
         val rules = inherited + ignores(path)
         val children = children(path).filter { visible(it, rules) }
@@ -115,9 +146,9 @@ internal class PiResourceFiles(private val root: Path) {
             when {
                 Files.isDirectory(it) -> extensionEntries(it)
 
-                Files.isRegularFile(
-                    it,
-                ) && it.fileName.toString().substringAfterLast('.') in listOf("ts", "js") -> listOf(it)
+                Files.isRegularFile(it) && it.fileName.toString().let { name ->
+                    name.endsWith(".ts") || name.endsWith(".js")
+                } -> listOf(it)
 
                 else -> emptyList()
             }
@@ -128,22 +159,37 @@ internal class PiResourceFiles(private val root: Path) {
         val manifest = text(path.resolve("package.json"))?.let(::resourceJson)
         val entries = ((manifest?.get("pi") as? JsonObject)?.get("extensions") as? JsonArray).orEmpty()
             .mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
-            .asSequence().map { path.resolve(it).normalize() }
+            .asSequence().mapNotNull { entry -> resolve(path, entry) }
             .filter { safe(it) && Files.isRegularFile(it) }.take(MAX_ENTRIES).toList()
         if (entries.isNotEmpty()) return entries
         return listOf("index.ts", "index.js").map(path::resolve)
             .firstOrNull { safe(it) && Files.isRegularFile(it) }?.let(::listOf).orEmpty()
     }
 
-    private fun children(path: Path): List<Path> = Files.newDirectoryStream(path).use { stream ->
-        val result = mutableListOf<Path>()
-        val iterator = stream.iterator()
-        while (iterator.hasNext()) {
-            val child = iterator.next()
-            if (!reserve(child)) break
-            result.add(child)
+    /** [entry] of a project's manifest under [path]; an entry that is not a valid path here is skipped. */
+    fun resolve(path: Path, entry: String): Path? = try {
+        path.resolve(entry).normalize()
+    } catch (e: InvalidPathException) {
+        log.w(e.redactedFailure()) { "Pi extension entry is not a valid path" }
+        skip()
+        null
+    }
+
+    private fun children(path: Path): List<Path> = try {
+        Files.newDirectoryStream(path).use { stream ->
+            val result = mutableListOf<Path>()
+            val iterator = stream.iterator()
+            while (iterator.hasNext()) {
+                val child = iterator.next()
+                if (!reserve(child)) break
+                result.add(child)
+            }
+            result.sortedBy { it.fileName.toString() }
         }
-        result.sortedBy { it.fileName.toString() }
+    } catch (e: IOException) {
+        log.w(e.redactedFailure()) { "Pi resource folder not readable" }
+        skip()
+        emptyList()
     }
 
     private fun ignores(path: Path): List<IgnoreRule> = listOf(".gitignore", ".ignore", ".fdignore").flatMap { name ->
@@ -158,9 +204,9 @@ internal class PiResourceFiles(private val root: Path) {
             val relative = rule.base.relativize(path).posix()
             val pattern = rule.pattern.removePrefix("/").removeSuffix("/")
             val isMatched = if ('/' in pattern || rule.pattern.startsWith('/')) {
-                piResourceGlob(pattern, relative)
+                piResourceGlob(pattern, relative, budget)
             } else {
-                relative.split('/').any { piResourceGlob(pattern, it) }
+                relative.split('/').any { piResourceGlob(pattern, it, budget) }
             }
             if (isMatched && (!rule.pattern.endsWith('/') || Files.isDirectory(path))) isIgnored = !rule.isNegated
         }
@@ -177,7 +223,6 @@ internal class PiResourceFiles(private val root: Path) {
     private data class IgnoreRule(val base: Path, val pattern: String, val isNegated: Boolean)
 
     private companion object {
-        const val MAX_LINKS = 8
         const val MAX_ENTRIES = 4096
         const val MAX_DEPTH = 32
         const val MAX_FILE_BYTES = 64 * 1024
@@ -189,6 +234,8 @@ internal class PiResourceFiles(private val root: Path) {
 internal fun resourceJson(text: String): JsonObject? = try {
     Json.parseToJsonElement(text.removePrefix("\uFEFF")) as? JsonObject
 } catch (e: SerializationException) {
-    Log.tag("PiResourceFiles").w(e.redactedFailure()) { "resource metadata is not valid JSON" }
+    log.w(e.redactedFailure()) { "resource metadata is not valid JSON" }
     null
 }
+
+private val log = Log.tag("PiResourceFiles")

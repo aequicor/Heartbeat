@@ -3,7 +3,11 @@ package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 import java.nio.file.Path
 
 /** Pi's include, exclude and exact override order, evaluated against the same three path forms as Pi. */
-internal class PiResourcePatterns(private val entries: List<String>, private val base: Path) {
+internal class PiResourcePatterns(
+    private val entries: List<String>,
+    private val base: Path,
+    private val budget: GlobBudget,
+) {
     fun enabled(path: Path, isAutomatic: Boolean): Boolean {
         val patterns = entries.filter { it.isResourcePattern() }
         val includes = patterns.filter { it.firstOrNull() !in listOf('!', '+', '-') }
@@ -15,7 +19,7 @@ internal class PiResourcePatterns(private val entries: List<String>, private val
     }
 
     private fun matches(path: Path, pattern: String): Boolean = forms(path, includeName = true).any {
-        piResourceGlob(pattern.removePrefix("./"), it)
+        piResourceGlob(pattern.removePrefix("./"), it, budget)
     }
 
     private fun exact(path: Path, pattern: String): Boolean =
@@ -33,17 +37,40 @@ internal fun String.isResourcePattern(): Boolean = firstOrNull() in listOf('!', 
 
 internal fun Path.posix(): String = toString().replace('\\', '/')
 
-/** Portable glob matching with a bounded state graph instead of regex backtracking. */
-internal fun piResourceGlob(pattern: String, value: String): Boolean =
-    expandBraces(pattern).any { ResourceGlob(it, value).matches() }
+/**
+ * Work allowance of one inventory read. Masks and ignore files may come from a project, so their total matching work
+ * is bounded: a mask beyond the limits counts as not matching and marks the listing incomplete instead of failing it.
+ */
+internal class GlobBudget(private var states: Int = MAX_TOTAL_STATES) {
+    var isExceeded: Boolean = false
+        private set
 
-private fun expandBraces(pattern: String): List<String> {
+    fun spend(): Boolean {
+        if (states > 0) states-- else isExceeded = true
+        return !isExceeded
+    }
+
+    fun exceed(): Boolean {
+        isExceeded = true
+        return false
+    }
+}
+
+/** Portable glob matching with a bounded state graph instead of regex backtracking. */
+internal fun piResourceGlob(pattern: String, value: String, budget: GlobBudget = GlobBudget()): Boolean {
+    if (budget.isExceeded) return false
+    if (pattern.length > MAX_PATTERN || value.length > MAX_PATH) return budget.exceed()
+    val alternatives = expandBraces(pattern) ?: return budget.exceed()
+    return alternatives.any { ResourceGlob(it, value, budget).matches() }
+}
+
+/** The brace alternatives of [pattern], or null when there are too many to evaluate. */
+private fun expandBraces(pattern: String): List<String>? {
     val pending = ArrayDeque<String>()
     val result = mutableListOf<String>()
     pending.add(pattern)
     while (pending.isNotEmpty()) {
-        // Refuse pathological masks explicitly instead of silently claiming a resource is excluded.
-        require(pending.size + result.size <= MAX_ALTERNATIVES) { "Resource glob has too many alternatives" }
+        if (pending.size + result.size > MAX_ALTERNATIVES) return null
         val next = pending.removeFirst()
         val end = next.indexOf('}')
         val start = if (end >= 0) next.lastIndexOf('{', end) else -1
@@ -57,24 +84,28 @@ private fun expandBraces(pattern: String): List<String> {
     return result
 }
 
-private class ResourceGlob(private val pattern: String, private val value: String) {
+private class ResourceGlob(private val pattern: String, private val value: String, private val budget: GlobBudget) {
     private val pending = ArrayDeque<Pair<Int, Int>>()
     private val visited = mutableSetOf<Pair<Int, Int>>()
 
     fun matches(): Boolean {
-        require(pattern.length <= MAX_PATTERN && value.length <= MAX_PATH) { "Resource glob is too long" }
         pending.add(0 to 0)
-        while (pending.isNotEmpty()) {
+        var isMatched = false
+        var isStopped = false
+        while (!isMatched && !isStopped && pending.isNotEmpty()) {
             val position = pending.removeFirst()
             if (visited.add(position)) {
-                require(visited.size <= MAX_STATES) { "Resource glob is too complex" }
+                isStopped = !spend()
                 val (p, v) = position
-                if (p == pattern.length && v == value.length) return true
-                if (p < pattern.length) step(p, v)
+                isMatched = !isStopped && p == pattern.length && v == value.length
+                if (!isStopped && !isMatched && p < pattern.length) step(p, v)
             }
         }
-        return false
+        return isMatched
     }
+
+    /** One more state within this match's own limit and the inventory's shared one. */
+    private fun spend(): Boolean = if (visited.size > MAX_STATES) budget.exceed() else budget.spend()
 
     private fun step(p: Int, v: Int) {
         when (pattern[p]) {
@@ -140,4 +171,5 @@ private const val MAX_ALTERNATIVES = 256
 private const val MAX_PATTERN = 4096
 private const val MAX_PATH = 32768
 private const val MAX_STATES = 262144
+private const val MAX_TOTAL_STATES = 4_000_000
 private const val RANGE_LENGTH = 3

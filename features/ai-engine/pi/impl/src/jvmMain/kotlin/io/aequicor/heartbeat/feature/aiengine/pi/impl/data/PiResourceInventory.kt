@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
+import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigDocument
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigValues
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineResource
@@ -12,7 +14,9 @@ import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngineId
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import java.io.IOException
 import java.nio.file.Files
+import java.nio.file.InvalidPathException
 import java.nio.file.Path
 
 /**
@@ -32,9 +36,10 @@ internal suspend fun piResourceInventory(
     val profileSettings = (profile.documents[PiDocuments.Settings] as? ConfigDocument.Json)?.value ?: JsonObject(
         emptyMap(),
     )
+    val budget = GlobBudget()
     val roots = buildList {
-        directory?.let { add(ResourceRoot(Path.of(it).toRealPath(), ResourceOrigin.Project, trust, flags)) }
-        add(ResourceRoot(profileRoot, ResourceOrigin.Profile, trust, flags))
+        directory?.let { add(ResourceRoot(Path.of(it).toRealPath(), ResourceOrigin.Project, trust, flags, budget)) }
+        add(ResourceRoot(profileRoot, ResourceOrigin.Profile, trust, flags, budget))
     }
     val resources = roots.flatMap { root ->
         val settings = if (root.origin == ResourceOrigin.Profile) profileSettings else root.projectSettings()
@@ -43,9 +48,10 @@ internal suspend fun piResourceInventory(
     return ResourceInventory(
         PiEngineId,
         null,
-        resources,
+        // Stable: within a kind, project resources stay before profile resources.
+        resources.sortedBy { it.kind.ordinal },
         external = roots.sumOf { it.external },
-        isTruncated = roots.any { it.files.isTruncated },
+        isTruncated = budget.isExceeded || roots.any { it.files.isTruncated },
     )
 }
 
@@ -54,27 +60,33 @@ private class ResourceRoot(
     val origin: ResourceOrigin,
     val trust: ProjectTrust,
     val flags: PiAgentConfig,
+    private val budget: GlobBudget,
 ) {
-    val files = PiResourceFiles(root)
+    val files = PiResourceFiles(root, budget)
     var external = 0
         private set
     private val base = if (origin == ResourceOrigin.Project) root.resolve(".pi") else root
     private val isTrusted get() = trust == ProjectTrust.Trusted
 
-    fun projectSettings(): JsonObject = files.text(base.resolve("settings.json"))
-        ?.let(::resourceJson) ?: JsonObject(emptyMap())
+    /** Pi reads a project's settings only once the project is trusted; until then they are not parsed either. */
+    fun projectSettings(): JsonObject = if (isTrusted) {
+        files.text(base.resolve("settings.json"))?.let(::resourceJson) ?: JsonObject(emptyMap())
+    } else {
+        JsonObject(emptyMap())
+    }
 
     fun inventory(settings: JsonObject, hasProject: Boolean): List<EngineResource> =
         ResourceKind.entries.flatMap { resources(it, settings.entries(it), hasProject) }
 
     private fun resources(kind: ResourceKind, entries: List<String>, hasProject: Boolean): List<EngineResource> {
-        val patterns = PiResourcePatterns(entries, base)
+        val patterns = PiResourcePatterns(entries, base, budget)
         val explicit = entries.asSequence().filterNot(String::isResourcePattern).mapNotNull(::local)
-            .flatMap { files.collect(it, kind) }.distinct().toList()
-        val automatic = automatic(kind)
-        val agents = agents(kind)
-        return (explicit + automatic + agents).distinct().map { path ->
-            val matching = if (path in agents) PiResourcePatterns(entries, root.resolve(".agents")) else patterns
+            .flatMap { files.collect(it, kind) }.toCollection(LinkedHashSet())
+        val automatic = automatic(kind).toSet()
+        val agents = agents(kind).toSet()
+        val agentPatterns = PiResourcePatterns(entries, root.resolve(".agents"), budget)
+        return (explicit + automatic + agents).map { path ->
+            val matching = if (path in agents) agentPatterns else patterns
             val isSelected = matching.enabled(path, isAutomatic = path !in explicit)
             val selection = Selection(path in explicit, isSelected, path in automatic || path in agents)
             resource(path, kind, state(kind, selection, hasProject))
@@ -145,18 +157,32 @@ private class ResourceRoot(
             external++
             return null
         }
-        val entered = Path.of(entry)
+        val entered = try {
+            Path.of(entry)
+        } catch (e: InvalidPathException) {
+            log.w(e.redactedFailure()) { "Pi resource entry is not a valid path" }
+            files.skip()
+            return null
+        }
         if (WindowsPath.matches(entry) && !entered.isAbsolute) {
             external++
             return null
         }
         val path = base.resolve(entered).normalize()
-        val isConfined = path.startsWith(root) && (!Files.exists(root) || isInside(root, path, RESOURCE_MAX_LINKS))
+        val isConfined = path.startsWith(root) && (!Files.exists(root) || confined(path))
         if (!isConfined) {
             external++
             return null
         }
         return path
+    }
+
+    private fun confined(path: Path): Boolean = try {
+        isInside(root, path, PI_MAX_LINKS)
+    } catch (e: IOException) {
+        log.w(e.redactedFailure()) { "Pi resource entry link not resolved" }
+        files.skip()
+        false
     }
 }
 
@@ -190,6 +216,6 @@ private fun metadata(text: String?): Map<String, String> {
     }
 }
 
-private val WindowsPath = Regex("^[A-Za-z]:[/\\\\].*")
+private val log = Log.tag("PiResourceInventory")
 
-private const val RESOURCE_MAX_LINKS = 8
+private val WindowsPath = Regex("^[A-Za-z]:[/\\\\].*")

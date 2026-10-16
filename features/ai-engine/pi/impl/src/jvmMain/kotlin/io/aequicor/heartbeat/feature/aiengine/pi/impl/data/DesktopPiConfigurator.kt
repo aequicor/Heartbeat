@@ -174,7 +174,7 @@ internal class DesktopPiConfigurator(
     /** The project file at [relative] under this (real) root; refused when a link on the way leaves the project. */
     private fun Path.confined(relative: String): Path {
         val path = resolve(relative)
-        if (!isInside(this, path, MAX_LINKS)) {
+        if (!isInside(this, path, PI_MAX_LINKS)) {
             log.w { "Pi project file links out of the project" }
             throw ConfigException(ConfigFailure.Storage)
         }
@@ -220,4 +220,5 @@ internal fun isInside(root: Path, path: Path, links: Int): Boolean {
     }
 }
 
-private const val MAX_LINKS = 8
+/** Links followed in a row inside a confined root before a path counts as leaving it. */
+internal const val PI_MAX_LINKS = 8
