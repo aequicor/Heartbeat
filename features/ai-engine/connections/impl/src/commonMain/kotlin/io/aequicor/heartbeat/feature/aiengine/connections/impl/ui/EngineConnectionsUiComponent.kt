@@ -19,6 +19,7 @@ internal class EngineConnectionsUiComponent(private val component: EngineConnect
             component::openWizard,
             if (presentation == ConnectionsPresentation.Embedded) null else component::close,
             modifier,
+            component::openEngineControl,
         )
     }
 }

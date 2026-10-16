@@ -1,5 +1,8 @@
 package io.aequicor.heartbeat.feature.aiengine.connections.impl.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithTag
@@ -9,6 +12,7 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsState
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineConnectionsScreenIntent
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineConnectionsScreenState
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.managedSettingsSnapshot
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.reflect
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.settingsSnapshot
 import kotlin.test.Test
@@ -58,5 +62,17 @@ class EngineConnectionsUiTest {
                 intents,
             )
         }
+    }
+
+    @Test
+    fun `with engine management the selected engine opens its control panel`() = runSkikoComposeUiTest {
+        val opened = mutableListOf<String>()
+        var state by mutableStateOf(loaded)
+        setContent { HbTheme { EngineConnectionsContent(state, {}, {}, {}, onManageEngine = { opened += it }) } }
+        onNodeWithTag("settings-manage-engine").assertDoesNotExist()
+
+        state = EngineConnectionsScreenState().reflect(EngineConnectionsState.Active(managedSettingsSnapshot()))
+        onNodeWithTag("settings-manage-engine").performClick()
+        runOnIdle { assertEquals(listOf("koog"), opened) }
     }
 }

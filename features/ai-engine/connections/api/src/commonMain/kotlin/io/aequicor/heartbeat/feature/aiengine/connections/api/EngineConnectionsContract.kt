@@ -9,7 +9,6 @@ import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.machineSpec
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
@@ -21,8 +20,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 /**
  * Everything the settings space shows: engines with their bindings, the sources those bindings use,
  * cached models of every binding and the user's model choice. Reading it never triggers discovery.
- * [management] lists every registered engine with its switch, installation, login, launch settings and running
- * job; it is [EngineManagementState.Off] while engine management is off.
+ * [management] lists every registered engine, switched-off ones too, which the engine control panel manages;
+ * it is [EngineManagementState.Off] while engine management is off.
  */
 public data class ConnectionsSnapshot(
     val engines: List<EngineInfo>,
@@ -57,12 +56,6 @@ public sealed interface ConnectionOperation {
 
     /** Sets or clears the profile default model. */
     public data class SetDefaultModel(val target: EngineTarget?) : ConnectionOperation
-
-    /**
-     * Applies an engine management [command]. Long work (a download, a browser sign-in) is a job owned by the
-     * facade: the operation completes once the job started, and its progress arrives with the next snapshots.
-     */
-    public data class ManageEngine(val engine: EngineId, val command: EngineCommand) : ConnectionOperation
 }
 
 /** An operation that failed, kept until retried or dismissed. */

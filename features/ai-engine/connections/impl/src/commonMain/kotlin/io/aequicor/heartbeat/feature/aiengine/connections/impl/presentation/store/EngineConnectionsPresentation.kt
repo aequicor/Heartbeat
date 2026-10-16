@@ -40,6 +40,8 @@ data class EngineConnectionsScreenState(
     val models: ModelsPaneUi? = null,
     val modelQuery: String = "",
     val confirmDisconnect: String? = null,
+    /** Engine management is on: the selected engine is switched on and installed in its engine control panel. */
+    val isManaged: Boolean = false,
     val isLoading: Boolean = true,
     val isSaving: Boolean = false,
     val loadFailure: FailureUi? = null,
@@ -70,6 +72,7 @@ internal fun EngineConnectionsScreenState.reflect(state: EngineConnectionsState)
                     connections = persistentListOf(),
                     models = null,
                     confirmDisconnect = null,
+                    isManaged = false,
                 )
 
                 else -> base
@@ -130,6 +133,7 @@ private fun EngineConnectionsScreenState.withSnapshot(snapshot: ConnectionsSnaps
         selectedConnection = connectionId,
         models = models,
         confirmDisconnect = confirmDisconnect?.takeIf { id -> connectionRows.any { it.id == id } },
+        isManaged = management != null,
     )
 }
 
