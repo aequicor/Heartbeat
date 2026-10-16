@@ -10,6 +10,7 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -21,6 +22,9 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerType
+import androidx.compose.ui.input.pointer.isPrimaryPressed
+import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.isTertiaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
@@ -46,8 +50,9 @@ import org.jetbrains.compose.resources.stringResource
 
 /**
  * The selected tab determines the visible group, including selection by agents or the inventory menu. As in Chromium,
- * closing a tab keeps the others' width while the pointer stays over the strip, so the next close button lands under
- * it; leaving the strip lays the tabs out again.
+ * closing a tab keeps the others' width while a mouse stays over the strip, so the next close button lands under it;
+ * leaving the strip, a new tab or another group lays the tabs out again. Only a mouse freezes the width, since a
+ * finger reports no exit; a touchscreen the desktop reports as a mouse behaves like one.
  */
 @Composable
 internal fun BrowserTabStrip(
@@ -58,15 +63,18 @@ internal fun BrowserTabStrip(
     val tabs = state.visibleTabs
     val groupId = tabs.firstOrNull()?.groupId
     var revealRequest by remember { mutableIntStateOf(0) }
-    var frozenTabWidth by remember { mutableStateOf<Dp?>(null) }
-    var isPointerOver by remember { mutableStateOf(false) }
-    val onPointerOver: (Boolean) -> Unit = remember {
+    var frozen by remember { mutableStateOf<FrozenTabWidth?>(null) }
+    var isMouseOver by remember { mutableStateOf(false) }
+    val onMouseOver: (Boolean) -> Unit = remember {
         { isOver ->
-            isPointerOver = isOver
-            if (!isOver) frozenTabWidth = null
+            isMouseOver = isOver
+            if (!isOver) frozen = null
         }
     }
-    BoxWithConstraints(modifier.onPointerOver(onPointerOver)) {
+    val isFreezeStale = frozen?.let { it.groupId != groupId || tabs.size > it.maxTabs } == true
+    // A freeze that no longer applies is dropped, so it cannot return when the count shrinks or the group is back.
+    if (isFreezeStale) SideEffect { frozen = null }
+    BoxWithConstraints(modifier.onMouseOver(onMouseOver)) {
         val selectorWidth = (maxWidth / 2).coerceAtMost(
             HbTheme.dimensions.browserGroupLabelMaxWidth + HbTheme.dimensions.touchTarget,
         )
@@ -82,13 +90,14 @@ internal fun BrowserTabStrip(
             BoxWithConstraints(Modifier.weight(1f, fill = false)) {
                 val viewportWidth = maxWidth
                 val dimensions = HbTheme.dimensions
-                val tabWidth = frozenTabWidth ?: (maxWidth / tabs.size.coerceAtLeast(1)).coerceIn(
-                    dimensions.browserTabMinWidth,
-                    dimensions.browserTabMaxWidth,
-                )
+                val tabWidth = frozen?.takeIf { it.groupId == groupId && tabs.size <= it.maxTabs }?.width
+                    ?: (maxWidth / tabs.size.coerceAtLeast(1)).coerceIn(
+                        dimensions.browserTabMinWidth,
+                        dimensions.browserTabMaxWidth,
+                    )
                 val close: (String) -> Unit = { id ->
-                    // Keyboard closes lay the strip out at once; only a pointer waits for the strip to be left.
-                    if (isPointerOver) frozenTabWidth = tabWidth
+                    // Only a mouse waits for the strip to be left; the freeze lasts while tabs only close.
+                    if (isMouseOver) frozen = FrozenTabWidth(tabWidth, groupId, tabs.size - 1)
                     onIntent(BrowserScreenIntent.CloseTab(id))
                 }
                 HbRow(
@@ -158,7 +167,8 @@ private fun BrowserTab(
                         Modifier.testTag(
                             (if (tab.isAwaitingResponse) "browser-tab-waiting-" else "browser-tab-loading-") + tab.id,
                         ),
-                        contentDescription = stringResource(Res.string.browser_loading),
+                        // Only the selected tab announces its loading; background tabs would flood a screen reader.
+                        contentDescription = stringResource(Res.string.browser_loading).takeIf { isSelected },
                         color = if (tab.isAwaitingResponse) HbTheme.colors.textSecondary else HbTheme.colors.brand,
                         size = HbTheme.dimensions.iconSize,
                         isCounterClockwise = tab.isAwaitingResponse,
@@ -197,15 +207,20 @@ private fun BrowserTab(
     )
 }
 
-/** Reports whether a pointer is over this element, including over its children. */
+/** The width tabs keep in [groupId] while no more than [maxTabs] of them are shown. */
+private data class FrozenTabWidth(val width: Dp, val groupId: String?, val maxTabs: Int)
+
+/** Reports whether a mouse is over this element, including over its children; any other pointer counts as not. */
 @Composable
-private fun Modifier.onPointerOver(onChange: (Boolean) -> Unit): Modifier {
+private fun Modifier.onMouseOver(onChange: (Boolean) -> Unit): Modifier {
     val currentOnChange by rememberUpdatedState(onChange)
     return pointerInput(Unit) {
         awaitPointerEventScope {
             while (true) {
-                when (awaitPointerEvent(PointerEventPass.Initial).type) {
-                    PointerEventType.Enter, PointerEventType.Move -> currentOnChange(true)
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                val isMouse = event.changes.all { it.type == PointerType.Mouse }
+                when (event.type) {
+                    PointerEventType.Enter, PointerEventType.Move, PointerEventType.Press -> currentOnChange(isMouse)
                     PointerEventType.Exit -> currentOnChange(false)
                 }
             }
@@ -213,7 +228,10 @@ private fun Modifier.onPointerOver(onChange: (Boolean) -> Unit): Modifier {
     }
 }
 
-/** Middle click closes a tab, as in desktop browsers; the press must also be released over the tab. */
+/**
+ * Middle click closes a tab, as in desktop browsers: the middle button must be pressed and released over the tab, with
+ * no other button involved.
+ */
 @Composable
 private fun Modifier.onMiddleClick(action: () -> Unit): Modifier {
     val currentAction by rememberUpdatedState(action)
@@ -223,12 +241,15 @@ private fun Modifier.onMiddleClick(action: () -> Unit): Modifier {
             while (true) {
                 val event = awaitPointerEvent(PointerEventPass.Initial)
                 when (event.type) {
-                    PointerEventType.Press -> isArmed = event.buttons.isTertiaryPressed
+                    PointerEventType.Press -> {
+                        val buttons = event.buttons
+                        isArmed = buttons.isTertiaryPressed && !buttons.isPrimaryPressed && !buttons.isSecondaryPressed
+                    }
 
                     PointerEventType.Exit -> isArmed = false
 
                     PointerEventType.Release -> {
-                        if (isArmed) {
+                        if (isArmed && !event.buttons.isTertiaryPressed) {
                             currentAction()
                             event.changes.forEach { it.consume() }
                         }

@@ -40,7 +40,7 @@ import kotlin.math.ln
 internal class DesktopBrowserEngine(
     app: CefApp,
     dispatchers: DispatcherProvider,
-    urlResolver: BrowserUrlResolver,
+    private val urlResolver: BrowserUrlResolver,
     private val isReleased: () -> Boolean,
     private val changed: (BrowserViewState) -> Unit,
     private val onClosed: () -> Unit = {},
@@ -48,7 +48,7 @@ internal class DesktopBrowserEngine(
     openTab: ((BrowserCommand.Load) -> Unit)? = null,
     onShortcut: ((BrowserShortcut) -> Unit)? = null,
     private val certificateExceptions: DesktopCertificateExceptions = DesktopCertificateExceptions(),
-    createContext: (CefRequestContextHandler) -> CefRequestContext,
+    private val createContext: (CefRequestContextHandler) -> CefRequestContext,
 ) : DesktopBrowserRuntime {
     private val log = Log.tag("DesktopBrowserEngine")
     private val isClosed = AtomicBoolean(false)
@@ -68,6 +68,7 @@ internal class DesktopBrowserEngine(
         unsupported = { onSwing { navigation?.unsupported() } },
         open = { load -> openTab?.invoke(load) ?: execute(BrowserViewCommand.Load(load.url, load.referrer)) },
         areLinksOpenedInTabs = openTab != null,
+        navigating = { onSwing { navigation?.navigating() } },
         unavailable = { onSwing { changed(BrowserViewState(error = BrowserViewError.EngineUnavailable)) } },
         guard = guard,
         certificateExceptions = certificateExceptions,
@@ -85,7 +86,7 @@ internal class DesktopBrowserEngine(
         throw error
     }
     private val downloads = documentDownload(createContext, dispatchers, urlResolver)
-    private val icons = iconDownload(createContext, dispatchers, urlResolver)
+    private val icons = iconDownload(dispatchers)
     private val browser: CefBrowser
     private var isReady = false
 
@@ -124,7 +125,8 @@ internal class DesktopBrowserEngine(
 
     override suspend fun captureResource(url: String): JsonObject = downloads.capture(url)
 
-    override suspend fun loadIcon(url: String): ByteArray = icons.capture(url)
+    override suspend fun loadIcon(url: String, allows: (String) -> Boolean): ByteArray =
+        icons.capture(url) { iconTransfer(createContext, it, urlResolver, allows) }
 
     private fun cancelTransfers() {
         downloads.cancel()

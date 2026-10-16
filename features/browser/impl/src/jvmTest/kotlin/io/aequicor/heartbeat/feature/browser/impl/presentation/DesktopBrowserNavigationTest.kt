@@ -36,6 +36,7 @@ class DesktopBrowserNavigationTest {
 
     @Test
     fun `a load the page starts awaits its response and failures or stops end the wait`() {
+        navigation.navigating()
         navigation.loading(isLoading = true, isBackAvailable = true, isForwardAvailable = false)
         assertEquals(true to true, states.last().phase())
         navigation.failed()
@@ -100,6 +101,37 @@ class DesktopBrowserNavigationTest {
         assertEquals(BrowserSecurity.Http, states.last().security)
         navigation.started()
         assertEquals(BrowserSecurity.Http, states.last().security)
+    }
+
+    @Test
+    fun `a frame loading into a finished page is not awaiting the server`() {
+        navigation.execute(BrowserViewCommand.Load("https://example.com/"))
+        navigation.started()
+        navigation.loading(isLoading = false, isBackAvailable = false, isForwardAvailable = false)
+        navigation.loading(isLoading = true, isBackAvailable = false, isForwardAvailable = false)
+        assertEquals(true to false, states.last().phase())
+        // A link clicked while that frame still loads makes the page await the server again.
+        navigation.navigating()
+        assertEquals(true to true, states.last().phase())
+    }
+
+    @Test
+    fun `a main navigation that never committed does not make later frame loads wait`() {
+        navigation.navigating()
+        navigation.loading(isLoading = true, isBackAvailable = false, isForwardAvailable = false)
+        navigation.loading(isLoading = false, isBackAvailable = false, isForwardAvailable = false)
+        navigation.loading(isLoading = true, isBackAvailable = false, isForwardAvailable = false)
+        assertEquals(true to false, states.last().phase())
+    }
+
+    @Test
+    fun `after a stopped load the page's own next load is shown again`() {
+        navigation.execute(BrowserViewCommand.Load("https://example.com/"))
+        navigation.execute(BrowserViewCommand.Stop)
+        navigation.loading(isLoading = false, isBackAvailable = false, isForwardAvailable = false)
+        navigation.navigating()
+        navigation.loading(isLoading = true, isBackAvailable = false, isForwardAvailable = false)
+        assertEquals(true to true, states.last().phase())
     }
 
     private fun BrowserViewState.phase() = isLoading to isAwaitingResponse

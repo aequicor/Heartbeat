@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.browser.impl.domain
 
 import io.aequicor.heartbeat.feature.browser.api.isBrowserUrlAllowed
+import kotlinx.coroutines.flow.Flow
 
 /** A `<link>` of the loaded document that declares a site icon; values come from the page and are untrusted. */
 internal data class BrowserFaviconCandidate(
@@ -13,18 +14,21 @@ internal data class BrowserFaviconCandidate(
 /** Whether site icons are looked up for loaded pages. */
 internal interface BrowserFaviconPolicy {
     suspend fun isEnabled(): Boolean
+
+    /** The current value, then every change. */
+    fun observe(): Flow<Boolean>
 }
 
 /**
  * Picks the icon a tab shows for [pageUrl], as Chromium does for its tab strip: a declared `icon` before an Apple touch
- * icon, a scalable or exactly sized icon closest to [BROWSER_FAVICON_PIXELS], the first one among equals, and the
- * origin's `/favicon.ico` when the page declares none. Only HTTP(S) icons of an HTTP(S) page are chosen; inline
- * `data:` icons are ignored.
+ * icon, an icon of any size or the one closest to [BROWSER_FAVICON_PIXELS], the first one among equals, and the
+ * origin's `/favicon.ico` when the page declares none. Only HTTP(S) raster icons of an HTTP(S) page are chosen: inline
+ * `data:` icons are ignored, and declared SVG icons are skipped because they are not decoded.
  */
 internal fun chooseBrowserFavicon(pageUrl: String, candidates: List<BrowserFaviconCandidate>): String? {
     if (!isBrowserUrlAllowed(pageUrl)) return null
     val declared = candidates.asSequence()
-        .filter { it.url.length <= MAX_FAVICON_URL_LENGTH && isBrowserUrlAllowed(it.url) }
+        .filter { it.url.length <= MAX_FAVICON_URL_LENGTH && isBrowserUrlAllowed(it.url) && !it.isSvg() }
         .mapNotNull { candidate -> candidate.rank()?.let { candidate to it } }
         .minByOrNull { it.second }
     return declared?.first?.url ?: defaultFavicon(pageUrl)
@@ -40,12 +44,15 @@ private fun BrowserFaviconCandidate.rank(): Int? {
     }
     val declaredSizes = sizes.lowercase().split(' ').filter { it.isNotEmpty() }
     val penalty = when {
-        type.equals(SVG_TYPE, ignoreCase = true) || "any" in declaredSizes -> 0
+        "any" in declaredSizes -> 0
         declaredSizes.isEmpty() -> UNDECLARED_SIZE_PENALTY
         else -> declaredSizes.mapNotNull(::sizePenalty).minOrNull() ?: UNDECLARED_SIZE_PENALTY
     }
     return kind * KIND_WEIGHT + penalty
 }
+
+private fun BrowserFaviconCandidate.isSvg(): Boolean = type.equals(SVG_TYPE, ignoreCase = true) ||
+    url.substringBefore('#').substringBefore('?').endsWith(SVG_EXTENSION, ignoreCase = true)
 
 private fun sizePenalty(size: String): Int? {
     val width = size.substringBefore('x').toIntOrNull() ?: return null
@@ -79,4 +86,5 @@ private const val MAX_DECLARED_PIXELS = 4_096
 private const val KIND_WEIGHT = 10_000
 private const val UNDECLARED_SIZE_PENALTY = 8
 private const val SVG_TYPE = "image/svg+xml"
+private const val SVG_EXTENSION = ".svg"
 private val TOUCH_ICON_RELS = setOf("apple-touch-icon", "apple-touch-icon-precomposed")

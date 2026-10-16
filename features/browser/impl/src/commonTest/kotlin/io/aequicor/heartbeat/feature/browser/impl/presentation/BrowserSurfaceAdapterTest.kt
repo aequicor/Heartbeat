@@ -59,6 +59,23 @@ class BrowserSurfaceAdapterTest {
     }
 
     @Test
+    fun `a restored address stays idle until a view runs it`() = runTest {
+        val adapter = createAdapter()
+        adapter.setEnabled(true)
+        adapter.restore("https://example.com", "Saved")
+        // A restored background tab has no view yet, so it must not look busy.
+        assertFalse(adapter.pages.value.isLoading)
+        assertEquals("https://example.com", adapter.pages.value.url)
+        assertEquals("Saved", adapter.pages.value.title)
+        val view = RecordingBrowserController()
+        adapter.attached(view)
+        runCurrent()
+        assertEquals(listOf<BrowserViewCommand>(BrowserViewCommand.Load("https://example.com")), view.commands)
+        assertTrue(adapter.pages.value.isLoading)
+        assertTrue(adapter.pages.value.isAwaitingResponse)
+    }
+
+    @Test
     fun `initial view is blank and load then stop are retained until attachment`() = runTest {
         val adapter = createAdapter()
         assertEquals("", adapter.initialUrl)

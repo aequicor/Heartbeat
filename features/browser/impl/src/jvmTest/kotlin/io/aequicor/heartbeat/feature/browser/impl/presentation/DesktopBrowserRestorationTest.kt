@@ -112,6 +112,8 @@ class DesktopBrowserRestorationTest {
         assertEquals(saved.tabs.map { it.owner }, tabs.map { it.owner })
         assertEquals(personal, selected)
         assertEquals("Personal", restarted.session.pages.value.title)
+        // No restored tab has a view yet, so none of them looks busy in the strip.
+        assertTrue(tabs.none { it.page.isLoading })
         assertTrue(tabs.all { it.isHumanControlled && it.pendingOwner == null && it.controlRequestId == null })
         assertTrue(restarted.guards.none { it.isRestricted })
         assertTrue(restarted.request(BrowserOperation.Read, agent, "session-a").error != null)

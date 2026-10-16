@@ -90,6 +90,20 @@ class DesktopBrowserDownloadTest {
     }
 
     @Test
+    fun `a caller's destination check holds for the first address and every redirect hop`() {
+        val allows = { url: String -> !url.startsWith("http://192.168.") }
+        assertFailsWith<IllegalArgumentException> {
+            DesktopBrowserTransferPolicy("http://192.168.1.1/icon.png", DefaultBrowserUrlResolver(), allows)
+        }
+        val policy = DesktopBrowserTransferPolicy("http://cdn.test/icon.png", DefaultBrowserUrlResolver(), allows)
+        assertFalse(policy.accept(302, Status.UR_CANCELED, ErrorCode.ERR_ABORTED, "http://cdn.test/next.png"))
+        assertFailsWith<IllegalStateException> {
+            policy.accept(302, Status.UR_CANCELED, ErrorCode.ERR_ABORTED, "http://192.168.1.1/icon.png")
+        }
+        assertEquals("http://cdn.test/next.png", policy.currentUrl)
+    }
+
+    @Test
     fun `closing waits for native cancellation acknowledgement and rejects new transfers`() = runTest {
         val finished = CompletableDeferred<Unit>()
         val entered = CompletableDeferred<Unit>()

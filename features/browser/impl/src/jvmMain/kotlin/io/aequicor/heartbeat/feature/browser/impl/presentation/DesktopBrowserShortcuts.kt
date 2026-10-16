@@ -47,8 +47,12 @@ internal class DesktopBrowserShortcuts(
 
     @HighFrequency
     private fun keyDown(event: CefKeyEvent): Boolean {
-        val shortcut = shortcut(event) ?: return false
-        if (shortcut is BrowserShortcut.Zoom && !isZoomEnabled()) return false
+        // A shortcut that moved focus to another tab never sees its key-up here; any other key ends its press, so the
+        // character of the next ordinary key reaches the page.
+        val shortcut = shortcut(event)?.takeUnless { it is BrowserShortcut.Zoom && !isZoomEnabled() } ?: run {
+            press = null
+            return false
+        }
         val previous = press
         if (previous?.shortcut == shortcut && previous.type != event.type) return true
         press = Press(shortcut, event.type)

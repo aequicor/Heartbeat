@@ -98,6 +98,19 @@ internal class BrowserSurfaceAdapter(
         if (current == null) pending += native else current.execute(native)
     }
 
+    /**
+     * Queues [url] for the view that attaches next without reporting a load: a restored background tab stays idle, and
+     * keeps its address and [title], until it is shown. The page counts as loading from when a view runs it.
+     */
+    suspend fun restore(url: String, title: String = ""): Unit = withContext(dispatchers.main) {
+        if (!isEnabled || isClosed) return@withContext
+        require(isBrowserUrlAllowed(url)) { "Browser requires an HTTP(S) address" }
+        log.v { "Restoring browser address" }
+        page.value = page.value.copy(url = url, title = title, error = null)
+        val current = controller
+        if (current == null) pending += BrowserViewCommand.Load(url) else execute(BrowserCommand.Load(url))
+    }
+
     override fun attached(controller: BrowserViewController) {
         scope.coroutineScope.launch(dispatchers.main) {
             if (!isEnabled || isClosed) {
@@ -109,6 +122,12 @@ internal class BrowserSurfaceAdapter(
             this@BrowserSurfaceAdapter.controller = controller
             val commands = pending.toList()
             pending.clear()
+            if (commands.lastOrNull { it is BrowserViewCommand.Load || it == BrowserViewCommand.Stop } is
+                    BrowserViewCommand.Load
+            ) {
+                log.v { "Queued browser load started" }
+                page.value = page.value.copy(isLoading = true, isAwaitingResponse = true)
+            }
             commands.forEach(controller::execute)
         }
     }

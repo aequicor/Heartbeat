@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.browser.impl.domain.BROWSER_FAVICON_PIXELS
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserFaviconPolicy
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,7 +27,6 @@ import org.jetbrains.skia.ImageInfo
 import org.jetbrains.skia.MipmapMode
 import org.jetbrains.skia.Rect
 import org.jetbrains.skia.Surface
-import org.jetbrains.skia.svg.SVGDOM
 
 /** Desktop tabs look icons up only while the feature flag is on, and load them through their own profile. */
 internal interface DesktopBrowserFavicons {
@@ -34,6 +34,9 @@ internal interface DesktopBrowserFavicons {
     val images: StateFlow<Map<String, BrowserFaviconImage>>
 
     suspend fun isEnabled(): Boolean
+
+    /** Whether the feature flag is on, emitting each change. */
+    fun observeEnabled(): Flow<Boolean>
 
     /** Fetches and decodes [url] through [fetch] unless it is already known; the caller's cancellation stops it. */
     suspend fun load(url: String, fetch: suspend (String) -> ByteArray)
@@ -43,8 +46,10 @@ internal interface DesktopBrowserFavicons {
 }
 
 /**
- * Site icons of the profile's desktop tabs, decoded once per address and kept in memory only (the most recent
- * [MAX_IMAGES]). An address that failed is not fetched again until browser data is cleared. Main-confined.
+ * Site icons of the profile's desktop tabs, decoded once per address and kept in memory only (the [MAX_IMAGES] most
+ * recently used). An address whose response is not a usable icon ([BrowserFaviconRejected], an HTTP error such as 404,
+ * an oversized body) is not fetched again until browser data is cleared; a network failure, timeout, server error or
+ * refused destination is retried with the next page load. Main-confined.
  */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class, binding = binding<DesktopBrowserFavicons>())
@@ -57,29 +62,57 @@ internal class DesktopBrowserFaviconImages(
     private val cache = MutableStateFlow<Map<String, BrowserFaviconImage>>(emptyMap())
     private val failed = LinkedHashSet<String>()
 
+    /** Cached addresses, least recently used first; a map with the same entries would not re-emit a new order. */
+    private val recent = LinkedHashSet<String>()
+
     override val images: StateFlow<Map<String, BrowserFaviconImage>> = cache.asStateFlow()
 
     override suspend fun isEnabled(): Boolean = policy.isEnabled()
 
+    override fun observeEnabled(): Flow<Boolean> = policy.observe()
+
     override suspend fun load(url: String, fetch: suspend (String) -> ByteArray) {
-        if (url in cache.value || url in failed) return
+        if (url in cache.value) {
+            recent.remove(url)
+            recent += url
+            return
+        }
+        if (url in failed) return
         try {
             val bytes = fetch(url)
-            val image = BrowserFaviconImage(withContext(dispatchers.default) { decodeBrowserFavicon(bytes) })
-            cache.value = (cache.value - url + (url to image)).entries.toList().takeLast(MAX_IMAGES)
-                .associate { it.key to it.value }
+            val image = BrowserFaviconImage(decode(bytes))
+            recent += url
+            val evicted = recent.take((recent.size - MAX_IMAGES).coerceAtLeast(0)).toSet()
+            recent -= evicted
+            cache.value = cache.value - evicted + (url to image)
             log.v { "Site icon cached: total=${cache.value.size}" }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            failed += url
-            if (failed.size > MAX_FAILURES) failed.remove(failed.first())
-            log.w(error.redactedFailure()) { "Site icon is unavailable" }
+            if (error.isPermanentIconFailure()) {
+                failed += url
+                if (failed.size > MAX_FAILURES) failed.remove(failed.first())
+                log.w(error.redactedFailure()) { "Site icon is not usable" }
+            } else {
+                log.w(error.redactedFailure()) { "Site icon is unavailable" }
+            }
+        }
+    }
+
+    /** Bytes the decoder refuses are as unusable as a non-image response. */
+    private suspend fun decode(bytes: ByteArray): ByteArray = withContext(dispatchers.default) {
+        try {
+            decodeBrowserFavicon(bytes)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            throw BrowserFaviconRejected("Site icon cannot be decoded", error)
         }
     }
 
     override fun clear() {
         cache.value = emptyMap()
+        recent.clear()
         failed.clear()
         log.i { "Site icons cleared" }
     }
@@ -90,15 +123,22 @@ internal class DesktopBrowserFaviconImages(
     }
 }
 
+private fun Exception.isPermanentIconFailure(): Boolean =
+    this is BrowserFaviconRejected || (this is DesktopBrowserSourceRejected && !isRetryable)
+
+/** A response that is not a usable site icon; retrying the same address would get the same answer. */
+internal class BrowserFaviconRejected(message: String, cause: Throwable? = null) :
+    IllegalStateException(message, cause)
+
 /**
- * Renders a site icon (PNG, ICO, GIF, WebP, JPEG, BMP or SVG) into a [BROWSER_FAVICON_PIXELS] square PNG, keeping its
- * aspect ratio. Raster sources larger than [MAX_FAVICON_SOURCE_PIXELS] are refused before decoding.
+ * Renders a raster site icon (PNG, ICO, GIF, WebP, JPEG or BMP) into a [BROWSER_FAVICON_PIXELS] square PNG, keeping
+ * its aspect ratio. Sources larger than [MAX_FAVICON_SOURCE_PIXELS] are refused before decoding. SVG is refused:
+ * Skia's renderer cannot be interrupted or bounded, and a small hostile document (nested `<use>`) renders for minutes.
  */
 internal fun decodeBrowserFavicon(bytes: ByteArray): ByteArray {
     require(bytes.isNotEmpty() && bytes.size <= MAX_FAVICON_BYTES) { "Site icon size is invalid" }
-    return Data.makeFromBytes(bytes).use { data ->
-        if (isSvg(bytes)) renderSvg(data) else renderRaster(data)
-    }
+    require(!isSvg(bytes)) { "SVG site icons are not supported" }
+    return Data.makeFromBytes(bytes).use(::renderRaster)
 }
 
 private fun renderRaster(data: Data): ByteArray = Codec.makeFromData(data).use { codec ->
@@ -130,11 +170,6 @@ private fun renderRaster(data: Data): ByteArray = Codec.makeFromData(data).use {
             }
         }
     }
-}
-
-private fun renderSvg(data: Data): ByteArray = SVGDOM(data).use { svg ->
-    svg.setContainerSize(BROWSER_FAVICON_PIXELS.toFloat(), BROWSER_FAVICON_PIXELS.toFloat())
-    render(svg::render)
 }
 
 private fun render(draw: (Canvas) -> Unit): ByteArray =

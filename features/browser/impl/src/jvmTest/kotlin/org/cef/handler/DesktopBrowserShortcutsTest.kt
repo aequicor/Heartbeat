@@ -47,6 +47,17 @@ class DesktopBrowserShortcutsTest {
     }
 
     @Test
+    fun `a shortcut whose key-up went to another tab does not hide the next typed character`() {
+        val keys = DesktopBrowserShortcuts(received::add, isMac = false)
+        val control = EventFlags.EVENTFLAG_CONTROL_DOWN
+        assertTrue(keys.pre(event(CefKeyEvent.EventType.KEYEVENT_RAWKEYDOWN, KeyEvent.VK_TAB, control)))
+        // Focus moved to the next tab before the keys were released; back here, the user types.
+        assertFalse(keys.pre(event(CefKeyEvent.EventType.KEYEVENT_RAWKEYDOWN, KeyEvent.VK_H, 0)))
+        assertFalse(keys.pre(event(CefKeyEvent.EventType.KEYEVENT_CHAR, KeyEvent.VK_H, 0)))
+        assertEquals(listOf<BrowserShortcut>(BrowserShortcut.NextTab), received)
+    }
+
+    @Test
     fun `macOS uses Command and ordinary keys stay with the page`() {
         val keys = DesktopBrowserShortcuts(received::add, isMac = true)
         val command = EventFlags.EVENTFLAG_COMMAND_DOWN

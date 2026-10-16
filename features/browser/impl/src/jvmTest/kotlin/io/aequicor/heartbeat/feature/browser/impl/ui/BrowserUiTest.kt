@@ -30,6 +30,7 @@ import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.test.withKeyDown
@@ -183,6 +184,15 @@ class BrowserUiTest {
                 release(MouseButton.Tertiary)
             }
             runOnIdle { assertEquals(listOf<BrowserScreenIntent>(BrowserScreenIntent.CloseTab("two")), events) }
+            // A middle press that ends with another button is no middle click.
+            onNodeWithTag("browser-tab-one").performMouseInput {
+                moveTo(centerLeft + Offset(width / 4f, 0f))
+                press(MouseButton.Tertiary)
+                press(MouseButton.Primary)
+                release(MouseButton.Primary)
+                release(MouseButton.Tertiary)
+            }
+            runOnIdle { assertTrue(BrowserScreenIntent.CloseTab("one") !in events) }
         }
 
     @Test
@@ -215,6 +225,40 @@ class BrowserUiTest {
             waitForIdle()
             assertTrue(width() > before)
         }
+
+    @Test
+    fun `touch closes and new tabs lay the strip out at once`() = runSkikoComposeUiTest(size = Size(1280f, 800f)) {
+        var tabs by mutableStateOf((0..5).map { BrowserTabUi("$it", "Page $it", true, false) }.toImmutableList())
+        setContent {
+            HbTheme(dimensions = HbDimensions.Desktop) {
+                BrowserScreenContent(
+                    BrowserScreenState(phase = BrowserPhase.Ready, hasTabs = true, selectedTabId = "0", tabs = tabs),
+                    { intent ->
+                        tabs = when (intent) {
+                            is BrowserScreenIntent.CloseTab -> tabs.filter { it.id != intent.id }.toImmutableList()
+
+                            BrowserScreenIntent.NewTab ->
+                                (tabs + BrowserTabUi("new${tabs.size}", "New", true, false)).toImmutableList()
+
+                            else -> tabs
+                        }
+                    },
+                )
+            }
+        }
+        fun width() = onNodeWithTag("browser-tab-0").fetchSemanticsNode().size.width
+        val six = width()
+        onNodeWithTag("browser-close-tab-5").performTouchInput { click(center) }
+        waitForIdle()
+        val five = width()
+        assertTrue(five > six)
+        onNodeWithTag("browser-close-tab-4").performMouseInput { click(center) }
+        waitForIdle()
+        assertEquals(five, width())
+        repeat(2) { onNodeWithTag("browser-new-tab").performMouseInput { click(center) } }
+        waitForIdle()
+        assertTrue(width() < five)
+    }
 
     @Test
     fun `tab keys reach the store from the browser while ordinary keys stay with the field`() = runSkikoComposeUiTest {
