@@ -9,8 +9,10 @@ import kotlin.time.Duration.Companion.minutes
  * features whose already reviewed code owns the command (harness mini-app buttons). Desktop only.
  *
  * It grants no authority: callers check their own admission and review before calling. Arguments reach the program
- * without shell interpretation; secret-looking environment variables are withheld, stdin is closed and the whole
- * process tree dies on timeout or cancellation. Programs, arguments and output are never logged.
+ * unchanged, without shell expansion or splitting; on Windows words that `cmd.exe` would parse again for a batch
+ * program (`& | < > ^ % ! ( ) "`, line breaks) are refused as [LocalCommandOutcome.Invalid]. Secret-looking
+ * environment variables are withheld, stdin is closed and the whole process tree dies on timeout or cancellation.
+ * Programs, arguments and output are never logged.
  */
 public interface LocalCommands {
     /** False on platforms without local processes or projects. */
@@ -55,7 +57,7 @@ public sealed interface LocalCommandOutcome {
     /** The project is unknown or no longer on disk. */
     public data object NoProject : LocalCommandOutcome
 
-    /** This platform shell cannot pass the arguments unchanged (for example `"` for Windows PowerShell). */
+    /** This platform cannot pass the words unchanged (Windows: `cmd.exe` specials, `"`, empty words). */
     public data object Invalid : LocalCommandOutcome
 
     /** This platform has no local processes. */

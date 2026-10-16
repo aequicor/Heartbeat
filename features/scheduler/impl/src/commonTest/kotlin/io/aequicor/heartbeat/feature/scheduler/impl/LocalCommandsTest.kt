@@ -35,9 +35,27 @@ class LocalCommandsTest {
     }
 
     @Test
+    fun `powershell doubles typographic single quotes`() {
+        val breakout = "\u2019;Start-Process calc;#"
+        val command = quotedCommand(CommandShell.PowerShell, "git", listOf(breakout, "\u2018\u201A\u201B"))
+
+        val doubled = "'\u2019\u2019;Start-Process calc;#' '\u2018\u2018\u201A\u201A\u201B\u201B'"
+        assertEquals("& 'git' $doubled; exit \$LASTEXITCODE", command)
+    }
+
+    @Test
     fun `powershell refuses words it cannot pass unchanged`() {
-        assertNull(quotedCommand(CommandShell.PowerShell, "git", listOf("say \"hi\"")))
-        assertNull(quotedCommand(CommandShell.PowerShell, "git", listOf("")))
+        val refused = listOf(
+            "say \"hi\"", "", "x&calc", "a|b", "<in", ">out", "^", "%PATH%", "!x!", "(a)", "a\nb", "a\rb", "a b\\",
+        )
+        refused.forEach { word ->
+            assertNull(quotedCommand(CommandShell.PowerShell, ".\\gradlew.bat", listOf(word)), word)
+        }
+        assertNull(quotedCommand(CommandShell.PowerShell, "x&calc", emptyList()))
+        assertEquals(
+            "& 'git' 'C:\\dir\\'; exit \$LASTEXITCODE",
+            quotedCommand(CommandShell.PowerShell, "git", listOf("C:\\dir\\")),
+        )
     }
 
     @Test

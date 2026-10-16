@@ -50,7 +50,7 @@ internal class DesktopCommandRunner(private val dispatchers: DispatcherProvider)
         val environment = ProcessBuilder().environment().toMutableMap()
         val removed = environment.keys.filter(::isSecretName)
         removed.forEach(environment::remove)
-        log.i { "starting contained background command; ${removed.size} secret-like variables withheld" }
+        log.d { "starting contained background command; ${removed.size} secret-like variables withheld" }
         val process = startProcess(directory, command, environment)
         var job: WindowsGraphJob? = null
         val output = HeadTail()
@@ -98,7 +98,7 @@ internal class DesktopCommandRunner(private val dispatchers: DispatcherProvider)
             }
         }
         val exitCode = if (hasExited) process.exitValue() else null
-        log.i { "background command ended exitCode=${exitCode ?: "timeout"}" }
+        log.d { "background command ended exitCode=${exitCode ?: "timeout"}" }
         CommandOutcome(exitCode, output.text())
     }
 
