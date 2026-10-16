@@ -19,7 +19,7 @@ internal class SlotPreparationStopped(val reason: String) : Exception(reason)
 /**
  * Brings the exclusively locked build slot to the sandbox snapshot. Tracked files follow the snapshot exactly and
  * untracked files are removed, while ignored build outputs (`build/`, `.gradle`) stay for incremental builds.
- * A slot whose checkout is unusable is recreated inside its pool only. [stopped] is polled while Git runs, so a
+ * An owned slot whose checkout is unusable is recreated inside its pool only. [stopped] is polled while Git runs, so a
  * cancellation or parent loss ends the preparation and its Git process tree.
  */
 internal fun prepareSlot(sandbox: SandboxBuild, stopped: () -> String? = { null }): String {
@@ -29,10 +29,15 @@ internal fun prepareSlot(sandbox: SandboxBuild, stopped: () -> String? = { null 
         "InvalidSlotPool"
     }
     // A symbolic link could redirect slot removal outside the repository's private data directory.
-    check(!Files.isSymbolicLink(pool) && !Files.isSymbolicLink(data)) { "InvalidSlotPool" }
+    check(
+        listOf(data, pool).all {
+            !Files.isSymbolicLink(it) && (!Files.exists(it, LinkOption.NOFOLLOW_LINKS) || it.toRealPath() == it)
+        },
+    ) { "InvalidSlotPool" }
     val index = checkNotNull(sandbox.slot) { "SlotUnassigned" }
     val slot = slotDirectory(pool.toString(), index).normalize()
     check(slot.parent == pool) { "InvalidSlotDirectory" }
+    validateSlotOwnership(slot, checkNotNull(data.parent) { "InvalidSlotPool" })
     if (isSlotCheckout(slot, stopped)) {
         slotGit(slot, stopped, "checkout", "--detach", "--force", sandbox.snapshot)
         slotGit(slot, stopped, "clean", "-d", "--force", "--quiet")
@@ -52,6 +57,31 @@ internal fun prepareSlot(sandbox: SandboxBuild, stopped: () -> String? = { null 
         sandbox.snapshot,
     )
     return "[sandbox] build slot $index created at ${sandbox.snapshot.take(SHORT_SHA)}\n"
+}
+
+/** Refuses redirected paths or metadata belonging to another checkout before any destructive Git command. */
+internal fun validateSlotOwnership(slot: Path, common: Path) {
+    if (!Files.exists(slot, LinkOption.NOFOLLOW_LINKS)) return
+    check(!Files.isSymbolicLink(slot) && slot.toRealPath() == slot) { "InvalidSlotDirectory" }
+    val pointer = slot.resolve(".git")
+    if (!Files.exists(pointer, LinkOption.NOFOLLOW_LINKS)) return
+    check(Files.isRegularFile(pointer, LinkOption.NOFOLLOW_LINKS)) { "InvalidSlotOwnership" }
+    val declaration = Files.readString(pointer).trim()
+    check(declaration.startsWith("gitdir: ")) { "InvalidSlotOwnership" }
+    val directory = slot.resolve(declaration.removePrefix("gitdir: ")).normalize()
+    check(directory.parent == common.resolve("worktrees") && directory.toRealPath() == directory) {
+        "InvalidSlotOwnership"
+    }
+    val owner = directory.resolve("commondir")
+    val backlink = directory.resolve("gitdir")
+    check(
+        Files.isRegularFile(owner, LinkOption.NOFOLLOW_LINKS) &&
+            Files.isRegularFile(backlink, LinkOption.NOFOLLOW_LINKS),
+    ) { "InvalidSlotOwnership" }
+    check(directory.resolve(Files.readString(owner).trim()).normalize().toRealPath() == common) {
+        "InvalidSlotOwnership"
+    }
+    check(directory.resolve(Files.readString(backlink).trim()).normalize() == pointer) { "InvalidSlotOwnership" }
 }
 
 /** The snapshot stays reachable from the slot's HEAD; the private ref is only needed until the build ends. */

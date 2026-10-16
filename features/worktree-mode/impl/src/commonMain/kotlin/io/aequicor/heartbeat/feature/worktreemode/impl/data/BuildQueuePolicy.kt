@@ -21,10 +21,22 @@ internal fun WorktreeBuildKind.cost(): BuildCost = when (this) {
     WorktreeBuildKind.Native -> BuildCost(units = 4, memoryMb = 6_144)
 }
 
-/** Machine-wide capacity shared by the builds of every project and profile. */
-internal data class BuildBudget(val units: Int, val memoryMb: Long) {
-    /** Whole standard builds that fit; also bounds the number of warm build slots of one repository. */
-    val parallelBuilds: Int get() = (units / UNITS_PER_BUILD).coerceIn(1, MAX_PARALLEL_BUILDS)
+/**
+ * Machine-wide capacity shared by the builds of every project and profile. Resource weights apply to every build;
+ * [maxConcurrentBuilds] additionally caps the count of actual builds when the user chooses a fixed limit.
+ * Hold leases do not run a build and consume neither resources nor a place under that limit.
+ */
+internal data class BuildBudget(val units: Int, val memoryMb: Long, val maxConcurrentBuilds: Int = Int.MAX_VALUE) {
+    /**
+     * Whole standard builds that fit both CPU and memory; also bounds warm slots of one repository. At least one
+     * is offered because a single oversized build can run on an idle machine.
+     */
+    val parallelBuilds: Int
+        get() = minOf(
+            (units / UNITS_PER_BUILD).toLong(),
+            memoryMb / WorktreeBuildKind.Compile.cost().memoryMb,
+            maxConcurrentBuilds.toLong(),
+        ).coerceIn(1L, MAX_PARALLEL_BUILDS.toLong()).toInt()
 
     companion object {
         const val UNITS_PER_BUILD = 2
@@ -47,9 +59,14 @@ internal data class BuildBudget(val units: Int, val memoryMb: Long) {
         /** Without the build queue only exclusive resources limit admission, as before it existed. */
         val Unlimited: BuildBudget = BuildBudget(Int.MAX_VALUE / 2, Long.MAX_VALUE / 2)
 
-        /** An explicit user limit replaces the estimate; memory is then the user's responsibility. */
-        fun parallel(builds: Int): BuildBudget =
-            BuildBudget(builds.coerceIn(1, MAX_PARALLEL_BUILDS) * UNITS_PER_BUILD, Long.MAX_VALUE)
+        /**
+         * An explicit limit caps the actual build count as well as the equivalent standard-build resource budget.
+         * Heavy builds can use more of that budget; light builds never exceed the count. Memory is the user's choice.
+         */
+        fun parallel(builds: Int): BuildBudget {
+            val limit = builds.coerceIn(1, MAX_PARALLEL_BUILDS)
+            return BuildBudget(limit * UNITS_PER_BUILD, Long.MAX_VALUE, maxConcurrentBuilds = limit)
+        }
     }
 }
 
@@ -106,7 +123,7 @@ internal fun admitBuilds(
 private class AdmissionRound(running: List<RunningBuild>, private val budget: BuildBudget) {
     val admitted = linkedMapOf<String, Int?>()
     private var used = running.fold(BuildCost.None) { total, build -> total + build.cost }
-    private var isIdle = running.none { it.cost != BuildCost.None }
+    private var activeBuilds = running.count { it.cost != BuildCost.None }
     private val owned = running.flatMap { it.resources }.toMutableSet()
     private val occupied = running.mapNotNull { build ->
         val pool = build.slotPool ?: return@mapNotNull null
@@ -132,15 +149,16 @@ private class AdmissionRound(running: List<RunningBuild>, private val budget: Bu
                 owned += build.resources
                 if (demand != null && slot != null) occupied += demand.pool to slot
                 used += build.cost
-                if (build.cost != BuildCost.None) isIdle = false
+                if (build.cost != BuildCost.None) activeBuilds++
             }
         }
     }
 
     private fun fits(cost: BuildCost): Boolean {
+        if (cost == BuildCost.None) return true
+        if (activeBuilds >= budget.maxConcurrentBuilds) return false
         val total = used + cost
-        return cost == BuildCost.None || isIdle ||
-            (total.units <= budget.units && total.memoryMb <= budget.memoryMb)
+        return activeBuilds == 0 || (total.units <= budget.units && total.memoryMb <= budget.memoryMb)
     }
 }
 

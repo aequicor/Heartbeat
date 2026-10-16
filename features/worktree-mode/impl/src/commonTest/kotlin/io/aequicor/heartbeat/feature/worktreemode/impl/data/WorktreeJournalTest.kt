@@ -328,6 +328,39 @@ class WorktreeJournalTest {
     }
 
     @Test
+    fun `a retained sandbox waits for cleanup before preparing a new native turn`() = runTest {
+        val fixture = Fixture()
+        fixture.toggles.isSandbox = true
+        fixture.completeCoding()
+        val started = CompletableDeferred<Unit>()
+        val proceed = CompletableDeferred<Unit>()
+        fixture.git.reclaimStarted = started
+        fixture.git.reclaimGate = proceed
+        val leaving = async { fixture.send(WorktreeIntent.Public.ChooseAction(CHAT, WorktreeAction.Leave)) }
+        started.await()
+        val request = RequestId("resumed")
+        val resumed = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.send(WorktreeIntent.Public.RunStarted(CHAT, request))
+        }
+
+        assertFalse(resumed.isCompleted)
+        assertEquals(WorktreePhase.Retained, fixture.journal.taskProjection(CHAT)?.phase)
+        proceed.complete(Unit)
+        leaving.await()
+        resumed.await()
+        assertEquals(request, fixture.task().run?.request)
+        assertTrue(fixture.task().run?.isPrepared == true)
+
+        // The cleanup marker is cleared atomically with the new turn, so its later outputs are reclaimed too.
+        val identity = WorktreeRunIdentity(request, SESSION, MERGE_TURN)
+        fixture.send(WorktreeIntent.Public.RunAccepted(CHAT, request, SESSION, MERGE_TURN))
+        fixture.send(WorktreeIntent.Public.TaskCompleteSignaled(CHAT, SESSION, MERGE_TURN, "Done again"))
+        fixture.settle(identity)
+        fixture.send(WorktreeIntent.Public.ChooseAction(CHAT, WorktreeAction.Leave))
+        assertEquals(2, fixture.git.reclaimCount)
+    }
+
+    @Test
     fun `worktree tasks created before sandbox mode keep building in their checkout`() = runTest {
         val fixture = Fixture()
         fixture.completeCoding()
@@ -571,6 +604,8 @@ class WorktreeJournalTest {
             )
         }
         var reclaimCount = 0
+        var reclaimStarted: CompletableDeferred<Unit>? = null
+        var reclaimGate: CompletableDeferred<Unit>? = null
         val discarded = mutableListOf<String>()
         val pruned = mutableListOf<Set<String>>()
         override suspend fun discardSnapshot(record: WorktreeRecord, id: String) {
@@ -581,6 +616,8 @@ class WorktreeJournalTest {
         }
         override suspend fun reclaim(record: WorktreeRecord) {
             reclaimCount++
+            reclaimStarted?.complete(Unit)
+            reclaimGate?.await()
         }
         override suspend fun snapshot(record: WorktreeRecord, id: String): String {
             snapshotCount++

@@ -56,6 +56,11 @@ import kotlin.uuid.Uuid
 
 internal val WorktreeJournalSpec = KeyValueSpec("worktree_mode_journal")
 private val JournalKey = stringKey("records")
+private val terminalBuildPhases = setOf(
+    WorktreeBuildPhase.Completed,
+    WorktreeBuildPhase.Cancelled,
+    WorktreeBuildPhase.Failed,
+)
 
 /** Durable side-effect journal. Corrupt storage fails closed and never becomes an empty worktree registry. */
 @Inject
@@ -72,6 +77,7 @@ internal class WorktreeJournal(
     private val mutex = Mutex()
     private var records: Map<String, WorktreeRecord>? = null
     private val preparations = mutableMapOf<String, Mutex>()
+    private val upkeep = SandboxUpkeep(git)
 
     suspend fun load(): Map<String, WorktreeTask> {
         val saved = mutex.withLock { read() }
@@ -158,10 +164,10 @@ internal class WorktreeJournal(
         command.chatId()?.let { reclaimOutputs(it) }
     }
 
-    /** See [reclaimRetainedSandbox]; the task's preparation lock guards the cleanup. */
+    /** See [reclaimRetainedSandbox]; new turns and cleanup share this lock independently of completion choices. */
     private suspend fun reclaimOutputs(chatId: String) {
-        val lock = mutex.withLock { preparations.getOrPut(chatId) { Mutex() } }
-        reclaimRetainedSandbox(git, lock, { record(chatId) }) { markReclaimed(chatId, it) }
+        val preparation = mutex.withLock { preparations.getOrPut(chatId) { Mutex() } }
+        upkeep.reclaim(chatId, preparation, { record(chatId) }) { markReclaimed(chatId, it) }
     }
 
     /** Path-side bookkeeping only: the visible task and its revision stay unchanged. */
@@ -259,17 +265,20 @@ internal class WorktreeJournal(
         }
     }
 
-    private suspend fun beginRun(command: WorktreeIntent.Public.RunStarted): WorktreeRecord? {
-        requireAvailable()
-        val pending = commitTransition(command) ?: return null
-        return if (pending.task.run?.request != command.request || pending.task.run?.isPrepared == true) {
-            pending
-        } else {
-            check(pending.task.builds.values.none { it.phase == WorktreeBuildPhase.Unknown }) { "WorkerOutcomeUnknown" }
-            check(git.exists(pending)) { "WorktreeUnavailable" }
-            update(command.chatId) { it.copy(task = it.task.runPrepared(command.request)) }
+    private suspend fun beginRun(command: WorktreeIntent.Public.RunStarted): WorktreeRecord? =
+        upkeep.prepareRun(command.chatId) {
+            requireAvailable()
+            val pending = update(command.chatId) { it.startingRun(command) } ?: return@prepareRun null
+            if (pending.task.run?.request != command.request || pending.task.run?.isPrepared == true) {
+                pending
+            } else {
+                check(pending.task.builds.values.none { it.phase == WorktreeBuildPhase.Unknown }) {
+                    "WorkerOutcomeUnknown"
+                }
+                check(git.exists(pending)) { "WorktreeUnavailable" }
+                update(command.chatId) { it.copy(task = it.task.runPrepared(command.request)) }
+            }
         }
-    }
 
     private suspend fun cancelBuild(command: WorktreeIntent.Public.CancelBuild): WorktreeRecord? {
         val owned = record(command.chatId)?.task?.builds?.get(command.operation) ?: return null
@@ -708,14 +717,6 @@ internal class WorktreeJournal(
         log.d { "Persist worktree journal count=${next.size}" }
         store.set(JournalKey, Json.encodeToString(next.values.toList()))
         records = next
-    }
-
-    private companion object {
-        val terminalBuildPhases = setOf(
-            WorktreeBuildPhase.Completed,
-            WorktreeBuildPhase.Cancelled,
-            WorktreeBuildPhase.Failed,
-        )
     }
 }
 

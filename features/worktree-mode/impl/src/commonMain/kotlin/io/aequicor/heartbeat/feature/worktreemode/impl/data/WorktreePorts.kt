@@ -106,9 +106,10 @@ internal interface SandboxGit {
 
     /**
      * Removes build slots of the record's repository numbered [keep] and above, with their Git registrations.
-     * A slot locked by a worker is skipped; a removed slot is locked for the whole removal.
+     * A slot locked by a worker is skipped; a removed slot is locked for the whole removal. Returns true if a busy
+     * surplus slot remains and the caller must retry after its worker releases it.
      */
-    suspend fun sweepSlots(record: WorktreeRecord, keep: Int) = Unit
+    suspend fun sweepSlots(record: WorktreeRecord, keep: Int): Boolean = false
 }
 
 /** Desktop-only Git/filesystem primitives; errors carry safe codes rather than process output. */

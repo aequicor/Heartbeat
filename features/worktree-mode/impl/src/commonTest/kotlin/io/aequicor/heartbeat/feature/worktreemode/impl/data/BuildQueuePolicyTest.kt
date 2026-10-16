@@ -12,8 +12,59 @@ class BuildQueuePolicyTest {
         assertEquals(BuildBudget(5, 24_576), BuildBudget.auto(processors = 10, memoryMb = 32_768))
         assertEquals(BuildBudget(2, 4_096), BuildBudget.auto(processors = 2, memoryMb = 8_192))
         assertEquals(2, BuildBudget.auto(processors = 10, memoryMb = null).parallelBuilds)
-        assertEquals(BuildBudget(6, Long.MAX_VALUE), BuildBudget.parallel(3))
+        assertEquals(BuildBudget(6, Long.MAX_VALUE, maxConcurrentBuilds = 3), BuildBudget.parallel(3))
         assertEquals(BuildBudget.MAX_PARALLEL_BUILDS, BuildBudget.parallel(100).parallelBuilds)
+    }
+
+    @Test
+    fun `the automatic standard build estimate accounts for memory and admits an oversized build alone`() {
+        val automatic = BuildBudget.auto(processors = 32, memoryMb = 8_192)
+        val waiting = List(8) { build("b$it", "p$it") }
+        val admission = admitBuilds(waiting, running = emptyList(), automatic)
+        assertEquals(1, automatic.parallelBuilds)
+        assertEquals(automatic.parallelBuilds, admission.admitted.size)
+
+        val belowOneBuild = BuildBudget.auto(processors = 32, memoryMb = 4_096)
+        assertEquals(1, belowOneBuild.parallelBuilds)
+        assertEquals(1, admitBuilds(waiting, running = emptyList(), belowOneBuild).admitted.size)
+    }
+
+    @Test
+    fun `a fixed limit caps light builds across projects`() {
+        val admission = admitBuilds(
+            List(3) { build("b$it", "p$it", WorktreeBuildKind.Check) },
+            running = emptyList(),
+            BuildBudget.parallel(1),
+        )
+        assertEquals(setOf("b0"), admission.admitted.keys)
+        assertEquals(mapOf("b1" to 1, "b2" to 2), admission.positions)
+    }
+
+    @Test
+    fun `a fixed limit counts running builds and waits when the limit is lowered`() {
+        val waiting = listOf(build("next", "p", WorktreeBuildKind.Check))
+        val running = listOf(
+            running("first", "q", WorktreeBuildKind.Check),
+            running("second", "r", WorktreeBuildKind.Check),
+        )
+        assertEquals(emptyMap(), admitBuilds(waiting, running, BuildBudget.parallel(2)).admitted)
+        assertEquals(emptyMap(), admitBuilds(waiting, running, BuildBudget.parallel(1)).admitted)
+        assertEquals(setOf("next"), admitBuilds(waiting, running.take(1), BuildBudget.parallel(2)).admitted.keys)
+    }
+
+    @Test
+    fun `hold leases neither consume nor wait for the fixed build count`() {
+        val admission = admitBuilds(
+            listOf(
+                build("first", "p", WorktreeBuildKind.Check),
+                build("next", "q", WorktreeBuildKind.Check),
+                QueuedBuild("hold", "r", BuildCost.None, setOf("repo-r")),
+            ),
+            running = listOf(RunningBuild("held", "s", BuildCost.None, setOf("repo-s"))),
+            BuildBudget.parallel(1),
+        )
+        assertEquals(setOf("first", "hold"), admission.admitted.keys)
+        assertEquals(mapOf("next" to 1), admission.positions)
     }
 
     @Test

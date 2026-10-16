@@ -13,6 +13,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -96,6 +97,93 @@ class SandboxBuildTest {
             assertFalse(Files.exists(slot.resolve("stray.txt")))
             assertEquals(second, command(slot, "git", "rev-parse", "HEAD"))
         } finally {
+            removeTestTree(root)
+        }
+    }
+
+    @Test
+    fun `a linked slot cannot overwrite the original checkout`() = runTest {
+        val root = repository()
+        val git = DesktopWorktreeGit(RealTestDispatchers)
+        var link: Path? = null
+        try {
+            val record = sandbox(git, root)
+            Files.writeString(Path.of(record.directory).resolve("source.txt"), "snapshot")
+            val snapshot = git.snapshot(record, "operation-1")
+            val target = checkNotNull(git.build(record, "operation-1", "compile").sandbox)
+                .copy(snapshot = snapshot, slot = 0)
+            val slot = slotDirectory(target.pool, 0)
+            Files.createDirectories(slot.parent)
+            linkDirectory(slot, root)
+            link = slot
+            Files.writeString(root.resolve("source.txt"), "unsaved source")
+            Files.writeString(root.resolve("untracked.txt"), "unsaved file")
+            val head = command(root, "git", "rev-parse", "HEAD")
+
+            assertFailsWith<IllegalStateException> { prepareSlot(target) }
+
+            assertEquals("unsaved source", Files.readString(root.resolve("source.txt")))
+            assertEquals("unsaved file", Files.readString(root.resolve("untracked.txt")))
+            assertEquals(head, command(root, "git", "rev-parse", "HEAD"))
+            assertEquals(root, slot.toRealPath())
+        } finally {
+            link?.let(Files::deleteIfExists)
+            removeTestTree(root)
+        }
+    }
+
+    @Test
+    fun `a slot cannot reuse Git metadata belonging to another checkout`() = runTest {
+        val root = repository()
+        val git = DesktopWorktreeGit(RealTestDispatchers)
+        try {
+            val record = sandbox(git, root)
+            val checkout = Path.of(record.directory)
+            Files.writeString(checkout.resolve("source.txt"), "snapshot")
+            val snapshot = git.snapshot(record, "operation-1")
+            val target = checkNotNull(git.build(record, "operation-1", "compile").sandbox)
+                .copy(snapshot = snapshot, slot = 0)
+            val slot = slotDirectory(target.pool, 0)
+            Files.createDirectories(slot)
+            Files.copy(checkout.resolve(".git"), slot.resolve(".git"))
+            Files.writeString(slot.resolve("untracked.txt"), "keep until ownership is known")
+            val head = command(checkout, "git", "rev-parse", "HEAD")
+            val index = command(checkout, "git", "write-tree")
+
+            assertFailsWith<IllegalStateException> { prepareSlot(target) }
+            assertFailsWith<IllegalStateException> { git.sweepSlots(record, keep = 0) }
+
+            assertEquals(head, command(checkout, "git", "rev-parse", "HEAD"))
+            assertEquals(index, command(checkout, "git", "write-tree"))
+            assertEquals("snapshot", Files.readString(checkout.resolve("source.txt")))
+            assertTrue(Files.exists(slot.resolve("untracked.txt")))
+        } finally {
+            removeTestTree(root)
+        }
+    }
+
+    @Test
+    fun `sweeping a linked slot cannot remove another checkout`() = runTest {
+        val root = repository()
+        val git = DesktopWorktreeGit(RealTestDispatchers)
+        var link: Path? = null
+        try {
+            val record = sandbox(git, root)
+            val checkout = Path.of(record.directory)
+            val target = checkNotNull(git.build(record, "operation-1", "compile").sandbox)
+            val slot = slotDirectory(target.pool, 0)
+            Files.createDirectories(slot.parent)
+            linkDirectory(slot, checkout)
+            link = slot
+            Files.writeString(checkout.resolve("untracked.txt"), "unsaved work")
+
+            assertFailsWith<IllegalStateException> { git.sweepSlots(record, keep = 0) }
+
+            assertEquals("unsaved work", Files.readString(checkout.resolve("untracked.txt")))
+            assertTrue(record.directory in command(root, "git", "worktree", "list", "--porcelain"))
+            assertEquals(checkout, slot.toRealPath())
+        } finally {
+            link?.let(Files::deleteIfExists)
             removeTestTree(root)
         }
     }
@@ -191,7 +279,7 @@ class SandboxBuildTest {
             removeTestPathTree(slots[3])
             val held = checkNotNull(tryLockResource(slots[2].toString()))
             try {
-                git.sweepSlots(record, keep = 1)
+                assertTrue(git.sweepSlots(record, keep = 1))
             } finally {
                 held.close()
             }
@@ -202,6 +290,8 @@ class SandboxBuildTest {
             val registered = command(root, "git", "worktree", "list", "--porcelain")
             assertTrue("slot-0" in registered && "slot-2" in registered, registered)
             assertFalse("slot-1" in registered || "slot-3" in registered, registered)
+            assertFalse(git.sweepSlots(record, keep = 1))
+            assertFalse(Files.exists(slots[2]))
         } finally {
             removeTestTree(root)
         }
@@ -230,6 +320,17 @@ class SandboxBuildTest {
             listOf(WorktreeBuildCache("classpath", root.parent.resolve("${root.fileName}-cache").toString())),
         )
         return record.copy(task = record.task.copy(buildPlan = build, isBuildApproved = true))
+    }
+
+    private fun linkDirectory(path: Path, target: Path) {
+        if (System.getProperty("os.name").startsWith("Windows")) {
+            val process = ProcessBuilder("cmd.exe", "/c", "mklink", "/J", path.toString(), target.toString())
+                .redirectErrorStream(true).start()
+            val output = process.inputStream.bufferedReader().use { it.readText() }
+            check(process.waitFor() == 0) { output }
+        } else {
+            Files.createSymbolicLink(path, target)
+        }
     }
 
     private fun removeTestPathTree(path: Path) {
