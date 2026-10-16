@@ -28,6 +28,7 @@ class SettingsUiTest {
     private val state = SettingsScreenState(
         sections = persistentListOf(
             SettingsSectionUi.Models,
+            SettingsSectionUi.Security,
             SettingsSectionUi.Search,
             SettingsSectionUi.ComputerUse,
             SettingsSectionUi.AgentLearning,
@@ -103,6 +104,16 @@ class SettingsUiTest {
         }
         onNodeWithTag("settings-section:AgentLearning").performClick()
         runOnIdle { assertEquals(listOf(SettingsSectionUi.AgentLearning), selected) }
+    }
+
+    @Test
+    fun `security section is selectable in unified settings`() = runSkikoComposeUiTest(size = Size(1280f, 800f)) {
+        val selected = mutableListOf<SettingsSectionUi>()
+        setContent {
+            HbTheme { SettingsContent(state, selected::add, {}, {}) { HbText("section content") } }
+        }
+        onNodeWithTag("settings-section:Security").performClick()
+        runOnIdle { assertEquals(listOf(SettingsSectionUi.Security), selected) }
     }
 
     @Test

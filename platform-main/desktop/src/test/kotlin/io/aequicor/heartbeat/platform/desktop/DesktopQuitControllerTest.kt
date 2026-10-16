@@ -3,11 +3,11 @@ package io.aequicor.heartbeat.platform.desktop
 import io.aequicor.heartbeat.core.di.AppShutdownParticipant
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.withContext
+import java.util.concurrent.FutureTask
+import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -25,7 +25,10 @@ class DesktopQuitControllerTest {
 
             // The updater starts a child while an ordinary quit is already awaiting cleanup.
             fixture.isInstallerAlive = true
-            withContext(Dispatchers.Default) { fixture.requests.restart() }
+            // Do not suspend the test here: virtual cleanup timeouts must not overtake this real thread.
+            val restart = FutureTask { fixture.requests.restart() }
+            thread { restart.run() }.join()
+            restart.get()
             fixture.requests.restart()
             fixture.requests.quit()
             fixture.release.complete(Unit)

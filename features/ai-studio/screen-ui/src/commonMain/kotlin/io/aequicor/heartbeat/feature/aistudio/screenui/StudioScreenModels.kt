@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.PermissionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProviderUsageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.RenameUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SecurityLevelUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionConfigurationUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionTreeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
@@ -99,6 +100,8 @@ data class PaneContent(
     /** Targets captured with this pane's snapshot, including for delayed remote clicks. */
     val noticeTargets: ImmutableMap<StudioNoticeUi, StudioNoticeDismissalUi>,
     val models: ImmutableList<ModelUi> = persistentListOf(),
+    /** The profile choice shown in the composer of ordinary native chats. */
+    val securityLevel: SecurityLevelUi = SecurityLevelUi.Automatic,
     val enginePreparations: ImmutableList<EnginePreparationUi> = persistentListOf(),
     val dismissedNotices: ImmutableSet<StudioNoticeUi> = persistentSetOf(),
     val cardFocus: CardFocusRequestUi? = null,
@@ -186,10 +189,20 @@ private fun HarnessChoicesUi.isFailed(chat: String?): Boolean = chat != null && 
 internal fun paneOrigin(paneId: Int): String = "pane:$paneId"
 
 /** Everything pane [pane] draws, projected from the screen state. */
-fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
-    val session = displayedSession(pane.sessionId)
-    val configuration = configurations[pane.sessionId]
-    val organism = organisms[pane.sessionId]
+fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent = projectPaneContent(
+    pane,
+    displayedSession(pane.sessionId),
+    configurations[pane.sessionId],
+    organisms[pane.sessionId],
+)
+
+/** Projects a pane using its resolved chat and execution configuration. */
+private fun AiStudioScreenState.projectPaneContent(
+    pane: PaneUi,
+    session: SessionUi?,
+    configuration: SessionConfigurationUi?,
+    organism: OrganismUi?,
+): PaneContent {
     val effectiveSettings = paneSettings(session, configuration).forOrganism(organism)
     return PaneContent(
         pane = pane,
@@ -229,6 +242,7 @@ fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         isSubmitFailed = pane.id in failedPanes,
         renaming = sidebar.renaming?.takeIf { it.origin == paneOrigin(pane.id) },
         settings = effectiveSettings,
+        securityLevel = if (session?.isHelper == true) SecurityLevelUi.Automatic else securityLevel,
         configuration = configuration,
         isStopFailed = pane.sessionId in stopFailures,
         isStoppable = pane.sessionId !in uncancellable,

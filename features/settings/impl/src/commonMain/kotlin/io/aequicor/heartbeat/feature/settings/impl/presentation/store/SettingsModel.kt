@@ -22,6 +22,7 @@ import pro.respawn.flowmvi.plugins.reduce
 /** A settings section as the screen knows it; mapped from and to the contract's [SettingsSection]. */
 enum class SettingsSectionUi {
     Models,
+    Security,
     Subagents,
     Search,
     ComputerUse,
@@ -38,6 +39,7 @@ enum class SettingsSectionUi {
 /** Screen value of a contract section. */
 fun SettingsSection.toUi(): SettingsSectionUi = when (this) {
     SettingsSection.Models -> SettingsSectionUi.Models
+    SettingsSection.Security -> SettingsSectionUi.Security
     SettingsSection.Subagents -> SettingsSectionUi.Subagents
     SettingsSection.Search -> SettingsSectionUi.Search
     SettingsSection.ComputerUse -> SettingsSectionUi.ComputerUse
@@ -54,6 +56,7 @@ fun SettingsSection.toUi(): SettingsSectionUi = when (this) {
 /** Contract section of a screen value. */
 fun SettingsSectionUi.toSection(): SettingsSection = when (this) {
     SettingsSectionUi.Models -> SettingsSection.Models
+    SettingsSectionUi.Security -> SettingsSection.Security
     SettingsSectionUi.Subagents -> SettingsSection.Subagents
     SettingsSectionUi.Search -> SettingsSection.Search
     SettingsSectionUi.ComputerUse -> SettingsSection.ComputerUse

@@ -13,4 +13,5 @@
     <string name="settings_section_project_config">Конфигурация</string>
     <string name="settings_section_harness">Харнесс</string>
     <string name="settings_section_logs">Логи приложения</string>
+    <string name="settings_section_security">Безопасность</string>
 </resources>

@@ -20,7 +20,8 @@ public sealed interface AgentLearningState : MachineState {
     /**
      * The registry is known. [revision] grows with every change of [instructions] and [approvalRevision] with every
      * change of [approval], so the effect handler can drop a save that arrives after a newer one. Until the user
-     * chooses otherwise every new instruction is confirmed ([LearningApproval.Ask]).
+     * chooses otherwise interactive hosts require learning confirmation ([LearningApproval.Ask]); hosts using
+     * automatic safety review independently assess every instruction regardless of this preference.
      */
     public data class Ready(
         val instructions: List<LearnedInstruction> = emptyList(),

@@ -2,13 +2,13 @@
     <string name="learning_title">Self-learning</string>
     <string name="learning_back">Back</string>
     <string name="learning_section_approval">Approving new instructions</string>
-    <string name="learning_section_approval_hint">How the instructions the agent writes on its own or after /remember are accepted. Each appears in the chat as a remember tool call.</string>
+    <string name="learning_section_approval_hint">Applies to new instructions in manual or trusted mode. “Ask” in Security may still require confirmation. With automatic safety review, each instruction is checked independently. Every call appears in the chat.</string>
     <string name="learning_approval_ask">Always ask</string>
     <string name="learning_approval_ask_hint">Every new instruction waits for your decision in the chat.</string>
     <string name="learning_approval_automatic">Accept automatically</string>
-    <string name="learning_approval_automatic_hint">The agent rates each instruction: safe ones are saved at once, others wait for your decision.</string>
+    <string name="learning_approval_automatic_hint">The agent rates each instruction: safe ones need no extra learning confirmation, others wait for your decision.</string>
     <string name="learning_approval_all">Accept everything</string>
-    <string name="learning_approval_all_hint">Every instruction is saved without asking.</string>
+    <string name="learning_approval_all_hint">No extra learning confirmation. Security settings still apply.</string>
     <string name="learning_filter">Show instructions for</string>
     <string name="learning_filter_all">All projects</string>
     <string name="learning_filter_none">Chats without a project</string>

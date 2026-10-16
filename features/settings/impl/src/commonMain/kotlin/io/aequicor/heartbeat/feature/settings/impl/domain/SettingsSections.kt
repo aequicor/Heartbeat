@@ -16,6 +16,7 @@ internal fun availableSections(
     isModelsEnabled: Boolean,
     isSearchEnabled: Boolean,
     hasProfile: Boolean,
+    isSecurityEnabled: Boolean = false,
     isComputerUseEnabled: Boolean = false,
     isChromiumBridgeEnabled: Boolean = false,
     isLearningEnabled: Boolean = false,
@@ -29,6 +30,7 @@ internal fun availableSections(
 ): ImmutableList<SettingsSection> {
     val profileToggles = mapOf(
         SettingsSection.Models to isModelsEnabled,
+        SettingsSection.Security to isSecurityEnabled,
         SettingsSection.Subagents to isSubagentsEnabled,
         SettingsSection.Search to isSearchEnabled,
         SettingsSection.ComputerUse to isComputerUseEnabled,
@@ -47,6 +49,7 @@ internal fun availableSections(
             SettingsSection.FeatureFlags -> true
 
             SettingsSection.Models,
+            SettingsSection.Security,
             SettingsSection.Subagents,
             SettingsSection.Search,
             SettingsSection.ComputerUse,

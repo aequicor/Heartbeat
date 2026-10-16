@@ -106,7 +106,8 @@ internal class MemoryFolders : ProjectFolders {
         ConfigRead.Read(ConfigTree.of(files.map { (path, text) -> ConfigFile(ConfigPath(path), text) }, readProblems))
     } ?: ConfigRead.Absent
 
-    override suspend fun fingerprint(root: String): String? = trees[root]?.toSortedMap()?.toString()
+    override suspend fun fingerprint(root: String): String? =
+        trees[root]?.toList()?.sortedBy { it.first }?.toMap()?.toString()
 
     override suspend fun write(root: String, put: List<ConfigFile>, delete: List<ConfigPath>) {
         writeFailure?.let { throw ConfigWriteException(it) }

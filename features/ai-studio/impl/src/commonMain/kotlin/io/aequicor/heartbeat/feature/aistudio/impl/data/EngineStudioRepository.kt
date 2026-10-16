@@ -432,6 +432,7 @@ internal class EngineStudioRepository(
             onAccepted = onAccepted,
             submissionId = submissionId,
             environment = environment,
+            isUserPrompt = true,
         )
     }
 
@@ -446,11 +447,12 @@ internal class EngineStudioRepository(
         submissionId: String = "",
         onAccepted: suspend () -> Unit = {},
         environment: StudioChatEnvironment? = null,
+        isUserPrompt: Boolean = false,
         beforeExecute: suspend () -> Unit = {},
     ): RunOutcome = runs.run(
         this,
         StudioTurnRequest(sessionId, prompt, settings, kind, request, attachments, onAccepted)
-            .copy(submissionId = submissionId, environment = environment),
+            .copy(submissionId = submissionId, environment = environment, isUserPrompt = isUserPrompt),
         waitForIdle,
         beforeExecute = beforeExecute,
     )

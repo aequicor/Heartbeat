@@ -15,6 +15,10 @@ public enum class SettingsSection {
     @SerialName("models")
     Models,
 
+    /** Confirmation policy for ordinary agent turns in the studio. */
+    @SerialName("security")
+    Security,
+
     /** Adaptive subagents: selection preferences, service models, connection billing and model descriptions. */
     @SerialName("subagents")
     Subagents,
@@ -93,6 +97,7 @@ public val UnifiedSettings: FeatureToggle.Flag = FeatureToggle.Flag(
 public val SettingsSection.deepLinkName: String
     get() = when (this) {
         SettingsSection.Models -> "models"
+        SettingsSection.Security -> "security"
         SettingsSection.Subagents -> "subagents"
         SettingsSection.Search -> "search"
         SettingsSection.ComputerUse -> "computer_use"

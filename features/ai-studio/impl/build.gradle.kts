@@ -5,6 +5,9 @@ plugins {
     alias(libs.plugins.kotlinSerialization)
 }
 
+// The shared studio screen exports its own resources; native security settings have a separate package.
+compose.resources { packageOfResClass = "io.aequicor.heartbeat.feature.aistudio.impl.resources.security" }
+
 kotlin {
     sourceSets {
         commonMain.dependencies {
