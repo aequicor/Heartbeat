@@ -127,7 +127,7 @@ private class WorkerRuntime(private val job: Path, private val execution: BuildE
     }
 
     private fun acquireLocks(): Boolean {
-        val root = Files.createDirectories(Path.of(System.getProperty("java.io.tmpdir"), "heartbeat-build-locks"))
+        val root = buildLockRoot()
         for (key in execution.resources.asSequence().map(::resourceLockKey).distinct().sorted()) {
             val channel = FileChannel.open(
                 root.resolve("$key.lock"),
@@ -323,6 +323,47 @@ private fun terminateTree(child: Process?, descendants: ConcurrentHashMap<Long, 
     while (child?.isAlive == true || descendants.values.any { it.isAlive }) {
         LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(POLL_MILLIS))
         descendants.values.filter { it.isAlive }.forEach { it.destroyForcibly() }
+    }
+}
+
+/** Directory of the OS lock files shared by build workers and the application. */
+internal fun buildLockRoot(): Path =
+    Files.createDirectories(Path.of(System.getProperty("java.io.tmpdir"), "heartbeat-build-locks"))
+
+/**
+ * Runs [block] while holding the OS lock of [resource] that workers take; null when another holder has it, so a
+ * worker can never start on the resource meanwhile.
+ */
+internal fun <T> withFreeResource(resource: String, block: () -> T): T? {
+    val held = tryLockResource(resource) ?: return null
+    try {
+        return block()
+    } finally {
+        held.close()
+    }
+}
+
+/** The OS lock of [resource] if it is free; closing the result releases it. */
+internal fun tryLockResource(resource: String): java.io.Closeable? {
+    val channel = FileChannel.open(
+        buildLockRoot().resolve("${resourceLockKey(resource)}.lock"),
+        StandardOpenOption.CREATE,
+        StandardOpenOption.WRITE,
+    )
+    val lock = try {
+        channel.tryLock()
+    } catch (error: java.nio.channels.OverlappingFileLockException) {
+        // Another channel of this process holds the resource; it is just as busy.
+        workerLog.w(error) { "Build resource is held inside this process" }
+        null
+    }
+    if (lock == null) {
+        channel.close()
+        return null
+    }
+    return java.io.Closeable {
+        lock.release()
+        channel.close()
     }
 }
 

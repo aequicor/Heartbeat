@@ -77,7 +77,7 @@ private fun isSlotCheckout(slot: Path, stopped: () -> String?): Boolean =
     }
 
 /** Walking does not follow links, so a link inside the slot is removed itself, never its target. */
-private fun removeSlot(slot: Path) {
+internal fun removeSlot(slot: Path) {
     Files.walk(slot).use { paths ->
         paths.sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) }
     }

@@ -7,6 +7,8 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildCommand
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildOperation
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPhase
 import io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.WorkerState
+import io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.buildLockRoot
+import io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.resourceLockKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.DisposableHandle
@@ -22,6 +24,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
+import java.nio.channels.FileChannel
 import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
@@ -192,6 +195,38 @@ class WorktreeCoordinatorTest {
             } finally {
                 withContext(NonCancellable) {
                     waiter.close()
+                    fixture.close()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `a slot locked by an untracked worker is skipped in favour of a free slot`() = runTest {
+        withContext(RealTestDispatchers.io) {
+            val fixture = CoordinatorFixture()
+            val pool = Files.createDirectories(fixture.root.resolve("heartbeat-worktree-data").resolve("slots"))
+            val held = FileChannel.open(
+                buildLockRoot().resolve("${resourceLockKey(slotDirectory(pool.toString(), 0).toString())}.lock"),
+                StandardOpenOption.CREATE,
+                StandardOpenOption.WRITE,
+            )
+            val lock = held.lock()
+            try {
+                val execution = fixture.execution("sandboxed").copy(
+                    resources = emptyList(),
+                    sandbox = SandboxBuild("0".repeat(40), pool.toString(), fixture.root.toString()),
+                )
+                withTimeout(AWAIT_MILLIS) { fixture.coordinator.execute(execution, false) {} }
+                val job = Json.decodeFromString<BuildExecution>(
+                    Files.readString(Path.of(execution.jobDirectory).resolve("job.json")),
+                )
+                assertEquals(1, job.sandbox?.slot)
+                assertEquals(listOf(slotDirectory(pool.toString(), 1).toString()), job.resources)
+            } finally {
+                withContext(NonCancellable) {
+                    lock.release()
+                    held.close()
                     fixture.close()
                 }
             }

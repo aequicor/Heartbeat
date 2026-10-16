@@ -88,6 +88,11 @@ internal class WorktreeJournal(
 
     suspend fun taskProjection(chatId: String): WorktreeTask? = record(chatId)?.task
 
+    /** Provisioned sandbox tasks; their repositories own build slots. */
+    suspend fun sandboxRecords(): List<WorktreeRecord> = mutex.withLock {
+        read().values.filter { it.task.isSandbox && it.provisioning.isNotBlank() }
+    }
+
     /** Captures the concrete immutable command for the facade's single authorization gate. */
     suspend fun buildPreview(context: AgentToolContext, command: String): BuildExecution? {
         val task = authenticated(context) ?: return null

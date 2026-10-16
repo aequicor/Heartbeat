@@ -103,6 +103,12 @@ internal interface SandboxGit {
      * grace period, so a build queued by another profile keeps its input.
      */
     suspend fun pruneSnapshots(record: WorktreeRecord, active: Set<String>) = Unit
+
+    /**
+     * Removes build slots of the record's repository numbered [keep] and above, with their Git registrations.
+     * A slot locked by a worker is skipped; a removed slot is locked for the whole removal.
+     */
+    suspend fun sweepSlots(record: WorktreeRecord, keep: Int) = Unit
 }
 
 /** Desktop-only Git/filesystem primitives; errors carry safe codes rather than process output. */

@@ -6,6 +6,8 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPlan
+import io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.removeSlot
+import io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.tryLockResource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -221,6 +223,36 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
         }.toList()
         stale.forEach { gitOptional(record.sourceDirectory, "update-ref", "-d", it) }
         if (stale.isNotEmpty()) log.i { "Pruned stale sandbox snapshots count=${stale.size}" }
+    }
+
+    override suspend fun sweepSlots(record: WorktreeRecord, keep: Int) = withContext(dispatchers.io) {
+        require(keep >= 0) { "InvalidSlotCount" }
+        val data = Path.of(record.commonDirectory).toRealPath().resolve("heartbeat-worktree-data")
+        val pool = data.resolve(SLOT_POOL)
+        if (Files.isSymbolicLink(data) || Files.isSymbolicLink(pool)) return@withContext
+        val registered = gitOptional(record.sourceDirectory, "worktree", "list", "--porcelain").orEmpty()
+            .lineSequence().filter { it.startsWith("worktree ") }
+            .map { Path.of(it.removePrefix("worktree ")).normalize() }
+        val present = if (Files.isDirectory(pool)) Files.list(pool).use { it.toList() } else emptyList()
+        val surplus = (registered + present).filter { it.parent == pool }.distinct().filter { slot ->
+            SLOT_NAME.matchEntire(
+                slot.fileName.toString(),
+            )?.groupValues?.get(1)?.toIntOrNull()?.let { it >= keep } == true
+        }.toList()
+        val removed = surplus.count { slot -> removeFreeSlot(record, slot) }
+        if (removed > 0) log.i { "Removed surplus build slots count=$removed keep=$keep" }
+    }
+
+    /** The slot's worker lock is held for the whole removal, so no build can start in it meanwhile. */
+    private suspend fun removeFreeSlot(record: WorktreeRecord, slot: Path): Boolean {
+        val held = tryLockResource(slot.toString()) ?: return false
+        return try {
+            gitOptional(record.sourceDirectory, "worktree", "remove", "--force", slot.toString())
+            if (Files.exists(slot, java.nio.file.LinkOption.NOFOLLOW_LINKS)) removeSlot(slot)
+            true
+        } finally {
+            held.close()
+        }
     }
 
     override suspend fun snapshot(record: WorktreeRecord, id: String): String = withContext(dispatchers.io) {
@@ -518,6 +550,7 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
         /** Task branches stay in the application namespace and never reuse an agent or user prefix. */
         const val BRANCH_PREFIX = "heartbeat/worktree-"
         const val SLOT_POOL = "slots"
+        val SLOT_NAME = Regex("slot-([0-9]{1,3})")
         const val SNAPSHOT_REFS = "refs/heartbeat/snapshots/"
 
         /** Another profile may still queue a build of an older snapshot; a day covers any build timeout. */

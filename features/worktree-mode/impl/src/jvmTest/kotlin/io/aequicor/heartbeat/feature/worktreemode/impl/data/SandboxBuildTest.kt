@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPlan
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.prepareSlot
 import io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.releaseSnapshot
+import io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.tryLockResource
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import java.nio.file.Path
@@ -177,6 +178,35 @@ class SandboxBuildTest {
         }
     }
 
+    @Test
+    fun `sweeping removes surplus free slots with their registrations and skips a locked one`() = runTest {
+        val root = repository()
+        val git = DesktopWorktreeGit(RealTestDispatchers)
+        try {
+            val record = sandbox(git, root)
+            val snapshot = git.snapshot(record, "operation-1")
+            val target = checkNotNull(git.build(record, "operation-1", "compile").sandbox).copy(snapshot = snapshot)
+            (0..3).forEach { prepareSlot(target.copy(slot = it)) }
+            val slots = (0..3).map { slotDirectory(target.pool, it) }
+            removeTestPathTree(slots[3])
+            val held = checkNotNull(tryLockResource(slots[2].toString()))
+            try {
+                git.sweepSlots(record, keep = 1)
+            } finally {
+                held.close()
+            }
+
+            assertTrue(Files.isDirectory(slots[0]))
+            assertFalse(Files.exists(slots[1]))
+            assertTrue(Files.isDirectory(slots[2]))
+            val registered = command(root, "git", "worktree", "list", "--porcelain")
+            assertTrue("slot-0" in registered && "slot-2" in registered, registered)
+            assertFalse("slot-1" in registered || "slot-3" in registered, registered)
+        } finally {
+            removeTestTree(root)
+        }
+    }
+
     private suspend fun sandbox(git: DesktopWorktreeGit, root: Path): WorktreeRecord {
         val plan = git.plan(root.toString(), "sandbox-test")
         val record = WorktreeRecord(
@@ -200,6 +230,10 @@ class SandboxBuildTest {
             listOf(WorktreeBuildCache("classpath", root.parent.resolve("${root.fileName}-cache").toString())),
         )
         return record.copy(task = record.task.copy(buildPlan = build, isBuildApproved = true))
+    }
+
+    private fun removeTestPathTree(path: Path) {
+        Files.walk(path).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::delete) }
     }
 
     private fun repository(): Path {

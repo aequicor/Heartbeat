@@ -53,6 +53,12 @@ internal data class BuildBudget(val units: Int, val memoryMb: Long) {
     }
 }
 
+/** Warm slots of one repository; each keeps its own build outputs on disk. */
+internal const val MAX_SLOTS_PER_REPOSITORY = 4
+
+/** Slots a repository may use under this budget, and keeps on disk. */
+internal val BuildBudget.slotsPerRepository: Int get() = minOf(parallelBuilds, MAX_SLOTS_PER_REPOSITORY)
+
 /** A build slot pool of one repository; slots are numbered from zero up to [limit]. */
 internal data class SlotDemand(val pool: String, val limit: Int, val preferred: Int? = null)
 

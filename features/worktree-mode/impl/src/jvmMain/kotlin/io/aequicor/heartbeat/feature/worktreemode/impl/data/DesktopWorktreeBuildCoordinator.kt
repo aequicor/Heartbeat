@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPhase
 import io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.WorkerState
 import io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.releaseSnapshot
 import io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.resourceLockKey
+import io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.withFreeResource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
@@ -43,6 +44,7 @@ internal class DesktopWorktreeBuildCoordinator(
     private val mutex = Mutex()
     private val waiting = mutableListOf<Job>()
     private val jobs = mutableMapOf<String, Job>()
+    private var isRecheckPending = false
 
     /** Last slot of recent sandbox tasks: rebuilding there keeps their incremental outputs warm. */
     private val affinity = object : LinkedHashMap<String, Int>() {
@@ -142,7 +144,8 @@ internal class DesktopWorktreeBuildCoordinator(
             )
         }
         val budget = capacity.budget()
-        val slots = minOf(budget.parallelBuilds, MAX_SLOTS_PER_PROJECT)
+        val slots = budget.slotsPerRepository
+        val external = externalSlots(running, slots)
         val queued = waiting.map { job ->
             val sandbox = job.execution.sandbox
             QueuedBuild(
@@ -153,7 +156,7 @@ internal class DesktopWorktreeBuildCoordinator(
                 sandbox?.let { SlotDemand(it.pool, slots, affinity[it.affinity]) },
             )
         }
-        val admission = admitBuilds(queued, running, budget)
+        val admission = admitBuilds(queued, running + external, budget)
         val eligible = waiting.filter { it.execution.id in admission.admitted }
         waiting.removeAll(eligible.toSet())
         eligible.forEach { job ->
@@ -171,6 +174,46 @@ internal class DesktopWorktreeBuildCoordinator(
             }
         }
         eligible.forEach(::launchJob)
+        if (external.isNotEmpty() && waiting.any { it.execution.sandbox != null }) scheduleRecheck()
+    }
+
+    /**
+     * Slots locked by workers this coordinator does not track: another profile's builds or workers not reattached
+     * yet. They count as occupied, so a new build takes a free slot instead of waiting on the lock.
+     */
+    private suspend fun externalSlots(running: List<RunningBuild>, slots: Int): List<RunningBuild> {
+        val pools = waiting.mapNotNull { it.execution.sandbox?.pool }.distinct()
+        if (pools.isEmpty()) return emptyList()
+        val owned = running.mapNotNull { build -> build.slot?.let { build.slotPool to it } }.toSet()
+        return withContext(dispatchers.io) {
+            pools.flatMap { pool ->
+                (0 until slots).filter { (pool to it) !in owned && isSlotLocked(pool, it) }.map { index ->
+                    RunningBuild("external:$index:$pool", EXTERNAL_PROJECT, BuildCost.None, emptySet(), pool, index)
+                }
+            }
+        }
+    }
+
+    private fun isSlotLocked(pool: String, index: Int): Boolean = try {
+        withFreeResource(slotDirectory(pool, index).toString()) {} == null
+    } catch (error: java.io.IOException) {
+        log.w(IllegalStateException("SlotProbeFailed (${error::class.simpleName.orEmpty()})")) {
+            "Build slot availability is unknown; it stays assignable"
+        }
+        false
+    }
+
+    /** An external holder releases its slot without telling this process, so waiting builds are re-admitted. */
+    private fun scheduleRecheck() {
+        if (isRecheckPending) return
+        isRecheckPending = true
+        app.coroutineScope.launch {
+            delay(SLOT_RECHECK_MILLIS)
+            mutex.withLock {
+                isRecheckPending = false
+                admit()
+            }
+        }
     }
 
     private fun launchJob(job: Job) {
@@ -340,8 +383,8 @@ internal class DesktopWorktreeBuildCoordinator(
         const val POLL_MILLIS = 100L
         const val CANCEL_TIMEOUT = 10_000L
 
-        /** Warm slots of one repository; each keeps its own build outputs on disk. */
-        const val MAX_SLOTS_PER_PROJECT = 4
+        const val SLOT_RECHECK_MILLIS = 2_000L
+        const val EXTERNAL_PROJECT = "external"
         const val MAX_AFFINITY = 256
         val terminal = setOf(
             WorktreeBuildPhase.Completed,
