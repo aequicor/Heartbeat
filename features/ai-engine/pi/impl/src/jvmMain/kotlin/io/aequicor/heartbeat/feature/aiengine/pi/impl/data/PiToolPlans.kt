@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
@@ -22,6 +23,8 @@ internal data class PiLaunchPlan(
     val requestedInstructions: String? = hosted?.instructions,
     // Only a newly created session with no possible native prompt can be reopened without a transcript.
     val emptySessionId: String? = null,
+    // Current confirmed model, including after a switch or a process restart. Discovery leaves it absent.
+    val selectedModel: ModelId? = null,
 ) {
     val names: Set<String> get() = policy.nativeOn + search + hosted?.specifications.orEmpty().map { it.name }
 
