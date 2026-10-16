@@ -19,6 +19,8 @@ import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigTree
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigWriteException
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigWriteFailure
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ProjectFolders
+import io.aequicor.heartbeat.feature.projectconfig.impl.domain.hasCaseClash
+import io.aequicor.heartbeat.feature.projectconfig.impl.domain.isPortable
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.outcome
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -64,8 +66,10 @@ internal fun readProjectFolder(root: Path): ConfigRead {
     val reader = FolderReader(directory)
     return try {
         Files.walkFileTree(directory, emptySet(), ConfigLimits.DEPTH, reader)
-        reader.manifest?.let(ConfigManifests::check)?.let { ConfigRead.Failed(it) }
-            ?: ConfigRead.Read(ConfigTree.of(reader.files, reader.ignored))
+        // On a case-sensitive file system two names may differ only in case; elsewhere they are one file.
+        val failure = reader.manifest?.let(ConfigManifests::check)
+            ?: ConfigReadFailure.Format.takeIf { reader.files.map(ConfigFile::path).hasCaseClash() }
+        failure?.let { ConfigRead.Failed(it) } ?: ConfigRead.Read(ConfigTree.of(reader.files, reader.ignored))
     } catch (e: TreeLimitException) {
         log.w(e.redactedFailure()) { "Project configuration exceeds its limits" }
         ConfigRead.Failed(ConfigReadFailure.Limit)
@@ -114,9 +118,12 @@ internal fun projectFolderFingerprint(root: Path): String? {
 
 /**
  * Replaces [put] and deletes [delete] in `<root>/.heartbeat`, creating the folder with a manifest; every directory
- * on the way must be a real directory inside the folder.
+ * on the way must be a real directory inside the folder. Names that are not portable, or differ only in case, refuse
+ * the whole write before anything changes.
  */
 internal fun writeProjectFolder(root: Path, put: List<ConfigFile>, delete: List<ConfigPath>) {
+    val paths = put.map { it.path }
+    if (paths.any { !it.isPortable } || paths.hasCaseClash()) throw ConfigWriteException(ConfigWriteFailure.Name)
     if (attributesOrNull(root)?.isDirectory != true) throw ConfigWriteException(ConfigWriteFailure.Unavailable)
     val directory = root.resolve(ConfigLayout.PROJECT_DIRECTORY)
     requireDirectory(directory)

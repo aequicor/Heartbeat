@@ -7,7 +7,9 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ConfigReadFailure
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class ConfigManifestsTest {
     @Test
@@ -32,5 +34,16 @@ class ConfigManifestsTest {
         assertEquals(listOf("a.md", "b.md"), tree.files.map { it.path.value })
         assertFailsWith<IllegalArgumentException> { ConfigTree(listOf(ConfigManifests.current)) }
         assertEquals("a\nb", ConfigManifests.normalized("﻿a\r\nb"))
+    }
+
+    @Test
+    fun `paths are portable unless a segment is a name Windows reserves`() {
+        assertTrue(ConfigPath("harnesses/review/harness.json").isPortable)
+        assertTrue(ConfigPath("learning/console.md").isPortable)
+        listOf("harnesses/aux/harness.json", "learning/nul.md", "harnesses/x/COM1.kts", "learning/con.tar.md").forEach {
+            assertFalse(ConfigPath(it).isPortable, it)
+        }
+        assertTrue(listOf(ConfigPath("learning/a.md"), ConfigPath("learning/A.md")).hasCaseClash())
+        assertFalse(listOf(ConfigPath("learning/a.md"), ConfigPath("learning/b.md")).hasCaseClash())
     }
 }

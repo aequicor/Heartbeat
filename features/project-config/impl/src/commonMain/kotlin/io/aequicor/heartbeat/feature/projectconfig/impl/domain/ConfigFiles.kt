@@ -50,7 +50,21 @@ internal class ConfigWriteException(val reason: ConfigWriteFailure, cause: Throw
     IllegalStateException(reason.name, cause)
 
 /** Why a write did not complete. */
-internal enum class ConfigWriteFailure { Unsupported, Unavailable, NotDirectory, Limit, Io }
+internal enum class ConfigWriteFailure { Unsupported, Unavailable, NotDirectory, Limit, Io, Name }
+
+/**
+ * Whether this path can exist on every desktop system: no segment is a device name Windows reserves (`con`, `prn`,
+ * `aux`, `nul`, `com1`–`com9`, `lpt1`–`lpt9`, with any extension). Project folders are shared through repositories,
+ * so a file that one system cannot check out is not written anywhere.
+ */
+internal val ConfigPath.isPortable: Boolean
+    get() = segments.none { it.substringBefore('.').lowercase() in RESERVED_NAMES }
+
+/** Whether two of these paths differ only in letter case: on macOS and Windows they are one file. */
+internal fun Collection<ConfigPath>.hasCaseClash(): Boolean = map { it.value.lowercase() }.toSet().size != size
+
+private val RESERVED_NAMES: Set<String> =
+    setOf("con", "prn", "aux", "nul") + (1..9).flatMap { listOf("com$it", "lpt$it") }
 
 /** The `.heartbeat` folders of project roots (absolute directories resolved through `LocalWorkspaces`). */
 internal interface ProjectFolders {

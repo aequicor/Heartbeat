@@ -54,6 +54,7 @@ import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_notice_expo
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_notice_format
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_notice_imported
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_notice_limit
+import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_notice_name
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_notice_ok
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_notice_opened
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_notice_saved
@@ -195,6 +196,7 @@ private fun TaskFailureUi.message() = when (this) {
     TaskFailureUi.Limit -> Res.string.pc_notice_limit
     TaskFailureUi.Unwritable -> Res.string.pc_notice_unwritable
     TaskFailureUi.Empty -> Res.string.pc_notice_empty
+    TaskFailureUi.Name -> Res.string.pc_notice_name
 }
 
 private val previewState = ProjectConfigScreenState(

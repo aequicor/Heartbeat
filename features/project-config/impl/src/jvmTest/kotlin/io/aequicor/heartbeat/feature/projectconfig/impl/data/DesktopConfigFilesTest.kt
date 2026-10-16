@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigRead
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigTree
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigWriteException
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigWriteFailure
+import java.io.RandomAccessFile
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.zip.ZipEntry
@@ -174,6 +175,29 @@ class DesktopConfigFilesTest {
     }
 
     private val format = ConfigRead.Failed(ConfigReadFailure.Format)
+
+    @Test
+    fun `a bundle beyond its size limit is not opened and case-clashing entries refuse it`() {
+        val huge = root.resolve("huge.hbai")
+        RandomAccessFile(huge.toFile(), "rw").use { it.setLength(ConfigLimits.BUNDLE_BYTES + 1) }
+        assertEquals(ConfigRead.Failed(ConfigReadFailure.Limit), readConfigBundle(huge))
+
+        // On macOS and Windows these are one file.
+        val manifest = """{"format":"heartbeat-config","version":1}"""
+        val clash = zip("clash.hbai", "manifest.json" to manifest, "learning/a.md" to "x", "learning/A.md" to "y")
+        assertEquals(ConfigRead.Failed(ConfigReadFailure.Format), readConfigBundle(clash))
+    }
+
+    @Test
+    fun `names Windows reserves or that differ only in case are never written`() {
+        val reserved = file("harnesses/aux/harness.json", "{}")
+        val failure = assertFailsWith<ConfigWriteException> { writeProjectFolder(root, listOf(reserved), emptyList()) }
+        assertEquals(ConfigWriteFailure.Name, failure.reason)
+        val clash = listOf(file("learning/a.md", "x"), file("learning/A.md", "y"))
+        assertFailsWith<ConfigWriteException> { writeProjectFolder(root, clash, emptyList()) }
+        // Refused before anything changed: not even the folder was created.
+        assertFalse(root.resolve(ConfigLayout.PROJECT_DIRECTORY).exists())
+    }
 
     private fun zip(name: String, vararg entries: Pair<String, String>): Path {
         val target = root.resolve(name)

@@ -86,6 +86,7 @@
     <string name="pc_notice_saved">Сохранено в проект: %1$d, пропущено: %2$d</string>
     <string name="pc_notice_exported">Экспортировано: %1$d</string>
     <string name="pc_notice_opened">Изменений из файла на доверие: %1$d</string>
+    <string name="pc_notice_name">Имя файла подходит не для всех систем (Windows не допускает имена вроде con, nul или aux): ничего не записано</string>
     <string name="pc_notice_imported">Скопировано в проект: %1$d, пропущено: %2$d — скопированные ждут вашего доверия</string>
     <string name="pc_notice_storage">Привязки не сохранились и действуют до закрытия профиля</string>
     <string name="pc_notice_busy">Уже идёт другая операция</string>

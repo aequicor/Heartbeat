@@ -52,6 +52,9 @@ public object ConfigLimits {
     /** UTF-8 bytes of all files of one tree. */
     public const val TOTAL_BYTES: Long = 32L * 1024 * 1024
 
+    /** Bytes of one `.hbai` file: [TOTAL_BYTES] of files stored as they are plus the ZIP headers of [FILES] entries. */
+    public const val BUNDLE_BYTES: Long = TOTAL_BYTES + 4L * 1024 * 1024
+
     /** Files of one unit. */
     public const val UNIT_FILES: Int = 128
 

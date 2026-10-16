@@ -81,6 +81,7 @@ private fun ConfigTaskFailure.toUi(): TaskFailureUi = when (this) {
     ConfigTaskFailure.Limit -> TaskFailureUi.Limit
     ConfigTaskFailure.Unwritable -> TaskFailureUi.Unwritable
     ConfigTaskFailure.Empty -> TaskFailureUi.Empty
+    ConfigTaskFailure.Name -> TaskFailureUi.Name
 }
 
 private fun ConfigProposal.toUi(state: ProjectConfigState.Ready, names: Map<String, String>): ProposalUi {

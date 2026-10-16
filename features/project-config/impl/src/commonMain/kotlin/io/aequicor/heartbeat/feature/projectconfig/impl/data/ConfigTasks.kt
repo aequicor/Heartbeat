@@ -201,6 +201,8 @@ internal class ConfigTasks(private val access: ConfigFolderAccess, private val b
 
         ConfigWriteFailure.Unsupported -> ConfigTaskFailure.Unavailable
 
+        ConfigWriteFailure.Name -> ConfigTaskFailure.Name
+
         ConfigWriteFailure.Unavailable, ConfigWriteFailure.NotDirectory, ConfigWriteFailure.Io ->
             ConfigTaskFailure.Unwritable
     }

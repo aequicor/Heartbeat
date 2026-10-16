@@ -97,7 +97,19 @@ public enum class ExistingUnits {
 }
 
 /** Why a [ConfigTask] failed. */
-public enum class ConfigTaskFailure { Busy, Unavailable, Unreadable, Format, Version, Limit, Unwritable, Empty }
+public enum class ConfigTaskFailure {
+    Busy,
+    Unavailable,
+    Unreadable,
+    Format,
+    Version,
+    Limit,
+    Unwritable,
+    Empty,
+
+    /** A file name is not portable (a name Windows reserves, such as `con` or `aux`): nothing was written. */
+    Name,
+}
 
 /** Project configuration of the profile: bindings, project folders, proposals and the current bundle. */
 public sealed interface ProjectConfigState : MachineState {

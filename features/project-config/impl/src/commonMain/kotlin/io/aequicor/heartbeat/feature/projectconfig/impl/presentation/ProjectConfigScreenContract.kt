@@ -153,7 +153,7 @@ internal sealed interface NoticeUi {
 }
 
 /** Why a task failed, as shown. */
-internal enum class TaskFailureUi { Busy, Unavailable, Unreadable, Format, Version, Limit, Unwritable, Empty }
+internal enum class TaskFailureUi { Busy, Unavailable, Unreadable, Format, Version, Limit, Unwritable, Empty, Name }
 
 /** The configuration screen: proposals, projects, the open bundle and the dialogs over them. */
 @Immutable

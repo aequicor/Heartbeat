@@ -53,6 +53,8 @@ private val log = Log.tag("ConfigBundles")
 internal fun readConfigBundle(file: Path): ConfigRead {
     val attributes = attributesOrNull(file)
     if (attributes == null || !attributes.isRegularFile) return ConfigRead.Failed(ConfigReadFailure.Unavailable)
+    // The archive's directory is read whole when it is opened: a file beyond the limits is not opened at all.
+    if (attributes.size() > ConfigLimits.BUNDLE_BYTES) return ConfigRead.Failed(ConfigReadFailure.Limit)
     return try {
         ConfigRead.Read(ZipFile(file.toFile()).use(::readEntries))
     } catch (e: BundleRefusedException) {
@@ -68,15 +70,21 @@ internal fun readConfigBundle(file: Path): ConfigRead {
 }
 
 private fun readEntries(zip: ZipFile): ConfigTree {
-    val entries = zip.entries().asSequence().filterNot { it.isDirectory || it.name.isHiddenEntry() }.toList()
-    refuseIf(entries.size > ConfigLimits.FILES, ConfigReadFailure.Limit)
+    refuseIf(zip.size() > MAX_ENTRIES, ConfigReadFailure.Limit)
+    val entries = mutableListOf<ZipEntry>()
+    for (entry in zip.entries()) {
+        if (entry.isDirectory || entry.name.isHiddenEntry()) continue
+        entries += entry
+        refuseIf(entries.size > ConfigLimits.FILES, ConfigReadFailure.Limit)
+    }
     val files = mutableListOf<ConfigFile>()
+    // Names that differ only in case are one file on macOS and Windows: such a bundle is refused like duplicates.
     val seen = mutableSetOf<String>()
     var manifest: String? = null
     var total = 0L
     for (entry in entries) {
         val path = ConfigPath.parse(entry.name)
-        refuseIf(path == null || !seen.add(entry.name), ConfigReadFailure.Format)
+        refuseIf(path == null || !seen.add(entry.name.lowercase()), ConfigReadFailure.Format)
         val bytes = zip.getInputStream(entry).use { it.readAtMost(ConfigLimits.FILE_BYTES) }
         refuseIf(bytes == null, ConfigReadFailure.Limit)
         total += bytes?.size ?: 0
@@ -132,6 +140,9 @@ private fun refuseIf(condition: Boolean, failure: ConfigReadFailure) {
 private class BundleRefusedException(val failure: ConfigReadFailure) : IllegalStateException(failure.name)
 
 private fun String.isHiddenEntry(): Boolean = split('/').any { it.startsWith('.') || it == "__MACOSX" }
+
+/** Entries of an archive, directories and archiver metadata included, before its files are counted. */
+private const val MAX_ENTRIES = ConfigLimits.FILES * 4
 
 /** 1980-01-02, the earliest date every ZIP reader accepts; entries carry no real time. */
 private const val FIXED_ENTRY_TIME = 315_619_200_000L
