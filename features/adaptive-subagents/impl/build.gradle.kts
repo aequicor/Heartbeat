@@ -15,9 +15,9 @@ kotlin {
             implementation(projects.core.datastore.api)
             implementation(projects.core.featureToggles.api)
             implementation(libs.kotlinx.serialization.core)
+            implementation(libs.kotlinx.serialization.json)
         }
         commonTest.dependencies {
-            implementation(libs.kotlinx.serialization.json)
             implementation(projects.core.featureToggles.api)
         }
     }

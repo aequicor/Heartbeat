@@ -15,6 +15,8 @@ import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesView
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.SelectionContext
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.SelectionOption
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.SubagentRequest
+import io.aequicor.heartbeat.feature.adaptivesubagents.impl.data.router.Routed
+import io.aequicor.heartbeat.feature.adaptivesubagents.impl.data.router.ShortlistRouter
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.selection.ScoredCandidate
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.selection.rationale
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.selection.shortlist
@@ -31,6 +33,7 @@ import kotlin.time.Duration.Companion.seconds
 @Inject
 internal class ProfileAdaptiveModels(
     private val catalog: CatalogCandidates,
+    private val router: ShortlistRouter,
     // Lazy: injecting the view starts the library machine, which only an enabled feature needs.
     private val library: Lazy<ModelProfilesView>,
     private val toggles: FeatureToggles,
@@ -47,11 +50,22 @@ internal class ProfileAdaptiveModels(
             log.i { "subagent selection host=${context.host}: no candidates" }
             return ModelChoice.Inherit(InheritReason.NoCandidates)
         }
+        val routerTarget = ready.preferences.routerTarget ?: catalog.defaultTarget() ?: context.parentTarget
+        val choice = when (val routed = router.route(list, request, priority, routerTarget)) {
+            Routed.Skipped -> best.selected(best.rationale(priority), ChoiceSource.Scoring, list.size - 1)
+
+            Routed.Failed -> best.selected(best.rationale(priority), ChoiceSource.RouterFallback, list.size - 1)
+
+            is Routed.Chosen -> list[routed.index].let { chosen ->
+                val reason = routed.rationale.ifEmpty { "chosen by the router" }
+                chosen.selected("$reason (${chosen.rationale(priority)})", ChoiceSource.Router, list.size - 1)
+            }
+        }
         log.i {
             "subagent selection host=${context.host} priority=$priority shortlist=${list.size} " +
-                "chose ${best.candidate.target} effort=${best.candidate.effort ?: "default"}"
+                "source=${choice.source} chose ${choice.target} effort=${choice.reasoningEffort ?: "default"}"
         }
-        return best.selected(best.rationale(priority), ChoiceSource.Scoring, list.size - 1)
+        return choice
     }
 
     override suspend fun preview(request: SubagentRequest, context: SelectionContext): List<SelectionOption> {
@@ -79,15 +93,18 @@ internal class ProfileAdaptiveModels(
 }
 
 /** The choice of [this] shortlisted configuration. */
-internal fun ScoredCandidate.selected(rationale: String, source: ChoiceSource, alternatives: Int) =
-    ModelChoice.Selected(
-        candidate.target,
-        candidate.effort,
-        candidate.title,
-        ratings,
-        rationale,
-        source,
-        alternatives,
-    )
+internal fun ScoredCandidate.selected(
+    rationale: String,
+    source: ChoiceSource,
+    alternatives: Int,
+): ModelChoice.Selected = ModelChoice.Selected(
+    candidate.target,
+    candidate.effort,
+    candidate.title,
+    ratings,
+    rationale,
+    source,
+    alternatives,
+)
 
 private val LIBRARY_WAIT = 5.seconds

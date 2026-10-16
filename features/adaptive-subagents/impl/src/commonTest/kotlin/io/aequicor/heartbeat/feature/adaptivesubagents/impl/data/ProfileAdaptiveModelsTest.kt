@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.adaptivesubagents.impl.data
 
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveSubagentsEnabled
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveSubagentsRouter
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.ChoiceSource
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.InheritReason
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelChoice
@@ -17,10 +18,14 @@ import io.aequicor.heartbeat.feature.adaptivesubagents.api.SubagentRequest
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.Traits
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.FakeCatalogFacade
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.FakeLibrary
+import io.aequicor.heartbeat.feature.adaptivesubagents.impl.FakePrompts
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.FakeSelections
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.FakeToggles
+import io.aequicor.heartbeat.feature.adaptivesubagents.impl.data.router.ShortlistRouter
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.target
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedAnswer
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPromptFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import kotlinx.coroutines.test.runTest
@@ -40,6 +45,12 @@ class ProfileAdaptiveModelsTest {
         ModelInfo(hidden, "Sonnet"),
     )
     private val context = SelectionContext(SubagentHost.StudioHelper, opus, null)
+
+    /** Two unknown models score alike, so the router decides. */
+    private val twins = listOf(
+        ModelInfo(target("claude", "api", "alpha"), "Alpha"),
+        ModelInfo(target("claude", "api", "beta"), "Beta"),
+    )
 
     @Test
     fun `turned off selection keeps the inherited model`() = runTest {
@@ -93,20 +104,58 @@ class ProfileAdaptiveModelsTest {
     fun `engines that cannot apply trust are skipped for helpers but serve organism cells`() = runTest {
         val local = target("koog", "ollama", "qwen3")
         val facade = FakeCatalogFacade(listOf(ModelInfo(local, "Qwen")), limited = setOf(EngineId("koog")))
+        val toggles = FakeToggles(mapOf(AdaptiveSubagentsEnabled to true))
         val models = ProfileAdaptiveModels(
             CatalogCandidates(lazyOf(facade), lazyOf(FakeSelections(local))),
+            ShortlistRouter(lazyOf(FakePrompts()), toggles),
             lazyOf(FakeLibrary()),
-            FakeToggles(mapOf(AdaptiveSubagentsEnabled to true)),
+            toggles,
         )
         assertEquals(ModelChoice.Inherit(InheritReason.NoCandidates), models.select(SubagentRequest("t"), context))
         val cell = context.copy(host = SubagentHost.OrganismCell)
         assertEquals(ModelChoice.Inherit(InheritReason.NoCandidates), models.select(SubagentRequest("t"), cell))
     }
 
-    private fun models(enabled: Boolean = true, library: ModelProfilesState = ModelProfilesState.Ready()) =
-        ProfileAdaptiveModels(
-            CatalogCandidates(lazyOf(FakeCatalogFacade(catalog)), lazyOf(FakeSelections(opus, haiku))),
+    @Test
+    fun `a close shortlist goes to the router on the profile's default model`() = runTest {
+        val prompts = FakePrompts(IsolatedAnswer.Answered("""{"choice":"c2","rationale":"Needs care"}"""))
+        val models = models(router = true, prompts = prompts, catalog = twins)
+        val balanced = SubagentRequest("Review this diff")
+        val options = models.preview(balanced, context)
+        val selected = assertIs<ModelChoice.Selected>(models.select(balanced, context))
+        assertEquals(ChoiceSource.Router, selected.source)
+        assertEquals(options[1].target to options[1].reasoningEffort, selected.target to selected.reasoningEffort)
+        assertTrue(selected.rationale.startsWith("Needs care"), selected.rationale)
+        assertEquals(target("claude", "api", "alpha"), prompts.asked.single().target)
+        assertTrue("Review this diff" in prompts.asked.single().text)
+    }
+
+    @Test
+    fun `a failed router falls back to the best scored configuration`() = runTest {
+        val prompts = FakePrompts(IsolatedAnswer.Unavailable(IsolatedPromptFailure.Timeout))
+        val request = SubagentRequest("t")
+        val best = models(catalog = twins).preview(request, context).first()
+        val routed = models(router = true, prompts = prompts, catalog = twins)
+        val selected = assertIs<ModelChoice.Selected>(routed.select(request, context))
+        assertEquals(ChoiceSource.RouterFallback, selected.source)
+        assertEquals(best.target, selected.target)
+    }
+
+    private fun models(
+        enabled: Boolean = true,
+        library: ModelProfilesState = ModelProfilesState.Ready(),
+        router: Boolean = false,
+        prompts: FakePrompts = FakePrompts(),
+        catalog: List<ModelInfo> = this.catalog,
+    ): ProfileAdaptiveModels {
+        val toggles = FakeToggles(mapOf(AdaptiveSubagentsEnabled to enabled, AdaptiveSubagentsRouter to router))
+        val enabledModels = catalog.map { it.target }.filter { it != hidden }
+        val selections = FakeSelections(*enabledModels.toTypedArray(), default = enabledModels.first())
+        return ProfileAdaptiveModels(
+            CatalogCandidates(lazyOf(FakeCatalogFacade(catalog)), lazyOf(selections)),
+            ShortlistRouter(lazyOf(prompts), toggles),
             lazyOf(FakeLibrary(library)),
-            FakeToggles(mapOf(AdaptiveSubagentsEnabled to enabled)),
+            toggles,
         )
+    }
 }

@@ -26,6 +26,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedAnswer
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompt
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalogSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
@@ -58,9 +61,10 @@ internal class FakeLibrary(state: ModelProfilesState = ModelProfilesState.Ready(
 }
 
 /** Selected models of one or more connections. */
-internal class FakeSelections(vararg targets: EngineTarget) : ModelSelections {
+internal class FakeSelections(vararg targets: EngineTarget, default: EngineTarget? = null) : ModelSelections {
     private val selection = ModelSelection(
         targets.groupBy { it.binding }.map { (binding, all) -> BindingModels(binding, all.map { it.model }.toSet()) },
+        default,
     )
 
     override fun observe(): Flow<ModelSelection> = flowOf(selection)
@@ -121,6 +125,16 @@ internal class FakeCatalogFacade(
 
     override val sessions: SessionCatalog get() = error("unused")
     override val providerUsage: ProviderUsageCatalog get() = error("unused")
+}
+
+/** Isolated prompts answering [answer] and recording each prompt. */
+internal class FakePrompts(var answer: IsolatedAnswer = IsolatedAnswer.Answered("")) : IsolatedPrompts {
+    val asked = mutableListOf<IsolatedPrompt>()
+
+    override suspend fun ask(prompt: IsolatedPrompt): IsolatedAnswer {
+        asked += prompt
+        return answer
+    }
 }
 
 /** A model route of tests. */

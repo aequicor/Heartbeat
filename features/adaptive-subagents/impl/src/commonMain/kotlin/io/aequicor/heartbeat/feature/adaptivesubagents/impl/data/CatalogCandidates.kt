@@ -28,6 +28,9 @@ internal class CatalogCandidates(
 ) {
     private val log = Log.tag("CatalogCandidates")
 
+    /** The profile's default model, the router's model unless the preferences name another. */
+    suspend fun defaultTarget(): EngineTarget? = selections.value.observe().first().defaultTarget
+
     suspend fun candidates(): List<Candidate> {
         val selection = selections.value.observe().first()
         val facade = facade.value
