@@ -70,7 +70,10 @@ public enum class ConfigCapability {
     /** Packages of the engine can be installed, updated and removed. */
     Packages,
 
-    /** The adapter lists resources (extensions, skills, templates) stored for the profile. */
+    /**
+     * The adapter lists resource files (extensions, skills, templates) of the profile and of projects, with whether
+     * the configuration loads them; pages with [ConfigPage.hasResources] show them.
+     */
     Resources,
 
     /** Values of key-value fields may be kept in the profile vault. */
@@ -103,8 +106,13 @@ public data class OwnedKey(val document: ConfigDocumentId, val path: List<String
     }
 }
 
-/** One page of the engine panel. */
-public data class ConfigPage(val id: String, val title: LocalizedText, val sections: List<ConfigSection>)
+/** One page of the engine panel; with [hasResources] it also lists the engine's resource files. */
+public data class ConfigPage(
+    val id: String,
+    val title: LocalizedText,
+    val sections: List<ConfigSection>,
+    val hasResources: Boolean = false,
+)
 
 /** A titled group of fields; [note] explains the group (for example how it interacts with Heartbeat). */
 public data class ConfigSection(
@@ -306,6 +314,9 @@ public fun validateEngineConfigSchema(schema: EngineConfigSchema): List<String> 
     duplicates.forEach { add("Duplicate field id $it") }
     schema.pages.forEach { page ->
         if (page.sections.map { it.id }.distinct().size != page.sections.size) add("Duplicate section in ${page.id}")
+    }
+    if (schema.pages.any { it.hasResources } && ConfigCapability.Resources !in schema.capabilities) {
+        add("A page lists resources without the Resources capability")
     }
     fields.forEach { field -> addAll(fieldProblems(field, documents)) }
     schema.ownedKeys.forEach { owned ->

@@ -108,15 +108,15 @@ internal fun EngineControlPanelContent(
 @Composable
 private fun Overview(state: EngineControlPanelState, onIntent: (EngineControlPanelIntent) -> Unit) {
     // Input follows the actual write immediately; only its visual feedback waits to avoid a brief flash.
-    val isSavingVisible = rememberHbBusyReveal(state.isSaving)
+    val isSavingVisible = rememberHbBusyReveal(state.isBusy)
     state.failure?.let { ControlFailureBanner(it, onDismiss = { onIntent(EngineControlPanelIntent.DismissError) }) }
     state.panel?.let {
-        EngineManagementSection(it, state.loginCode, state.isSaving, onIntent, isSavingVisible = isSavingVisible)
+        EngineManagementSection(it, state.loginCode, state.isBusy, onIntent, isSavingVisible = isSavingVisible)
     }
     SettingsPages(state, onIntent)
     state.config?.takeIf { it.files.isNotEmpty() }?.let { ConfigFiles(it, onIntent) }
-    if (state.projects.isNotEmpty()) ProjectsSection(state.projects, onIntent)
-    if (state.isImportable) ImportSection(isEnabled = !state.isSaving, onIntent)
+    if (state.projects.isNotEmpty()) ProjectsSection(state.projects, !state.isBusy, onIntent)
+    if (state.isImportable) ImportSection(isEnabled = !state.isBusy, onIntent)
 }
 
 /** A confirmation of an engine action, an import being chosen and the report of a finished one. */
@@ -124,8 +124,8 @@ private fun Overview(state: EngineControlPanelState, onIntent: (EngineControlPan
 private fun OverviewDialogs(state: EngineControlPanelState, onIntent: (EngineControlPanelIntent) -> Unit) {
     val panel = state.panel
     val action = state.confirmAction
-    if (panel != null && action != null) EngineActionDialog(action, panel, isEnabled = !state.isSaving, onIntent)
-    state.importing?.let { ImportDialog(it, isBlocked = state.config?.isDirty == true, state.isSaving, onIntent) }
+    if (panel != null && action != null) EngineActionDialog(action, panel, isEnabled = !state.isBusy, onIntent)
+    state.importing?.let { ImportDialog(it, isBlocked = state.config?.isDirty == true, state.isBusy, onIntent) }
     state.importReport?.let { ImportReportDialog(it, onIntent) }
 }
 
@@ -146,7 +146,7 @@ private fun ConfigScreen(
         { onIntent(EngineControlPanelIntent.Back) },
         modifier.testTag("engine-control-panel"),
         pinned = if (form.isDirty || form.hasConflict) {
-            { ConfigSaveBar(form, state.isSaving, onIntent) }
+            { ConfigSaveBar(form, state.isSaving, onIntent, isBusy = state.isBusy) }
         } else {
             null
         },
@@ -154,7 +154,18 @@ private fun ConfigScreen(
         state.failure?.let { ControlFailureBanner(it, onDismiss = { onIntent(EngineControlPanelIntent.DismissError) }) }
         when {
             file != null -> ConfigFileContent(file, form, state.isSaving, onIntent)
-            page != null -> ConfigPageContent(page, form, state.isSaving, onIntent)
+
+            page != null -> {
+                ConfigPageContent(page, form, state.isSaving, onIntent)
+                if (page.hasResources) {
+                    ResourceContent(
+                        state.resources,
+                        state.isReadingResources,
+                        !state.isBusy,
+                        { onIntent(EngineControlPanelIntent.RefreshResources) },
+                    )
+                }
+            }
         }
     }
 }

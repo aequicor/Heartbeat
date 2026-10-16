@@ -4,8 +4,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
@@ -118,6 +120,31 @@ class ConfigPageUiTest {
     }
 
     @Test
+    fun `a running resource read keeps fields editable and holds save and discard without saving`() =
+        runSkikoComposeUiTest {
+            val intents = mutableListOf<EngineControlPanelIntent>()
+            val reading = overview.copy(
+                openPage = "network",
+                config = form.copy(blockingProblems = 0),
+                isBusy = true,
+                isReadingResources = true,
+            )
+            setContent { HbTheme { EngineControlPanelContent(reading, { intents += it }) } }
+
+            onNodeWithTag("config-flag:offline").performClick()
+            onNodeWithTag("config-save").assertIsNotEnabled()
+            onNodeWithTag("config-discard").assertIsNotEnabled()
+            onAllNodesWithText("Saving…").assertCountEquals(0)
+            onAllNodesWithText("Сохранение…").assertCountEquals(0)
+            runOnIdle {
+                assertEquals(
+                    listOf<EngineControlPanelIntent>(edit("offline", FieldInputUi.Flag(true))),
+                    intents,
+                )
+            }
+        }
+
+    @Test
     fun `a conflict is resolved only by discarding the draft`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineControlPanelIntent>()
         val conflict = overview.copy(openPage = "network", config = form.copy(hasConflict = true))
@@ -125,6 +152,14 @@ class ConfigPageUiTest {
 
         onNodeWithTag("config-conflict").assertExists()
         onNodeWithTag("config-save").assertDoesNotExist()
+    }
+
+    @Test
+    fun `a conflict waits for a running operation before it can be discarded`() = runSkikoComposeUiTest {
+        val conflict = overview.copy(openPage = "network", config = form.copy(hasConflict = true), isBusy = true)
+        setContent { HbTheme { EngineControlPanelContent(conflict, {}) } }
+
+        onNodeWithTag("config-conflict-discard").assertIsNotEnabled()
     }
 
     @Test

@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlStat
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.di.scope.EngineControlScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigCapability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
@@ -52,12 +53,19 @@ data class EngineControlPanelState(
     val loginCode: String = "",
     /** An action waiting for confirmation (uninstall, an unverified update, sign-out). */
     val confirmAction: EngineActionUi? = null,
+    /** A change of settings or files is running: forms are read-only and the save bar says so. */
     val isSaving: Boolean = false,
+    /** Any operation is running, a resource read included; actions that would start another one wait for it. */
+    val isBusy: Boolean = false,
     /** The failure of the last operation, until dismissed. */
     val failure: FailureUi? = null,
     val pages: ImmutableList<PageItemUi> = persistentListOf(),
     /** The page shown instead of the overview, or null. */
     val openPage: String? = null,
+    /** The selected scope's saved resource inventory, never the local form draft. */
+    val resources: ResourceInventoryUi? = null,
+    /** A resource inventory is being read; forms stay editable meanwhile. */
+    val isReadingResources: Boolean = false,
     /** The profile configuration form; null while engine configuration is off or the engine declares no schema. */
     val config: ConfigFormUi? = null,
     /** Unsaved changes of the profile configuration. */
@@ -89,6 +97,9 @@ data class EngineControlPanelState(
 sealed interface EngineControlPanelIntent : MVIIntent {
     /** Restarts a failed observation. */
     data object RetryLoad : EngineControlPanelIntent
+
+    /** Re-reads files for the current profile or project. */
+    data object RefreshResources : EngineControlPanelIntent
 
     /** Hides the failure of the last operation. */
     data object DismissError : EngineControlPanelIntent
@@ -132,7 +143,7 @@ class EngineControlPanelModel(
     val store = factory.create<EngineControlPanelState, EngineControlPanelIntent, EngineControlPanelAction>(
         "EngineControlPanel",
         EngineControlPanelState(engineId.value).reflect(engineId, machine.state.value),
-        onError = { copy(isLoading = false, isSaving = false, failure = FailureUi.Unknown) },
+        onError = { copy(isLoading = false, isSaving = false, isBusy = false, failure = FailureUi.Unknown) },
     ) {
         init { sendTo(machine, EngineControlIntent.Public.Start) }
         reflect(machine) { reflect(engineId, it) }
@@ -151,6 +162,8 @@ class EngineControlPanelModel(
 
             EngineControlPanelIntent.DismissError -> sendTo(machine, EngineControlIntent.Public.DismissError)
 
+            EngineControlPanelIntent.RefreshResources -> refreshResources()
+
             EngineControlPanelIntent.Back -> back()
 
             EngineControlPanelIntent.DiscardAndLeave -> leave()
@@ -158,9 +171,7 @@ class EngineControlPanelModel(
             EngineControlPanelIntent.KeepEditing -> updateState { copy(isLeaving = false) }
 
             // Only a launch draft changes the panel (its errors); other input is local text or a flag.
-            is EngineManagementIntent.EngineInput -> updateState {
-                if (intent.isLaunchEdit) edit(intent).reflect(engineId, machine.state.value) else edit(intent)
-            }
+            is EngineManagementIntent.EngineInput -> updateState { managementInput(intent) }
 
             is EngineManagementIntent.EngineRequest -> request(intent)
 
@@ -171,6 +182,11 @@ class EngineControlPanelModel(
             is ImportIntent -> with(imports) { handle(intent) }
         }
     }
+
+    private fun EngineControlPanelState.managementInput(
+        intent: EngineManagementIntent.EngineInput,
+    ): EngineControlPanelState =
+        if (intent.isLaunchEdit) edit(intent).reflect(engineId, machine.state.value) else edit(intent)
 
     // PipelineContext is FlowMVI's pipeline receiver (a CoroutineScope); store DSL functions extend it the same way.
     @Suppress("SuspendFunWithCoroutineScopeReceiver")
@@ -206,10 +222,10 @@ class EngineControlPanelModel(
     @Suppress("SuspendFunWithCoroutineScopeReceiver")
     private suspend fun PanelContext.configure(intent: ConfigIntent) {
         when (intent) {
-            is ConfigIntent.OpenPage -> updateState {
-                copy(
-                    openPage = intent.page.takeIf { config?.hasPage(it) == true },
-                )
+            is ConfigIntent.OpenPage -> {
+                updateState { copy(openPage = intent.page.takeIf { config?.hasPage(it) == true }) }
+                val page = machine.state.value.configOf(engineId)?.schema?.pages?.firstOrNull { it.id == intent.page }
+                if (page?.hasResources == true) refreshResources()
             }
 
             ConfigIntent.ClosePage -> updateState {
@@ -236,6 +252,19 @@ class EngineControlPanelModel(
 
             ConfigIntent.SaveConfig -> save()
         }
+    }
+
+    // PipelineContext is FlowMVI's pipeline receiver (a CoroutineScope); store DSL functions extend it the same way.
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
+    private suspend fun PanelContext.refreshResources() {
+        var workspace: WorkspaceRef? = null
+        withState { workspace = openProject?.let(::WorkspaceRef) }
+        val result = sendTo(
+            machine,
+            EngineControlIntent.Public.Apply(ControlOperation.ListResources(engineId, workspace)),
+        )
+        // Refused while another operation runs: a shown inventory is refreshed after it, otherwise Refresh reads it.
+        if (result != SendResult.Accepted) log.d { "resource read not started result=$result" }
     }
 
     // PipelineContext is FlowMVI's pipeline receiver (a CoroutineScope); store DSL functions extend it the same way.
@@ -293,7 +322,9 @@ internal fun EngineControlPanelState.reflect(engine: EngineId, state: EngineCont
     val base = copy(
         isLoading = snapshot == null && active.loadFailure == null,
         hasLoadFailure = active.loadFailure != null,
-        isSaving = active.pending != null,
+        isSaving = active.pending != null && active.pending !is ControlOperation.ListResources,
+        isBusy = active.pending != null,
+        isReadingResources = active.pending is ControlOperation.ListResources,
         failure = active.failed?.failure?.toUi(),
     )
     if (snapshot == null) return base.copy(panel = null, loginCode = "", confirmAction = null)
@@ -315,6 +346,9 @@ internal fun EngineControlPanelState.reflect(engine: EngineId, state: EngineCont
         pages = form?.pages.orEmpty().map { PageItemUi(it.id, it.title) }.toImmutableList(),
         openPage = openPage?.takeIf { form?.hasPage(it) == true },
         config = form,
+        resources = active.resources?.takeIf {
+            config != null && it.engine == engine && it.workspace?.value == openProject
+        }?.toUi(),
         configDraft = draft,
         projects = config?.projectItems(snapshot.projects).orEmpty().toImmutableList(),
         openProject = openProject.takeIf { config != null },

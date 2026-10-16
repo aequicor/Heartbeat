@@ -6,9 +6,14 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlInte
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlIntent.Public
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlState.Active
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlState.Idle
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigCapability
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigEdit
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigSchema
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigValues
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigurationState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
@@ -17,9 +22,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ImportPreview
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ImportReport
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ImportSelection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectEdit
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectRevision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceInventory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlin.test.Test
@@ -153,6 +161,156 @@ class EngineControlMachineTest {
             effects = listOf(EngineControlEffect.Observe),
         )
         EngineControlMachineSpec.assertIgnored(observed, Public.RetryLoad)
+    }
+
+    @Test
+    fun `resource reads are serialized and their result is retained`() {
+        val request = ControlOperation.ListResources(engine)
+        val inventory = ResourceInventory(engine, null, emptyList())
+        val configured = configured()
+        EngineControlMachineSpec.assertTransition(
+            from = configured,
+            intent = Public.Apply(request),
+            to = configured.copy(pending = request),
+            effects = listOf(EngineControlEffect.Execute(request)),
+        )
+        EngineControlMachineSpec.assertIgnored(configured.copy(pending = request), Public.Apply(restart))
+        EngineControlMachineSpec.assertTransition(
+            from = configured.copy(pending = request),
+            intent = Internal.Applied(ControlResult.Resources(inventory)),
+            to = configured.copy(resources = inventory),
+        )
+    }
+
+    @Test
+    fun `a read finishing after configuration turned off or its project closed is dropped`() {
+        val request = ControlOperation.ListResources(engine, workspace)
+        val inventory = ResourceInventory(engine, workspace, emptyList())
+        EngineControlMachineSpec.assertTransition(
+            from = observed.copy(pending = request, project = project),
+            intent = Internal.Applied(ControlResult.Resources(inventory)),
+            to = observed.copy(project = project),
+        )
+        EngineControlMachineSpec.assertTransition(
+            from = configured().copy(pending = request),
+            intent = Internal.Applied(ControlResult.Resources(inventory)),
+            to = configured(),
+        )
+        EngineControlMachineSpec.assertTransition(
+            from = configured().copy(pending = request, project = project),
+            intent = Internal.Applied(ControlResult.Resources(inventory)),
+            to = configured().copy(project = project, resources = inventory),
+        )
+    }
+
+    @Test
+    fun `shown resources follow configuration and the open scope`() {
+        val profile = ResourceInventory(engine, null, emptyList())
+        EngineControlMachineSpec.assertTransition(
+            from = configured().copy(resources = profile),
+            intent = Internal.Snapshot(snapshot),
+            to = observed,
+        )
+        EngineControlMachineSpec.assertTransition(
+            from = configured().copy(resources = profile, project = project),
+            intent = Public.CloseProject,
+            to = configured().copy(resources = profile),
+        )
+    }
+
+    @Test
+    fun `changes refresh nothing without a shown inventory of a resource capable engine`() {
+        val save = ControlOperation.SaveProfile(engine, ConfigEdit(EngineConfigValues()), ConfigRevision(0))
+        val shown = ResourceInventory(engine, null, emptyList())
+        val other = ResourceInventory(EngineId("codex"), null, emptyList())
+        val cases = listOf(
+            configured(),
+            configured().copy(resources = other),
+            configured(capabilities = emptySet()).copy(resources = shown),
+        )
+        cases.forEach { from ->
+            EngineControlMachineSpec.assertTransition(
+                from = from.copy(pending = save),
+                intent = Internal.Applied(ControlResult.Done),
+                to = from,
+                effects = emptyList(),
+            )
+        }
+    }
+
+    @Test
+    fun `a successful save refreshes shown resources and a failed read can be retried`() {
+        val inventory = ResourceInventory(engine, null, emptyList())
+        val schema = EngineConfigSchema(emptyList(), emptyList(), capabilities = setOf(ConfigCapability.Resources))
+        val config = EngineConfigState(engine, schema, EngineConfigValues(), ConfigRevision(0))
+        val active = observed.copy(
+            snapshot = snapshot.copy(configuration = EngineConfigurationState(true, listOf(config))),
+            resources = inventory,
+        )
+        val save = ControlOperation.SaveProfile(engine, ConfigEdit(EngineConfigValues()), ConfigRevision(0))
+        val refresh = ControlOperation.ListResources(engine)
+        val refreshing = active.copy(pending = refresh, resources = null)
+        EngineControlMachineSpec.assertTransition(
+            from = active.copy(pending = save),
+            intent = Internal.Applied(ControlResult.Done),
+            to = refreshing,
+            effects = listOf(EngineControlEffect.Execute(refresh)),
+        )
+        val error = ControlFailure.Config(ConfigFailure.Storage)
+        val failed = refreshing.copy(pending = null, failed = FailedOperation(refresh, error))
+        EngineControlMachineSpec.assertTransition(refreshing, Internal.ApplyFailed(error), failed)
+        EngineControlMachineSpec.assertTransition(
+            from = failed,
+            intent = Public.Apply(refresh),
+            to = refreshing,
+            effects = listOf(EngineControlEffect.Execute(refresh)),
+        )
+    }
+
+    @Test
+    fun `project opening saving trust and importing refresh the shown scope`() {
+        val schema = EngineConfigSchema(emptyList(), emptyList(), capabilities = setOf(ConfigCapability.Resources))
+        val config = EngineConfigState(engine, schema, EngineConfigValues(), ConfigRevision(0))
+        val inventory = ResourceInventory(engine, workspace, emptyList())
+        val active = observed.copy(
+            snapshot = snapshot.copy(configuration = EngineConfigurationState(true, listOf(config))),
+            resources = inventory,
+            project = project,
+        )
+        val operations = listOf(
+            ControlOperation.OpenProject(engine, workspace) to ControlResult.Project(project),
+            ControlOperation.SaveProject(engine, workspace, ProjectEdit(EngineConfigValues()), ProjectRevision()) to
+                ControlResult.Project(project),
+            ControlOperation.SetTrust(engine, workspace, ProjectTrust.Trusted) to ControlResult.Done,
+            ControlOperation.Import(engine, ImportSelection(emptySet()), ConfigRevision(0)) to
+                ControlResult.Imported(ImportReport(emptyList())),
+        )
+        val refresh = ControlOperation.ListResources(engine, workspace)
+        operations.forEach { (operation, result) ->
+            val expected = active.copy(
+                pending = refresh,
+                resources = null,
+                importReport = (result as? ControlResult.Imported)?.report,
+                projectSaveVersion = if (operation is ControlOperation.SaveProject) 1 else 0,
+            )
+            EngineControlMachineSpec.assertTransition(
+                from = active.copy(pending = operation),
+                intent = Internal.Applied(result),
+                to = expected,
+                effects = listOf(EngineControlEffect.Execute(refresh)),
+            )
+        }
+        EngineControlMachineSpec.assertTransition(
+            from = active,
+            intent = Public.CloseProject,
+            to = active.copy(project = null, resources = null),
+        )
+    }
+
+    private fun configured(capabilities: Set<ConfigCapability> = setOf(ConfigCapability.Resources)): Active {
+        val schema = EngineConfigSchema(emptyList(), emptyList(), capabilities = capabilities)
+        val config = EngineConfigState(engine, schema, EngineConfigValues(), ConfigRevision(0))
+        return observed.copy(snapshot = snapshot.copy(configuration = EngineConfigurationState(true, listOf(config))))
     }
 
     @Test

@@ -13,6 +13,14 @@ class EngineConfigSchemaTest {
     }
 
     @Test
+    fun `resource pages require the adapter capability`() {
+        val schema = TestConfig.schema.copy(pages = TestConfig.schema.pages.map { it.copy(hasResources = true) })
+        assertTrue(validateEngineConfigSchema(schema).any { it.contains("Resources capability") })
+        val supported = schema.copy(capabilities = schema.capabilities + ConfigCapability.Resources)
+        assertTrue(validateEngineConfigSchema(supported).isEmpty())
+    }
+
+    @Test
     fun `localized text falls back to the default language`() {
         val text = LocalizedText("Retries", mapOf("ru" to "Повторы"))
         assertEquals("Повторы", text.resolve("ru"))

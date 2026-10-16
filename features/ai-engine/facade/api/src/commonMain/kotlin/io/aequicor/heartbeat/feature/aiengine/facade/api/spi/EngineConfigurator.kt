@@ -10,6 +10,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ImportNote
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ImportPreview
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ImportSelection
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceInventory
 
 /**
  * File side of an engine's configuration, called only by the facade's configuration service. The facade resolves
@@ -32,6 +34,16 @@ public interface EngineConfigurator {
 
     /** Whether the project in [directory] has configuration that loads only when the project is trusted. */
     public suspend fun hasGatedConfiguration(directory: String): Boolean = false
+
+    /**
+     * Lists resources confined to the profile home and optional [directory]. [profile] and [trust] are the saved
+     * launch configuration. The facade supplies engine and workspace identity in the returned inventory.
+     */
+    public suspend fun resources(
+        profile: EngineConfigValues,
+        directory: String?,
+        trust: ProjectTrust,
+    ): ResourceInventory = unsupported()
 
     /** What an import from the engine's own user configuration would bring. */
     public suspend fun previewNative(): ImportPreview = unsupported()

@@ -101,7 +101,8 @@ class PiAgentConfigTest {
             {
               "defaultModel": "gpt", "defaultTools": ["read"], "sessionDir": "/elsewhere",
               "retry": {"maxRetries": 5},
-              "skills": ["skills", "+local/one", "!old/**", "/abs/skill", "~/mine"],
+              "skills": ["skills", "+local/one", "+local/*.ts", "!old/**", "/abs/skill", "~/mine", "!/abs/old"],
+              "prompts": ["prompts/*.md", "-prompts/draft.md"],
               "packages": ["npm:@x/y", "./pkg", {"source": "git:github.com/a/b", "skills": []}]
             }
             """,
@@ -112,9 +113,23 @@ class PiAgentConfigTest {
         val written = json(config.files.getValue(SETTINGS_FILE))
         assertFalse("defaultModel" in written || "defaultTools" in written || "sessionDir" in written)
         assertEquals(json("""{"maxRetries": 5}"""), written["retry"])
+        // A relative pattern keeps its file name match and is anchored at the profile home for the relative one.
         assertEquals(
-            listOf("$home/skills", "+$home/local/one", "!old/**", "/abs/skill", "~/mine").map(::JsonPrimitive),
+            listOf(
+                "$home/skills",
+                "+$home/local/one",
+                "+$home/local/*.ts",
+                "!old/**",
+                "!$home/old/**",
+                "/abs/skill",
+                "~/mine",
+                "!/abs/old",
+            ).map(::JsonPrimitive),
             (written.getValue("skills") as JsonArray).toList(),
+        )
+        assertEquals(
+            listOf("prompts/*.md", "$home/prompts/*.md", "-$home/prompts/draft.md").map(::JsonPrimitive),
+            (written.getValue("prompts") as JsonArray).toList(),
         )
         // Remote packages load only once installed into the profile home.
         assertEquals(listOf(JsonPrimitive("$home/pkg")), (written.getValue("packages") as JsonArray).toList())

@@ -46,10 +46,11 @@ import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 
-/** The saved projects of the overview, each opening the configuration in its files. */
+/** The saved projects of the overview, each opening the configuration in its files once no operation runs. */
 @Composable
 internal fun ProjectsSection(
     projects: ImmutableList<ProjectItemUi>,
+    isEnabled: Boolean,
     onIntent: (EngineControlPanelIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -64,6 +65,7 @@ internal fun ProjectsSection(
                 project.title,
                 Modifier.testTag("engine-control-project:${project.id}"),
                 onClick = { onIntent(ProjectIntent.Open(project.id)) },
+                enabled = isEnabled,
             ) {
                 if (project.trust != ProjectTrustUi.Undecided) {
                     HbBadge(
@@ -96,13 +98,25 @@ internal fun ProjectScreen(
         title,
         { onIntent(EngineControlPanelIntent.Back) },
         modifier.testTag("engine-control-project"),
-        pinned = form?.let { { ConfigSaveBar(it, state.isSaving, onConfig) } },
+        pinned = form?.let { { ConfigSaveBar(it, state.isSaving, onConfig, isBusy = state.isBusy) } },
     ) {
         state.failure?.let { ControlFailureBanner(it, onDismiss = { onIntent(EngineControlPanelIntent.DismissError) }) }
         when {
             project == null -> HbLoadingState(stringResource(Res.string.control_project_loading))
+
             file != null -> ConfigFileContent(file, project.form, state.isSaving, onConfig)
-            else -> ProjectContent(project, state.isSaving, onIntent, onConfig)
+
+            else -> {
+                ProjectContent(project, state.isSaving, state.isBusy, onIntent, onConfig)
+                if (project.form.pages.any { it.hasResources }) {
+                    ResourceContent(
+                        state.resources,
+                        state.isReadingResources,
+                        !state.isBusy,
+                        { onIntent(EngineControlPanelIntent.RefreshResources) },
+                    )
+                }
+            }
         }
     }
 }
@@ -111,6 +125,7 @@ internal fun ProjectScreen(
 private fun ProjectContent(
     project: ProjectFormUi,
     isSaving: Boolean,
+    isBusy: Boolean,
     onIntent: (EngineControlPanelIntent) -> Unit,
     onConfig: (ConfigIntent) -> Unit,
     modifier: Modifier = Modifier,
@@ -118,7 +133,7 @@ private fun ProjectContent(
     val form = project.form
     val isEditable = !isSaving && !form.isSubmitted
     HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.xxl) {
-        project.trust?.let { TrustRow(it, enabled = !isSaving, { trust -> onIntent(ProjectIntent.SetTrust(trust)) }) }
+        project.trust?.let { TrustRow(it, enabled = !isBusy, { trust -> onIntent(ProjectIntent.SetTrust(trust)) }) }
         form.pages.forEach { page ->
             HbText(page.title.text(), Modifier.semantics { heading() }, style = HbTheme.typography.title)
             ConfigPageSections(page, isEditable, onConfig)

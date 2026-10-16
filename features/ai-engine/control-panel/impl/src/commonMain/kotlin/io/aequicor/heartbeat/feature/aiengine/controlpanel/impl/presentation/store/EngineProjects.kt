@@ -77,6 +77,11 @@ internal class EngineProjects(
     // PipelineContext is FlowMVI's pipeline receiver (a CoroutineScope); store DSL functions extend it the same way.
     @Suppress("SuspendFunWithCoroutineScopeReceiver")
     private suspend fun PanelContext.reloadProject() {
+        // A reload reopens the project; the machine refuses that while another operation runs, which would close it.
+        if ((machine.state.value as? EngineControlState.Active)?.pending != null) {
+            log.w { "ignore a project reload while an operation runs" }
+            return
+        }
         updateState { copy(projectDraft = null) }
         screen().openProject?.let { open(it) }
     }

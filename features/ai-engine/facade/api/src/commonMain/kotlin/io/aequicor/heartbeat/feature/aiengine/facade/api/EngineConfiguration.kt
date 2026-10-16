@@ -64,6 +64,13 @@ public interface EngineConfiguration {
         selection: ImportSelection,
         expected: ConfigRevision,
     ): ImportReport
+
+    /**
+     * Resource files of [engine] in the profile and, with [workspace], in that saved project, with whether the saved
+     * configuration loads each. Needs [ConfigCapability.Resources]; the files are read on every call.
+     */
+    public suspend fun resources(engine: EngineId, workspace: WorkspaceRef?): ResourceInventory =
+        throw ConfigException(ConfigFailure.Unsupported)
 }
 
 /** Configuration service of hosts without engine configuration; always [EngineConfigurationState.Off]. */

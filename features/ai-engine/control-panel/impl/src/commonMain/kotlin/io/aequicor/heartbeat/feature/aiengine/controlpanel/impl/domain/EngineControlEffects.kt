@@ -28,6 +28,7 @@ internal data class EngineControlServices(
 /**
  * Observes engine management, engine configuration and the saved projects, and executes the panel's operations.
  * Writes complete even if the panel closes meanwhile; secrets of a configuration edit are closed once it ran.
+ * A resource read changes nothing, so it stops with the panel instead.
  */
 internal class EngineControlEffects(private val services: EngineControlServices) :
     EffectHandler<EngineControlEffect, EngineControlIntent> {
@@ -42,7 +43,12 @@ internal class EngineControlEffects(private val services: EngineControlServices)
             }
 
             is EngineControlEffect.Execute -> {
-                val result = withContext(NonCancellable) { execute(effect.operation) }
+                val operation = effect.operation
+                val result = if (operation is ControlOperation.ListResources) {
+                    execute(operation)
+                } else {
+                    withContext(NonCancellable) { execute(operation) }
+                }
                 machine.send(EngineControlIntent.Internal.Applied(result))
             }
         }
@@ -74,6 +80,9 @@ internal class EngineControlEffects(private val services: EngineControlServices)
             } finally {
                 operation.edit.secrets.values.forEach { it?.close() }
             }
+
+            is ControlOperation.ListResources ->
+                ControlResult.Resources(configuration.resources(engine, operation.workspace))
 
             is ControlOperation.OpenProject ->
                 ControlResult.Project(configuration.readProject(engine, operation.workspace))

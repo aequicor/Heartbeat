@@ -68,7 +68,8 @@ internal val PiConfigSchema: EngineConfigSchema by lazy {
             page("network", t("Network and retries", "Сеть и повторы"), networkSection(), retrySection()),
             page("shell", t("Shell and system", "Оболочка и система"), shellSection(), codemodeSection(), privacy()),
             page("instructions", t("Instructions", "Инструкции"), documentsSection(), contextSection()),
-            page("resources", t("Extensions and skills", "Расширения и навыки"), builtins(), paths(), packages()),
+            page("resources", t("Extensions and skills", "Расширения и навыки"), builtins(), paths(), packages())
+                .copy(hasResources = true),
             page("mcp", t("MCP", "MCP"), serversSection()),
         ),
         ownedKeys = ownedKeys(),
@@ -77,6 +78,7 @@ internal val PiConfigSchema: EngineConfigSchema by lazy {
             ConfigCapability.Secrets,
             ConfigCapability.ProjectTrust,
             ConfigCapability.Packages,
+            ConfigCapability.Resources,
         ),
     )
 }

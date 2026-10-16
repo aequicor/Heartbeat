@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectEdit
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceInventory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -65,6 +66,10 @@ public sealed interface ControlOperation {
     public data class SaveProfile(override val engine: EngineId, val edit: ConfigEdit, val expected: ConfigRevision) :
         ControlOperation
 
+    /** Reads the saved resource inventory of the profile and optional project. */
+    public data class ListResources(override val engine: EngineId, val workspace: WorkspaceRef? = null) :
+        ControlOperation
+
     /** Reads the configuration files of a project. */
     public data class OpenProject(override val engine: EngineId, val workspace: WorkspaceRef) : ControlOperation
 
@@ -98,6 +103,9 @@ public sealed interface ControlResult {
 
     /** A project's files as they are now. */
     public data class Project(val project: ProjectConfig) : ControlResult
+
+    /** Resource files selected by the saved configuration. */
+    public data class Resources(val inventory: ResourceInventory) : ControlResult
 
     /** An import preview. */
     public data class Preview(val preview: ImportPreview) : ControlResult
@@ -135,6 +143,8 @@ public sealed interface EngineControlState : MachineState {
         val project: ProjectConfig? = null,
         val importPreview: ImportPreview? = null,
         val importReport: ImportReport? = null,
+        val resources: ResourceInventory? = null,
+
         /** Successful project saves, including writes that leave the file revision unchanged. */
         val projectSaveVersion: Long = 0,
     ) : EngineControlState
@@ -207,18 +217,20 @@ public object EngineControlMachineKey :
  * | From | Intent | Guard | To | Effect |
  * |---|---|---|---|---|
  * | Idle | Start | | Active | Observe |
- * | Active | Snapshot | | stay (load failure cleared) | |
- * | Active | Apply | observed, nothing pending | stay (pending, failure cleared) | Execute |
- * | Active | Applied | | stay (result; successful project save advances its version) | |
+ * | Active | Snapshot | | stay (load failure cleared; resources dropped when configuration is off) | |
+ * | Active | Apply | observed, nothing pending | stay (pending, failure cleared; a read drops resources) | Execute |
+ * | Active | Applied | | stay (result, save version advanced) | Execute ListResources after saved changes |
  * | Active | ApplyFailed | | stay (failed) | |
  * | Active | DismissError | | stay | |
- * | Active | CloseProject | | stay (no project) | |
+ * | Active | CloseProject | | stay (no project, its resources dropped) | |
  * | Active | DismissImport | | stay (no preview or report) | |
  * | Active | ObserveFailed | | stay (snapshot dropped, load failure) | |
  * | Active | RetryLoad | has load failure | stay | Observe |
  *
  * Changes and observation failures use `stay`, so neither cancels the other while it runs. A failed change is never
  * replayed: secrets of a configuration edit are closed once it ran, and a save may have partially completed.
+ * A listed inventory is kept only while configuration is on and, for a project, while that project is open: a read
+ * finishing after the project closed is dropped rather than shown or refreshed later.
  */
 public val EngineControlMachineSpec:
     MachineSpec<EngineControlState, EngineControlIntent, EngineControlEffect, EngineControlOutput> =
@@ -231,18 +243,45 @@ public val EngineControlMachineSpec:
         }
         state<EngineControlState.Active> {
             on<EngineControlIntent.Internal.Snapshot> {
-                stay { state.copy(snapshot = intent.snapshot, loadFailure = null) }
+                stay {
+                    state.copy(
+                        snapshot = intent.snapshot,
+                        loadFailure = null,
+                        resources = state.resources.takeIf { intent.snapshot.configuration.isEnabled },
+                    )
+                }
             }
             on<EngineControlIntent.Public.Apply>(guard = { state.pending == null && state.snapshot != null }) {
-                stay { state.copy(pending = intent.operation, failed = null) }
+                stay {
+                    state.copy(
+                        pending = intent.operation,
+                        failed = null,
+                        resources = state.resources.takeUnless { intent.operation is ControlOperation.ListResources },
+                    )
+                }
                 effect { EngineControlEffect.Execute(intent.operation) }
             }
-            on<EngineControlIntent.Internal.Applied> { stay { state.applied(intent.result) } }
+            on<EngineControlIntent.Internal.Applied> {
+                stay {
+                    val next = state.applied(intent.result)
+                    // Effects see the source state, so the effect below derives the same refresh.
+                    val refresh = state.resourceRefresh(intent.result)
+                    if (refresh == null) next else next.copy(pending = refresh, resources = null)
+                }
+                effect { state.resourceRefresh(intent.result)?.let(EngineControlEffect::Execute) }
+            }
             on<EngineControlIntent.Internal.ApplyFailed> {
                 stay { state.copy(pending = null, failed = state.pending?.let { FailedOperation(it, intent.failure) }) }
             }
             on<EngineControlIntent.Public.DismissError> { stay { state.copy(failed = null) } }
-            on<EngineControlIntent.Public.CloseProject> { stay { state.copy(project = null) } }
+            on<EngineControlIntent.Public.CloseProject> {
+                stay {
+                    state.copy(
+                        project = null,
+                        resources = state.resources.takeIf { it?.workspace == null },
+                    )
+                }
+            }
             on<EngineControlIntent.Public.DismissImport> {
                 stay { state.copy(importPreview = null, importReport = null) }
             }
@@ -268,6 +307,8 @@ public val EngineControlMachineSpec:
 private fun EngineControlState.Active.applied(result: ControlResult): EngineControlState.Active = when (result) {
     ControlResult.Done -> copy(pending = null)
 
+    is ControlResult.Resources -> copy(pending = null, resources = result.inventory.takeIf { shows(it) })
+
     is ControlResult.Project -> copy(
         pending = null,
         project = result.project,
@@ -278,6 +319,10 @@ private fun EngineControlState.Active.applied(result: ControlResult): EngineCont
 
     is ControlResult.Imported -> copy(pending = null, importPreview = null, importReport = result.report)
 }
+
+private fun EngineControlState.Active.shows(inventory: ResourceInventory): Boolean =
+    snapshot?.configuration?.isEnabled == true &&
+        (inventory.workspace == null || inventory.workspace == project?.workspace)
 
 /** The panel's failure for an exception an operation threw. */
 public fun Throwable.toControlFailure(): ControlFailure = when (this) {

@@ -96,7 +96,7 @@ private fun agentSettings(
     val owned = PiConfigSchema.ownedKeys.map { it.path.single() }.toSet()
     val result = settings.filterKeys { it !in owned }.toMutableMap()
     ResourceKeys.forEach { key ->
-        (result[key] as? JsonArray)?.let { list -> result[key] = JsonArray(list.map { absolute(it, home) }) }
+        (result[key] as? JsonArray)?.let { list -> result[key] = JsonArray(list.flatMap { resource(it, home) }) }
     }
     (result["packages"] as? JsonArray)?.let { list ->
         result["packages"] = JsonArray(list.mapNotNull { localPackage(it, home) })
@@ -109,13 +109,39 @@ private fun agentSettings(
     return JsonObject(result)
 }
 
+/**
+ * A resource entry as Pi reads it from the temporary agent directory, with relative paths meaning [home] as in
+ * `~/.pi/agent`. Pi matches a pattern (`!glob`, a plain glob) against the path relative to the agent directory, the
+ * file name and the absolute path, so a relative pattern is kept for its file name match and gets a copy anchored at
+ * [home] for the relative one; paths, `+path` and `-path` resolve against [home].
+ */
+private fun resource(entry: JsonElement, home: Path): List<JsonElement> {
+    val text = (entry as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return listOf(entry)
+    val exclusion = "!".takeIf { text.startsWith(it) }.orEmpty()
+    val pattern = text.removePrefix(exclusion)
+    val isPattern = exclusion.isNotEmpty() || (isGlob(text) && text[0] !in "+-")
+    if (!isPattern || !isRelativePath(pattern)) return listOf(absolute(entry, home))
+    return listOf(entry, JsonPrimitive(exclusion + anchored(pattern, home)))
+}
+
+/** [path] under [home] as text: Pi compares patterns with `/` separators, and a glob is not a valid [Path]. */
+private fun anchored(path: String, home: Path): String =
+    "${home.toString().replace('\\', '/').trimEnd('/')}/${path.removePrefix("./")}"
+
 /** A resource entry with a relative path resolved against [home]; patterns, prefixes and sources stay as they are. */
 private fun absolute(entry: JsonElement, home: Path): JsonElement {
     val text = (entry as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return entry
     val prefix = text.take(1).takeIf { it == "+" || it == "-" }.orEmpty()
     val path = text.removePrefix(prefix)
-    return if (isRelativePath(path)) JsonPrimitive(prefix + home.resolve(path).normalize()) else entry
+    return when {
+        !isRelativePath(path) -> entry
+        isGlob(path) -> JsonPrimitive(prefix + anchored(path, home))
+        else -> JsonPrimitive(prefix + home.resolve(path).normalize())
+    }
 }
+
+/** Pi reads an entry with `*` or `?` as a glob. */
+private fun isGlob(text: String): Boolean = '*' in text || '?' in text
 
 /**
  * A package entry Pi loads without installing: a remote source becomes its folder installed in [home], a local one

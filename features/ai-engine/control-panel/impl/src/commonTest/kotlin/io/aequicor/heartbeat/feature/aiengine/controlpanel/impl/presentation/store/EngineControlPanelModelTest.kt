@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalizedText
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceInventory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -43,6 +44,56 @@ class EngineControlPanelModelTest {
 
     private fun TestScope.model() =
         EngineControlPanelModel(machine, EngineControlTarget(CodexId), testScopeHandle(), testStoreFactory())
+
+    @Test
+    fun `opening a resource page reads saved inventory and filters other scopes`() = runTest {
+        val active = configured(ConfigRevision(0))
+        val snapshot = requireNotNull(active.snapshot)
+        val configuration = snapshot.configuration.copy(
+            engines = snapshot.configuration.engines.map {
+                it.copy(schema = it.schema.copy(pages = it.schema.pages.map { page -> page.copy(hasResources = true) }))
+            },
+        )
+        machine.state.value = active.copy(snapshot = snapshot.copy(configuration = configuration))
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(ConfigIntent.OpenPage("network"))
+        runCurrent()
+        assertEquals(
+            EngineControlIntent.Public.Apply(ControlOperation.ListResources(CodexId)),
+            machine.sent.last(),
+        )
+        val inventory = ResourceInventory(CodexId, null, emptyList())
+        machine.state.value = (machine.state.value as EngineControlState.Active).copy(resources = inventory)
+        runCurrent()
+        assertEquals(0, screen.states.value.resources?.files?.size)
+        machine.state.value = (machine.state.value as EngineControlState.Active).copy(
+            resources = inventory.copy(workspace = WorkspaceRef("other")),
+        )
+        runCurrent()
+        assertEquals(null, screen.states.value.resources)
+    }
+
+    @Test
+    fun `a resource read holds other operations without reading as a save`() = runTest {
+        machine.state.value = configured(ConfigRevision(2))
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(ConfigIntent.EditField("retries", FieldInputUi.Number("3")))
+        runCurrent()
+        val active = machine.state.value as EngineControlState.Active
+        machine.state.value = active.copy(pending = ControlOperation.ListResources(CodexId))
+        runCurrent()
+        with(screen.states.value) {
+            assertTrue(isBusy && isReadingResources)
+            assertFalse(isSaving)
+            assertEquals(true, config?.isDirty)
+        }
+        val save = ControlOperation.SaveProfile(CodexId, ConfigEdit(EngineConfigValues()), ConfigRevision(2))
+        machine.state.value = active.copy(pending = save)
+        runCurrent()
+        with(screen.states.value) { assertTrue(isBusy && isSaving && !isReadingResources) }
+    }
 
     @Test
     fun `the panel starts the machine and shows the engine`() = runTest {
@@ -224,6 +275,28 @@ class EngineControlPanelModelTest {
             machine.sent.takeLast(2),
         )
         assertEquals(null, screen.states.value.openProject)
+    }
+
+    @Test
+    fun `a project reload waits for a running operation instead of closing the project`() = runTest {
+        machine.state.value = configured(ConfigRevision(0))
+        val model = model()
+        val screen = subscribe(model.store)
+        val web = WorkspaceRef("web")
+        model.store.intent(ProjectIntent.Open("web"))
+        runCurrent()
+        val project = ProjectConfig(CodexId, web, EngineConfigValues(), ProjectRevision())
+        val active = (configured(ConfigRevision(0)) as EngineControlState.Active).copy(project = project)
+        machine.state.value = active.copy(pending = ControlOperation.ListResources(CodexId, web))
+        runCurrent()
+        val sent = machine.sent.size
+
+        model.store.intent(ProjectIntent.Reload)
+        runCurrent()
+
+        assertEquals(sent, machine.sent.size)
+        assertEquals("web", screen.states.value.openProject)
+        assertEquals("web", screen.states.value.project?.id)
     }
 
     @Test
