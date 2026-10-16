@@ -133,6 +133,8 @@ internal class PiNativeApproval(
 
     private data class Decision(val verdict: NativeVerdict, val isAsked: Boolean, val isRead: Boolean)
     private suspend fun classify(call: PiApprovalCall, isWorkspaceAttached: Boolean): Pair<NativeToolCall, Boolean>? {
+        val group = piToolGroup(call.tool).takeIf { call.tool !in SearchTools }
+        if (group != null) return extensionCall(call, group) to false
         val action = if (call.tool in SearchTools) {
             AgentToolAction.Read
         } else {
@@ -155,6 +157,23 @@ internal class PiNativeApproval(
             covered = { trust -> isCovered(trust, action, isHostTermination, isEdit) },
         )
         return native to isHostTermination
+    }
+
+    /**
+     * A tool of an extension, checked under its group's policy name. It shows the tool and its arguments to the
+     * reviewer, is never covered by a trust level and cannot terminate Heartbeat automatically.
+     */
+    private fun extensionCall(call: PiApprovalCall, group: PiToolGroups): NativeToolCall {
+        val isHostTermination = environment.nativeCalls.terminatesHost(call.target)
+        return NativeToolCall(
+            group.policyName,
+            group.action,
+            command = listOf(call.tool, call.target).filter { it.isNotBlank() }.joinToString(" "),
+            arguments = call.arguments,
+            workingDirectory = connection.workingDirectory?.toString(),
+            automaticDenial = "Automatic execution cannot terminate Heartbeat".takeIf { isHostTermination },
+            covered = { false },
+        )
     }
 }
 

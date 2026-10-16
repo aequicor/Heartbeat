@@ -15,7 +15,28 @@ internal fun piNativeCatalog(host: HostPlatform): List<NativeToolSpec> {
         NativeToolSpec("edit", AgentToolAction.Edit, true, true),
         NativeToolSpec("write", AgentToolAction.Edit, true, true),
         NativeToolSpec(if (host == HostPlatform.Windows) "powershell" else "bash", AgentToolAction.Command, true, true),
-    )
+    ) + PiToolGroups.entries.map { group -> NativeToolSpec(group.policyName, group.action, true, false) }
+}
+
+/**
+ * Tools of Pi's extensions, which the engine configuration turns on: the MCP, code mode and tool search built-ins and
+ * the user's own extensions. Each group is one policy entry, on by default, that the tool policy can switch off;
+ * its calls never inherit a trust exemption and always pass the safety gate.
+ */
+internal enum class PiToolGroups(val policyName: String, val action: AgentToolAction) {
+    Mcp("mcp", AgentToolAction.Command),
+    Codemode("codemode", AgentToolAction.Command),
+    ToolSearch("tool_search", AgentToolAction.Read),
+    Extension("extension", AgentToolAction.Command),
+}
+
+/** The extension group a tool Pi declared belongs to; null for Pi's built-in tools. */
+internal fun piToolGroup(name: String): PiToolGroups? = when {
+    piNativeAction(name) != null -> null
+    name.startsWith("mcp__") -> PiToolGroups.Mcp
+    name == "codemode" -> PiToolGroups.Codemode
+    name == "tool_search" -> PiToolGroups.ToolSearch
+    else -> PiToolGroups.Extension
 }
 
 /** Unknown extension names cannot inherit a native trust exemption. */
