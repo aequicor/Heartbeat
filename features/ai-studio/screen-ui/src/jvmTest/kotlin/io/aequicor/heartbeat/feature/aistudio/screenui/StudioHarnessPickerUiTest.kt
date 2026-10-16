@@ -114,6 +114,7 @@ class StudioHarnessPickerUiTest {
     private val state = AiStudioScreenState(
         projects = persistentListOf(ProjectUi("project", "Heartbeat", EnvironmentUi.Local, "master")),
         isWorktreeAvailable = true,
+        repositoryProjects = persistentSetOf("project"),
         harnessChoices = HarnessChoicesUi(
             options = persistentListOf(
                 HarnessOptionUi("code", "Разработка", "Код и тесты", persistentSetOf("project")),

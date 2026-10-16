@@ -106,6 +106,7 @@ class StudioComposerContextWidthUiTest {
                 ProjectUi("project", "Training and weekly progress", EnvironmentUi.Local, "master"),
             ),
             isWorktreeAvailable = true,
+            repositoryProjects = persistentSetOf("project"),
             harnessChoices = HarnessChoicesUi(
                 options = persistentListOf(
                     HarnessOptionUi("gym", "Detailed training program", projectIds = persistentSetOf("project")),

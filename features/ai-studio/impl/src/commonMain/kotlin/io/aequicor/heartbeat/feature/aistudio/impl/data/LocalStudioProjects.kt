@@ -11,9 +11,14 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioLocalProjects
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioDirectoryPicker
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioProjects
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeModeEnabled
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 
 @Inject
 @ContributesBinding(ProfileScope::class)
@@ -32,6 +37,22 @@ internal class LocalStudioProjects(
         toggles.observe(WorktreeModeEnabled),
         toggles.observe(StudioEngineRuntime),
     ) { enabled, runtime -> enabled && runtime && workspaces.isAvailable }
+
+    /** Folders are probed again whenever the catalog changes, so a newly initialised repository appears then. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    override val repositoryProjects: Flow<Set<String>> = worktreeAvailability.distinctUntilChanged()
+        .flatMapLatest { isAvailable ->
+            if (!isAvailable) {
+                flowOf(emptySet())
+            } else {
+                workspaces.observe().map { projects ->
+                    projects.filterTo(mutableSetOf()) { project ->
+                        workspaces.resolve(project.ref)?.let { picker.isRepository(it) } == true
+                    }.mapTo(mutableSetOf()) { it.ref.value }
+                        .also { log.d { "Git repository projects ${it.size} of ${projects.size}" } }
+                }
+            }
+        }.distinctUntilChanged()
 
     override suspend fun choose(): String? {
         check(availability.first()) { "Local project selection is unavailable" }

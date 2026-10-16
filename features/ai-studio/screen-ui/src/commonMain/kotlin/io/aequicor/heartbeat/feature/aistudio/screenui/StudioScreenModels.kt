@@ -235,7 +235,8 @@ fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         calendar = studioCalendar(now),
         contextUsage = contextOf(pane.sessionId, session),
         providerUsage = providerUsage[effectiveSettings.modelId],
-        isWorktreeAvailable = isWorktreeAvailable && worktreeJournal == WorktreeJournalUi.Ready,
+        isWorktreeAvailable = isWorktreeAvailable && worktreeJournal == WorktreeJournalUi.Ready &&
+            pane.projectId in repositoryProjects,
         worktree = worktrees[pane.sessionId],
         worktreeJournal = worktreeJournal,
     )

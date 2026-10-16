@@ -21,7 +21,7 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | Disabled | AvailabilityChanged | enabled | Loading | Load |
  * | Ready | NewSession | pane open | Ready (pane → new-session page, focused) | |
  * | Ready | SelectProject | new-session page, not creating | Ready (target project) | |
- * | Ready | SelectWorktree | new local-project pane, available | Ready (execution mode; leaves organism mode) | |
+ * | Ready | SelectWorktree | new pane of a Git project, available | Ready (execution mode; leaves organism mode) | |
  * | Ready | SelectOrganism | new-session page, not creating | Ready (organism mode; leaves the worktree) | |
  * | Ready | AddProject | supported, new-session pane, picker idle | Ready (picker active) | ChooseProject |
  * | Ready | ProjectChosen | matching picker | Ready (selected project, or unchanged on cancel) | |
@@ -201,13 +201,16 @@ private fun ReadyTransitions.navigation() {
     on<AiStudioIntent.Public.SelectProject>(guard = { state.pane(intent.paneId)?.isNewSessionPage() == true }) {
         stay {
             state.replacePane(intent.paneId) {
-                it.copy(projectId = intent.projectId, isWorktree = it.isWorktree && intent.projectId != null)
+                it.copy(
+                    projectId = intent.projectId,
+                    isWorktree = it.isWorktree && intent.projectId in state.repositoryProjects,
+                )
             }
         }
     }
     on<AiStudioIntent.Public.SelectWorktree>(guard = {
         state.isWorktreeAvailable && state.pane(intent.paneId)?.let {
-            it.isNewSessionPage() && it.projectId != null
+            it.isNewSessionPage() && it.projectId in state.repositoryProjects
         } == true
     }) {
         // An organism's turns do not run through the checkout task, so the two modes exclude each other.

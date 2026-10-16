@@ -12,6 +12,7 @@ class AiStudioWorktreeTest {
         focusedPaneId = 0,
         settings = settings,
         isWorktreeAvailable = true,
+        repositoryProjects = setOf("project"),
     )
 
     @Test
@@ -88,6 +89,28 @@ class AiStudioWorktreeTest {
         AiStudioMachineSpec.assertIgnored(
             ready.copy(panes = listOf(StudioPane(0))),
             AiStudioIntent.Public.SelectWorktree(0, true),
+        )
+    }
+
+    @Test
+    fun `only a git repository project offers an isolated checkout`() {
+        val folder = ready.copy(panes = listOf(StudioPane(0, projectId = "folder")))
+        AiStudioMachineSpec.assertIgnored(folder, AiStudioIntent.Public.SelectWorktree(0, true))
+        val selected = ready.copy(panes = listOf(ready.panes[0].copy(isWorktree = true), ready.panes[1]))
+        AiStudioMachineSpec.assertTransition(
+            selected,
+            AiStudioIntent.Public.SelectProject(0, "folder"),
+            ready.copy(panes = listOf(StudioPane(0, projectId = "folder"), ready.panes[1])),
+        )
+        AiStudioMachineSpec.assertTransition(
+            selected,
+            AiStudioIntent.Internal.ProjectAvailabilityChanged(true, isWorktreeAvailable = true),
+            ready.copy(isProjectAddingAvailable = true, repositoryProjects = emptySet()),
+        )
+        AiStudioMachineSpec.assertTransition(
+            selected,
+            AiStudioIntent.Internal.ProjectAvailabilityChanged(true, true, setOf("project")),
+            selected.copy(isProjectAddingAvailable = true),
         )
     }
 
