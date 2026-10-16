@@ -12,6 +12,8 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserPage
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserState
 import io.aequicor.heartbeat.feature.browser.api.BrowserTab
+import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserFaviconImage
+import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserSurface
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserSurfaceAdapter
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserTestDispatchers
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserTestScope
@@ -67,6 +69,23 @@ class BrowserModelTest {
         runCurrent()
         assertEquals(listOf(true, false), screen.states.value.tabs.map { it.isLoading })
         assertFalse(screen.states.value.isLoading)
+    }
+
+    @Test
+    fun `tabs carry their site icon address and decoded icons are reflected`() = runTest {
+        val fixture = Fixture(this)
+        val screen = fixture.subscribe()
+        fixture.machine.state.value = ready(BrowserPage()).copy(
+            tabs = listOf(
+                BrowserTab("tab", BrowserPage("https://example.com/", faviconUrl = "https://example.com/i.png")),
+            ),
+            selectedTabId = "tab",
+        )
+        val icon = BrowserFaviconImage(byteArrayOf(1))
+        fixture.favicons.value = mapOf("https://example.com/i.png" to icon)
+        runCurrent()
+        val state = screen.states.value
+        assertEquals(icon, state.favicons[state.tabs.single().faviconUrl])
     }
 
     @Test
@@ -214,13 +233,16 @@ class BrowserModelTest {
 
     private class Fixture(private val scope: TestScope) {
         val machine = TestBrowserMachine()
+        val favicons = MutableStateFlow<Map<String, BrowserFaviconImage>>(emptyMap())
         private val owner = BrowserTestScope(scope.backgroundScope)
         private val dispatchers = BrowserTestDispatchers(StandardTestDispatcher(scope.testScheduler))
         val model = BrowserModel(
             machine,
             owner,
             HeartbeatStoreFactory(dispatchers),
-            BrowserSurfaceAdapter(owner, dispatchers),
+            object : BrowserSurface by BrowserSurfaceAdapter(owner, dispatchers) {
+                override val favicons = this@Fixture.favicons
+            },
         )
 
         suspend fun subscribe(): Provider<BrowserScreenState, BrowserScreenIntent, BrowserScreenAction> {

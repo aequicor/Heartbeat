@@ -19,10 +19,12 @@ import io.aequicor.heartbeat.feature.browser.api.browserAddress
 import io.aequicor.heartbeat.feature.browser.impl.di.scope.BrowserScope
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserSurface
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import pro.respawn.flowmvi.plugins.reduce
+import pro.respawn.flowmvi.plugins.whileSubscribed
 import kotlin.uuid.Uuid
 
 /** The graph retains input and native adapter while Decompose may recreate the screen component. */
@@ -40,6 +42,9 @@ internal class BrowserModel(
         onError = { copy(error = BrowserScreenError.EngineUnavailable, isLoading = false) },
     ) {
         reflect(machine) { reflectState(it) }
+        whileSubscribed(name = "favicons") {
+            surface.favicons.collect { images -> updateState { copy(favicons = images.toImmutableMap()) } }
+        }
         reduce { intent ->
             when (intent) {
                 is BrowserScreenIntent.ApproveControl -> sendTo(
@@ -174,6 +179,7 @@ internal fun BrowserScreenState.reflectState(state: BrowserState): BrowserScreen
                         it.controlRequestId,
                         it.owner,
                         it.page.isLoading,
+                        it.page.faviconUrl,
                     )
                 }
                 .toImmutableList(),

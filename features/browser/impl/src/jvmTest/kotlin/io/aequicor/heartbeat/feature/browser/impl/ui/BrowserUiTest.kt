@@ -37,11 +37,13 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
+import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserFaviconImage
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserPhase
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserScreenIntent
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserScreenState
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserTabUi
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableList
 import java.io.File
 import javax.imageio.ImageIO
@@ -136,7 +138,7 @@ class BrowserUiTest {
     }
 
     @Test
-    fun `loading tab shows activity in place of its icon and middle click closes it`() =
+    fun `loading tab shows activity in place of its site icon and middle click closes it`() =
         runSkikoComposeUiTest(size = Size(1280f, 800f)) {
             val events = mutableListOf<BrowserScreenIntent>()
             setContent {
@@ -148,15 +150,18 @@ class BrowserUiTest {
                             isLoading = true,
                             selectedTabId = "one",
                             tabs = persistentListOf(
-                                BrowserTabUi("one", "First", true, false, isLoading = true),
-                                BrowserTabUi("two", "Second", true, false),
+                                BrowserTabUi("one", "First", true, false, isLoading = true, faviconUrl = "icon"),
+                                BrowserTabUi("two", "Second", true, false, faviconUrl = "icon"),
                             ),
+                            favicons = persistentMapOf("icon" to BrowserFaviconImage(testIcon())),
                         ),
                         { events += it },
                     )
                 }
             }
             onNodeWithTag("browser-tab-loading-one", useUnmergedTree = true).assertIsDisplayed()
+            onNodeWithTag("browser-tab-favicon-one", useUnmergedTree = true).assertDoesNotExist()
+            onNodeWithTag("browser-tab-favicon-two", useUnmergedTree = true).assertIsDisplayed()
             onNodeWithTag("browser-tab-loading-two", useUnmergedTree = true).assertDoesNotExist()
             onNodeWithTag("browser-loading").assertDoesNotExist()
             onNodeWithTag("browser-tab-two").performMouseInput {
@@ -363,4 +368,9 @@ class BrowserUiTest {
             }
         }
     }
+}
+
+private fun testIcon(): ByteArray = java.io.ByteArrayOutputStream().use { output ->
+    ImageIO.write(java.awt.image.BufferedImage(32, 32, java.awt.image.BufferedImage.TYPE_INT_ARGB), "png", output)
+    output.toByteArray()
 }

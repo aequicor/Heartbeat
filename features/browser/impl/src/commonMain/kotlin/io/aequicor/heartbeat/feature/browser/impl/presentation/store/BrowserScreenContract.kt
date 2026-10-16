@@ -1,8 +1,11 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
+import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserFaviconImage
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentMapOf
 import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
 import pro.respawn.flowmvi.api.MVIState
@@ -36,6 +39,7 @@ internal data class BrowserScreenState(
     val hasTabs: Boolean = false,
     val selectedTabId: String? = null,
     val isExpanded: Boolean = false,
+    val favicons: ImmutableMap<String, BrowserFaviconImage> = persistentMapOf(),
 ) : MVIState
 
 internal data class BrowserTabUi(
@@ -46,6 +50,7 @@ internal data class BrowserTabUi(
     val controlRequestId: String? = null,
     val groupId: String? = null,
     val isLoading: Boolean = false,
+    val faviconUrl: String = "",
 )
 
 internal sealed interface BrowserScreenIntent : MVIIntent {

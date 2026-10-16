@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.browser.impl.ui
 
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
@@ -27,10 +28,12 @@ import androidx.compose.ui.unit.Dp
 import io.aequicor.heartbeat.ds.components.HbActivityIndicator
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
+import io.aequicor.heartbeat.ds.components.HbImage
 import io.aequicor.heartbeat.ds.components.HbNavigationItem
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbHorizontalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserFaviconImage
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserScreenIntent
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserScreenState
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserTabUi
@@ -79,6 +82,7 @@ internal fun BrowserTabStrip(
                         key(tab.id) {
                             BrowserTab(
                                 tab,
+                                state.favicons[tab.faviconUrl],
                                 state.selectedTabId == tab.id,
                                 tabWidth,
                                 viewportWidth,
@@ -102,6 +106,7 @@ internal fun BrowserTabStrip(
 @Composable
 private fun BrowserTab(
     tab: BrowserTabUi,
+    favicon: BrowserFaviconImage?,
     isSelected: Boolean,
     width: Dp,
     viewportWidth: Dp,
@@ -124,17 +129,29 @@ private fun BrowserTab(
             .onMiddleClick { onIntent(BrowserScreenIntent.CloseTab(tab.id)) }
             .testTag("browser-tab-${tab.id}"),
         // As in Chromium, the activity indicator takes the site icon's place while the page loads.
-        icon = HbIcons.Globe.takeUnless { tab.isLoading },
-        leadingContent = if (tab.isLoading) {
-            {
-                HbActivityIndicator(
-                    Modifier.testTag("browser-tab-loading-${tab.id}"),
-                    contentDescription = stringResource(Res.string.browser_loading),
-                    size = HbTheme.dimensions.iconSize,
-                )
+        icon = HbIcons.Globe.takeUnless { tab.isLoading || favicon != null },
+        leadingContent = when {
+            tab.isLoading -> {
+                {
+                    HbActivityIndicator(
+                        Modifier.testTag("browser-tab-loading-${tab.id}"),
+                        contentDescription = stringResource(Res.string.browser_loading),
+                        size = HbTheme.dimensions.iconSize,
+                    )
+                }
             }
-        } else {
-            null
+
+            favicon != null -> {
+                {
+                    HbImage(
+                        favicon.png,
+                        contentDescription = "",
+                        Modifier.size(HbTheme.dimensions.iconSize).testTag("browser-tab-favicon-${tab.id}"),
+                    )
+                }
+            }
+
+            else -> null
         },
         isSelected = isSelected,
         role = Role.Tab,

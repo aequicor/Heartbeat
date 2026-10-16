@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.feature.browser.impl.presentation
 
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserNativeResources
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserReferrer
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 /** Commands consumed by one native view on its platform UI thread. */
 internal sealed interface BrowserViewCommand {
@@ -41,6 +43,10 @@ internal interface BrowserSurface {
     val hasTabs: Boolean
         get() = false
 
+    /** Decoded site icons by address for the tab strip; platforms without tabs have none. */
+    val favicons: StateFlow<Map<String, BrowserFaviconImage>>
+        get() = NoFavicons
+
     /** A stable surface for the selected desktop tab; mobile keeps the single surface. */
     fun forTab(id: String?): BrowserSurface = this
 
@@ -54,3 +60,5 @@ internal interface BrowserSurface {
     fun changed(controller: BrowserViewController, state: BrowserViewState)
     fun detached(controller: BrowserViewController)
 }
+
+private val NoFavicons: StateFlow<Map<String, BrowserFaviconImage>> = MutableStateFlow(emptyMap())

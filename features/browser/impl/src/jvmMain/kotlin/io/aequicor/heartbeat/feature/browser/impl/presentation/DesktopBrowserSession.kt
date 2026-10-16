@@ -37,6 +37,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.job
 import kotlinx.coroutines.joinAll
@@ -72,7 +73,7 @@ internal class DesktopBrowserSession(
     override val nativeResources: BrowserNativeResources,
     private val agentPolicy: BrowserAgentPolicy,
     private val storage: BrowserWorkspaceStorage,
-    private val favicons: DesktopBrowserFavicons,
+    private val icons: DesktopBrowserFavicons,
 ) : BrowserSession,
     BrowserSurface {
     private val log = Log.tag("BrowserWorkspace")
@@ -96,6 +97,8 @@ internal class DesktopBrowserSession(
     override val pages = MutableStateFlow(BrowserPage())
     override val tabs = MutableStateFlow(emptyList<BrowserTab>() to null as String?)
     override val hasTabs = true
+    override val favicons: StateFlow<Map<String, BrowserFaviconImage>>
+        get() = icons.images
     override val initialUrl: String
         get() = pages.value.url
 
@@ -231,7 +234,7 @@ internal class DesktopBrowserSession(
             // Remove recovery data before deleting native state; a restart during cleanup cannot resurrect tabs.
             storage.save(SavedBrowserWorkspace())
             entries.keys.toList().forEach { close(it) }
-            favicons.clear()
+            icons.clear()
             factory.clearData()
             return BrowserResult(request.id)
         } finally {
@@ -554,7 +557,7 @@ internal class DesktopBrowserSession(
     private fun lookUpFavicon(entry: Entry, pageUrl: String) {
         entry.faviconLookup?.cancel()
         entry.faviconLookup = scope.coroutineScope.launch(dispatchers.main) {
-            if (!favicons.isEnabled()) return@launch
+            if (!icons.isEnabled()) return@launch
             val candidates = try {
                 entry.favicons.candidates()
             } catch (error: CancellationException) {
@@ -571,7 +574,7 @@ internal class DesktopBrowserSession(
             entry.favicon = icon?.let { Favicon(pageUrl, it) }
             entry.update(entry.surface.pages.value)
             publish()
-            if (icon != null) favicons.load(icon, entry.loadIcon)
+            if (icon != null) icons.load(icon, entry.loadIcon)
         }
     }
 

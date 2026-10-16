@@ -29,7 +29,10 @@ import org.jetbrains.skia.Surface
 import org.jetbrains.skia.svg.SVGDOM
 
 /** Desktop tabs look icons up only while the feature flag is on, and load them through their own profile. */
-internal interface DesktopBrowserFavicons : BrowserFaviconImages {
+internal interface DesktopBrowserFavicons {
+    /** Decoded icons by address. */
+    val images: StateFlow<Map<String, BrowserFaviconImage>>
+
     suspend fun isEnabled(): Boolean
 
     /** Fetches and decodes [url] through [fetch] unless it is already known; the caller's cancellation stops it. */
@@ -44,7 +47,6 @@ internal interface DesktopBrowserFavicons : BrowserFaviconImages {
  * [MAX_IMAGES]). An address that failed is not fetched again until browser data is cleared. Main-confined.
  */
 @SingleIn(ProfileScope::class)
-@ContributesBinding(ProfileScope::class, binding = binding<BrowserFaviconImages>(), priority = 1)
 @ContributesBinding(ProfileScope::class, binding = binding<DesktopBrowserFavicons>())
 @Inject
 internal class DesktopBrowserFaviconImages(
