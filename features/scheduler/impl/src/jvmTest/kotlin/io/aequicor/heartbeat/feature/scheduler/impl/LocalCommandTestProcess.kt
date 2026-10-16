@@ -11,13 +11,13 @@ import kotlin.system.exitProcess
 internal object LocalCommandTestProcess {
     @JvmStatic
     fun main(args: Array<String>) {
-        FileOutputStream(FileDescriptor.out).use { output ->
-            args.drop(1).forEach {
-                val line = "argv:" + Base64.getEncoder().encodeToString(it.toByteArray(Charsets.UTF_8)) + "\n"
-                output.write(line.toByteArray(Charsets.UTF_8))
-            }
+        // Borrowed process streams: closing stdout can also close stderr when Windows shares their handle.
+        val output = FileOutputStream(FileDescriptor.out)
+        args.drop(1).forEach {
+            val line = "argv:" + Base64.getEncoder().encodeToString(it.toByteArray(Charsets.UTF_8)) + "\n"
+            output.write(line.toByteArray(Charsets.UTF_8))
         }
-        FileOutputStream(FileDescriptor.err).use { it.write("native stderr\n".toByteArray(Charsets.UTF_8)) }
+        FileOutputStream(FileDescriptor.err).write("native stderr\n".toByteArray(Charsets.UTF_8))
         exitProcess(args[0].toInt())
     }
 

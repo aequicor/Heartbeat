@@ -1,3 +1,5 @@
+import org.gradle.api.tasks.testing.logging.TestExceptionFormat
+
 plugins {
     alias(libs.plugins.heartbeat.kmp.library)
     alias(libs.plugins.heartbeat.metro)
@@ -21,4 +23,9 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
         }
     }
+}
+
+// Native process failures need the assertion message; the default summary only reports the coroutine entry line.
+tasks.named<Test>("jvmTest") {
+    testLogging.exceptionFormat = TestExceptionFormat.FULL
 }

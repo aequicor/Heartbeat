@@ -81,7 +81,7 @@ class DesktopCommandRunnerTest {
             val received = outcome.output.lineSequence().filter { it.startsWith("argv:") }.map {
                 String(Base64.getDecoder().decode(it.removePrefix("argv:")), Charsets.UTF_8)
             }.toList()
-            assertEquals(words, received)
+            assertEquals(words, received, "exitCode=$exitCode; output=${outcome.output}")
         }
     }
 
