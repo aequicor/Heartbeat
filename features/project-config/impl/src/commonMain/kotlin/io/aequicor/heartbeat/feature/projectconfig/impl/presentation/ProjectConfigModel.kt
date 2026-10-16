@@ -74,6 +74,7 @@ internal class ProjectConfigModel(
                 when (output) {
                     is ProjectConfigOutput.TaskFinished -> finished(output.requestId, output.result)
                     ProjectConfigOutput.StorageFailed -> copy(notice = NoticeUi.StorageFailed)
+                    ProjectConfigOutput.WriteBackFailed -> copy(notice = NoticeUi.WriteBackFailed)
                 }
             }
         }) { reflecting(it, dialogs.isAvailable) }

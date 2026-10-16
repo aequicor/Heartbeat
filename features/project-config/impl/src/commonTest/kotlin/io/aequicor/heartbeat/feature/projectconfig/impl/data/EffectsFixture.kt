@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigBinding
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigFile
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigPath
+import io.aequicor.heartbeat.feature.projectconfig.api.ConfigProblem
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigEffect
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigMachineSpec
@@ -28,6 +29,8 @@ import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigBindingStor
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigBundles
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigRead
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigTree
+import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigWriteException
+import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigWriteFailure
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ProjectFolders
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -94,18 +97,23 @@ internal class EffectsFixture(vararg sections: ConfigSection) {
 internal class MemoryFolders : ProjectFolders {
     val trees = mutableMapOf<String, MutableMap<String, String>>()
     var reads = 0
+    var readProblems: List<ConfigProblem> = emptyList()
+    var writeFailure: ConfigWriteFailure? = null
+    var afterWrite: (() -> Unit)? = null
     override val isAvailable: Boolean = true
 
     override suspend fun read(root: String): ConfigRead = trees[root].also { reads++ }?.let { files ->
-        ConfigRead.Read(ConfigTree.of(files.map { (path, text) -> ConfigFile(ConfigPath(path), text) }))
+        ConfigRead.Read(ConfigTree.of(files.map { (path, text) -> ConfigFile(ConfigPath(path), text) }, readProblems))
     } ?: ConfigRead.Absent
 
     override suspend fun fingerprint(root: String): String? = trees[root]?.toSortedMap()?.toString()
 
     override suspend fun write(root: String, put: List<ConfigFile>, delete: List<ConfigPath>) {
+        writeFailure?.let { throw ConfigWriteException(it) }
         val files = trees.getOrPut(root) { mutableMapOf() }
         put.forEach { files[it.path.value] = it.text }
         delete.forEach { files.remove(it.value) }
+        afterWrite?.invoke()
     }
 }
 

@@ -109,7 +109,7 @@ internal fun ProjectsSection(
                             stringResource(Res.string.pc_remove_named, unit.name),
                             { onIntent(ProjectConfigScreenIntent.RemoveFromProject(project.key, unit)) },
                             Modifier.testTag("project-config-remove-${project.key}-${unit.ref}"),
-                            enabled = !isBusy && !project.isSyncing,
+                            enabled = !isBusy && !project.isSyncing && !unit.isWriting,
                         )
                     }
                 }

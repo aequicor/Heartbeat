@@ -92,16 +92,22 @@ internal data class ProposalUi(
     val failure: FailureUi?,
     val isApplying: Boolean,
     val isKeepAppOffered: Boolean,
+    val isWriting: Boolean = false,
 ) {
     /** Whether "Trust" is offered: valid, reviewed or a removal, not being applied. */
-    val isTrustOffered: Boolean get() = problems.isEmpty() && !isApplying && review != ReviewUi.Pending
+    val isTrustOffered: Boolean get() = problems.isEmpty() && !isApplying && !isWriting && review != ReviewUi.Pending
 
     /** The shown version, which decisions on this proposal name. */
     val version: ProposalVersionUi get() = ProposalVersionUi(id, digest)
 }
 
 /** A unit of a project folder bound to a profile entity. */
-internal data class BoundUnitUi(val section: SectionUi, val sectionId: String, val name: String) {
+internal data class BoundUnitUi(
+    val section: SectionUi,
+    val sectionId: String,
+    val name: String,
+    val isWriting: Boolean = false,
+) {
     /** `section/name`, unique within a project. */
     val ref: String get() = "$sectionId/$name"
 }
@@ -150,6 +156,9 @@ internal sealed interface NoticeUi {
 
     /** Bindings could not be stored. */
     data object StorageFailed : NoticeUi
+
+    /** A project write failed and the user may retry the original action. */
+    data object WriteBackFailed : NoticeUi
 }
 
 /** Why a task failed, as shown. */

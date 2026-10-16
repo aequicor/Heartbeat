@@ -68,7 +68,7 @@ private class Reconciliation(private val snapshot: ProjectSnapshot) {
             unit.digest == binding.fileDigest -> {
                 bindings += binding
                 if (entity?.digest != binding.entityDigest) {
-                    writeBacks += ConfigWriteBack(snapshot.project, binding.unit, entity?.key)
+                    writeBacks += ConfigWriteBack(snapshot.project, binding.unit, entity?.key, unit.digest)
                 }
             }
 
@@ -134,6 +134,8 @@ private fun proposal(source: ConfigSource, unit: ScannedUnit, kind: ProposalKind
         UnitCheck.Unchanged -> ConfigProposal(source, unit.ref, kind, target, unit.digest)
     }
 
-/** This proposal, or the previous one with the same id when nothing it describes changed. */
-private fun ConfigProposal.keeping(previous: List<ConfigProposal>): ConfigProposal =
-    previous.firstOrNull { it.id == id && it.kind == kind && it.target == target && it.digest == digest } ?: this
+/** Keeps a previous decision only while both the files and their latest validation describe the same proposal. */
+private fun ConfigProposal.keeping(previous: List<ConfigProposal>): ConfigProposal = previous.firstOrNull {
+    it.id == id && it.kind == kind && it.target == target && it.digest == digest &&
+        it.problems == problems && it.summary == summary
+} ?: this

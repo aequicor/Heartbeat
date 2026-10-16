@@ -138,7 +138,7 @@ class ProjectConfigMachineTest {
             entity = EntityDigest(ConfigSectionId.Harnesses, key, "review", ConfigDigest("e2")),
         )
         val writing = checkNotNull(spec.resolve(syncing, Internal.Synced(changed)))
-        val writeBack = ConfigWriteBack(project, review, key)
+        val writeBack = ConfigWriteBack(project, review, key, ConfigDigest("f1"))
         assertEquals(listOf(ProjectConfigEffect.WriteBack(listOf(writeBack))), writing.effects)
 
         val again = writing.to.ready.send(Public.Sync(project))
@@ -177,8 +177,10 @@ class ProjectConfigMachineTest {
         spec.assertTransition(
             state,
             Internal.KeepApp(conflict.id, conflict.digest),
-            idle.copy(writing = setOf(ConfigWriteBack(project, review, key))),
-            effects = listOf(ProjectConfigEffect.WriteBack(listOf(ConfigWriteBack(project, review, key)))),
+            state.copy(writing = setOf(ConfigWriteBack(project, review, key, conflict.digest))),
+            effects = listOf(
+                ProjectConfigEffect.WriteBack(listOf(ConfigWriteBack(project, review, key, conflict.digest))),
+            ),
         )
 
         spec.assertIgnored(state, Internal.KeepApp(conflict.id, ConfigDigest("f1")))
@@ -199,8 +201,10 @@ class ProjectConfigMachineTest {
         spec.assertTransition(
             idle,
             Internal.RemoveFromProject(project, review),
-            idle.copy(writing = setOf(ConfigWriteBack(project, review, null))),
-            effects = listOf(ProjectConfigEffect.WriteBack(listOf(ConfigWriteBack(project, review, null)))),
+            idle.copy(writing = setOf(ConfigWriteBack(project, review, null, binding.fileDigest))),
+            effects = listOf(
+                ProjectConfigEffect.WriteBack(listOf(ConfigWriteBack(project, review, null, binding.fileDigest))),
+            ),
         )
     }
 

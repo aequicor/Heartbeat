@@ -63,6 +63,7 @@ import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_notice_unav
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_notice_unreadable
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_notice_unwritable
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_notice_version
+import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_notice_write_back
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_off
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_retry
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_title
@@ -171,10 +172,14 @@ private fun NoticeBanner(
         is NoticeUi.Imported -> stringResource(Res.string.pc_notice_imported, notice.units, notice.skipped)
         is NoticeUi.Failed -> stringResource(notice.reason.message())
         NoticeUi.StorageFailed -> stringResource(Res.string.pc_notice_storage)
+        NoticeUi.WriteBackFailed -> stringResource(Res.string.pc_notice_write_back)
     }
     val tone = when {
-        notice is NoticeUi.Failed || notice == NoticeUi.StorageFailed -> HbTone.Danger
+        notice is NoticeUi.Failed || notice == NoticeUi.StorageFailed || notice == NoticeUi.WriteBackFailed ->
+            HbTone.Danger
+
         notice is NoticeUi.Saved && notice.skipped > 0 -> HbTone.Warning
+
         else -> HbTone.Success
     }
     HbBanner(message, modifier.testTag("project-config-notice"), tone = tone) {

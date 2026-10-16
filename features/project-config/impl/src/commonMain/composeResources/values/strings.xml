@@ -35,6 +35,7 @@
     <string name="pc_review_not_needed">No check needed</string>
     <string name="pc_trust">Trust</string>
     <string name="pc_applying">Applying…</string>
+    <string name="pc_writing">Writing…</string>
     <string name="pc_keep_app">Keep the app version</string>
     <string name="pc_dismiss">Not now</string>
     <string name="pc_problem">%1$s — %2$s</string>
@@ -89,6 +90,7 @@
     <string name="pc_notice_name">A file name does not work on every system (Windows reserves names such as con, nul or aux): nothing was written</string>
     <string name="pc_notice_imported">Copied into the project: %1$d, skipped: %2$d; copied units wait for your trust</string>
     <string name="pc_notice_storage">Bindings were not saved; they last until the profile closes</string>
+    <string name="pc_notice_write_back">Changes could not be written to the project folder. Retry the action or refresh the project.</string>
     <string name="pc_notice_busy">Another operation is running</string>
     <string name="pc_notice_unavailable">Not available here</string>
     <string name="pc_notice_unreadable">The file or folder cannot be read</string>

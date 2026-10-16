@@ -35,7 +35,8 @@ internal class ConfigTasks(private val access: ConfigFolderAccess, private val b
     /**
      * Writes [effect]'s entities into the project folder under their default unit names and binds them. A unit that
      * already exists there is skipped: the folder is its source until the user resolves it. A project-scoped entity
-     * (a learned instruction) is moved into the project first, so it applies there.
+     * (a learned instruction) is moved only after its files were written successfully. If the owner rejects the
+     * move, the files remain unbound for the next sync to propose, and the original entity is unchanged.
      */
     suspend fun save(effect: ProjectConfigEffect.SaveToProject): Internal {
         val folder = access.folder(effect.project) as? FolderRead.Read
@@ -79,10 +80,14 @@ internal class ConfigTasks(private val access: ConfigFolderAccess, private val b
         val section = sections[ref.section] ?: return null
         val entity = sections.entity(ref.section, ref.key) ?: return null
         if (folder.tree[ConfigUnitRef(ref.section, entity.name)] != null) return null
-        val isMoved = !section.isProjectScoped || entity.project == effect.project ||
-            section.encode(entity.key, entity.name)
-                ?.let { section.apply(it, entity.key, ConfigApplyContext(effect.project)) } is ConfigApplyResult.Applied
-        val unit = section.encode(entity.key, entity.name)?.takeIf { isMoved && write(effect, it) } ?: return null
+        val unit = section.encode(entity.key, entity.name) ?: return null
+        if (!write(effect, unit)) return null
+        val isMoveRequired = section.isProjectScoped && entity.project != effect.project
+        // Writing may suspend while the user edits the lesson: never move an obsolete copy over that edit.
+        if (isMoveRequired && section.encode(entity.key, entity.name)?.digest != unit.digest) return null
+        val isMoved = !isMoveRequired ||
+            section.apply(unit, entity.key, ConfigApplyContext(effect.project)) is ConfigApplyResult.Applied
+        if (!isMoved) return null
         return ConfigBinding(effect.project, unit.ref, entity.key, unit.digest, unit.digest)
     }
 

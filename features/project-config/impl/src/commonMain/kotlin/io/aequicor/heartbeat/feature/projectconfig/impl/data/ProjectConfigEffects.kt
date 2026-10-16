@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ConfigProposal
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigRejection
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigSource
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigUnit
+import io.aequicor.heartbeat.feature.projectconfig.api.ConfigUnitRef
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigWriteBack
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigEffect
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent
@@ -59,7 +60,9 @@ internal class ProjectConfigEffects(
     private suspend fun dispatch(effect: ProjectConfigEffect, machine: EffectScope<ProjectConfigIntent>) {
         when (effect) {
             ProjectConfigEffect.Load -> {
-                val bindings = storage.load()
+                val bindings = saving.withLock {
+                    storage.load().also { savedRevision = -1L }
+                }
                 log.d { "Configuration bindings loaded: ${bindings.size}" }
                 machine.send(Internal.Loaded(bindings))
             }
@@ -161,6 +164,13 @@ internal class ProjectConfigEffects(
 
     /** Removes the target of [proposal]; an entity that is already gone counts as removed. */
     private suspend fun remove(proposal: ConfigProposal, section: ConfigSection): Internal {
+        val project = (proposal.source as? ConfigSource.Project)?.project
+            ?: return Internal.ApplyFailed(proposal.id, ConfigRejection.Conflict)
+        // A restored or unreadable source is no longer the removal the user confirmed.
+        val folder = access.folder(project) as? FolderRead.Read
+        if (folder == null || folder.tree[proposal.unit] != null || folder.hasProblems(proposal.unit, section)) {
+            return Internal.ApplyFailed(proposal.id, ConfigRejection.Conflict)
+        }
         val result = proposal.target?.let { section.remove(it) }
         log.i { "Removed a ${proposal.unit.section} entity: ${result?.let { it::class.simpleName }.orEmpty()}" }
         val reason = (result as? ConfigApplyResult.Rejected)?.reason?.takeUnless { it == ConfigRejection.NotFound }
@@ -168,11 +178,20 @@ internal class ProjectConfigEffects(
     }
 
     private suspend fun writeBack(writeBack: ConfigWriteBack): Internal {
+        val sections = access.reader.sections()
+        val section = sections[writeBack.unit.section]
+        if (section == null || writeBack.unit.section in sections.unavailable) {
+            return Internal.WriteBackFailed(listOf(writeBack))
+        }
+        val encoded = writeBack.key?.let { section.encode(it, writeBack.unit.name) }
+        if (writeBack.key != null && encoded?.ref != writeBack.unit) return Internal.WriteBackFailed(listOf(writeBack))
+        // Encoding may suspend: read the source after it, immediately before deciding which files to replace.
         val folder = access.folder(writeBack.project) as? FolderRead.Read
-        val section = access.reader.sections()[writeBack.unit.section]
-        val encoded = writeBack.key?.let { section?.encode(it, writeBack.unit.name) }
-        val isWritable = folder != null && section != null && (writeBack.key == null || encoded?.ref == writeBack.unit)
-        if (!isWritable) return Internal.WriteBackFailed(listOf(writeBack))
+            ?: return Internal.WriteBackFailed(listOf(writeBack))
+        if (folder.hasProblems(writeBack.unit, section)) return Internal.WriteBackFailed(listOf(writeBack))
+        if (folder.tree[writeBack.unit]?.digest != writeBack.expectedDigest) {
+            return Internal.WriteBackConflict(writeBack)
+        }
         val current = folder.tree[writeBack.unit]?.files.orEmpty().map { it.path }
         val put = encoded?.files.orEmpty()
         return try {
@@ -184,6 +203,15 @@ internal class ProjectConfigEffects(
             Internal.WriteBackFailed(listOf(writeBack))
         }
     }
+
+    /** Skipped or unreadable files of a unit cannot establish either its current digest or its absence. */
+    private fun FolderRead.Read.hasProblems(unit: ConfigUnitRef, section: ConfigSection): Boolean =
+        tree.unclaimed.any { problem ->
+            val path = problem.path ?: return@any false
+            val prefix = unit.toString()
+            path.value == prefix || path.value.startsWith("$prefix/") || prefix.startsWith("${path.value}/") ||
+                section.unitOf(path) == unit.name
+        }
 
     private fun binding(writeBack: ConfigWriteBack, unit: ConfigUnit): ConfigBinding =
         ConfigBinding(writeBack.project, writeBack.unit, checkNotNull(writeBack.key), unit.digest, unit.digest)

@@ -81,6 +81,7 @@ import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_section_pro
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_source_bundle
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_source_project
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_trust
+import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_writing
 import kotlinx.collections.immutable.ImmutableList
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
@@ -157,6 +158,10 @@ private fun ProposalDetails(proposal: ProposalUi) {
 @Composable
 private fun ProposalActions(proposal: ProposalUi, onIntent: (ProjectConfigScreenIntent) -> Unit) {
     HbFlowRow {
+        if (proposal.isWriting) {
+            Caption(stringResource(Res.string.pc_writing))
+            return@HbFlowRow
+        }
         if (proposal.isApplying) {
             Caption(stringResource(Res.string.pc_applying))
             return@HbFlowRow

@@ -246,6 +246,9 @@ public sealed interface ProjectConfigIntent : MachineIntent {
         /** [writeBacks] could not be written; a later change retries them. */
         public data class WriteBackFailed(val writeBacks: List<ConfigWriteBack>) : Internal
 
+        /** [writeBack]'s files changed before writing: a new sync proposes their current version. */
+        public data class WriteBackConflict(val writeBack: ConfigWriteBack) : Internal
+
         /** The reviews of [proposals] failed as a whole; each becomes [ProposalReview.Unavailable]. */
         public data class ReviewsFailed(val proposals: List<ConfigProposal>) : Internal
 
@@ -330,6 +333,9 @@ public sealed interface ProjectConfigOutput : MachineOutput {
 
     /** Bindings could not be read or written. */
     public data object StorageFailed : ProjectConfigOutput
+
+    /** A project write failed; its proposal or binding remains so the user can retry the action. */
+    public data object WriteBackFailed : ProjectConfigOutput
 }
 
 /** Profile-scoped machine of project configuration. */

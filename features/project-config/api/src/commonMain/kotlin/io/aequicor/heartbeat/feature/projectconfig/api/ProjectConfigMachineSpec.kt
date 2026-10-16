@@ -32,11 +32,12 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Publi
  * | Ready | Trust | seen digest; trustable (valid; safe, accepted risk or a removal) | applying | Apply |
  * | Ready | Applied | applying | proposal gone, binding committed | SaveBindings, Sync(project) |
  * | Ready | ApplyFailed | | proposal with failure | |
- * | Ready | KeepApp | seen digest; project Update/Conflict/Remove with a target | proposal gone, writing | WriteBack |
+ * | Ready | KeepApp | seen digest; project Update/Conflict/Remove with a target | proposal stays, writing | WriteBack |
  * | Ready | Dismiss | seen digest; not applying | proposal gone until its digest changes | |
  * | Ready | RemoveFromProject | bound unit | writing the deletion | WriteBack |
  * | Ready | WrittenBack | | binding committed or dropped, proposals of the unit gone | SaveBindings, Sync |
- * | Ready | WriteBackFailed | | not writing | |
+ * | Ready | WriteBackFailed | | not writing; proposal or binding stays | WriteBackFailed |
+ * | Ready | WriteBackConflict | | not writing | Sync(project) |
  * | Ready | SaveToProject / Export / OpenBundle / ImportToProject | no task | task | the task's effect |
  * | Ready | the same | another task | Ready | TaskFinished(Busy) |
  * | Ready | TaskDone | the task | no task, new bindings | SaveBindings, Sync(project), TaskFinished |
@@ -106,7 +107,13 @@ private fun ReadyBuilder.syncs() {
     }
     on<Internal.SyncFailed> { step { state.syncFailed(intent) } }
     on<Internal.WrittenBack> { step { state.writtenBack(intent) } }
-    on<Internal.WriteBackFailed> { stay { state.copy(writing = state.writing - intent.writeBacks.toSet()) } }
+    on<Internal.WriteBackFailed> {
+        stay { state.copy(writing = state.writing - intent.writeBacks.toSet()) }
+        output { ProjectConfigOutput.WriteBackFailed }
+    }
+    on<Internal.WriteBackConflict> {
+        step { state.copy(writing = state.writing - intent.writeBack).changed(intent.writeBack.project) }
+    }
 }
 
 private fun ReadyBuilder.decisions() {
@@ -121,7 +128,7 @@ private fun ReadyBuilder.decisions() {
         stay { state.reviewed(intent.proposals.map { it.reviewKey to ProposalReview.Unavailable }) }
     }
     on<Internal.Trust>(
-        guard = { state.proposal(intent.proposal, intent.digest)?.isTrustable(intent.isRiskAccepted) == true },
+        guard = { state.idleProposal(intent.proposal, intent.digest)?.isTrustable(intent.isRiskAccepted) == true },
     ) {
         step { state.trusted(checkNotNull(state.proposal(intent.proposal))) }
     }
@@ -145,7 +152,9 @@ private fun ReadyBuilder.decisions() {
     on<Internal.KeepApp>(guard = { state.keptWriteBack(intent.proposal, intent.digest) != null }) {
         step { state.writing(checkNotNull(state.keptWriteBack(intent.proposal, intent.digest))) }
     }
-    on<Public.Dismiss>(guard = { state.proposal(intent.proposal, intent.digest)?.isApplying == false }) {
+    on<Public.Dismiss>(
+        guard = { state.idleProposal(intent.proposal, intent.digest) != null },
+    ) {
         stay {
             val proposal = checkNotNull(state.proposal(intent.proposal))
             state.copy(proposals = state.proposals - proposal, dismissed = state.dismissed + proposal.reviewKey)
@@ -154,7 +163,12 @@ private fun ReadyBuilder.decisions() {
     on<Internal.RemoveFromProject>(
         guard = { state.bindings.any { it.project == intent.project && it.unit == intent.unit } },
     ) {
-        step { state.writing(ConfigWriteBack(intent.project, intent.unit, null)) }
+        step {
+            val binding = state.bindings.first { it.project == intent.project && it.unit == intent.unit }
+            val proposal = state.proposals.firstOrNull { it.projectOrNull == intent.project && it.unit == intent.unit }
+            val digest = if (proposal != null) proposal.digest else binding.fileDigest
+            state.writing(ConfigWriteBack(intent.project, intent.unit, null, digest))
+        }
     }
 }
 
@@ -224,12 +238,16 @@ private fun <J : ProjectConfigIntent> TransitionBuilder<
     repeat(OUTPUTS) { index -> output { compute().outputs.getOrNull(index) } }
 }
 
+/** The shown proposal only while neither applying nor writing its unit. */
+private fun ProjectConfigState.Ready.idleProposal(id: String, digest: ConfigDigest?): ConfigProposal? =
+    proposal(id, digest)?.takeUnless { proposal -> proposal.isApplying || writing.any { proposal.isFor(it) } }
+
 /** The write-back that keeps the profile's version against the files of a project proposal, or null. */
 private fun ProjectConfigState.Ready.keptWriteBack(id: String, digest: ConfigDigest?): ConfigWriteBack? {
-    val proposal = proposal(id, digest)?.takeUnless { it.isApplying } ?: return null
+    val proposal = idleProposal(id, digest) ?: return null
     val project = (proposal.source as? ConfigSource.Project)?.project ?: return null
     val target = proposal.target?.takeIf { proposal.kind != ProposalKind.Create } ?: return null
-    return ConfigWriteBack(project, proposal.unit, target)
+    return ConfigWriteBack(project, proposal.unit, target, proposal.digest)
 }
 
 private fun ProjectConfigEffect.failure(): ProjectConfigIntent? = when (this) {

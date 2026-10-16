@@ -25,11 +25,11 @@ class ConfigReconcileTest {
     @Test
     fun `an entity changed in the app is written back and a removed one deletes its files`() {
         val changed = reconcile(listOf(binding), snapshot(unit(review, "f1"), entity(key, "e2")))
-        assertEquals(listOf(ConfigWriteBack(project, review, key)), changed.writeBacks)
+        assertEquals(listOf(ConfigWriteBack(project, review, key, digest("f1"))), changed.writeBacks)
         assertEquals(listOf(binding), changed.bindings)
 
         val removed = reconcile(listOf(binding), snapshot(unit(review, "f1")))
-        assertEquals(listOf(ConfigWriteBack(project, review, null)), removed.writeBacks)
+        assertEquals(listOf(ConfigWriteBack(project, review, null, digest("f1"))), removed.writeBacks)
         assertTrue(removed.proposals.isEmpty())
     }
 

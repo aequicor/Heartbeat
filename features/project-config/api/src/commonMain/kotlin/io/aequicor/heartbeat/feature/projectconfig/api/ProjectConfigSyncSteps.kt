@@ -47,7 +47,9 @@ internal fun Ready.synced(intent: ProjectConfigIntent.Internal.Synced): ConfigSt
     val applying = previous.filter { it.isApplying }
     val applyingIds = applying.map { it.id }.toSet()
     val shown = applying + result.proposals.filterNot { it.reviewKey in dismissed || it.id in applyingIds }
-    val writes = result.writeBacks.filterNot { it in writing }
+    val writes = result.writeBacks.filterNot { next ->
+        writing.any { it.project == next.project && it.unit == next.unit }
+    }
     val reviews = shown.filter { it.isReviewDue && it.reviewKey !in reviewing }
     val next = copy(
         proposals = proposals.filterNot { it.projectOrNull == project } + shown,
@@ -83,12 +85,11 @@ internal fun Ready.syncFailed(intent: ProjectConfigIntent.Internal.SyncFailed): 
         }
     }
 
-/** Starts writing [writeBack] unless the same write is in flight; proposals of its unit are resolved by it. */
+/** Starts writing [writeBack] unless its unit is being written; its proposal stays until the write succeeds. */
 internal fun Ready.writing(writeBack: ConfigWriteBack): ConfigStep {
-    val next = copy(proposals = proposals.filterNot { it.isFor(writeBack) })
-    if (writeBack in writing) return ConfigStep(next)
+    if (writing.any { it.project == writeBack.project && it.unit == writeBack.unit }) return ConfigStep(this)
     return ConfigStep(
-        next.copy(writing = writing + writeBack),
+        copy(writing = writing + writeBack),
         listOf(ProjectConfigEffect.WriteBack(listOf(writeBack))),
     )
 }

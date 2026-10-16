@@ -35,6 +35,7 @@
     <string name="pc_review_not_needed">Без проверки</string>
     <string name="pc_trust">Доверять</string>
     <string name="pc_applying">Применяется…</string>
+    <string name="pc_writing">Записывается…</string>
     <string name="pc_keep_app">Оставить версию приложения</string>
     <string name="pc_dismiss">Не сейчас</string>
     <string name="pc_problem">%1$s — %2$s</string>
@@ -89,6 +90,7 @@
     <string name="pc_notice_name">Имя файла подходит не для всех систем (Windows не допускает имена вроде con, nul или aux): ничего не записано</string>
     <string name="pc_notice_imported">Скопировано в проект: %1$d, пропущено: %2$d — скопированные ждут вашего доверия</string>
     <string name="pc_notice_storage">Привязки не сохранились и действуют до закрытия профиля</string>
+    <string name="pc_notice_write_back">Не удалось записать изменения в папку проекта. Повторите действие или обновите проект.</string>
     <string name="pc_notice_busy">Уже идёт другая операция</string>
     <string name="pc_notice_unavailable">Здесь недоступно</string>
     <string name="pc_notice_unreadable">Файл или папку не удалось прочитать</string>

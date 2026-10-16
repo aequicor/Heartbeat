@@ -38,7 +38,14 @@ internal fun ProjectConfigScreenState.reflecting(state: ProjectConfigState, isSu
                     isSyncing = sync.isSyncing,
                     isUnreadable = sync.failure != null,
                     units = state.bindings.asSequence().filter { it.project == ref }
-                        .map { BoundUnitUi(it.unit.section.toUi(), it.unit.section.value, it.unit.name) }
+                        .map { binding ->
+                            BoundUnitUi(
+                                binding.unit.section.toUi(),
+                                binding.unit.section.value,
+                                binding.unit.name,
+                                isWriting = state.writing.any { it.project == ref && it.unit == binding.unit },
+                            )
+                        }
                         .sortedBy { "${it.sectionId}/${it.name}" }
                         .toImmutableList(),
                 )
@@ -104,6 +111,7 @@ private fun ConfigProposal.toUi(state: ProjectConfigState.Ready, names: Map<Stri
         failure = failure?.toUi(),
         isApplying = isApplying,
         isKeepAppOffered = this.source is ConfigSource.Project && target != null && kind != ProposalKind.Create,
+        isWriting = state.writing.any { ConfigSource.Project(it.project) == this.source && it.unit == unit },
     )
 }
 

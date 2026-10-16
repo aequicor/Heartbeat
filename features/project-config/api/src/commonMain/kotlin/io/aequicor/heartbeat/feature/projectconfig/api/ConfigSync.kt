@@ -159,9 +159,15 @@ private val ConfigSource.label: String
 
 /**
  * Files to write into a project folder from the profile: entity [key] encoded into [unit], or the unit's files deleted
- * when [key] is null (the entity was removed in the app).
+ * when [key] is null (the entity was removed in the app). [expectedDigest] is the source version that authorized
+ * this write, or null when the unit was absent; a newer source must be reconciled before anything is overwritten.
  */
-public data class ConfigWriteBack(val project: WorkspaceRef, val unit: ConfigUnitRef, val key: ConfigEntityKey?)
+public data class ConfigWriteBack(
+    val project: WorkspaceRef,
+    val unit: ConfigUnitRef,
+    val key: ConfigEntityKey?,
+    val expectedDigest: ConfigDigest?,
+)
 
 /** Outcome of [reconcile] for one project. */
 public data class Reconciled(
