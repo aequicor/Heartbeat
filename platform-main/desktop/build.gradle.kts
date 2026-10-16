@@ -135,7 +135,7 @@ piTarget?.let { target ->
     }
 }
 
-// The optional extension is a separate release asset; only its pinned metadata enters the installer.
+// The optional extension is a separate release asset; only its pinned metadata enters release installers.
 // Runs from a checkout use the repository's extension folder instead (DesktopExtensionFolder).
 // CI passes the artifact exported by prepareChromiumPanelArtifact from this release's Linux build.
 // Without the property, local packaging continues to build the panel from the checkout.
@@ -197,6 +197,13 @@ val collectAppResources = tasks.register<Sync>("collectAppResources") {
     from(prepareExtensionMetadata) { into("common") }
     from(layout.projectDirectory.file("pi/LICENSE")) { into("common/licenses/pi") }
     into(layout.buildDirectory.dir("generated/appResources"))
+}
+// Packaged development builds have no published release asset for their local version or archive bytes.
+// Ship their extension alongside the launcher so DesktopExtensionFolder can prepare it without a download.
+val collectDevelopmentAppResources = tasks.register<Sync>("collectDevelopmentAppResources") {
+    from(collectAppResources.map { it.destinationDir.resolve("common") })
+    from(collectExtensionResources) { into("chromium-plugin") }
+    into(layout.buildDirectory.dir("generated/developmentAppResources"))
 }
 
 compose.desktop {
@@ -368,6 +375,8 @@ afterEvaluate {
         }
         if (!name.contains("Release")) {
             launcherMainClass.set("io.aequicor.heartbeat.platform.desktop.DevelopmentMainKt")
+            dependsOn(collectDevelopmentAppResources)
+            appResourcesDir.set(layout.dir(collectDevelopmentAppResources.map { it.destinationDir }))
         } else {
             // Stage the ProGuard output separately: development and verified upstream JCEF jars stay intact.
             // Compose still extracts and signs the host's Skiko dylib from the filtered jar on macOS.
