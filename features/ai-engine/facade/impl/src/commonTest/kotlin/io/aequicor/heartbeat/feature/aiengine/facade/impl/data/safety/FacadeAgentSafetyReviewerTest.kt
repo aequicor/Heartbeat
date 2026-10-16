@@ -389,7 +389,8 @@ class FacadeAgentSafetyReviewerTest {
 
 private val GRACE = 1.minutes
 
-private class ReviewFixture(scope: CoroutineScope) {
+/** Shared by the reviewer and isolated prompt tests: one fake engine, session and isolation policy. */
+internal class ReviewFixture(scope: CoroutineScope) {
     val target = EngineTarget(EngineId("test"), EngineBindingId("binding"), ModelId("model"))
     val ref = SessionRef(target.engine, SessionSourceId("source"), "review")
     val policy = AgentSafetyToolPolicy()
@@ -408,6 +409,7 @@ private class ReviewFixture(scope: CoroutineScope) {
     var remainsActiveAfterReconcile = false
     var createGate: CompletableDeferred<Unit>? = null
     var finishesUnavailable = false
+    var answer = """{"verdict":"safe","reason":"Only formats JSON"}"""
     val creations = mutableListOf<CreateSessionRequest>()
     val prompts = mutableListOf<PromptRequest>()
     private val state = MutableStateFlow<ActiveSessionState>(ActiveSessionState.Ready())
@@ -470,7 +472,7 @@ private class ReviewFixture(scope: CoroutineScope) {
                 SessionItem.Message(
                     ItemInfo(ItemId("answer"), 0, 0, turn),
                     MessageRole.Assistant,
-                    listOf(ContentPart.Text("""{"verdict":"safe","reason":"Only formats JSON"}""")),
+                    listOf(ContentPart.Text(answer)),
                 ),
             ),
             null,
@@ -508,7 +510,7 @@ private class ReviewFixture(scope: CoroutineScope) {
             return session
         }
     }
-    private val facade = object : EngineFacade {
+    val facade = object : EngineFacade {
         override val engines = object : EngineCatalog {
             override val state = MutableStateFlow(
                 listOf(
@@ -568,7 +570,7 @@ private class ReviewFixture(scope: CoroutineScope) {
     private val failure = EngineFailure.Request(RequestFailureReason.OutcomeUnknown)
 }
 
-private fun reviewFeatures(entries: Map<EngineFeatureKey<*>, EngineFeature>) = object : EngineFeatures {
+internal fun reviewFeatures(entries: Map<EngineFeatureKey<*>, EngineFeature>) = object : EngineFeatures {
     @Suppress("UNCHECKED_CAST") // Test registrations pair each feature with its own key.
     override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> =
         (entries[key] as F?)?.let { FeatureAccess.Available(it) } ?: FeatureAccess.Unsupported

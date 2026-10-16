@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.core.common.HostPlatform
 import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveSubagentsEnabled
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningEnabled
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
 import io.aequicor.heartbeat.feature.applogs.api.AppLogsEnabled
@@ -51,9 +52,14 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             toggles.observe(HarnessEnabled),
             toggles.observe(ContextOptimizationEnabled),
             toggles.observe(ServiceUiEnabled),
-            toggles.observe(ProjectConfigEnabled),
-        ) { learning, harness, context, interfaces, config ->
-            ProfileSections(learning, harness, context, interfaces, config)
+            combine(
+                toggles.observe(AdaptiveSubagentsEnabled),
+                toggles.observe(ProjectConfigEnabled),
+            ) { subagents, config ->
+                subagents to config
+            },
+        ) { learning, harness, context, interfaces, (subagents, config) ->
+            ProfileSections(learning, harness, context, interfaces, subagents, config)
         },
         combine(sessions.active, toggles.observe(AppLogsEnabled)) { session, logs -> session to logs },
     ) { connections, search, (computerUse, chromium), profile, (session, logs) ->
@@ -67,6 +73,7 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             isHarnessEnabled = profile.isHarness,
             isContextEnabled = profile.isContext,
             isInterfacesEnabled = profile.isInterfaces,
+            isSubagentsEnabled = profile.isSubagents,
             isProjectConfigEnabled = profile.isProjectConfig,
             isLogsEnabled = logs,
             isDesktop = isDesktop,
@@ -83,5 +90,6 @@ private data class ProfileSections(
     val isHarness: Boolean,
     val isContext: Boolean,
     val isInterfaces: Boolean,
+    val isSubagents: Boolean,
     val isProjectConfig: Boolean,
 )

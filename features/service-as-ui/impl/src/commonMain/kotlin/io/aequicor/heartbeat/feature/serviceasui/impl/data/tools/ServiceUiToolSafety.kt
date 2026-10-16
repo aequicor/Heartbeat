@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.reviewModel
 import io.aequicor.heartbeat.feature.browser.api.BrowserDocumentResourcePolicy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
@@ -65,7 +66,7 @@ internal class ServiceUiToolSafety(private val reviewer: AgentSafetyReviewer) {
     }
 
     private suspend fun assess(context: AgentToolContext, request: UiToolSafetyRequest): AgentSafetyReview {
-        val target = context.target ?: return AgentSafetyReview("uncertain", "The current model is unavailable.")
+        val target = context.reviewModel ?: return AgentSafetyReview("uncertain", "The current model is unavailable.")
         return try {
             reviewer.review(target, SAFETY_POLICY, request.change).also {
                 log.i { "Interface operation assessed safe=${it.isSafe}" }
@@ -102,6 +103,7 @@ internal fun uiToolSafetyRequest(
         put("request", context.request?.value)
         put("call", context.callId?.value)
         put("target", Json.encodeToJsonElement(context.target))
+        context.reviewTarget?.let { put("reviewTarget", Json.encodeToJsonElement(it)) }
         put("original", original.binding)
         put("method", methodBinding)
         put("libraryRevision", libraryRevision)

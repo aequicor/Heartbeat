@@ -91,12 +91,16 @@ internal class BackgroundActions(
     /**
      * Starts a helper through a host with request-correlated supervision and awaits its exact attempt in background;
      * returns why it was not started, or null. Once journaled and handed to the profile, startup
-     * belongs to that profile too: cancelling the tool's wait cannot abandon an accepted helper.
+     * belongs to that profile too: cancelling the tool's wait cannot abandon an accepted helper. [retainedBy] keeps the
+     * finished result for its owner feature; without [awaitAcceptance] the call returns once the helper chat exists.
      */
-    suspend fun startAgent(id: ActionId, request: SpawnRequest, initiator: RequestInitiator? = null): String? = reserve(
-        id,
-        request.parent,
-    ) ?: run {
+    suspend fun startAgent(
+        id: ActionId,
+        request: SpawnRequest,
+        initiator: RequestInitiator? = null,
+        retainedBy: String? = null,
+        awaitAcceptance: Boolean = true,
+    ): String? = reserve(id, request.parent) ?: run {
         var isHandedOff = false
         try {
             val record = ActionRecord(
@@ -106,11 +110,12 @@ internal class BackgroundActions(
                 parent = request.parent,
                 request = request.prompt.request,
                 initiator = initiator,
+                retainedBy = retainedBy,
             )
             results.begin(record)
             val startup = scope.coroutineScope.async(
                 start = CoroutineStart.LAZY,
-            ) { helperActions.start(record, request) }
+            ) { helperActions.start(record, request, awaitAcceptance) }
             startup.start()
             isHandedOff = true
             startup.await()

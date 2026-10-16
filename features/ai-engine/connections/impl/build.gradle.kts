@@ -8,6 +8,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(projects.features.aiEngine.connections.api)
+            implementation(projects.features.adaptiveSubagents.api)
             implementation(projects.features.settings.api)
             implementation(projects.core.di.ext)
             implementation(projects.core.mvi)

@@ -83,9 +83,18 @@ public data class AgentToolContext(
     val historyTurn: TurnId? = null,
     /** Host-bound decision mode of the accepted request, independent of the session's trust level. */
     val decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
+    /**
+     * Model that independently reviews this turn's automatic safety decisions, chosen by the host (a subagent on a
+     * cheaper model is reviewed by its parent's model). Null reviews on [target]. Never decoded from model arguments;
+     * the dispatcher replaces it with the value recorded by [ProfileAgentTools.bindTurn] for a bound request.
+     */
+    val reviewTarget: EngineTarget? = null,
 ) {
     override fun toString(): String = "AgentToolContext"
 }
+
+/** The model an automatic safety review of this call runs on: the host's review model, else the turn's own. */
+public val AgentToolContext.reviewModel: EngineTarget? get() = reviewTarget ?: target
 
 /**
  * What a session's instructions are built for. [workspace] is null for a session without a project; [target] is the
@@ -278,6 +287,7 @@ public interface ProfileAgentTools {
      * Binds a trusted request to its facade turn before native submission can invoke any hosted tools.
      * [target] is the engine and model the turn runs on; calls of the request see it as [AgentToolContext.target].
      * [decisionMode] is the host's immutable choice, applied before any native or hosted authorization.
+     * [reviewTarget] is the host's model for automatic safety reviews of the request; null reviews on [target].
      */
     public suspend fun bindTurn(
         session: SessionRef,
@@ -285,6 +295,7 @@ public interface ProfileAgentTools {
         turn: TurnId,
         target: EngineTarget? = null,
         decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
+        reviewTarget: EngineTarget? = null,
     ): Unit = Unit
 
     /** Available tool declarations for a session's immutable execution workspace. */

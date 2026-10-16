@@ -29,6 +29,7 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
 | UI-методы для интерфейсов service-as-ui (`ui.method`) | `harness/api/script/ScriptUi.kt`; `impl/domain/runtime/HarnessUiDispatch.kt` (`connectedAdmission`); провайдер `impl/data/serviceui/HarnessServiceUiProvider.kt` |
 | Постоянные данные мини-приложения (`data.read/write/update`) | `api/script/ScriptData.kt`; `impl/domain/services/HarnessScriptData`, `impl/data/services/ProtectedHarnessData` |
 | Хуки сессий, политика, гейт нативных вызовов | `ai-engine/facade:{api,impl}` (`SessionHooks`, `ToolPolicy`, `authorizeNative`) |
+| Адаптивные помощники (`AgentOptions.adaptive`, `sessions.spawn(..., adaptive)`) | `api/workflow/AdaptiveAgent.kt`; порт `impl/domain/services/HarnessHelperModels.kt`, адаптер над `AdaptiveModels` (`adaptive-subagents:api`) — `impl/data/services/AdaptiveHarnessHelperModels.kt` |
 
 ## Правила
 
@@ -95,6 +96,12 @@ description: "Харнессы Heartbeat (features:harness): библиотек�
    Примеры `EXAMPLE_VERIFY_SCRIPT` и `EXAMPLE_SCREEN_WORKFLOW` компилирует `HarnessReferenceExamplesTest` (jvmTest) —
    он должен оставаться зелёным.
 5. Новое событие: тип в `harness/api/event`, источник в `data/events/HarnessEventSources.kt`, маппинг и тест.
+
+Адаптивные помощники: модель выбирается один раз до `acquire` слота (`WorkflowHelperDriver.prepare`,
+`HarnessSpawnOperations.produce`) и передаётся в `HelperAgents.create` как target + `HelperModelOptions(effort)`;
+явный `target` главнее, восстановленный шаг или помощник не выбирают заново. Digest шага workflow меняется только
+при `adaptive != null` — старые журналы не расходятся. `Inherit` (фича выключена, нет кандидатов) оставляет
+прежнее поведение; ревью действий помощника идёт на модели родителя (хост помощника задаёт `reviewTarget`).
 
 ## После апгрейда Kotlin
 

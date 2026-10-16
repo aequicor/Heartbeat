@@ -125,6 +125,11 @@ public data class PromptRequest(
     val compaction: ContextCompaction? = null,
     /** Trusted host decision mode; automatic review never falls back to an interactive permission. */
     val decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
+    /**
+     * Trusted host model for automatic safety reviews of this turn (see [AgentToolContext.reviewTarget]); null reviews
+     * on the turn's own model. A turn an adapter restores after a restart reviews on its own model.
+     */
+    val reviewTarget: EngineTarget? = null,
 ) {
     init {
         require(parts.isNotEmpty() == (compaction == null)) { "A prompt has parts, a compaction has none" }
@@ -185,6 +190,8 @@ public data class Turn(
     val resolvedPermissions: Set<PermissionRequestId> = emptySet(),
     /** Decision mode captured from the accepted prompt, retained with the turn during reconciliation. */
     val decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.Interactive,
+    /** Review model captured from the accepted prompt ([PromptRequest.reviewTarget]). */
+    val reviewTarget: EngineTarget? = null,
 )
 
 /**

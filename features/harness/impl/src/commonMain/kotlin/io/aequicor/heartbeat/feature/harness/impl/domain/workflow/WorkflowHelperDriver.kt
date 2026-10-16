@@ -15,10 +15,14 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStepFailed
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessStorageUncertain
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.harnessScriptFailure
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessHelperBinding
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessHelperKind
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessHelperModel
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessHelperModelRequest
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
 import io.aequicor.heartbeat.feature.scheduler.api.HelperHandoff
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 import io.aequicor.heartbeat.feature.scheduler.api.HelperOutcome
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
@@ -55,6 +59,7 @@ internal class WorkflowHelperDriver(
     private val resources = ports.resources
     private val helpers = ports.helpers
     private val bindings = ports.bindings
+    private val models = ports.models
 
     override suspend fun execute(key: StepKey, digest: String, prompt: String, options: AgentOptions): String = host {
         val owner = currentCoroutineContext()[Job]
@@ -63,7 +68,7 @@ internal class WorkflowHelperDriver(
         if (step != null && (step.promptSha != digest || step.helper == null)) {
             throw WorkflowStepFailed(WorkflowFailure.Diverged)
         }
-        val prepared = prepare(key, digest, step, options)
+        val prepared = prepare(key, digest, step, prompt, options)
         val resource = prepared.first
         val helper = checkNotNull(resource.grant.helper)
         bindings.bind(HarnessHelperBinding(helper, ActionId(run.id.value), run.harness, resource.grant.attachRequest))
@@ -137,11 +142,15 @@ internal class WorkflowHelperDriver(
         return current
     }
 
-    /** Fresh creation is allowed only in the same call that acquired its slot, never from a restored null row. */
+    /**
+     * Fresh creation is allowed only in the same call that acquired its slot, never from a restored null row. An
+     * adaptive step chooses its model before acquiring the slot; an existing helper keeps the model it has.
+     */
     private suspend fun prepare(
         key: StepKey,
         digest: String,
         step: WorkflowStep?,
+        prompt: String,
         options: AgentOptions,
     ): Pair<WorkflowHelperResource, Boolean> {
         val pending = resources.records(run.id).singleOrNull { it.key == key }
@@ -159,6 +168,7 @@ internal class WorkflowHelperDriver(
             check(binding.owner == ActionId(run.id.value) && binding.harness == run.harness)
             binding.attachRequest
         } ?: RequestId(nextId())
+        val model = if (step == null) choose(prompt, options) else null
         val grant = WorkflowHelperGrant(
             ActionId("wf_slot_" + nextId()),
             run.id,
@@ -172,10 +182,24 @@ internal class WorkflowHelperDriver(
         val resource = resources.acquire(grant, step?.helper)
         persistGrant(resource)
         admitted()
-        val helper = step?.helper ?: helpers.create(resource.lease, workspace, options.target, options.title)
+        val helper = step?.helper ?: helpers.create(
+            resource.lease,
+            workspace,
+            model?.target ?: options.target,
+            options.title,
+            model = HelperModelOptions(model?.reasoningEffort),
+        )
         resource.bind(helper)
         persistGrant(resource)
         return resource to (step == null)
+    }
+
+    /** An explicit target wins; otherwise the adaptive request of the step may choose a model. */
+    private suspend fun choose(prompt: String, options: AgentOptions): HarnessHelperModel? {
+        val adaptive = options.adaptive?.takeIf { options.target == null } ?: return null
+        val model = models.choose(HarnessHelperModelRequest(prompt, adaptive, HarnessHelperKind.Workflow, workspace))
+        admitted()
+        return model
     }
 
     /** A live journaled slot of this step is reused; a closing or released one is drained first. */

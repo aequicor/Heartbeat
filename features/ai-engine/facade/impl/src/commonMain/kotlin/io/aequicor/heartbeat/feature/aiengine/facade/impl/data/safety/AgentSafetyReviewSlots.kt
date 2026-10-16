@@ -20,17 +20,20 @@ import kotlin.time.Duration.Companion.minutes
 /**
  * The profile's review sessions: at most [capacity] are open at once, including stopped ones still awaiting their
  * termination; at most [queueLimit] callers wait up to [queueWait] for a slot. Every change is reflected in [load].
+ * Other kinds of isolated service turns keep their own instance, named by [label] in logs.
  */
 @SingleIn(ProfileScope::class)
 internal class AgentSafetyReviewSlots(
     capacity: Int,
     private val queueLimit: Int = MAX_QUEUED_REVIEWS,
     private val queueWait: Duration = QUEUE_WAIT,
-) {
+    private val label: String = "Safety review",
+    tag: String = "AgentSafetyReviewer",
+) : ServiceTurnSlots {
     @Inject
     constructor() : this(MAX_PARALLEL_REVIEWS)
 
-    private val log = Log.tag("AgentSafetyReviewer")
+    private val log = Log.tag(tag)
     private val permits = Semaphore(capacity)
     private val state = MutableStateFlow(AgentSafetyReviewLoad(capacity))
 
@@ -41,10 +44,10 @@ internal class AgentSafetyReviewSlots(
      * permit is recorded inside the timeout block: a timeout firing after the semaphore handed it over keeps it
      * owned, and a cancellation arriving then returns it, so no slot is ever lost.
      */
-    suspend fun acquire(): Boolean {
+    override suspend fun acquire(): Boolean {
         val before = state.getAndUpdate { if (it.queued >= queueLimit) it else it.copy(queued = it.queued + 1) }
         if (before.queued >= queueLimit) {
-            log.w { "Safety review queue is full: queued=${before.queued} running=${before.running}" }
+            log.w { "$label queue is full: queued=${before.queued} running=${before.running}" }
             return false
         }
         var isAcquired = false
@@ -64,21 +67,21 @@ internal class AgentSafetyReviewSlots(
                 it.copy(queued = it.queued - 1, running = if (isAcquired) it.running + 1 else it.running)
             }
         }
-        if (!isAcquired) log.w { "Safety review waited too long for a slot: ${state.value.summary()}" }
+        if (!isAcquired) log.w { "$label waited too long for a slot: ${state.value.summary()}" }
         return isAcquired
     }
 
     /** A dismissed review keeps its slot while its session has not confirmed termination. */
-    fun startFinishing() {
+    override fun startFinishing() {
         state.update { it.copy(running = it.running - 1, finishing = it.finishing + 1) }
-        log.i { "Safety review awaits its session termination: ${state.value.summary()}" }
+        log.i { "$label awaits its session termination: ${state.value.summary()}" }
     }
 
     /** Releases a running slot. */
-    fun releaseRunning() = release { copy(running = running - 1) }
+    override fun releaseRunning() = release { copy(running = running - 1) }
 
     /** Releases a finishing slot; [isAbandoned] when termination was never confirmed. */
-    fun releaseFinishing(isAbandoned: Boolean) = release {
+    override fun releaseFinishing(isAbandoned: Boolean) = release {
         copy(finishing = finishing - 1, abandoned = if (isAbandoned) abandoned + 1 else abandoned)
     }
 
@@ -90,7 +93,7 @@ internal class AgentSafetyReviewSlots(
     private fun release(change: AgentSafetyReviewLoad.() -> AgentSafetyReviewLoad) {
         state.update(change)
         permits.release()
-        log.v { "Safety review slot released: ${state.value.summary()}" }
+        log.v { "$label slot released: ${state.value.summary()}" }
     }
 }
 

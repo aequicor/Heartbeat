@@ -191,7 +191,9 @@ private fun AgentLearningState.Ready.withoutUnsaved(receipt: LearnReceipt?): Age
 private fun AgentLearningState.Ready.replaceRejection(instruction: LearnedInstruction): LearnRejection? {
     if (find(instruction.id) == null) return LearnRejection.Missing
     val trimmed = instruction.trimmed() ?: return LearnRejection.Invalid
-    return LearnRejection.Duplicate.takeIf { instructions.any { it.id != trimmed.id && it.isSameLesson(trimmed) } }
+    return LearnRejection.Duplicate.takeIf {
+        instructions.any { existing -> existing.id != trimmed.id && existing.isSameLesson(trimmed) }
+    }
 }
 
 /**

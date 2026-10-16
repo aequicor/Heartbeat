@@ -41,6 +41,8 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.stor
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineConnectionsScreenIntent
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineConnectionsScreenState
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineRowUi
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ModelDescriptionUi
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ModelRowUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ModelsPaneUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.matches
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.Res
@@ -66,6 +68,8 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.setting
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_enabled_models
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_engines
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_make_default
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_model_describe
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_model_description
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_models
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_models_never
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_models_stale
@@ -84,18 +88,20 @@ internal fun EngineConnectionsScreen(
     model: EngineConnectionsModel,
     onAddConnection: (engine: String?) -> Unit,
     onBack: (() -> Unit)?,
+    onOpenDescription: (engine: String, model: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by produceState(model.current.value, model) {
         model.store.collect { states.collect { value = it } }
     }
-    EngineConnectionsContent(state, model.store::intent, onAddConnection, onBack, modifier)
+    EngineConnectionsContent(state, model.store::intent, onAddConnection, onBack, onOpenDescription, modifier)
 }
 
 /**
  * "Engine × connection × model" as one settings column: engines, then the connections of the selected engine,
  * then the models of the selected connection, each level as settings rows. Disconnecting asks in [HbDialog].
- * Inside the settings host [onBack] is null and only this content is drawn.
+ * Inside the settings host [onBack] is null and only this content is drawn. [onOpenDescription] opens the
+ * adaptive subagents description of a model, offered only while descriptions are on.
  */
 @Composable
 internal fun EngineConnectionsContent(
@@ -103,6 +109,7 @@ internal fun EngineConnectionsContent(
     onIntent: (EngineConnectionsScreenIntent) -> Unit,
     onAddConnection: (engine: String?) -> Unit,
     onBack: (() -> Unit)?,
+    onOpenDescription: (engine: String, model: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Input follows the actual write immediately; only its visual feedback waits to avoid a brief flash.
@@ -135,7 +142,7 @@ internal fun EngineConnectionsContent(
                     )
                 }
                 ConnectionsSection(state, onIntent, onAddConnection)
-                ModelsSection(state, onIntent, isSavingVisible = isSavingVisible)
+                ModelsSection(state, onIntent, onOpenDescription, isSavingVisible = isSavingVisible)
             }
         }
     }
@@ -317,6 +324,7 @@ private fun ConnectionEntry(
 private fun ModelsSection(
     state: EngineConnectionsScreenState,
     onIntent: (EngineConnectionsScreenIntent) -> Unit,
+    onOpenDescription: (engine: String, model: String) -> Unit,
     modifier: Modifier = Modifier,
     isSavingVisible: Boolean = state.isSaving,
 ) {
@@ -330,7 +338,9 @@ private fun ModelsSection(
         }
         ConnectionControls(connection, isEnabled = !state.isSaving, onIntent, visualEnabled = !isSavingVisible)
         HbDivider()
-        ModelsList(pane, state.modelQuery, !state.isSaving, onIntent, visualEnabled = !isSavingVisible)
+        val engine = state.selectedEngine
+        val onOpenModel = { id: String -> engine?.let { onOpenDescription(it, id) } ?: Unit }
+        ModelsList(pane, state.modelQuery, !state.isSaving, onIntent, onOpenModel, visualEnabled = !isSavingVisible)
     }
 }
 
@@ -403,6 +413,7 @@ private fun ModelsList(
     query: String,
     enabled: Boolean,
     onIntent: (EngineConnectionsScreenIntent) -> Unit,
+    onOpenDescription: (model: String) -> Unit,
     modifier: Modifier = Modifier,
     visualEnabled: Boolean = enabled,
 ) {
@@ -452,21 +463,58 @@ private fun ModelsList(
                     visualEnabled = visualEnabled,
                     onEnabledChange = { onIntent(EngineConnectionsScreenIntent.SetModelEnabled(model.id, it)) },
                 ) {
-                    if (model.isDefault) {
-                        HbBadge(stringResource(Res.string.settings_default), tone = HbTone.Brand)
-                    } else {
-                        HbButton(
-                            stringResource(Res.string.settings_make_default),
-                            { onIntent(EngineConnectionsScreenIntent.SetDefaultModel(model.id)) },
-                            Modifier.testTag("settings-default:${model.id}"),
-                            HbButtonStyle.Ghost,
-                            enabled,
-                            HbButtonSize.Small,
-                            visualEnabled = visualEnabled,
-                        )
-                    }
+                    ModelActions(
+                        model,
+                        enabled,
+                        onIntent,
+                        { onOpenDescription(model.id) },
+                        visualEnabled = visualEnabled,
+                    )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Actions of one model row: its description for adaptive subagents (while descriptions are on) and the default.
+ * They keep the row's own spacing between trailing controls.
+ */
+@Composable
+private fun ModelActions(
+    model: ModelRowUi,
+    enabled: Boolean,
+    onIntent: (EngineConnectionsScreenIntent) -> Unit,
+    onOpenDescription: () -> Unit,
+    modifier: Modifier = Modifier,
+    visualEnabled: Boolean = enabled,
+) {
+    HbRow(modifier, gap = HbTheme.spacing.l) {
+        model.description?.let { description ->
+            val label = when (description) {
+                ModelDescriptionUi.Described -> Res.string.settings_model_description
+                ModelDescriptionUi.Missing -> Res.string.settings_model_describe
+            }
+            HbButton(
+                stringResource(label),
+                onOpenDescription,
+                Modifier.testTag("settings-description:${model.id}"),
+                HbButtonStyle.Ghost,
+                size = HbButtonSize.Small,
+            )
+        }
+        if (model.isDefault) {
+            HbBadge(stringResource(Res.string.settings_default), tone = HbTone.Brand)
+        } else {
+            HbButton(
+                stringResource(Res.string.settings_make_default),
+                { onIntent(EngineConnectionsScreenIntent.SetDefaultModel(model.id)) },
+                Modifier.testTag("settings-default:${model.id}"),
+                HbButtonStyle.Ghost,
+                enabled,
+                HbButtonSize.Small,
+                visualEnabled = visualEnabled,
+            )
         }
     }
 }

@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
+import io.aequicor.heartbeat.feature.aiengine.facade.api.reviewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -99,7 +100,7 @@ internal class DesktopCodingSafety(
     }
 
     private suspend fun assess(context: AgentToolContext, snapshot: CodingSafetySnapshot): AgentSafetyReview {
-        val target = context.target ?: return AgentSafetyReview("uncertain", "The current model is unavailable")
+        val target = context.reviewModel ?: return AgentSafetyReview("uncertain", "The current model is unavailable")
         return try {
             reviewer.review(target, SAFETY_POLICY, snapshot.change).also {
                 log.i { "Project action assessed safe=${it.isSafe}" }
@@ -140,6 +141,7 @@ private fun capture(
         put("target", Json.encodeToJsonElement(context.target))
         put("trust", context.trust.name)
         put("decisionMode", context.decisionMode.name)
+        context.reviewTarget?.let { put("reviewTarget", Json.encodeToJsonElement(it)) }
         put("operation", original.name)
         put("arguments", supplied)
         put("executionArguments", execution)

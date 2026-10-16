@@ -89,7 +89,7 @@ class HarnessScriptContractTest {
         assertEquals(listOf<KClass<out HarnessEvent>>(SystemEvent.Started::class), subscribed)
         assertEquals(listOf(AgentToolAction.Command), actions)
         assertEquals(listOf(ItemName("prs")), methods)
-        assertEquals(3, HARNESS_API_VERSION)
+        assertEquals(4, HARNESS_API_VERSION)
     }
 
     @Test

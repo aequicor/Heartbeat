@@ -16,6 +16,19 @@ public data class HelperId(val value: String) {
     }
 }
 
+/**
+ * Host-chosen model options of a helper beyond its target, fixed at creation. [reasoningEffort] applies to the
+ * helper's turns while its model advertises it, otherwise the host's profile choice applies. [reviewTarget] reviews
+ * the automatic safety decisions of the helper's turns (a helper on a cheaper model is reviewed by a stronger one);
+ * null leaves the host's default (the parent's model when the helper runs another one).
+ */
+@Serializable
+public data class HelperModelOptions(val reasoningEffort: String? = null, val reviewTarget: EngineTarget? = null) {
+    init {
+        require(reasoningEffort == null || reasoningEffort.isNotBlank()) { "Helper effort must not be blank" }
+    }
+}
+
 /** A caller-generated immutable attempt, recorded by the workflow before submission. Text is never logged. */
 public data class HelperPrompt(
     val request: RequestId,
@@ -140,6 +153,7 @@ public interface HelperAgents {
      * [workspace] routes parentless helpers. A null [target] inherits the parent's durable target; creation fails
      * if that target is unknown. Without a parent, null leaves the first model choice to the host's current
      * defaults. An explicit target is preserved. The host enforces [trustCap] and parent trust on every turn.
+     * [model] carries the caller's effort and review model choice, persisted with the helper.
      */
     public suspend fun create(
         lease: HelperLease,
@@ -147,6 +161,7 @@ public interface HelperAgents {
         target: EngineTarget?,
         title: String,
         trustCap: TrustLevel = TrustLevel.Ask,
+        model: HelperModelOptions = HelperModelOptions(),
     ): HelperId
 
     /** Sends one journaled attempt using its active lease; caller cancellation does not abandon accepted work. */

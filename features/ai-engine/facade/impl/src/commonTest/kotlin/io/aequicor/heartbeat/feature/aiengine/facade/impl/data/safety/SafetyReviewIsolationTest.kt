@@ -46,6 +46,16 @@ class SafetyReviewIsolationTest {
         assertNull(policy.policy(ToolPolicyScope(session = review)))
     }
 
+    @Test
+    fun `an isolated prompt request is denied tools after its session was released`() = runTest {
+        val hook = AgentSafetyHook(AgentSafetyToolPolicy())
+        val user = SessionRef(EngineId("engine"), SessionSourceId("source"), "user")
+        val nested = call(user, true)
+        val context = nested.context.copy(request = RequestId(ISOLATED_REQUEST_PREFIX + "router"))
+        assertIs<ToolHookVerdict.Deny>(hook.beforeTool(nested.copy(context = context)))
+        assertEquals(ToolHookVerdict.Continue, hook.beforeTool(nested))
+    }
+
     private fun call(session: SessionRef, isNative: Boolean) = HookedToolCall(
         SessionHookContext(session, null, null, null, SessionOwner("review")),
         "harness_create",

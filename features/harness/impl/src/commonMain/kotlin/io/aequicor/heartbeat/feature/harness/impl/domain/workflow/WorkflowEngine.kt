@@ -61,7 +61,10 @@ internal class WorkflowEngine(
     }
 
     override suspend fun agent(prompt: String, options: AgentOptions): String = position { place ->
-        val hash = hash("agent", prompt, options.title, options.target?.let { Json.encodeToString(it) })
+        val target = options.target?.let { Json.encodeToString(it) }
+        // Steps without an adaptive request keep the digests journaled before it existed.
+        val hash = options.adaptive?.let { hash("agent", prompt, options.title, target, Json.encodeToString(it)) }
+            ?: hash("agent", prompt, options.title, target)
         val old = existing(place.key, hash)
         if (old?.phase == StepPhase.Completed) return@position stringResult(old)
         if (old?.phase == StepPhase.Failed) throw WorkflowStepFailed(checkNotNull(old.failure))
