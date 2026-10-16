@@ -41,6 +41,7 @@ public enum class BrowserError {
  * Current main frame; native history belongs to the currently attached surface. [isAwaitingResponse] marks the first
  * phase of [isLoading], before the server has answered the main document. [faviconUrl] is the HTTP(S) address of the
  * site's icon found after the page loaded, or empty while it is unknown; like [url], it is never logged.
+ * [zoomPercent] is the page's zoom, one of [BrowserZoomLevels] or [BROWSER_DEFAULT_ZOOM].
  */
 public data class BrowserPage(
     val url: String = "",
@@ -53,6 +54,7 @@ public data class BrowserPage(
     val isAwaitingResponse: Boolean = false,
     val failure: BrowserLoadFailure? = null,
     val security: BrowserSecurity = BrowserSecurity.Unknown,
+    val zoomPercent: Int = BROWSER_DEFAULT_ZOOM,
 )
 
 /** Runtime projection; desktop restores tab metadata from profile storage, without native history or approvals. */
@@ -62,6 +64,7 @@ public sealed interface BrowserState : MachineState {
 
     /**
      * Availability and the latest main-frame projection; disabled browsers accept no navigation.
+     * [isZoomEnabled] tells whether the attached surface zooms pages under [BrowserPageZoom].
      */
     public data class Running(
         val isConfigured: Boolean = false,
@@ -71,6 +74,7 @@ public sealed interface BrowserState : MachineState {
         val selectedTabId: String? = null,
         val display: BrowserDisplay = BrowserDisplay.Hidden,
         val areErrorPagesEnabled: Boolean = false,
+        val isZoomEnabled: Boolean = false,
     ) : BrowserState
 }
 
@@ -107,6 +111,9 @@ public sealed interface BrowserIntent : MachineIntent {
 
         /** Stops the current main-frame load. */
         public data object Stop : Public
+
+        /** Zooms the selected tab's page; the level applies to the page's whole site and is remembered for it. */
+        public data class Zoom(val zoom: BrowserZoom) : Public
     }
 
     /** Results delivered by feature effects. */
@@ -134,6 +141,9 @@ public sealed interface BrowserIntent : MachineIntent {
 
         /** Resolved live toggle value. */
         public data class AvailabilityChanged(val isEnabled: Boolean) : Internal
+
+        /** Whether pages can be zoomed: the live [BrowserPageZoom] value on a surface that supports zoom. */
+        public data class ZoomAvailabilityChanged(val isEnabled: Boolean) : Internal
 
         /** Validated state from the current native controller. */
         public data class PageChanged(val page: BrowserPage) : Internal
@@ -189,6 +199,12 @@ public sealed interface BrowserEffect : MachineEffect {
 
     /** Cancels a native load. */
     public data object Stop : BrowserEffect
+
+    /**
+     * Applies [direction] to the latest persisted level for tab [tabId]'s site, serializing rapid commands.
+     * [url] binds the command before navigation or IO can race; null [tabId] targets the selected tab.
+     */
+    public data class Zoom(val tabId: String?, val direction: BrowserZoom, val url: String) : BrowserEffect
 }
 
 /** All browser feedback is retained state rather than one-off outputs. */

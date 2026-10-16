@@ -68,4 +68,9 @@
     <string name="browser_failure_details_expanded">Expanded</string>
     <string name="browser_failure_details_collapsed">Collapsed</string>
     <string name="browser_security_certificate_exception">Not secure: a certificate error was bypassed for this site</string>
+    <string name="browser_zoom">Page zoom: %1$d%</string>
+    <string name="browser_zoom_percent">%1$d%</string>
+    <string name="browser_zoom_in">Zoom in</string>
+    <string name="browser_zoom_out">Zoom out</string>
+    <string name="browser_zoom_reset">Reset</string>
 </resources>

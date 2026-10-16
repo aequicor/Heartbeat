@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserSecurity
 import io.aequicor.heartbeat.feature.browser.api.BrowserTab
+import io.aequicor.heartbeat.feature.browser.api.BrowserZoom
 import io.aequicor.heartbeat.feature.browser.api.browserSearchUrl
 import io.aequicor.heartbeat.feature.browser.api.isBrowserUrlAllowed
 import io.aequicor.heartbeat.feature.browser.api.normalizeBrowserUrl
@@ -28,6 +29,7 @@ import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserNativeResources
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserRequestKind
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserSession
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserWorkspaceStorage
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserZoomStorage
 import io.aequicor.heartbeat.feature.browser.impl.domain.MAX_BROWSER_TABS
 import io.aequicor.heartbeat.feature.browser.impl.domain.SavedBrowserTab
 import io.aequicor.heartbeat.feature.browser.impl.domain.SavedBrowserWorkspace
@@ -78,6 +80,7 @@ internal class DesktopBrowserSession(
     private val agentPolicy: BrowserAgentPolicy,
     private val storage: BrowserWorkspaceStorage,
     private val icons: DesktopBrowserFavicons,
+    zoomStorage: BrowserZoomStorage,
 ) : BrowserSession,
     BrowserSurface {
     private val log = Log.tag("BrowserWorkspace")
@@ -93,6 +96,16 @@ internal class DesktopBrowserSession(
         }
     }
 
+    private val zooms =
+        DesktopBrowserZooms(zoomStorage, entries, { isBrowserEnabled && !isClearingData }, ::projectTabs)
+    override val isZoomSupported = true
+
+    override suspend fun setZoomEnabled(isEnabled: Boolean): Unit =
+        withContext(dispatchers.main) { zooms.setEnabled(isEnabled) }
+
+    override suspend fun zoom(tabId: String?, direction: BrowserZoom, url: String?): Unit =
+        withContext(dispatchers.main) { zooms.zoom(entries[tabId ?: selected], direction, url) }
+
     private val availabilityLock = Mutex()
     private var isRestoring = false
     private var isBrowserEnabled = false
@@ -102,13 +115,10 @@ internal class DesktopBrowserSession(
     override val tabs = MutableStateFlow(emptyList<BrowserTab>() to null as String?)
     override val hasTabs = true
     override val shortcuts = MutableSharedFlow<BrowserShortcut>(extraBufferCapacity = SHORTCUT_BUFFER)
-    override val favicons: StateFlow<Map<String, BrowserFaviconImage>>
-        get() = icons.images
-    override val initialUrl: String
-        get() = pages.value.url
+    override val favicons: StateFlow<Map<String, BrowserFaviconImage>> get() = icons.images
+    override val initialUrl: String get() = pages.value.url
 
-    private val factory
-        get() = nativeResources as DesktopBrowserPanelFactory
+    private val factory get() = nativeResources as DesktopBrowserPanelFactory
 
     override val errorPagesEnabled get() = factory.errorPagesEnabled
     override val networkRestored get() = factory.networkRestored
@@ -127,15 +137,11 @@ internal class DesktopBrowserSession(
 
     override suspend fun retryNetworkErrors() = withContext(dispatchers.main) { failures.retryNetworkErrors() }
 
-    override suspend fun proceedCertificate(tabId: String, failure: BrowserLoadFailure) = withContext(
-        dispatchers.main,
-    ) {
-        failures.proceedCertificate(tabId, failure)
-    }
+    override suspend fun proceedCertificate(tabId: String, failure: BrowserLoadFailure) =
+        withContext(dispatchers.main) { failures.proceedCertificate(tabId, failure) }
 
-    override suspend fun returnToSafety(tabId: String, failure: BrowserLoadFailure) = withContext(dispatchers.main) {
-        failures.returnToSafety(tabId, failure)
-    }
+    override suspend fun returnToSafety(tabId: String, failure: BrowserLoadFailure) =
+        withContext(dispatchers.main) { failures.returnToSafety(tabId, failure) }
 
     override fun forTab(id: String?): BrowserSurface = entries[id ?: selected]?.surface ?: this
 
@@ -265,6 +271,7 @@ internal class DesktopBrowserSession(
             pending.forEach { it.cancel() }
             pending.joinAll()
             // Remove recovery data before deleting native state; a restart during cleanup cannot resurrect tabs.
+            zooms.clear()
             storage.save(SavedBrowserWorkspace(certificateExceptionUrls = factory.certificateExceptionUrls()))
             entries.keys.toList().forEach { close(it) }
             icons.clear()
@@ -539,7 +546,11 @@ internal class DesktopBrowserSession(
         val surface = BrowserSurfaceAdapter(scope, dispatchers, nativeResources)
         surface.setEnabled(true)
         val guard = DesktopBrowserAgentGuard()
-        val panel = factory.create(surface, guard, { url -> openLinkedTab(id, url) }, ::pagePressed)
+        val panel = factory.create(surface, guard, { url -> openLinkedTab(id, url) }) { shortcut ->
+            scope.coroutineScope.launch(dispatchers.main) {
+                if (entries[id]?.surface === surface && selected == id) pagePressed(shortcut)
+            }
+        }
         val entry =
             DesktopBrowserEntry(
                 BrowserTab(
@@ -552,12 +563,11 @@ internal class DesktopBrowserSession(
                 surface,
                 guard,
                 panel,
+                zoomPercent = zooms::percent,
+                isZoomEnabled = { zooms.isEnabled },
             )
         restored?.takeIf { it.faviconUrl.isNotEmpty() }?.let {
-            entry.favicon = DesktopBrowserFavicon(
-                it.url,
-                it.faviconUrl,
-            )
+            entry.favicon = DesktopBrowserFavicon(it.url, it.faviconUrl)
         }
         entry.syncGuard(approved = null)
         if (parent != null) guard.inheritFrom(parent.guard)
@@ -640,9 +650,10 @@ internal class DesktopBrowserSession(
         }
     }
 
-    /** A tab key pressed inside a page, on CEF's UI thread; the strip acts on it as on a key pressed in Compose. */
+    /** A key or wheel step inside the selected tab's page; the strip acts on it as on a key pressed in Compose. */
+    @HighFrequency
     private fun pagePressed(shortcut: BrowserShortcut) {
-        log.i { "Browser tab shortcut pressed in a page: $shortcut" }
+        log.v { "Browser shortcut pressed in a page: $shortcut" }
         if (!shortcuts.tryEmit(shortcut)) log.w { "Browser tab shortcut dropped: $shortcut" }
     }
 
@@ -731,3 +742,6 @@ internal class DesktopBrowserSession(
                 "Open such an address with browser_open so the user can approve it."
     }
 }
+
+/** Chrome shares page zoom between schemes and ports of a host; subdomains remain separate. */
+internal fun browserZoomHost(url: String): String? = browserOrigin(url)?.substringAfter("://")?.substringBeforeLast(':')

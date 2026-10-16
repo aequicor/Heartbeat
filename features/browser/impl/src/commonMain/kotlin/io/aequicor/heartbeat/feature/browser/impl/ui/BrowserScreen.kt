@@ -84,7 +84,8 @@ internal fun BrowserScreenContent(
             .background(HbTheme.surfaces.backdrop).testTag("browser")
             .onPreviewKeyEvent { event ->
                 val shortcut = event.browserShortcut().takeIf { state.hasTabs && event.type == KeyEventType.KeyDown }
-                shortcut?.let { onIntent(BrowserScreenIntent.Shortcut(it)) } != null
+                val allowed = shortcut.takeUnless { it is BrowserShortcut.Zoom && !state.isZoomEnabled }
+                allowed?.let { onIntent(BrowserScreenIntent.Shortcut(it)) } != null
             },
         gap = HbTheme.spacing.none,
     ) {
@@ -108,12 +109,15 @@ internal fun BrowserScreenContent(
 }
 
 /** The tab key this event presses, with the host's modifier conventions. */
-private fun KeyEvent.browserShortcut(): BrowserShortcut? {
+internal fun KeyEvent.browserShortcut(): BrowserShortcut? {
     val isMeta = isBrowserMetaShortcut()
     val character = when (key) {
         Key.T -> 't'
         Key.W -> 'w'
         Key.Tab -> '\t'
+        Key.Equals, Key.Plus, Key.NumPadAdd -> '+'
+        Key.Minus, Key.NumPadSubtract -> '-'
+        Key.Zero, Key.NumPad0 -> '0'
         in DIGIT_KEYS -> '1' + DIGIT_KEYS.indexOf(key)
         else -> return null
     }
@@ -193,13 +197,16 @@ private fun BrowserAddressField(
         shape = CircleShape,
         leadingContent = { BrowserSecurityIndicator(state.security) },
         trailingContent = {
-            HbIconButton(
-                HbIcons.ArrowRight,
-                stringResource(Res.string.browser_open),
-                { onIntent(BrowserScreenIntent.Open) },
-                Modifier.testTag("browser-open"),
-                enabled = isEnabled,
-            )
+            HbRow(gap = HbTheme.spacing.none) {
+                BrowserZoomControl(state, onIntent)
+                HbIconButton(
+                    HbIcons.ArrowRight,
+                    stringResource(Res.string.browser_open),
+                    { onIntent(BrowserScreenIntent.Open) },
+                    Modifier.testTag("browser-open"),
+                    enabled = isEnabled,
+                )
+            }
         },
     )
 }

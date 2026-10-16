@@ -68,4 +68,9 @@
     <string name="browser_failure_details_expanded">Развёрнуто</string>
     <string name="browser_failure_details_collapsed">Свёрнуто</string>
     <string name="browser_security_certificate_exception">Не защищено: для этого сайта пропущена ошибка сертификата</string>
+    <string name="browser_zoom">Масштаб страницы: %1$d%</string>
+    <string name="browser_zoom_percent">%1$d%</string>
+    <string name="browser_zoom_in">Увеличить</string>
+    <string name="browser_zoom_out">Уменьшить</string>
+    <string name="browser_zoom_reset">Сбросить</string>
 </resources>

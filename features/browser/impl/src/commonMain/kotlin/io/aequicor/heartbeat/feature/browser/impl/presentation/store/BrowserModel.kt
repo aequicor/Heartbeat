@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.browser.api.isHumanDecisionAllowed
 import io.aequicor.heartbeat.feature.browser.impl.di.scope.BrowserScope
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserShortcut
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserSurface
+import io.aequicor.heartbeat.feature.browser.impl.presentation.toDomain
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.launch
@@ -189,6 +190,8 @@ private fun closeRequest(id: String) =
 /** What [shortcut] changes in this state and the machine intent, if any, that carries it out. */
 internal fun BrowserScreenState.shortcut(shortcut: BrowserShortcut): Pair<BrowserScreenState, BrowserIntent.Public?> =
     when (shortcut) {
+        is BrowserShortcut.Zoom -> this to BrowserIntent.Public.Zoom(shortcut.direction.toDomain())
+
         BrowserShortcut.NewTab -> this to newTab(selectedTabId)
 
         BrowserShortcut.CloseTab -> selectedTabId?.let { closing(it) to closeRequest(it) } ?: (this to null)
@@ -217,6 +220,7 @@ private fun BrowserScreenState.shortcutTarget(shortcut: BrowserShortcut): Browse
             if (position == null) visible.last() else visible.getOrNull(position - 1)
         }
 
+        is BrowserShortcut.Zoom,
         BrowserShortcut.NewTab,
         BrowserShortcut.CloseTab,
         BrowserShortcut.ReopenClosedTab,
@@ -271,6 +275,8 @@ internal fun BrowserScreenState.reflectState(state: BrowserState): BrowserScreen
         isErrorDetailsExpanded = keepsDetails(state),
         url = state.page.url,
         title = state.page.title,
+        zoomPercent = state.page.zoomPercent,
+        isZoomEnabled = state.isZoomEnabled,
         isLoading = state.page.isLoading,
         isBackAvailable = state.page.isBackAvailable,
         isForwardAvailable = state.page.isForwardAvailable,

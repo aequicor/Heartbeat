@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserPage
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserTab
+import io.aequicor.heartbeat.feature.browser.api.BrowserZoom
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
@@ -32,6 +33,19 @@ internal interface BrowserSession {
 
     suspend fun cancelOperation(id: String): Unit = Unit
 
+    /** Whether this session's surfaces can zoom pages; platforms without tabs cannot. */
+    val isZoomSupported: Boolean
+        get() = false
+
+    /** Applies the live page zoom toggle; a disabled zoom shows every page at its default level. */
+    suspend fun setZoomEnabled(isEnabled: Boolean): Unit = Unit
+
+    /**
+     * Applies [direction] to the latest site level in command order, updating all its tabs and future visits.
+     * [url] binds the expected host before waiting for IO; a navigated or closed target is ignored.
+     */
+    suspend fun zoom(tabId: String?, direction: BrowserZoom, url: String? = null): Unit = Unit
+
     val pages: Flow<BrowserPage>
     suspend fun setEnabled(isEnabled: Boolean)
     suspend fun execute(command: BrowserCommand)
@@ -44,6 +58,11 @@ internal sealed interface BrowserCommand {
     data object Forward : BrowserCommand
     data object Reload : BrowserCommand
     data object Stop : BrowserCommand
+}
+
+/** The page zoom toggle, read through a port like availability. */
+internal fun interface BrowserZoomPolicy {
+    fun observe(): Flow<Boolean>
 }
 
 /** Agent control policy is observed for revocation and rechecked after queued operations. */

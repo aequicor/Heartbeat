@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
 import io.aequicor.heartbeat.core.logging.HighFrequency
+import io.aequicor.heartbeat.feature.browser.api.BROWSER_DEFAULT_ZOOM
 import io.aequicor.heartbeat.feature.browser.api.BrowserPage
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
@@ -18,7 +19,9 @@ internal class DesktopBrowserEntry(
     var tab: BrowserTab,
     val surface: BrowserSurfaceAdapter,
     val guard: DesktopBrowserAgentGuard,
-    panel: DesktopBrowserPanel,
+    private val panel: DesktopBrowserPanel,
+    private val zoomPercent: (String) -> Int = { BROWSER_DEFAULT_ZOOM },
+    private val isZoomEnabled: () -> Boolean = { false },
 ) {
     val driver = DesktopBrowserAutomation(panel::devTools, panel::captureResource)
     val favicons = DesktopBrowserFaviconProbe(panel::devTools)
@@ -43,7 +46,9 @@ internal class DesktopBrowserEntry(
         val isPendingTitle = page.isLoading && page.url == tab.page.url
         val title = if (isPendingTitle) page.title.ifBlank { tab.page.title } else page.title
         val icon = favicon?.takeIf { browserOrigin(it.pageUrl) == browserOrigin(page.url) }?.url.orEmpty()
-        tab = tab.copy(page = page.copy(title = title, faviconUrl = icon))
+        val percent = zoomPercent(page.url)
+        panel.setZoom(isZoomEnabled(), percent, page.url)
+        tab = tab.copy(page = page.copy(title = title, faviconUrl = icon, zoomPercent = percent))
     }
 
     fun result(request: BrowserRequest) = BrowserResult(
