@@ -183,6 +183,37 @@ class BrowserUiTest {
         }
 
     @Test
+    fun `closing tabs under the pointer keeps their width until the pointer leaves the strip`() =
+        runSkikoComposeUiTest(size = Size(1280f, 800f)) {
+            var tabs by mutableStateOf((0..5).map { BrowserTabUi("$it", "Page $it", true, false) }.toImmutableList())
+            setContent {
+                HbTheme(dimensions = HbDimensions.Desktop) {
+                    BrowserScreenContent(
+                        BrowserScreenState(
+                            phase = BrowserPhase.Ready,
+                            hasTabs = true,
+                            selectedTabId = "0",
+                            tabs = tabs,
+                        ),
+                        { intent ->
+                            if (intent is BrowserScreenIntent.CloseTab) {
+                                tabs = tabs.filter { it.id != intent.id }.toImmutableList()
+                            }
+                        },
+                    )
+                }
+            }
+            fun width() = onNodeWithTag("browser-tab-0").fetchSemanticsNode().size.width
+            val before = width()
+            onNodeWithTag("browser-close-tab-5").performMouseInput { click(center) }
+            waitForIdle()
+            assertEquals(before, width())
+            onNodeWithTag("browser-tab-0").performMouseInput { moveTo(Offset(center.x, height * 20f)) }
+            waitForIdle()
+            assertTrue(width() > before)
+        }
+
+    @Test
     fun `overflow keeps creation accessible and menu selection reveals the last tab`() =
         runSkikoComposeUiTest(size = Size(420f, 800f)) {
             val events = mutableListOf<BrowserScreenIntent>()
