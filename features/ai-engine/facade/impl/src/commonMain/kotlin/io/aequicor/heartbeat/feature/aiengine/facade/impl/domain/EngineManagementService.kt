@@ -55,6 +55,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -65,6 +66,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 interface EngineFlags {
     /** Whether engine management is on, and its changes. */
     fun management(): Flow<Boolean>
+
+    /** Whether engine configuration is on, and its changes; adapters get the configuration only while it is. */
+    fun configuration(): Flow<Boolean> = flowOf(false)
 
     /** The catalog flag and the engine's own flag of [descriptor], and their changes. */
     fun developer(descriptor: EngineDescriptor): Flow<DeveloperFlags>
@@ -110,13 +114,16 @@ class EngineManagementService(
         },
     )
 
-    override val state: StateFlow<EngineManagementState> = flags.management()
-        .flatMapLatest { isOn -> if (isOn) managed() else flowOf(EngineManagementState.Off) }
+    private val snapshots: StateFlow<Snapshot> = flags.management()
+        .flatMapLatest { isOn -> if (isOn) managed() else flowOf(Snapshot()) }
+        .stateIn(context.scope, SharingStarted.Eagerly, Snapshot())
+
+    override val state: StateFlow<EngineManagementState> = snapshots.map { it.state }
         .stateIn(context.scope, SharingStarted.Eagerly, EngineManagementState.Off)
 
     init {
         context.scope.launch { loadInstalls() }
-        context.scope.launch { state.collect(::reconcile) }
+        context.scope.launch { snapshots.collect(::reconcile) }
     }
 
     override suspend fun execute(engine: EngineId, command: EngineCommand) {
@@ -256,17 +263,14 @@ class EngineManagementService(
         }
     }
 
-    private suspend fun reconcile(current: EngineManagementState) {
+    private suspend fun reconcile(snapshot: Snapshot) {
+        val current = snapshot.state
         if (!current.isEnabled) return
         current.engines.filter { it.needsRetirement() }.forEach { engine ->
             val id = engine.descriptor.id
             log.i { "retire idle runtimes engine=${id.value} enabled=${engine.enablement.isEnabled}" }
             try {
-                val expected = if (engine.enablement.isEnabled) {
-                    LaunchContext(engine.launch.settings, engine.installation.managed)
-                } else {
-                    null
-                }
+                val expected = snapshot.expected[id]?.takeIf { engine.enablement.isEnabled }
                 runtimes.retire(id, expected)
             } catch (e: CancellationException) {
                 throw e
@@ -279,7 +283,7 @@ class EngineManagementService(
         }
     }
 
-    private fun managed(): Flow<EngineManagementState> {
+    private fun managed(): Flow<Snapshot> {
         val developer = if (registry.all.isEmpty()) {
             flowOf(emptyMap())
         } else {
@@ -287,13 +291,16 @@ class EngineManagementService(
                 registry.all.map { it.descriptor.id }.zip(values).toMap()
             }
         }
+        val chosen = combine(preferences.observe(), flags.configuration(), ::Pair)
         val local = combine(
             developer,
-            preferences.observe(),
+            chosen,
             installs.state,
             runtimes.entries,
             runtimes.sessions,
-        ) { flagged, chosen, managed, pooled, sessions -> Inputs(flagged, chosen, managed, pooled, sessions) }
+        ) { flagged, (saved, isConfigured), managed, pooled, sessions ->
+            Inputs(flagged, saved, isConfigured, managed, pooled, sessions)
+        }
         return combine(
             local,
             bindings,
@@ -301,7 +308,7 @@ class EngineManagementService(
             inspections,
             jobs.jobs,
         ) { inputs, saved, listed, inspected, run ->
-            EngineManagementState(
+            val state = EngineManagementState(
                 isEnabled = true,
                 platform = registry.platform,
                 engines = registry.all.map { registration ->
@@ -309,6 +316,7 @@ class EngineManagementService(
                     engine(registration, inputs, saved, listed, inspected[id]).copy(job = run[id])
                 },
             )
+            Snapshot(state, registry.all.associate { it.descriptor.id.let { id -> id to inputs.contextOf(id) } })
         }
     }
 
@@ -332,7 +340,6 @@ class EngineManagementService(
             if (!isSupported) add(DisabledReason.UnsupportedPlatform)
         }
         val settings = inputs.preferences.launchOf(id)
-        val managed = inputs.managed[id]
         return ManagedEngine(
             descriptor = descriptor,
             spec = registration.management,
@@ -340,10 +347,10 @@ class EngineManagementService(
             availability = listed.firstOrNull { it.descriptor.id == id }?.availability
                 ?: if (isSupported) EngineAvailability.Unknown else EngineAvailability.UnsupportedPlatform,
             connections = saved.count { it.engine == id },
-            installation = installationOf(registration, inspection, managed),
+            installation = installationOf(registration, inspection, inputs.managed[id]),
             login = inspection?.login ?: defaultLogin(registration),
             launch = LaunchState(settings, inspection?.warnings.orEmpty()),
-            runtime = runtimeOf(id, inputs, LaunchContext(settings, managed)),
+            runtime = runtimeOf(id, inputs, inputs.contextOf(id)),
         )
     }
 
@@ -438,9 +445,19 @@ class EngineManagementService(
     private data class Inputs(
         val developer: Map<EngineId, DeveloperFlags>,
         val preferences: ProfileEnginePreferences,
+        val isConfigured: Boolean,
         val managed: Map<EngineId, ManagedInstall>,
         val pooled: List<RuntimeEntry>,
         val sessions: Map<EngineId, SessionCounts>,
+    ) {
+        /** The context adapters of [engine] start with now; runtimes started with another one are stale. */
+        fun contextOf(engine: EngineId): LaunchContext = preferences.contextOf(engine, managed[engine], isConfigured)
+    }
+
+    /** Management state and the launch context each engine starts with now. */
+    private data class Snapshot(
+        val state: EngineManagementState = EngineManagementState.Off,
+        val expected: Map<EngineId, LaunchContext> = emptyMap(),
     )
 
     private data class Bounded<T>(val value: T? = null, val failure: ManagementFailure? = null)
