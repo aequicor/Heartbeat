@@ -30,6 +30,7 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunIdentity
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSandboxEnabled
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
@@ -42,7 +43,9 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class WorktreeJournalTest {
     @Test
@@ -291,6 +294,44 @@ class WorktreeJournalTest {
     }
 
     @Test
+    fun `sandbox toggle creates sandbox tasks whose builds carry a fresh snapshot`() = runTest {
+        val fixture = Fixture()
+        fixture.toggles.isSandbox = true
+        fixture.completeCoding()
+        assertTrue(fixture.task().isSandbox)
+        fixture.send(WorktreeIntent.Public.RunStarted(CHAT, RequestId("build-turn")))
+        fixture.send(WorktreeIntent.Public.RunAccepted(CHAT, RequestId("build-turn"), SESSION, MERGE_TURN))
+        fixture.send(
+            WorktreeIntent.Public.ProposeBuildPlan(
+                CHAT,
+                WorktreeBuildPlan("test", listOf(WorktreeBuildCommand("test", "build"))),
+            ),
+        )
+        fixture.send(WorktreeIntent.Public.RunBuild(CHAT, "build", "test", 1, BUILD_IDENTITY))
+        assertEquals("snapshot-build", fixture.builds.executed.single().sandbox?.snapshot)
+        assertEquals(WorktreeBuildPhase.Completed, fixture.task().builds["build"]?.phase)
+    }
+
+    @Test
+    fun `worktree tasks created before sandbox mode keep building in their checkout`() = runTest {
+        val fixture = Fixture()
+        fixture.completeCoding()
+        fixture.toggles.isSandbox = true
+        fixture.send(WorktreeIntent.Public.RunStarted(CHAT, RequestId("build-turn")))
+        fixture.send(WorktreeIntent.Public.RunAccepted(CHAT, RequestId("build-turn"), SESSION, MERGE_TURN))
+        fixture.send(
+            WorktreeIntent.Public.ProposeBuildPlan(
+                CHAT,
+                WorktreeBuildPlan("test", listOf(WorktreeBuildCommand("test", "build"))),
+            ),
+        )
+        fixture.send(WorktreeIntent.Public.RunBuild(CHAT, "build", "test", 1, BUILD_IDENTITY))
+        assertFalse(fixture.task().isSandbox)
+        assertNull(fixture.builds.executed.single().sandbox)
+        assertEquals(0, fixture.git.snapshotCount)
+    }
+
+    @Test
     fun `explicit worker reconciliation resolves unknown status without replaying the command`() = runTest {
         val fixture = Fixture()
         fixture.completeCoding()
@@ -447,6 +488,7 @@ class WorktreeJournalTest {
         var existsGate: CompletableDeferred<Unit>? = null
         var buildStarted: CompletableDeferred<Unit>? = null
         var buildGate: CompletableDeferred<Unit>? = null
+        var snapshotCount = 0
         override suspend fun plan(source: String, identity: String): WorktreeProvision {
             check(!hasPlanFailure) { "GitProcessUnavailable" }
             return WorktreeProvision("/source", "/checkout", "/common", "master", "heartbeat/task", "sha")
@@ -472,7 +514,12 @@ class WorktreeJournalTest {
                 record.directory,
                 listOf(record.commonDirectory),
                 "/jobs/$id",
+                sandbox = if (record.task.isSandbox) SandboxBuild("", "/slots", record.directory) else null,
             )
+        }
+        override suspend fun snapshot(record: WorktreeRecord, id: String): String {
+            snapshotCount++
+            return "snapshot-$id"
         }
         override suspend fun actionPrompt(record: WorktreeRecord, merge: Boolean): String {
             promptCount++
@@ -501,12 +548,14 @@ class WorktreeJournalTest {
         var leaseGate: CompletableDeferred<Unit>? = null
         var phase = WorktreeBuildPhase.Completed
         var executeCount = 0
+        val executed = mutableListOf<BuildExecution>()
         override suspend fun execute(
             execution: BuildExecution,
             isReattachment: Boolean,
             update: suspend (WorktreeBuildOperation) -> Unit,
         ): WorktreeBuildOperation {
             executeCount++
+            executed += execution
             return WorktreeBuildOperation(execution.id, execution.command.id, phase)
         }
         override suspend fun cancel(id: String) = true
@@ -528,10 +577,12 @@ class WorktreeJournalTest {
 
     private class FakeToggles : FeatureToggles {
         var isEnabled = true
+        var isSandbox = false
 
-        // This fake only hosts the feature's Boolean flag.
+        // This fake only hosts the feature's Boolean flags.
         @Suppress("UNCHECKED_CAST")
-        override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = isEnabled as T
+        override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T =
+            (if (toggle == WorktreeSandboxEnabled) isSandbox else isEnabled) as T
         override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = error("Unused")
     }
 

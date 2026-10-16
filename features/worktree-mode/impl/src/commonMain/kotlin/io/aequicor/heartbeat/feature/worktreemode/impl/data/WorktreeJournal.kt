@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeModeEnabled
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSandboxEnabled
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import io.aequicor.heartbeat.feature.worktreemode.api.actionPrepared
 import io.aequicor.heartbeat.feature.worktreemode.api.actionVerified
@@ -340,6 +341,7 @@ internal class WorktreeJournal(
                 sourceBranch = plan.sourceBranch,
                 branch = plan.branch,
                 baseCommit = plan.baseCommit,
+                isSandbox = toggles.get(WorktreeSandboxEnabled),
             )
             val pending = WorktreeRecord(
                 task,
@@ -551,7 +553,10 @@ internal class WorktreeJournal(
         ) { "BuildConfigurationChanged" }
         check(current.task.run?.outcome == null && current.task.run?.turn != null) { "TurnUnavailable" }
         check(current.task.hasActiveRun(command.expectedRun)) { "TurnUnavailable" }
-        val execution = git.build(current, command.operation, command.command)
+        val execution = git.build(current, command.operation, command.command).let { prepared ->
+            val sandbox = prepared.sandbox ?: return@let prepared
+            prepared.copy(sandbox = sandbox.copy(snapshot = git.snapshot(current, command.operation)))
+        }
         val queued = update(command.chatId) {
             check(
                 it.task.buildConfigurationRevision == command.expectedConfigurationRevision,

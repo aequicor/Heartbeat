@@ -63,7 +63,10 @@ private class WorkerRuntime(private val job: Path, private val execution: BuildE
         try {
             publish(WorktreeBuildPhase.WaitingForResource)
             if (acquireLocks()) {
-                if (execution.isHold) holdLease() else runCommand()
+                when {
+                    execution.isHold -> holdLease()
+                    syncSlot() -> runCommand()
+                }
             } else {
                 publishStopped(checkNotNull(stopped()))
             }
@@ -82,7 +85,26 @@ private class WorkerRuntime(private val job: Path, private val execution: BuildE
                 lock.release()
                 channel.close()
             }
+            execution.sandbox?.let { releaseSnapshot(it, execution.id) }
             Runtime.getRuntime().removeShutdownHook(shutdown)
+        }
+    }
+
+    /** A sandbox build first moves its locked slot to the snapshot; failure ends the build before the command. */
+    private fun syncSlot(): Boolean {
+        val sandbox = execution.sandbox ?: return true
+        publish(WorktreeBuildPhase.Running)
+        return try {
+            captured.append(prepareSlot(sandbox))
+            true
+        } catch (error: IllegalStateException) {
+            workerLog.w(error) { "Build slot could not be prepared" }
+            publish(WorktreeBuildPhase.Failed, failure = "SlotPreparationFailed")
+            false
+        } catch (error: java.io.IOException) {
+            workerLog.w(error) { "Build slot could not be prepared" }
+            publish(WorktreeBuildPhase.Failed, failure = "SlotPreparationFailed")
+            false
         }
     }
 

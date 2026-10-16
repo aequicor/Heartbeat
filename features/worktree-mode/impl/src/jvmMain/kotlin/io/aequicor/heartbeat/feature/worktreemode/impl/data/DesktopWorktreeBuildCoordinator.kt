@@ -42,6 +42,9 @@ internal class DesktopWorktreeBuildCoordinator(
     private val waiting = mutableListOf<Job>()
     private val jobs = mutableMapOf<String, Job>()
 
+    /** Last slot of each sandbox task: rebuilding there keeps its incremental outputs warm. */
+    private val affinity = mutableMapOf<String, Int>()
+
     override suspend fun execute(
         execution: BuildExecution,
         isReattachment: Boolean,
@@ -72,7 +75,11 @@ internal class DesktopWorktreeBuildCoordinator(
         isReattachment: Boolean = false,
         update: suspend (WorktreeBuildOperation) -> Unit,
     ): Job = mutex.withLock {
-        jobs[execution.id]?.also { it.update.set(update) } ?: Job(execution, update, isReattachment).also {
+        jobs[execution.id]?.also { it.update.set(update) } ?: Job(
+            if (isReattachment) adoptedSlot(execution) else execution,
+            update,
+            isReattachment,
+        ).also {
             jobs[execution.id] = it
             if (isReattachment) launchJob(it) else waiting += it
             admit()
@@ -114,15 +121,36 @@ internal class DesktopWorktreeBuildCoordinator(
 
     private fun admit() {
         val running = jobs.values.filter { it !in waiting }.map { job ->
-            RunningBuild(job.execution.id, job.execution.project, job.execution.cost, job.resources)
-        }
-        val queued = waiting.map { job ->
-            QueuedBuild(job.execution.id, job.execution.project, job.execution.cost, job.resources)
+            val sandbox = job.execution.sandbox
+            RunningBuild(
+                job.execution.id,
+                job.execution.project,
+                job.execution.cost,
+                job.resources,
+                sandbox?.pool,
+                sandbox?.slot,
+            )
         }
         val budget = capacity.budget()
+        val slots = minOf(budget.parallelBuilds, MAX_SLOTS_PER_PROJECT)
+        val queued = waiting.map { job ->
+            val sandbox = job.execution.sandbox
+            QueuedBuild(
+                job.execution.id,
+                job.execution.project,
+                job.execution.cost,
+                job.resources,
+                sandbox?.let { SlotDemand(it.pool, slots, affinity[it.affinity]) },
+            )
+        }
         val admission = admitBuilds(queued, running, budget)
         val eligible = waiting.filter { it.execution.id in admission.admitted }
         waiting.removeAll(eligible.toSet())
+        eligible.forEach { job ->
+            val slot = admission.admitted[job.execution.id] ?: return@forEach
+            job.execution = job.execution.inSlot(slot)
+            affinity[checkNotNull(job.execution.sandbox).affinity] = slot
+        }
         if (eligible.isNotEmpty()) {
             log.d { "Admit builds count=${eligible.size} waiting=${waiting.size} budgetUnits=${budget.units}" }
         }
@@ -254,13 +282,23 @@ internal class DesktopWorktreeBuildCoordinator(
         return listOf(packaged.toString(), "--heartbeat-worktree-build-worker", directory.toString())
     }
 
-    private data class Job(
-        val execution: BuildExecution,
-        val initialUpdate: suspend (WorktreeBuildOperation) -> Unit,
+    /** Reattached sandbox workers keep the slot recorded in their private job file. */
+    private fun adoptedSlot(execution: BuildExecution): BuildExecution {
+        if (execution.sandbox == null) return execution
+        val file = Path.of(execution.jobDirectory).resolve("job.json")
+        if (!Files.isRegularFile(file)) return execution
+        val recorded = Json.decodeFromString<BuildExecution>(Files.readString(file))
+        check(recorded.id == execution.id && recorded.sandbox?.slot != null) { "InvalidWorkerIdentity" }
+        return recorded
+    }
+
+    private class Job(
+        @Volatile var execution: BuildExecution,
+        initialUpdate: suspend (WorktreeBuildOperation) -> Unit,
         val isReattachment: Boolean,
     ) {
         val update = java.util.concurrent.atomic.AtomicReference(initialUpdate)
-        val resources = execution.resources.map(::resourceLockKey).toSet()
+        val resources: Set<String> get() = execution.resources.map(::resourceLockKey).toSet()
         val result = CompletableDeferred<WorktreeBuildOperation>()
         val started = CompletableDeferred<Unit>()
     }
@@ -269,6 +307,9 @@ internal class DesktopWorktreeBuildCoordinator(
         const val WORKER_MAIN = "io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.WorktreeBuildWorkerKt"
         const val POLL_MILLIS = 100L
         const val CANCEL_TIMEOUT = 10_000L
+
+        /** Warm slots of one repository; each keeps its own build outputs on disk. */
+        const val MAX_SLOTS_PER_PROJECT = 4
         val terminal = setOf(
             WorktreeBuildPhase.Completed,
             WorktreeBuildPhase.Failed,
@@ -277,6 +318,19 @@ internal class DesktopWorktreeBuildCoordinator(
         fun isWindows(): Boolean = System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
     }
 }
+
+/** Places a sandbox build into slot [index] of its pool; the slot directory becomes an exclusive resource. */
+internal fun BuildExecution.inSlot(index: Int): BuildExecution {
+    val target = checkNotNull(sandbox) { "SandboxUnavailable" }
+    val slot = slotDirectory(target.pool, index)
+    return copy(
+        directory = slot.resolve(target.relativeDirectory).normalize().toString(),
+        resources = (resources + slot.toString()).distinct().sorted(),
+        sandbox = target.copy(slot = index),
+    )
+}
+
+internal fun slotDirectory(pool: String, index: Int): Path = Path.of(pool).resolve("slot-$index")
 
 private fun BuildExecution.operation(phase: WorktreeBuildPhase, failure: String? = null): WorktreeBuildOperation =
     WorktreeBuildOperation(id, command.id, phase, failure = failure, configurationRevision = configurationRevision)

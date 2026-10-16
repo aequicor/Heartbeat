@@ -54,11 +54,30 @@ internal data class BuildExecution(
     val configurationRevision: Long = 0,
     val enqueueOrder: Long = 0,
     val project: String = "",
+    val sandbox: SandboxBuild? = null,
 ) {
     /** Hold leases only serialize agents; a build is weighed by its declared kind. */
     val cost: BuildCost get() = if (isHold) BuildCost.None else command.kind.cost()
 
     override fun toString(): String = "BuildExecution"
+}
+
+/**
+ * Sandbox build target: the immutable [snapshot] commit of the task's files is checked out in a warm build slot of
+ * [pool] before the command runs in [relativeDirectory] of that slot. [affinity] (the task identity) prefers the slot
+ * that built the task last; [repository] is a checkout of the same repository used to create slots. The coordinator
+ * assigns [slot] at admission and adds the slot directory to the exclusive resources.
+ */
+@Serializable
+internal data class SandboxBuild(
+    val snapshot: String,
+    val pool: String,
+    val repository: String,
+    val relativeDirectory: String = ".",
+    val affinity: String = "",
+    val slot: Int? = null,
+) {
+    override fun toString(): String = "SandboxBuild"
 }
 
 /** Desktop-only Git/filesystem primitives; errors carry safe codes rather than process output. */
@@ -70,6 +89,13 @@ internal interface WorktreeGit {
     suspend fun exists(record: WorktreeRecord): Boolean
     suspend fun validatePlan(record: WorktreeRecord, plan: WorktreeBuildPlan)
     suspend fun build(record: WorktreeRecord, id: String, command: String): BuildExecution
+
+    /**
+     * Commits the sandbox checkout's current files (respecting ignore rules, without touching the agent's index)
+     * as an immutable snapshot reachable from a private ref until its build finishes.
+     */
+    suspend fun snapshot(record: WorktreeRecord, id: String): String =
+        throw UnsupportedOperationException("Sandboxes require Desktop")
     suspend fun actionPrompt(record: WorktreeRecord, merge: Boolean): String
 
     /** Live-agent queue reservation; native commands need explicit session recovery after lost observation. */
