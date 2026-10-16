@@ -40,20 +40,21 @@ internal class ProjectConfigStartup(
     private val machine: Lazy<ProjectConfigMachine>,
     @ForScope(ProfileScope::class) private val scope: ScopeHandle,
     private val toggles: FeatureToggles,
-    private val workspaces: LocalWorkspaces,
+    // Lazy: profile storages may refuse to open (a wipe in progress) while the set of startups is created.
+    private val workspaces: Lazy<LocalWorkspaces>,
     private val folders: ProjectFolders,
     private val sections: Lazy<Set<ConfigSection>>,
 ) : ProfileStartup {
     private val log = Log.tag("ProjectConfigStartup")
 
     override fun start() {
-        if (!folders.isAvailable || !workspaces.isAvailable) {
+        if (!folders.isAvailable || !workspaces.value.isAvailable) {
             log.d { "Project configuration is unsupported on this platform" }
             return
         }
         val machine = machine.value
         scope.coroutineScope.launch {
-            combine(toggles.observe(ProjectConfigEnabled), workspaces.observe()) { isEnabled, projects ->
+            combine(toggles.observe(ProjectConfigEnabled), workspaces.value.observe()) { isEnabled, projects ->
                 isEnabled to projects.map { it.ref }.toSet()
             }
                 .distinctUntilChanged()
@@ -90,7 +91,7 @@ internal class ProjectConfigStartup(
             val projects = (machine.state.value as? ProjectConfigState.Ready)?.projects?.keys.orEmpty()
             prints.keys.retainAll(projects)
             for (project in projects) {
-                val print = workspaces.resolve(project)?.let { folders.fingerprint(it) }
+                val print = workspaces.value.resolve(project)?.let { folders.fingerprint(it) }
                 if (prints.containsKey(project) && prints[project] != print) {
                     log.v { "A project configuration folder changed" }
                     machine.send(Internal.Changed(project))
