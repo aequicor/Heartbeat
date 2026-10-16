@@ -20,6 +20,8 @@ import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningMachineSpec
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningOutput
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningState
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.LearningMachine
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReview
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
@@ -132,6 +134,7 @@ internal fun tools(
     machine: LearningMachine = SpecMachine(),
     toggles: Toggles = Toggles(),
     worktrees: Worktrees = Worktrees(),
+    reviewer: AgentSafetyReviewer = AgentSafetyReviewer { _, _, _ -> AgentSafetyReview("safe", "Bounded instruction") },
 ) = LearningAgentTools(
     machine,
     toggles,
@@ -140,6 +143,7 @@ internal fun tools(
     object : PlatformInfo {
         override val host: HostPlatform = HostPlatform.Windows
     },
+    LearningToolSafety(reviewer),
 )
 
 internal fun context(workspace: WorkspaceRef? = PROJECT, target: EngineTarget? = TARGET) = AgentToolContext(
