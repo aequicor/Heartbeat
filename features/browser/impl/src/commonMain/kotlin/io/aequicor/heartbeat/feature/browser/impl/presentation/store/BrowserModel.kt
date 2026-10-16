@@ -4,6 +4,7 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.flowmvi.reflect
@@ -16,10 +17,12 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserOutput
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserState
 import io.aequicor.heartbeat.feature.browser.api.browserAddress
+import io.aequicor.heartbeat.feature.browser.api.isBrowserUrlAllowed
 import io.aequicor.heartbeat.feature.browser.impl.di.scope.BrowserScope
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserShortcut
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserSurface
 import io.aequicor.heartbeat.feature.browser.impl.presentation.toDomain
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.launch
@@ -38,6 +41,8 @@ internal class BrowserModel(
     factory: HeartbeatStoreFactory,
     val surface: BrowserSurface,
 ) {
+    private val log = Log.tag("BrowserScreen")
+
     val store = factory.create<BrowserScreenState, BrowserScreenIntent, BrowserScreenAction>(
         name = "Browser",
         initial = BrowserScreenState(hasTabs = surface.hasTabs).reflectState(machine.state.value),
@@ -62,10 +67,16 @@ internal class BrowserModel(
                     controlRequest(intent.tabId, intent.requestId, BrowserOperation.RejectControl),
                 )
 
-                BrowserScreenIntent.ClearData -> sendTo(
-                    machine,
-                    BrowserIntent.Public.Perform(BrowserRequest(Uuid.random().toString(), BrowserOperation.ClearData)),
-                )
+                BrowserScreenIntent.ClearData -> {
+                    // Clearing browsing data forgets the recently closed addresses too, as in Chromium.
+                    updateState { copy(closedTabUrls = persistentListOf()) }
+                    sendTo(
+                        machine,
+                        BrowserIntent.Public.Perform(
+                            BrowserRequest(Uuid.random().toString(), BrowserOperation.ClearData),
+                        ),
+                    )
+                }
 
                 BrowserScreenIntent.NewTab -> withState { sendTo(machine, newTab(selectedTabId)) }
 
@@ -78,6 +89,8 @@ internal class BrowserModel(
                 }
 
                 is BrowserScreenIntent.Shortcut -> {
+                    // Zoom repeats with every wheel step and is logged by the machine; tab keys are logged here.
+                    if (intent.shortcut !is BrowserShortcut.Zoom) log.i { "Browser tab shortcut: ${intent.shortcut}" }
                     var action: BrowserIntent.Public? = null
                     updateState { shortcut(intent.shortcut).also { action = it.second }.first }
                     action?.let { sendTo(machine, it) }
@@ -161,27 +174,35 @@ internal class BrowserModel(
     }
 }
 
-/** Remembers the closed tab's address for [BrowserShortcut.ReopenClosedTab]. */
+/**
+ * Remembers the closed tab's address for [BrowserShortcut.ReopenClosedTab]: only the user's own tabs on the web, so a
+ * reopened address never moves between the user and an agent session.
+ */
 private fun BrowserScreenState.closing(id: String): BrowserScreenState {
-    val url = tabs.firstOrNull { it.id == id }?.url.orEmpty()
-    if (url.isEmpty()) return this
-    return copy(closedTabUrls = (closedTabUrls + url).takeLast(MAX_CLOSED_TABS).toImmutableList())
+    val tab = tabs.firstOrNull { it.id == id }
+    if (tab == null || tab.groupId != null || !isBrowserUrlAllowed(tab.url)) return this
+    return copy(closedTabUrls = (closedTabUrls + tab.url).takeLast(MAX_CLOSED_TABS).toImmutableList())
 }
 
 private fun closeRequest(id: String) =
     BrowserIntent.Public.Perform(BrowserRequest(Uuid.random().toString(), BrowserOperation.CloseTab, id))
 
-/** What [shortcut] changes in this state and the machine intent, if any, that carries it out. */
+/**
+ * What [shortcut] changes in this state and the machine intent, if any, that carries it out. Closing by key leaves an
+ * agent session's tabs alone: after the user's last tab, selection moves on to another group, and a repeated or held
+ * key must not cancel an agent's work. A closed tab reopens among the user's own tabs.
+ */
 internal fun BrowserScreenState.shortcut(shortcut: BrowserShortcut): Pair<BrowserScreenState, BrowserIntent.Public?> =
     when (shortcut) {
         is BrowserShortcut.Zoom -> this to BrowserIntent.Public.Zoom(shortcut.direction.toDomain())
 
         BrowserShortcut.NewTab -> this to newTab(selectedTabId)
 
-        BrowserShortcut.CloseTab -> selectedTabId?.let { closing(it) to closeRequest(it) } ?: (this to null)
+        BrowserShortcut.CloseTab -> tabs.firstOrNull { it.id == selectedTabId && it.groupId == null }
+            ?.let { closing(it.id) to closeRequest(it.id) } ?: (this to null)
 
         BrowserShortcut.ReopenClosedTab -> closedTabUrls.lastOrNull()?.let { url ->
-            copy(closedTabUrls = closedTabUrls.dropLast(1).toImmutableList()) to newTab(selectedTabId, url)
+            copy(closedTabUrls = closedTabUrls.dropLast(1).toImmutableList()) to newTab(null, url)
         } ?: (this to null)
 
         BrowserShortcut.NextTab,
