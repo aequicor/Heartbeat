@@ -88,6 +88,20 @@ class DesktopBrowserNavigationTest {
         assertEquals(false, states.last().failure?.isNetworkRetryable)
     }
 
+    @Test
+    fun `committed redirects and same-document changes keep an indicator`() {
+        navigation.execute(BrowserViewCommand.Load("https://example.com"))
+        navigation.address("https://example.com/")
+        assertEquals(BrowserSecurity.Https, states.last().security)
+        navigation.address("https://example.com/#section")
+        assertEquals(BrowserSecurity.Https, states.last().security)
+        navigation.execute(BrowserViewCommand.Load("https://example.com/start"))
+        navigation.address("http://example.org/redirected")
+        assertEquals(BrowserSecurity.Http, states.last().security)
+        navigation.started()
+        assertEquals(BrowserSecurity.Http, states.last().security)
+    }
+
     private fun BrowserViewState.phase() = isLoading to isAwaitingResponse
 
     /** Navigation only issues commands to the native browser; none of them return a value it reads. */

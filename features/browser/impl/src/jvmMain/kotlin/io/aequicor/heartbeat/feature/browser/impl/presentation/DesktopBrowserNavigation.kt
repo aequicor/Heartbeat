@@ -54,7 +54,9 @@ internal class DesktopBrowserNavigation(
         if (!isBrowserUrlAllowed(url)) return
         // Chromium's own error document commits the failed URL; it is not a page whose connection we can describe.
         if (state.failure == null) committedUrl = url
-        update(state.copy(url = url, security = connectionSecurity()))
+        // The indicator compares the committed address with the one now shown, so the address changes first.
+        state = state.copy(url = url)
+        update(state.copy(security = connectionSecurity()))
     }
 
     private fun connectionSecurity(): BrowserSecurity {
