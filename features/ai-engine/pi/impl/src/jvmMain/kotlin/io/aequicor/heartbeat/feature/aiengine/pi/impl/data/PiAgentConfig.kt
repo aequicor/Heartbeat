@@ -25,7 +25,7 @@ internal data class PiAgentConfig(
     val files: Map<String, String> = emptyMap(),
     /** Built-in extensions loaded explicitly while discovery stays off (`-e builtin:<name>`). */
     val builtins: List<String> = emptyList(),
-    /** User extensions or packages are configured: discovery runs and disabled built-ins are excluded instead. */
+    /** Profile resources or a trusted project need discovery; disabled built-ins are excluded instead. */
     val isDiscovering: Boolean = false,
     val isSkillsLoaded: Boolean = false,
     val isPromptsLoaded: Boolean = false,
@@ -46,16 +46,18 @@ internal data class PiAgentConfig(
  * Derives the process configuration from [values]. Keys Heartbeat owns are removed, relative resource paths resolve
  * against the persistent profile [home] (the agent directory lives only as long as the process), and vault
  * references in `mcp.json` are replaced by [secret] values; a server whose secret is missing is switched off.
+ * A configured, trusted project discovers its own resources even with an empty profile configuration.
  */
 internal suspend fun piAgentConfig(
     values: EngineConfigValues,
     home: Path,
+    isProjectTrusted: Boolean = false,
     secret: suspend (String) -> String?,
 ): PiAgentConfig {
-    if (values.isEmpty) return PiAgentConfig()
-    val settings = values.json(PiDocuments.Settings)
+    if (values.isEmpty && !isProjectTrusted) return PiAgentConfig()
+    val settings = values.json(PiDocuments.Settings) ?: JsonObject(emptyMap()).takeIf { isProjectTrusted }
     val enabled = Builtins.filter { (_, binding) -> values.flag(binding) }.map { (name, _) -> name }
-    val isDiscovering = settings.hasItems("extensions") || settings.hasItems("packages")
+    val isDiscovering = isProjectTrusted || settings.hasItems("extensions") || settings.hasItems("packages")
     val hasPackages = settings.hasItems("packages")
     val mcp = values.json(PiDocuments.Mcp)?.let { substituteSecrets(it, secret) }
     return PiAgentConfig(
@@ -63,7 +65,7 @@ internal suspend fun piAgentConfig(
         builtins = if (isDiscovering) emptyList() else enabled.map { "builtin:$it" },
         isDiscovering = isDiscovering,
         isSkillsLoaded = settings.hasItems("skills") || hasPackages,
-        isPromptsLoaded = settings.hasItems("prompts") || hasPackages,
+        isPromptsLoaded = isProjectTrusted || settings.hasItems("prompts") || hasPackages,
         hasProjectContext = values.flag(PiHostKeys.ProjectContextFiles, default = true),
         environment = environmentOf(values),
         tools = enabled.mapNotNull(BuiltinTools::get).flatten() + values.strings(PiHostKeys.ExtensionTools),

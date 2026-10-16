@@ -30,8 +30,12 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import pro.respawn.flowmvi.test.subscribeAndTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class EngineControlPanelModelTest {
@@ -288,6 +292,88 @@ class EngineControlPanelModelTest {
         runCurrent()
         assertEquals(null, screen.states.value.configDraft)
         assertEquals(listOf<EngineControlPanelAction>(EngineControlPanelAction.Leave), actions)
+    }
+
+    @Test
+    fun `a project save with unchanged files clears the submitted draft`() = runTest {
+        val values = EngineConfigValues(mapOf(ControlTestData.settings to ConfigDocument.Json(buildJsonObject { })))
+        val project = ProjectConfig(CodexId, WorkspaceRef("web"), values, ProjectRevision())
+        machine.state.value = (configured(ConfigRevision(0)) as EngineControlState.Active).copy(project = project)
+        val model = model()
+        model.store.closeAndWait()
+        model.store.subscribeAndTest {
+            model.store.intent(ProjectIntent.Open("web"))
+            // Formatting an empty JSON object changes the raw draft but need not change the saved file.
+            model.store.intent(ProjectIntent.EditFile("settings", "{}"))
+            runCurrent()
+            assertTrue(states.value.project!!.form.isSaveable)
+            model.store.intent(ProjectIntent.Save)
+            runCurrent()
+            assertTrue(states.value.project!!.form.isSubmitted)
+
+            machine.state.value = (machine.state.value as EngineControlState.Active).copy(projectSaveVersion = 1)
+            runCurrent()
+            assertNull(states.value.projectDraft)
+            assertFalse(states.value.project!!.form.isSubmitted)
+            assertFalse(states.value.project!!.form.isDirty)
+        }
+    }
+
+    @Test
+    fun `a project save completed before send returns clears its draft`() = runTest {
+        val values = EngineConfigValues(mapOf(ControlTestData.settings to ConfigDocument.Json(buildJsonObject { })))
+        val project = ProjectConfig(CodexId, WorkspaceRef("web"), values, ProjectRevision())
+        machine.state.value = (configured(ConfigRevision(0)) as EngineControlState.Active).copy(project = project)
+        machine.onSend = { intent ->
+            if ((intent as? EngineControlIntent.Public.Apply)?.operation is ControlOperation.SaveProject) {
+                val active = machine.state.value as EngineControlState.Active
+                machine.state.value = active.copy(projectSaveVersion = active.projectSaveVersion + 1)
+            }
+        }
+        val model = model()
+        model.store.closeAndWait()
+        model.store.subscribeAndTest {
+            model.store.intent(ProjectIntent.Open("web"))
+            model.store.intent(ProjectIntent.EditFile("settings", "{}"))
+            model.store.intent(ProjectIntent.Save)
+            runCurrent()
+
+            assertNull(states.value.projectDraft)
+            assertFalse(states.value.project!!.form.isSubmitted)
+            model.store.intent(ProjectIntent.EditField("retries", FieldInputUi.Number("3")))
+            runCurrent()
+            assertTrue(states.value.project!!.form.isSaveable)
+        }
+    }
+
+    @Test
+    fun `back from an emptied unreadable project file keeps its deletion for save`() = runTest {
+        val project = ProjectConfig(
+            CodexId,
+            WorkspaceRef("web"),
+            EngineConfigValues(),
+            ProjectRevision(mapOf(ControlTestData.settings to "broken")),
+            unreadable = mapOf(ControlTestData.settings to "{broken"),
+        )
+        machine.state.value = (configured(ConfigRevision(0)) as EngineControlState.Active).copy(project = project)
+        val model = model()
+        model.store.closeAndWait()
+        model.store.subscribeAndTest {
+            model.store.intent(ProjectIntent.Open("web"))
+            model.store.intent(ProjectIntent.OpenFile("settings"))
+            model.store.intent(ProjectIntent.EditFile("settings", ""))
+            model.store.intent(EngineControlPanelIntent.Back)
+            runCurrent()
+
+            assertNull(states.value.projectFile)
+            assertTrue(states.value.project!!.form.isSaveable)
+            assertEquals("", states.value.project!!.form.files.single().text)
+            model.store.intent(ProjectIntent.Save)
+            runCurrent()
+            val operation = assertIs<EngineControlIntent.Public.Apply>(machine.sent.last()).operation
+            val save = assertIs<ControlOperation.SaveProject>(operation)
+            assertEquals(mapOf(ControlTestData.settings to ""), save.edit.raw)
+        }
     }
 
     private fun configured(

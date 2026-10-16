@@ -30,7 +30,13 @@ data class ProjectItemUi(val id: String, val title: String, val trust: ProjectTr
 data class ProjectFormUi(val id: String, val title: String, val trust: ProjectTrustUi?, val form: ConfigFormUi)
 
 /** Unsaved changes of a project's files: [draft] edited from the files read at [revision]. Never printed. */
-data class ProjectDraft(val workspace: WorkspaceRef, val revision: ProjectRevision, val draft: ConfigDraft) {
+data class ProjectDraft(
+    val workspace: WorkspaceRef,
+    val revision: ProjectRevision,
+    val draft: ConfigDraft,
+    /** Successful save version observed before submitting this draft, or null before submission. */
+    val submittedAfterVersion: Long? = null,
+) {
     override fun toString(): String = "ProjectDraft(draft=$draft)"
 }
 
@@ -96,13 +102,20 @@ internal fun EngineConfigState.projectSaveOf(project: ProjectConfig, draft: Proj
 
 /**
  * The project draft as the machine moved on: dropped when its project closed, kept while its save runs, editable
- * again when the save failed and dropped once the files were read anew after a successful save.
+ * again when the save failed and dropped once its save succeeds, even if the files did not change.
  */
 internal fun ProjectDraft?.settle(project: ProjectConfig?, state: EngineControlState.Active): ProjectDraft? = when {
     this == null || project?.workspace != workspace -> null
+
+    submittedAfterVersion != null && state.projectSaveVersion > submittedAfterVersion -> null
+
     !draft.isSubmitted || state.pending is ControlOperation.SaveProject -> this
-    state.failed?.operation is ControlOperation.SaveProject -> copy(draft = draft.copy(isSubmitted = false))
-    project.revision != revision -> null
+
+    state.failed?.operation is ControlOperation.SaveProject -> copy(
+        draft = draft.copy(isSubmitted = false),
+        submittedAfterVersion = null,
+    )
+
     else -> this
 }
 

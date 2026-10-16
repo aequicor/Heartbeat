@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ImportPreview
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ImportReport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectConfig
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectEdit
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -89,6 +90,27 @@ class EngineControlMachineTest {
             from = observed.copy(pending = restart, project = project),
             intent = Internal.Applied(ControlResult.Done),
             to = observed.copy(project = project),
+        )
+    }
+
+    @Test
+    fun `a successful project save advances its receipt even when the files do not change`() {
+        val save = ControlOperation.SaveProject(engine, workspace, ProjectEdit(project.values), project.revision)
+        val before = observed.copy(project = project, projectSaveVersion = 4)
+        EngineControlMachineSpec.assertTransition(
+            from = before.copy(pending = save),
+            intent = Internal.Applied(ControlResult.Project(project)),
+            to = before.copy(projectSaveVersion = 5),
+        )
+        EngineControlMachineSpec.assertTransition(
+            from = before.copy(pending = ControlOperation.OpenProject(engine, workspace)),
+            intent = Internal.Applied(ControlResult.Project(project)),
+            to = before,
+        )
+        EngineControlMachineSpec.assertTransition(
+            from = before.copy(pending = save),
+            intent = Internal.ApplyFailed(ControlFailure.Engine(failure)),
+            to = before.copy(failed = FailedOperation(save, ControlFailure.Engine(failure))),
         )
     }
 

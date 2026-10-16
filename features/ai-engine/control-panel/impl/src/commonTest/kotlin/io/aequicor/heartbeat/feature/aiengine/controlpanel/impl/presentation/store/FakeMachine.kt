@@ -36,9 +36,11 @@ internal class FakeMachine<S : MachineState, I : MachineIntent, O : MachineOutpu
     override val outputs = MutableSharedFlow<O>(extraBufferCapacity = 8)
     val sent = mutableListOf<I>()
     var result = SendResult.Accepted
+    var onSend: (I) -> Unit = {}
 
     override suspend fun send(intent: I): SendResult {
         sent += intent
+        onSend(intent)
         return result
     }
 }

@@ -156,16 +156,18 @@ class ProjectPresentationTest {
     }
 
     @Test
-    fun `a submitted project draft stays while saved and leaves once the files are read anew`() {
+    fun `a submitted project draft stays until its save succeeds even when the files do not change`() {
         val draft = config.editProject(project, null, "retries", FieldInputUi.Number("7"))!!
-            .let { it.copy(draft = it.draft.copy(isSubmitted = true)) }
+            .let { it.copy(draft = it.draft.copy(isSubmitted = true), submittedAfterVersion = 4) }
         val save = ControlOperation.SaveProject(pi, workspace, ProjectEdit(draft.draft.values), draft.revision)
         val failed = FailedOperation(save, ControlFailure.Config(ConfigFailure.Conflict))
         val reread = project.copy(revision = ProjectRevision(mapOf(settings to "h2")))
 
         assertEquals(draft, draft.settle(project, EngineControlState.Active(pending = save)))
         assertEquals(false, draft.settle(project, EngineControlState.Active(failed = failed))?.draft?.isSubmitted)
-        assertNull(draft.settle(reread, EngineControlState.Active()))
+        assertEquals(draft, draft.settle(reread, EngineControlState.Active(projectSaveVersion = 4)))
+        assertNull(draft.settle(project, EngineControlState.Active(projectSaveVersion = 5)))
+        assertNull(draft.settle(reread, EngineControlState.Active(projectSaveVersion = 5)))
         assertNull(draft.settle(project.copy(workspace = WorkspaceRef("other")), EngineControlState.Active()))
         val edited = draft.copy(draft = draft.draft.copy(isSubmitted = false))
         assertTrue(config.projectForm(reread, edited, "Web").form.hasConflict)

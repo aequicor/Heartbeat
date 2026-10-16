@@ -218,7 +218,7 @@ internal fun moveSecrets(mcp: JsonObject): MovedSecrets {
                             }
 
                             isSecretKey(variable) && !text.startsWith("!") -> {
-                                val slot = slotFor(name, variable)
+                                val slot = slotFor(name, key, variable)
                                 secrets[slot] = text
                                 notes += ImportNote(MCP, ImportNoteReason.SecretMovedToVault, path)
                                 JsonPrimitive(secretReference(slot))
@@ -234,11 +234,12 @@ internal fun moveSecrets(mcp: JsonObject): MovedSecrets {
     return MovedSecrets(JsonObject(mcp + ("mcpServers" to JsonObject(moved))), secrets, notes)
 }
 
-/** A vault slot for a server's credential: readable, unique and at most 48 characters. */
-internal fun slotFor(server: String, variable: String): String {
+/** A bounded vault slot whose hash identifies the original server, credential map and variable independently. */
+internal fun slotFor(server: String, credentialMap: String, variable: String): String {
     val readable = "MCP_${server}_$variable".uppercase().replace(NonSlot, "_")
-    if (readable.length <= MAX_SLOT) return readable
-    val hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(readable.toByteArray())).take(HASH)
+    // JSON preserves case and punctuation and separates components even when their names contain separators.
+    val identity = JsonArray(listOf(server, credentialMap, variable).map(::JsonPrimitive)).toString()
+    val hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(identity.toByteArray())).take(HASH)
     return readable.take(MAX_SLOT - HASH - 1) + "_" + hash.uppercase()
 }
 
@@ -265,7 +266,7 @@ private val CredentialMaps = listOf("env", "headers")
 private val HostReference = Regex("\\$\\{?[A-Za-z_][A-Za-z0-9_]*}?")
 private val NonSlot = Regex("[^A-Z0-9_]+")
 private const val MAX_SLOT = 48
-private const val HASH = 8
+private const val HASH = 24
 private const val MAX_DOCUMENT_BYTES = 1_048_576L
 private const val MAX_RESOURCE_BYTES = 50L * 1024 * 1024
 
