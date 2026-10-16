@@ -4,6 +4,7 @@ import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveSubagentsEnabled
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningEnabled
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeEnabled
@@ -42,7 +43,10 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             toggles.observe(HarnessEnabled),
             toggles.observe(ContextOptimizationEnabled),
             toggles.observe(ServiceUiEnabled),
-        ) { learning, harness, context, interfaces -> ProfileSections(learning, harness, context, interfaces) },
+            toggles.observe(AdaptiveSubagentsEnabled),
+        ) { learning, harness, context, interfaces, subagents ->
+            ProfileSections(learning, harness, context, interfaces, subagents)
+        },
         sessions.active,
     ) { connections, search, (computerUse, chromium), profile, session ->
         availableSections(
@@ -55,6 +59,7 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             isHarnessEnabled = profile.isHarness,
             isContextEnabled = profile.isContext,
             isInterfacesEnabled = profile.isInterfaces,
+            isSubagentsEnabled = profile.isSubagents,
         )
     }
         // Sections without a toggle appear at once; gated ones join when their toggles are read from storage.
@@ -68,4 +73,5 @@ private data class ProfileSections(
     val isHarness: Boolean,
     val isContext: Boolean,
     val isInterfaces: Boolean,
+    val isSubagents: Boolean,
 )

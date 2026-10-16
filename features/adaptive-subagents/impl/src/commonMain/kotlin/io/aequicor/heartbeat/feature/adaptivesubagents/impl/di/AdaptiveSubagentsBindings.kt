@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveSubagentsSess
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesIntent
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesMachineSpec
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesView
+import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.LibraryMachine
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.ModelProfileStore
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.ModelProfilesEffects
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.research.ModelResearch
@@ -31,28 +32,30 @@ private val log = Log.tag("AdaptiveSubagentsBindings")
 @ContributesTo(ProfileScope::class)
 @BindingContainer
 object AdaptiveSubagentsBindings {
-    /**
-     * The only library binding other features inject: state without the ability to send internal intents. The machine
-     * itself is not bound, so it is reachable only through `MachineRegistry` with `Public` intents.
-     */
+    /** The library machine; other features read it only through [ModelProfilesView]. */
     @Provides
     @SingleIn(ProfileScope::class)
-    internal fun view(
+    internal fun machine(
         launcher: MachineLauncher,
         @ForScope(ProfileScope::class) scope: ScopeHandle,
         store: ModelProfileStore,
         researcher: ModelResearch,
         toggles: FeatureToggles,
-    ): ModelProfilesView {
+    ): LibraryMachine {
         val effects = ModelProfilesEffects(store, researcher) { toggles.get(AdaptiveSubagentsResearch) }
         val machine = launcher.launch(ModelProfilesMachineSpec, scope, effects)
         scope.coroutineScope.launch {
             val result = machine.send(ModelProfilesIntent.Public.Start)
             log.i { "model library start: $result" }
         }
-        return object : ModelProfilesView {
-            override val state = machine.state
-        }
+        return machine
+    }
+
+    /** The only library binding other features inject: state without the ability to send internal intents. */
+    @Provides
+    @SingleIn(ProfileScope::class)
+    internal fun view(machine: LibraryMachine): ModelProfilesView = object : ModelProfilesView {
+        override val state = machine.state
     }
 }
 

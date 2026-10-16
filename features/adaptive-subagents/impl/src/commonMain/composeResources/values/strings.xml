@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="subagents_title">Subagents</string>
+    <string name="subagents_back">Back</string>
+    <string name="subagents_loading">Loading model descriptions…</string>
+    <string name="subagents_load_failed">Model descriptions could not be read.</string>
+    <string name="subagents_save_failed">The change was not saved and lasts until the profile closes.</string>
+    <string name="subagents_retry">Retry</string>
+    <string name="subagents_dismiss">Dismiss</string>
+    <string name="subagents_section_selection">Selection</string>
+    <string name="subagents_section_selection_hint">What a subagent's model is chosen for when the agent names no priority.</string>
+    <string name="subagents_priority_quality">Quality</string>
+    <string name="subagents_priority_quality_hint">The strongest model and effort the task can use</string>
+    <string name="subagents_priority_balanced">Balance</string>
+    <string name="subagents_priority_balanced_hint">Good enough quality at a reasonable speed and cost</string>
+    <string name="subagents_priority_speed">Speed</string>
+    <string name="subagents_priority_speed_hint">The fastest model that copes with the task</string>
+    <string name="subagents_priority_cost">Cost</string>
+    <string name="subagents_priority_cost_hint">The cheapest model that copes with the task</string>
+    <string name="subagents_cross_engine">Other engines</string>
+    <string name="subagents_cross_engine_hint">A subagent may run on another engine than its parent</string>
+    <string name="subagents_section_service">Service models</string>
+    <string name="subagents_section_service_hint">Models that pick a subagent's model and research model descriptions.</string>
+    <string name="subagents_router">Router</string>
+    <string name="subagents_router_hint">Chooses among close candidates by the task text</string>
+    <string name="subagents_researcher">Researcher</string>
+    <string name="subagents_researcher_hint">Writes model descriptions from sources</string>
+    <string name="subagents_default_model">Default model</string>
+    <string name="subagents_model_menu">Choose a model</string>
+    <string name="subagents_section_costs">Connection billing</string>
+    <string name="subagents_section_costs_hint">Subscriptions and local models make their models cheaper for selection.</string>
+    <string name="subagents_cost_menu">Billing</string>
+    <string name="subagents_cost_metered">Per token</string>
+    <string name="subagents_cost_subscription">Subscription</string>
+    <string name="subagents_cost_local">Local</string>
+    <string name="subagents_cost_free">Free</string>
+    <string name="subagents_no_connections">No enabled connections</string>
+</resources>

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="subagents_title">Субагенты</string>
+    <string name="subagents_back">Назад</string>
+    <string name="subagents_loading">Загружаем описания моделей…</string>
+    <string name="subagents_load_failed">Не удалось прочитать описания моделей.</string>
+    <string name="subagents_save_failed">Изменение не сохранено и действует до закрытия профиля.</string>
+    <string name="subagents_retry">Повторить</string>
+    <string name="subagents_dismiss">Скрыть</string>
+    <string name="subagents_section_selection">Подбор</string>
+    <string name="subagents_section_selection_hint">Под что подбирается модель субагента, если агент не назвал приоритет.</string>
+    <string name="subagents_priority_quality">Качество</string>
+    <string name="subagents_priority_quality_hint">Самая сильная модель и effort, которые пригодятся задаче</string>
+    <string name="subagents_priority_balanced">Баланс</string>
+    <string name="subagents_priority_balanced_hint">Достаточное качество при разумных скорости и цене</string>
+    <string name="subagents_priority_speed">Скорость</string>
+    <string name="subagents_priority_speed_hint">Самая быстрая модель, которая справится</string>
+    <string name="subagents_priority_cost">Стоимость</string>
+    <string name="subagents_priority_cost_hint">Самая дешёвая модель, которая справится</string>
+    <string name="subagents_cross_engine">Другие движки</string>
+    <string name="subagents_cross_engine_hint">Субагент может работать на другом движке, чем родитель</string>
+    <string name="subagents_section_service">Служебные модели</string>
+    <string name="subagents_section_service_hint">Модели, которые выбирают модель субагента и исследуют описания моделей.</string>
+    <string name="subagents_router">Роутер</string>
+    <string name="subagents_router_hint">Выбирает из близких кандидатов по тексту задачи</string>
+    <string name="subagents_researcher">Исследователь</string>
+    <string name="subagents_researcher_hint">Пишет описания моделей по источникам</string>
+    <string name="subagents_default_model">Модель по умолчанию</string>
+    <string name="subagents_model_menu">Выбрать модель</string>
+    <string name="subagents_section_costs">Тарификация подключений</string>
+    <string name="subagents_section_costs_hint">Подписка и локальные модели делают модели подключения дешевле для подбора.</string>
+    <string name="subagents_cost_menu">Тарификация</string>
+    <string name="subagents_cost_metered">За токены</string>
+    <string name="subagents_cost_subscription">Подписка</string>
+    <string name="subagents_cost_local">Локально</string>
+    <string name="subagents_cost_free">Бесплатно</string>
+    <string name="subagents_no_connections">Нет включённых подключений</string>
+</resources>

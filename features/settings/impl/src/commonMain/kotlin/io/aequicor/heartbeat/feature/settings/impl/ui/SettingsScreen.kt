@@ -55,6 +55,7 @@ import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_ha
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_interfaces
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_models
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_search
+import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_subagents
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_title
 import kotlinx.collections.immutable.persistentListOf
 import org.jetbrains.compose.resources.stringResource
@@ -252,6 +253,7 @@ private fun BackButton(onBack: () -> Unit) {
 private fun sectionTitle(section: SettingsSectionUi): String = stringResource(
     when (section) {
         SettingsSectionUi.Models -> Res.string.settings_section_models
+        SettingsSectionUi.Subagents -> Res.string.settings_section_subagents
         SettingsSectionUi.Search -> Res.string.settings_section_search
         SettingsSectionUi.ComputerUse -> Res.string.settings_section_computer_use
         SettingsSectionUi.ChromiumBrowser -> Res.string.settings_section_chromium_browser
@@ -265,6 +267,7 @@ private fun sectionTitle(section: SettingsSectionUi): String = stringResource(
 
 private fun SettingsSectionUi.icon(): ImageVector = when (this) {
     SettingsSectionUi.Models -> HbIcons.Layers
+    SettingsSectionUi.Subagents -> HbIcons.Users
     SettingsSectionUi.Search -> HbIcons.Search
     SettingsSectionUi.ComputerUse -> HbIcons.Layers
     SettingsSectionUi.ChromiumBrowser -> HbIcons.Globe

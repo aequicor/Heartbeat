@@ -1,7 +1,14 @@
 package io.aequicor.heartbeat.feature.adaptivesubagents.impl
 
+import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.core.statemachine.Machine
+import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesEffect
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesIntent
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesMachineSpec
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesOutput
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesState
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesView
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
@@ -38,7 +45,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -136,6 +145,31 @@ internal class FakePrompts(var answer: IsolatedAnswer = IsolatedAnswer.Answered(
         asked += prompt
         return next.removeFirstOrNull() ?: answer
     }
+}
+
+/** The library machine running its real spec; effects are recorded, persistence succeeds. */
+internal class LibrarySpecMachine(initial: ModelProfilesState = ModelProfilesState.Ready()) :
+    Machine<ModelProfilesState, ModelProfilesIntent, ModelProfilesOutput> {
+    override val name: String = ModelProfilesMachineSpec.name
+    override val state = MutableStateFlow(initial)
+    private val emitted = MutableSharedFlow<ModelProfilesOutput>(extraBufferCapacity = 16)
+    override val outputs: Flow<ModelProfilesOutput> = emitted
+    val effects = mutableListOf<ModelProfilesEffect>()
+
+    override suspend fun send(intent: ModelProfilesIntent): SendResult {
+        val resolution = ModelProfilesMachineSpec.resolve(state.value, intent) ?: return SendResult.Ignored
+        state.value = resolution.to
+        effects += resolution.effects
+        resolution.outputs.forEach { emitted.emit(it) }
+        return SendResult.Accepted
+    }
+}
+
+/** Dispatchers of tests. */
+internal class TestDispatchers(dispatcher: CoroutineDispatcher) : DispatcherProvider {
+    override val main: CoroutineDispatcher = dispatcher
+    override val default: CoroutineDispatcher = dispatcher
+    override val io: CoroutineDispatcher = dispatcher
 }
 
 /** A model route of tests. */

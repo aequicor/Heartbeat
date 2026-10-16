@@ -22,10 +22,12 @@ internal fun availableSections(
     isHarnessEnabled: Boolean = false,
     isContextEnabled: Boolean = false,
     isInterfacesEnabled: Boolean = false,
+    isSubagentsEnabled: Boolean = false,
 ): ImmutableList<SettingsSection> = SettingsSection.entries.filter { section ->
     // Feature flags are device-local and need no profile; every other section needs its toggle and a profile.
     val isToggledOn = when (section) {
         SettingsSection.Models -> isModelsEnabled
+        SettingsSection.Subagents -> isSubagentsEnabled
         SettingsSection.Search -> isSearchEnabled
         SettingsSection.ComputerUse -> isComputerUseEnabled
         SettingsSection.ChromiumBrowser -> isChromiumBridgeEnabled
