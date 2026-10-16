@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.harness.api.workflow.AdaptiveAgent
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.WakeId
 
@@ -50,6 +51,12 @@ public interface ScriptSessions {
      * Creates a helper through the common lease. The host journals its identity before prompt, inherits the
      * parent's execution workspace, attaches this harness and caps trust at Ask. A missing parent uses host
      * defaults and never grants wider authority. Forbidden from hooks; approval of this script covers the start.
+     * [adaptive] asks the host to choose the helper's model for [prompt] before it starts (see [AdaptiveAgent]).
      */
-    public suspend fun spawn(parent: SessionRef? = null, title: String, prompt: String): ScriptHelper
+    public suspend fun spawn(
+        parent: SessionRef? = null,
+        title: String,
+        prompt: String,
+        adaptive: AdaptiveAgent? = null,
+    ): ScriptHelper
 }

@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrig
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessExecutionLane
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessScriptHost
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessHelperBindings
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessHelperModels
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.HarnessRunsEffects
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.HarnessRunsMachine
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.ProfileWorkflowDrivers
@@ -62,13 +63,14 @@ public object HarnessWorkflowBindings {
         resources: WorkflowHelperResources,
         helpers: HelperAgents,
         bindings: HarnessHelperBindings,
+        models: HarnessHelperModels,
         access: WorkflowRunAccess,
         clock: Clock,
         machine: Lazy<HarnessRunsMachine>,
     ): WorkflowRunExecution = WorkflowRunExecution(
         storage,
         code,
-        WorkflowHelperPorts(grants, resources, helpers, bindings),
+        WorkflowHelperPorts(grants, resources, helpers, bindings, models),
         access,
         clock,
     ) { machine.value.send(it) }

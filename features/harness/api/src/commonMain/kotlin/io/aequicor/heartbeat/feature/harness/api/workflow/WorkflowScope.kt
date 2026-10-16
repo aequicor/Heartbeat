@@ -15,8 +15,15 @@ public fun interface WorkflowRegistration {
     public fun register(definition: WorkflowDefinition)
 }
 
-/** Optional helper model override; trust is always bounded by the host. */
-public data class AgentOptions(val title: String, val target: EngineTarget? = null) {
+/**
+ * Optional helper model override; trust is always bounded by the host. [target] pins the model; otherwise
+ * [adaptive] asks the host to choose one for this step (see [AdaptiveAgent]); without both the helper inherits.
+ */
+public data class AgentOptions(
+    val title: String,
+    val target: EngineTarget? = null,
+    val adaptive: AdaptiveAgent? = null,
+) {
     override fun toString(): String = "AgentOptions(***)"
 }
 
