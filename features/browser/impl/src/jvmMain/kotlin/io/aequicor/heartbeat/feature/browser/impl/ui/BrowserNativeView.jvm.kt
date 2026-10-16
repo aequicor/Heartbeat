@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.browser.impl.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.RememberObserver
 import androidx.compose.runtime.SideEffect
@@ -10,7 +11,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import io.aequicor.heartbeat.ds.components.HbNativeModalOwner
 import io.aequicor.heartbeat.ds.components.HbNativeModalVisibility
-import io.aequicor.heartbeat.ds.components.LocalHbActiveNativeModalOwner
 import io.aequicor.heartbeat.ds.components.LocalHbNativeModalOwner
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import javax.swing.JComponent
@@ -23,20 +23,25 @@ internal fun BrowserNativeView(
     background: Color = HbTheme.colors.surface,
 ) {
     val owner = LocalHbNativeModalOwner.current
-    val active = LocalHbActiveNativeModalOwner.current
     val lease = remember(factory) { NativeViewLease(factory, owner) }
     SideEffect { lease.updateOwner(owner) }
     SwingPanel(
         background = background,
         factory = lease::createComponent,
-        modifier = modifier.nativeViewDrawing(active == null || active === owner),
+        modifier = modifier.nativeViewBacking(background),
     )
 }
 
-/** Hides interop's Clear draw along with its native peer, without changing layout or the retained DOM. */
-internal fun Modifier.nativeViewDrawing(isVisible: Boolean): Modifier = graphicsLayer {
-    alpha = if (isVisible) 1f else 0f
-}
+/**
+ * A windowed browser draws its own native view above the Compose canvas, so interop's Clear only exposes the
+ * window's unpainted backing beneath it. That backing shows as black wherever the peer lags behind Compose:
+ * a growing host before the native view follows its new bounds, or a closing host whose peer hides before
+ * Compose presents the frame without it. Kept [background] fills those gaps and the area of a peer hidden by
+ * another modal, and a rounded native mask reveals the real Compose backdrop at its corners. Layout, the
+ * native peer and the retained DOM are unaffected.
+ */
+internal fun Modifier.nativeViewBacking(background: Color): Modifier =
+    background(background).graphicsLayer { alpha = 0f }
 
 private class NativeViewLease(private val factory: () -> JComponent, private var owner: HbNativeModalOwner?) :
     RememberObserver {
