@@ -1,7 +1,11 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
+import io.aequicor.heartbeat.feature.browser.api.BrowserZoom
+
 /** Tab commands bound to keys as in desktop Chromium. */
 internal sealed interface BrowserShortcut {
+    data class Zoom(val direction: BrowserZoomDirection) : BrowserShortcut
+
     data object NewTab : BrowserShortcut
 
     data object CloseTab : BrowserShortcut
@@ -42,6 +46,8 @@ internal fun browserShortcut(
 
     key == 't' -> if (isShift) BrowserShortcut.ReopenClosedTab else BrowserShortcut.NewTab
 
+    key in "=+-0" -> browserZoomShortcut(key)
+
     isShift -> null
 
     key == 'w' -> BrowserShortcut.CloseTab
@@ -55,3 +61,24 @@ internal fun browserShortcut(
 
 /** Whether the host's command modifier is Cmd (macOS, iOS) rather than Ctrl. */
 internal expect fun isBrowserMetaShortcut(): Boolean
+
+/** Presentation commands shared by Compose and native browser input. */
+internal enum class BrowserZoomDirection {
+    In,
+    Out,
+    Reset,
+}
+
+internal fun BrowserZoomDirection.toDomain(): BrowserZoom = when (this) {
+    BrowserZoomDirection.In -> BrowserZoom.In
+    BrowserZoomDirection.Out -> BrowserZoom.Out
+    BrowserZoomDirection.Reset -> BrowserZoom.Reset
+}
+
+private fun browserZoomShortcut(key: Char): BrowserShortcut.Zoom = BrowserShortcut.Zoom(
+    when (key) {
+        '+', '=' -> BrowserZoomDirection.In
+        '-' -> BrowserZoomDirection.Out
+        else -> BrowserZoomDirection.Reset
+    },
+)

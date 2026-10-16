@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserReferrer
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserReferrerPolicy
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserRequestKind
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserWorkspaceStorage
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserZoomStorage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -506,6 +507,7 @@ class DesktopBrowserSessionTest {
         private val clearRelease: CompletableDeferred<Unit>? = null,
         private val nativeCommand: (suspend () -> String)? = null,
         val storage: BrowserWorkspaceStorage = MemoryBrowserWorkspaceStorage(),
+        val zoomStorage: BrowserZoomStorage = MemoryBrowserZoomStorage(),
         private val failCreateAt: Int? = null,
         private val devTools: (suspend (String, JsonObject) -> String)? = null,
         private val areFaviconsEnabled: Boolean = true,
@@ -582,6 +584,7 @@ class DesktopBrowserSessionTest {
             policy,
             storage,
             favicons,
+            zoomStorage,
         )
 
         fun attach() = SwingUtilities.invokeAndWait { panels.single().createComponent() }

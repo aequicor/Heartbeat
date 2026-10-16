@@ -11,13 +11,16 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
+import io.aequicor.heartbeat.feature.browser.api.BROWSER_DEFAULT_ZOOM
 import io.aequicor.heartbeat.feature.browser.api.BrowserError
 import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserPage
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserTab
+import io.aequicor.heartbeat.feature.browser.api.BrowserZoom
 import io.aequicor.heartbeat.feature.browser.api.browserSearchUrl
+import io.aequicor.heartbeat.feature.browser.api.browserZoomStep
 import io.aequicor.heartbeat.feature.browser.api.isBrowserUrlAllowed
 import io.aequicor.heartbeat.feature.browser.api.normalizeBrowserUrl
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserAgentPolicy
@@ -26,6 +29,7 @@ import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserNativeResources
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserRequestKind
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserSession
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserWorkspaceStorage
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserZoomStorage
 import io.aequicor.heartbeat.feature.browser.impl.domain.MAX_BROWSER_TABS
 import io.aequicor.heartbeat.feature.browser.impl.domain.SavedBrowserTab
 import io.aequicor.heartbeat.feature.browser.impl.domain.SavedBrowserWorkspace
@@ -75,6 +79,7 @@ internal class DesktopBrowserSession(
     private val agentPolicy: BrowserAgentPolicy,
     private val storage: BrowserWorkspaceStorage,
     private val icons: DesktopBrowserFavicons,
+    private val zoomStorage: BrowserZoomStorage,
 ) : BrowserSession,
     BrowserSurface {
     private val log = Log.tag("BrowserWorkspace")
@@ -89,6 +94,54 @@ internal class DesktopBrowserSession(
             }
         }
     }
+
+    private val zoomLock = Mutex()
+    private var zoomLevels: Map<String, Int> = emptyMap()
+    private var isZoomEnabled = false
+    override val isZoomSupported = true
+
+    override suspend fun setZoomEnabled(isEnabled: Boolean): Unit = withContext(dispatchers.main) {
+        zoomLock.withLock {
+            if (isEnabled) zoomLevels = loadZoomLevels()
+            isZoomEnabled = isEnabled
+            entries.values.forEach { entry -> entry.update(entry.surface.pages.value) }
+            projectTabs()
+        }
+    }
+
+    override suspend fun zoom(tabId: String?, direction: BrowserZoom, url: String?): Unit = withContext(
+        dispatchers.main,
+    ) {
+        val entry = entries[tabId ?: selected] ?: return@withContext
+        val host = browserZoomHost(url ?: entry.surface.pages.value.url) ?: return@withContext
+        zoomLock.withLock { zoomEntry(entry, host, direction) }
+    }
+
+    /** Called under [zoomLock] after capturing the originating tab and host. */
+    private suspend fun zoomEntry(entry: Entry, host: String, direction: BrowserZoom) {
+        if (!isBrowserEnabled || !isZoomEnabled || isClearingData) return
+        if (entries[entry.tab.id] !== entry || browserZoomHost(entry.surface.pages.value.url) != host) return
+        val current = zoomLevels[host] ?: BROWSER_DEFAULT_ZOOM
+        val percent = browserZoomStep(current, direction)
+        if (percent == current) return
+        zoomStorage.save(host, percent)
+        zoomLevels = if (percent == BROWSER_DEFAULT_ZOOM) zoomLevels - host else zoomLevels + (host to percent)
+        entries.values.forEach { it.update(it.surface.pages.value) }
+        projectTabs()
+    }
+
+    /** Saved levels are a preference: an unreadable store leaves pages at the default and keeps the browser running. */
+    private suspend fun loadZoomLevels(): Map<String, Int> = try {
+        zoomStorage.load()
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        log.w(error.redactedFailure()) { "Saved page zoom levels could not be read" }
+        emptyMap()
+    }
+
+    private fun zoomPercent(url: String): Int =
+        if (isZoomEnabled) zoomLevels[browserZoomHost(url)] ?: BROWSER_DEFAULT_ZOOM else BROWSER_DEFAULT_ZOOM
 
     private val availabilityLock = Mutex()
     private var isRestoring = false
@@ -234,6 +287,10 @@ internal class DesktopBrowserSession(
             pending.forEach { it.cancel() }
             pending.joinAll()
             // Remove recovery data before deleting native state; a restart during cleanup cannot resurrect tabs.
+            zoomLock.withLock {
+                zoomStorage.clear()
+                zoomLevels = emptyMap()
+            }
             storage.save(SavedBrowserWorkspace())
             entries.keys.toList().forEach { close(it) }
             icons.clear()
@@ -490,7 +547,11 @@ internal class DesktopBrowserSession(
         val surface = BrowserSurfaceAdapter(scope, dispatchers, nativeResources)
         surface.setEnabled(true)
         val guard = DesktopBrowserAgentGuard()
-        val panel = factory.create(surface, guard, { url -> openLinkedTab(id, url) }, ::pagePressed)
+        val panel = factory.create(surface, guard, { url -> openLinkedTab(id, url) }) { shortcut ->
+            scope.coroutineScope.launch(dispatchers.main) {
+                if (entries[id]?.surface === surface && selected == id) pagePressed(shortcut)
+            }
+        }
         val entry =
             Entry(
                 BrowserTab(
@@ -505,6 +566,7 @@ internal class DesktopBrowserSession(
                 guard,
                 DesktopBrowserFaviconProbe(panel::devTools),
                 panel::loadIcon,
+                panel,
             )
         restored?.takeIf { it.faviconUrl.isNotEmpty() }?.let { entry.favicon = Favicon(it.url, it.faviconUrl) }
         entry.syncGuard(approved = null)
@@ -580,9 +642,10 @@ internal class DesktopBrowserSession(
         }
     }
 
-    /** A tab key pressed inside a page, on CEF's UI thread; the strip acts on it as on a key pressed in Compose. */
+    /** A key or wheel step inside the selected tab's page; the strip acts on it as on a key pressed in Compose. */
+    @HighFrequency
     private fun pagePressed(shortcut: BrowserShortcut) {
-        log.i { "Browser tab shortcut pressed in a page: $shortcut" }
+        log.v { "Browser shortcut pressed in a page: $shortcut" }
         if (!shortcuts.tryEmit(shortcut)) log.w { "Browser tab shortcut dropped: $shortcut" }
     }
 
@@ -673,13 +736,14 @@ internal class DesktopBrowserSession(
     /** The icon found for [pageUrl]; it stays with the tab while the tab shows a page of the same origin. */
     private data class Favicon(val pageUrl: String, val url: String)
 
-    private class Entry(
+    private inner class Entry(
         var tab: BrowserTab,
         val surface: BrowserSurfaceAdapter,
         val driver: DesktopBrowserAutomation,
         val guard: DesktopBrowserAgentGuard,
         val favicons: DesktopBrowserFaviconProbe,
         val loadIcon: suspend (String) -> ByteArray,
+        val panel: DesktopBrowserPanel,
     ) {
         val lock = Mutex()
         var observer: Job? = null
@@ -700,7 +764,12 @@ internal class DesktopBrowserSession(
             val isPendingTitle = page.isLoading && page.url == tab.page.url
             val title = if (isPendingTitle) page.title.ifBlank { tab.page.title } else page.title
             val icon = favicon?.takeIf { browserOrigin(it.pageUrl) == browserOrigin(page.url) }?.url.orEmpty()
-            tab = tab.copy(page = page.copy(title = title, faviconUrl = icon))
+            val percent = zoomPercent(page.url)
+            panel.setZoom(isZoomEnabled, percent, page.url)
+            tab = tab.copy(page = page.copy(title = title, faviconUrl = icon, zoomPercent = percent))
         }
     }
 }
+
+/** Chrome shares page zoom between schemes and ports of a host; subdomains remain separate. */
+internal fun browserZoomHost(url: String): String? = browserOrigin(url)?.substringAfter("://")?.substringBeforeLast(':')

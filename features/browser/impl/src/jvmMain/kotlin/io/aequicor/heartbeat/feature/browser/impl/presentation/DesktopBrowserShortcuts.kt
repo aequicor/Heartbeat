@@ -18,6 +18,7 @@ import java.awt.event.KeyEvent
 internal class DesktopBrowserShortcuts(
     private val onShortcut: (BrowserShortcut) -> Unit,
     private val isMac: Boolean = OS.isMacintosh(),
+    private val isZoomEnabled: () -> Boolean = { false },
 ) : CefKeyboardHandlerAdapter() {
     private var press: Press? = null
 
@@ -47,6 +48,7 @@ internal class DesktopBrowserShortcuts(
     @HighFrequency
     private fun keyDown(event: CefKeyEvent): Boolean {
         val shortcut = shortcut(event) ?: return false
+        if (shortcut is BrowserShortcut.Zoom && !isZoomEnabled()) return false
         val previous = press
         if (previous?.shortcut == shortcut && previous.type != event.type) return true
         press = Press(shortcut, event.type)
@@ -61,6 +63,9 @@ internal class DesktopBrowserShortcuts(
             KeyEvent.VK_T -> 't'
             KeyEvent.VK_W -> 'w'
             KeyEvent.VK_TAB -> '\t'
+            KeyEvent.VK_0, KeyEvent.VK_NUMPAD0 -> '0'
+            KeyEvent.VK_ADD, 0xBB -> '+'
+            KeyEvent.VK_SUBTRACT, 0xBD -> '-'
             in KeyEvent.VK_1..KeyEvent.VK_9 -> '0' + (code - KeyEvent.VK_0)
             else -> return null
         }

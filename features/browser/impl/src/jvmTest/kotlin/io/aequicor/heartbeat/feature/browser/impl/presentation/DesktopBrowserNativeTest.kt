@@ -128,6 +128,14 @@ class DesktopBrowserNativeTest {
         verifyDirectDocument(app, "http://127.0.0.1:${server.address.port}")
         verifyFavicon(app, "http://127.0.0.1:${server.address.port}")
         verifyAgentGuard(app, server)
+        val zoomContext = temporaryContextFactory()
+        DesktopBrowserZoomNativeProbe(
+            createEngine = { states, shortcut ->
+                testEngine(app, states, onShortcut = shortcut, createContext = zoomContext)
+            },
+            createFrame = ::nativeFrame,
+            awaitTitle = ::awaitTitle,
+        ).verify("http://127.0.0.1:${server.address.port}")
     }
 
     /**
@@ -198,6 +206,8 @@ class DesktopBrowserNativeTest {
         states: LinkedBlockingQueue<BrowserViewState>,
         guard: DesktopBrowserAgentGuard = DesktopBrowserAgentGuard(),
         openTab: ((BrowserCommand.Load) -> Unit)? = null,
+        onShortcut: ((BrowserShortcut) -> Unit)? = null,
+        createContext: (CefRequestContextHandler) -> CefRequestContext = temporaryContextFactory(),
     ) = DesktopBrowserEngine(
         app,
         nativeDispatchers(),
@@ -206,7 +216,8 @@ class DesktopBrowserNativeTest {
         states::offer,
         guard = guard,
         openTab = openTab,
-        createContext = temporaryContextFactory(),
+        onShortcut = onShortcut,
+        createContext = createContext,
     )
 
     private fun verifyLinkedTabs(app: org.cef.CefApp, base: String) {

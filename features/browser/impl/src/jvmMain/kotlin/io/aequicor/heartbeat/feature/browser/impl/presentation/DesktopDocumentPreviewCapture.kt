@@ -122,7 +122,7 @@ private fun JsonObject.previewMetrics(): BrowserDocumentPreviewMetrics = Browser
     viewportHeight = coordinate("viewportHeight").toInt(),
     contentWidth = coordinate("contentWidth").toInt(),
     contentHeight = coordinate("contentHeight").toInt(),
-    horizontalOverflow = getValue("horizontalOverflow").jsonPrimitive.boolean,
+    hasHorizontalOverflow = getValue("horizontalOverflow").jsonPrimitive.boolean,
 )
 
 private fun JsonObject.previewSample(): BrowserDocumentPreviewElement = BrowserDocumentPreviewElement(
