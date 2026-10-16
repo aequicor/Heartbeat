@@ -264,4 +264,9 @@
     <string name="control_import_note_unreadable">Не удалось прочитать</string>
     <string name="engine_confirm_sync_title">Установить пакеты по списку?</string>
     <string name="engine_confirm_sync_body">Heartbeat установит пакеты из списка в настройках и удалит установленные пакеты, которых в нём больше нет.</string>
+    <string name="control_leave_title">Отменить несохранённые изменения?</string>
+    <string name="control_leave_body">Изменения, которые вы не сохранили, будут потеряны.</string>
+    <string name="control_leave_stay">Продолжить правку</string>
+    <string name="control_leave_discard">Не сохранять</string>
+    <string name="control_editor_keys">Tab — отступ. Ctrl+Tab — к следующему полю, Ctrl+Shift+Tab — к предыдущему.</string>
 </resources>

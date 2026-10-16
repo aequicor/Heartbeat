@@ -249,6 +249,47 @@ class EngineControlPanelModelTest {
         assertEquals(null, screen.states.value.importing)
     }
 
+    @Test
+    fun `back closes an open page first and then leaves the panel`() = runTest {
+        machine.state.value = configured(ConfigRevision(0))
+        val model = model()
+        val actions = mutableListOf<EngineControlPanelAction>()
+        val screen = subscribe(model.store, actions)
+        model.store.intent(ConfigIntent.OpenPage("network"))
+        model.store.intent(EngineControlPanelIntent.Back)
+        runCurrent()
+        assertEquals(null, screen.states.value.openPage)
+        assertTrue(actions.isEmpty())
+
+        model.store.intent(EngineControlPanelIntent.Back)
+        runCurrent()
+        assertEquals(listOf<EngineControlPanelAction>(EngineControlPanelAction.Leave), actions)
+    }
+
+    @Test
+    fun `unsaved changes ask before the panel is left and are dropped only when discarded`() = runTest {
+        machine.state.value = configured(ConfigRevision(0))
+        val model = model()
+        val actions = mutableListOf<EngineControlPanelAction>()
+        val screen = subscribe(model.store, actions)
+        model.store.intent(ConfigIntent.EditField("retries", FieldInputUi.Number("3")))
+        model.store.intent(EngineControlPanelIntent.Back)
+        runCurrent()
+        assertTrue(screen.states.value.isLeaving)
+        assertTrue(actions.isEmpty())
+
+        model.store.intent(EngineControlPanelIntent.KeepEditing)
+        runCurrent()
+        assertEquals(false, screen.states.value.isLeaving)
+        assertEquals(true, screen.states.value.config?.isDirty)
+
+        model.store.intent(EngineControlPanelIntent.Back)
+        model.store.intent(EngineControlPanelIntent.DiscardAndLeave)
+        runCurrent()
+        assertEquals(null, screen.states.value.configDraft)
+        assertEquals(listOf<EngineControlPanelAction>(EngineControlPanelAction.Leave), actions)
+    }
+
     private fun configured(
         revision: ConfigRevision,
         values: EngineConfigValues = EngineConfigValues(),

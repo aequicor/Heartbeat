@@ -242,6 +242,6 @@ class EngineManagementUiTest {
     /** Shows [state] on its screen, passing on only the management block's intents. */
     @Composable
     private fun Host(state: EngineControlPanelState, onIntent: (EngineManagementIntent) -> Unit = {}) {
-        HbTheme { EngineControlPanelContent(state, { if (it is EngineManagementIntent) onIntent(it) }, {}) }
+        HbTheme { EngineControlPanelContent(state, { if (it is EngineManagementIntent) onIntent(it) }) }
     }
 }

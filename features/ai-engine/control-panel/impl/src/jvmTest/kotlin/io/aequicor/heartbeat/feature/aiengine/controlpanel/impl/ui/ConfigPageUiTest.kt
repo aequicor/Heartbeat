@@ -82,7 +82,7 @@ class ConfigPageUiTest {
     @Test
     fun `a page opens from the overview`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineControlPanelIntent>()
-        setContent { HbTheme { EngineControlPanelContent(overview, { intents += it }, {}) } }
+        setContent { HbTheme { EngineControlPanelContent(overview, { intents += it }) } }
 
         onNodeWithTag("engine-control-page:network").performClick()
         runOnIdle { assertEquals(listOf<EngineControlPanelIntent>(ConfigIntent.OpenPage("network")), intents) }
@@ -91,7 +91,7 @@ class ConfigPageUiTest {
     @Test
     fun `fields of an open page send their edits and a draft with problems cannot be saved`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineControlPanelIntent>()
-        setContent { HbTheme { EngineControlPanelContent(overview.copy(openPage = "network"), { intents += it }, {}) } }
+        setContent { HbTheme { EngineControlPanelContent(overview.copy(openPage = "network"), { intents += it }) } }
 
         onNodeWithTag("config-flag:offline").performClick()
         onNodeWithTag("config-number:timeout").performTextReplacement("45")
@@ -110,7 +110,7 @@ class ConfigPageUiTest {
                     edit("skills", FieldInputUi.TextList(persistentListOf("a", ""))),
                     edit("skills", FieldInputUi.TextList(persistentListOf())),
                     ConfigIntent.DiscardConfig,
-                    ConfigIntent.ClosePage,
+                    EngineControlPanelIntent.Back,
                 ),
                 intents,
             )
@@ -121,7 +121,7 @@ class ConfigPageUiTest {
     fun `a conflict is resolved only by discarding the draft`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineControlPanelIntent>()
         val conflict = overview.copy(openPage = "network", config = form.copy(hasConflict = true))
-        setContent { HbTheme { EngineControlPanelContent(conflict, { intents += it }, {}) } }
+        setContent { HbTheme { EngineControlPanelContent(conflict, { intents += it }) } }
 
         onNodeWithTag("config-conflict").assertExists()
         onNodeWithTag("config-save").assertDoesNotExist()
@@ -137,7 +137,7 @@ class ConfigPageUiTest {
             persistentListOf(ConfigSectionUi("main", text("Main"), null, persistentListOf(servers))),
         )
         val state = overview.copy(openPage = "mcp", config = ConfigFormUi(persistentListOf(page)))
-        setContent { HbTheme { EngineControlPanelContent(state, { intents += it }, {}) } }
+        setContent { HbTheme { EngineControlPanelContent(state, { intents += it }) } }
 
         onNodeWithTag("config-entry-name:github").performTextReplacement("gh")
         onNodeWithTag("config-pair:env:0:secret").performClick()
@@ -166,7 +166,7 @@ class ConfigPageUiTest {
         val intents = mutableListOf<EngineControlPanelIntent>()
         val file = ConfigFileUi("settings", text("Settings"), "s.json", "{}", "json")
         var state by mutableStateOf(overview.copy(config = form.copy(files = persistentListOf(file))))
-        setContent { HbTheme { EngineControlPanelContent(state, { intents += it }, {}) } }
+        setContent { HbTheme { EngineControlPanelContent(state, { intents += it }) } }
 
         onNodeWithTag("engine-control-file:settings").performClick()
         state = state.copy(openPage = filePage("settings"))
@@ -176,6 +176,24 @@ class ConfigPageUiTest {
                 listOf<EngineControlPanelIntent>(
                     ConfigIntent.OpenPage(filePage("settings")),
                     ConfigIntent.EditFile("settings", "{\"a\": 1}"),
+                ),
+                intents,
+            )
+        }
+    }
+
+    @Test
+    fun `leaving with unsaved changes asks to keep editing or discard`() = runSkikoComposeUiTest {
+        val intents = mutableListOf<EngineControlPanelIntent>()
+        setContent { HbTheme { EngineControlPanelContent(overview.copy(isLeaving = true), { intents += it }) } }
+
+        onNodeWithTag("leave-stay").performClick()
+        onNodeWithTag("leave-discard").performClick()
+        runOnIdle {
+            assertEquals(
+                listOf<EngineControlPanelIntent>(
+                    EngineControlPanelIntent.KeepEditing,
+                    EngineControlPanelIntent.DiscardAndLeave,
                 ),
                 intents,
             )

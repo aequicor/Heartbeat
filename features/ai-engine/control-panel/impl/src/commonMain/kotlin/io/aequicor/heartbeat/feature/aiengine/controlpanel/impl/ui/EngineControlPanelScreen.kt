@@ -1,15 +1,18 @@
 package io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ui
 
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import io.aequicor.heartbeat.ds.components.HbBanner
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonSize
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
+import io.aequicor.heartbeat.ds.components.HbDialog
 import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbEmptyState
 import io.aequicor.heartbeat.ds.components.HbIcon
@@ -17,11 +20,13 @@ import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbLoadingState
 import io.aequicor.heartbeat.ds.components.HbSettingsRow
 import io.aequicor.heartbeat.ds.components.HbSettingsSection
+import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTone
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigFormUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.ConfigIntent
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelAction
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelIntent
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelModel
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelState
@@ -31,6 +36,10 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.sto
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.Res
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_config_unsaved
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_dismiss
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_leave_body
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_leave_discard
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_leave_stay
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_leave_title
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_loading
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_configuration_off
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_files
@@ -39,6 +48,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.contro
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_no_settings
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_settings
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_panel_settings_description
+import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import pro.respawn.flowmvi.dsl.collect
 
@@ -48,23 +58,29 @@ internal fun EngineControlPanelScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val leave by rememberUpdatedState(onBack)
     val state by produceState(EngineControlPanelState(""), model) {
-        model.store.collect { states.collect { value = it } }
+        model.store.collect {
+            launch { actions.collect { if (it == EngineControlPanelAction.Leave) leave() } }
+            states.collect { value = it }
+        }
     }
-    EngineControlPanelContent(state, { model.store.intent(it) }, onBack, modifier)
+    EngineControlPanelContent(state, { model.store.intent(it) }, modifier)
 }
 
 /**
- * One engine: its management block, then the pages of its configuration. An open page replaces the overview and
- * its back action returns to it.
+ * One engine: its management block, then the pages of its configuration. An open page, file or project replaces the
+ * overview; back (the header, Esc, the system) returns to it and then leaves the panel, asking about unsaved changes.
  */
 @Composable
 internal fun EngineControlPanelContent(
     state: EngineControlPanelState,
     onIntent: (EngineControlPanelIntent) -> Unit,
-    onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // The overview keeps its place while a page, a file or a project is open.
+    val overview = rememberScrollState()
+    if (state.isLeaving) LeaveDialog(onIntent)
     if (state.openProject != null) {
         ProjectScreen(state, onIntent, modifier)
         return
@@ -75,7 +91,8 @@ internal fun EngineControlPanelContent(
         ConfigScreen(state, form, open, onIntent, modifier)
         return
     }
-    ControlColumn(state.title.ifEmpty { state.engine }, onBack, modifier.testTag("engine-control-panel")) {
+    val back = { onIntent(EngineControlPanelIntent.Back) }
+    ControlColumn(state.title.ifEmpty { state.engine }, back, modifier.testTag("engine-control-panel"), overview) {
         when {
             state.hasLoadFailure -> LoadFailure({ onIntent(EngineControlPanelIntent.RetryLoad) })
             state.isLoading -> HbLoadingState(stringResource(Res.string.control_loading))
@@ -119,7 +136,16 @@ private fun ConfigScreen(
     val file = fileOf(open)?.let { id -> form.files.firstOrNull { it.id == id } }
     val page = form.pages.firstOrNull { it.id == open }
     val title = file?.fileName ?: page?.title?.text() ?: state.title
-    ControlColumn(title, { onIntent(ConfigIntent.ClosePage) }, modifier.testTag("engine-control-panel")) {
+    ControlColumn(
+        title,
+        { onIntent(EngineControlPanelIntent.Back) },
+        modifier.testTag("engine-control-panel"),
+        pinned = if (form.isDirty || form.hasConflict) {
+            { ConfigSaveBar(form, state.isSaving, onIntent) }
+        } else {
+            null
+        },
+    ) {
         state.failure?.let { ControlFailureBanner(it, onDismiss = { onIntent(EngineControlPanelIntent.DismissError) }) }
         when {
             file != null -> ConfigFileContent(file, form, state.isSaving, onIntent)
@@ -205,5 +231,30 @@ private fun SettingsPages(
                 }
             }
         }
+    }
+}
+
+/** Back was asked with unsaved changes: drop them and step back, or stay. */
+@Composable
+private fun LeaveDialog(onIntent: (EngineControlPanelIntent) -> Unit) {
+    HbDialog(
+        stringResource(Res.string.control_leave_title),
+        onDismissRequest = { onIntent(EngineControlPanelIntent.KeepEditing) },
+        actions = {
+            HbButton(
+                stringResource(Res.string.control_leave_stay),
+                { onIntent(EngineControlPanelIntent.KeepEditing) },
+                Modifier.testTag("leave-stay"),
+                HbButtonStyle.Ghost,
+            )
+            HbButton(
+                stringResource(Res.string.control_leave_discard),
+                { onIntent(EngineControlPanelIntent.DiscardAndLeave) },
+                Modifier.testTag("leave-discard"),
+                HbButtonStyle.Danger,
+            )
+        },
+    ) {
+        HbText(stringResource(Res.string.control_leave_body), color = HbTheme.colors.textSecondary)
     }
 }

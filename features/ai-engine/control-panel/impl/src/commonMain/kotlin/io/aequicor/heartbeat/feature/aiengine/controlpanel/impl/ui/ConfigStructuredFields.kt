@@ -52,6 +52,7 @@ import org.jetbrains.compose.resources.stringResource
 @Composable
 internal fun KeyValuesEditor(
     id: String,
+    label: String,
     editor: FieldEditorUi.KeyValues,
     enabled: Boolean,
     onInput: (FieldInputUi) -> Unit,
@@ -62,6 +63,7 @@ internal fun KeyValuesEditor(
         editor.rows.forEachIndexed { index, row ->
             PairRow(
                 row,
+                label,
                 editor.isSecretAllowed,
                 enabled,
                 onChange = { change(editor.rows.mapIndexed { at, old -> if (at == index) it else old }) },
@@ -84,6 +86,7 @@ internal fun KeyValuesEditor(
 @Composable
 private fun PairRow(
     row: KeyValueRowUi,
+    label: String,
     isSecretAllowed: Boolean,
     enabled: Boolean,
     onChange: (KeyValueRowUi) -> Unit,
@@ -93,26 +96,63 @@ private fun PairRow(
     modifier: Modifier = Modifier,
 ) {
     val isSecret = row.slot != null
-    HbRow(modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
+    val keyLabel = stringResource(Res.string.control_config_key)
+    val valueLabel = stringResource(Res.string.control_config_value)
+    val key = @Composable { fieldModifier: Modifier ->
         HbTextField(
             row.key,
             { onChange(row.copy(key = it)) },
-            Modifier.weight(1f).testTag("$tag:key"),
-            placeholder = stringResource(Res.string.control_config_key),
+            fieldModifier.testTag("$tag:key"),
+            placeholder = keyLabel,
             enabled = enabled,
+            accessibleLabel = "$label: $keyLabel",
         )
+    }
+    val value = @Composable { fieldModifier: Modifier ->
         HbTextField(
             row.value,
             { onChange(row.copy(value = it)) },
-            Modifier.weight(1f).testTag("$tag:value"),
+            fieldModifier.testTag("$tag:value"),
             placeholder = when (row.secret) {
                 SecretUi.Saved, SecretUi.Typed -> stringResource(Res.string.control_config_secret_saved)
                 SecretUi.Missing -> stringResource(Res.string.control_config_secret_missing)
-                null -> stringResource(Res.string.control_config_value)
+                null -> valueLabel
             },
             enabled = enabled,
+            accessibleLabel = "$label: $valueLabel",
             isSecret = isSecret,
         )
+    }
+    if (HbTheme.dimensions.isDesktop) {
+        HbRow(modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
+            key(Modifier.weight(1f))
+            value(Modifier.weight(1f))
+            PairActions(isSecret, isSecretAllowed, row.key.isNotBlank(), enabled, onSecret, onRemove, tag)
+        }
+    } else {
+        // Narrow touch screens stack the name above the value.
+        HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.xs) {
+            key(Modifier.fillMaxWidth())
+            HbRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
+                value(Modifier.weight(1f))
+                PairActions(isSecret, isSecretAllowed, row.key.isNotBlank(), enabled, onSecret, onRemove, tag)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PairActions(
+    isSecret: Boolean,
+    isSecretAllowed: Boolean,
+    hasKey: Boolean,
+    enabled: Boolean,
+    onSecret: (Boolean) -> Unit,
+    onRemove: () -> Unit,
+    tag: String,
+    modifier: Modifier = Modifier,
+) {
+    HbRow(modifier, gap = HbTheme.spacing.s) {
         if (isSecretAllowed) {
             HbIconButton(
                 if (isSecret) HbIcons.Lock else HbIcons.Unlock,
@@ -121,7 +161,7 @@ private fun PairRow(
                 ),
                 { onSecret(!isSecret) },
                 Modifier.testTag("$tag:secret"),
-                enabled = enabled && row.key.isNotBlank(),
+                enabled = enabled && hasKey,
                 isSelected = isSecret,
                 size = HbTheme.dimensions.compactControlHeight,
             )
@@ -180,12 +220,14 @@ private fun Entry(
     HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.xs) {
         HbRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
             if (editor.isNamed) {
+                val nameLabel = stringResource(Res.string.control_config_entry_name)
                 HbTextField(
                     entry.key,
                     { onInput(FieldInputUi.RenameEntry(entry.key, it)) },
                     Modifier.weight(1f).testTag("config-entry-name:${entry.key}"),
-                    placeholder = stringResource(Res.string.control_config_entry_name),
+                    placeholder = nameLabel,
                     enabled = enabled,
+                    accessibleLabel = "${editor.itemTitle.text()}: $nameLabel",
                 )
             } else {
                 HbText(

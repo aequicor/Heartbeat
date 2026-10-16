@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ui
 
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -40,6 +41,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.contro
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_config_patterns_hint
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_config_remove_item
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_config_reset
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_editor_keys
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.stringResource
@@ -71,11 +73,11 @@ internal fun ConfigFieldRow(
                 )
             }
 
-            is FieldEditorUi.Choice -> InlineField(field, enabled, onInput) {
+            is FieldEditorUi.Choice -> ControlField(field, enabled, onInput) {
                 ChoiceControl(title, editor, enabled, { onInput(FieldInputUi.Choice(it)) }, "config-choice:${field.id}")
             }
 
-            is FieldEditorUi.Number -> InlineField(field, enabled, onInput) {
+            is FieldEditorUi.Number -> ControlField(field, enabled, onInput) {
                 NumberControl(title, editor, enabled, { onInput(FieldInputUi.Number(it)) }, "config-number:${field.id}")
             }
 
@@ -84,7 +86,7 @@ internal fun ConfigFieldRow(
             }
 
             is FieldEditorUi.KeyValues -> WideField(field, enabled, onInput) {
-                KeyValuesEditor(field.id, editor, enabled, onInput)
+                KeyValuesEditor(field.id, title, editor, enabled, onInput)
             }
 
             is FieldEditorUi.Entries -> WideField(field, enabled, onInput) {
@@ -111,9 +113,11 @@ internal fun ConfigFieldRow(
                     editor.text,
                     { onInput(FieldInputUi.Text(it)) },
                     title,
-                    Modifier.fillMaxWidth().testTag("config-document:${field.id}"),
+                    Modifier.fillMaxWidth().height(HbTheme.dimensions.codeEditorCompactHeight)
+                        .testTag("config-document:${field.id}"),
                     language = editor.language,
                     isReadOnly = !enabled,
+                    keyboardHint = stringResource(Res.string.control_editor_keys).takeIf { enabled },
                 )
             }
         }
@@ -133,6 +137,22 @@ private fun InlineField(
     HbSettingsRow(field.title.text(), modifier, description = field.description?.text()) {
         ResetButton(field, enabled, onInput)
         content()
+    }
+}
+
+/** A control beside its title on desktop; on narrow touch screens below it, so the title keeps its width. */
+@Composable
+private fun ControlField(
+    field: ConfigFieldUi,
+    enabled: Boolean,
+    onInput: (FieldInputUi) -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    if (HbTheme.dimensions.isDesktop) {
+        InlineField(field, enabled, onInput, modifier, content)
+    } else {
+        WideField(field, enabled, onInput, modifier, content)
     }
 }
 
@@ -189,11 +209,13 @@ private fun ChoiceControl(
 ) {
     var isExpanded by remember { mutableStateOf(false) }
     val current = editor.selected ?: editor.default
-    val items = editor.options.map { HbMenuItem(it.key, it.title.text(), isChecked = it.key == current) }
+    val items = remember(editor.options, current) {
+        editor.options.map { HbMenuItem(it.key, it.title.text(), isChecked = it.key == current) }.toImmutableList()
+    }
     HbMenuButton(
         HbIcons.ChevronDown,
         label,
-        items.toImmutableList(),
+        items,
         isExpanded,
         { isExpanded = it },
         onChoose,
@@ -257,7 +279,7 @@ private fun ListEditor(
                     },
                     Modifier.weight(1f).testTag("config-item:$id:$index"),
                     enabled = enabled,
-                    accessibleLabel = label,
+                    accessibleLabel = "$label ${index + 1}",
                 )
                 HbIconButton(
                     HbIcons.Close,

@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.screenui
 
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -8,6 +9,9 @@ import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonSize
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbTone
+import io.aequicor.heartbeat.ds.layouts.HbColumn
+import io.aequicor.heartbeat.ds.layouts.HbFlowRow
+import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_trust_content
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_trust_message
@@ -29,24 +33,27 @@ internal fun ProjectTrustNotice(
     val decide = { isTrusted: Boolean ->
         onIntent(AiStudioScreenIntent.DecideProjectTrust(notice.projectId, notice.engine, isTrusted))
     }
-    HbBanner(
-        stringResource(Res.string.project_trust_message, notice.projectTitle, notice.engineTitle),
-        modifier.testTag("studio-project-trust"),
-        HbTone.Warning,
-    ) {
-        HbButton(
-            stringResource(Res.string.project_trust_content),
-            { decide(false) },
-            Modifier.testTag("studio-project-trust-content"),
-            HbButtonStyle.Ghost,
-            size = HbButtonSize.Small,
+    // The message keeps the banner's width; the answers sit below it, so a narrow pane does not squeeze the text.
+    HbColumn(modifier.fillMaxWidth().testTag("studio-project-trust"), gap = HbTheme.spacing.xs) {
+        HbBanner(
+            stringResource(Res.string.project_trust_message, notice.projectTitle, notice.engineTitle),
+            tone = HbTone.Warning,
         )
-        HbButton(
-            stringResource(Res.string.project_trust_trusted),
-            { decide(true) },
-            Modifier.testTag("studio-project-trust-trusted"),
-            HbButtonStyle.Secondary,
-            size = HbButtonSize.Small,
-        )
+        HbFlowRow(Modifier.fillMaxWidth()) {
+            HbButton(
+                stringResource(Res.string.project_trust_content),
+                { decide(false) },
+                Modifier.testTag("studio-project-trust-content"),
+                HbButtonStyle.Ghost,
+                size = HbButtonSize.Small,
+            )
+            HbButton(
+                stringResource(Res.string.project_trust_trusted),
+                { decide(true) },
+                Modifier.testTag("studio-project-trust-trusted"),
+                HbButtonStyle.Secondary,
+                size = HbButtonSize.Small,
+            )
+        }
     }
 }

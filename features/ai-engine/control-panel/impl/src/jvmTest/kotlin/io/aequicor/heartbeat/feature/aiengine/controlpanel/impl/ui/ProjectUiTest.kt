@@ -64,7 +64,7 @@ class ProjectUiTest {
     @Test
     fun `a project opens from the overview`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineControlPanelIntent>()
-        setContent { HbTheme { EngineControlPanelContent(overview, { intents += it }, {}) } }
+        setContent { HbTheme { EngineControlPanelContent(overview, { intents += it }) } }
         onNodeWithTag("engine-control-project:web").performClick()
         runOnIdle { assertEquals(listOf<EngineControlPanelIntent>(ProjectIntent.Open("web")), intents) }
     }
@@ -73,7 +73,7 @@ class ProjectUiTest {
     fun `a project edits its fields and files and saves them`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineControlPanelIntent>()
         val state = overview.copy(openProject = "web", project = project)
-        setContent { HbTheme { EngineControlPanelContent(state, { intents += it }, {}) } }
+        setContent { HbTheme { EngineControlPanelContent(state, { intents += it }) } }
 
         onNodeWithTag("project-trust").assertExists()
         onNodeWithTag("config-number:retries").performTextReplacement("5")
@@ -88,7 +88,7 @@ class ProjectUiTest {
                     ProjectIntent.Save,
                     ProjectIntent.Reload,
                     ProjectIntent.OpenFile("settings"),
-                    ProjectIntent.Close,
+                    EngineControlPanelIntent.Back,
                 ),
                 intents,
             )
@@ -96,14 +96,14 @@ class ProjectUiTest {
     }
 
     @Test
-    fun `back from a project file returns to the project`() = runSkikoComposeUiTest {
+    fun `back from a project file goes through the panel`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineControlPanelIntent>()
         val state = overview.copy(openProject = "web", projectFile = "settings", project = project)
-        setContent { HbTheme { EngineControlPanelContent(state, { intents += it }, {}) } }
+        setContent { HbTheme { EngineControlPanelContent(state, { intents += it }) } }
 
         onNodeWithTag("config-file:settings").assertExists()
         onNodeWithTag("control-back").performClick()
-        runOnIdle { assertEquals(listOf<EngineControlPanelIntent>(ProjectIntent.CloseFile), intents) }
+        runOnIdle { assertEquals(listOf<EngineControlPanelIntent>(EngineControlPanelIntent.Back), intents) }
     }
 
     private companion object {

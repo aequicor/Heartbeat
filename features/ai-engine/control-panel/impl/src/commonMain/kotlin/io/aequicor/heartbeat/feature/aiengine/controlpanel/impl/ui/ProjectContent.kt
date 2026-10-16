@@ -9,6 +9,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import io.aequicor.heartbeat.ds.components.HbBadge
 import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbIcon
@@ -88,9 +90,14 @@ internal fun ProjectScreen(
     val project = state.project
     val file = project?.form?.files?.firstOrNull { it.id == state.projectFile }
     val title = file?.fileName ?: project?.title ?: state.openProject.orEmpty()
-    val onBack = { onIntent(if (file != null) ProjectIntent.CloseFile else ProjectIntent.Close) }
     val onConfig = { intent: ConfigIntent -> intent.forProject()?.let(onIntent) ?: Unit }
-    ControlColumn(title, onBack, modifier.testTag("engine-control-project")) {
+    val form = project?.form?.takeIf { it.isDirty || it.hasConflict }
+    ControlColumn(
+        title,
+        { onIntent(EngineControlPanelIntent.Back) },
+        modifier.testTag("engine-control-project"),
+        pinned = form?.let { { ConfigSaveBar(it, state.isSaving, onConfig) } },
+    ) {
         state.failure?.let { ControlFailureBanner(it, onDismiss = { onIntent(EngineControlPanelIntent.DismissError) }) }
         when {
             project == null -> HbLoadingState(stringResource(Res.string.control_project_loading))
@@ -111,10 +118,9 @@ private fun ProjectContent(
     val form = project.form
     val isEditable = !isSaving && !form.isSubmitted
     HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.xxl) {
-        ConfigSaveBar(form, isSaving, onConfig)
         project.trust?.let { TrustRow(it, enabled = !isSaving, { trust -> onIntent(ProjectIntent.SetTrust(trust)) }) }
         form.pages.forEach { page ->
-            HbText(page.title.text(), style = HbTheme.typography.title)
+            HbText(page.title.text(), Modifier.semantics { heading() }, style = HbTheme.typography.title)
             ConfigPageSections(page, isEditable, onConfig)
         }
         if (form.files.isNotEmpty()) {
@@ -144,7 +150,16 @@ private fun TrustRow(
 ) {
     var isExpanded by remember { mutableStateOf(false) }
     val label = stringResource(Res.string.control_project_trust)
-    val items = ProjectTrustUi.entries.map { HbMenuItem(it.name, stringResource(it.label()), isChecked = it == trust) }
+    val titles = ProjectTrustUi.entries.associateWith { stringResource(it.label()) }
+    val items = remember(trust, titles) {
+        ProjectTrustUi.entries.map {
+            HbMenuItem(
+                it.name,
+                titles.getValue(it),
+                isChecked = it == trust,
+            )
+        }.toImmutableList()
+    }
     HbSettingsRow(
         label,
         modifier.testTag("project-trust"),
@@ -153,10 +168,10 @@ private fun TrustRow(
         HbMenuButton(
             HbIcons.Shield,
             label,
-            items.toImmutableList(),
+            items,
             isExpanded,
             { isExpanded = it },
-            { onTrust(ProjectTrustUi.valueOf(it)) },
+            { id -> ProjectTrustUi.entries.firstOrNull { it.name == id }?.let(onTrust) },
             Modifier.widthIn(max = HbTheme.dimensions.composerMenuMaxWidth).testTag("project-trust-choice"),
             enabled = enabled,
             label = stringResource(trust.label()),

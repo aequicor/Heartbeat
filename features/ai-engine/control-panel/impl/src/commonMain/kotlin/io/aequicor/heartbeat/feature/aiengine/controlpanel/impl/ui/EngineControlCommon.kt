@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ui
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
@@ -45,14 +46,25 @@ internal fun ControlColumn(
     title: String?,
     onBack: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    scrollState: ScrollState = rememberScrollState(),
+    pinned: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     HbColumn(modifier.fillMaxSize().background(HbTheme.surfaces.backdrop), gap = HbTheme.spacing.none) {
         if (title != null && onBack != null) ControlHeader(title, onBack)
+        // What must stay reachable while the content scrolls, such as saving a long form.
+        pinned?.let {
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                Box(
+                    Modifier.widthIn(max = HbTheme.dimensions.settingsMaxWidth).fillMaxWidth()
+                        .padding(horizontal = HbTheme.spacing.xl, vertical = HbTheme.spacing.s),
+                ) { it() }
+            }
+        }
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
             HbColumn(
                 Modifier.widthIn(max = HbTheme.dimensions.settingsMaxWidth).fillMaxWidth()
-                    .hbVerticalScroll(rememberScrollState())
+                    .hbVerticalScroll(scrollState)
                     .padding(HbTheme.spacing.xl),
                 gap = HbTheme.spacing.xxl,
                 content = content,

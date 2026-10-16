@@ -39,7 +39,7 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.stringResource
 
-/** One configuration page: what keeps the draft from being saved, then the page's sections. */
+/** One configuration page: problems outside its fields, then its sections; the save bar is pinned by the host. */
 @Composable
 internal fun ConfigPageContent(
     page: ConfigPageUi,
@@ -49,7 +49,6 @@ internal fun ConfigPageContent(
     modifier: Modifier = Modifier,
 ) {
     HbColumn(modifier.fillMaxWidth().testTag("config-page:${page.id}"), gap = HbTheme.spacing.xxl) {
-        ConfigSaveBar(form, isSaving, onIntent)
         if (form.otherProblems.any { it.isBlocking }) {
             HbBanner(stringResource(Res.string.control_config_other_problems))
         }

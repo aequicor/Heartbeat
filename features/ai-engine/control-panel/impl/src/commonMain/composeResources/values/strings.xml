@@ -264,4 +264,9 @@
     <string name="control_import_note_unreadable">Could not be read</string>
     <string name="engine_confirm_sync_title">Install packages from the list?</string>
     <string name="engine_confirm_sync_body">Heartbeat installs the packages listed in the settings and removes installed packages that are no longer listed.</string>
+    <string name="control_leave_title">Discard unsaved changes?</string>
+    <string name="control_leave_body">The changes you have not saved will be lost.</string>
+    <string name="control_leave_stay">Keep editing</string>
+    <string name="control_leave_discard">Discard</string>
+    <string name="control_editor_keys">Tab indents. Ctrl+Tab moves to the next field, Ctrl+Shift+Tab to the previous one.</string>
 </resources>

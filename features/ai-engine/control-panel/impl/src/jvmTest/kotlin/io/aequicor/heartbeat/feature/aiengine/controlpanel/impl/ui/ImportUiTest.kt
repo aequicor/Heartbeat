@@ -47,7 +47,6 @@ class ImportUiTest {
                 EngineControlPanelContent(
                     overview.copy(importing = importing),
                     { intents += it },
-                    {},
                 )
             }
         }
@@ -71,14 +70,14 @@ class ImportUiTest {
     fun `unsaved changes keep an import from running`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineControlPanelIntent>()
         val dirty = overview.copy(importing = importing, config = ConfigFormUi(persistentListOf(), isDirty = true))
-        setContent { HbTheme { EngineControlPanelContent(dirty, { intents += it }, {}) } }
+        setContent { HbTheme { EngineControlPanelContent(dirty, { intents += it }) } }
         onNodeWithTag("import-confirm").assertIsNotEnabled()
     }
 
     @Test
     fun `the overview previews an import`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineControlPanelIntent>()
-        setContent { HbTheme { EngineControlPanelContent(overview, { intents += it }, {}) } }
+        setContent { HbTheme { EngineControlPanelContent(overview, { intents += it }) } }
 
         onNodeWithTag("import-open").performClick()
         runOnIdle { assertEquals(listOf<EngineControlPanelIntent>(ImportIntent.Preview), intents) }
@@ -93,7 +92,6 @@ class ImportUiTest {
                 EngineControlPanelContent(
                     overview.copy(importReport = report),
                     { intents += it },
-                    {},
                 )
             }
         }

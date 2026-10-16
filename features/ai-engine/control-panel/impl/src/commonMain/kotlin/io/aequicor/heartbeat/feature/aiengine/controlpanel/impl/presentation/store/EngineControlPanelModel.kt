@@ -75,6 +75,8 @@ data class EngineControlPanelState(
     val canImport: Boolean = false,
     val importing: ImportUi? = null,
     val importReport: ImportReportUi? = null,
+    /** Back was asked with unsaved changes: the open project's when one is open, else the profile configuration's. */
+    val isLeaving: Boolean = false,
     val isConfigurationOff: Boolean = false,
     val isLoading: Boolean = true,
     val isMissing: Boolean = false,
@@ -90,10 +92,25 @@ sealed interface EngineControlPanelIntent : MVIIntent {
 
     /** Hides the failure of the last operation. */
     data object DismissError : EngineControlPanelIntent
+
+    /**
+     * Steps back: from a file to its project, from a project or a page to the overview, from the overview out of the
+     * panel. Unsaved changes of what is left ask first.
+     */
+    data object Back : EngineControlPanelIntent
+
+    /** Drops the unsaved changes Back asked about and steps back. */
+    data object DiscardAndLeave : EngineControlPanelIntent
+
+    /** Stays with the unsaved changes Back asked about. */
+    data object KeepEditing : EngineControlPanelIntent
 }
 
-/** The panel has no one-off actions yet. */
-sealed interface EngineControlPanelAction : MVIAction
+/** One-off results of the panel. */
+sealed interface EngineControlPanelAction : MVIAction {
+    /** The panel is left: its owner closes it. */
+    data object Leave : EngineControlPanelAction
+}
 
 internal typealias PanelContext =
     PipelineContext<EngineControlPanelState, EngineControlPanelIntent, EngineControlPanelAction>
@@ -134,6 +151,12 @@ class EngineControlPanelModel(
 
             EngineControlPanelIntent.DismissError -> sendTo(machine, EngineControlIntent.Public.DismissError)
 
+            EngineControlPanelIntent.Back -> back()
+
+            EngineControlPanelIntent.DiscardAndLeave -> leave()
+
+            EngineControlPanelIntent.KeepEditing -> updateState { copy(isLeaving = false) }
+
             // Only a launch draft changes the panel (its errors); other input is local text or a flag.
             is EngineManagementIntent.EngineInput -> updateState {
                 if (intent.isLaunchEdit) edit(intent).reflect(engineId, machine.state.value) else edit(intent)
@@ -146,6 +169,36 @@ class EngineControlPanelModel(
             is ProjectIntent -> with(projects) { handle(intent) }
 
             is ImportIntent -> with(imports) { handle(intent) }
+        }
+    }
+
+    // PipelineContext is FlowMVI's pipeline receiver (a CoroutineScope); store DSL functions extend it the same way.
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
+    private suspend fun PanelContext.back() {
+        var screen = EngineControlPanelState(engineId.value)
+        withState { screen = this }
+        val form = if (screen.openProject != null) screen.project?.form else screen.config
+        val hasChanges = form?.isDirty == true
+        when {
+            screen.projectFile != null -> with(projects) { handle(ProjectIntent.CloseFile) }
+            screen.openPage != null -> configure(ConfigIntent.ClosePage)
+            hasChanges -> updateState { copy(isLeaving = true) }
+            else -> leave()
+        }
+    }
+
+    // PipelineContext is FlowMVI's pipeline receiver (a CoroutineScope); store DSL functions extend it the same way.
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
+    private suspend fun PanelContext.leave() {
+        var openProject: String? = null
+        withState { openProject = this.openProject }
+        updateState { copy(isLeaving = false) }
+        if (openProject != null) {
+            with(projects) { handle(ProjectIntent.Close) }
+        } else {
+            log.i { "leave the engine panel" }
+            updateState { copy(configDraft = null).reflect(engineId, machine.state.value) }
+            action(EngineControlPanelAction.Leave)
         }
     }
 
