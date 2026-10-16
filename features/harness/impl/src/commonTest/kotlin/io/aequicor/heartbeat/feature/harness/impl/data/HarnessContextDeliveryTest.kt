@@ -24,6 +24,7 @@ import kotlinx.serialization.json.Json
 import okio.ByteString.Companion.encodeUtf8
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -72,6 +73,7 @@ class HarnessContextDeliveryTest {
         old.receipt!!.accepted(context, "native")
         val repeated = assertNotNull(delivery.prepare(context, "native", HarnessContent(emptyList())))
         assertTrue(repeated.text.contains("Все харнессы отключены."))
+        assertFalse(repeated.text.contains(HARNESS_CONTEXT_USAGE))
         repeated.receipt!!.accepted(context, "native")
         assertNull(delivery.prepare(context, "native", HarnessContent(emptyList())))
     }

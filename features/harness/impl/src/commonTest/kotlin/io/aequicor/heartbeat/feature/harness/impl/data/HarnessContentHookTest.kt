@@ -69,6 +69,7 @@ class HarnessContentHookTest {
         active = emptyList()
         val disabled = assertNotNull(hook.preparePrompt(context, "next", "compacted"))
         assertTrue(disabled.text.contains("отключён"))
+        assertFalse(disabled.text.contains(HARNESS_CONTEXT_USAGE))
     }
 
     @Test

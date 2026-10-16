@@ -52,7 +52,10 @@ internal class HarnessContentTools(
         val isFullContextReadable = declared == null || HarnessTools.CONTEXT in declared
         val dynamic = scripts.value.instructions(scope)
         if (!toggles.get(HarnessEnabled)) return ""
-        return HarnessContent(active, isFullContextReadable).block(guide, dynamic).text
+        val content = HarnessContent(active, isFullContextReadable)
+        // Only this refreshed block is re-rendered every turn; frozen guidance cannot promise delivery.
+        val usage = if (content.markers.isEmpty()) emptyList() else listOf(HARNESS_CONTEXT_USAGE)
+        return content.block(guide + usage, dynamic).text
     }
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
@@ -121,17 +124,16 @@ private fun JsonObject.string(key: String): String {
 
 internal fun harnessContentGuide(declared: Set<String>?): List<String> = buildList {
     add("Харнессы содержат инструкции, скиллы и шаблоны. Используй их для подходящих задач; не сохраняй секреты.")
-    add(HARNESS_CONTEXT_USAGE)
     if (declared == null || HarnessTools.SKILL_LOAD in declared) {
-        add(
-            "Скиллы загружай по необходимости через harness_skill_load по имени harness/name, " +
-                "только если нужного содержимого ещё нет в контексте.",
-        )
+        add("Перед задачей загрузи подходящий скилл через harness_skill_load по имени harness/name.")
     }
     if (declared == null || HarnessTools.PROMPT_GET in declared) {
         add("Шаблон шага получи через harness_prompt_get с именем harness/name и строковыми args.")
     }
     if (declared == null || HarnessTools.CONTEXT in declared) {
-        add("Вызывай harness_context только для восстановления отсутствующих или усечённых инструкций и индексов.")
+        add(
+            "Если блока инструкций харнессов нет в контексте, прочитай их через harness_context; " +
+                "при полученном блоке вызывай его только для восстановления усечённых деталей.",
+        )
     }
 }

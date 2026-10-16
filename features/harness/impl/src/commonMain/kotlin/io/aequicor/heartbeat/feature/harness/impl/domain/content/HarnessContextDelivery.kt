@@ -113,7 +113,8 @@ internal class HarnessContextDelivery(
         val isAccepted = command.revision != null && snapshot.activeSetSha == hash
         val isEmpty = active.isEmpty() && !snapshot.isDeliveryPending
         if (disabled.isEmpty() && (isEmpty || isAccepted)) return DeliveryAttempt.Unchanged
-        val prefix = listOf(HARNESS_CONTEXT_PROTOCOL) + disabled.sortedBy { it.value }.map {
+        val usage = if (active.isEmpty()) emptyList() else listOf(HARNESS_CONTEXT_USAGE)
+        val prefix = listOf(HARNESS_CONTEXT_PROTOCOL) + usage + disabled.sortedBy { it.value }.map {
             "Харнесс ${it.value} отключён; его прежние инструкции больше не действуют."
         }
         val emptyNotice = if (active.isEmpty()) listOf("Все харнессы отключены.") else emptyList()
@@ -194,12 +195,13 @@ private data class DeliveryToken(
 
 private class DeliveryFailure(type: String) : Exception(type)
 
-/** Shared guidance for refreshed prompts and receipt-bearing blocks, independent of declared tools. */
+/**
+ * Delivery promise for blocks the host actually re-sends: per-turn refreshed instructions and receipt-bearing hook
+ * blocks with at least one active harness. Never part of frozen guidance, which may run without hooks.
+ */
 internal const val HARNESS_CONTEXT_USAGE =
-    "Хост автоматически добавляет инструкции подключённых харнессов в контекст и обновляет их при изменениях. " +
-        "Применяй уже полученные инструкции; не загружай их повторно перед каждым ответом. " +
-        "После сжатия контекста используй восстановленный хостом блок; читай заново только недостающие детали."
+    "Хост сам добавляет этот блок и обновляет его при изменениях и после сжатия контекста. " +
+        "Применяй его; не загружай инструкции повторно перед каждым ответом."
 
 internal const val HARNESS_CONTEXT_PROTOCOL =
-    "Этот блок заменяет все прежние инструкции харнесса. Действуют только перечисленные ниже харнессы.\n" +
-        HARNESS_CONTEXT_USAGE
+    "Этот блок заменяет все прежние инструкции харнесса. Действуют только перечисленные ниже харнессы."

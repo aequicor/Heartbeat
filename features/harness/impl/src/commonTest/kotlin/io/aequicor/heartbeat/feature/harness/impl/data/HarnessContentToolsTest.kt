@@ -68,14 +68,28 @@ class HarnessContentToolsTest {
     }
 
     @Test
-    fun `frozen and refreshed guidance reserve context reads for recovery`() = runTest {
-        listOf(false, true).forEach { refreshed ->
-            val guide = tools.instructions(scope.copy(isRefreshedPerTurn = refreshed))
-            assertTrue(guide.contains(HARNESS_CONTEXT_USAGE))
-            assertTrue(guide.contains("harness_context только для восстановления"))
-            assertTrue(guide.contains("Скиллы загружай по необходимости"))
-            assertTrue(guide.contains("только если нужного содержимого ещё нет в контексте"))
-        }
+    fun `only refreshed blocks promise automatic delivery while frozen guidance keeps context reads`() = runTest {
+        // Frozen scopes also cover hook-less sessions (transfers, organic cells) that never receive the block.
+        val frozen = tools.instructions(scope)
+        assertFalse(frozen.contains(HARNESS_CONTEXT_USAGE))
+        assertTrue(frozen.contains("нет в контексте, прочитай их через harness_context"))
+        assertTrue(frozen.contains("Перед задачей загрузи подходящий скилл"))
+        val refreshed = tools.instructions(scope.copy(isRefreshedPerTurn = true))
+        assertTrue(refreshed.contains(HARNESS_CONTEXT_USAGE))
+        active = emptyList()
+        assertFalse(tools.instructions(scope.copy(isRefreshedPerTurn = true)).contains(HARNESS_CONTEXT_USAGE))
+    }
+
+    @Test
+    fun `skill load returns the updated body while the delivered index stays unchanged`() = runTest {
+        val automatic = scope.copy(isRefreshedPerTurn = true)
+        val index = tools.instructions(automatic)
+        val args = buildJsonObject { put("name", "skill") }
+        assertEquals(skill.body, tools.execute(context, HarnessTools.SKILL_LOAD, args).text)
+        val updated = skill.copy(body = "Updated private body")
+        active = listOf(harness.copy(revision = harness.revision + 1, items = listOf(instruction, updated, template)))
+        assertEquals(index, tools.instructions(automatic))
+        assertEquals(updated.body, tools.execute(context, HarnessTools.SKILL_LOAD, args).text)
     }
 
     @Test
