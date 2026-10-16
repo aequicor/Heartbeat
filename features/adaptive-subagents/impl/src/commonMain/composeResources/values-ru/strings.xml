@@ -27,6 +27,7 @@
     <string name="subagents_researcher_hint">Пишет описания моделей по источникам</string>
     <string name="subagents_default_model">Модель по умолчанию</string>
     <string name="subagents_model_menu">Выбрать модель</string>
+    <string name="subagents_model_unavailable">Выбранная модель недоступна</string>
     <string name="subagents_section_costs">Тарификация подключений</string>
     <string name="subagents_section_costs_hint">Подписка и локальные модели делают модели подключения дешевле для подбора.</string>
     <string name="subagents_cost_menu">Тарификация</string>

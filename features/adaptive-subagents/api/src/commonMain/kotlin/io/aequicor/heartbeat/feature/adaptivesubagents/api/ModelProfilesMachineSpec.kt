@@ -12,9 +12,9 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Loading | Loaded | | Ready(valid descriptions) | |
  * | Loading | LoadFailed | | Failed | StorageFailed |
  * | Failed | Reload | | Loading | Load |
- * | Ready | Save | valid, expected revision, within limit | Ready(saved, revision + 1) | Persist |
+ * | Ready | Save | valid, matching revision, fits | Ready(saved, revision + 1, −job) | Persist, StopResearch? |
  * | Ready | Save | otherwise | Ready | Rejected(Invalid / Conflict / Limit) |
- * | Ready | Delete | described | Ready(without it, revision + 1) | Persist |
+ * | Ready | Delete | described | Ready(without it, revision + 1, −job) | Persist, StopResearch if running |
  * | Ready | SetPreferences | differ | Ready(preferences, revision + 1) | Persist |
  * | Ready | SaveFailed | | Ready | StorageFailed |
  * | Ready | Research | model not researched, fewer than MAX_JOBS runs | Ready(+job) | Research(job) |
@@ -27,7 +27,9 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Ready | ResearchProgress / Completed / Failed | job gone (cancelled) | ignored | |
  * | Idle / Loading / Failed | Save / Delete / SetPreferences | — | ignored | not known before loading |
  *
- * Every change in Ready stays in the state, so effects running for it (research) continue. Effect failures:
+ * Changes stay in Ready. Successful manual saves and deletions remove that model's research job before stopping
+ * its effect, so a late research result cannot overwrite the edit or recreate the deleted description. Other
+ * research jobs continue. Effect failures:
  * Load → LoadFailed, Persist → SaveFailed, Research → ResearchFailed(Failed).
  */
 public val ModelProfilesMachineSpec: ModelProfilesSpec =
@@ -57,15 +59,17 @@ public val ModelProfilesMachineSpec: ModelProfilesSpec =
         }
         state<ModelProfilesState.Ready> {
             on<ModelProfilesIntent.Public.Save>(guard = { state.rejectionOf(intent) == null }) {
-                stay { state.saved(intent.profile) }
+                stay { state.saved(intent.profile).withoutResearch(intent.profile.key) }
                 effect { state.saved(intent.profile).persist() }
+                effect { state.researchOf(intent.profile.key)?.let { ModelProfilesEffect.StopResearch(it.id) } }
             }
             on<ModelProfilesIntent.Public.Save>(guard = { state.rejectionOf(intent) != null }) {
                 output { state.rejectionOf(intent)?.let { ModelProfilesOutput.Rejected(intent.profile.key, it) } }
             }
             on<ModelProfilesIntent.Public.Delete>(guard = { state.profileOf(intent.key) != null }) {
-                stay { state.without(intent.key) }
+                stay { state.without(intent.key).withoutResearch(intent.key) }
                 effect { state.without(intent.key).persist() }
+                effect { state.researchOf(intent.key)?.let { ModelProfilesEffect.StopResearch(it.id) } }
             }
             on<ModelProfilesIntent.Public.SetPreferences>(guard = { intent.preferences != state.preferences }) {
                 stay { state.copy(preferences = intent.preferences, revision = state.revision + 1) }
@@ -159,6 +163,9 @@ private fun ModelProfilesState.Ready.saved(profile: ModelProfile): ModelProfiles
 
 private fun ModelProfilesState.Ready.without(key: ModelKey): ModelProfilesState.Ready =
     copy(profiles = profiles.filterNot { it.key == key }, revision = revision + 1)
+
+private fun ModelProfilesState.Ready.withoutResearch(key: ModelKey): ModelProfilesState.Ready =
+    copy(research = research.filterNot { it.subject.key == key })
 
 private fun ModelProfilesState.Ready.persist() = ModelProfilesEffect.Persist(profiles, preferences, revision)
 

@@ -60,6 +60,7 @@ import io.aequicor.heartbeat.feature.adaptivesubagents.impl.resources.subagents_
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.resources.subagents_load_failed
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.resources.subagents_loading
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.resources.subagents_model_menu
+import io.aequicor.heartbeat.feature.adaptivesubagents.impl.resources.subagents_model_unavailable
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.resources.subagents_no_connections
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.resources.subagents_priority_balanced
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.resources.subagents_priority_balanced_hint
@@ -288,7 +289,8 @@ internal fun ChoiceMenu(
     var isExpanded by remember { mutableStateOf(false) }
     Box(modifier) {
         HbButton(
-            options.firstOrNull { it.first == selected }?.second.orEmpty(),
+            options.firstOrNull { it.first == selected }?.second
+                ?: stringResource(Res.string.subagents_model_unavailable),
             { isExpanded = true },
             Modifier.widthIn(max = HbTheme.dimensions.composerMenuMaxWidth).testTag(tag),
             style = HbButtonStyle.Secondary,

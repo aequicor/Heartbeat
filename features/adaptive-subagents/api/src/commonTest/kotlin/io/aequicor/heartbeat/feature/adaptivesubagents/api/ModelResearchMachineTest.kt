@@ -106,4 +106,59 @@ class ModelResearchMachineTest {
         spec.assertIgnored(idle, ModelProfilesIntent.Internal.ResearchFailed("j1", ResearchFailure.Failed))
         spec.assertIgnored(idle, ModelProfilesIntent.Public.CancelResearch(key))
     }
+
+    @Test
+    fun `saving by hand cancels only that models research and ignores its late result`() {
+        val otherJob = job.copy(id = "j2", subject = subject.copy(key = other))
+        val running = ModelProfilesState.Ready(research = listOf(job, otherJob))
+        val manual = written.copy(summary = "Written by hand", revision = 1)
+        val saved = ModelProfilesState.Ready(listOf(manual), research = listOf(otherJob), revision = 1)
+        spec.assertTransition(
+            running,
+            ModelProfilesIntent.Public.Save(manual, expectedRevision = null),
+            saved,
+            effects = listOf(
+                ModelProfilesEffect.Persist(listOf(manual), SubagentPreferences(), 1),
+                ModelProfilesEffect.StopResearch(job.id),
+            ),
+        )
+        spec.assertIgnored(saved, ModelProfilesIntent.Internal.ResearchCompleted(job.id, written))
+        spec.assertIgnored(saved, ModelProfilesIntent.Internal.ResearchProgress(job.id, ResearchStage.Writing, 1))
+        spec.assertIgnored(saved, ModelProfilesIntent.Internal.ResearchFailed(job.id, ResearchFailure.Failed))
+    }
+
+    @Test
+    fun `deleting a description cancels its research without recreating it later`() {
+        val stored = written.copy(revision = 1)
+        val running = ModelProfilesState.Ready(listOf(stored), research = listOf(job), revision = 1)
+        val deleted = ModelProfilesState.Ready(revision = 2)
+        spec.assertTransition(
+            running,
+            ModelProfilesIntent.Public.Delete(key),
+            deleted,
+            effects = listOf(
+                ModelProfilesEffect.Persist(emptyList(), SubagentPreferences(), 2),
+                ModelProfilesEffect.StopResearch(job.id),
+            ),
+        )
+        spec.assertIgnored(deleted, ModelProfilesIntent.Internal.ResearchCompleted(job.id, written))
+    }
+
+    @Test
+    fun `a rejected manual save leaves research running`() {
+        val stored = written.copy(revision = 1)
+        val running = ModelProfilesState.Ready(listOf(stored), research = listOf(job))
+        spec.assertTransition(
+            running,
+            ModelProfilesIntent.Public.Save(stored, expectedRevision = null),
+            running,
+            outputs = listOf(ModelProfilesOutput.Rejected(key, SaveRejection.Conflict)),
+        )
+        spec.assertTransition(
+            running,
+            ModelProfilesIntent.Public.Save(stored.copy(tags = setOf("Invalid tag")), expectedRevision = 1),
+            running,
+            outputs = listOf(ModelProfilesOutput.Rejected(key, SaveRejection.Invalid)),
+        )
+    }
 }

@@ -31,7 +31,8 @@ private typealias EditorPipeline = PipelineContext<ProfileEditorState, ProfileEd
 /**
  * The description editor of [modelKey]. The draft is filled once from the stored description (or the catalog title when
  * there is none) and then belongs to the screen; saving sends it to the library with the revision it started from,
- * and a refusal keeps the editor open with the reason.
+ * and a refusal keeps the editor open with the reason. Stored effort variants remain editable and are preserved
+ * even when the model is disabled or its catalog no longer advertises those efforts.
  */
 internal class ProfileEditorModel(
     private val machine: LibraryMachine,
@@ -66,7 +67,7 @@ internal class ProfileEditorModel(
                     copy(
                         title = title.ifEmpty { model.title },
                         engine = model.engineTitle,
-                        efforts = model.efforts.toImmutableList(),
+                        efforts = (model.efforts + variants.keys).distinct().toImmutableList(),
                     )
                 }
             }
@@ -90,6 +91,7 @@ internal class ProfileEditorModel(
             summary = profile?.summary.orEmpty(),
             tags = profile?.tags.orEmpty().joinToString(", "),
             base = profile?.base?.toDraft() ?: TraitsDraftUi(),
+            efforts = (efforts + profile?.variants.orEmpty().map { it.effort }).distinct().toImmutableList(),
             variants = profile?.variants.orEmpty().associate { it.effort to it.traits.toDraft() }.toImmutableMap(),
             sources = profile?.sources.orEmpty().toImmutableList(),
             isDescribed = profile != null,
@@ -137,7 +139,10 @@ internal class ProfileEditorModel(
             summary,
             tags.split(',').map { it.trim().lowercase() }.filter(String::isNotEmpty).toSet(),
             base.toTraits(),
-            variants.filterKeys { it in efforts }.map { (effort, draft) -> ProfileVariant(effort, draft.toTraits()) },
+            variants.map { (effort, draft) ->
+                val previous = stored?.variants?.firstOrNull { it.effort == effort }
+                previous?.copy(traits = draft.toTraits()) ?: ProfileVariant(effort, draft.toTraits())
+            },
             stored?.facts,
             ProfileSource.Manual,
             sources,

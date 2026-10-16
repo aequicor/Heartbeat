@@ -15,6 +15,8 @@ import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.DirectoryMode
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.target
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -45,6 +47,9 @@ class ProfileEditorModelTest {
         sources = listOf("https://example.com"),
         updatedAt = Instant.fromEpochSeconds(1),
         revision = 3,
+    )
+    private val defaultDirectory = Directory(
+        listOf(DirectoryModel(opus, "Opus", "Claude", "Claude · Work", listOf("low", "high"), "high")),
     )
 
     @Test
@@ -95,6 +100,41 @@ class ProfileEditorModelTest {
     }
 
     @Test
+    fun `editing a disabled model preserves its effort variants and reserved parameters`() = runTest {
+        val described = stored.copy(variants = stored.variants.map { it.copy(params = mapOf("mode" to "reasoning")) })
+        val fixture = Fixture(this, ModelProfilesState.Ready(listOf(described)), flowOf(Directory()))
+        val screen = fixture.subscribe()
+        assertEquals(listOf("low"), screen.states.value.efforts)
+        screen.intent(ProfileEditorIntent.ChangeSummary("Changed without an enabled model"))
+        screen.intent(ProfileEditorIntent.Save)
+        runCurrent()
+        val saved = (fixture.machine.state.value as ModelProfilesState.Ready).profileOf(key)
+        assertEquals(described.variants, saved?.variants)
+        assertEquals("Changed without an enabled model", saved?.summary)
+        assertEquals(1, fixture.closes)
+    }
+
+    @Test
+    fun `a catalog update cannot remove a saved effort variant`() = runTest {
+        val directory = MutableStateFlow(defaultDirectory)
+        val fixture = Fixture(this, ModelProfilesState.Ready(listOf(stored)), directory)
+        val screen = fixture.subscribe()
+        directory.value = defaultDirectory.copy(
+            models = defaultDirectory.models.map { it.copy(efforts = listOf("high")) },
+        )
+        runCurrent()
+        assertEquals(listOf("high", "low"), screen.states.value.efforts)
+        screen.intent(ProfileEditorIntent.SelectConfiguration("low"))
+        screen.intent(ProfileEditorIntent.ChangeRating(AxisUi.Speed, 5))
+        screen.intent(ProfileEditorIntent.Save)
+        runCurrent()
+        val saved = (fixture.machine.state.value as ModelProfilesState.Ready).profileOf(key)
+        assertEquals(listOf("low"), saved?.variants?.map { it.effort })
+        assertEquals(Ratings(4, 5, 3), saved?.traitsFor("low")?.ratings)
+        assertEquals(1, fixture.closes)
+    }
+
+    @Test
     fun `a new description is saved for an undescribed model and delete removes one`() = runTest {
         val fixture = Fixture(this, ModelProfilesState.Ready())
         val screen = fixture.subscribe()
@@ -110,16 +150,17 @@ class ProfileEditorModelTest {
         assertEquals(2, fixture.closes)
     }
 
-    private inner class Fixture(private val scope: TestScope, initial: ModelProfilesState) {
+    private inner class Fixture(
+        private val scope: TestScope,
+        initial: ModelProfilesState,
+        directory: Flow<Directory> = flowOf(defaultDirectory),
+    ) {
         val machine = LibrarySpecMachine(initial)
         var closes = 0
-        private val directory = Directory(
-            listOf(DirectoryModel(opus, "Opus", "Claude", "Claude · Work", listOf("low", "high"), "high")),
-        )
         private val model = ProfileEditorModel(
             machine,
             key,
-            flowOf(directory),
+            directory,
             { closes++ },
             HeartbeatStoreFactory(TestDispatchers(StandardTestDispatcher(scope.testScheduler))),
             scope.backgroundScope,

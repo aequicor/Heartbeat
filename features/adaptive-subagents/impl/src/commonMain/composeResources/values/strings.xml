@@ -27,6 +27,7 @@
     <string name="subagents_researcher_hint">Writes model descriptions from sources</string>
     <string name="subagents_default_model">Default model</string>
     <string name="subagents_model_menu">Choose a model</string>
+    <string name="subagents_model_unavailable">Selected model unavailable</string>
     <string name="subagents_section_costs">Connection billing</string>
     <string name="subagents_section_costs_hint">Subscriptions and local models make their models cheaper for selection.</string>
     <string name="subagents_cost_menu">Billing</string>
