@@ -157,7 +157,9 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
             arguments = foregroundArguments(selected.executable, selected.arguments.map(::substitute)),
             environment = selected.environment.mapValues { substitute(it.value) },
         )
-        val resources = listOf(record.commonDirectory) + caches.values + plan.exclusiveResources.map {
+        // Concurrent caches coordinate their own processes and must not serialize otherwise independent builds.
+        val exclusiveCaches = plan.caches.filterNot { it.isConcurrent }.map { checkNotNull(caches[it.id]) }
+        val resources = listOf(record.commonDirectory) + exclusiveCaches + plan.exclusiveResources.map {
             canonicalResource(record, it).toString()
         }
         val job = Path.of(record.commonDirectory).resolve("heartbeat-worktree-data").resolve("jobs").resolve(id)
@@ -170,6 +172,7 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
             parentProcess = ProcessHandle.current().pid(),
             parentStartedAt = ProcessHandle.current().info().startInstant().orElse(null)?.toString(),
             configurationRevision = record.task.buildConfigurationRevision,
+            project = projectKey(record),
         )
     }
 
@@ -210,6 +213,7 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
             isHold = true,
             parentProcess = ProcessHandle.current().pid(),
             parentStartedAt = ProcessHandle.current().info().startInstant().orElse(null)?.toString(),
+            project = common.toString(),
         )
     }
 
@@ -288,6 +292,8 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
         "--short",
         "refs/remotes/origin/HEAD",
     )?.removePrefix("origin/")
+
+    private fun projectKey(record: WorktreeRecord): String = Path.of(record.commonDirectory).toRealPath().toString()
 
     private fun validateRecord(record: WorktreeRecord) {
         if (!record.task.isIsolated) {

@@ -104,6 +104,15 @@ class DesktopWorktreeGitTest {
             assertTrue("--no-daemon" in execution.command.arguments)
             assertFalse(execution.command.environment.getValue("GRADLE_USER_HOME").contains("{cache:"))
             assertTrue(record.commonDirectory in execution.resources)
+            assertEquals(Path.of(record.commonDirectory).toRealPath().toString(), execution.project)
+            val sharedCache = execution.command.environment.getValue("GRADLE_USER_HOME")
+            assertTrue(sharedCache in execution.resources)
+            val concurrent = approved.copy(
+                task = approved.task.copy(
+                    buildPlan = base.copy(caches = listOf(base.caches.single().copy(isConcurrent = true))),
+                ),
+            )
+            assertFalse(sharedCache in git.build(concurrent, "build-two", "test").resources)
         } finally {
             removeTestTree(root)
         }

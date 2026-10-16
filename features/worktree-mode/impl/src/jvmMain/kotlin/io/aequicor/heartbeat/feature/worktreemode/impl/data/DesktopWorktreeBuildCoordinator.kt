@@ -25,19 +25,22 @@ import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.nio.file.Path
 
-/** FIFO admission per overlapping resources; non-overlapping projects may run concurrently. */
+/**
+ * App-wide build queue: FIFO per overlapping exclusive resources, weighted by build kind against the machine budget
+ * and fair across projects ([admitBuilds]). Reattached workers already run and are counted without admission.
+ */
 @Inject
 @SingleIn(AppScope::class)
 @ContributesBinding(AppScope::class)
 internal class DesktopWorktreeBuildCoordinator(
     @ForScope(AppScope::class) private val app: ScopeHandle,
     private val dispatchers: DispatcherProvider,
+    private val capacity: BuildCapacity,
 ) : WorktreeBuildCoordinator {
     private val log = Log.tag("WorktreeBuildCoordinator")
     private val mutex = Mutex()
     private val waiting = mutableListOf<Job>()
     private val jobs = mutableMapOf<String, Job>()
-    private val ownedResources = mutableSetOf<String>()
 
     override suspend fun execute(
         execution: BuildExecution,
@@ -71,7 +74,7 @@ internal class DesktopWorktreeBuildCoordinator(
     ): Job = mutex.withLock {
         jobs[execution.id]?.also { it.update.set(update) } ?: Job(execution, update, isReattachment).also {
             jobs[execution.id] = it
-            waiting += it
+            if (isReattachment) launchJob(it) else waiting += it
             admit()
         }
     }
@@ -110,19 +113,23 @@ internal class DesktopWorktreeBuildCoordinator(
     }
 
     private fun admit() {
-        val preceding = mutableSetOf<String>()
-        val eligible = mutableListOf<Job>()
-        waiting.forEach { job ->
-            if (job.resources.none { it in ownedResources || it in preceding }) {
-                ownedResources += job.resources
-                eligible += job
-            }
-            preceding += job.resources
+        val running = jobs.values.filter { it !in waiting }.map { job ->
+            RunningBuild(job.execution.id, job.execution.project, job.execution.cost, job.resources)
         }
+        val queued = waiting.map { job ->
+            QueuedBuild(job.execution.id, job.execution.project, job.execution.cost, job.resources)
+        }
+        val budget = capacity.budget()
+        val admission = admitBuilds(queued, running, budget)
+        val eligible = waiting.filter { it.execution.id in admission.admitted }
         waiting.removeAll(eligible.toSet())
-        waiting.forEachIndexed { index, job ->
+        if (eligible.isNotEmpty()) {
+            log.d { "Admit builds count=${eligible.size} waiting=${waiting.size} budgetUnits=${budget.units}" }
+        }
+        waiting.forEach { job ->
+            val position = admission.positions[job.execution.id]
             app.coroutineScope.launch {
-                notify(job, job.execution.operation(WorktreeBuildPhase.Queued).copy(queuePosition = index + 1))
+                notify(job, job.execution.operation(WorktreeBuildPhase.Queued).copy(queuePosition = position))
             }
         }
         eligible.forEach(::launchJob)
@@ -152,7 +159,6 @@ internal class DesktopWorktreeBuildCoordinator(
                 if (!job.started.isCompleted) job.started.cancel()
                 withContext(NonCancellable) {
                     mutex.withLock {
-                        ownedResources.removeAll(job.resources)
                         jobs.remove(job.execution.id)
                         admit()
                     }

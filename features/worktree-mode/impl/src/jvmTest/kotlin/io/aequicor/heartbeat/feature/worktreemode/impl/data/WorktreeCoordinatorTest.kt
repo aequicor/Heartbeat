@@ -169,6 +169,36 @@ class WorktreeCoordinatorTest {
     }
 
     @Test
+    fun `independent builds wait for capacity and start once a running build finishes`() = runTest {
+        withContext(RealTestDispatchers.io) {
+            val fixture = CoordinatorFixture(BuildBudget.parallel(1))
+            val updates = Channel<WorktreeBuildOperation>(Channel.UNLIMITED)
+            val waiter = CoordinatorScope()
+            try {
+                val first = fixture.probeExecution("first", resource = "first-resource")
+                val firstResult = waiter.coroutineScope.async {
+                    fixture.coordinator.execute(first, false) { updates.send(it) }
+                }
+                awaitOperation(updates, "first", WorktreeBuildPhase.Running)
+                val second = fixture.execution("second", resource = "second-resource")
+                val secondResult = waiter.coroutineScope.async {
+                    fixture.coordinator.execute(second, false) { updates.send(it) }
+                }
+                assertEquals(1, awaitOperation(updates, "second", WorktreeBuildPhase.Queued).queuePosition)
+                assertFalse(Files.exists(Path.of(second.jobDirectory)))
+                Files.writeString(fixture.root.resolve("release"), "release")
+                assertEquals(WorktreeBuildPhase.Completed, withTimeout(AWAIT_MILLIS) { firstResult.await() }.phase)
+                assertEquals(WorktreeBuildPhase.Completed, withTimeout(AWAIT_MILLIS) { secondResult.await() }.phase)
+            } finally {
+                withContext(NonCancellable) {
+                    waiter.close()
+                    fixture.close()
+                }
+            }
+        }
+    }
+
+    @Test
     fun `closing a profile waiter preserves the worker and reattaches its final projection`() = runTest {
         withContext(RealTestDispatchers.io) {
             val fixture = CoordinatorFixture()
@@ -258,25 +288,32 @@ private suspend fun awaitOperation(
     updates.receiveAsFlow().first { it.id == id && it.phase == phase }
 }
 
-private class CoordinatorFixture {
+private class CoordinatorFixture(budget: BuildBudget = BuildBudget.parallel(BuildBudget.MAX_PARALLEL_BUILDS)) {
     val root: Path = Files.createTempDirectory("heartbeat-coordinator-test-").toRealPath()
     private val app = CoordinatorScope()
     private val executions = mutableListOf<BuildExecution>()
-    val coordinator = DesktopWorktreeBuildCoordinator(app, RealTestDispatchers)
+    val coordinator = DesktopWorktreeBuildCoordinator(
+        app,
+        RealTestDispatchers,
+        object : BuildCapacity {
+            override fun budget(): BuildBudget = budget
+        },
+    )
 
-    fun execution(id: String, isHold: Boolean = false): BuildExecution = BuildExecution(
-        id,
-        WorktreeBuildCommand(id, javaExecutable(), listOf("-version"), timeoutMillis = AWAIT_MILLIS),
-        root.toString(),
-        listOf(root.resolve("shared-resource").toString()),
-        root.resolve(id).toString(),
-        isHold = isHold,
-        parentProcess = ProcessHandle.current().pid(),
-        parentStartedAt = ProcessHandle.current().info().startInstant().orElse(null)?.toString(),
-    ).also(executions::add)
+    fun execution(id: String, isHold: Boolean = false, resource: String = "shared-resource"): BuildExecution =
+        BuildExecution(
+            id,
+            WorktreeBuildCommand(id, javaExecutable(), listOf("-version"), timeoutMillis = AWAIT_MILLIS),
+            root.toString(),
+            listOf(root.resolve(resource).toString()),
+            root.resolve(id).toString(),
+            isHold = isHold,
+            parentProcess = ProcessHandle.current().pid(),
+            parentStartedAt = ProcessHandle.current().info().startInstant().orElse(null)?.toString(),
+        ).also(executions::add)
 
-    fun probeExecution(id: String): BuildExecution {
-        val execution = execution(id)
+    fun probeExecution(id: String, resource: String = "shared-resource"): BuildExecution {
+        val execution = execution(id, resource = resource)
         val classpath = workerClasspath() + java.io.File.pathSeparator +
             Path.of(WorktreeCoordinatorTest::class.java.protectionDomain.codeSource.location.toURI())
         return execution.copy(

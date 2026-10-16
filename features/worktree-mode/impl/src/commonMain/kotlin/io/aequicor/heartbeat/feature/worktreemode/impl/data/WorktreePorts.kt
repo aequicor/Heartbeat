@@ -37,7 +37,10 @@ internal data class WorktreeProvision(
     override fun toString(): String = "WorktreeProvision"
 }
 
-/** Explicit argv and canonical lock resources delivered to the worker in a private job file. */
+/**
+ * Explicit argv and canonical lock resources delivered to the worker in a private job file. [project] is the
+ * canonical repository identity that groups builds for fair capacity sharing.
+ */
 @Serializable
 internal data class BuildExecution(
     val id: String,
@@ -50,7 +53,11 @@ internal data class BuildExecution(
     val parentStartedAt: String? = null,
     val configurationRevision: Long = 0,
     val enqueueOrder: Long = 0,
+    val project: String = "",
 ) {
+    /** Hold leases only serialize agents; a build is weighed by its declared kind. */
+    val cost: BuildCost get() = if (isHold) BuildCost.None else command.kind.cost()
+
     override fun toString(): String = "BuildExecution"
 }
 
@@ -84,6 +91,11 @@ internal interface WorktreeBuildCoordinator {
     /** Serializes cooperative agents; this hold lease does not own external or native shell process trees. */
     suspend fun acquireLease(execution: BuildExecution)
     suspend fun releaseLease(execution: BuildExecution): Boolean
+}
+
+/** Current machine-wide budget; the application coordinator reads it on every admission. */
+internal interface BuildCapacity {
+    fun budget(): BuildBudget
 }
 
 /** Command workers inherit the same restricted environment as the facade's local command tools. */
