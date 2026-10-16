@@ -23,6 +23,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparationFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
@@ -66,6 +68,7 @@ internal class PiProcessLauncher(
     @ForScope(ProfileScope::class) private val stores: DataStores,
     private val launches: EngineLaunchConfig = EngineLaunchConfig.Default,
     private val distribution: PiRuntimeDistribution,
+    private val workspaces: LocalWorkspaces,
 ) : PiProcesses {
     private val log = Log.tag("PiProcessLauncher")
     private val isMissingResourcesReported = AtomicBoolean(false)
@@ -235,7 +238,8 @@ internal class PiProcessLauncher(
         val agent = piAgentConfig(startup.config, storage.profileHome(owner.id.value), ::configSecret)
         val extensions = piExtensions(agentDir, areSearchToolsEnabled, hosted != null)
         // The user opened the workspace folder explicitly, so its instructions and skills may load.
-        val launchFlags = PiLaunchFlags(workspace != null, plan.emptySessionId, agent.flags(agentDir))
+        val content = workspace?.let { projectContent(startup, it) }
+        val launchFlags = PiLaunchFlags(workspace != null, plan.emptySessionId, agent.flags(agentDir, content))
         val command = piCommand(executable, sessionDir, extensions, plan.tools(agent), launchFlags)
         val builder = ProcessBuilder(command).directory(workingDir.toFile())
         val environment = builder.environment()
@@ -278,6 +282,20 @@ internal class PiProcessLauncher(
         } finally {
             environment.remove(provider.variable)
         }
+    }
+
+    /**
+     * Content-only project arguments while engine configuration is on and the project is not trusted; null keeps
+     * full project trust (`--approve`), which is also the behavior without engine configuration.
+     */
+    private suspend fun projectContent(startup: PiStartup, workspace: String): List<String>? {
+        if (!startup.isConfigured) return null
+        val project = Path.of(workspace).normalize()
+        val trusted = startup.trust.filterValues { it == ProjectTrust.Trusted }.keys
+        val isTrusted = workspaces.isAvailable &&
+            trusted.any { ref -> workspaces.resolve(ref)?.let { Path.of(it).normalize() } == project }
+        log.d { "Pi project trust trusted=$isTrusted" }
+        return if (isTrusted) null else piProjectContent(project)
     }
 
     /** Resolves a vault reference of the configuration; a missing entry leaves its MCP server off. */
@@ -474,7 +492,16 @@ internal fun piCommand(
 /** Trust, discovery and instruction flags: a project session reads the project, a detached one stays hermetic. */
 private fun projectFlags(isProject: Boolean, flags: PiFlags): List<String> = buildList {
     val isContextRead = isProject && flags.hasProjectContext
-    if (isProject) add("--approve") else add("--no-approve")
+    when {
+        !isProject -> add("--no-approve")
+
+        flags.projectContent == null -> add("--approve")
+
+        else -> {
+            add("--no-approve")
+            addAll(flags.projectContent)
+        }
+    }
     if (!isProject && !flags.isSkillsLoaded) add("--no-skills")
     if (!isContextRead) add("--no-context-files")
     flags.instructions?.takeIf { !isContextRead }?.let { addAll(listOf("--append-system-prompt", it)) }
@@ -491,16 +518,35 @@ internal data class PiFlags(
     val isPromptsLoaded: Boolean = false,
     val hasProjectContext: Boolean = true,
     val instructions: String? = null,
+    /** Arguments loading an untrusted project's content explicitly; null trusts the project (`--approve`). */
+    val projectContent: List<String>? = null,
 ) {
     override fun toString(): String = "PiFlags(builtins=$builtins, discovering=$isDiscovering)"
 }
 
 /** The launch flags of this configuration for a process whose agent directory is [agentDir]. */
-internal fun PiAgentConfig.flags(agentDir: Path): PiFlags = PiFlags(
+internal fun PiAgentConfig.flags(agentDir: Path, projectContent: List<String>? = null): PiFlags = PiFlags(
     builtins = builtins,
     isDiscovering = isDiscovering,
     isSkillsLoaded = isSkillsLoaded,
     isPromptsLoaded = isPromptsLoaded,
     hasProjectContext = hasProjectContext,
     instructions = agentDir.resolve(AGENTS_FILE).toString().takeIf { hasInstructions },
+    projectContent = projectContent,
 )
+
+/**
+ * What an untrusted project still contributes, loaded explicitly under `--no-approve`: its skills, prompt templates
+ * and system prompt files. Its settings, MCP servers, extensions and packages stay off; `AGENTS.md` loads anyway.
+ */
+internal fun piProjectContent(project: Path): List<String> = buildList {
+    val pi = project.resolve(".pi")
+    listOf(pi.resolve("skills"), project.resolve(".agents").resolve("skills")).filter(Files::isDirectory).forEach {
+        addAll(listOf("--skill", it.toString()))
+    }
+    pi.resolve("prompts").takeIf(Files::isDirectory)?.let { addAll(listOf("--prompt-template", it.toString())) }
+    pi.resolve("SYSTEM.md").takeIf(Files::isRegularFile)?.let { addAll(listOf("--system-prompt", it.toString())) }
+    pi.resolve("APPEND_SYSTEM.md").takeIf(Files::isRegularFile)?.let {
+        addAll(listOf("--append-system-prompt", it.toString()))
+    }
+}

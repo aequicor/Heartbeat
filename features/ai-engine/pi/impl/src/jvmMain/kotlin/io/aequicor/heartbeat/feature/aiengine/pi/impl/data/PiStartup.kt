@@ -12,6 +12,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblemReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.isNewerVersion
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ArchiveKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.GitHubDownloadHosts
@@ -32,6 +34,10 @@ internal data class PiStartup(
     val environment: List<EnvironmentEntry> = emptyList(),
     /** The profile's configuration of Pi; empty while engine configuration is off. */
     val config: EngineConfigValues = EngineConfigValues(),
+    /** Saved project trust decisions. */
+    val trust: Map<WorkspaceRef, ProjectTrust> = emptyMap(),
+    /** Engine configuration is on: an untrusted project loads only its content. */
+    val isConfigured: Boolean = false,
 ) {
     override fun toString(): String = "PiStartup(source=$source)"
 }
@@ -46,19 +52,19 @@ internal fun resolvePiStartup(context: LaunchContext, bundled: Path?, bundledVer
     val custom = context.settings.executable?.takeIf { it.isNotBlank() }
     val managed = context.managed?.executable
     val environment = context.settings.environment
-    val config = context.config
-    return when {
-        custom != null -> PiStartup(pathOrNull(custom), InstallSource.Custom, environment, config)
+    val selected = when {
+        custom != null -> PiStartup(pathOrNull(custom), InstallSource.Custom, environment)
 
         managed != null && (
             bundledVersion == null || isNewerVersion(checkNotNull(context.managed).version, bundledVersion)
         ) ->
-            PiStartup(pathOrNull(managed), InstallSource.Managed, environment, config)
+            PiStartup(pathOrNull(managed), InstallSource.Managed, environment)
 
-        bundled != null || bundledVersion != null -> PiStartup(bundled, InstallSource.Bundled, environment, config)
+        bundled != null || bundledVersion != null -> PiStartup(bundled, InstallSource.Bundled, environment)
 
-        else -> PiStartup(null, InstallSource.Missing, environment, config)
+        else -> PiStartup(null, InstallSource.Missing, environment)
     }
+    return selected.copy(config = context.config, trust = context.trust, isConfigured = context.isConfigured)
 }
 
 /** The user's entries on top of the retained host environment; Heartbeat's own variables are set after them. */

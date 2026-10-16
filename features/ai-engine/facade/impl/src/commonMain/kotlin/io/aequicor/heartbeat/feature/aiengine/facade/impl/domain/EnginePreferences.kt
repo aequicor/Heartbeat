@@ -30,7 +30,7 @@ data class ProfileEnginePreferences(
      */
     fun contextOf(engine: EngineId, managed: ManagedInstall?, isConfigured: Boolean): LaunchContext {
         val chosen = if (isConfigured) configOf(engine) else ProfileEngineConfig()
-        return LaunchContext(launchOf(engine), managed, chosen.values, chosen.trust)
+        return LaunchContext(launchOf(engine), managed, chosen.values, chosen.trust, isConfigured)
     }
 
     override fun toString(): String =

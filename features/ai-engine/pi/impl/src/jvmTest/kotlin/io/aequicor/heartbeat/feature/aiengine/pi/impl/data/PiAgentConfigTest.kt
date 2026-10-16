@@ -2,7 +2,10 @@ package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigValues
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.secretReference
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.write
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -10,6 +13,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
+import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -164,6 +168,56 @@ class PiAgentConfigTest {
 
         assertFalse("--append-system-prompt" in project || "--no-context-files" in project)
         assertTrue("--append-system-prompt" in detached && "--no-context-files" in detached)
+    }
+
+    @Test
+    fun `an untrusted project loads only its content`() {
+        val project = Files.createTempDirectory("pi-project")
+        try {
+            Files.createDirectories(project.resolve(".pi/skills"))
+            Files.createDirectories(project.resolve(".agents/skills"))
+            Files.writeString(project.resolve(".pi/SYSTEM.md"), "System")
+            Files.writeString(project.resolve(".pi/settings.json"), "{}")
+
+            val content = piProjectContent(project)
+            val command = piCommand(
+                Path.of("pi"),
+                Path.of("s"),
+                emptyList(),
+                "",
+                true,
+                flags = PiFlags(projectContent = content),
+            )
+
+            assertEquals(
+                listOf(
+                    "--skill",
+                    project.resolve(".pi/skills").toString(),
+                    "--skill",
+                    project.resolve(".agents/skills").toString(),
+                    "--system-prompt",
+                    project.resolve(".pi/SYSTEM.md").toString(),
+                ),
+                content,
+            )
+            assertTrue("--no-approve" in command && "--approve" !in command)
+            assertTrue(command.containsAll(content))
+        } finally {
+            project.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `the launch context carries configuration and trust to the process`() {
+        val trust = mapOf(WorkspaceRef("p") to ProjectTrust.Trusted)
+        val values = EngineConfigValues().write(PiHostKeys.Offline, JsonPrimitive(true))
+        val context = LaunchContext(config = values, trust = trust, isConfigured = true)
+
+        val startup = resolvePiStartup(context, Path.of("/bundled/pi"), "1.0.0")
+
+        assertEquals(values, startup.config)
+        assertEquals(trust, startup.trust)
+        assertTrue(startup.isConfigured)
     }
 
     private fun legacyCommand(isProject: Boolean, extensions: List<Path>): List<String> =

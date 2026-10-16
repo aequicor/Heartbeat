@@ -180,7 +180,7 @@ class EngineManagementStorageTest {
 
         assertEquals(LaunchContext(settings), config.context(engine))
         flags.values[EngineConfigurationEnabled] = true
-        assertEquals(LaunchContext(settings, config = values, trust = trust), config.context(engine))
+        assertEquals(LaunchContext(settings, config = values, trust = trust, isConfigured = true), config.context(engine))
         flags.values[EngineManagementEnabled] = false
         assertEquals(LaunchContext(), config.context(engine))
     }

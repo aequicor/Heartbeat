@@ -295,7 +295,7 @@ class EngineManagementServiceTest {
         runCurrent()
 
         assertEquals(listOf(cliId), runtimes.retired)
-        assertEquals(LaunchContext(config = values), runtimes.expected.last())
+        assertEquals(LaunchContext(config = values, isConfigured = true), runtimes.expected.last())
     }
 
     @Test

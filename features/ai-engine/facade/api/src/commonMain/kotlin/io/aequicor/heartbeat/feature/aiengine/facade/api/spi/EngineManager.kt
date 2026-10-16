@@ -18,17 +18,19 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 
 /**
  * What an adapter starts its processes with: the profile's [settings], Heartbeat's verified copy ([managed]) if one
- * is installed, the profile [config] of the engine's schema and the project [trust] decisions. Configuration is empty
- * while engine configuration is off. Paths and values are never logged.
+ * is installed and, while engine configuration is on ([isConfigured]), the profile [config] of the engine's schema
+ * and the project [trust] decisions. Paths and values are never logged.
  */
 public data class LaunchContext(
     val settings: LaunchSettings = LaunchSettings(),
     val managed: ManagedInstall? = null,
     val config: EngineConfigValues = EngineConfigValues(),
     val trust: Map<WorkspaceRef, ProjectTrust> = emptyMap(),
+    /** Engine configuration is on: undecided projects get the adapter's restricted project mode. */
+    val isConfigured: Boolean = false,
 ) {
     override fun toString(): String = "LaunchContext(isDefault=${settings.isDefault}, hasManaged=${managed != null}, " +
-        "hasConfig=${!config.isEmpty}, trusted=${trust.size})"
+        "configured=$isConfigured, hasConfig=${!config.isEmpty}, trusted=${trust.size})"
 }
 
 /**

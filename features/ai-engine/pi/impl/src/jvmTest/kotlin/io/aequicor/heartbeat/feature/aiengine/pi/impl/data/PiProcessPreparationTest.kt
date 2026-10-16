@@ -102,6 +102,7 @@ class PiProcessPreparationTest {
                 stores = unused(),
                 launches = EngineLaunchConfig { launch },
                 distribution = distribution,
+                workspaces = unused(),
             )
             test(launcher, distribution, cache, launch)
         } finally {
