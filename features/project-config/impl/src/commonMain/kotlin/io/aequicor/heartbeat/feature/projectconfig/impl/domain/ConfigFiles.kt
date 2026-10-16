@@ -3,10 +3,10 @@ package io.aequicor.heartbeat.feature.projectconfig.impl.domain
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigFile
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigLayout
-import io.aequicor.heartbeat.feature.projectconfig.api.ConfigLimits
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigPath
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigProblem
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigProblemCode
+import io.aequicor.heartbeat.feature.projectconfig.api.ConfigReadFailure
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -42,30 +42,6 @@ internal sealed interface ConfigRead {
 
     /** Nothing was read. */
     data class Failed(val failure: ConfigReadFailure) : ConfigRead
-}
-
-/** Why a tree was not read; never carries paths or texts. */
-internal enum class ConfigReadFailure {
-    /** The platform cannot read configuration trees. */
-    Unsupported,
-
-    /** The project folder or bundle does not exist or cannot be opened. */
-    Unavailable,
-
-    /** `.heartbeat` is a symbolic link or not a directory; it is never followed. */
-    NotDirectory,
-
-    /** The tree exceeds [ConfigLimits]. */
-    Limit,
-
-    /** The bundle has no valid manifest, duplicates or entries outside the tree. */
-    Format,
-
-    /** The manifest declares a newer version than [ConfigLayout.VERSION]. */
-    Version,
-
-    /** Reading failed. */
-    Io,
 }
 
 /** A write was refused or failed; nothing beyond the files already replaced was changed. */

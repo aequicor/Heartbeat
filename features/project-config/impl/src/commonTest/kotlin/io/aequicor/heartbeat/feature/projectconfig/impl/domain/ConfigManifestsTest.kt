@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.projectconfig.impl.domain
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigFile
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigLayout
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigPath
+import io.aequicor.heartbeat.feature.projectconfig.api.ConfigReadFailure
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith

@@ -7,6 +7,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(projects.features.aiEngine.facade.api)
+            api(projects.core.stateMachine.api)
             api(projects.core.featureToggles.api)
             api(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.core)

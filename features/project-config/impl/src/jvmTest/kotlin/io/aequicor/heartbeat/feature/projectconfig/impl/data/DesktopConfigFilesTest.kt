@@ -5,8 +5,8 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ConfigLayout
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigLimits
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigPath
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigProblemCode
+import io.aequicor.heartbeat.feature.projectconfig.api.ConfigReadFailure
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigRead
-import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigReadFailure
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigTree
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigWriteException
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigWriteFailure
