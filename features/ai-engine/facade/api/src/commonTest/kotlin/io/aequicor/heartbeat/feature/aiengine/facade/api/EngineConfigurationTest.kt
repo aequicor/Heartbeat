@@ -29,7 +29,7 @@ class EngineConfigurationTest {
             },
             assertFailsWith<ConfigException> { service.readProject(TestTarget.engine, workspace) },
             assertFailsWith<ConfigException> {
-                service.saveProject(TestTarget.engine, workspace, values, ProjectRevision())
+                service.saveProject(TestTarget.engine, workspace, ProjectEdit(values), ProjectRevision())
             },
             assertFailsWith<ConfigException> { service.projectTrust(TestTarget.engine, workspace) },
             assertFailsWith<ConfigException> {
@@ -57,6 +57,7 @@ class EngineConfigurationTest {
             ).toString(),
             NativeImport(values, mapOf("SLOT" to secret)).toString(),
             ProjectFile("pass", "abc").toString(),
+            ProjectEdit(values, mapOf(TestConfig.settings to "{\"httpProxy\": \"pass\"}")).toString(),
             ImportPreview("/Users/someone/.pi/agent", emptyList()).toString(),
             LaunchContext(config = values, trust = mapOf(WorkspaceRef("project") to ProjectTrust.Trusted)).toString(),
         )

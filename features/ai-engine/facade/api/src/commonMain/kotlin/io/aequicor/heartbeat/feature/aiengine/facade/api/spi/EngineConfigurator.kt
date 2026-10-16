@@ -1,10 +1,12 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.api.spi
 
 import io.aequicor.heartbeat.core.secrets.Secret
+import io.aequicor.heartbeat.core.secrets.SecretUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigDocumentId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigValues
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ImportNote
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ImportPreview
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ImportSelection
@@ -58,5 +60,11 @@ public data class NativeImport(
 ) {
     override fun toString(): String = "NativeImport(values=$values, secrets=${secrets.size})"
 }
+
+/** Vault slot of the configuration secret [slot] of [engine]; adapters resolve references through it at launch. */
+public fun configSecretUsage(engine: EngineId, slot: String): SecretUsage =
+    SecretUsage("engine_config", engine.value.replace(InvalidUsage, "_"), slot)
+
+private val InvalidUsage = Regex("[^a-zA-Z0-9_-]")
 
 private fun unsupported(): Nothing = throw ConfigException(ConfigFailure.Unsupported)

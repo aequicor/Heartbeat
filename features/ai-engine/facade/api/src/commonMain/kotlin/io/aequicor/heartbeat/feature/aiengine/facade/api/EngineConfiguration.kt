@@ -38,13 +38,14 @@ public interface EngineConfiguration {
     public suspend fun readProject(engine: EngineId, workspace: WorkspaceRef): ProjectConfig
 
     /**
-     * Writes the project files of [engine] when they still have [expected] revisions; documents absent from [values]
-     * are deleted. Project files never receive vault references.
+     * Writes the project files of [engine] when they still have [expected] revisions. Readable documents absent from
+     * [edit] are deleted; documents that do not parse stay unless [ProjectEdit.raw] replaces them. Project files never
+     * receive vault references.
      */
     public suspend fun saveProject(
         engine: EngineId,
         workspace: WorkspaceRef,
-        values: EngineConfigValues,
+        edit: ProjectEdit,
         expected: ProjectRevision,
     ): ProjectConfig
 
@@ -78,7 +79,7 @@ public class UnavailableEngineConfiguration : EngineConfiguration {
     override suspend fun saveProject(
         engine: EngineId,
         workspace: WorkspaceRef,
-        values: EngineConfigValues,
+        edit: ProjectEdit,
         expected: ProjectRevision,
     ): Nothing = unsupported()
 
@@ -146,6 +147,14 @@ public data class ProjectConfig(
 ) {
     override fun toString(): String =
         "ProjectConfig(engine=${engine.value}, values=$values, unreadable=${unreadable.keys.map { it.value }})"
+}
+
+/**
+ * A project save: the new [values] and documents written verbatim ([raw], for example a JSON file with comments that
+ * is edited as text). Never printed.
+ */
+public data class ProjectEdit(val values: EngineConfigValues, val raw: Map<ConfigDocumentId, String> = emptyMap()) {
+    override fun toString(): String = "ProjectEdit(values=$values, raw=${raw.keys.map { it.value }})"
 }
 
 /** Content revision of every project document; null for a document absent on disk. */
