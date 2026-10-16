@@ -74,7 +74,7 @@ private class SettingsScope : ScopeHandle {
     override fun onClose(action: () -> Unit): DisposableHandle = DisposableHandle {}
 }
 
-private class SettingsStores : DataStores {
+internal class SettingsStores : DataStores {
     private val store = SettingsStore()
     override val owner: StorageOwner = StorageOwner.App
     override fun keyValue(spec: KeyValueSpec): KeyValueStore = store.also { it.spec = spec }
