@@ -22,8 +22,9 @@ import kotlin.coroutines.cancellation.CancellationException
  * RetryNetworkErrors. Internal ProceedCertificate/ReturnToSafety require the exact selected failure
  * and human control; proceeding additionally requires an overridable certificate error. Disabling clears
  * the failure and the connection indicator together with the native error.
- * Navigation clears the failure but keeps the committed page's connection indicator until the engine reports
- * the next commit. Disabled navigation and duplicate Start are ignored.
+ * Navigation clears the failure; history and reload keep the committed page's connection indicator until the
+ * engine reports the next commit, while Open drops it with the address. Disabled navigation and duplicate Start
+ * are ignored.
  * Running + ZoomAvailabilityChanged -> stay with isZoomEnabled. Enabled + Zoom (zoom enabled, HTTP/S page)
  * -> stay [Zoom(selected tab, direction, URL)]; Enabled + Zoom (zoom enabled, any other page) -> accepted without
  * an effect, since zoom keys on a new tab are routine input. During a pending main-frame navigation the URL is
@@ -41,7 +42,8 @@ import kotlin.coroutines.cancellation.CancellationException
  *     Running --> Running: Perform / Perform, Completed / output Completed
  *     Running --> Running: CancelOperation / CancelOperation, OperationCancelled / output Cancelled
  *     Running --> Running: ObserverFailed / Reobserve
- *     Running --> Running: ErrorPagesChanged, NetworkRestored / RetryNetworkErrors
+ *     Running --> Running: ErrorPagesChanged
+ *     Running --> Running: NetworkRestored [error pages] / RetryNetworkErrors
  *     Running --> Running: ProceedCertificate / ProceedCertificate, ReturnToSafety / ReturnToSafety
  *     Running --> Running: ZoomAvailabilityChanged, Zoom [HTTP/S] / Zoom, Zoom [other]
  * ```
@@ -138,6 +140,8 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
                             isLoading = true,
                             error = null,
                             failure = null,
+                            // The address no longer shows the committed page.
+                            security = BrowserSecurity.Unknown,
                         ),
                     )
                 }

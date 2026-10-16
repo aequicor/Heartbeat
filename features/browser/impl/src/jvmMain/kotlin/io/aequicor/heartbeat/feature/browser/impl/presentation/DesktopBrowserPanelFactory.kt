@@ -33,6 +33,7 @@ internal interface DesktopBrowserPanelFactory : BrowserNativeResources {
     fun rememberCertificateException(url: String): Unit = Unit
     fun hasCertificateException(url: String): Boolean = false
     fun isWithheldFromAgents(url: String): Boolean = hasCertificateException(url)
+    val areCertificateDecisionsKnown: Boolean get() = true
     fun certificateExceptionUrls(): List<String> = emptyList()
 
     /**
@@ -72,6 +73,7 @@ internal class DefaultDesktopBrowserPanelFactory(
     override fun rememberCertificateException(url: String) = certificateExceptions.remember(url)
     override fun hasCertificateException(url: String): Boolean = certificateExceptions.contains(url)
     override fun isWithheldFromAgents(url: String): Boolean = certificateExceptions.isWithheldFromAgents(url)
+    override val areCertificateDecisionsKnown: Boolean get() = certificateExceptions.areDecisionsKnown
     override fun certificateExceptionUrls(): List<String> = certificateExceptions.urls()
 
     private val monitor = Any()

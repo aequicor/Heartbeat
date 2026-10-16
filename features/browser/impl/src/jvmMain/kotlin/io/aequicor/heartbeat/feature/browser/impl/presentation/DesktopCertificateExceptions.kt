@@ -47,8 +47,9 @@ internal class DesktopCertificateExceptions {
     /** Reads only host keys from the native profile; expired entries remain conservatively labelled until clear. */
     fun restore(preference: Any?): Boolean {
         val settings = preference as? Map<*, *>
-        areDecisionsKnown = settings != null
         settings?.keys?.filterIsInstance<String>()?.forEach { remember(it.substringBefore(',')) }
+        // Only after every readable host is labelled: an agent request must never slip through in between.
+        areDecisionsKnown = settings != null
         return settings != null
     }
 

@@ -10,8 +10,9 @@ import kotlin.uuid.Uuid
 /**
  * EDT-confined state projection; native callback arguments are copied before entering this class. A load awaits the
  * server's response until CEF reports the main frame's load start, which follows the navigation's commit.
- * The connection indicator describes the last committed document, like Chrome's: a pending, stopped or typed load
- * keeps it until the next commit, and only a load failure drops it.
+ * The connection indicator describes the last committed document while the address still shows it: a page-started
+ * load keeps it until the next commit; a typed or stopped address that was never committed, and a load failure,
+ * show no indicator.
  */
 internal class DesktopBrowserNavigation(
     private val browser: CefBrowser,
@@ -59,7 +60,7 @@ internal class DesktopBrowserNavigation(
     private fun connectionSecurity(): BrowserSecurity {
         val isFailed = state.failure != null || state.error == BrowserViewError.LoadFailed ||
             state.error == BrowserViewError.EngineUnavailable
-        return if (isFailed) BrowserSecurity.Unknown else security(committedUrl)
+        return if (isFailed || state.url != committedUrl) BrowserSecurity.Unknown else security(committedUrl)
     }
 
     fun title(title: String) = update(state.copy(title = title))
@@ -121,14 +122,8 @@ internal class DesktopBrowserNavigation(
 
     private fun begin(action: () -> Unit) {
         isStopped = false
-        update(
-            state.copy(
-                isLoading = true,
-                isAwaitingResponse = true,
-                error = null,
-                failure = null,
-            ),
-        )
+        state = state.copy(isLoading = true, isAwaitingResponse = true, error = null, failure = null)
+        update(state.copy(security = connectionSecurity()))
         action()
     }
 

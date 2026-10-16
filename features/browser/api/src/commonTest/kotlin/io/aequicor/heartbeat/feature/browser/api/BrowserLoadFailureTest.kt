@@ -98,7 +98,7 @@ class BrowserLoadFailureTest {
     }
 
     @Test
-    fun `navigation clears the failure but keeps the committed indicator`() {
+    fun `navigation clears the failure and only a new address drops the indicator`() {
         val committed = state.copy(
             page = page.copy(failure = null, security = BrowserSecurity.CertificateException, isBackAvailable = true),
         )
@@ -116,9 +116,15 @@ class BrowserLoadFailureTest {
             effects = listOf(BrowserEffect.Back),
         )
         BrowserMachineSpec.assertTransition(
-            from = state,
+            from = committed,
             intent = BrowserIntent.Public.Open("https://example.org/"),
-            to = state.copy(page = page.copy(url = "https://example.org/", isLoading = true, failure = null)),
+            to = committed.copy(
+                page = committed.page.copy(
+                    url = "https://example.org/",
+                    isLoading = true,
+                    security = BrowserSecurity.Unknown,
+                ),
+            ),
             effects = listOf(BrowserEffect.Load("https://example.org/")),
         )
     }
