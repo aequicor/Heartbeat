@@ -30,6 +30,7 @@ enum class SettingsSectionUi {
     Context,
     Harness,
     Interfaces,
+    Logs,
     FeatureFlags,
 }
 
@@ -44,6 +45,7 @@ fun SettingsSection.toUi(): SettingsSectionUi = when (this) {
     SettingsSection.Context -> SettingsSectionUi.Context
     SettingsSection.Harness -> SettingsSectionUi.Harness
     SettingsSection.Interfaces -> SettingsSectionUi.Interfaces
+    SettingsSection.Logs -> SettingsSectionUi.Logs
     SettingsSection.FeatureFlags -> SettingsSectionUi.FeatureFlags
 }
 
@@ -58,6 +60,7 @@ fun SettingsSectionUi.toSection(): SettingsSection = when (this) {
     SettingsSectionUi.Context -> SettingsSection.Context
     SettingsSectionUi.Harness -> SettingsSection.Harness
     SettingsSectionUi.Interfaces -> SettingsSection.Interfaces
+    SettingsSectionUi.Logs -> SettingsSection.Logs
     SettingsSectionUi.FeatureFlags -> SettingsSection.FeatureFlags
 }
 

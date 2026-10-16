@@ -41,8 +41,12 @@ SetupIconFile={#SetupIconFile}
 WizardSmallImageFile={#WizardSmallImageFile}
 UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExeName}
-; A running Heartbeat (and the Pi engine it started) is closed before its files are replaced.
-CloseApplications=yes
+; A running Heartbeat is closed before its files are replaced. The Restart Manager first asks it to close, but neither
+; the app's JVM nor its windowless helpers started from the same launcher (diagram, compiler and build workers, the
+; Chromium native-messaging host) answer that request: without force they kept Heartbeat.exe locked and the upgrade
+; failed with "DeleteFile: code 5". Force terminates what is still running after the request times out; the user
+; agrees to it on the Preparing to Install page (or by running the update silently), and can choose not to close.
+CloseApplications=force
 RestartApplications=no
 Compression=lzma2/max
 SolidCompression=yes

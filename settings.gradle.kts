@@ -67,6 +67,7 @@ include(":features:ai-studio:api", ":features:ai-studio:impl", ":features:ai-stu
 include(":features:search-engine:api", ":features:search-engine:impl")
 include(":features:toggles-panel:api", ":features:toggles-panel:impl")
 include(":features:settings:api", ":features:settings:impl")
+include(":features:app-logs:api", ":features:app-logs:impl")
 include(":core:common")
 include(":core:di:api")
 include(":core:di:ext")
