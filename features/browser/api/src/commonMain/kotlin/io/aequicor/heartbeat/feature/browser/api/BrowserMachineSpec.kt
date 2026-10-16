@@ -18,7 +18,10 @@ import kotlin.coroutines.cancellation.CancellationException
  * active tab, independent of surface attachment. Running + Completed -> emit Completed; no page
  * contents are retained in machine state. Running + ObserverFailed -> stay disabled and hidden
  * [Reobserve]; the effect already revoked the session. Running + Failed -> stay with
- * EngineUnavailable. Disabled navigation and duplicate Start are ignored.
+ * EngineUnavailable. ErrorPagesChanged updates the opt-in policy; enabled NetworkRestored emits
+ * RetryNetworkErrors. Internal ProceedCertificate/ReturnToSafety require the exact selected failure
+ * and human control; proceeding additionally requires an overridable certificate error.
+ * Disabled navigation and duplicate Start are ignored.
  * Running + ZoomAvailabilityChanged -> stay with isZoomEnabled. Enabled + Zoom (zoom enabled, HTTP/S page)
  * -> stay [Zoom(selected tab, direction, URL)]; Enabled + Zoom (zoom enabled, any other page) -> accepted without
  * an effect, since zoom keys on a new tab are routine input. During a pending main-frame navigation the URL is
@@ -53,6 +56,24 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
             }
         }
         state<BrowserState.Running> {
+            on<BrowserIntent.Internal.ErrorPagesChanged> {
+                stay { state.copy(areErrorPagesEnabled = intent.isEnabled) }
+            }
+            on<BrowserIntent.Internal.NetworkRestored>(
+                guard = { state.isEnabled && state.areErrorPagesEnabled },
+            ) {
+                effect { BrowserEffect.RetryNetworkErrors }
+            }
+            on<BrowserIntent.Internal.ProceedCertificate>(
+                guard = { state.matchesWarning(intent.tabId, intent.failure) && intent.failure.isProceedAllowed },
+            ) {
+                effect { BrowserEffect.ProceedCertificate(intent.tabId, intent.failure) }
+            }
+            on<BrowserIntent.Internal.ReturnToSafety>(
+                guard = { state.matchesWarning(intent.tabId, intent.failure) },
+            ) {
+                effect { BrowserEffect.ReturnToSafety(intent.tabId, intent.failure) }
+            }
             on<BrowserIntent.Public.Display>(
                 guard = { state.isEnabled || intent.mode == BrowserDisplay.Hidden },
             ) {
@@ -111,6 +132,8 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
                             url = requireNotNull(normalizeBrowserUrl(intent.address)),
                             isLoading = true,
                             error = null,
+                            failure = null,
+                            security = BrowserSecurity.Unknown,
                         ),
                     )
                 }
@@ -126,13 +149,31 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
             on<BrowserIntent.Public.Back>(
                 guard = { state.isEnabled && state.page.isBackAvailable },
             ) {
-                stay { state.copy(page = state.page.copy(isLoading = true, error = null)) }
+                stay {
+                    state.copy(
+                        page = state.page.copy(
+                            isLoading = true,
+                            error = null,
+                            failure = null,
+                            security = BrowserSecurity.Unknown,
+                        ),
+                    )
+                }
                 effect { BrowserEffect.Back }
             }
             on<BrowserIntent.Public.Forward>(
                 guard = { state.isEnabled && state.page.isForwardAvailable },
             ) {
-                stay { state.copy(page = state.page.copy(isLoading = true, error = null)) }
+                stay {
+                    state.copy(
+                        page = state.page.copy(
+                            isLoading = true,
+                            error = null,
+                            failure = null,
+                            security = BrowserSecurity.Unknown,
+                        ),
+                    )
+                }
                 effect { BrowserEffect.Forward }
             }
             on<BrowserIntent.Public.Reload>(
@@ -141,7 +182,16 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
                         (state.page.url.isNotEmpty() || state.page.error == BrowserError.EngineUnavailable)
                 },
             ) {
-                stay { state.copy(page = state.page.copy(isLoading = true, error = null)) }
+                stay {
+                    state.copy(
+                        page = state.page.copy(
+                            isLoading = true,
+                            error = null,
+                            failure = null,
+                            security = BrowserSecurity.Unknown,
+                        ),
+                    )
+                }
                 effect { BrowserEffect.Reload }
             }
             on<BrowserIntent.Public.Stop>(guard = { state.isEnabled && state.page.isLoading }) {
@@ -204,6 +254,9 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
 
                 is BrowserEffect.Reobserve -> BrowserIntent.Internal.ObserverFailed(effect.attempt + 1)
 
+                is BrowserEffect.ProceedCertificate,
+                is BrowserEffect.ReturnToSafety,
+                BrowserEffect.RetryNetworkErrors,
                 is BrowserEffect.Load,
                 BrowserEffect.Back,
                 BrowserEffect.Forward,
@@ -226,3 +279,8 @@ private fun BrowserState.Running.disabled(): BrowserState.Running = copy(
         error = null,
     ),
 )
+
+/** UI decisions cannot be replayed on another tab, load or an agent-controlled page. */
+private fun BrowserState.Running.matchesWarning(tabId: String, failure: BrowserLoadFailure): Boolean =
+    isEnabled && areErrorPagesEnabled && selectedTabId == tabId && page.failure == failure &&
+        failure.isCertificate && tabs.any { it.id == tabId && (it.owner == null || it.isHumanControlled) }

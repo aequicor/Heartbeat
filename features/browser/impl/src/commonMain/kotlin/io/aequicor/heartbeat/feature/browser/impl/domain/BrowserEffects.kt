@@ -37,6 +37,12 @@ internal class BrowserEffects(
 
     override suspend fun handle(effect: BrowserEffect, machine: EffectScope<BrowserIntent>) {
         when (effect) {
+            is BrowserEffect.ProceedCertificate -> session.proceedCertificate(effect.tabId, effect.failure)
+
+            is BrowserEffect.ReturnToSafety -> session.returnToSafety(effect.tabId, effect.failure)
+
+            BrowserEffect.RetryNetworkErrors -> session.retryNetworkErrors()
+
             is BrowserEffect.Perform -> perform(effect, machine)
 
             is BrowserEffect.SelectTab -> selectTab(effect.id)
@@ -53,13 +59,11 @@ internal class BrowserEffects(
 
             is BrowserEffect.Load -> session.execute(BrowserCommand.Load(effect.url))
 
-            BrowserEffect.Back -> session.execute(BrowserCommand.Back)
-
-            BrowserEffect.Forward -> session.execute(BrowserCommand.Forward)
-
-            BrowserEffect.Reload -> session.execute(BrowserCommand.Reload)
-
-            BrowserEffect.Stop -> session.execute(BrowserCommand.Stop)
+            BrowserEffect.Back,
+            BrowserEffect.Forward,
+            BrowserEffect.Reload,
+            BrowserEffect.Stop,
+            -> session.execute(HISTORY_COMMANDS.getValue(effect))
 
             is BrowserEffect.Zoom -> session.zoom(effect.tabId, effect.direction, effect.url)
         }
@@ -74,6 +78,12 @@ internal class BrowserEffects(
         var isFailed = true
         try {
             coroutineScope {
+                launch {
+                    session.errorPagesEnabled.collect { machine.send(BrowserIntent.Internal.ErrorPagesChanged(it)) }
+                }
+                launch {
+                    session.networkRestored.collect { machine.send(BrowserIntent.Internal.NetworkRestored) }
+                }
                 launch {
                     session.tabs.collect { (tabs, selected) ->
                         machine.send(BrowserIntent.Internal.TabsChanged(tabs, selected))
@@ -155,3 +165,11 @@ internal fun browserObserverRetryDelay(attempt: Int): Duration =
 
 private const val MAX_BACKOFF_SHIFT = 7
 private val MAX_OBSERVER_RETRY_DELAY = 60.seconds
+
+/** Argument-free navigation effects and the native command each one runs. */
+private val HISTORY_COMMANDS: Map<BrowserEffect, BrowserCommand> = mapOf(
+    BrowserEffect.Back to BrowserCommand.Back,
+    BrowserEffect.Forward to BrowserCommand.Forward,
+    BrowserEffect.Reload to BrowserCommand.Reload,
+    BrowserEffect.Stop to BrowserCommand.Stop,
+)

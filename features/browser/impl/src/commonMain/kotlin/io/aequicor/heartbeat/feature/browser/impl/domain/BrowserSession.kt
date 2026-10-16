@@ -1,11 +1,13 @@
 package io.aequicor.heartbeat.feature.browser.impl.domain
 
+import io.aequicor.heartbeat.feature.browser.api.BrowserLoadFailure
 import io.aequicor.heartbeat.feature.browser.api.BrowserPage
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserTab
 import io.aequicor.heartbeat.feature.browser.api.BrowserZoom
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 
 /** Availability is read through a port; domain does not know the toggle implementation. */
@@ -15,6 +17,12 @@ internal fun interface BrowserAvailability {
 
 /** Commands and current page of the retained native browsing session. */
 internal interface BrowserSession {
+    val errorPagesEnabled: Flow<Boolean> get() = flowOf(false)
+    val networkRestored: Flow<Unit> get() = emptyFlow()
+    suspend fun proceedCertificate(tabId: String, failure: BrowserLoadFailure): Unit = Unit
+    suspend fun returnToSafety(tabId: String, failure: BrowserLoadFailure): Unit = Unit
+    suspend fun retryNetworkErrors(): Unit = Unit
+
     val tabs: Flow<Pair<List<BrowserTab>, String?>>
         get() = flowOf(emptyList<BrowserTab>() to null)
 
