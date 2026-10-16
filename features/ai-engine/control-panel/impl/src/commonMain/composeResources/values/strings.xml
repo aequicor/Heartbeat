@@ -262,4 +262,6 @@
     <string name="control_import_note_skipped">Skipped (a link, installed dependencies or an unsupported file)</string>
     <string name="control_import_note_large">Exceeds the size limits</string>
     <string name="control_import_note_unreadable">Could not be read</string>
+    <string name="engine_confirm_sync_title">Install packages from the list?</string>
+    <string name="engine_confirm_sync_body">Heartbeat installs the packages listed in the settings and removes installed packages that are no longer listed.</string>
 </resources>

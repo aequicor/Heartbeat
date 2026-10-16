@@ -60,7 +60,10 @@ interface EngineControlGraph {
 @ContributesTo(EngineControlScope::class)
 @BindingContainer
 object EngineControlBindings {
-    /** Launches the machine for the lifetime of the screen. */
+    /**
+     * Launches the machine for the lifetime of the screen. The list and each open panel own an instance; nothing
+     * outside sends to them, so they are private, not registered under the key.
+     */
     @Provides
     @SingleIn(EngineControlScope::class)
     fun machine(
@@ -73,6 +76,7 @@ object EngineControlBindings {
         EngineControlMachineSpec,
         scope,
         EngineControlEffects(EngineControlServices(management, configuration, workspaces)),
+        isAddressable = false,
     )
 }
 

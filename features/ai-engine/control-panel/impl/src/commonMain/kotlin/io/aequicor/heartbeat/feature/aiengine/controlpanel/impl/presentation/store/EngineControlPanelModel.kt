@@ -198,14 +198,18 @@ class EngineControlPanelModel(
         }
         val edit = config.schema.saveOf(draft)
         val save = ControlOperation.SaveProfile(engineId, edit, draft.base ?: config.revision)
+        var isAccepted = false
+        try {
+            isAccepted = sendTo(machine, EngineControlIntent.Public.Apply(save)) == SendResult.Accepted
+        } finally {
+            // A save that was not accepted never reaches the effect that closes its secrets.
+            if (!isAccepted) edit.secrets.values.forEach { it?.close() }
+        }
         // The draft stays until the saved revision changes, so a failed save keeps the edits to fix.
-        if (sendTo(machine, EngineControlIntent.Public.Apply(save)) == SendResult.Accepted) {
+        if (isAccepted) {
             updateState {
                 copy(configDraft = configDraft?.copy(isSubmitted = true)).reflect(engineId, machine.state.value)
             }
-        } else {
-            // A refused save never reaches the effect that closes its secrets.
-            edit.secrets.values.forEach { it?.close() }
         }
     }
 

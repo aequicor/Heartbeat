@@ -38,12 +38,12 @@ import kotlin.test.assertNull
 class StudioProjectTrustTest {
     private val pi = EngineId("pi")
     private val ready = AiStudioState.Ready(
-        panes = listOf(StudioPane(0, projectId = "web")),
+        panes = listOf(StudioPane(0, projectId = HEARTBEAT)),
         focusedPaneId = 0,
         settings = DefaultRunSettings.copy(
             modelId = EngineTarget(pi, EngineBindingId("b"), ModelId("m")).studioModelId(),
         ),
-        defaultProjectId = "web",
+        defaultProjectId = HEARTBEAT,
     )
 
     @Test
@@ -51,9 +51,10 @@ class StudioProjectTrustTest {
         val configuration = TrustConfiguration(hasGated = true)
         val screen = Fixture(this, ready, configuration = configuration).subscribe()
         runCurrent()
-        assertEquals(ProjectTrustNoticeUi("web", "pi", "web", "pi"), screen.states.value.projectTrust)
+        assertEquals(ProjectTrustNoticeUi(HEARTBEAT, "pi", "heartbeat", "pi"), screen.states.value.projectTrust)
 
-        screen.intent(AiStudioScreenIntent.DecideProjectTrust("web", "pi", isTrusted = false))
+        screen.intent(AiStudioScreenIntent.DecideProjectTrust("p-other", "pi", isTrusted = true))
+        screen.intent(AiStudioScreenIntent.DecideProjectTrust(HEARTBEAT, "pi", isTrusted = false))
         runCurrent()
         assertEquals(listOf(ProjectTrust.Content), configuration.decisions)
         assertNull(screen.states.value.projectTrust)
@@ -112,5 +113,9 @@ class StudioProjectTrustTest {
             selection: ImportSelection,
             expected: ConfigRevision,
         ): ImportReport = error("Unused")
+    }
+
+    private companion object {
+        const val HEARTBEAT = "p-heartbeat"
     }
 }

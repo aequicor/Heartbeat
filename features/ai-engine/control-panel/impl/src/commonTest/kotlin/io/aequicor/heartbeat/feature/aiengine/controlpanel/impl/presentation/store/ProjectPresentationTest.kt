@@ -121,7 +121,7 @@ class ProjectPresentationTest {
         val form = config.projectForm(project, draft, "Web").form
         assertEquals(0, form.blockingProblems)
         assertTrue(form.canSave)
-        val edit = config.projectSaveOf(draft)
+        val edit = config.projectSaveOf(project, draft)
         assertEquals(mapOf(settings to "{ // comment\n}"), edit.raw)
     }
 
@@ -145,6 +145,14 @@ class ProjectPresentationTest {
             retries.problems,
         )
         assertTrue(config.projectForm(unreadable, null, "Web").form.files.single().isInvalid)
+    }
+
+    @Test
+    fun `an emptied file that does not parse is removed on save`() {
+        val unreadable = project.copy(values = EngineConfigValues(), unreadable = mapOf(settings to "{ // x }"))
+        val draft = config.editProjectFile(unreadable, null, "settings", "")!!
+
+        assertEquals(mapOf(settings to ""), config.projectSaveOf(unreadable, draft).raw)
     }
 
     @Test

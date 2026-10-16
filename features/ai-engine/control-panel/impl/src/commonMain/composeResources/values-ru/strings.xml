@@ -262,4 +262,6 @@
     <string name="control_import_note_skipped">Пропущено (ссылка, установленные зависимости или неподдерживаемый файл)</string>
     <string name="control_import_note_large">Превышает ограничения размера</string>
     <string name="control_import_note_unreadable">Не удалось прочитать</string>
+    <string name="engine_confirm_sync_title">Установить пакеты по списку?</string>
+    <string name="engine_confirm_sync_body">Heartbeat установит пакеты из списка в настройках и удалит установленные пакеты, которых в нём больше нет.</string>
 </resources>

@@ -226,6 +226,8 @@ class EngineManagementPresentationTest {
         assertNull(EngineControlPanelState(CodexId.value).commandFor(EngineManagementIntent.InspectEngine))
         assertTrue(panel.needsConfirmation(EngineActionUi.Uninstall))
         assertTrue(panel.needsConfirmation(EngineActionUi.Logout))
+        assertTrue(panel.needsConfirmation(EngineActionUi.SyncPackages))
+        assertFalse(panel.needsConfirmation(EngineActionUi.UpdatePackages))
         assertFalse(panel.needsConfirmation(EngineActionUi.Update))
         val bundled = panel.copy(panel = panel.panel!!.copy(installation = InstallationUi(InstallSupportUi.Bundled)))
         assertTrue(bundled.needsConfirmation(EngineActionUi.Update))

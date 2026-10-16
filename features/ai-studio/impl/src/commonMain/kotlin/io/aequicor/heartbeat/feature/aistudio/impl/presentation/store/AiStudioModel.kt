@@ -43,6 +43,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.EffortUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedCollapseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectTrustNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.afterNavigation
@@ -547,7 +548,11 @@ class AiStudioModel(
 
             is AiStudioScreenIntent.Usage -> usage(pipeline, intent)
 
-            is AiStudioScreenIntent.DecideProjectTrust -> projectTrust.decide(intent)
+            is AiStudioScreenIntent.DecideProjectTrust -> {
+                var notice: ProjectTrustNoticeUi? = null
+                withState { notice = projectTrust }
+                this@AiStudioModel.projectTrust.decide(intent, notice)
+            }
 
             is AiStudioScreenIntent.RespondPermission -> sendTo(
                 machine,

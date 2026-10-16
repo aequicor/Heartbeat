@@ -20,6 +20,8 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_confirm_revert
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_confirm_revert_body
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_confirm_revert_title
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_confirm_sync_body
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_confirm_sync_title
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_confirm_uninstall
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_confirm_uninstall_body
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_confirm_uninstall_title
@@ -55,6 +57,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_login_failure_unsupported
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_login_failure_untrusted
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_not_inspected
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_packages_sync
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_phase_activating
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_phase_browser
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.engine_phase_cancelled
@@ -177,13 +180,19 @@ internal fun confirmationTexts(action: EngineActionUi, panel: EnginePanelUi): Tr
             stringResource(Res.string.engine_confirm_update),
         )
 
+        EngineActionUi.SyncPackages -> Triple(
+            stringResource(Res.string.engine_confirm_sync_title),
+            stringResource(Res.string.engine_confirm_sync_body),
+            stringResource(Res.string.engine_packages_sync),
+        )
+
         EngineActionUi.Logout -> Triple(
             stringResource(Res.string.engine_confirm_logout_title),
             stringResource(Res.string.engine_confirm_logout_body),
             stringResource(Res.string.engine_confirm_logout),
         )
 
-        EngineActionUi.Install, EngineActionUi.Login, EngineActionUi.SyncPackages, EngineActionUi.UpdatePackages -> null
+        EngineActionUi.Install, EngineActionUi.Login, EngineActionUi.UpdatePackages -> null
     }
 }
 

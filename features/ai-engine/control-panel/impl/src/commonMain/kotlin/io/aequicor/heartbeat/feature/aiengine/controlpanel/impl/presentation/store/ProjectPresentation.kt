@@ -81,11 +81,15 @@ internal fun EngineConfigState.editProjectFile(
     return current.copy(draft = projectSource(project).editFile(current.draft, id, text))
 }
 
-/** The project save of [draft]: its values as saved, and JSON files that do not parse written as typed. */
-internal fun EngineConfigState.projectSaveOf(draft: ProjectDraft): ProjectEdit {
+/**
+ * The project save of [draft]: its values as saved, JSON files that do not parse written as typed, and an emptied
+ * file of [project] that did not parse removed (an empty raw text).
+ */
+internal fun EngineConfigState.projectSaveOf(project: ProjectConfig, draft: ProjectDraft): ProjectEdit {
     val raw = draft.draft.files.filter { (id, text) ->
-        schema.document(ConfigDocumentId(id))?.format == ConfigFormat.Json &&
-            text.isNotBlank() && parseJsonObject(text).isFailure
+        val isJson = schema.document(ConfigDocumentId(id))?.format == ConfigFormat.Json
+        val isRemoved = text.isBlank() && project.unreadable.keys.any { it.value == id }
+        isJson && (isRemoved || (text.isNotBlank() && parseJsonObject(text).isFailure))
     }
     return ProjectEdit(schema.cleaned(draft.draft.values), raw.mapKeys { ConfigDocumentId(it.key) })
 }

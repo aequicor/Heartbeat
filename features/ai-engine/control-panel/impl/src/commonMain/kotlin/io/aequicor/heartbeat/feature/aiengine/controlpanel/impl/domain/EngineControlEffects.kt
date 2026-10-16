@@ -19,7 +19,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
 
 /** Profile services the control panel works through. */
-data class EngineControlServices(
+internal data class EngineControlServices(
     val management: EngineManagement,
     val configuration: EngineConfiguration,
     val workspaces: LocalWorkspaces,
@@ -29,7 +29,7 @@ data class EngineControlServices(
  * Observes engine management, engine configuration and the saved projects, and executes the panel's operations.
  * Writes complete even if the panel closes meanwhile; secrets of a configuration edit are closed once it ran.
  */
-class EngineControlEffects(private val services: EngineControlServices) :
+internal class EngineControlEffects(private val services: EngineControlServices) :
     EffectHandler<EngineControlEffect, EngineControlIntent> {
     private val log = Log.tag("EngineControlEffects")
 

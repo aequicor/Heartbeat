@@ -60,11 +60,14 @@ sealed interface EngineManagementIntent : EngineControlPanelIntent {
     data object SubmitLoginCode : EngineRequest
 }
 
-/** Removals, an update replacing the verified bundled copy and sign-out ask first. */
+/** Removals, a package sync, an update replacing the verified bundled copy and sign-out ask first. */
 internal fun EngineControlPanelState.needsConfirmation(action: EngineActionUi): Boolean = when (action) {
-    EngineActionUi.Uninstall, EngineActionUi.Logout -> true
+    // A sync also removes the installed packages that are no longer listed.
+    EngineActionUi.Uninstall, EngineActionUi.Logout, EngineActionUi.SyncPackages -> true
+
     EngineActionUi.Update -> panel?.installation?.support == InstallSupportUi.Bundled
-    EngineActionUi.Install, EngineActionUi.Login, EngineActionUi.SyncPackages, EngineActionUi.UpdatePackages -> false
+
+    EngineActionUi.Install, EngineActionUi.Login, EngineActionUi.UpdatePackages -> false
 }
 
 /** Whether [intent] edits the launch draft, which changes the panel's validation. */

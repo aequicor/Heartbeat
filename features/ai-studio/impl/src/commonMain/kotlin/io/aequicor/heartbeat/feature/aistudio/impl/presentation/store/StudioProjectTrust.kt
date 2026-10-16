@@ -26,10 +26,17 @@ import kotlinx.coroutines.flow.combine
 internal class StudioProjectTrust(private val configuration: EngineConfiguration, private val facade: EngineFacade) {
     private val log = Log.tag("StudioProjectTrust")
     private val chats = MutableStateFlow<FocusedChat?>(null)
+    private var seen: FocusInputs? = null
 
-    /** Follows the focused chat of every screen state; equal chats do not restart the lookup. */
+    /**
+     * Follows the focused chat of every screen state. Most updates (streamed tokens, carets) leave the panes, chats and
+     * settings as they were, so the chat is derived again only when one of them is replaced.
+     */
     @HighFrequency
     fun focus(state: AiStudioScreenState) {
+        val inputs = FocusInputs(state)
+        if (seen?.isSameAs(inputs) == true) return
+        seen = inputs
         val chat = state.focusedChat()
         if (chat == chats.value) return
         log.v { "focused chat changed" }
@@ -43,7 +50,12 @@ internal class StudioProjectTrust(private val configuration: EngineConfiguration
         }
     }
 
-    suspend fun decide(intent: AiStudioScreenIntent.DecideProjectTrust) {
+    /** Saves the decision the user made on [notice]; a decision about anything else is refused. */
+    suspend fun decide(intent: AiStudioScreenIntent.DecideProjectTrust, notice: ProjectTrustNoticeUi?) {
+        if (notice == null || notice.projectId != intent.projectId || notice.engine != intent.engine) {
+            log.w { "ignore a project trust decision that answers no open question" }
+            return
+        }
         val trust = if (intent.isTrusted) ProjectTrust.Trusted else ProjectTrust.Content
         log.i { "project trust decided engine=${intent.engine} trust=$trust" }
         try {
@@ -69,14 +81,29 @@ internal class StudioProjectTrust(private val configuration: EngineConfiguration
     }
 }
 
+/** What the focused chat is derived from, compared by reference. */
+private class FocusInputs(state: AiStudioScreenState) {
+    private val panes = state.panes
+    private val focused = state.focusedPaneId
+    private val sessions = state.sessions
+    private val projects = state.projects
+    private val configurations = state.configurations
+    private val settings = state.settings
+
+    fun isSameAs(other: FocusInputs): Boolean = panes === other.panes && focused == other.focused &&
+        sessions === other.sessions && projects === other.projects &&
+        configurations === other.configurations && settings === other.settings
+}
+
 /** The project and engine of the focused chat. */
 private data class FocusedChat(val project: WorkspaceRef, val engine: EngineId, val title: String)
 
 private fun AiStudioScreenState.focusedChat(): FocusedChat? {
     val pane = panes.firstOrNull { it.id == focusedPaneId } ?: return null
     val session = pane.sessionId?.let(::session)
-    val projectId = session?.projectId ?: pane.projectId ?: return null
+    // A project no longer in the saved list has nothing to decide.
+    val projectId = (session?.projectId ?: pane.projectId)?.takeIf { project(it) != null } ?: return null
     val modelId = session?.let { configurations[it.id]?.modelId ?: it.modelId } ?: settings.modelId
     val engine = studioModelTarget(modelId)?.engine ?: return null
-    return FocusedChat(WorkspaceRef(projectId), engine, project(projectId)?.name ?: projectId)
+    return FocusedChat(WorkspaceRef(projectId), engine, project(projectId)?.name.orEmpty())
 }

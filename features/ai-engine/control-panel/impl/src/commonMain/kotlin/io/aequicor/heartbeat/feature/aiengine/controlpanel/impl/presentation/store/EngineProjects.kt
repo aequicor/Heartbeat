@@ -24,19 +24,13 @@ internal class EngineProjects(
     @Suppress("SuspendFunWithCoroutineScopeReceiver")
     suspend fun PanelContext.handle(intent: ProjectIntent) {
         when (intent) {
+            is ProjectIntent.Open -> open(intent.project)
+
+            ProjectIntent.Close -> closeProject()
+
             is ProjectIntent.OpenFile -> updateState { copy(projectFile = intent.file) }
 
-            ProjectIntent.CloseFile -> updateState {
-                val schema = machine.state.value.configOf(engineId)?.schema
-                val settled = projectDraft?.let { draft ->
-                    schema?.let {
-                        draft.copy(
-                            draft = it.settleFiles(draft.draft),
-                        )
-                    }
-                }
-                copy(projectFile = null, projectDraft = settled ?: projectDraft).reflect(engineId, machine.state.value)
-            }
+            ProjectIntent.CloseFile -> updateState { closeFile() }
 
             is ProjectIntent.EditField -> edit { config, project, draft ->
                 config.editProject(project, draft, intent.field, intent.input)
@@ -46,38 +40,37 @@ internal class EngineProjects(
                 config.editProjectFile(project, draft, intent.file, intent.text)
             }
 
+            ProjectIntent.Save -> save()
+
             ProjectIntent.Discard -> updateState { copy(projectDraft = null).reflect(engineId, machine.state.value) }
 
-            is ProjectIntent.Open, ProjectIntent.Close, ProjectIntent.Reload, ProjectIntent.Save,
-            is ProjectIntent.SetTrust,
-            -> request(intent)
-        }
-    }
-
-    // PipelineContext is FlowMVI's pipeline receiver (a CoroutineScope); store DSL functions extend it the same way.
-    @Suppress("SuspendFunWithCoroutineScopeReceiver")
-    private suspend fun PanelContext.request(intent: ProjectIntent) {
-        when (intent) {
-            is ProjectIntent.Open -> open(intent.project)
-
-            ProjectIntent.Close -> {
-                sendTo(machine, EngineControlIntent.Public.CloseProject)
-                updateState { copy(openProject = null, projectFile = null, projectDraft = null, project = null) }
-            }
-
-            ProjectIntent.Reload -> {
-                updateState { copy(projectDraft = null) }
-                screen().openProject?.let { open(it) }
-            }
-
-            ProjectIntent.Save -> save()
+            ProjectIntent.Reload -> reloadProject()
 
             is ProjectIntent.SetTrust -> screen().openProject?.let { workspace ->
                 apply(ControlOperation.SetTrust(engineId, WorkspaceRef(workspace), intent.trust.toTrust()))
             }
-
-            else -> log.w { "ignore ${intent::class.simpleName.orEmpty()} as a request" }
         }
+    }
+
+    /** Back to the project from one of its files; a file that parses shows its document again. */
+    private fun EngineControlPanelState.closeFile(): EngineControlPanelState {
+        val schema = machine.state.value.configOf(engineId)?.schema
+        val settled = projectDraft?.let { draft -> schema?.let { draft.copy(draft = it.settleFiles(draft.draft)) } }
+        return copy(projectFile = null, projectDraft = settled ?: projectDraft).reflect(engineId, machine.state.value)
+    }
+
+    // PipelineContext is FlowMVI's pipeline receiver (a CoroutineScope); store DSL functions extend it the same way.
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
+    private suspend fun PanelContext.closeProject() {
+        sendTo(machine, EngineControlIntent.Public.CloseProject)
+        updateState { copy(openProject = null, projectFile = null, projectDraft = null, project = null) }
+    }
+
+    // PipelineContext is FlowMVI's pipeline receiver (a CoroutineScope); store DSL functions extend it the same way.
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
+    private suspend fun PanelContext.reloadProject() {
+        updateState { copy(projectDraft = null) }
+        screen().openProject?.let { open(it) }
     }
 
     // PipelineContext is FlowMVI's pipeline receiver (a CoroutineScope); store DSL functions extend it the same way.
@@ -118,7 +111,9 @@ internal class EngineProjects(
             log.w { "ignore a project save without savable changes" }
             return
         }
-        val save = ControlOperation.SaveProject(engineId, draft.workspace, config.projectSaveOf(draft), draft.revision)
+        val project = (machine.state.value as? EngineControlState.Active)?.project ?: return
+        val edit = config.projectSaveOf(project, draft)
+        val save = ControlOperation.SaveProject(engineId, draft.workspace, edit, draft.revision)
         // The draft stays until the files are read anew, so a failed save keeps the edits to fix.
         if (apply(save) == SendResult.Accepted) {
             updateState {
