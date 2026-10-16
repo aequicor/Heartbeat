@@ -127,7 +127,7 @@ class ConfigPresentationTest {
         assertEquals(FieldEditorUi.KeyValues(persistentListOf(), false, null), fields.getValue("env").editor)
         assertTrue("proxy" in fields)
         assertFalse(form.isDirty)
-        assertFalse(form.canSave)
+        assertFalse(form.isSaveable)
     }
 
     @Test
@@ -149,7 +149,7 @@ class ConfigPresentationTest {
         assertNull(values.read(at("retry")))
         assertNull(values.read(at("httpProxy")))
         assertEquals(ConfigRevision(3), draft.base)
-        assertTrue(config.form(draft).canSave)
+        assertTrue(config.form(draft).isSaveable)
     }
 
     @Test
@@ -161,11 +161,11 @@ class ConfigPresentationTest {
         assertEquals("3o", (timeout.editor as FieldEditorUi.Number).text)
         assertEquals(listOf(ConfigProblemUi(ConfigProblemReasonUi.NotANumber)), timeout.problems)
         assertEquals(1, form.blockingProblems)
-        assertFalse(form.canSave)
+        assertFalse(form.isSaveable)
 
         val fixed = config.edit(typed, "timeout", FieldInputUi.Number("45"))
         assertEquals(JsonPrimitive(45), fixed!!.values.read(at("retry", "timeout")))
-        assertTrue(config.form(fixed).canSave)
+        assertTrue(config.form(fixed).isSaveable)
     }
 
     @Test

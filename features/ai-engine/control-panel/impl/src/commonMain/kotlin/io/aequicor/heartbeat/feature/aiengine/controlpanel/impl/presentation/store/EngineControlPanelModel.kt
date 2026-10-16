@@ -72,7 +72,7 @@ data class EngineControlPanelState(
     /** Unsaved changes of the open project's files. */
     val projectDraft: ProjectDraft? = null,
     /** The engine's own configuration can be imported; an import being chosen, and the report of a finished one. */
-    val canImport: Boolean = false,
+    val isImportable: Boolean = false,
     val importing: ImportUi? = null,
     val importReport: ImportReportUi? = null,
     /** Back was asked with unsaved changes: the open project's when one is open, else the profile configuration's. */
@@ -245,7 +245,7 @@ class EngineControlPanelModel(
         withState { screen = this }
         val draft = screen.configDraft
         val config = machine.state.value.configOf(engineId)
-        if (draft == null || config == null || screen.config?.canSave != true) {
+        if (draft == null || config == null || screen.config?.isSaveable != true) {
             log.w { "ignore a configuration save without savable changes" }
             return
         }
@@ -320,7 +320,7 @@ internal fun EngineControlPanelState.reflect(engine: EngineId, state: EngineCont
         openProject = openProject.takeIf { config != null },
         project = project?.let { config?.projectForm(it, projectDraft, title) },
         projectDraft = projectDraft,
-        canImport = config != null && ConfigCapability.ImportNative in config.schema.capabilities,
+        isImportable = config != null && ConfigCapability.ImportNative in config.schema.capabilities,
         importing = active.importPreview?.toUi(importing),
         importReport = active.importReport?.let { report -> importReport ?: report.toUi(importing) },
         isConfigurationOff = !snapshot.configuration.isEnabled,

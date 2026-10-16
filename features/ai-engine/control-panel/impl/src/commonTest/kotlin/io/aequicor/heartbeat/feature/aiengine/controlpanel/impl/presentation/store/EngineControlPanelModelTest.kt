@@ -140,7 +140,7 @@ class EngineControlPanelModelTest {
         val screen = subscribe(model.store)
         model.store.intent(ConfigIntent.EditField("retries", FieldInputUi.Number("3")))
         runCurrent()
-        assertEquals(true, screen.states.value.config?.canSave)
+        assertEquals(true, screen.states.value.config?.isSaveable)
 
         model.store.intent(ConfigIntent.SaveConfig)
         runCurrent()
@@ -227,7 +227,7 @@ class EngineControlPanelModelTest {
         machine.state.value = configured(ConfigRevision(3), capabilities = setOf(ConfigCapability.ImportNative))
         val model = model()
         val screen = subscribe(model.store)
-        assertEquals(true, screen.states.value.canImport)
+        assertEquals(true, screen.states.value.isImportable)
         model.store.intent(ImportIntent.Preview)
         runCurrent()
         assertEquals(EngineControlIntent.Public.Apply(ControlOperation.PreviewImport(CodexId)), machine.sent.last())

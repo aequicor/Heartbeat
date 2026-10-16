@@ -24,7 +24,7 @@ import kotlin.test.assertEquals
 
 @OptIn(ExperimentalTestApi::class)
 class ImportUiTest {
-    private val overview = EngineControlPanelState("pi", title = "Pi", canImport = true, isLoading = false)
+    private val overview = EngineControlPanelState("pi", title = "Pi", isImportable = true, isLoading = false)
     private val importing = ImportUi(
         "~/.pi/agent",
         persistentListOf(

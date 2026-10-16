@@ -45,7 +45,7 @@ internal class StudioProjectTrust(private val configuration: EngineConfiguration
 
     suspend fun observe(pipeline: StudioPipeline) = with(pipeline) {
         combine(chats, configuration.state) { chat, config -> chat to config }.collectLatest { (chat, config) ->
-            val notice = chat?.let { notice(it, config) }
+            val notice = if (chat == null) null else notice(chat, config)
             updateState { copy(projectTrust = notice) }
         }
     }

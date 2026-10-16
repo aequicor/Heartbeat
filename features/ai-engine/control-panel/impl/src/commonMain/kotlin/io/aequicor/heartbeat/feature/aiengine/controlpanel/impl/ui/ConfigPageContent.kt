@@ -137,7 +137,7 @@ internal fun ConfigSaveBar(
                 { onIntent(ConfigIntent.SaveConfig) },
                 Modifier.testTag("config-save"),
                 HbButtonStyle.Primary,
-                enabled = form.canSave && !isSaving,
+                enabled = form.isSaveable && !isSaving,
                 size = HbButtonSize.Small,
             )
         }

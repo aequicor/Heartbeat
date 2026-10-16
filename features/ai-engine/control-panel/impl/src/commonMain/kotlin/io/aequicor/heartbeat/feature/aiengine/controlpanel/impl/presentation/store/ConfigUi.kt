@@ -23,7 +23,7 @@ data class ConfigFormUi(
     val files: ImmutableList<ConfigFileUi> = persistentListOf(),
 ) {
     /** The draft has changes and nothing prevents saving them. */
-    val canSave: Boolean get() = isDirty && blockingProblems == 0 && !hasConflict && !isSubmitted
+    val isSaveable: Boolean get() = isDirty && blockingProblems == 0 && !hasConflict && !isSubmitted
 }
 
 /**
@@ -75,8 +75,8 @@ data class ConfigFieldUi(
 /** The editor of a field with its value; defaults describe the engine's own default and are never written. */
 @Immutable
 sealed interface FieldEditorUi {
-    /** A switch; [value] null shows [default]. */
-    data class Flag(val value: Boolean?, val default: Boolean?) : FieldEditorUi
+    /** A switch; [isOn] null shows [isOnByDefault]. */
+    data class Flag(val isOn: Boolean?, val isOnByDefault: Boolean?) : FieldEditorUi
 
     /** One of [options], identified by [OptionUi.key]. */
     data class Choice(val options: ImmutableList<OptionUi>, val selected: String?, val default: String?) :
@@ -132,7 +132,7 @@ data class EntryUi(
     val fields: ImmutableList<ConfigFieldUi>,
     val problems: ImmutableList<ConfigProblemUi> = persistentListOf(),
 ) {
-    override fun toString(): String = "EntryUi(variant=$variant, fields=${fields.size})"
+    override fun toString(): String = "EntryUi(variant=${variant ?: "none"}, fields=${fields.size})"
 }
 
 /**
@@ -146,7 +146,7 @@ data class KeyValueRowUi(
     val slot: String? = null,
     val secret: SecretUi? = null,
 ) {
-    override fun toString(): String = "KeyValueRowUi(secret=$secret)"
+    override fun toString(): String = "KeyValueRowUi(secret=${secret ?: "none"})"
 }
 
 /** State of a value kept in the profile vault. */
@@ -197,7 +197,7 @@ enum class ConfigProblemReasonUi {
 /** A value the user typed or chose for a field. Never printed: values may be paths or server addresses. */
 sealed interface FieldInputUi {
     /** Switches a flag. */
-    data class Flag(val value: Boolean) : FieldInputUi
+    data class Flag(val isOn: Boolean) : FieldInputUi
 
     /** Chooses the option with [key]. */
     data class Choice(val key: String) : FieldInputUi
@@ -260,7 +260,7 @@ data class ConfigDraft(
     val files: Map<String, String> = emptyMap(),
     val isSubmitted: Boolean = false,
 ) {
-    override fun toString(): String = "ConfigDraft(base=${base?.value}, isSubmitted=$isSubmitted)"
+    override fun toString(): String = "ConfigDraft(base=${base?.value ?: "none"}, isSubmitted=$isSubmitted)"
 }
 
 /**

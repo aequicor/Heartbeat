@@ -50,7 +50,7 @@ private val PreviewPage = ConfigPageUi(
                     "offline",
                     text("Offline", "Без сети"),
                     text("Skip update checks and downloads.", "Не проверять обновления и не скачивать."),
-                    FieldEditorUi.Flag(value = null, default = false),
+                    FieldEditorUi.Flag(isOn = null, isOnByDefault = false),
                     isSet = false,
                 ),
                 ConfigFieldUi(

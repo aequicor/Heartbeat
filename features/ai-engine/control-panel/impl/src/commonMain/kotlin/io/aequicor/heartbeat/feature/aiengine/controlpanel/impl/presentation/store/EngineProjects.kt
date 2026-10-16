@@ -55,8 +55,13 @@ internal class EngineProjects(
     /** Back to the project from one of its files; a file that parses shows its document again. */
     private fun EngineControlPanelState.closeFile(): EngineControlPanelState {
         val schema = machine.state.value.configOf(engineId)?.schema
-        val settled = projectDraft?.let { draft -> schema?.let { draft.copy(draft = it.settleFiles(draft.draft)) } }
-        return copy(projectFile = null, projectDraft = settled ?: projectDraft).reflect(engineId, machine.state.value)
+        val draft = projectDraft
+        val settled = if (draft != null && schema != null) {
+            draft.copy(draft = schema.settleFiles(draft.draft))
+        } else {
+            draft
+        }
+        return copy(projectFile = null, projectDraft = settled).reflect(engineId, machine.state.value)
     }
 
     // PipelineContext is FlowMVI's pipeline receiver (a CoroutineScope); store DSL functions extend it the same way.
@@ -107,7 +112,7 @@ internal class EngineProjects(
         val screen = screen()
         val draft = screen.projectDraft
         val config = machine.state.value.configOf(engineId)
-        if (draft == null || config == null || screen.project?.form?.canSave != true) {
+        if (draft == null || config == null || screen.project?.form?.isSaveable != true) {
             log.w { "ignore a project save without savable changes" }
             return
         }

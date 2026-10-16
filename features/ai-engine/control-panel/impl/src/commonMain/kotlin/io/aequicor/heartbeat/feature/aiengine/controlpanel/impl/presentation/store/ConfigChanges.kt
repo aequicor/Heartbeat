@@ -51,7 +51,7 @@ private data class Written(val value: JsonElement?)
 
 /** The JSON a basic input writes for a value of this kind; null when it does not fit the kind. */
 private fun ConfigFieldKind.basicValue(input: FieldInputUi): Written? = when (input) {
-    is FieldInputUi.Flag -> Written(JsonPrimitive(input.value)).takeIf { this is ConfigFieldKind.Flag }
+    is FieldInputUi.Flag -> Written(JsonPrimitive(input.isOn)).takeIf { this is ConfigFieldKind.Flag }
 
     is FieldInputUi.Choice -> (this as? ConfigFieldKind.Choice)?.options
         ?.firstOrNull { it.value.toString() == input.key }
@@ -68,7 +68,9 @@ private fun ConfigFieldKind.basicValue(input: FieldInputUi): Written? = when (in
     )
         .takeIf { this is ConfigFieldKind.TextList }
 
-    else -> null
+    FieldInputUi.Reset, is FieldInputUi.KeyValues, is FieldInputUi.SetSecret, is FieldInputUi.AddEntry,
+    is FieldInputUi.RemoveEntry, is FieldInputUi.RenameEntry, is FieldInputUi.EditEntry,
+    -> null
 }
 
 private fun ConfigFieldKind.KeyValues.keyValuesChange(
@@ -82,13 +84,19 @@ private fun ConfigFieldKind.KeyValues.keyValuesChange(
                 row.slot?.let(::secretReference) ?: row.value,
             )
         }
-        val typed = input.rows.mapNotNull { row -> row.slot?.let { it to row.value.ifEmpty { null } } }.toMap()
+        val typed = input.rows.mapNotNull { row ->
+            val slot = row.slot ?: return@mapNotNull null
+            slot to row.value.ifEmpty { null }
+        }.toMap()
         Change(pairs.takeIf { it.isNotEmpty() }?.let(::JsonObject), typed)
     }
 
     is FieldInputUi.SetSecret -> (current as? JsonObject)?.let { pairs -> secretChange(pairs, input, slots) }
 
-    else -> null
+    is FieldInputUi.Flag, is FieldInputUi.Choice, is FieldInputUi.Number, is FieldInputUi.Text,
+    is FieldInputUi.TextList, FieldInputUi.Reset, is FieldInputUi.AddEntry, is FieldInputUi.RemoveEntry,
+    is FieldInputUi.RenameEntry, is FieldInputUi.EditEntry,
+    -> null
 }
 
 /** Moves a value into the vault (what it held is typed for the new slot) or back into the file, empty. */
@@ -131,16 +139,18 @@ private fun ConfigFieldKind.Entries.entriesChange(
         }
 
         is FieldInputUi.RemoveEntry -> Change(build(items.filterNot { it.first == input.key }))
-            .takeIf { items.any { it.first == input.key } }
+            .takeIf { items.any { item -> item.first == input.key } }
 
         is FieldInputUi.RenameEntry -> Change(
-            build(items.map { if (it.first == input.key) input.name to it.second else it }),
+            build(items.map { item -> if (item.first == input.key) input.name to item.second else item }),
         )
-            .takeIf { shape == EntriesShape.NamedMap && items.none { it.first == input.name } }
+            .takeIf { shape == EntriesShape.NamedMap && items.none { item -> item.first == input.name } }
 
         is FieldInputUi.EditEntry -> editEntry(items, input, slots)
 
-        else -> null
+        is FieldInputUi.Flag, is FieldInputUi.Choice, is FieldInputUi.Number, is FieldInputUi.Text,
+        is FieldInputUi.TextList, FieldInputUi.Reset, is FieldInputUi.KeyValues, is FieldInputUi.SetSecret,
+        -> null
     }
 }
 

@@ -47,8 +47,8 @@ internal fun EngineConfigState.projectForm(project: ProjectConfig, draft: Projec
     val own = draft?.takeIf { it.workspace == project.workspace }
     val form = projectSource(project).form(own?.draft, isUnparsedBlocking = false)
         .copy(hasConflict = own != null && !own.draft.isSubmitted && own.revision != project.revision)
-    val asksTrust = ConfigCapability.ProjectTrust in schema.capabilities
-    return ProjectFormUi(project.workspace.value, title, trustOf(project.workspace).takeIf { asksTrust }, form)
+    val hasTrust = ConfigCapability.ProjectTrust in schema.capabilities
+    return ProjectFormUi(project.workspace.value, title, trustOf(project.workspace).takeIf { hasTrust }, form)
 }
 
 /**

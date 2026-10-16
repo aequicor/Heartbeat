@@ -116,7 +116,7 @@ private fun Overview(state: EngineControlPanelState, onIntent: (EngineControlPan
     SettingsPages(state, onIntent)
     state.config?.takeIf { it.files.isNotEmpty() }?.let { ConfigFiles(it, onIntent) }
     if (state.projects.isNotEmpty()) ProjectsSection(state.projects, onIntent)
-    if (state.canImport) ImportSection(isEnabled = !state.isSaving, onIntent)
+    if (state.isImportable) ImportSection(isEnabled = !state.isSaving, onIntent)
 }
 
 /** A confirmation of an engine action, an import being chosen and the report of a finished one. */

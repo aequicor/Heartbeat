@@ -63,7 +63,7 @@ internal fun ConfigFieldRow(
     HbColumn(modifier.fillMaxWidth().testTag("config-field:${field.id}"), gap = HbTheme.spacing.xs) {
         when (val editor = field.editor) {
             is FieldEditorUi.Flag -> InlineField(field, enabled, onInput) {
-                val isOn = editor.value ?: editor.default ?: false
+                val isOn = editor.isOn ?: editor.isOnByDefault ?: false
                 HbSwitch(
                     isOn,
                     { onInput(FieldInputUi.Flag(it)) },

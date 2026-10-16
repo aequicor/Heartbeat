@@ -49,7 +49,9 @@ internal fun ConfigFieldKind.editor(
         is ConfigFieldKind.Text ->
             FieldEditorUi.Text(value?.text().orEmpty(), TextRoleUi.valueOf(role.name), fallback?.text() ?: default)
 
-        else -> structuredEditor(value, secrets, problems)
+        is ConfigFieldKind.TextList, is ConfigFieldKind.KeyValues, is ConfigFieldKind.Entries,
+        is ConfigFieldKind.Document, is ConfigFieldKind.ManagedNote,
+        -> structuredEditor(value, secrets, problems)
     }
 }
 

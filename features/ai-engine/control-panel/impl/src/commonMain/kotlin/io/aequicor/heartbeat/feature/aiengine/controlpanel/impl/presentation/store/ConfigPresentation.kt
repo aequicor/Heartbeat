@@ -179,7 +179,9 @@ private fun ConfigFieldKind.clean(value: JsonElement): JsonElement? = when (this
 
     is ConfigFieldKind.Entries -> cleanEntries(value)
 
-    else -> value
+    is ConfigFieldKind.Flag, is ConfigFieldKind.Choice, is ConfigFieldKind.Number, is ConfigFieldKind.Text,
+    is ConfigFieldKind.Document, is ConfigFieldKind.ManagedNote,
+    -> value
 }
 
 private fun ConfigFieldKind.Entries.cleanEntries(value: JsonElement): JsonElement {

@@ -120,7 +120,7 @@ class ProjectPresentationTest {
         assertEquals(project.revision, draft!!.revision)
         val form = config.projectForm(project, draft, "Web").form
         assertEquals(0, form.blockingProblems)
-        assertTrue(form.canSave)
+        assertTrue(form.isSaveable)
         val edit = config.projectSaveOf(project, draft)
         assertEquals(mapOf(settings to "{ // comment\n}"), edit.raw)
     }
