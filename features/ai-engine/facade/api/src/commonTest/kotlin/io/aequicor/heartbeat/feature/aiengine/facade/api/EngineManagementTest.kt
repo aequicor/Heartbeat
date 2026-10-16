@@ -65,6 +65,15 @@ class EngineManagementTest {
     }
 
     @Test
+    fun `an engine with packages offers package jobs while it can run`() {
+        val spec = ManagementSpec(InstallSupport.Bundled, LoginSupport.Connections, hasPackages = true)
+        assertTrue(EngineActionKind.Packages in engine(spec).actions())
+        assertFalse(EngineActionKind.Packages in engine(spec, reasons = setOf(DisabledReason.EngineFlagOff)).actions())
+        val job = EngineJob(EngineAction.SyncPackages, JobPhase.Installing(1, 3), Instant.fromEpochSeconds(1))
+        assertEquals(emptySet(), engine(spec, job = job).actions())
+    }
+
+    @Test
     fun `a running job or a running turn blocks the actions it would disturb`() {
         val job = EngineJob(EngineAction.Install, JobPhase.Downloading(10, 100), Instant.fromEpochSeconds(1))
         assertEquals(emptySet(), engine(cli, job = job).actions())

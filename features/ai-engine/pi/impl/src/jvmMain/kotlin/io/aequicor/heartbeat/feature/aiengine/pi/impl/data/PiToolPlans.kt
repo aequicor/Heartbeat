@@ -27,6 +27,17 @@ internal data class PiLaunchPlan(
     val selectedModel: ModelId? = null,
 ) {
     val names: Set<String> get() = policy.nativeOn + search + hosted?.specifications.orEmpty().map { it.name }
+
+    /**
+     * Pi's `--tools` allowlist: the tools by name and the configuration's extension entries whose group the policy
+     * keeps on; group names themselves are policy entries, not tools.
+     */
+    fun tools(config: PiAgentConfig): String {
+        val groups = PiToolGroups.entries.map { it.policyName }.toSet()
+        val extensions = config.tools.filter { entry -> piToolGroup(entry)?.policyName in policy.nativeOn }
+        return (names - groups + extensions).joinToString(",")
+    }
+
     override fun toString(): String = "PiLaunchPlan"
 }
 

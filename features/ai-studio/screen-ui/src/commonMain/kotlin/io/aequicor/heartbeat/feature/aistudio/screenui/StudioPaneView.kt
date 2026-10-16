@@ -940,6 +940,7 @@ private fun PaneExecutionStatus(content: PaneContent, modifier: Modifier = Modif
 @Composable
 private fun FooterNotices(content: PaneContent, onIntent: (StudioIntent) -> Unit, modifier: Modifier = Modifier) {
     HbColumn(modifier.testTag("footer-notices-${content.pane.id}"), gap = HbTheme.spacing.s) {
+        content.projectTrust?.let { ProjectTrustNotice(it, onIntent) }
         ModelConnectionHint(content, onIntent)
         DiagramDraftNotice(content, onIntent)
         if (content.isSubmitFailed) {

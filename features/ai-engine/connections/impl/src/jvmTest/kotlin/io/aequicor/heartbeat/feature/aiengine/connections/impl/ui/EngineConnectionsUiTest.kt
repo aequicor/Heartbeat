@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.KoogId
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.DescribedModel
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineConnectionsScreenIntent
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineConnectionsScreenState
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.managedSettingsSnapshot
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.reflect
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.settingsSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
@@ -135,5 +136,19 @@ class EngineConnectionsUiTest {
                 intents,
             )
         }
+    }
+
+    @Test
+    fun `with engine management the selected engine opens its control panel`() = runSkikoComposeUiTest {
+        val opened = mutableListOf<String>()
+        var state by mutableStateOf(loaded)
+        setContent {
+            HbTheme { EngineConnectionsContent(state, {}, {}, {}, { _, _ -> }, onManageEngine = { opened += it }) }
+        }
+        onNodeWithTag("settings-manage-engine").assertDoesNotExist()
+
+        state = EngineConnectionsScreenState().reflect(EngineConnectionsState.Active(managedSettingsSnapshot()))
+        onNodeWithTag("settings-manage-engine").performClick()
+        runOnIdle { assertEquals(listOf("koog"), opened) }
     }
 }

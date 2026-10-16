@@ -22,6 +22,7 @@ import pro.respawn.flowmvi.plugins.reduce
 /** A settings section as the screen knows it; mapped from and to the contract's [SettingsSection]. */
 enum class SettingsSectionUi {
     Models,
+    Engines,
     Security,
     Subagents,
     Search,

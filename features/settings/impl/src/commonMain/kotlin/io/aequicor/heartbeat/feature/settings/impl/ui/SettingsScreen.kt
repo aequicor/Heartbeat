@@ -51,6 +51,7 @@ import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_bu
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_chromium_browser
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_computer_use
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_context
+import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_engines
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_feature_flags
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_harness
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_interfaces
@@ -259,6 +260,7 @@ private fun sectionTitle(section: SettingsSectionUi): String = stringResource(SE
 // Tables instead of `when`: one entry per section keeps the mappings flat as sections are added.
 private val SECTION_TITLES = mapOf(
     SettingsSectionUi.Models to Res.string.settings_section_models,
+    SettingsSectionUi.Engines to Res.string.settings_section_engines,
     SettingsSectionUi.Security to Res.string.settings_section_security,
     SettingsSectionUi.Subagents to Res.string.settings_section_subagents,
     SettingsSectionUi.Search to Res.string.settings_section_search,
@@ -278,6 +280,7 @@ private fun SettingsSectionUi.icon(): ImageVector = SECTION_ICONS.getValue(this)
 
 private val SECTION_ICONS: Map<SettingsSectionUi, ImageVector> = mapOf(
     SettingsSectionUi.Models to HbIcons.Layers,
+    SettingsSectionUi.Engines to HbIcons.Terminal,
     SettingsSectionUi.Security to HbIcons.Shield,
     SettingsSectionUi.Subagents to HbIcons.Users,
     SettingsSectionUi.Search to HbIcons.Search,

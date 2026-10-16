@@ -12,9 +12,11 @@ import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.core.statemachine.flowmvi.reflect
 import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReviewMonitor
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableEngineConfiguration
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
@@ -43,6 +45,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedCollapseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoicesUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectTrustNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SecurityLevelUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
@@ -131,6 +134,7 @@ class AiStudioModel(
     private val surfaceBinding: StudioSurfaceBinding = StudioSurfaceBinding(StudioSurfaces.None, backend, scope),
     facade: EngineFacade,
     safetyReviewMonitor: AgentSafetyReviewMonitor,
+    configuration: EngineConfiguration = UnavailableEngineConfiguration(),
 ) {
     private val log = Log.tag("AiStudioModel")
     private val inputContexts = StudioInputContexts()
@@ -150,6 +154,7 @@ class AiStudioModel(
     private val organisms = StudioOrganismView(machine, machines, backend) { it.withAttachmentMetadata() }
     private val appUpdate = StudioAppUpdate(machines)
     private val safetyReviews = StudioSafetyReviews(safetyReviewMonitor, entries.showsSafetyReviews)
+    private val projectTrust = StudioProjectTrust(configuration, facade)
 
     /** Late-bound file attach of an accepted suggestion: the store itself is created below. */
     private var attachSuggestedFile: suspend (paneId: Int, location: String) -> Unit = { _, _ -> }
@@ -187,6 +192,10 @@ class AiStudioModel(
             handleStudioSubmissionOutput(this, machine.state.value, harnesses, output)
         }) { reflectMachine(it) }
         init { launch { attachmentInputs.observe(this@init) } }
+        install {
+            name = "project-trust"
+            onState { _, new -> new.also(projectTrust::focus) }
+        }
         whileSubscribed(name = "workspace") {
             val pipeline = this
             coroutineScope {
@@ -234,6 +243,7 @@ class AiStudioModel(
                 launch { observeResearch(pipeline) }
                 if (host == StudioScreenHost.Window) launch { appUpdate.observe(pipeline) }
                 launch { safetyReviews.observe(pipeline) }
+                launch { projectTrust.observe(pipeline) }
                 launch { observeComputerUse(pipeline) }
                 launch { observeEfforts(pipeline) }
                 launch { observeWorktrees(pipeline) }
@@ -552,10 +562,7 @@ class AiStudioModel(
 
             is AiStudioScreenIntent.Usage -> usage(pipeline, intent)
 
-            is AiStudioScreenIntent.RespondPermission -> sendTo(
-                machine,
-                AiStudioIntent.Public.RespondPermission(intent.sessionId, intent.requestId, intent.optionId),
-            )
+            is AiStudioScreenIntent.Answer -> answer(pipeline, intent)
 
             is AiStudioScreenIntent.Suggestions -> suggestions.handle(pipeline, intent)
 
@@ -582,6 +589,21 @@ class AiStudioModel(
                 val change = StudioSettingChange.Approval(intent.approval.toDomain())
                 selectSetting(pipeline, intent.paneId, change) { copy(approval = intent.approval.toDomain()) }
             }
+        }
+    }
+
+    private suspend fun answer(pipeline: StudioPipeline, intent: AiStudioScreenIntent.Answer) = with(pipeline) {
+        when (intent) {
+            is AiStudioScreenIntent.DecideProjectTrust -> {
+                var notice: ProjectTrustNoticeUi? = null
+                withState { notice = projectTrust }
+                this@AiStudioModel.projectTrust.decide(intent, notice)
+            }
+
+            is AiStudioScreenIntent.RespondPermission -> sendTo(
+                machine,
+                AiStudioIntent.Public.RespondPermission(intent.sessionId, intent.requestId, intent.optionId),
+            )
         }
     }
 

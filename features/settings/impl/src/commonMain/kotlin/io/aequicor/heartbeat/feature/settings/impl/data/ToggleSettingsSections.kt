@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveSubagentsEnabled
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningEnabled
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementEnabled
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.applogs.api.AppLogsEnabled
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeEnabled
@@ -44,7 +45,7 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
     }
 
     override val available: Flow<ImmutableList<SettingsSection>> = combine(
-        toggles.observe(EngineConnectionsEnabled),
+        combine(toggles.observe(EngineConnectionsEnabled), toggles.observe(EngineManagementEnabled), ::Pair),
         toggles.observe(SearchEngineTools),
         combine(toggles.observe(ComputerUseEnabled), toggles.observe(ChromiumBridgeEnabled)) { computer, chromium ->
             computer to chromium
@@ -75,9 +76,10 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             toggles.observe(AppLogsEnabled),
             toggles.observe(StudioEngineRuntime),
         ) { session, logs, security -> Triple(session, logs, security) },
-    ) { connections, search, (computerUse, chromium), profile, (session, logs, security) ->
+    ) { (connections, management), search, (computerUse, chromium), profile, (session, logs, security) ->
         availableSections(
             isModelsEnabled = connections,
+            isEnginesEnabled = management,
             isSearchEnabled = search,
             hasProfile = session != null,
             isSecurityEnabled = security,

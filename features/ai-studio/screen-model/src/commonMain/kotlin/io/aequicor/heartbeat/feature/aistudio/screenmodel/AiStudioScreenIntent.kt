@@ -19,6 +19,11 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     @SerialName("AiStudioScreenIntent.DismissNotice")
     data class DismissNotice(val target: StudioNoticeDismissalUi) : AiStudioScreenIntent
 
+    /** Decides whether a project may load what it configures for an engine, or only its instructions. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.DecideProjectTrust")
+    data class DecideProjectTrust(val projectId: String, val engine: String, val isTrusted: Boolean) : Answer
+
     /** Requests a native app update after the UI confirms active agents. */
     @Serializable
     @SerialName("InstallAppUpdate")
@@ -47,7 +52,12 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     /** Explicit reply to an engine permission request. */
     @Serializable
     @SerialName("AiStudioScreenIntent.RespondPermission")
-    data class RespondPermission(val sessionId: String, val requestId: String, val optionId: String) : Composer
+    data class RespondPermission(val sessionId: String, val requestId: String, val optionId: String) : Answer
+
+    /** An answer to a request the chat panel shows: an engine permission or the trust of a project. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.Answer")
+    sealed interface Answer : Composer
 
     /** Composer input, runs and model preferences. */
     @Serializable

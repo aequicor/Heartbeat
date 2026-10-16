@@ -23,6 +23,8 @@ import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfileRoute
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectEngineRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsRoute
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlPanelRoute
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlRoute
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityRoute
 import io.aequicor.heartbeat.feature.applogs.api.AppLogsRoute
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeRoute
@@ -154,6 +156,8 @@ class SettingsComponent(
     private companion object {
         val SECTION_ROUTES = setOf(
             EngineConnectionsRoute::class,
+            EngineControlRoute::class,
+            EngineControlPanelRoute::class,
             StudioSecurityRoute::class,
             AdaptiveSubagentsRoute::class,
             ModelProfileRoute::class,
@@ -183,6 +187,7 @@ internal fun SettingsSection.route(): Route = EMBEDDED_ROUTES.getValue(this)
 // A table instead of a `when`: one entry per section keeps the mapping flat as sections are added.
 private val EMBEDDED_ROUTES: Map<SettingsSection, Route> = mapOf(
     SettingsSection.Models to EngineConnectionsRoute(isEmbedded = true),
+    SettingsSection.Engines to EngineControlRoute(isEmbedded = true),
     SettingsSection.Security to StudioSecurityRoute(isEmbedded = true),
     SettingsSection.Subagents to AdaptiveSubagentsRoute(isEmbedded = true),
     SettingsSection.Search to ProfileSettingsRoute(isEmbedded = true),

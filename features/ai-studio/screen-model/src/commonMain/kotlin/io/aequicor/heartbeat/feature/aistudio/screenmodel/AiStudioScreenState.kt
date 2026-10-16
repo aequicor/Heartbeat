@@ -31,6 +31,8 @@ data class AiStudioScreenState(
     /** Saved profile confirmation level, applied to the next ordinary user turn. */
     val securityLevel: SecurityLevelUi = SecurityLevelUi.Automatic,
     val enginePreparations: ImmutableList<EnginePreparationUi> = persistentListOf(),
+    /** The trust decision the focused chat's project waits for; absent once decided or when nothing needs it. */
+    val projectTrust: ProjectTrustNoticeUi? = null,
     val models: ImmutableList<ModelUi> = persistentListOf(),
     val isResearchEnabled: Boolean = false,
     val isProjectAddingAvailable: Boolean = false,

@@ -3,13 +3,17 @@ package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthOwnerId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigDocument
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigDocumentId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.DisabledReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineActionKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigValues
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -40,6 +44,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.actions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ArchiveKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineManager
@@ -74,6 +79,7 @@ class EngineManagementServiceTest {
         InstallSupport.Managed,
         LoginSupport.Cli,
         LaunchSpec(setOf(LaunchOption.Executable, LaunchOption.Environment), reservedEnvironment = setOf("CLI_HOME")),
+        hasPackages = true,
     )
     private val registry = EngineRegistry(
         listOf(
@@ -278,6 +284,37 @@ class EngineManagementServiceTest {
     }
 
     @Test
+    fun `a configuration change makes runtimes stale only while engine configuration is on`() = runTest {
+        val service = service()
+        runCurrent()
+        runtimes.entries.value = listOf(RuntimeEntry(cliId, AuthSourceId("s1"), Instant.fromEpochSeconds(1), false))
+        val values = EngineConfigValues(mapOf(ConfigDocumentId("agents") to ConfigDocument.Text("Be brief")))
+        preferences.update { it.copy(config = mapOf(cliId to ProfileEngineConfig(values, revision = 1))) }
+        runCurrent()
+        assertFalse(service.state.value.engine(cliId).runtime.isStale)
+        assertEquals(emptyList(), runtimes.retired)
+
+        flags.configuration.value = true
+        runCurrent()
+
+        assertEquals(listOf(cliId), runtimes.retired)
+        assertEquals(LaunchContext(config = values, isConfigured = true), runtimes.expected.last())
+    }
+
+    @Test
+    fun `packages are offered only while engine configuration is on`() = runTest {
+        val service = service()
+        runCurrent()
+        assertFalse(service.state.value.engine(cliId).spec.hasPackages)
+        assertFalse(EngineActionKind.Packages in service.state.value.engine(cliId).actions())
+
+        flags.configuration.value = true
+        runCurrent()
+
+        assertTrue(EngineActionKind.Packages in service.state.value.engine(cliId).actions())
+    }
+
+    @Test
     fun `a job starts only where its action applies and shows on the engine`() = runTest {
         val service = service()
         runCurrent()
@@ -340,9 +377,12 @@ private fun EngineRegistration.withManagement(spec: ManagementSpec, manager: Eng
 
 private class FakeFlags(registry: EngineRegistry) : EngineFlags {
     val management = MutableStateFlow(true)
+    val configuration = MutableStateFlow(false)
     val engines = registry.all.associate { it.descriptor.id to MutableStateFlow(true) }
 
     override fun management(): Flow<Boolean> = management
+
+    override fun configuration(): Flow<Boolean> = configuration
 
     override fun developer(descriptor: EngineDescriptor): Flow<DeveloperFlags> =
         engines.getValue(descriptor.id).map { DeveloperFlags(isCatalogOn = true, isEngineOn = it) }
@@ -363,6 +403,7 @@ private class FakeCatalog : EngineCatalog {
 private class FakeRuntimes : EngineRuntimes {
     var failure: Exception? = null
     val retired = mutableListOf<EngineId>()
+    val expected = mutableListOf<LaunchContext?>()
     var prunes = 0
     var busy = 0
     override val entries = MutableStateFlow(emptyList<RuntimeEntry>())
@@ -370,6 +411,7 @@ private class FakeRuntimes : EngineRuntimes {
 
     override suspend fun retire(engine: EngineId, expected: LaunchContext?): RetireOutcome {
         retired += engine
+        this.expected += expected
         failure?.let { throw it }
         entries.value = entries.value.filterNot { it.engine == engine }
         return RetireOutcome(retired = 0, busy = busy)

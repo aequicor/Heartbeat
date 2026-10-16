@@ -287,12 +287,11 @@ class PiNativeApprovalTest {
     }
 
     @Test
-    fun `gate denial defeats full trust and unknown tools cannot inherit it`() = runTest {
-        var calls = 0
+    fun `gate denial defeats full trust and extension tools cannot inherit it`() = runTest {
+        val calls = mutableListOf<NativeToolCall>()
         val tools = object : ProfileAgentTools by NoAgentTools {
             override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict {
-                calls++
-                assertTrue(call.covered(context.trust))
+                calls += call
                 return NativeVerdict.Deny("Policy or hook denied")
             }
         }
@@ -301,7 +300,9 @@ class PiNativeApprovalTest {
         fixture.connection.event(approval("denied"))
         fixture.connection.event(approval("unknown", tool = "unknown"))
         runCurrent()
-        assertEquals(1, calls)
+        assertEquals(listOf(true, false), calls.map { it.covered(TrustLevel.Full) })
+        assertEquals("extension", calls.last().name)
+        assertEquals(AgentToolAction.Command, calls.last().action)
         assertEquals(
             listOf(answer("denied", "confirmed", false), answer("unknown", "confirmed", false)),
             fixture.connection.sent,

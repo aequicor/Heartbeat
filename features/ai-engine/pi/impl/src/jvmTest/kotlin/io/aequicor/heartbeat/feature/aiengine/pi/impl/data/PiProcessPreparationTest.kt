@@ -1,21 +1,38 @@
 package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
+import io.aequicor.heartbeat.core.datastore.DataStores
+import io.aequicor.heartbeat.core.datastore.StorageOwner
 import io.aequicor.heartbeat.core.datastore.StorageRoot
+import io.aequicor.heartbeat.core.profilefacade.ProfileId
+import io.aequicor.heartbeat.core.secrets.Secret
+import io.aequicor.heartbeat.core.secrets.SecretStore
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigDocument
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigValues
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.secretReference
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import java.lang.reflect.Proxy
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -71,6 +88,96 @@ class PiProcessPreparationTest {
         }
     }
 
+    @Test
+    fun `configuration and trust failures release the key and temporary agent directory`() = runTest {
+        for (stage in listOf("vault", "trust", "cancel")) {
+            val key = Secret("provider-key".toCharArray())
+            var isPreparationReached = false
+            val failure = if (stage == "cancel") {
+                CancellationException("cancel preparation")
+            } else {
+                IllegalStateException("failed")
+            }
+            val (secrets, workspaces) = failingPorts(key, failure) { isPreparationReached = true }
+            val stores = port<DataStores> { method ->
+                check(method == "getOwner")
+                StorageOwner.Profile(ProfileId("profile"))
+            }
+            val mcp = Json.parseToJsonElement(
+                """{"mcpServers":{"test":{"env":{"TOKEN":"${secretReference("TOKEN")}"}}}}""",
+            ).jsonObject
+            withLauncher(
+                context = { root ->
+                    managedContext(root, "0.88.0").copy(
+                        isConfigured = true,
+                        config = EngineConfigValues(mapOf(PiDocuments.Mcp to ConfigDocument.Json(mcp))),
+                        trust = mapOf(WorkspaceRef("project") to ProjectTrust.Trusted),
+                    )
+                },
+                secrets = secrets,
+                stores = stores,
+                workspaces = workspaces,
+            ) { launcher, _, _, launch ->
+                val root = Path.of(checkNotNull(launch.managed).executable).parent
+                val start: suspend () -> Unit = {
+                    launcher.start(
+                        RuntimeSource,
+                        root.toString().takeIf { stage == "trust" },
+                        event = {},
+                        failed = {},
+                        plan = PiLaunchPlan(ResolvedToolPolicy(), null, emptySet()),
+                    )
+                }
+                if (stage == "cancel") {
+                    assertFailsWith<CancellationException> { start() }
+                } else {
+                    assertFailsWith<EngineException> { start() }
+                }
+                assertTrue(isPreparationReached)
+                assertFailsWith<IllegalStateException> { key.reveal { it.size } }
+                val runtime = PiStorage(StorageRoot { root.toString() }, root.resolve("legacy"))
+                    .profileRoot("profile").resolve("runtime")
+                Files.list(runtime).use { assertEquals(0L, it.count()) }
+            }
+        }
+    }
+
+    private fun failingPorts(
+        key: Secret,
+        failure: Throwable,
+        reached: () -> Unit,
+    ): Pair<SecretStore, LocalWorkspaces> {
+        val secrets = port<SecretStore> { method ->
+            when (method) {
+                "read" -> key
+
+                "readFor" -> {
+                    reached()
+                    throw failure
+                }
+
+                else -> error("Unexpected secret call $method")
+            }
+        }
+        val workspaces = port<LocalWorkspaces> { method ->
+            when (method) {
+                "isAvailable" -> true
+
+                "resolve" -> {
+                    reached()
+                    throw failure
+                }
+
+                else -> error("Unexpected workspace call $method")
+            }
+        }
+        return secrets to workspaces
+    }
+
+    private inline fun <reified T : Any> port(crossinline call: (String) -> Any?): T = T::class.java.cast(
+        Proxy.newProxyInstance(T::class.java.classLoader, arrayOf(T::class.java)) { _, method, _ -> call(method.name) },
+    )
+
     private fun managedContext(root: Path, version: String): LaunchContext {
         val executable = Files.writeString(root.resolve("managed-pi"), "managed executable")
         check(executable.toFile().setExecutable(true, false))
@@ -79,6 +186,9 @@ class PiProcessPreparationTest {
 
     private suspend fun TestScope.withLauncher(
         context: (Path) -> LaunchContext,
+        secrets: SecretStore = unused(),
+        stores: DataStores = unused(),
+        workspaces: LocalWorkspaces = unused(),
         test: suspend (PiProcessLauncher, PiRuntimeDistribution, PiArtifactFixture, LaunchContext) -> Unit,
     ) = piTemporary { root ->
         val dispatchers = piDispatchers()
@@ -91,7 +201,7 @@ class PiProcessPreparationTest {
         try {
             val launcher = PiProcessLauncher(
                 dispatchers = dispatchers,
-                secrets = unused(),
+                secrets = secrets,
                 searchBridge = unused(),
                 nativeWeb = PiNativeWeb(client),
                 catalog = PiCompatibleCatalog(client),
@@ -99,9 +209,10 @@ class PiProcessPreparationTest {
                 toggles = unused(),
                 storage = PiStorage(StorageRoot { root.toString() }, root.resolve("legacy")),
                 profile = unused(),
-                stores = unused(),
+                stores = stores,
                 launches = EngineLaunchConfig { launch },
                 distribution = distribution,
+                workspaces = workspaces,
             )
             test(launcher, distribution, cache, launch)
         } finally {
