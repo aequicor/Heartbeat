@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperLease
 import io.aequicor.heartbeat.feature.scheduler.api.HelperMetadata
+import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperReleaseResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
@@ -139,6 +140,7 @@ internal class SpawnTestHelpers(private val trace: MutableList<String>) : Helper
         target: EngineTarget?,
         title: String,
         trustCap: TrustLevel,
+        model: HelperModelOptions,
     ): HelperId {
         check(trustCap == TrustLevel.Ask && target == null)
         beforeCreate()

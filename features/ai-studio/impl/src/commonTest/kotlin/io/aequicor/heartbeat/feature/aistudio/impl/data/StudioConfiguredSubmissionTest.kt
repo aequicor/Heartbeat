@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
@@ -138,6 +139,14 @@ class StudioConfiguredSubmissionTest {
 
         assertFalse("the essence" in fixture.session.requests.single().text())
         assertEquals(0, fixture.access.consumedSeeds)
+    }
+
+    @Test
+    fun `a review model reaches the native prompt`() = runTest {
+        val fixture = SubmissionFixture(this)
+        val parent = fixture.configuration.target.copy(model = ModelId("parent"))
+        fixture.session.submitStudioPrompt("Hi", null, null, emptyList(), RequestId("review"), reviewTarget = parent)
+        assertEquals(parent, fixture.session.requests.single().reviewTarget)
     }
 
     private fun PromptRequest.text(): String = parts.filterIsInstance<ContentPart.Text>().joinToString { it.text }

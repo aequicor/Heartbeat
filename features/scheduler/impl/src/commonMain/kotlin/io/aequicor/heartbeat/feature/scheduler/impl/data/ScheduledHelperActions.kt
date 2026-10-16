@@ -73,7 +73,14 @@ internal class ScheduledHelperActions(
         try {
             lease = helpers.adoptScheduled(record.id, request.parent)
                 ?: return "no chat host could start a helper agent"
-            helper = helpers.create(lease, request.workspace, request.target, request.title, TrustLevel.Ask)
+            helper = helpers.create(
+                lease,
+                request.workspace,
+                request.target,
+                request.title,
+                TrustLevel.Ask,
+                request.model,
+            )
             val saved = record.copy(helper = helper)
             journal.add(saved)
             entry.record = saved
