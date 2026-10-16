@@ -40,6 +40,9 @@ internal data class BrowserScreenState(
     val isBackAvailable: Boolean = false,
     val isForwardAvailable: Boolean = false,
     val error: BrowserScreenError? = null,
+    val failure: BrowserFailureUi? = null,
+    val security: BrowserSecurityUi = BrowserSecurityUi.Unknown,
+    val isErrorDetailsExpanded: Boolean = false,
     val tabs: ImmutableList<BrowserTabUi> = persistentListOf(),
     val hasTabs: Boolean = false,
     val selectedTabId: String? = null,
@@ -76,7 +79,22 @@ internal data class BrowserTabUi(
     val url: String = "",
 )
 
+@Immutable
+internal data class BrowserFailureUi(
+    val url: String,
+    val code: String,
+    val isCertificate: Boolean,
+    val isProceedAllowed: Boolean,
+    val id: String,
+)
+
+internal enum class BrowserSecurityUi { Unknown, Https, Http, CertificateException }
+
 internal sealed interface BrowserScreenIntent : MVIIntent {
+    data object ToggleErrorDetails : BrowserScreenIntent
+    data class ProceedCertificate(val tabId: String, val failure: BrowserFailureUi) : BrowserScreenIntent
+    data class ReturnToSafety(val tabId: String, val failure: BrowserFailureUi) : BrowserScreenIntent
+
     data class AddressChanged(val value: String) : BrowserScreenIntent
     data object Open : BrowserScreenIntent
 

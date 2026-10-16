@@ -25,7 +25,6 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
 import io.aequicor.heartbeat.ds.components.HbBanner
 import io.aequicor.heartbeat.ds.components.HbEmptyState
-import io.aequicor.heartbeat.ds.components.HbIcon
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbLoadingState
@@ -93,7 +92,10 @@ internal fun BrowserScreenContent(
         BrowserTabs(state, onIntent)
         BrowserToolbar(state, onIntent)
         // Desktop viewports show the runtime failure with its own recovery action and download diagnostics.
-        state.error?.takeUnless { state.hasTabs && it == BrowserScreenError.EngineUnavailable }?.let {
+        state.error?.takeUnless {
+            (state.failure != null && it == BrowserScreenError.LoadFailed) ||
+                (state.hasTabs && it == BrowserScreenError.EngineUnavailable)
+        }?.let {
             HbBanner(stringResource(it.message()), Modifier.testTag("browser-error"))
         }
         if (state.isLoading && !state.hasTabs) {
@@ -102,7 +104,7 @@ internal fun BrowserScreenContent(
                 Modifier.testTag("browser-loading"),
             )
         }
-        BrowserViewport(state, Modifier.weight(1f).fillMaxWidth(), browser)
+        BrowserViewport(state, onIntent, Modifier.weight(1f).fillMaxWidth(), browser)
     }
 }
 
@@ -134,6 +136,7 @@ private val DIGIT_KEYS =
 @Composable
 private fun BrowserViewport(
     state: BrowserScreenState,
+    onIntent: (BrowserScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
     browser: @Composable () -> Unit,
 ) {
@@ -147,7 +150,11 @@ private fun BrowserViewport(
             )
 
             BrowserPhase.Ready -> {
-                if (state.url.isNotEmpty() || state.error == BrowserScreenError.EngineUnavailable) browser()
+                if (state.failure != null) {
+                    BrowserLoadErrorPage(state, onIntent)
+                } else if (state.url.isNotEmpty() || state.error == BrowserScreenError.EngineUnavailable) {
+                    browser()
+                }
                 if (state.url.isEmpty() && state.error == null) {
                     HbEmptyState(
                         stringResource(Res.string.browser_empty),
@@ -188,7 +195,7 @@ private fun BrowserAddressField(
         enabled = isEnabled,
         selectAllOnFocus = true,
         shape = CircleShape,
-        leadingContent = { HbIcon(HbIcons.Globe, contentDescription = null) },
+        leadingContent = { BrowserSecurityIndicator(state.security) },
         trailingContent = {
             HbRow(gap = HbTheme.spacing.none) {
                 BrowserZoomControl(state, onIntent)

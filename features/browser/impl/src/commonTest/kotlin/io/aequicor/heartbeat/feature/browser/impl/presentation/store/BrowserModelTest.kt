@@ -307,6 +307,39 @@ class BrowserModelTest {
         )
     }
 
+    @Test
+    fun `error details reset on another failure and certificate action keeps original snapshot`() = runTest {
+        val fixture = Fixture(this)
+        val screen = fixture.subscribe()
+        val failure = io.aequicor.heartbeat.feature.browser.api.BrowserLoadFailure(
+            "https://example.com/",
+            "ERR_CERT_DATE_INVALID",
+            true,
+            true,
+            "first",
+        )
+        val state = ready(BrowserPage(url = failure.url, failure = failure)).copy(
+            areErrorPagesEnabled = true,
+            selectedTabId = "tab",
+            tabs = listOf(BrowserTab("tab")),
+        )
+        fixture.machine.state.value = state
+        runCurrent()
+        val original = requireNotNull(screen.states.value.failure)
+        fixture.model.store.intent(BrowserScreenIntent.ToggleErrorDetails)
+        runCurrent()
+        assertTrue(screen.states.value.isErrorDetailsExpanded)
+        fixture.machine.state.value = state.copy(page = state.page.copy(failure = failure.copy(id = "next")))
+        runCurrent()
+        assertFalse(screen.states.value.isErrorDetailsExpanded)
+        fixture.model.store.intent(BrowserScreenIntent.ProceedCertificate("tab", original))
+        runCurrent()
+        assertEquals(BrowserIntent.Internal.ProceedCertificate("tab", failure), fixture.machine.sent.last())
+        fixture.machine.state.value = state.copy(areErrorPagesEnabled = false)
+        runCurrent()
+        assertEquals(null, screen.states.value.failure)
+    }
+
     private class Fixture(private val scope: TestScope) {
         val machine = TestBrowserMachine()
         val favicons = MutableStateFlow<Map<String, BrowserFaviconImage>>(emptyMap())
