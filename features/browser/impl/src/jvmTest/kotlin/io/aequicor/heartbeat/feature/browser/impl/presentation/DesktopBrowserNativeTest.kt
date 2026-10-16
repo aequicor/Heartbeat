@@ -124,6 +124,11 @@ class DesktopBrowserNativeTest {
             awaitTitle = ::awaitTitle,
         ).verify(server)
         verifyLinkedTabs(app, "http://127.0.0.1:${server.address.port}")
+        DesktopBrowserCertificateProbe(
+            createEngine = { states, exceptions -> testEngine(app, states, certificateExceptions = exceptions) },
+            createFrame = ::nativeFrame,
+            awaitState = ::awaitState,
+        ).verify()
         verifyEarlyClose(app)
         verifyDirectDocument(app, "http://127.0.0.1:${server.address.port}")
         verifyFavicon(app, "http://127.0.0.1:${server.address.port}")
@@ -198,6 +203,7 @@ class DesktopBrowserNativeTest {
         states: LinkedBlockingQueue<BrowserViewState>,
         guard: DesktopBrowserAgentGuard = DesktopBrowserAgentGuard(),
         openTab: ((BrowserCommand.Load) -> Unit)? = null,
+        certificateExceptions: DesktopCertificateExceptions = DesktopCertificateExceptions(),
     ) = DesktopBrowserEngine(
         app,
         nativeDispatchers(),
@@ -206,6 +212,7 @@ class DesktopBrowserNativeTest {
         states::offer,
         guard = guard,
         openTab = openTab,
+        certificateExceptions = certificateExceptions,
         createContext = temporaryContextFactory(),
     )
 

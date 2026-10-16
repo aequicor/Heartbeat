@@ -44,6 +44,9 @@ internal class BrowserSurfaceAdapter(
     private var isEnabled = false
     private var isClosed = false
 
+    var isCertificateWarningActive: Boolean = false
+        private set
+
     override val pages: StateFlow<BrowserPage> = page
     override val initialUrl: String get() = page.value.url
 
@@ -82,7 +85,13 @@ internal class BrowserSurfaceAdapter(
         val native = command.toNative()
         if (command is BrowserCommand.Load) {
             require(isBrowserUrlAllowed(command.url)) { "Browser requires an HTTP(S) address" }
-            page.value = page.value.copy(url = command.url, isLoading = true, isAwaitingResponse = true, error = null)
+            page.value = page.value.copy(
+                url = command.url,
+                isLoading = true,
+                isAwaitingResponse = true,
+                error = null,
+                failure = null,
+            )
         }
         if (command == BrowserCommand.Stop) page.value = page.value.copy(isLoading = false, isAwaitingResponse = false)
         val current = controller
@@ -110,6 +119,7 @@ internal class BrowserSurfaceAdapter(
             if (!isEnabled || isClosed || this@BrowserSurfaceAdapter.controller !== controller) {
                 return@launch
             }
+            isCertificateWarningActive = state.isCertificateWarningActive
             log.v { "Updating browser page projection" }
             if (state.url.isNotEmpty() && !isBrowserUrlAllowed(state.url)) {
                 page.value = page.value.copy(isLoading = false, error = BrowserError.UnsupportedAddress)
@@ -145,6 +155,8 @@ private fun BrowserCommand.toNative(): BrowserViewCommand = when (this) {
 private fun BrowserViewState.toDomain(previousUrl: String): BrowserPage = BrowserPage(
     url = url.ifEmpty { previousUrl },
     title = title,
+    failure = failure,
+    security = security,
     isLoading = isLoading,
     isBackAvailable = isBackAvailable,
     isForwardAvailable = isForwardAvailable,

@@ -10,15 +10,27 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserConnectivity
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserErrorPolicy
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserNativeResources
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserUrlResolver
 import io.aequicor.heartbeat.feature.browser.impl.domain.DesktopBrowserProfile
 import io.aequicor.heartbeat.feature.browser.impl.domain.DesktopBrowserResources
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.cef.browser.CefRequestContext
 
 /** Presentation entry point injected through the common native-resource port. */
 internal interface DesktopBrowserPanelFactory : BrowserNativeResources {
+    val networkRestored: kotlinx.coroutines.flow.Flow<Unit> get() = kotlinx.coroutines.flow.emptyFlow()
+    val errorPagesEnabled: StateFlow<Boolean> get() = MutableStateFlow(false)
+    fun rememberCertificateException(url: String): Unit = Unit
+    fun hasCertificateException(url: String): Boolean = false
+    fun certificateExceptionUrls(): List<String> = emptyList()
+
     /**
      * The panel of [surface] whose documents [guard] restricts for an agent owner. The first creation of a surface
      * fixes its guard: the session creates each tab's panel with the tab's guard before any view can ask for it.
@@ -46,7 +58,17 @@ internal class DefaultDesktopBrowserPanelFactory(
     @ForScope(ProfileScope::class) private val scope: ScopeHandle,
     @ForScope(AppScope::class) private val appScope: ScopeHandle,
     private val profile: DesktopBrowserProfile,
+    errorPolicy: BrowserErrorPolicy,
+    connectivity: BrowserConnectivity,
 ) : DesktopBrowserPanelFactory {
+    override val networkRestored = connectivity.restored()
+    override val errorPagesEnabled = errorPolicy.observe()
+        .stateIn(scope.coroutineScope, SharingStarted.Eagerly, false)
+    private val certificateExceptions = DesktopCertificateExceptions()
+    override fun rememberCertificateException(url: String) = certificateExceptions.remember(url)
+    override fun hasCertificateException(url: String): Boolean = certificateExceptions.contains(url)
+    override fun certificateExceptionUrls(): List<String> = certificateExceptions.urls()
+
     private val monitor = Any()
     private val panels = mutableMapOf<BrowserSurface, DesktopBrowserPanel>()
     private val retired = mutableListOf<DesktopBrowserPanel>()
@@ -96,6 +118,7 @@ internal class DefaultDesktopBrowserPanelFactory(
                         guard = guard,
                         openTab = openTab,
                         onShortcut = onShortcut,
+                        certificateExceptions = certificateExceptions,
                     ) {
                         checkNotNull(CefRequestContext.createContext(shared, it))
                     }
@@ -117,6 +140,7 @@ internal class DefaultDesktopBrowserPanelFactory(
         closing.forEach(DesktopBrowserPanel::release)
         closing.forEach { it.awaitClosed() }
         synchronized(monitor) { retired.removeAll(closing.toSet()) }
+        certificateExceptions.clear()
     }
 }
 
