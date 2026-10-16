@@ -88,10 +88,11 @@ internal class DesktopBrowserFailures(
     fun requireAgentSafety(entry: DesktopBrowserEntry) {
         val page = entry.surface.pages.value
         require(!entry.surface.isCertificateWarningActive) { "Native certificate warning requires human control" }
+        require(page.failure?.isCertificate != true) { "Certificate warnings require human control" }
         require(factory.areCertificateDecisionsKnown || !page.url.startsWith("https://", ignoreCase = true)) {
             "Chromium certificate decisions are unreadable"
         }
-        require(page.failure?.isCertificate != true && !factory.isWithheldFromAgents(page.url)) {
+        require(!factory.isWithheldFromAgents(page.url)) {
             "Certificate warnings and exception pages require human control"
         }
     }
