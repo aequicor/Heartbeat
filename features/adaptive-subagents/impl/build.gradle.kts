@@ -13,6 +13,7 @@ kotlin {
             implementation(projects.features.aiEngine.connections.api)
             implementation(projects.features.aiEngine.authenticator.api)
             implementation(projects.features.searchEngine.api)
+            implementation(projects.features.scheduler.api)
             implementation(projects.core.stateMachine.api)
             implementation(projects.core.stateMachine.flowmviExt)
             implementation(projects.core.mvi)
@@ -31,6 +32,7 @@ kotlin {
             implementation(libs.kotlinx.collectionsImmutable)
             implementation(libs.kotlinx.serialization.core)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.okio)
             implementation(libs.compose.components.resources)
             implementation(libs.compose.uiToolingPreview)
         }
