@@ -21,9 +21,10 @@ import kotlin.coroutines.cancellation.CancellationException
  * EngineUnavailable. Disabled navigation and duplicate Start are ignored.
  * Running + ZoomAvailabilityChanged -> stay with isZoomEnabled. Enabled + Zoom (zoom enabled, HTTP/S page)
  * -> stay [Zoom(selected tab, direction, URL)]; Enabled + Zoom (zoom enabled, any other page) -> accepted without
- * an effect, since zoom keys on a new tab are routine input. The session serializes commands against the latest
- * saved level; bounds and no-op resets are resolved there because earlier commands may still be pending.
- * PageChanged supplies the confirmed level; accepting input never projects an optimistic percentage.
+ * an effect, since zoom keys on a new tab are routine input. During a pending main-frame navigation the URL is
+ * already the target's, so a zoom then applies to the next host (#423). The session serializes commands against
+ * the latest saved level; bounds and no-op resets are resolved there because earlier commands may still be
+ * pending. PageChanged supplies the confirmed level; accepting input never projects an optimistic percentage.
  *
  * ```mermaid
  * stateDiagram-v2
@@ -35,7 +36,7 @@ import kotlin.coroutines.cancellation.CancellationException
  *     Running --> Running: Perform / Perform, Completed / output Completed
  *     Running --> Running: CancelOperation / CancelOperation, OperationCancelled / output Cancelled
  *     Running --> Running: ObserverFailed / Reobserve
- *     Running --> Running: ZoomAvailabilityChanged, Zoom / Zoom
+ *     Running --> Running: ZoomAvailabilityChanged, Zoom [HTTP/S] / Zoom, Zoom [other]
  * ```
  *
  * All running updates use stay so the live toggle observer survives navigation, errors and
