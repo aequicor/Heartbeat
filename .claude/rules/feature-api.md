@@ -95,8 +95,13 @@ API конкретных движков могут зависеть от эти�
 Управление движками — сервисный контракт `EngineManagement` (состояние всех зарегистрированных движков и команды
 `EngineCommand`) и чистые типы `LaunchSettings` / `validateLaunchSettings` в `facade:api`; SPI `EngineManager`,
 `EngineLaunchConfig` и `ReleaseFeeds` (план установки `InstallPlan`) — в `facade.api.spi`. Установка, загрузка и вход
-выполняются в `facade:impl` и адаптерах; UI шлёт команды через операцию машины `ConnectionOperation.ManageEngine`.
-Секреты в параметрах запуска запрещены (только подключения), значения путей и окружения не логируются.
+выполняются в `facade:impl` и адаптерах; UI шлёт команды операцией `ControlOperation.Manage` машины панели управления
+(`features:ai-engine:control-panel:api`). Секреты в параметрах запуска запрещены (только подключения), значения путей и
+окружения не логируются.
+Настройка движков — сервисный контракт `EngineConfiguration` и чистые типы схемы и значений (`EngineConfigSchema`,
+`EngineConfigValues`, `validateEngineConfig`) в `facade:api`; SPI `EngineConfigurator` — в `facade.api.spi`. Значения
+могут называть пути и серверы пользователя и не логируются; секреты — только ссылки `secretReference(slot)` на хранилище
+профиля, в файлах проекта они запрещены. Панель управления не знает движков: всё, что она рисует, объявляет схема.
 Результат инструмента хоста, исполняемого диспетчером, ограничен `AgentToolSpec.resultChars` (по умолчанию 128K
 символов, после offload; adapter-operated инструменты — вне бюджета): превышение возвращается агенту явной ошибкой,
 а не обрезается. Повышай бюджет (до `MAX_RESULT_CHARS`) только
