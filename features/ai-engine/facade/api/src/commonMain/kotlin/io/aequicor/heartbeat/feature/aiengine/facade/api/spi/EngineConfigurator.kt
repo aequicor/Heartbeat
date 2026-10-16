@@ -38,6 +38,26 @@ public interface EngineConfigurator {
 
     /** Reads [selection] from the engine's own user configuration; plain credentials come back as vault secrets. */
     public suspend fun readNative(selection: ImportSelection): NativeImport = unsupported()
+
+    /**
+     * Runs [operation] for the packages [config] lists, reporting `done of total` steps through [progress]. Called by
+     * an engine job; cancelling it stops the running package command. Failures are
+     * [io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException].
+     */
+    public suspend fun packages(
+        operation: PackageOperation,
+        config: EngineConfigValues,
+        progress: (done: Int, total: Int) -> Unit,
+    ): Unit = unsupported()
+}
+
+/** What a package job does. */
+public enum class PackageOperation {
+    /** Installs the listed packages that are missing and removes the ones no longer listed. */
+    Sync,
+
+    /** Updates the installed packages. */
+    Update,
 }
 
 /** Raw project documents by id. */

@@ -38,6 +38,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -50,6 +51,7 @@ import java.nio.file.attribute.PosixFilePermissions
 import java.security.MessageDigest
 import java.util.Comparator
 import java.util.HexFormat
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
@@ -104,6 +106,37 @@ internal class PiProcessLauncher(
             log.w(e.withoutDetails()) { "Pi runtime preparation failed" }
             publishPreparation(EnginePreparation.Failed(preparationFailure(e)))
             piFailure(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+        }
+    }
+
+    /**
+     * Runs `pi <arguments>` with [home] as Pi's agent directory, for package commands; returns the exit code, or -1
+     * when it did not finish within [PACKAGE_TIMEOUT_MINUTES]. Cancelling stops the command and its child processes.
+     * Output is discarded: it can name private package sources.
+     */
+    suspend fun runPackageCommand(home: Path, arguments: List<String>): Int {
+        val startup = prepare()
+        val executable = startup.executable?.takeIf { Files.isRegularFile(it) }
+            ?: piFailure(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+        return withContext(dispatchers.io) {
+            Files.createDirectories(home)
+            val builder = ProcessBuilder(listOf(executable.toString()) + arguments)
+                .directory(home.toFile())
+                .redirectErrorStream(true)
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+            applyPiEnvironment(builder.environment(), startup)
+            builder.environment()["PI_CODING_AGENT_DIR"] = home.toString()
+            builder.environment()["PI_SKIP_VERSION_CHECK"] = "1"
+            log.i { "Running Pi package command=${arguments.first()}" }
+            val process = builder.start()
+            try {
+                runInterruptible {
+                    if (process.waitFor(PACKAGE_TIMEOUT_MINUTES, TimeUnit.MINUTES)) process.exitValue() else -1
+                }
+            } finally {
+                process.descendants().forEach { it.destroyForcibly() }
+                process.destroyForcibly()
+            }
         }
     }
 
@@ -383,6 +416,7 @@ internal fun retainPiEnvironment(environment: MutableMap<String, String>) {
 }
 
 private const val VERSION_FILE = "VERSION"
+private const val PACKAGE_TIMEOUT_MINUTES = 10L
 private const val MAX_VERSION_CHARS = 64
 
 private fun preparationFailure(error: Exception): EnginePreparationFailure = when (error) {

@@ -1,7 +1,11 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthOwnerId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigDocument
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigDocumentId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigSchema
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigValues
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
@@ -22,6 +26,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ArchiveKind
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineConfigurator
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineManager
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
@@ -31,6 +36,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.InstallPlan
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LoginPrompt
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LoginSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.PackageOperation
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ProjectFiles
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ReleaseFeeds
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
@@ -240,6 +247,50 @@ class EngineJobsTest {
         assertEquals(emptyMap(), jobs.jobs.value)
     }
 
+    @Test
+    fun `a package job runs the configurator with the launch configuration and restarts idle runtimes`() = runTest {
+        val packages = JobPackages()
+        val values = EngineConfigValues(mapOf(ConfigDocumentId("settings") to ConfigDocument.Text("x")))
+        val jobs = EngineJobs(
+            EngineRegistry(listOf(packagesRegistration(packages)), EnginePlatform.DesktopMacOs),
+            installs,
+            EngineLaunchConfig { LaunchContext(config = values, isConfigured = true) },
+            NoFeeds,
+            runtimes,
+            facadeContext(),
+            hooks,
+        )
+
+        jobs.start(engine, EngineAction.SyncPackages)
+        runCurrent()
+
+        assertEquals(listOf(PackageOperation.Sync to values), packages.calls)
+        assertEquals(JobPhase.Succeeded, jobs.jobs.value.getValue(engine).phase)
+        assertEquals(listOf(engine), runtimes.retired)
+        assertTrue(JobPhase.Installing(1, 2) in packages.phases.map { it })
+    }
+
+    @Test
+    fun `a package job of an engine without a configurator fails`() = runTest {
+        val jobs = jobs()
+        jobs.start(engine, EngineAction.UpdatePackages)
+        runCurrent()
+        assertTrue(jobs.jobs.value.getValue(engine).phase is JobPhase.Failed)
+        assertTrue(runtimes.retired.isEmpty())
+    }
+
+    private fun packagesRegistration(packages: JobPackages): EngineRegistration {
+        val base = registration(id = engine, owner = AuthOwnerId("cli"))
+        return EngineRegistration(
+            base.descriptor,
+            base.authOwner,
+            base.factory,
+            management = ManagementSpec(hasPackages = true),
+            configuration = EngineConfigSchema(emptyList(), emptyList()),
+            configurator = lazyOf(packages),
+        )
+    }
+
     private fun TestScope.jobs(loginTimeout: Long = 60_000) = EngineJobs(
         registry,
         installs,
@@ -376,4 +427,28 @@ private class RecordingHooks : JobHooks {
 private object NoFeeds : ReleaseFeeds {
     override suspend fun latestGitHubRelease(owner: String, repository: String): GitHubRelease = error("unused")
     override suspend fun document(url: String, allowedHosts: Set<String>): String = error("unused")
+}
+
+private class JobPackages : EngineConfigurator {
+    val calls = mutableListOf<Pair<PackageOperation, EngineConfigValues>>()
+    val phases = mutableListOf<JobPhase>()
+
+    override suspend fun readProject(directory: String): ProjectFiles = ProjectFiles()
+
+    override suspend fun writeProject(
+        directory: String,
+        changes: Map<ConfigDocumentId, String?>,
+        expected: Map<ConfigDocumentId, String?>,
+    ): ProjectFiles = ProjectFiles()
+
+    override suspend fun packages(
+        operation: PackageOperation,
+        config: EngineConfigValues,
+        progress: (done: Int, total: Int) -> Unit,
+    ) {
+        calls += operation to config
+        progress(1, 2)
+        phases += JobPhase.Installing(1, 2)
+        progress(2, 2)
+    }
 }

@@ -122,6 +122,8 @@
     <string name="engine_job_uninstall">Removing</string>
     <string name="engine_job_login">Signing in</string>
     <string name="engine_job_logout">Signing out</string>
+    <string name="engine_job_sync_packages">Installing packages</string>
+    <string name="engine_job_update_packages">Updating packages</string>
     <string name="engine_phase_preparing">Preparing…</string>
     <string name="engine_phase_downloading">Downloading %1$s of %2$s</string>
     <string name="engine_phase_downloading_unknown">Downloading %1$s</string>
@@ -130,6 +132,7 @@
     <string name="engine_phase_checking">Checking the new copy…</string>
     <string name="engine_phase_activating">Switching to the new copy…</string>
     <string name="engine_phase_removing">Removing…</string>
+    <string name="engine_phase_installing">Packages: %1$d of %2$d…</string>
     <string name="engine_phase_browser">Waiting for you to sign in through the browser…</string>
     <string name="engine_phase_code">Waiting for the code from the sign-in page…</string>
     <string name="engine_phase_succeeded">Done</string>
@@ -152,6 +155,7 @@
     <string name="engine_install_failure_rate_limited">The publisher limits requests for now. Try again later.</string>
     <string name="engine_install_failure_network">The publisher could not be reached. Check the network.</string>
     <string name="engine_install_failure_unsupported">Heartbeat cannot install this engine on this device.</string>
+    <string name="engine_install_failure_package">A package command failed. Check that npm or git is installed and the package source is correct.</string>
     <string name="engine_login_failure_timed_out">Nobody completed the sign-in in time.</string>
     <string name="engine_login_failure_rejected">The sign-in was rejected.</string>
     <string name="engine_login_failure_terminal">This CLI signs in only from a terminal.</string>

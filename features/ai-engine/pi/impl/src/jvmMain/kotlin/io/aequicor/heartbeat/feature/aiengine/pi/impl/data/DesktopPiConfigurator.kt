@@ -11,9 +11,14 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigDocumentId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigValues
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ImportPreview
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ImportSelection
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.NativeImport
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.PackageOperation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ProjectFile
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ProjectFiles
 import java.io.IOException
@@ -35,14 +40,31 @@ import java.util.HexFormat
 internal class DesktopPiConfigurator(
     private val home: () -> Path?,
     private val userAgentDirectory: () -> Path = ::piUserAgentDirectory,
+    private val commands: suspend (Path, List<String>) -> Int = { _, _ -> unsupportedCommand() },
 ) : PiConfigurator {
     @Inject
     constructor(
         storage: PiStorage,
         @ForScope(ProfileScope::class) stores: DataStores,
-    ) : this({
-        (stores.owner as? StorageOwner.Profile)?.let { storage.profileHome(it.id.value) }
-    })
+        launcher: PiProcessLauncher,
+    ) : this(
+        home = { (stores.owner as? StorageOwner.Profile)?.let { storage.profileHome(it.id.value) } },
+        commands = launcher::runPackageCommand,
+    )
+
+    override suspend fun packages(
+        operation: PackageOperation,
+        config: EngineConfigValues,
+        progress: (done: Int, total: Int) -> Unit,
+    ) {
+        val profileHome = home() ?: unsupportedCommand()
+        try {
+            PiPackages(profileHome) { arguments -> commands(profileHome, arguments) }.apply(operation, config, progress)
+        } catch (e: IOException) {
+            log.w(e) { "Pi package files could not be written" }
+            throw ManagementException(ManagementFailure.Install(InstallFailureReason.Storage), e)
+        }
+    }
 
     private val log = Log.tag("PiConfigurator")
 
@@ -149,3 +171,6 @@ internal val PiProjectFiles: Map<ConfigDocumentId, String> = mapOf(
 /** Content revision of a file: its SHA-256. */
 internal fun revisionOf(bytes: ByteArray): String =
     HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes))
+
+private fun unsupportedCommand(): Nothing =
+    throw ManagementException(ManagementFailure.Install(InstallFailureReason.Unsupported))

@@ -122,6 +122,8 @@
     <string name="engine_job_uninstall">Удаление</string>
     <string name="engine_job_login">Вход</string>
     <string name="engine_job_logout">Выход</string>
+    <string name="engine_job_sync_packages">Установка пакетов</string>
+    <string name="engine_job_update_packages">Обновление пакетов</string>
     <string name="engine_phase_preparing">Подготовка…</string>
     <string name="engine_phase_downloading">Загружено %1$s из %2$s</string>
     <string name="engine_phase_downloading_unknown">Загружено %1$s</string>
@@ -130,6 +132,7 @@
     <string name="engine_phase_checking">Проверка новой копии…</string>
     <string name="engine_phase_activating">Переключение на новую копию…</string>
     <string name="engine_phase_removing">Удаление…</string>
+    <string name="engine_phase_installing">Пакеты: %1$d из %2$d…</string>
     <string name="engine_phase_browser">Ожидается вход в браузере…</string>
     <string name="engine_phase_code">Ожидается код со страницы входа…</string>
     <string name="engine_phase_succeeded">Готово</string>
@@ -152,6 +155,7 @@
     <string name="engine_install_failure_rate_limited">Издатель временно ограничил запросы. Повторите позже.</string>
     <string name="engine_install_failure_network">Нет связи с издателем. Проверьте сеть.</string>
     <string name="engine_install_failure_unsupported">Heartbeat не может установить этот движок на этом устройстве.</string>
+    <string name="engine_install_failure_package">Команда пакетов завершилась с ошибкой. Проверьте, что установлены npm или git и источник пакета указан верно.</string>
     <string name="engine_login_failure_timed_out">Вход не был завершён вовремя.</string>
     <string name="engine_login_failure_rejected">Вход отклонён.</string>
     <string name="engine_login_failure_terminal">Этот CLI входит только из терминала.</string>

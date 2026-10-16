@@ -107,6 +107,8 @@ public data class ManagementSpec(
     val install: InstallSupport = InstallSupport.BuiltIn,
     val login: LoginSupport = LoginSupport.None,
     val launch: LaunchSpec = LaunchSpec(),
+    /** The engine installs packages its configuration lists ([EngineAction.SyncPackages]). */
+    val hasPackages: Boolean = false,
 )
 
 /** How an engine reaches the device. */
@@ -285,6 +287,12 @@ public sealed interface EngineAction {
 
     /** Signs the CLI out. */
     public data object Logout : EngineAction
+
+    /** Installs the packages the configuration lists and removes the ones it no longer lists. */
+    public data object SyncPackages : EngineAction
+
+    /** Updates the installed packages to their newest versions. */
+    public data object UpdatePackages : EngineAction
 }
 
 /** How a CLI signs in. */
@@ -316,6 +324,7 @@ public enum class EngineActionKind {
     Logout,
     Restart,
     Configure,
+    Packages,
 }
 
 /** A running or finished job. */
@@ -346,6 +355,9 @@ public sealed interface JobPhase {
 
     /** Removing Heartbeat's copy. */
     public data object Removing : JobPhase
+
+    /** Installing, updating or removing packages: [done] of [total] steps. */
+    public data class Installing(val done: Int, val total: Int) : JobPhase
 
     /** The user signs in at [url]; with a device code, [userCode] is entered there. */
     public data class AwaitingBrowser(val url: String, val userCode: String? = null) : JobPhase {
@@ -437,6 +449,9 @@ public enum class InstallFailureReason {
 
     /** This engine or platform cannot be installed by Heartbeat. */
     Unsupported,
+
+    /** The engine's package command failed (for example npm is missing or a package does not exist). */
+    PackageFailed,
 }
 
 /** Sign-in failures. */
@@ -465,7 +480,8 @@ public fun ManagedEngine.actions(): Set<EngineActionKind> {
     if (job?.phase?.isFinished == false) return emptySet()
     val configure = if (spec.launch.options.isEmpty()) emptySet() else setOf(EngineActionKind.Configure)
     val isRunnable = enablement.reasons.all { it == DisabledReason.DisabledByUser }
-    return if (isRunnable) configure + installActions() + loginActions() + runtimeActions() else configure
+    val packages = if (spec.hasPackages) setOf(EngineActionKind.Packages) else emptySet()
+    return if (isRunnable) configure + installActions() + loginActions() + runtimeActions() + packages else configure
 }
 
 private fun ManagedEngine.installActions(): Set<EngineActionKind> = buildSet {

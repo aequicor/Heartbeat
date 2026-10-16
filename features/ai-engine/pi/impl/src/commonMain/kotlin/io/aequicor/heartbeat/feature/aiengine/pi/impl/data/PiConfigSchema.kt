@@ -72,7 +72,12 @@ internal val PiConfigSchema: EngineConfigSchema by lazy {
             page("mcp", t("MCP", "MCP"), serversSection()),
         ),
         ownedKeys = ownedKeys(),
-        capabilities = setOf(ConfigCapability.ImportNative, ConfigCapability.Secrets, ConfigCapability.ProjectTrust),
+        capabilities = setOf(
+            ConfigCapability.ImportNative,
+            ConfigCapability.Secrets,
+            ConfigCapability.ProjectTrust,
+            ConfigCapability.Packages,
+        ),
     )
 }
 

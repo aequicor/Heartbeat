@@ -409,6 +409,7 @@ class EngineManagementService(
             EngineAction.Uninstall -> EngineActionKind.Uninstall
             is EngineAction.Login -> EngineActionKind.Login
             EngineAction.Logout -> EngineActionKind.Logout
+            EngineAction.SyncPackages, EngineAction.UpdatePackages -> EngineActionKind.Packages
         }
         requireAction(kind)
         val isDeviceCode = action is EngineAction.Login && action.method == LoginMethod.DeviceCode

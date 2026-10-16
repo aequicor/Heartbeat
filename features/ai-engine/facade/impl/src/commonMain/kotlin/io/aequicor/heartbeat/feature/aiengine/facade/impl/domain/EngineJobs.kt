@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineManager
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LoginPrompt
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LoginSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.PackageOperation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ReleaseFeeds
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -41,6 +42,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * screen that started them. Progress and the outcome are published in [jobs] until dismissed. Installing checks the
  * staged copy (it must start and report the release's version) before activating it; nothing half-installed ever
  * becomes active. Signing in shows the CLI's prompts and forwards pasted codes; it ends after [loginTimeoutMillis].
+ * Package jobs run the engine configurator's package command for the configured packages.
  */
 @Suppress("LongParameterList") // A job spans the engine subsystems; each one is a separate port.
 class EngineJobs(
@@ -127,6 +129,8 @@ class EngineJobs(
             EngineAction.Uninstall -> uninstall(engine)
             is EngineAction.Login -> login(engine, action)
             EngineAction.Logout -> logout(engine)
+            EngineAction.SyncPackages -> packages(engine, PackageOperation.Sync)
+            EngineAction.UpdatePackages -> packages(engine, PackageOperation.Update)
         }
         JobPhase.Succeeded
     } catch (e: CancellationException) {
@@ -220,6 +224,17 @@ class EngineJobs(
         if (state != LoginState.SignedOut) {
             log.w { "sign-out did not clear the account engine=${engine.value}" }
             throw ManagementException(ManagementFailure.Login(LoginFailureReason.Rejected))
+        }
+        runtimes.retire(engine)
+    }
+
+    /** Runs a package command of the engine's configurator; idle runtimes restart with the packages it left. */
+    private suspend fun packages(engine: EngineId, operation: PackageOperation) {
+        val configurator = registry.require(engine).configurator?.value
+            ?: refuse("engine has no configurator engine=${engine.value}")
+        val config = launch.context(engine).config
+        withContext(context.io) {
+            configurator.packages(operation, config) { done, total -> phase(engine, JobPhase.Installing(done, total)) }
         }
         runtimes.retire(engine)
     }

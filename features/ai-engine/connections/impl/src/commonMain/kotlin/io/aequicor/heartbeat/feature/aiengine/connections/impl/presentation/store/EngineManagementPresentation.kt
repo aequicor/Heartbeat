@@ -60,6 +60,7 @@ enum class InstallFailureUi {
     RateLimited,
     Network,
     Unsupported,
+    PackageFailed,
 }
 
 /** Sign-in failures, one message each. */
@@ -124,7 +125,7 @@ data class RuntimeUi(
 )
 
 /** A long operation of an engine. */
-enum class EngineActionUi { Install, Update, Uninstall, Login, Logout }
+enum class EngineActionUi { Install, Update, Uninstall, Login, Logout, SyncPackages, UpdatePackages }
 
 /** Buttons the panel enables now. */
 enum class EngineActionKindUi {
@@ -137,6 +138,7 @@ enum class EngineActionKindUi {
     Logout,
     Restart,
     Configure,
+    Packages,
 }
 
 /** Progress of a job; [progress] is the downloaded share when the size is known. */
@@ -154,6 +156,9 @@ sealed interface JobPhaseUi {
             )
         }
     }
+
+    /** Installing packages: [done] of [total] steps. */
+    data class Installing(val done: Int, val total: Int) : JobPhaseUi
 
     /** Checking the checksum. */
     data object Verifying : JobPhaseUi
@@ -349,6 +354,8 @@ internal fun EngineActionUi.toAction(method: LoginMethodUi = LoginMethodUi.Brows
     EngineActionUi.Uninstall -> EngineAction.Uninstall
     EngineActionUi.Login -> EngineAction.Login(LoginMethod.valueOf(method.name))
     EngineActionUi.Logout -> EngineAction.Logout
+    EngineActionUi.SyncPackages -> EngineAction.SyncPackages
+    EngineActionUi.UpdatePackages -> EngineAction.UpdatePackages
 }
 
 private fun KeyValueUi.isBlank(): Boolean = key.isBlank() && value.isBlank()
@@ -389,6 +396,8 @@ private fun EngineJob.toUi(): JobUi = JobUi(
         EngineAction.Uninstall -> EngineActionUi.Uninstall
         is EngineAction.Login -> EngineActionUi.Login
         EngineAction.Logout -> EngineActionUi.Logout
+        EngineAction.SyncPackages -> EngineActionUi.SyncPackages
+        EngineAction.UpdatePackages -> EngineActionUi.UpdatePackages
     },
     phase = phase.toUi(),
 )
@@ -401,6 +410,7 @@ private fun JobPhase.toUi(): JobPhaseUi = when (this) {
     JobPhase.Checking -> JobPhaseUi.Checking
     JobPhase.Activating -> JobPhaseUi.Activating
     JobPhase.Removing -> JobPhaseUi.Removing
+    is JobPhase.Installing -> JobPhaseUi.Installing(done, total)
     is JobPhase.AwaitingBrowser -> JobPhaseUi.AwaitingBrowser(url, userCode)
     is JobPhase.AwaitingCode -> JobPhaseUi.AwaitingCode(url)
     JobPhase.Succeeded -> JobPhaseUi.Succeeded

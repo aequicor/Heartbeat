@@ -60,9 +60,8 @@ class PiAgentConfigTest {
             listOf("$home/skills", "+$home/local/one", "!old/**", "/abs/skill", "~/mine").map(::JsonPrimitive),
             (written.getValue("skills") as JsonArray).toList(),
         )
-        val packages = written.getValue("packages") as JsonArray
-        assertEquals(JsonPrimitive("npm:@x/y"), packages[0])
-        assertEquals(JsonPrimitive("$home/pkg"), packages[1])
+        // Remote packages load only once installed into the profile home.
+        assertEquals(listOf(JsonPrimitive("$home/pkg")), (written.getValue("packages") as JsonArray).toList())
         assertTrue(config.isSkillsLoaded && config.isPromptsLoaded && config.isDiscovering)
     }
 

@@ -12,6 +12,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import java.nio.file.Files
 import java.nio.file.Path
 
 /**
@@ -96,9 +97,7 @@ private fun agentSettings(
         (result[key] as? JsonArray)?.let { list -> result[key] = JsonArray(list.map { absolute(it, home) }) }
     }
     (result["packages"] as? JsonArray)?.let { list ->
-        result["packages"] = JsonArray(
-            list.map { absolutePackage(it, home) },
-        )
+        result["packages"] = JsonArray(list.mapNotNull { localPackage(it, home) })
     }
     if (isDiscovering) {
         val disabled = Builtins.keys.filter { it !in enabled }.map { JsonPrimitive("-builtin:$it") }
@@ -116,10 +115,23 @@ private fun absolute(entry: JsonElement, home: Path): JsonElement {
     return if (isRelativePath(path)) JsonPrimitive(prefix + home.resolve(path).normalize()) else entry
 }
 
-private fun absolutePackage(entry: JsonElement, home: Path): JsonElement = when (entry) {
-    is JsonPrimitive -> absolute(entry, home)
-    is JsonObject -> entry["source"]?.let { JsonObject(entry + ("source" to absolute(it, home))) } ?: entry
-    is JsonArray -> entry
+/**
+ * A package entry Pi loads without installing: a remote source becomes its folder installed in [home], a local one
+ * resolves against [home]; a remote source that is not installed is left out (the panel installs packages).
+ */
+private fun localPackage(entry: JsonElement, home: Path): JsonElement? {
+    val source = when (entry) {
+        is JsonPrimitive -> entry
+        is JsonObject -> entry["source"] as? JsonPrimitive
+        is JsonArray -> null
+    } ?: return entry
+    val installed = installedPackagePath(source.content, home)
+    val local = when {
+        installed == null -> absolute(source, home)
+        Files.isDirectory(installed) -> JsonPrimitive(installed.toString())
+        else -> return null
+    }
+    return if (entry is JsonObject) JsonObject(entry + ("source" to local)) else local
 }
 
 /** Not a pattern, home path, absolute path or `scheme:` source (`npm:`, `git:`, `builtin:`, a Windows drive). */

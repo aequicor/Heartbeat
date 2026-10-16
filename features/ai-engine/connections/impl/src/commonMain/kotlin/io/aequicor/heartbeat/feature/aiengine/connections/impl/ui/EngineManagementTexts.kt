@@ -33,6 +33,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_install_failure_network
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_install_failure_no_asset
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_install_failure_no_release
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_install_failure_package
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_install_failure_rate_limited
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_install_failure_size
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_install_failure_space
@@ -44,8 +45,10 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_job_install
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_job_login
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_job_logout
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_job_sync_packages
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_job_uninstall
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_job_update
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_job_update_packages
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_login_failure_rejected
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_login_failure_terminal
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_login_failure_timed_out
@@ -59,6 +62,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_phase_code
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_phase_downloading
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_phase_downloading_unknown
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_phase_installing
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_phase_preparing
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_phase_removing
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_phase_succeeded
@@ -120,6 +124,8 @@ internal fun jobTitle(action: EngineActionUi): String = stringResource(
         EngineActionUi.Uninstall -> Res.string.engine_job_uninstall
         EngineActionUi.Login -> Res.string.engine_job_login
         EngineActionUi.Logout -> Res.string.engine_job_logout
+        EngineActionUi.SyncPackages -> Res.string.engine_job_sync_packages
+        EngineActionUi.UpdatePackages -> Res.string.engine_job_update_packages
     },
 )
 
@@ -130,6 +136,8 @@ internal fun phaseText(phase: JobPhaseUi): String = when (phase) {
     } ?: stringResource(Res.string.engine_phase_downloading_unknown, sizeText(phase.bytes))
 
     is JobPhaseUi.Failed -> failureText(phase.failure)
+
+    is JobPhaseUi.Installing -> stringResource(Res.string.engine_phase_installing, phase.done, phase.total)
 
     is JobPhaseUi.AwaitingBrowser, is JobPhaseUi.AwaitingCode, JobPhaseUi.Preparing, JobPhaseUi.Verifying,
     JobPhaseUi.Unpacking, JobPhaseUi.Checking, JobPhaseUi.Activating, JobPhaseUi.Removing, JobPhaseUi.Succeeded,
@@ -175,7 +183,7 @@ internal fun confirmationTexts(action: EngineActionUi, panel: EnginePanelUi): Tr
             stringResource(Res.string.engine_confirm_logout),
         )
 
-        EngineActionUi.Install, EngineActionUi.Login -> null
+        EngineActionUi.Install, EngineActionUi.Login, EngineActionUi.SyncPackages, EngineActionUi.UpdatePackages -> null
     }
 }
 
@@ -249,6 +257,7 @@ internal val InstallFailureTexts: Map<InstallFailureUi, StringResource> = mapOf(
     InstallFailureUi.RateLimited to Res.string.engine_install_failure_rate_limited,
     InstallFailureUi.Network to Res.string.engine_install_failure_network,
     InstallFailureUi.Unsupported to Res.string.engine_install_failure_unsupported,
+    InstallFailureUi.PackageFailed to Res.string.engine_install_failure_package,
 )
 
 private const val KILOBYTE = 1024.0

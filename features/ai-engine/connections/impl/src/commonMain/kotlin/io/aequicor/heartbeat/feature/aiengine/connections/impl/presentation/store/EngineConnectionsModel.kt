@@ -281,7 +281,7 @@ class EngineConnectionsModel(
 internal fun EngineConnectionsScreenState.needsConfirmation(action: EngineActionUi): Boolean = when (action) {
     EngineActionUi.Uninstall, EngineActionUi.Logout -> true
     EngineActionUi.Update -> panel?.installation?.support == InstallSupportUi.Bundled
-    EngineActionUi.Install, EngineActionUi.Login -> false
+    EngineActionUi.Install, EngineActionUi.Login, EngineActionUi.SyncPackages, EngineActionUi.UpdatePackages -> false
 }
 
 private val EngineConnectionsScreenIntent.EngineInput.isLaunchEdit: Boolean
