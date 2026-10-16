@@ -9,6 +9,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
@@ -16,6 +17,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
@@ -25,6 +27,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.ToggleSource
 import io.aequicor.heartbeat.core.featuretoggles.ToggleState
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.ds.tokens.HbMotion
 import io.aequicor.heartbeat.feature.togglespanel.impl.presentation.store.TogglesPanelScreenIntent
 import io.aequicor.heartbeat.feature.togglespanel.impl.presentation.store.TogglesPanelScreenState
 import io.aequicor.heartbeat.feature.togglespanel.impl.presentation.store.toUi
@@ -81,13 +84,30 @@ class TogglesPanelUiTest {
         onNodeWithTag("flags-reset-all").performClick()
         assertEquals(TogglesPanelScreenIntent.ResetAll, events.last())
         val row = onNodeWithTag("row:alpha.enabled").getUnclippedBoundsInRoot()
+        mainClock.autoAdvance = false
         runOnIdle { state = loaded.copy(isSaving = true) }
+        mainClock.advanceTimeByFrame()
+        val mutations = listOf("flag:alpha.enabled", "choice:beta.mode:Two", "reset:alpha.enabled", "flags-reset-all")
+        mutations.forEach { tag ->
+            onNodeWithTag(tag).assertIsNotEnabled()
+            onNodeWithTag(tag).performMouseInput {
+                moveTo(center)
+                press()
+                release()
+                exit()
+            }
+        }
+        assertEquals(4, events.size, "Pending writes must not accept further mutations")
         assertEquals(row, onNodeWithTag("row:alpha.enabled").getUnclippedBoundsInRoot())
-        onNodeWithTag("flag:alpha.enabled").assertIsEnabled()
-        onNodeWithTag("choice:beta.mode:Two").assertIsEnabled()
-        onNodeWithTag("reset:alpha.enabled").assertIsEnabled()
-        onNodeWithTag("flags-reset-all").assertIsEnabled()
         onNodeWithTag("flags-search").assertIsEnabled()
+        mainClock.advanceTimeBy(HbMotion().busyRevealDelayMillis.toLong() * 2)
+        mutations.forEach { onNodeWithTag(it).assertIsNotEnabled() }
+        assertEquals(row, onNodeWithTag("row:alpha.enabled").getUnclippedBoundsInRoot())
+        runOnIdle { state = loaded }
+        mainClock.advanceTimeByFrame()
+        mutations.forEach { onNodeWithTag(it).assertIsEnabled() }
+        onNodeWithTag("choice:beta.mode:Two").performClick()
+        assertEquals(5, events.size)
     }
 
     @Test

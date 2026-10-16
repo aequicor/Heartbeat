@@ -519,6 +519,7 @@ internal fun ModelRow(
     enabled: Boolean,
     onEnabledChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    visualEnabled: Boolean = enabled,
     trailing: @Composable () -> Unit = {},
 ) {
     val details = listOfNotNull(
@@ -531,7 +532,14 @@ internal fun ModelRow(
         description = details.ifEmpty { null },
     ) {
         trailing()
-        HbSwitch(model.isEnabled, onEnabledChange, model.title, Modifier.testTag("model-switch:${model.id}"), enabled)
+        HbSwitch(
+            model.isEnabled,
+            onEnabledChange,
+            model.title,
+            Modifier.testTag("model-switch:${model.id}"),
+            enabled,
+            visualEnabled = visualEnabled,
+        )
     }
 }
 

@@ -11,7 +11,8 @@ import kotlinx.coroutines.delay
 
 /**
  * Whether [isBusy] has lasted longer than [io.aequicor.heartbeat.ds.tokens.HbMotion.busyRevealDelayMillis].
- * Screens show their "saving" status and dim controls by this value instead of the raw flag: a write that
+ * Screens show their "saving" status and dim controls by this value while disabling input and accessibility
+ * actions immediately from the raw flag. This value must never decide whether input is accepted: a write that
  * finishes within the delay (a settings switch) changes nothing on screen, so the layout neither jumps nor
  * flashes, while a slow operation still reveals its progress. Clearing is immediate.
  */
