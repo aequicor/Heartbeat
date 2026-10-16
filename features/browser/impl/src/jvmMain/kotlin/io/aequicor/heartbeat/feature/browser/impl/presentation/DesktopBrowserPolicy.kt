@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicReference
  * Empty bootstrap is local to the newly created browser; user commands never accept about/file schemes.
  * Neither JVM cookies nor external protocol dispatch participate in this backend.
  * Documents (main and embedded, including every redirect hop and popup) also pass the tab's [guard] for its agent
- * owner.
+ * owner. An allowed main document reports `navigating` before its request starts.
  */
 internal class DesktopBrowserPolicy(
     private val isReleased: () -> Boolean,
@@ -39,8 +39,10 @@ internal class DesktopBrowserPolicy(
     private val guard: DesktopBrowserAgentGuard,
     private val areLinksOpenedInTabs: Boolean = false,
     private val certificateExceptions: DesktopCertificateExceptions = DesktopCertificateExceptions(),
+    navigating: () -> Unit = {},
 ) {
     private val log = Log.tag("DesktopBrowserPolicy")
+    private val onMainNavigation = navigating
     private val linkedNavigation = AtomicReference<BrowserViewCommand.Load?>(null)
     private val mainDocumentMethod = AtomicReference("GET")
 
@@ -106,6 +108,7 @@ internal class DesktopBrowserPolicy(
             if (!isRejected && kind == BrowserRequestKind.MainDocument) {
                 mainDocumentMethod.set(request.method?.uppercase() ?: "GET")
             }
+            if (!isRejected && kind == BrowserRequestKind.MainDocument && !isBootstrap()) onMainNavigation()
             return isRejected
         }
 
