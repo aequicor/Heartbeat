@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.settings.impl.presentation.store.SettingsSe
 import io.aequicor.heartbeat.feature.settings.impl.presentation.store.resolve
 import io.aequicor.heartbeat.feature.settings.impl.presentation.store.toSection
 import io.aequicor.heartbeat.feature.settings.impl.presentation.store.toUi
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildsRoute
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -38,6 +39,7 @@ class SettingsSectionsTest {
                 isHarnessEnabled = true,
                 isContextEnabled = true,
                 isInterfacesEnabled = true,
+                isBuildsEnabled = true,
             ),
         )
         assertEquals(
@@ -106,6 +108,19 @@ class SettingsSectionsTest {
         }
         assertEquals(ServiceUiLibraryRoute(isEmbedded = true), SettingsSection.Interfaces.route())
         assertEquals(SettingsSection.Interfaces, settingsSectionOf("interfaces"))
+    }
+
+    @Test
+    fun `builds are offered only with worktree mode and an active profile and open embedded`() {
+        listOf(true, false).forEach { enabled ->
+            listOf(true, false).forEach { profile ->
+                val sections = availableSections(false, false, profile, isBuildsEnabled = enabled)
+                assertEquals(enabled && profile, SettingsSection.Builds in sections)
+            }
+        }
+        assertEquals(WorktreeBuildsRoute(isEmbedded = true), SettingsSection.Builds.route())
+        assertEquals("builds", SettingsSection.Builds.deepLinkName)
+        assertEquals(SettingsSection.Builds, settingsSectionOf("builds"))
     }
 
     @Test

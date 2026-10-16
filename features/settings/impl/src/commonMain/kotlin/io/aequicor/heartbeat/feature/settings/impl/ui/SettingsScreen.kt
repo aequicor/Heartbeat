@@ -47,6 +47,7 @@ import io.aequicor.heartbeat.feature.settings.impl.presentation.store.SettingsSe
 import io.aequicor.heartbeat.feature.settings.impl.resources.Res
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_back
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_agent_learning
+import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_builds
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_chromium_browser
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_computer_use
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_context
@@ -257,6 +258,7 @@ private fun sectionTitle(section: SettingsSectionUi): String = stringResource(
         SettingsSectionUi.ChromiumBrowser -> Res.string.settings_section_chromium_browser
         SettingsSectionUi.AgentLearning -> Res.string.settings_section_agent_learning
         SettingsSectionUi.Context -> Res.string.settings_section_context
+        SettingsSectionUi.Builds -> Res.string.settings_section_builds
         SettingsSectionUi.Harness -> Res.string.settings_section_harness
         SettingsSectionUi.Interfaces -> Res.string.settings_section_interfaces
         SettingsSectionUi.FeatureFlags -> Res.string.settings_section_feature_flags
@@ -270,6 +272,7 @@ private fun SettingsSectionUi.icon(): ImageVector = when (this) {
     SettingsSectionUi.ChromiumBrowser -> HbIcons.Globe
     SettingsSectionUi.AgentLearning -> HbIcons.Sparkles
     SettingsSectionUi.Context -> HbIcons.Minimize
+    SettingsSectionUi.Builds -> HbIcons.Terminal
     SettingsSectionUi.Harness -> HbIcons.Code
     SettingsSectionUi.Interfaces -> HbIcons.Grid
     SettingsSectionUi.FeatureFlags -> HbIcons.Sliders

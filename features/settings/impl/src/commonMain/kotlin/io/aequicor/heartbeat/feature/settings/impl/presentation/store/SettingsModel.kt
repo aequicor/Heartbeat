@@ -27,6 +27,7 @@ enum class SettingsSectionUi {
     ChromiumBrowser,
     AgentLearning,
     Context,
+    Builds,
     Harness,
     Interfaces,
     FeatureFlags,
@@ -40,6 +41,7 @@ fun SettingsSection.toUi(): SettingsSectionUi = when (this) {
     SettingsSection.ChromiumBrowser -> SettingsSectionUi.ChromiumBrowser
     SettingsSection.AgentLearning -> SettingsSectionUi.AgentLearning
     SettingsSection.Context -> SettingsSectionUi.Context
+    SettingsSection.Builds -> SettingsSectionUi.Builds
     SettingsSection.Harness -> SettingsSectionUi.Harness
     SettingsSection.Interfaces -> SettingsSectionUi.Interfaces
     SettingsSection.FeatureFlags -> SettingsSectionUi.FeatureFlags
@@ -53,6 +55,7 @@ fun SettingsSectionUi.toSection(): SettingsSection = when (this) {
     SettingsSectionUi.ChromiumBrowser -> SettingsSection.ChromiumBrowser
     SettingsSectionUi.AgentLearning -> SettingsSection.AgentLearning
     SettingsSectionUi.Context -> SettingsSection.Context
+    SettingsSectionUi.Builds -> SettingsSection.Builds
     SettingsSectionUi.Harness -> SettingsSection.Harness
     SettingsSectionUi.Interfaces -> SettingsSection.Interfaces
     SettingsSectionUi.FeatureFlags -> SettingsSection.FeatureFlags

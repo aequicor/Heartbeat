@@ -41,6 +41,7 @@ import io.aequicor.heartbeat.feature.settings.impl.presentation.store.SettingsSe
 import io.aequicor.heartbeat.feature.settings.impl.presentation.store.toSection
 import io.aequicor.heartbeat.feature.settings.impl.presentation.store.toUi
 import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelRoute
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildsRoute
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -152,6 +153,7 @@ class SettingsComponent(
             ChromiumBridgeRoute::class,
             AgentLearningRoute::class,
             ContextOptimizationRoute::class,
+            WorktreeBuildsRoute::class,
             HarnessRoute::class,
             HarnessDetailRoute::class,
             HarnessItemRoute::class,
@@ -173,6 +175,7 @@ internal fun SettingsSection.route(): Route = when (this) {
     SettingsSection.ChromiumBrowser -> ChromiumBridgeRoute(isEmbedded = true)
     SettingsSection.AgentLearning -> AgentLearningRoute(isEmbedded = true)
     SettingsSection.Context -> ContextOptimizationRoute(isEmbedded = true)
+    SettingsSection.Builds -> WorktreeBuildsRoute(isEmbedded = true)
     SettingsSection.Harness -> HarnessRoute(isEmbedded = true)
     SettingsSection.Interfaces -> ServiceUiLibraryRoute(isEmbedded = true)
     SettingsSection.FeatureFlags -> TogglesPanelRoute(isEmbedded = true)

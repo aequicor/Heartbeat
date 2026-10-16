@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.settings.api.SettingsSection
 import io.aequicor.heartbeat.feature.settings.impl.di.scope.SettingsScope
 import io.aequicor.heartbeat.feature.settings.impl.domain.SettingsSections
 import io.aequicor.heartbeat.feature.settings.impl.domain.availableSections
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeModeEnabled
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -42,7 +43,10 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             toggles.observe(HarnessEnabled),
             toggles.observe(ContextOptimizationEnabled),
             toggles.observe(ServiceUiEnabled),
-        ) { learning, harness, context, interfaces -> ProfileSections(learning, harness, context, interfaces) },
+            toggles.observe(WorktreeModeEnabled),
+        ) { learning, harness, context, interfaces, builds ->
+            ProfileSections(learning, harness, context, interfaces, builds)
+        },
         sessions.active,
     ) { connections, search, (computerUse, chromium), profile, session ->
         availableSections(
@@ -55,6 +59,7 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             isHarnessEnabled = profile.isHarness,
             isContextEnabled = profile.isContext,
             isInterfacesEnabled = profile.isInterfaces,
+            isBuildsEnabled = profile.isBuilds,
         )
     }
         // Sections without a toggle appear at once; gated ones join when their toggles are read from storage.
@@ -68,4 +73,5 @@ private data class ProfileSections(
     val isHarness: Boolean,
     val isContext: Boolean,
     val isInterfaces: Boolean,
+    val isBuilds: Boolean,
 )
