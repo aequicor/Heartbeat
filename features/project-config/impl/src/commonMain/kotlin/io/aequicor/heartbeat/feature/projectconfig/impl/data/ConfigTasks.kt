@@ -104,9 +104,10 @@ internal class ConfigTasks(private val access: ConfigFolderAccess, private val b
             is ConfigRead.Failed -> return failed(effect.requestId, read.failure.taskFailure())
             ConfigRead.Absent -> return failed(effect.requestId, ConfigTaskFailure.Unreadable)
         }
-        val sections = access.reader.sections()
-        val units = access.reader.scan(tree, sections, isUnavailableReported = true)
-        val proposals = bundleProposals(effect.requestId, units, access.reader.entities(sections, null))
+        val read = access.reader.sections()
+        val entities = access.reader.entities(read, null)
+        val units = access.reader.scan(tree, read.without(entities.unreadable), isUnavailableReported = true)
+        val proposals = bundleProposals(effect.requestId, units, entities.digests)
         access.keep(effect.requestId, tree)
         log.i { "Opened a bundle: ${units.size} units, ${proposals.size} proposals" }
         return Internal.BundleOpened(effect.requestId, ConfigBundle(effect.requestId, fileName(effect.path)), proposals)

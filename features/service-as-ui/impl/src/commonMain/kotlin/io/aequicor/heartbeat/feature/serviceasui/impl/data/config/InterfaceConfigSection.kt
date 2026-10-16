@@ -64,9 +64,15 @@ products, load external resources to leak data, or trick the user into dangerous
 forms and charts are safe.
 """
 
+    /**
+     * Portable surfaces, or null while the feature is off or the harnesses' owner snapshot is incomplete (loading,
+     * reloading): a surface of an owner missing from an incomplete snapshot is unknown, not removed.
+     */
     override val entities: Flow<List<ConfigEntity>?> =
         combine(toggles.observe(ServiceUiEnabled), machine.state) { isEnabled, state ->
-            (state as? ServiceUiState.Ready)?.takeIf { isEnabled }?.let(::entitiesOf)
+            (state as? ServiceUiState.Ready)
+                ?.takeIf { isEnabled && it.owners[HARNESS_OWNER]?.isComplete == true }
+                ?.let(::entitiesOf)
         }.distinctUntilChanged()
 
     override fun unitOf(path: ConfigPath): String? = InterfaceConfigCodec.unitOf(path)

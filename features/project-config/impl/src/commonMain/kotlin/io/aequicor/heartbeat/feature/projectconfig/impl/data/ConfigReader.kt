@@ -37,7 +37,18 @@ internal class SectionsSnapshot(
     /** The entity of section [id] with [identity], or null. */
     fun withIdentity(id: ConfigSectionId, identity: String): ConfigEntity? =
         entities[id]?.firstOrNull { it.identity == identity }
+
+    /** This moment with sections [ids] unavailable as well. */
+    fun without(ids: Set<ConfigSectionId>): SectionsSnapshot =
+        if (ids.isEmpty()) this else SectionsSnapshot(sections, entities - ids)
 }
+
+/**
+ * Entity [digests] for [reconcile][io.aequicor.heartbeat.feature.projectconfig.api.reconcile]. [unreadable] sections
+ * listed an entity they could not encode at that moment (its owner was changing): their entities are unknown, so they
+ * count as unavailable and never as removed.
+ */
+internal data class EntityDigests(val digests: List<EntityDigest>, val unreadable: Set<ConfigSectionId>)
 
 /**
  * Turns trees into scanned units and profile entities into digests for [reconcile][io.aequicor.heartbeat.feature
@@ -90,15 +101,26 @@ internal class ConfigReader(private val provider: () -> Collection<ConfigSection
         snapshot: SectionsSnapshot,
         project: WorkspaceRef?,
         bindings: List<ConfigBinding> = emptyList(),
-    ): List<EntityDigest> = snapshot.sections.flatMap { section ->
-        val entities = snapshot.entities[section.id].orEmpty()
-        entities.mapNotNull { entity ->
-            val bound = bindings.firstOrNull { it.unit.section == section.id && it.key == entity.key }
-            val isCandidate = !section.isProjectScoped || entity.project == project
-            if (bound == null && !isCandidate) return@mapNotNull null
-            digest(section, entity, bound?.unit?.name ?: entity.name)
-                ?.let { EntityDigest(section.id, entity.key, entity.identity, it) }
+    ): EntityDigests {
+        val unreadable = mutableSetOf<ConfigSectionId>()
+        val digests = snapshot.sections.flatMap { section ->
+            val related = snapshot.entities[section.id].orEmpty().mapNotNull { entity ->
+                val bound = bindings.firstOrNull { it.unit.section == section.id && it.key == entity.key }
+                val isCandidate = !section.isProjectScoped || entity.project == project
+                (bound?.unit?.name ?: entity.name.takeIf { isCandidate })?.let { entity to it }
+            }
+            val encoded = related.map { (entity, name) ->
+                digest(section, entity, name)?.let { EntityDigest(section.id, entity.key, entity.identity, it) }
+            }
+            if (null in encoded) {
+                unreadable += section.id
+                log.d { "Section ${section.id} changed while it was read: it is skipped this time" }
+                emptyList()
+            } else {
+                encoded.filterNotNull()
+            }
         }
+        return EntityDigests(digests, unreadable)
     }
 
     /** Encoding of [entity] under unit [name], or null when it no longer exists. */

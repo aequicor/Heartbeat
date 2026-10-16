@@ -79,7 +79,9 @@ internal class HarnessConfigSection(
 
     override val entities: Flow<List<ConfigEntity>?>
         get() = combine(toggles.observe(HarnessEnabled), machine.value.state) { isEnabled, state ->
-            (state as? HarnessState.Ready)?.takeIf { isEnabled && !it.isSuspended }?.harnesses?.map { entry ->
+            // A suspended or reloading library is not a settled list: its harnesses are unknown, not removed.
+            val ready = (state as? HarnessState.Ready)?.takeIf { isEnabled && !it.isSuspended && !it.isReloading }
+            ready?.harnesses?.map { entry ->
                 val harness = entry.harness
                 ConfigEntity(
                     key = ConfigEntityKey(harness.id.value),

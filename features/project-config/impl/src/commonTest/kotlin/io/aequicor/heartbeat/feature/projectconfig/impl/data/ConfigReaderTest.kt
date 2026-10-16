@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ProposalKind
 import io.aequicor.heartbeat.feature.projectconfig.api.ProposalReview
 import io.aequicor.heartbeat.feature.projectconfig.api.ReviewVerdict
 import io.aequicor.heartbeat.feature.projectconfig.api.UnitCheck
+import io.aequicor.heartbeat.feature.projectconfig.api.spi.ConfigSection
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigReviews
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.ConfigTree
 import io.aequicor.heartbeat.feature.projectconfig.impl.domain.FakeEntity
@@ -61,6 +62,23 @@ class ConfigReaderTest {
         assertEquals(one.digest, harnesses.unit("review", "a").digest)
         assertNotEquals(one.digest, harnesses.unit("review", "b").digest)
         assertNotEquals(one.digest, harnesses.unit("other", "a").digest)
+    }
+
+    @Test
+    fun `a section that cannot encode a listed entity is unknown rather than empty`() = runTest {
+        harnesses.state.value = listOf(FakeEntity("h1", "review", "a"))
+        val changing = object : ConfigSection by harnesses {
+            override suspend fun encode(key: ConfigEntityKey, name: String): ConfigUnit? = null
+        }
+        val reader = ConfigReader { listOf(changing, learning) }
+        val read = reader.sections()
+
+        val entities = reader.entities(read, project)
+
+        assertEquals(setOf(ConfigSectionId.Harnesses), entities.unreadable)
+        assertTrue(entities.digests.isEmpty())
+        // Its bound units are neither proposed nor removed until the owner settles.
+        assertEquals(setOf(ConfigSectionId.Harnesses), read.without(entities.unreadable).unavailable)
     }
 
     @Test
@@ -113,12 +131,12 @@ class ConfigReaderTest {
             ConfigDigest("e"),
         )
 
-        val digests = reader.entities(reader.sections(), project, listOf(bound))
+        val digests = reader.entities(reader.sections(), project, listOf(bound)).digests
 
         assertEquals(listOf("h1", "l1", "l3"), digests.map { it.key.value })
         assertEquals(learning.unit("custom", "z").digest, digests.single { it.key.value == "l3" }.digest)
         assertEquals(harnesses.unit("review", "a").digest, digests.first().digest)
-        val bundle = reader.entities(reader.sections(), null).filter { it.section == ConfigSectionId.Learning }
+        val bundle = reader.entities(reader.sections(), null).digests.filter { it.section == ConfigSectionId.Learning }
         assertEquals(listOf("l4"), bundle.map { it.key.value })
     }
 

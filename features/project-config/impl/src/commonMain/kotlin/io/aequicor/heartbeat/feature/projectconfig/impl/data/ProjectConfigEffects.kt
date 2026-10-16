@@ -94,18 +94,19 @@ internal class ProjectConfigEffects(
             is FolderRead.Failed -> return Internal.SyncFailed(listOf(request), read.failure)
             is FolderRead.Read -> read
         }
-        val sections = access.reader.sections()
+        val read = access.reader.sections()
+        val entities = access.reader.entities(read, request.project, request.bindings)
+        val sections = read.without(entities.unreadable)
         val units = access.reader.scan(folder.tree, sections, request.bindings)
-        val entities = access.reader.entities(sections, request.project, request.bindings)
         val snapshot = ProjectSnapshot(
             request.project,
             request.generation,
             units,
-            entities,
+            entities.digests,
             folder.tree.unclaimed,
             sections.unavailable,
         )
-        log.v { "Synced project: ${units.size} units, ${entities.size} entities" }
+        log.v { "Synced project: ${units.size} units, ${entities.digests.size} entities" }
         return Internal.Synced(snapshot, folder.hasFolder)
     }
 

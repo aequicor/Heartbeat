@@ -155,6 +155,17 @@ class InterfaceConfigSectionTest {
     }
 
     @Test
+    fun `an incomplete snapshot of harness owners leaves the section unavailable`() = runTest {
+        // Harnesses are still loading or reloading: the bound surface of "audit" is unknown, not removed.
+        val loading = UiOwners(isComplete = false, owners = owners.getValue("harness").owners.take(1))
+        val states = listOf(mapOf("harness" to loading), emptyMap())
+        states.forEach { snapshot ->
+            val machine = SpecUiMachine(ServiceUiState.Ready(owners = snapshot, library = UiLibrary(listOf(board))))
+            assertNull(InterfaceConfigSection(machine, toggles).entities.first())
+        }
+    }
+
+    @Test
     fun `removal deletes the surface and interfaces off make the section unavailable`() = runTest {
         assertEquals(
             ConfigApplyResult.Applied(ConfigEntityKey(board.id.value)),
