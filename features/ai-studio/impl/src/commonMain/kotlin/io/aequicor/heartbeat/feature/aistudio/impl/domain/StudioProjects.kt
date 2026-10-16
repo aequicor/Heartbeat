@@ -11,6 +11,9 @@ interface StudioProjects {
     /** Isolated execution is offered only by Desktop engine-backed projects. */
     val worktreeAvailability: Flow<Boolean> get() = flowOf(false)
 
+    /** Source-only isolation is offered only when worktrees and the sandbox toggle are enabled. */
+    val sandboxAvailability: Flow<Boolean> get() = flowOf(false)
+
     /** Ids of registered projects whose folder is a Git repository; empty while isolation is unavailable. */
     val repositoryProjects: Flow<Set<String>> get() = flowOf(emptySet())
 

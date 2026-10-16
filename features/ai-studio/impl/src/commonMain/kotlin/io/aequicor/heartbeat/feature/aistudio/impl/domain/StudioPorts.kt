@@ -38,7 +38,8 @@ interface StudioRepository {
      * silently fall back to an ordinary conversation. An organism chat is created only when its organism could be
      * conceived now, and its first prompt conceives it. The default delegates to the short form, so a backend must
      * override one of the two. [executionWorkspace] pins a hosted helper to an existing checkout without creating
-     * another worktree; it requires a project and cannot accompany [isWorktree].
+     * another worktree; it requires a project and cannot accompany [isWorktree]. [isSandbox] selects source-only
+     * isolation for a worktree; null retains the toggle-based choice for callers without an explicit selection.
      */
     suspend fun createSession(
         projectId: String?,
@@ -46,6 +47,7 @@ interface StudioRepository {
         isWorktree: Boolean,
         organism: OrganismRequest? = null,
         executionWorkspace: WorkspaceRef? = null,
+        isSandbox: Boolean? = null,
     ): StudioSession {
         check(executionWorkspace == null) { "Fixed workspace execution is unavailable in this backend" }
         check(!isWorktree) { "Worktree execution is unavailable in this backend" }

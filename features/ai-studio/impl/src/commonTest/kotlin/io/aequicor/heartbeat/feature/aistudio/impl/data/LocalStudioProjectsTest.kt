@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioDirectoryPicker
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSandboxEnabled
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -16,6 +17,16 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 class LocalStudioProjectsTest {
+    @Test
+    fun `sandbox availability requires both isolation and sandbox switches`() = runTest {
+        for (worktree in listOf(false, true)) {
+            for (sandbox in listOf(false, true)) {
+                val projects = LocalStudioProjects(Registry(), Picker(null), Toggles(worktree, sandbox))
+                assertEquals(worktree && sandbox, projects.sandboxAvailability.first())
+            }
+        }
+    }
+
     @Test
     fun `selected directory registers once and only its opaque id leaves the effect`() = runTest {
         val registry = Registry()
@@ -91,9 +102,10 @@ class LocalStudioProjectsTest {
         }
     }
 
-    private class Toggles(private val isEnabled: Boolean) : FeatureToggles {
+    private class Toggles(private val isEnabled: Boolean, private val isSandbox: Boolean = isEnabled) : FeatureToggles {
         @Suppress("UNCHECKED_CAST") // The project service requests only flag toggles.
-        override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = flowOf(isEnabled as T)
+        override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> =
+            flowOf((if (toggle == WorktreeSandboxEnabled) isSandbox else isEnabled) as T)
         override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = observe(toggle).first()
     }
 }
