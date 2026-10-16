@@ -11,4 +11,6 @@ import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserFaviconPolicy
 @Inject
 internal class ToggleBrowserFaviconPolicy(private val toggles: FeatureToggles) : BrowserFaviconPolicy {
     override suspend fun isEnabled() = toggles.get(BrowserFavicons)
+
+    override fun observe() = toggles.observe(BrowserFavicons)
 }

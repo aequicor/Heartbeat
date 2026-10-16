@@ -1,7 +1,9 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserFaviconPolicy
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import java.awt.image.BufferedImage
 import java.io.ByteArrayInputStream
@@ -24,13 +26,13 @@ class DesktopBrowserFaviconImagesTest {
     }
 
     @Test
-    fun `ico and svg icons are decoded`() {
+    fun `ico icons are decoded and svg icons are refused`() {
         assertEquals(255, alpha(png(decodeBrowserFavicon(ico(testPng(16, 16)))), 16, 16))
         val svg = """
             <?xml version="1.0"?>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#36c"/></svg>
         """.trimIndent().encodeToByteArray()
-        assertEquals(255, alpha(png(decodeBrowserFavicon(svg)), 16, 16))
+        assertFailsWith<IllegalArgumentException> { decodeBrowserFavicon(svg) }
     }
 
     @Test
@@ -42,18 +44,13 @@ class DesktopBrowserFaviconImagesTest {
     }
 
     @Test
-    fun `a failed icon is not fetched again until browser data is cleared`() = runTest {
-        val images = DesktopBrowserFaviconImages(
-            BrowserTestDispatchers(StandardTestDispatcher(testScheduler)),
-            object : BrowserFaviconPolicy {
-                override suspend fun isEnabled() = true
-            },
-        )
+    fun `an unusable icon is not fetched again until browser data is cleared`() = runTest {
+        val images = images()
         var calls = 0
         repeat(2) {
             images.load("https://example.com/favicon.ico") {
                 calls++
-                error("Not found")
+                throw BrowserFaviconRejected("Site icon is not an image")
             }
         }
         assertEquals(1, calls)
@@ -68,12 +65,50 @@ class DesktopBrowserFaviconImagesTest {
     }
 
     @Test
+    fun `network failures and server errors are retried while unusable answers are not`() = runTest {
+        val images = images()
+        val calls = mutableMapOf<String, Int>()
+        val failures = mapOf(
+            "slow" to IllegalStateException("Source transfer timed out"),
+            "busy" to DesktopBrowserSourceRejected("Source still unavailable", 503),
+            "missing" to DesktopBrowserSourceRejected("Source still unavailable", 404),
+            "huge" to DesktopBrowserSourceRejected("Site icon exceeds size limit"),
+        )
+        repeat(2) {
+            failures.forEach { (name, failure) ->
+                images.load("https://example.com/$name.ico") {
+                    calls[name] = (calls[name] ?: 0) + 1
+                    throw failure
+                }
+            }
+            images.load("https://example.com/broken.ico") {
+                calls["broken"] = (calls["broken"] ?: 0) + 1
+                "not an image".encodeToByteArray()
+            }
+        }
+        assertEquals(mapOf("slow" to 2, "busy" to 2, "missing" to 1, "huge" to 1, "broken" to 1), calls)
+        assertTrue(images.images.value.isEmpty())
+    }
+
+    @Test
+    fun `the least recently used icon is evicted first`() = runTest {
+        val images = images()
+        repeat(MAX_CACHED) { images.load("https://example.com/$it.png") { testPng(16, 16) } }
+        images.load("https://example.com/0.png") { error("Cached icons are not fetched") }
+        images.load("https://example.com/new.png") { testPng(16, 16) }
+        assertTrue("https://example.com/0.png" in images.images.value)
+        assertTrue("https://example.com/1.png" !in images.images.value)
+        assertEquals(MAX_CACHED, images.images.value.size)
+    }
+
+    @Test
     fun `icon responses must be small images`() {
         val rejected = mutableListOf<String>()
         val body = DesktopBrowserIconBody { rejected += it }
         body.append(byteArrayOf(1, 2, 3), 3)
         assertEquals(3, body.result("https://example.com/i", "image/x-icon").size)
-        assertFailsWith<IllegalStateException> { body.result("https://example.com/i", "text/html") }
+        assertFailsWith<BrowserFaviconRejected> { body.result("https://example.com/i", "text/html") }
+        assertFailsWith<BrowserFaviconRejected> { body.result("https://example.com/i", "image/svg+xml") }
         assertFailsWith<IllegalStateException> { DesktopBrowserIconBody {}.result("https://example.com/i", "") }
         body.progress(0, MAX_FAVICON_BYTES + 1)
         assertEquals(listOf("Site icon exceeds size limit"), rejected)
@@ -87,11 +122,21 @@ class DesktopBrowserFaviconImagesTest {
             .put(16).put(16).put(0).put(0).putShort(1).putShort(32).putInt(png.size).putInt(ICO_HEADER)
             .put(png).array()
 
+    private fun TestScope.images() = DesktopBrowserFaviconImages(
+        BrowserTestDispatchers(StandardTestDispatcher(testScheduler)),
+        object : BrowserFaviconPolicy {
+            override suspend fun isEnabled() = true
+
+            override fun observe() = flowOf(true)
+        },
+    )
+
     private fun png(bytes: ByteArray): BufferedImage = ImageIO.read(ByteArrayInputStream(bytes))
 
     private fun alpha(image: BufferedImage, x: Int, y: Int): Int = image.getRGB(x, y) ushr 24
 
     private companion object {
         const val ICO_HEADER = 22
+        const val MAX_CACHED = 128
     }
 }
