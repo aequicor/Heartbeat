@@ -31,6 +31,7 @@ import io.aequicor.heartbeat.ds.components.HbSettingsSection
 import io.aequicor.heartbeat.ds.components.HbSwitch
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTone
+import io.aequicor.heartbeat.ds.components.rememberHbBusyReveal
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
@@ -104,6 +105,9 @@ internal fun EngineConnectionsContent(
     onBack: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
+    // Quick writes (switching a connection or a model) finish before the status could appear, so the column
+    // neither shifts nor dims; dialogs below still follow the raw flag against a double submit.
+    val shown = state.copy(isSaving = rememberHbBusyReveal(state.isSaving))
     HbColumn(
         modifier.fillMaxSize().background(HbTheme.surfaces.backdrop).testTag("engine-connections"),
         gap = HbTheme.spacing.none,
@@ -117,14 +121,14 @@ internal fun EngineConnectionsContent(
                 gap = HbTheme.spacing.xxl,
             ) {
                 ConnectionsToolbar(onAddEngine = { onAddConnection(null) })
-                SettingsStatus(state, onIntent)
-                EnginesSection(state, onIntent)
-                state.engines.firstOrNull { it.id == state.selectedEngine }?.preparation?.let {
+                SettingsStatus(shown, onIntent)
+                EnginesSection(shown, onIntent)
+                shown.engines.firstOrNull { it.id == shown.selectedEngine }?.preparation?.let {
                     EnginePreparationStatus(it)
                 }
-                state.panel?.let { EngineManagementSection(it, state.loginCode, state.isSaving, onIntent) }
-                ConnectionsSection(state, onIntent, onAddConnection)
-                ModelsSection(state, onIntent)
+                shown.panel?.let { EngineManagementSection(it, shown.loginCode, shown.isSaving, onIntent) }
+                ConnectionsSection(shown, onIntent, onAddConnection)
+                ModelsSection(shown, onIntent)
             }
         }
     }

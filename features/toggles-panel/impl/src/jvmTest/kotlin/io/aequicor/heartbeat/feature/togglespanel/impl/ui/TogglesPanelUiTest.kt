@@ -9,9 +9,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
-import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -66,7 +66,7 @@ class TogglesPanelUiTest {
     }
 
     @Test
-    fun `flag choice and reset emit typed operations and isSaving disables mutations`() = runSkikoComposeUiTest(
+    fun `flag choice and reset emit typed operations and saving keeps rows in place`() = runSkikoComposeUiTest(
         size = Size(1000f, 1100f),
     ) {
         var state by mutableStateOf(loaded)
@@ -80,11 +80,13 @@ class TogglesPanelUiTest {
         assertEquals(TogglesPanelScreenIntent.Reset(flag.key), events.last())
         onNodeWithTag("flags-reset-all").performClick()
         assertEquals(TogglesPanelScreenIntent.ResetAll, events.last())
+        val row = onNodeWithTag("row:alpha.enabled").getUnclippedBoundsInRoot()
         runOnIdle { state = loaded.copy(isSaving = true) }
-        onNodeWithTag("flag:alpha.enabled").assertIsNotEnabled()
-        onNodeWithTag("choice:beta.mode:Two").assertIsNotEnabled()
-        onNodeWithTag("reset:alpha.enabled").assertIsNotEnabled()
-        onNodeWithTag("flags-reset-all").assertIsNotEnabled()
+        assertEquals(row, onNodeWithTag("row:alpha.enabled").getUnclippedBoundsInRoot())
+        onNodeWithTag("flag:alpha.enabled").assertIsEnabled()
+        onNodeWithTag("choice:beta.mode:Two").assertIsEnabled()
+        onNodeWithTag("reset:alpha.enabled").assertIsEnabled()
+        onNodeWithTag("flags-reset-all").assertIsEnabled()
         onNodeWithTag("flags-search").assertIsEnabled()
     }
 

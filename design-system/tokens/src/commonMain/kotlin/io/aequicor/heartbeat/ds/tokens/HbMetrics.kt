@@ -285,6 +285,8 @@ data class HbMotion(
     val scrollbarHideDelayMillis: Int = 700,
     val scrollbarFadeMillis: Int = 180,
     val tooltipDelayMillis: Int = 600,
+    /** How long an operation stays busy before its spinner and dimmed controls appear; quicker ones never blink. */
+    val busyRevealDelayMillis: Int = 400,
     /** Duration of each bounded attention pulse when a questionnaire appears. */
     val questionnairePulseMillis: Int = 450,
     /** Number of attention pulses per questionnaire; ongoing answers never restart them. */

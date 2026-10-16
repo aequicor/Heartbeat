@@ -59,7 +59,6 @@ import io.aequicor.heartbeat.feature.togglespanel.impl.resources.flags_override
 import io.aequicor.heartbeat.feature.togglespanel.impl.resources.flags_reset
 import io.aequicor.heartbeat.feature.togglespanel.impl.resources.flags_reset_all
 import io.aequicor.heartbeat.feature.togglespanel.impl.resources.flags_retry
-import io.aequicor.heartbeat.feature.togglespanel.impl.resources.flags_saving
 import io.aequicor.heartbeat.feature.togglespanel.impl.resources.flags_search
 import io.aequicor.heartbeat.feature.togglespanel.impl.resources.flags_search_clear
 import io.aequicor.heartbeat.feature.togglespanel.impl.resources.flags_title
@@ -124,7 +123,9 @@ internal fun TogglesPanelContent(
                 panelStatus(state, groups.isEmpty(), onIntent)
                 groups.forEach { (owner, rows) ->
                     item(key = "owner:$owner") {
-                        ToggleGroup(owner, rows, enabled = !state.isSaving && !state.hasLoadError, onIntent)
+                        // A write takes milliseconds: dimming every row for it reads as a blink, and the machine
+                        // ignores changes until it is acknowledged.
+                        ToggleGroup(owner, rows, enabled = !state.hasLoadError, onIntent)
                     }
                 }
             }
@@ -162,7 +163,7 @@ private fun TogglesToolbar(
                 { onIntent(TogglesPanelScreenIntent.ResetAll) },
                 Modifier.testTag("flags-reset-all"),
                 HbButtonStyle.Secondary,
-                enabled = !state.isLoading && !state.hasLoadError && !state.isSaving,
+                enabled = !state.isLoading && !state.hasLoadError,
             )
         }
     }
@@ -173,10 +174,9 @@ private fun LazyListScope.panelStatus(
     empty: Boolean,
     event: (TogglesPanelScreenIntent) -> Unit,
 ) {
-    if (state.isLoading || state.isSaving) {
-        item(key = "progress") {
-            HbLoadingState(stringResource(if (state.isLoading) Res.string.flags_loading else Res.string.flags_saving))
-        }
+    // Saving never inserts a status row: it would push every group down and back on each switch.
+    if (state.isLoading) {
+        item(key = "progress") { HbLoadingState(stringResource(Res.string.flags_loading)) }
     }
     if (state.hasLoadError || state.hasWriteError) {
         item(key = "error") { PanelError(state.hasLoadError, state.isSaving, event) }
