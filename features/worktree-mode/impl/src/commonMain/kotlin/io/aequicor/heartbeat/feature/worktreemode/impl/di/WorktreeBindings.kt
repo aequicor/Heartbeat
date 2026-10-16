@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineSpec
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeModeEnabled
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeOutput
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSandboxEnabled
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import io.aequicor.heartbeat.feature.worktreemode.impl.data.WorktreeEffects
 import kotlinx.coroutines.launch
@@ -52,7 +53,7 @@ internal class WorktreeStartup(
     }
 }
 
-/** Registers the disabled-by-default worktree switch. */
+/** Registers the disabled-by-default worktree and sandbox switches. */
 @ContributesTo(AppScope::class)
 @BindingContainer
 public object WorktreeToggleBindings {
@@ -60,4 +61,9 @@ public object WorktreeToggleBindings {
     @Provides
     @IntoSet
     public fun toggle(): FeatureToggle<*> = WorktreeModeEnabled
+
+    /** Exact FeatureToggle wildcard joins the application registry. */
+    @Provides
+    @IntoSet
+    public fun sandboxToggle(): FeatureToggle<*> = WorktreeSandboxEnabled
 }
