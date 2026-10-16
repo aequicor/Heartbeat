@@ -101,8 +101,20 @@ internal fun ProjectScreen(
         state.failure?.let { ControlFailureBanner(it, onDismiss = { onIntent(EngineControlPanelIntent.DismissError) }) }
         when {
             project == null -> HbLoadingState(stringResource(Res.string.control_project_loading))
+
             file != null -> ConfigFileContent(file, project.form, state.isSaving, onConfig)
-            else -> ProjectContent(project, state.isSaving, onIntent, onConfig)
+
+            else -> {
+                ProjectContent(project, state.isSaving, onIntent, onConfig)
+                if (project.form.pages.any { it.hasResources }) {
+                    ResourceContent(
+                        state.resources,
+                        state.isReadingResources,
+                        !state.isSaving,
+                        { onIntent(EngineControlPanelIntent.RefreshResources) },
+                    )
+                }
+            }
         }
     }
 }

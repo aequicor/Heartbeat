@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalizedText
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceInventory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -39,6 +40,35 @@ class EngineControlPanelModelTest {
 
     private fun TestScope.model() =
         EngineControlPanelModel(machine, EngineControlTarget(CodexId), testScopeHandle(), testStoreFactory())
+
+    @Test
+    fun `opening a resource page reads saved inventory and filters other scopes`() = runTest {
+        val active = configured(ConfigRevision(0))
+        val snapshot = requireNotNull(active.snapshot)
+        val configuration = snapshot.configuration.copy(
+            engines = snapshot.configuration.engines.map {
+                it.copy(schema = it.schema.copy(pages = it.schema.pages.map { page -> page.copy(hasResources = true) }))
+            },
+        )
+        machine.state.value = active.copy(snapshot = snapshot.copy(configuration = configuration))
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(ConfigIntent.OpenPage("network"))
+        runCurrent()
+        assertEquals(
+            EngineControlIntent.Public.Apply(ControlOperation.ListResources(CodexId)),
+            machine.sent.last(),
+        )
+        val inventory = ResourceInventory(CodexId, null, emptyList())
+        machine.state.value = (machine.state.value as EngineControlState.Active).copy(resources = inventory)
+        runCurrent()
+        assertEquals(0, screen.states.value.resources?.files?.size)
+        machine.state.value = (machine.state.value as EngineControlState.Active).copy(
+            resources = inventory.copy(workspace = WorkspaceRef("other")),
+        )
+        runCurrent()
+        assertEquals(null, screen.states.value.resources)
+    }
 
     @Test
     fun `the panel starts the machine and shows the engine`() = runTest {

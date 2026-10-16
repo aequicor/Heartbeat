@@ -95,13 +95,13 @@ internal fun FormSource.form(draft: ConfigDraft?, isUnparsedBlocking: Boolean = 
             }
             ConfigSectionUi(section.id, section.title.toUi(), section.note?.toUi(), rows.toImmutableList())
         }
-        ConfigPageUi(page.id, page.title.toUi(), sections.toImmutableList())
+        ConfigPageUi(page.id, page.title.toUi(), sections.toImmutableList(), page.hasResources)
     }
     val files = schema.files(scope, values, unparsedFiles + draft?.files.orEmpty())
     val invalidFiles = files.count { it.isInvalid }
     val isChanged = draft != null && (draft.values != saved || draft.secrets.isNotEmpty() || draft.files.isNotEmpty())
     return ConfigFormUi(
-        pages = pages.filter { it.sections.isNotEmpty() }.toImmutableList(),
+        pages = pages.filter(ConfigPageUi::isShown).toImmutableList(),
         isDirty = isChanged || typed.isNotEmpty(),
         blockingProblems = problems.count { it.isBlocking } + typed.size +
             if (isUnparsedBlocking) invalidFiles else 0,
@@ -256,3 +256,5 @@ private fun ConfigProblem.toUi(base: List<String>) =
 
 private fun JsonElement.isBlankText(): Boolean =
     (this as? JsonPrimitive)?.takeIf { it.isString }?.content?.isBlank() == true
+
+private fun ConfigPageUi.isShown(): Boolean = sections.isNotEmpty() || hasResources

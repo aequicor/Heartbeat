@@ -154,7 +154,18 @@ private fun ConfigScreen(
         state.failure?.let { ControlFailureBanner(it, onDismiss = { onIntent(EngineControlPanelIntent.DismissError) }) }
         when {
             file != null -> ConfigFileContent(file, form, state.isSaving, onIntent)
-            page != null -> ConfigPageContent(page, form, state.isSaving, onIntent)
+
+            page != null -> {
+                ConfigPageContent(page, form, state.isSaving, onIntent)
+                if (page.hasResources) {
+                    ResourceContent(
+                        state.resources,
+                        state.isReadingResources,
+                        !state.isSaving,
+                        { onIntent(EngineControlPanelIntent.RefreshResources) },
+                    )
+                }
+            }
         }
     }
 }

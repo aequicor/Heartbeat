@@ -269,4 +269,22 @@
     <string name="control_leave_stay">Keep editing</string>
     <string name="control_leave_discard">Discard</string>
     <string name="control_editor_keys">Tab indents. Ctrl+Tab moves to the next field, Ctrl+Shift+Tab to the previous one.</string>
+    <string name="control_resources_title">Resource files</string>
+    <string name="control_resources_note">Selection by saved settings. Edit resource paths and masks above to change it.</string>
+    <string name="control_resources_refresh">Refresh files</string>
+    <string name="control_resources_unloaded">Read resource files to see their origin and selection.</string>
+    <string name="control_resources_empty">No resource files found in these folders.</string>
+    <string name="control_resources_loading">Reading resource files…</string>
+    <string name="control_resources_external">%1$d external entries are outside this inventory.</string>
+    <string name="control_resources_truncated">The scan reached its limit. This list is incomplete.</string>
+    <string name="control_resource_profile">Profile</string>
+    <string name="control_resource_project">Project</string>
+    <string name="control_resource_extension">Extension</string>
+    <string name="control_resource_skill">Skill</string>
+    <string name="control_resource_prompt">Prompt template</string>
+    <string name="control_resource_enabled">Selected</string>
+    <string name="control_resource_excluded">Excluded by masks</string>
+    <string name="control_resource_not_listed">Not listed in settings</string>
+    <string name="control_resource_needs_trust">Requires project trust</string>
+    <string name="control_resource_kind_off">Discovery disabled by profile settings</string>
 </resources>

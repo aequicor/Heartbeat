@@ -44,7 +44,12 @@ data class ConfigFileUi(
 
 /** A configuration page of the engine. */
 @Immutable
-data class ConfigPageUi(val id: String, val title: TextUi, val sections: ImmutableList<ConfigSectionUi>)
+data class ConfigPageUi(
+    val id: String,
+    val title: TextUi,
+    val sections: ImmutableList<ConfigSectionUi>,
+    val hasResources: Boolean = false,
+)
 
 /** A titled group of fields; [note] explains how the group relates to Heartbeat. */
 @Immutable
