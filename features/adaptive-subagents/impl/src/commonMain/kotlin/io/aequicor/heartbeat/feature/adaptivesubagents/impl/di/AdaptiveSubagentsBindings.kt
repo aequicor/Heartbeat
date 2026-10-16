@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveSubagentsEnabled
@@ -21,6 +22,7 @@ import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesMachineS
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfilesView
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.ModelProfileStore
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.ModelProfilesEffects
+import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.research.ModelResearch
 import kotlinx.coroutines.launch
 
 private val log = Log.tag("AdaptiveSubagentsBindings")
@@ -39,8 +41,11 @@ object AdaptiveSubagentsBindings {
         launcher: MachineLauncher,
         @ForScope(ProfileScope::class) scope: ScopeHandle,
         store: ModelProfileStore,
+        researcher: ModelResearch,
+        toggles: FeatureToggles,
     ): ModelProfilesView {
-        val machine = launcher.launch(ModelProfilesMachineSpec, scope, ModelProfilesEffects(store))
+        val effects = ModelProfilesEffects(store, researcher) { toggles.get(AdaptiveSubagentsResearch) }
+        val machine = launcher.launch(ModelProfilesMachineSpec, scope, effects)
         scope.coroutineScope.launch {
             val result = machine.send(ModelProfilesIntent.Public.Start)
             log.i { "model library start: $result" }

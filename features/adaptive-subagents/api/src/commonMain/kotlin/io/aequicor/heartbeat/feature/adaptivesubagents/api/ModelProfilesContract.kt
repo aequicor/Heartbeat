@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineIntent
 import io.aequicor.heartbeat.core.statemachine.MachineKey
 import io.aequicor.heartbeat.core.statemachine.MachineOutput
 import io.aequicor.heartbeat.core.statemachine.MachineState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import kotlinx.coroutines.flow.StateFlow
 
 /** The profile's library of model descriptions and adaptive subagent preferences. */
@@ -16,18 +17,23 @@ public sealed interface ModelProfilesState : MachineState {
     public data object Loading : ModelProfilesState
 
     /**
-     * The library: at most one description per [ModelKey]. [revision] grows with every change so the effect
-     * handler can drop a save that arrives after a newer one.
+     * The library: at most one description per [ModelKey], and running [research]. [revision] grows with every
+     * change so the effect handler can drop a save that arrives after a newer one.
      */
     public data class Ready(
         val profiles: List<ModelProfile> = emptyList(),
         val preferences: SubagentPreferences = SubagentPreferences(),
         val revision: Long = 0,
+        val research: List<ResearchJob> = emptyList(),
     ) : ModelProfilesState {
         /** The description of [key], or null. */
         public fun profileOf(key: ModelKey): ModelProfile? = profiles.firstOrNull { it.key == key }
 
-        override fun toString(): String = "Ready(profiles=${profiles.size}, revision=$revision)"
+        /** The running research of [key], or null. */
+        public fun researchOf(key: ModelKey): ResearchJob? = research.firstOrNull { it.subject.key == key }
+
+        override fun toString(): String =
+            "Ready(profiles=${profiles.size}, research=${research.size}, revision=$revision)"
     }
 
     /** The stored library could not be read; nothing is overwritten until a successful reload. */
@@ -55,6 +61,16 @@ public sealed interface ModelProfilesIntent : MachineIntent {
 
         /** Replaces the preferences. */
         public data class SetPreferences(val preferences: SubagentPreferences) : Public
+
+        /**
+         * Researches a description of [subject] on the [researcher] model; the caller supplies a fresh [jobId]. The
+         * result replaces the stored description, so screens confirm before researching an edited one.
+         */
+        public data class Research(val jobId: String, val subject: ResearchSubject, val researcher: EngineTarget) :
+            Public
+
+        /** Stops the research of [key]. */
+        public data class CancelResearch(val key: ModelKey) : Public
     }
 
     /** Results of effects. */
@@ -69,6 +85,15 @@ public sealed interface ModelProfilesIntent : MachineIntent {
 
         /** The library could not be written; the in-memory library is kept for this run. */
         public data object SaveFailed : Internal
+
+        /** The research [jobId] reached [stage] having read [sources] pages. */
+        public data class ResearchProgress(val jobId: String, val stage: ResearchStage, val sources: Int) : Internal
+
+        /** The research [jobId] wrote [profile]. */
+        public data class ResearchCompleted(val jobId: String, val profile: ModelProfile) : Internal
+
+        /** The research [jobId] failed. */
+        public data class ResearchFailed(val jobId: String, val failure: ResearchFailure) : Internal
     }
 }
 
@@ -85,6 +110,12 @@ public sealed interface ModelProfilesEffect : MachineEffect {
     ) : ModelProfilesEffect {
         override fun toString(): String = "Persist(profiles=${profiles.size}, revision=$revision)"
     }
+
+    /** Runs [job]: facts, search, reading and synthesis; reports progress and the result as internal intents. */
+    public data class Research(val job: ResearchJob) : ModelProfilesEffect
+
+    /** Stops the research [jobId]; its late results are ignored. */
+    public data class StopResearch(val jobId: String) : ModelProfilesEffect
 }
 
 /** Why a save was rejected. */
@@ -106,6 +137,9 @@ public sealed interface ModelProfilesOutput : MachineOutput {
 
     /** The library could not be read or written. */
     public data object StorageFailed : ModelProfilesOutput
+
+    /** The research of [key] ended: with a saved description when [failure] is null. */
+    public data class ResearchFinished(val key: ModelKey, val failure: ResearchFailure?) : ModelProfilesOutput
 }
 
 /**

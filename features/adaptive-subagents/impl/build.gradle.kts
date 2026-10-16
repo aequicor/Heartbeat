@@ -9,6 +9,7 @@ kotlin {
         commonMain.dependencies {
             implementation(projects.features.adaptiveSubagents.api)
             implementation(projects.features.aiEngine.connections.api)
+            implementation(projects.features.searchEngine.api)
             implementation(projects.core.stateMachine.api)
             implementation(projects.core.logging)
             implementation(projects.core.di.api)

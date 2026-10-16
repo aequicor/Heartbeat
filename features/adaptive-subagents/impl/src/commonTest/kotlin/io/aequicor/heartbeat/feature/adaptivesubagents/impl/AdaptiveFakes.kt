@@ -127,13 +127,14 @@ internal class FakeCatalogFacade(
     override val providerUsage: ProviderUsageCatalog get() = error("unused")
 }
 
-/** Isolated prompts answering [answer] and recording each prompt. */
+/** Isolated prompts answering [answer] (or the queued [next] answers first) and recording each prompt. */
 internal class FakePrompts(var answer: IsolatedAnswer = IsolatedAnswer.Answered("")) : IsolatedPrompts {
     val asked = mutableListOf<IsolatedPrompt>()
+    val next = ArrayDeque<IsolatedAnswer>()
 
     override suspend fun ask(prompt: IsolatedPrompt): IsolatedAnswer {
         asked += prompt
-        return answer
+        return next.removeFirstOrNull() ?: answer
     }
 }
 
