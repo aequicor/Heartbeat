@@ -6,14 +6,13 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.feature.applogs.impl.presentation.AppLogsComponent
-import io.aequicor.heartbeat.feature.applogs.impl.presentation.AppLogsScreenState
 import pro.respawn.flowmvi.dsl.collect
 
 /** Compose adapter; navigation and the model remain outside the UI package. */
 internal class AppLogsUiComponent(private val component: AppLogsComponent) : ComposableComponent {
     @Composable
     override fun Content(modifier: Modifier) {
-        val state by produceState(AppLogsScreenState(), component.model) {
+        val state by produceState(component.model.current.value, component.model) {
             component.model.store.collect { states.collect { value = it } }
         }
         AppLogsContent(

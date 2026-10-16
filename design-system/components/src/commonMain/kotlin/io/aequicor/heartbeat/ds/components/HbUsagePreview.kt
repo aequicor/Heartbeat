@@ -22,9 +22,10 @@ private fun UsageDarkPreview() {
 private fun UsagePreviewContent() {
     HbColumn {
         HbRow {
-            for (percent in listOf(0, 61, 100)) {
+            for (percent in listOf(0, 61, 85, 100)) {
                 HbComposerUsageButton(percent, "Limits", false, {}) { }
             }
+            HbComposerUsageButton(61, "Compacting", false, {}, isCompacting = true) { }
             HbComposerUsageButton(null, "Limits", false, {}) { }
             HbComposerUsageButton(61, "Disabled", false, {}, enabled = false) { }
         }

@@ -37,7 +37,11 @@ internal class AgentLearningModel(
     private val clock: Clock = Clock.System,
 ) {
     /** The screen store, retained for the lifetime of this screen. */
-    val store = factory.create<AgentLearningScreenState, AgentLearningScreenIntent, AgentLearningScreenAction>(
+    private val screen = factory.createScreen<
+        AgentLearningScreenState,
+        AgentLearningScreenIntent,
+        AgentLearningScreenAction,
+    >(
         "AgentLearning",
         AgentLearningScreenState().reflectRegistry(machine.state.value),
         onError = { this },
@@ -56,6 +60,10 @@ internal class AgentLearningModel(
         }
         reduce { intent -> handle(intent) }
     }
+    val store = screen.store
+
+    /** Latest screen state, read synchronously for the first frame. */
+    val current = screen.current
 
     init {
         store.start(scope)

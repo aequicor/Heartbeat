@@ -124,8 +124,10 @@ data class HbDimensions(
     val composerMenuOffset: Dp = 8.dp,
     /** Minimum width of the context meter; leaves room for three-digit percentages. */
     val composerUsageMinWidth: Dp = 44.dp,
-    /** Stroke of the determinate context meter in the composer. */
+    /** Stroke of the context ring in the composer meter. */
     val usageRingStrokeWidth: Dp = 2.dp,
+    /** Diameter of the context ring next to the percentage in the composer meter. */
+    val usageRingSize: Dp = 14.dp,
     /** Height of determinate usage bars in detail panels. */
     val usageBarHeight: Dp = 4.dp,
     /** Amber attention strip above a newly presented questionnaire. */
@@ -285,6 +287,10 @@ data class HbMotion(
     val scrollbarHideDelayMillis: Int = 700,
     val scrollbarFadeMillis: Int = 180,
     val tooltipDelayMillis: Int = 600,
+    /** How long an operation stays busy before its spinner and dimmed controls appear; quicker ones never blink. */
+    val busyRevealDelayMillis: Int = 400,
+    /** One turn of the sweep that runs around the context ring while the chat's context is compacted. */
+    val usageCompactionMillis: Int = 1200,
     /** Duration of each bounded attention pulse when a questionnaire appears. */
     val questionnairePulseMillis: Int = 450,
     /** Number of attention pulses per questionnaire; ongoing answers never restart them. */

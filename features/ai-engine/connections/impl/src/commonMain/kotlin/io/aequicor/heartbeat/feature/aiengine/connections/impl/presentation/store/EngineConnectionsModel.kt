@@ -146,7 +146,7 @@ class EngineConnectionsModel(
 ) {
     private val log = Log.tag("EngineConnectionsModel")
 
-    val store = factory.create<
+    private val screen = factory.createScreen<
         EngineConnectionsScreenState,
         EngineConnectionsScreenIntent,
         EngineConnectionsScreenAction,
@@ -159,6 +159,10 @@ class EngineConnectionsModel(
         reflect(machine) { reflect(it) }
         reduce { intent -> handle(intent) }
     }
+    val store = screen.store
+
+    /** Latest screen state, read synchronously for the first frame. */
+    val current = screen.current
 
     init {
         store.start(scope.coroutineScope)

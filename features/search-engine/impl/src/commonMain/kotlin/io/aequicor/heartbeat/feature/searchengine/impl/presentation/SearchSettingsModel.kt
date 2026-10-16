@@ -51,7 +51,7 @@ internal class SearchSettingsModel(
     protection: SecretStorageProtection = SecretStorageProtection.System,
 ) {
     private val log = Log.tag("SearchSettings")
-    val store = factory.create<SearchSettingsState, SearchSettingsIntent, SearchSettingsAction>(
+    private val screen = factory.createScreen<SearchSettingsState, SearchSettingsIntent, SearchSettingsAction>(
         "SearchSettings",
         SearchSettingsState(isKeyStorageProtected = protection == SecretStorageProtection.System),
         onError = { copy(failure = SearchFailure.Unavailable) },
@@ -125,6 +125,10 @@ internal class SearchSettingsModel(
             }
         }
     }
+    val store = screen.store
+
+    /** Latest screen state, read synchronously for the first frame. */
+    val current = screen.current
 
     init {
         store.start(scope)

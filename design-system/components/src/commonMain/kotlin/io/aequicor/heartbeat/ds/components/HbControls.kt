@@ -53,6 +53,8 @@ public enum class HbButtonSize { Regular, Small }
 /**
  * Flat or platform-native action with content-free interaction logging. Hover and press are quiet fills without
  * outlines; the focus ring appears only for keyboard focus.
+ * [enabled] always controls input and accessibility. [visualEnabled] controls only the flat palette, allowing
+ * brief pending writes to disable input before dimming. Native preview kits keep their native disabled styling.
  */
 @Composable
 public fun HbButton(
@@ -62,6 +64,7 @@ public fun HbButton(
     style: HbButtonStyle = HbButtonStyle.Primary,
     enabled: Boolean = true,
     size: HbButtonSize = HbButtonSize.Regular,
+    visualEnabled: Boolean = enabled,
 ) {
     val loggedClick = {
         log.i { "button pressed style=$style" }
@@ -77,7 +80,7 @@ public fun HbButton(
             dimensions = HbTheme.dimensions,
         )
     } else {
-        FlatButton(text, loggedClick, modifier.captionClientArea(), style, enabled, size)
+        FlatButton(text, loggedClick, modifier.captionClientArea(), style, enabled, size, visualEnabled)
     }
 }
 
@@ -98,6 +101,7 @@ private fun FlatButton(
     style: HbButtonStyle = HbButtonStyle.Primary,
     enabled: Boolean = true,
     size: HbButtonSize = HbButtonSize.Regular,
+    visualEnabled: Boolean = enabled,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -105,7 +109,7 @@ private fun FlatButton(
     val isHovered by interactionSource.collectIsHoveredAsState()
     val colors = HbTheme.colors
     val shape = RoundedCornerShape(HbTheme.dimensions.controlCornerRadius)
-    val base = buttonFill(colors, style, enabled)
+    val base = buttonFill(colors, style, visualEnabled)
     val targetBackground = when {
         !enabled -> base
         isPressed -> colors.pressedOverlay.compositeOver(base)
@@ -114,14 +118,14 @@ private fun FlatButton(
     }
     val motion = HbTheme.motion
     // Semantic roles change fill and label together; only hover and press changes interpolate.
-    val background = key(colors, style, enabled) {
+    val background = key(colors, style, visualEnabled) {
         animateColorAsState(
             targetValue = targetBackground,
             animationSpec = if (motion.isReducedMotion) snap() else tween(motion.fastMillis),
             label = "buttonSurface",
         ).value
     }
-    val foreground = buttonContent(colors, style, enabled)
+    val foreground = buttonContent(colors, style, visualEnabled)
     Box(
         modifier = modifier
             .heightIn(min = buttonHeight(size))

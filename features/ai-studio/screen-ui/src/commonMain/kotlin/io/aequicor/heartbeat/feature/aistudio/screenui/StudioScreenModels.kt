@@ -122,6 +122,8 @@ data class PaneContent(
     val isAttachmentsEnabled: Boolean = false,
     val isRememberEnabled: Boolean = false,
     val isCompactEnabled: Boolean = false,
+    /** The chat's context is being compacted now: the indicator animates. */
+    val isCompacting: Boolean = false,
     val isOrganismEnabled: Boolean = false,
     val harnesses: ImmutableList<HarnessChoiceUi> = persistentListOf(),
     val isHarnessSelectionReady: Boolean = true,
@@ -209,6 +211,7 @@ fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         isAttachmentsEnabled = isAttachmentsEnabled,
         isRememberEnabled = isRememberEnabled,
         isCompactEnabled = isCompactEnabled,
+        isCompacting = pane.sessionId in compactingChats,
         isOrganismEnabled = isOrganismEnabled,
         harnesses = harnessChoices(pane),
         isHarnessSelectionReady = isHarnessSelectionReady(pane),
@@ -229,8 +232,7 @@ fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         configuration = configuration,
         isStopFailed = pane.sessionId in stopFailures,
         isStoppable = pane.sessionId !in uncancellable,
-        isResearchAvailable = isResearchEnabled && pane.sessionId == null && pane.projectId == null &&
-            models.any { it.id == settings.modelId && it.isResearchSupported },
+        isResearchAvailable = isResearchOffered(pane),
         models = modelsForProject(pane.projectId ?: session?.projectId, paneModelId(session, configuration, organism)),
         isProjectAddingAvailable = isProjectAddingAvailable && addingProjectTo == null,
         isPickingProject = addingProjectTo == pane.id,
@@ -239,7 +241,7 @@ fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         calendar = studioCalendar(now),
         contextUsage = contextOf(pane.sessionId, session),
         providerUsage = providerUsage[effectiveSettings.modelId],
-        isWorktreeAvailable = isWorktreeAvailable && worktreeJournal == WorktreeJournalUi.Ready,
+        isWorktreeAvailable = isWorktreeOffered(pane),
         worktree = worktrees[pane.sessionId],
         worktreeJournal = worktreeJournal,
     )
@@ -251,6 +253,15 @@ private fun AiStudioScreenState.elapsed(session: SessionUi?): Duration? = if (se
 } else {
     null
 }
+
+/** Research can start in a new detached chat when the selected model supports it. */
+private fun AiStudioScreenState.isResearchOffered(pane: PaneUi): Boolean =
+    isResearchEnabled && pane.sessionId == null && pane.projectId == null &&
+        models.any { it.id == settings.modelId && it.isResearchSupported }
+
+/** The worktree mode is offered for a Git repository project once the journal is restored. */
+private fun AiStudioScreenState.isWorktreeOffered(pane: PaneUi): Boolean =
+    isWorktreeAvailable && worktreeJournal == WorktreeJournalUi.Ready && pane.projectId in repositoryProjects
 
 /** Context belongs to the selected organism cell or to the native session. */
 private fun AiStudioScreenState.contextOf(sessionId: String?, session: SessionUi?): ContextUsageUi? =

@@ -8,6 +8,9 @@ interface StudioCompactionPort {
     /** Whether the composer offers `/compact` and the context indicator its action. */
     val availability: Flow<Boolean>
 
+    /** Ids of the chats whose compaction turn runs right now; the context indicator animates for them. */
+    val compacting: Flow<Set<String>> get() = flowOf(emptySet())
+
     /** How the chat feed collapses agent work; only the display changes. */
     val feed: Flow<StudioFeedCollapse> get() = flowOf(StudioFeedCollapse())
 
