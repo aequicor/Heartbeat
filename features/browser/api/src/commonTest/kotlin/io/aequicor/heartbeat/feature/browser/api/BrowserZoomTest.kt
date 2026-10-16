@@ -78,11 +78,9 @@ class BrowserZoomTest {
     }
 
     @Test
-    fun `zoom without a committed web page is absorbed without an effect`() {
+    fun `zoom on a page without a web host is absorbed without an effect`() {
         val blank = zoomable.copy(page = BrowserPage())
         BrowserMachineSpec.assertTransition(blank, BrowserIntent.Public.Zoom(BrowserZoom.In), blank)
-        val pending = zoomable.copy(page = page.copy(isAwaitingResponse = true))
-        BrowserMachineSpec.assertTransition(pending, BrowserIntent.Public.Zoom(BrowserZoom.In), pending)
     }
 
     @Test

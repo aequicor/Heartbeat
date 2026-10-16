@@ -5,10 +5,22 @@ import kotlin.test.assertEquals
 
 class BrowserWheelZoomThrottleTest {
     @Test
+    fun `listener steps delayed by IPC jitter are still accepted`() {
+        var now = 0L
+        val throttle = BrowserWheelZoomThrottle { now }
+        // Steps sent 80 ms apart by the listener; the first is delivered 25 ms late, the second on time.
+        val accepted = listOf(25L, 80L, 160L).map { millis ->
+            now = millis * 1_000_000
+            throttle.tryAcquire()
+        }
+        assertEquals(listOf(true, true, true), accepted)
+    }
+
+    @Test
     fun `direct bridge calls are limited to one step per interval`() {
         var now = 0L
         val throttle = BrowserWheelZoomThrottle { now }
-        val accepted = listOf(0L, 10L, 79L, 80L, 81L, 159L, 160L, 1_000L).map { millis ->
+        val accepted = listOf(0L, 10L, 49L, 50L, 51L, 99L, 100L, 1_000L).map { millis ->
             now = millis * 1_000_000
             throttle.tryAcquire()
         }

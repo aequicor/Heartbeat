@@ -20,9 +20,10 @@ import kotlin.coroutines.cancellation.CancellationException
  * [Reobserve]; the effect already revoked the session. Running + Failed -> stay with
  * EngineUnavailable. Disabled navigation and duplicate Start are ignored.
  * Running + ZoomAvailabilityChanged -> stay with isZoomEnabled. Enabled + Zoom (zoom enabled, HTTP/S page)
- * -> stay [Zoom(selected tab, direction, URL)]. The session serializes commands against the latest saved level;
- * bounds and no-op resets are resolved there because earlier commands may still be pending. PageChanged supplies
- * the confirmed level; accepting input never projects an optimistic percentage.
+ * -> stay [Zoom(selected tab, direction, URL)]; Enabled + Zoom (zoom enabled, any other page) -> accepted without
+ * an effect, since zoom keys on a new tab are routine input. The session serializes commands against the latest
+ * saved level; bounds and no-op resets are resolved there because earlier commands may still be pending.
+ * PageChanged supplies the confirmed level; accepting input never projects an optimistic percentage.
  *
  * ```mermaid
  * stateDiagram-v2
@@ -150,14 +151,13 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
                 stay { state.copy(isZoomEnabled = intent.isEnabled) }
             }
             on<BrowserIntent.Public.Zoom>(
-                guard = { state.isEnabled && state.isZoomEnabled && state.page.isZoomable() },
+                guard = { state.isEnabled && state.isZoomEnabled && isBrowserUrlAllowed(state.page.url) },
             ) {
                 effect { BrowserEffect.Zoom(state.selectedTabId, intent.zoom, state.page.url) }
             }
-            // Zoom keys on a new tab, a non-web page or before the next document responds are routine input, not a
-            // rejected command; the address of a pending navigation is not the page on screen.
+            // Zoom keys on a new tab or a non-web page are routine input, not a rejected command.
             on<BrowserIntent.Public.Zoom>(
-                guard = { state.isEnabled && state.isZoomEnabled && !state.page.isZoomable() },
+                guard = { state.isEnabled && state.isZoomEnabled && !isBrowserUrlAllowed(state.page.url) },
             ) {}
             on<BrowserIntent.Internal.PageChanged>(
                 guard = {
@@ -225,6 +225,3 @@ private fun BrowserState.Running.disabled(): BrowserState.Running = copy(
         error = null,
     ),
 )
-
-/** Zoom applies to a committed web document; a pending navigation's address is not the page on screen. */
-private fun BrowserPage.isZoomable(): Boolean = isBrowserUrlAllowed(url) && !isAwaitingResponse
