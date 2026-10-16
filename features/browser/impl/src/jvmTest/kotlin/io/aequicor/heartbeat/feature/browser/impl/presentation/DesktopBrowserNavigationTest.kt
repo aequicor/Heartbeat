@@ -1,9 +1,11 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
+import io.aequicor.heartbeat.feature.browser.api.BrowserSecurity
 import org.cef.browser.CefBrowser
 import java.lang.reflect.Proxy
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 
 class DesktopBrowserNavigationTest {
     private val states = mutableListOf<BrowserViewState>()
@@ -51,13 +53,34 @@ class DesktopBrowserNavigationTest {
         navigation.started("chrome-error://chromewebdata/")
         navigation.address("https://example.org/failed")
         navigation.loading(false, true, false)
-        assertEquals(io.aequicor.heartbeat.feature.browser.api.BrowserSecurity.Unknown, states.last().security)
+        assertEquals(BrowserSecurity.Unknown, states.last().security)
         assertEquals(failure, states.last().failure)
         assertEquals("https://example.org/failed", states.last().url)
         navigation.execute(BrowserViewCommand.Reload)
         assertEquals(null, states.last().failure)
         navigation.failed("https://example.org/failed", "ERR_CERT_AUTHORITY_INVALID")
-        kotlin.test.assertNotEquals(failure?.id, states.last().failure?.id)
+        assertNotEquals(failure?.id, states.last().failure?.id)
+    }
+
+    @Test
+    fun `indicator keeps the committed page until the next commit and drops it on failure`() {
+        navigation.execute(BrowserViewCommand.Load("http://example.com/"))
+        navigation.address("http://example.com/")
+        navigation.loading(isLoading = false, isBackAvailable = false, isForwardAvailable = false)
+        assertEquals(BrowserSecurity.Http, states.last().security)
+        navigation.execute(BrowserViewCommand.Load("https://example.org/"))
+        navigation.loading(isLoading = true, isBackAvailable = true, isForwardAvailable = false)
+        assertEquals(BrowserSecurity.Http, states.last().security)
+        navigation.execute(BrowserViewCommand.Stop)
+        navigation.loading(isLoading = false, isBackAvailable = true, isForwardAvailable = false)
+        assertEquals(BrowserSecurity.Http, states.last().security)
+        navigation.execute(BrowserViewCommand.Load("https://example.org/"))
+        navigation.address("https://example.org/")
+        assertEquals(BrowserSecurity.Https, states.last().security)
+        navigation.failed("https://example.org/next", "ERR_CONNECTION_RESET", isSubmission = true)
+        assertEquals(BrowserSecurity.Unknown, states.last().security)
+        assertEquals(true, states.last().failure?.isSubmission)
+        assertEquals(false, states.last().failure?.isNetworkRetryable)
     }
 
     private fun BrowserViewState.phase() = isLoading to isAwaitingResponse

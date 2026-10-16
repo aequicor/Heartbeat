@@ -124,6 +124,19 @@ class DesktopBrowserSessionTest {
     }
 
     @Test
+    fun `an agent can abandon its tab on a certificate exception host but cannot use it`() = runTest {
+        val fixture = Fixture(this)
+        val tab = fixture.create("session-a")
+        fixture.attachNavigation(0) { null }
+        runCurrent()
+        fixture.exceptions.remember("https://example.com/")
+        fixture.request(BrowserOperation.Navigate, tab, "session-a", url = "https://example.com/")
+        assertNotNull(fixture.request(BrowserOperation.Read, tab, "session-a").error)
+        assertNull(fixture.request(BrowserOperation.CloseTab, tab, "session-a").error)
+        assertTrue(fixture.session.tabs.value.first.isEmpty())
+    }
+
+    @Test
     fun `linked navigation retains referrer alongside the inherited session and origin`() = runTest {
         val fixture = Fixture(this)
         fixture.create("session-a")

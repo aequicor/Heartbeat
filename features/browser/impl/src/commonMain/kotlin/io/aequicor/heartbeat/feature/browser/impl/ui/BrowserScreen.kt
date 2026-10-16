@@ -146,12 +146,12 @@ private fun BrowserViewport(
             )
 
             BrowserPhase.Ready -> {
-                if (state.failure != null) {
-                    BrowserLoadErrorPage(state, onIntent)
+                val failure = state.failure
+                if (failure != null) {
+                    BrowserLoadErrorPage(failure, state.isErrorDetailsExpanded, onIntent)
                 } else if (state.url.isNotEmpty() || state.error == BrowserScreenError.EngineUnavailable) {
                     browser()
-                }
-                if (state.url.isEmpty() && state.error == null) {
+                } else if (state.error == null) {
                     HbEmptyState(
                         stringResource(Res.string.browser_empty),
                         description = stringResource(Res.string.browser_empty_hint),

@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
+import io.aequicor.heartbeat.feature.browser.api.BrowserLoadFailure
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserFaviconImage
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserShortcut
 import kotlinx.collections.immutable.ImmutableList
@@ -70,21 +71,28 @@ internal data class BrowserTabUi(
     val url: String = "",
 )
 
+/**
+ * Error page of [tabId]. [failure] is the machine's exact snapshot and is sent back unchanged with a decision;
+ * [isDecisionAvailable] is false while an agent controls the tab, so a person must take control first.
+ */
 @Immutable
 internal data class BrowserFailureUi(
-    val url: String,
-    val code: String,
-    val isCertificate: Boolean,
-    val isProceedAllowed: Boolean,
-    val id: String,
-)
+    val tabId: String,
+    val failure: BrowserLoadFailure,
+    val isDecisionAvailable: Boolean = true,
+) {
+    val url: String get() = failure.url
+    val code: String get() = failure.code
+    val isCertificate: Boolean get() = failure.isCertificate
+    val isProceedAllowed: Boolean get() = isDecisionAvailable && failure.isProceedAllowed
+}
 
 internal enum class BrowserSecurityUi { Unknown, Https, Http, CertificateException }
 
 internal sealed interface BrowserScreenIntent : MVIIntent {
     data object ToggleErrorDetails : BrowserScreenIntent
-    data class ProceedCertificate(val tabId: String, val failure: BrowserFailureUi) : BrowserScreenIntent
-    data class ReturnToSafety(val tabId: String, val failure: BrowserFailureUi) : BrowserScreenIntent
+    data class ProceedCertificate(val failure: BrowserFailureUi) : BrowserScreenIntent
+    data class ReturnToSafety(val failure: BrowserFailureUi) : BrowserScreenIntent
 
     data class AddressChanged(val value: String) : BrowserScreenIntent
     data object Open : BrowserScreenIntent

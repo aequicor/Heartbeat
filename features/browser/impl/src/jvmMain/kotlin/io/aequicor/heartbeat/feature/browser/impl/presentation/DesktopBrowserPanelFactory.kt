@@ -16,19 +16,23 @@ import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserNativeResources
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserUrlResolver
 import io.aequicor.heartbeat.feature.browser.impl.domain.DesktopBrowserProfile
 import io.aequicor.heartbeat.feature.browser.impl.domain.DesktopBrowserResources
+import io.aequicor.heartbeat.feature.browser.impl.domain.networkRecoveriesWhileEnabled
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.cef.browser.CefRequestContext
 
 /** Presentation entry point injected through the common native-resource port. */
 internal interface DesktopBrowserPanelFactory : BrowserNativeResources {
-    val networkRestored: kotlinx.coroutines.flow.Flow<Unit> get() = kotlinx.coroutines.flow.emptyFlow()
+    val networkRestored: Flow<Unit> get() = emptyFlow()
     val errorPagesEnabled: StateFlow<Boolean> get() = MutableStateFlow(false)
     fun rememberCertificateException(url: String): Unit = Unit
     fun hasCertificateException(url: String): Boolean = false
+    fun isWithheldFromAgents(url: String): Boolean = hasCertificateException(url)
     fun certificateExceptionUrls(): List<String> = emptyList()
 
     /**
@@ -61,12 +65,13 @@ internal class DefaultDesktopBrowserPanelFactory(
     errorPolicy: BrowserErrorPolicy,
     connectivity: BrowserConnectivity,
 ) : DesktopBrowserPanelFactory {
-    override val networkRestored = connectivity.restored()
     override val errorPagesEnabled = errorPolicy.observe()
         .stateIn(scope.coroutineScope, SharingStarted.Eagerly, false)
+    override val networkRestored = errorPagesEnabled.networkRecoveriesWhileEnabled(connectivity::restored)
     private val certificateExceptions = DesktopCertificateExceptions()
     override fun rememberCertificateException(url: String) = certificateExceptions.remember(url)
     override fun hasCertificateException(url: String): Boolean = certificateExceptions.contains(url)
+    override fun isWithheldFromAgents(url: String): Boolean = certificateExceptions.isWithheldFromAgents(url)
     override fun certificateExceptionUrls(): List<String> = certificateExceptions.urls()
 
     private val monitor = Any()

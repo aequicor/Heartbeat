@@ -68,7 +68,9 @@ internal class DesktopBrowserFailures(
 
     suspend fun returnToSafety(tabId: String, failure: BrowserLoadFailure) {
         val entry = matchingWarning(tabId, failure) ?: return
-        if (entry.tab.page.isBackAvailable) {
+        val isBackAvailable = entry.tab.page.isBackAvailable
+        log.i { "User returned from a Chromium certificate warning: closedTab=${!isBackAvailable}" }
+        if (isBackAvailable) {
             entry.surface.execute(BrowserCommand.Back)
             onChanged(null)
         } else {
@@ -86,7 +88,7 @@ internal class DesktopBrowserFailures(
     fun requireAgentSafety(entry: DesktopBrowserEntry) {
         val page = entry.surface.pages.value
         require(!entry.surface.isCertificateWarningActive) { "Native certificate warning requires human control" }
-        require(page.failure?.isCertificate != true && !factory.hasCertificateException(page.url)) {
+        require(page.failure?.isCertificate != true && !factory.isWithheldFromAgents(page.url)) {
             "Certificate warnings and exception pages require human control"
         }
     }
