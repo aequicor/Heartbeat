@@ -31,6 +31,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectEdit
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrustStatus
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceInventory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.secretSlots
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineConfigurator
@@ -146,6 +147,17 @@ class EngineConfigurationService(
             chosen.copy(config = chosen.config + (engine to config.copy(trust = decisions)))
         }
         log.i { "project trust saved engine=${engine.value} trust=$trust" }
+    }
+
+    override suspend fun resources(engine: EngineId, workspace: WorkspaceRef?): ResourceInventory {
+        val (schema, configurator) = configurable(engine)
+        requireCapability(engine, schema, ConfigCapability.Resources)
+        val config = preferences.load().configOf(engine)
+        val directory = workspace?.let { directoryOf(it) }
+        val trust = config.trust[workspace] ?: ProjectTrust.Undecided
+        val inventory = io { configurator.resources(config.values, directory, trust) }
+        log.i { "resources listed engine=${engine.value} count=${inventory.resources.size}" }
+        return inventory.copy(engine = engine, workspace = workspace)
     }
 
     override suspend fun previewImport(engine: EngineId): ImportPreview {

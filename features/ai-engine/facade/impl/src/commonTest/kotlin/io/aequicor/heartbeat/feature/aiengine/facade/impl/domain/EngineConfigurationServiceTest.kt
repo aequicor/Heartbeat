@@ -35,6 +35,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectEdit
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrustStatus
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceInventory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.read
 import io.aequicor.heartbeat.feature.aiengine.facade.api.secretReference
@@ -99,7 +100,12 @@ class EngineConfigurationServiceTest {
                 ),
             ),
         ),
-        capabilities = setOf(ConfigCapability.ImportNative, ConfigCapability.ProjectTrust, ConfigCapability.Secrets),
+        capabilities = setOf(
+            ConfigCapability.ImportNative,
+            ConfigCapability.ProjectTrust,
+            ConfigCapability.Secrets,
+            ConfigCapability.Resources,
+        ),
     )
     private val flags = Flags()
     private val preferences = MemoryEnginePreferences()
@@ -379,6 +385,26 @@ class EngineConfigurationServiceTest {
         assertEquals(JsonPrimitive("A"), replaced.read(ConfigBinding.WholeDocument(agents)))
     }
 
+    @Test
+    fun `inventory resolves saved projects and uses saved configuration and trust`() = runTest {
+        val service = service()
+        runCurrent()
+        service.saveProfile(TestEngine, edit(), ConfigRevision(0))
+        service.setProjectTrust(TestEngine, workspace, ProjectTrust.Trusted)
+
+        val result = service.resources(TestEngine, workspace)
+
+        assertEquals(TestEngine, result.engine)
+        assertEquals(workspace, result.workspace)
+        assertEquals("/work/project", files.resourceDirectory)
+        assertEquals(ProjectTrust.Trusted, files.resourceTrust)
+        assertEquals(edit().values, files.resourceProfile)
+        assertEquals(ConfigFailure.ProjectUnavailable, failure { service.resources(TestEngine, WorkspaceRef("gone")) })
+        flags.configuration.value = false
+        runCurrent()
+        assertEquals(ConfigFailure.Unsupported, failure { service.resources(TestEngine, null) })
+    }
+
     private fun edit(retry: Int = 3) = ConfigEdit(EngineConfigValues().write(retries, JsonPrimitive(retry)))
 
     private suspend fun failure(block: suspend () -> Unit): ConfigFailure =
@@ -434,6 +460,21 @@ class EngineConfigurationServiceTest {
     }
 
     private class Files : EngineConfigurator {
+        var resourceDirectory: String? = null
+        var resourceTrust: ProjectTrust? = null
+        var resourceProfile: EngineConfigValues? = null
+
+        override suspend fun resources(
+            profile: EngineConfigValues,
+            directory: String?,
+            trust: ProjectTrust,
+        ): ResourceInventory {
+            resourceDirectory = directory
+            resourceTrust = trust
+            resourceProfile = profile
+            return ResourceInventory(TestEngine, null, emptyList())
+        }
+
         val files = mutableMapOf<ConfigDocumentId, ProjectFile>()
         val directories = mutableListOf<String>()
         val writes = mutableListOf<Map<ConfigDocumentId, String?>>()
