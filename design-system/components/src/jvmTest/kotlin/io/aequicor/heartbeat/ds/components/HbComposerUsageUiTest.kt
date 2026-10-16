@@ -26,6 +26,7 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.SkikoComposeUiTest
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
@@ -43,11 +44,10 @@ import androidx.compose.ui.unit.Density
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
+import io.aequicor.heartbeat.ds.tokens.HbMotion
 import java.awt.image.BufferedImage
 import java.io.File
 import javax.imageio.ImageIO
-import kotlin.math.abs
-import kotlin.math.sqrt
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -56,62 +56,54 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class HbComposerUsageUiTest {
     @Test
-    fun `full context stroke has the same physical width on straight edges and every corner`() {
+    fun `context ring takes the brand amber and red accents by occupancy`() {
         for (dark in listOf(false, true)) {
-            runSkikoComposeUiTest(size = Size(960f, 480f)) {
-                val density = 4f
-                var foreground = 0
-                var background = 0
+            runSkikoComposeUiTest(size = Size(480f, 240f)) {
+                var percent by mutableIntStateOf(40)
+                val accents = mutableMapOf<Int, Int>()
                 setContent {
-                    UsageTestHost(dark, density = density) {
-                        foreground = HbTheme.colors.brand.toArgb()
-                        background = HbTheme.surfaces.composerPill.toArgb()
-                        HbComposerUsageButton(100, "Usage", false, {}) { }
+                    UsageTestHost(dark, density = 2f) {
+                        accents[40] = HbTheme.colors.brand.toArgb()
+                        accents[85] = HbTheme.colors.warning.toArgb()
+                        accents[100] = HbTheme.colors.error.toArgb()
+                        HbComposerUsageButton(percent, "Usage", false, {}) { }
                     }
                 }
-                val bounds = onNodeWithContentDescription("Usage").fetchSemanticsNode().boundsInRoot
-                val image = captureToImage().toAwtImage().getSubimage(
-                    bounds.left.toInt(),
-                    bounds.top.toInt(),
-                    bounds.width.toInt(),
-                    bounds.height.toInt(),
-                )
-                assertUsageStrokeWidth(image, density, foreground, background, dark)
                 val directory = File("build/previews").apply { mkdirs() }
-                check(ImageIO.write(image, "png", File(directory, "usage-perimeter-stroke-$dark.png")))
+                for (value in listOf(40, 85, 100)) {
+                    runOnIdle { percent = value }
+                    val image = usageImage()
+                    for ((level, accent) in accents) {
+                        val message = "$dark $value% shows the $level% accent"
+                        assertEquals(level == value, image.hasUsageColor(accent), message)
+                    }
+                    check(ImageIO.write(image, "png", File(directory, "usage-ring-$value-$dark.png")))
+                }
             }
         }
     }
 
     @Test
-    fun `context fills the rounded rectangular perimeter clockwise from its top center`() {
-        for (dark in listOf(false, true)) {
-            runSkikoComposeUiTest(size = Size(240f, 120f)) {
-                var percent by mutableIntStateOf(0)
-                var foreground = 0
-                var track = 0
-                var backdrop = 0
+    fun `compaction sweeps the ring until it ends and reduced motion keeps the sweep still`() {
+        for (isReduced in listOf(false, true)) {
+            runSkikoComposeUiTest(size = Size(480f, 240f)) {
+                mainClock.autoAdvance = false
+                var isCompacting by mutableStateOf(true)
                 setContent {
-                    UsageTestHost(dark) {
-                        foreground = HbTheme.colors.brand.toArgb()
-                        track = HbTheme.colors.outlineSubtle.toArgb()
-                        backdrop = HbTheme.surfaces.backdrop.toArgb()
-                        HbComposerUsageButton(percent, "Usage", false, {}) { }
+                    UsageTestHost(density = 2f, motion = HbMotion(isReducedMotion = isReduced)) {
+                        HbComposerUsageButton(64, "Usage", false, {}, isCompacting = isCompacting) { }
                     }
                 }
-                val directory = File("build/previews").apply { mkdirs() }
-                for (value in listOf(0, 25, 50, 75, 100)) {
-                    runOnIdle { percent = value }
-                    val bounds = onNodeWithContentDescription("Usage").fetchSemanticsNode().boundsInRoot
-                    val image = captureToImage().toAwtImage().getSubimage(
-                        bounds.left.toInt(),
-                        bounds.top.toInt(),
-                        bounds.width.toInt(),
-                        bounds.height.toInt(),
-                    )
-                    assertUsagePerimeter(image, value, foreground, track, backdrop)
-                    check(ImageIO.write(image, "png", File(directory, "usage-perimeter-$value-$dark.png")))
-                }
+                mainClock.advanceTimeBy(HbMotion().slowMillis.toLong())
+                val first = usageImage()
+                mainClock.advanceTimeBy(HbMotion().usageCompactionMillis / 4L)
+                assertEquals(isReduced, first.isSameUsage(usageImage()), "reduced=$isReduced sweep moves")
+                check(ImageIO.write(first, "png", File("build/previews", "usage-compacting-$isReduced.png")))
+                isCompacting = false
+                mainClock.advanceTimeBy(HbMotion().slowMillis.toLong())
+                val settled = usageImage()
+                mainClock.advanceTimeBy(HbMotion().usageCompactionMillis / 4L)
+                assertTrue(settled.isSameUsage(usageImage()), "reduced=$isReduced ring rests after compaction")
             }
         }
     }
@@ -265,72 +257,27 @@ class HbComposerUsageUiTest {
         }
 }
 
-private fun assertUsageStrokeWidth(
-    image: BufferedImage,
-    density: Float,
-    foreground: Int,
-    background: Int,
-    dark: Boolean,
-) {
-    val sampleCount = (HbDimensions.Desktop.controlCornerRadius.value * density).toInt()
-    val straightSamples = (0 until sampleCount).map { image.width / 2 to it }
-    val straightWidth = image.usageAccentPixels(straightSamples, foreground, background).toDouble()
-    val expectedWidth = (HbDimensions.Desktop.usageRingStrokeWidth.value * density).toDouble()
-    assertEquals(expectedWidth, straightWidth, 1.0, "$dark straight stroke width")
-    for ((right, bottom) in listOf(false to false, true to false, true to true, false to true)) {
-        val diagonalSamples = (0 until sampleCount).map { step ->
-            val x = if (right) image.width - 1 - step else step
-            val y = if (bottom) image.height - 1 - step else step
-            x to y
-        }
-        // At 45 degrees a pixel step travels sqrt(2) physical pixels along the stroke normal.
-        val cornerWidth = image.usageAccentPixels(diagonalSamples, foreground, background) * sqrt(2.0)
-        assertEquals(straightWidth, cornerWidth, 1.0, "$dark corner right=$right bottom=$bottom")
-    }
-}
-
-private fun assertUsagePerimeter(image: BufferedImage, percent: Int, foreground: Int, track: Int, backdrop: Int) {
-    val inset = (HbDimensions.Desktop.usageRingStrokeWidth.value / 2).toInt()
-    val corner = HbDimensions.Desktop.controlCornerRadius.value.toInt() + 2
-    val right = image.width - inset - 1
-    val bottom = image.height - inset - 1
-    // Sample the straight edges near corners, where the old ellipse has no outline.
-    val edges = listOf(
-        image.width - corner - 1 to inset,
-        right to image.height - corner - 1,
-        corner to bottom,
-        inset to corner,
+@OptIn(ExperimentalTestApi::class)
+private fun SkikoComposeUiTest.usageImage(): BufferedImage {
+    val bounds = onNodeWithContentDescription("Usage").fetchSemanticsNode().boundsInRoot
+    return captureToImage().toAwtImage().getSubimage(
+        bounds.left.toInt(),
+        bounds.top.toInt(),
+        bounds.width.toInt(),
+        bounds.height.toInt(),
     )
-    edges.forEachIndexed { index, (x, y) ->
-        val expected = if (percent >= (index + 1) * 25) foreground else track
-        image.assertUsagePixel(x, y, expected, "$percent% edge $index")
-    }
-    image.assertUsagePixel(0, 0, backdrop, "$percent% rounded corner")
-    image.assertUsagePixel(image.width / 2, inset, if (percent > 0) foreground else track, "$percent% top seam")
-    val midpoint = when (percent) {
-        25 -> listOf(right to image.height / 2 - 3, right to image.height / 2 + 3)
-        50 -> listOf(image.width / 2 + 3 to bottom, image.width / 2 - 3 to bottom)
-        75 -> listOf(inset to image.height / 2 + 3, inset to image.height / 2 - 3)
-        else -> emptyList()
-    }
-    midpoint.forEachIndexed { index, (x, y) ->
-        image.assertUsagePixel(x, y, if (index == 0) foreground else track, "$percent% endpoint side $index")
-    }
 }
 
-private fun BufferedImage.assertUsagePixel(x: Int, y: Int, expected: Int, message: String) {
-    val actual = getRGB(x, y)
-    val channelsMatch = listOf(16, 8, 0).all { shift ->
-        abs((actual shr shift and 255) - (expected shr shift and 255)) <= 4
-    }
-    assertTrue(channelsMatch, "$message at ($x, $y): expected $expected, actual $actual")
+private fun BufferedImage.hasUsageColor(color: Int): Boolean = (0 until height).any { y ->
+    (0 until width).any { x -> usageColorDistance(getRGB(x, y), color) <= USAGE_TOLERANCE }
 }
 
-private fun BufferedImage.usageAccentPixels(points: List<Pair<Int, Int>>, foreground: Int, background: Int): Int =
-    points.count { (x, y) ->
-        val pixel = getRGB(x, y)
-        usageColorDistance(pixel, foreground) < usageColorDistance(pixel, background)
-    }
+private fun BufferedImage.isSameUsage(other: BufferedImage): Boolean {
+    if (width != other.width || height != other.height) return false
+    return (0 until height).all { y -> (0 until width).all { x -> getRGB(x, y) == other.getRGB(x, y) } }
+}
+
+private const val USAGE_TOLERANCE = 48
 
 private fun usageColorDistance(first: Int, second: Int): Int = listOf(16, 8, 0).sumOf { shift ->
     val difference = (first shr shift and 255) - (second shr shift and 255)
@@ -342,10 +289,15 @@ private fun UsageTestHost(
     dark: Boolean = false,
     isMobile: Boolean = false,
     density: Float = 1f,
+    motion: HbMotion = HbMotion(),
     content: @Composable BoxScope.() -> Unit,
 ) {
     CompositionLocalProvider(LocalDensity provides Density(density)) {
-        HbTheme(darkTheme = dark, dimensions = if (isMobile) HbDimensions.Mobile else HbDimensions.Desktop) {
+        HbTheme(
+            darkTheme = dark,
+            dimensions = if (isMobile) HbDimensions.Mobile else HbDimensions.Desktop,
+            motion = motion,
+        ) {
             Box(
                 Modifier.fillMaxSize().background(HbTheme.surfaces.backdrop).padding(HbTheme.spacing.xl),
                 contentAlignment = Alignment.BottomCenter,
