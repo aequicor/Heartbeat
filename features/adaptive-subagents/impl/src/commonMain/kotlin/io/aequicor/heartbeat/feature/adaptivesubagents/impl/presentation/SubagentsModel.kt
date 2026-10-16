@@ -50,6 +50,7 @@ internal class SubagentsModel(
     isResearchEnabled: Flow<Boolean>,
     factory: HeartbeatStoreFactory,
     scope: CoroutineScope,
+    private val openEditor: (ModelKey) -> Unit = {},
 ) {
     private var known: Directory = Directory()
 
@@ -143,6 +144,8 @@ internal class SubagentsModel(
                 sendTo(machine, ModelProfilesIntent.Public.CancelResearch(intent.id.toKey()))
 
             SubagentsScreenIntent.DismissResearchFailure -> updateState { copy(researchFailure = null) }
+
+            is SubagentsScreenIntent.Edit -> openEditor(intent.id.toKey())
         }
     }
 

@@ -32,6 +32,7 @@ import io.aequicor.heartbeat.feature.adaptivesubagents.impl.resources.subagents_
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.resources.subagents_confirm_text
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.resources.subagents_confirm_title
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.resources.subagents_dismiss
+import io.aequicor.heartbeat.feature.adaptivesubagents.impl.resources.subagents_edit
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.resources.subagents_failure_busy
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.resources.subagents_failure_failed
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.resources.subagents_failure_invalid
@@ -121,6 +122,13 @@ private fun ModelRow(
         modifier.fillMaxWidth().testTag("adaptive-subagents-model-${entry.id}"),
         description = description,
     ) {
+        HbButton(
+            stringResource(Res.string.subagents_edit),
+            { onIntent(SubagentsScreenIntent.Edit(entry.id)) },
+            Modifier.testTag("adaptive-subagents-edit"),
+            style = HbButtonStyle.Ghost,
+            size = HbButtonSize.Small,
+        )
         if (entry.stage != null) {
             HbButton(
                 stringResource(Res.string.subagents_research_stop),

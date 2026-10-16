@@ -126,6 +126,9 @@ internal sealed interface SubagentsScreenIntent : MVIIntent {
     /** Hides a research failure. */
     data object DismissResearchFailure : ResearchIntent
 
+    /** Opens the description editor of model [id]. */
+    data class Edit(val id: String) : ResearchIntent
+
     /** Actions of the trial selection. */
     sealed interface TrialIntent : SubagentsScreenIntent
 

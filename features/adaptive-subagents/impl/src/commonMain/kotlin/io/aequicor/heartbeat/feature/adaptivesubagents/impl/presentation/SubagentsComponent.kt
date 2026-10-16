@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.core.navigation.Navigator
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveModels
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelProfileRoute
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.LibraryMachine
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.ModelDirectory
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.ResearchAvailability
@@ -35,7 +36,7 @@ internal class SubagentsComponent(
             research.observe(),
             factory,
             screen.coroutineScope,
-        )
+        ) { key -> navigator.navigate(ModelProfileRoute(key.engine.value, key.model.value)) }
         RetainedModel(model)
     }.model
 
