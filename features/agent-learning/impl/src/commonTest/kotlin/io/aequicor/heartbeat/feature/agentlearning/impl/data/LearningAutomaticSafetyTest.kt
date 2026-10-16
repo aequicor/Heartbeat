@@ -1,6 +1,10 @@
 package io.aequicor.heartbeat.feature.agentlearning.impl.data
 
+import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningIntent
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningState
+import io.aequicor.heartbeat.feature.agentlearning.api.InstructionId
+import io.aequicor.heartbeat.feature.agentlearning.api.InstructionKind
+import io.aequicor.heartbeat.feature.agentlearning.api.LearnedInstruction
 import io.aequicor.heartbeat.feature.agentlearning.api.LearningApproval
 import io.aequicor.heartbeat.feature.agentlearning.api.LearningTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentSafetyReview
@@ -13,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
@@ -26,6 +31,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -190,6 +196,116 @@ class LearningAutomaticSafetyTest {
             tools.execute(context.copy(authorization = decision.approval), LearningTools.REMEMBER, arguments()).isError,
         )
         assertTrue((machine.state.value as AgentLearningState.Ready).instructions.isEmpty())
+    }
+
+    @Test
+    fun `remapping the same checkout invalidates review until the new project is reviewed`() = runTest {
+        val task = WorktreeTask("chat", PROJECT, executionWorkspace = CHECKOUT)
+        val worktrees = Worktrees(mapOf("chat" to task))
+        val machine = SpecMachine()
+        val reviewedProjects = mutableListOf<String>()
+        val tools = tools(
+            machine,
+            worktrees = worktrees,
+            reviewer = AgentSafetyReviewer { _, _, change ->
+                val snapshot = Json.parseToJsonElement(change).jsonObject
+                reviewedProjects += snapshot.getValue("project").jsonObject.getValue("value").jsonPrimitive.content
+                AgentSafetyReview("safe", "Bounded instruction")
+            },
+        )
+        val context = automaticContext().copy(workspace = CHECKOUT)
+        val spec = tools.specifications(CHECKOUT).first()
+        val decision = assertIs<AgentToolAutomaticAuthorization.Allowed>(
+            tools.automaticAuthorization(context, spec, arguments()),
+        )
+        val otherProject = WorkspaceRef("other-project")
+        worktrees.updateTasks(mapOf("chat" to task.copy(project = otherProject)))
+        val stale = tools.execute(context.copy(authorization = decision.approval), LearningTools.REMEMBER, arguments())
+        assertTrue(stale.isError)
+        assertTrue((machine.state.value as AgentLearningState.Ready).instructions.isEmpty())
+        assertTrue(machine.effects.isEmpty())
+        assertEquals(listOf(PROJECT.value), reviewedProjects)
+        val refreshed = assertIs<AgentToolAutomaticAuthorization.Allowed>(
+            tools.automaticAuthorization(context, spec, arguments()),
+        )
+        assertNotEquals(decision.approval, refreshed.approval)
+        val saved = tools.execute(context.copy(authorization = refreshed.approval), LearningTools.REMEMBER, arguments())
+        assertFalse(saved.isError, saved.text)
+        assertEquals(listOf(PROJECT.value, otherProject.value), reviewedProjects)
+        assertEquals(otherProject, (machine.state.value as AgentLearningState.Ready).instructions.single().project)
+    }
+
+    @Test
+    fun `an imported replacement taking the reviewed title is preserved and remember reports a duplicate`() = runTest {
+        val original = LearnedInstruction(
+            InstructionId("imported"),
+            InstructionKind.General,
+            PROJECT,
+            "Imported",
+            "Original imported instruction",
+        )
+        val machine = SpecMachine(AgentLearningState.Ready(instructions = listOf(original)))
+        var reviews = 0
+        val tools = tools(
+            machine,
+            reviewer = AgentSafetyReviewer { _, _, _ ->
+                reviews++
+                AgentSafetyReview("safe", "Bounded instruction")
+            },
+        )
+        val context = automaticContext()
+        val spec = tools.specifications(PROJECT).first()
+        val decision = assertIs<AgentToolAutomaticAuthorization.Allowed>(
+            tools.automaticAuthorization(context, spec, arguments()),
+        )
+        val imported = original.copy(title = "Preference", content = "Keep the imported instruction")
+        machine.send(AgentLearningIntent.Public.Replace("config-import", imported))
+        val afterImport = machine.state.value
+        val importEffects = machine.effects.toList()
+        assertEquals(listOf(imported), (afterImport as AgentLearningState.Ready).instructions)
+        val result = tools.execute(context.copy(authorization = decision.approval), LearningTools.REMEMBER, arguments())
+        assertTrue(result.isError)
+        assertTrue("already exists" in result.text, result.text)
+        assertEquals(afterImport, machine.state.value)
+        assertEquals(importEffects, machine.effects)
+        assertEquals(1, reviews)
+    }
+
+    @Test
+    fun `an unrelated imported replacement does not invalidate the reviewed new instruction`() = runTest {
+        val original = LearnedInstruction(
+            InstructionId("imported"),
+            InstructionKind.General,
+            PROJECT,
+            "Imported",
+            "Original imported instruction",
+        )
+        val machine = SpecMachine(AgentLearningState.Ready(instructions = listOf(original)))
+        var reviews = 0
+        val tools = tools(
+            machine,
+            reviewer = AgentSafetyReviewer { _, _, _ ->
+                reviews++
+                AgentSafetyReview("safe", "Bounded instruction")
+            },
+        )
+        val context = automaticContext()
+        val spec = tools.specifications(PROJECT).first()
+        val decision = assertIs<AgentToolAutomaticAuthorization.Allowed>(
+            tools.automaticAuthorization(context, spec, arguments()),
+        )
+        val imported = original.copy(content = "Changed imported instruction")
+        machine.send(AgentLearningIntent.Public.Replace("config-import", imported))
+        val result = tools.execute(context.copy(authorization = decision.approval), LearningTools.REMEMBER, arguments())
+        assertFalse(result.isError, result.text)
+        val instructions = (machine.state.value as AgentLearningState.Ready).instructions
+        assertEquals(2, instructions.size)
+        assertEquals(imported, instructions.first { it.id == imported.id })
+        val remembered = instructions.first { it.id != imported.id }
+        assertEquals("Preference", remembered.title)
+        assertEquals("Use concise responses", remembered.content)
+        assertEquals(PROJECT, remembered.project)
+        assertEquals(1, reviews)
     }
 
     @Test

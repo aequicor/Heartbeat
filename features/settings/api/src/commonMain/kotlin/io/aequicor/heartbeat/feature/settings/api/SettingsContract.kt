@@ -47,6 +47,10 @@ public enum class SettingsSection {
     @SerialName("interfaces")
     Interfaces,
 
+    /** Project `.heartbeat` folders, changes waiting for trust and `.hbai` transfer. */
+    @SerialName("project_config")
+    ProjectConfig,
+
     /** Desktop application diagnostics: recent logs, archive and the logs directory. */
     @SerialName("logs")
     Logs,
@@ -97,6 +101,7 @@ public val SettingsSection.deepLinkName: String
         SettingsSection.Context -> "context"
         SettingsSection.Harness -> "harness"
         SettingsSection.Interfaces -> "interfaces"
+        SettingsSection.ProjectConfig -> "project_config"
         SettingsSection.Logs -> "logs"
         SettingsSection.FeatureFlags -> "feature_flags"
     }

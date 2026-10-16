@@ -235,6 +235,7 @@ internal class LearningAgentTools(
                 LearnRejection.Unavailable -> "not saved: the registry is not available"
                 LearnRejection.NotPersisted -> "not saved: the registry could not be written"
                 LearnRejection.Invalid -> "not saved: the instruction is empty or longer than allowed"
+                LearnRejection.Missing -> "not saved: the instruction no longer exists"
             },
         )
 

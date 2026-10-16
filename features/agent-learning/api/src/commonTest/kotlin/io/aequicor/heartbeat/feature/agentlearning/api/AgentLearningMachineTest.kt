@@ -274,6 +274,80 @@ class AgentLearningMachineTest {
         assertFailsWith<IllegalArgumentException> { instruction("g", "General", InstructionKind.General, scope) }
     }
 
+    @Test
+    fun `replace overwrites a known lesson keeping its switch and creation time`() {
+        val disabled = encoding.copy(isEnabled = false, createdAtMillis = 10)
+        val state = ready.copy(instructions = listOf(disabled))
+        val incoming = instruction("1", "Encoding", InstructionKind.Skill).copy(
+            project = WorkspaceRef("other"),
+            content = " Use UTF-8 everywhere ",
+            updatedAtMillis = 20,
+        )
+        val replaced = incoming.copy(content = "Use UTF-8 everywhere", isEnabled = false, createdAtMillis = 10)
+        val updated = state.copy(instructions = listOf(replaced), revision = 4)
+        val receipt = LearnReceipt("r", encoding.id, previous = disabled)
+
+        spec.assertTransition(
+            state,
+            AgentLearningIntent.Public.Replace("r", incoming),
+            updated,
+            effects = listOf(AgentLearningEffect.Persist(listOf(replaced), 4, receipt)),
+        )
+        spec.assertTransition(
+            updated,
+            AgentLearningIntent.Internal.Saved(receipt),
+            updated,
+            outputs = listOf(AgentLearningOutput.Learned("r", encoding.id)),
+        )
+        // A replacement that could not be written restores the overwritten lesson.
+        spec.assertTransition(
+            updated,
+            AgentLearningIntent.Internal.SaveFailed(receipt),
+            state.copy(revision = 5),
+            effects = listOf(AgentLearningEffect.Persist(listOf(disabled), 5)),
+            outputs = listOf(
+                AgentLearningOutput.StorageFailed,
+                AgentLearningOutput.Rejected("r", LearnRejection.NotPersisted),
+            ),
+        )
+    }
+
+    @Test
+    fun `replace confirms an unchanged lesson and refuses unknown or invalid or taken ones`() {
+        spec.assertTransition(
+            ready,
+            AgentLearningIntent.Public.Replace("same", encoding.copy(updatedAtMillis = 99)),
+            ready,
+            outputs = listOf(AgentLearningOutput.Learned("same", encoding.id)),
+        )
+        spec.assertTransition(
+            ready,
+            AgentLearningIntent.Public.Replace("missing", instruction("9", "Other")),
+            ready,
+            outputs = listOf(AgentLearningOutput.Rejected("missing", LearnRejection.Missing)),
+        )
+        spec.assertTransition(
+            ready,
+            AgentLearningIntent.Public.Replace("long", encoding.copy(content = "x".repeat(LearningLimits.CONTENT + 1))),
+            ready,
+            outputs = listOf(AgentLearningOutput.Rejected("long", LearnRejection.Invalid)),
+        )
+        val other = instruction("2", "Line endings")
+        val two = ready.copy(instructions = listOf(encoding, other))
+        spec.assertTransition(
+            two,
+            AgentLearningIntent.Public.Replace("taken", other.copy(title = encoding.title)),
+            two,
+            outputs = listOf(AgentLearningOutput.Rejected("taken", LearnRejection.Duplicate)),
+        )
+        spec.assertTransition(
+            AgentLearningState.Loading,
+            AgentLearningIntent.Public.Replace("early", encoding),
+            AgentLearningState.Loading,
+            outputs = listOf(AgentLearningOutput.Rejected("early", LearnRejection.Unavailable)),
+        )
+    }
+
     private fun instruction(
         id: String,
         title: String,

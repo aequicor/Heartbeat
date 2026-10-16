@@ -23,10 +23,10 @@ internal fun availableSections(
     isHarnessEnabled: Boolean = false,
     isContextEnabled: Boolean = false,
     isInterfacesEnabled: Boolean = false,
+    isProjectConfigEnabled: Boolean = false,
     isLogsEnabled: Boolean = false,
     isDesktop: Boolean = false,
 ): ImmutableList<SettingsSection> = SettingsSection.entries.filter { section ->
-    // App diagnostics and feature flags need no profile; other sections belong to the active profile.
     val isToggledOn = when (section) {
         SettingsSection.Models -> isModelsEnabled
         SettingsSection.Security -> isSecurityEnabled
@@ -37,8 +37,28 @@ internal fun availableSections(
         SettingsSection.Context -> isContextEnabled
         SettingsSection.Harness -> isHarnessEnabled
         SettingsSection.Interfaces -> isInterfacesEnabled
-        SettingsSection.Logs -> return@filter isLogsEnabled && isDesktop
-        SettingsSection.FeatureFlags -> return@filter true
+        SettingsSection.ProjectConfig -> isProjectConfigEnabled
+        SettingsSection.Logs -> isLogsEnabled
+        SettingsSection.FeatureFlags -> true
     }
-    isToggledOn && hasProfile
+    isToggledOn && section.isInScope(hasProfile, isDesktop)
 }.toImmutableList()
+
+/** App diagnostics and feature flags need no profile; other sections belong to the active profile. */
+private fun SettingsSection.isInScope(hasProfile: Boolean, isDesktop: Boolean): Boolean = when (this) {
+    SettingsSection.Logs -> isDesktop
+
+    SettingsSection.FeatureFlags -> true
+
+    SettingsSection.Models,
+    SettingsSection.Security,
+    SettingsSection.Search,
+    SettingsSection.ComputerUse,
+    SettingsSection.ChromiumBrowser,
+    SettingsSection.AgentLearning,
+    SettingsSection.Context,
+    SettingsSection.Harness,
+    SettingsSection.Interfaces,
+    SettingsSection.ProjectConfig,
+    -> hasProfile
+}

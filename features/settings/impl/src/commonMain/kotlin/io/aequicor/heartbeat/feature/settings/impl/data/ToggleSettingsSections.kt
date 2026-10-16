@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeEnabled
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
+import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigEnabled
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiEnabled
 import io.aequicor.heartbeat.feature.settings.api.SettingsSection
@@ -52,23 +53,28 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             toggles.observe(HarnessEnabled),
             toggles.observe(ContextOptimizationEnabled),
             toggles.observe(ServiceUiEnabled),
-            toggles.observe(StudioEngineRuntime),
-        ) { learning, harness, context, interfaces, security ->
-            ProfileSections(learning, harness, context, interfaces, security)
+            toggles.observe(ProjectConfigEnabled),
+        ) { learning, harness, context, interfaces, config ->
+            ProfileSections(learning, harness, context, interfaces, config)
         },
-        combine(sessions.active, toggles.observe(AppLogsEnabled)) { session, logs -> session to logs },
-    ) { connections, search, (computerUse, chromium), profile, (session, logs) ->
+        combine(
+            sessions.active,
+            toggles.observe(AppLogsEnabled),
+            toggles.observe(StudioEngineRuntime),
+        ) { session, logs, security -> Triple(session, logs, security) },
+    ) { connections, search, (computerUse, chromium), profile, (session, logs, security) ->
         availableSections(
             isModelsEnabled = connections,
             isSearchEnabled = search,
             hasProfile = session != null,
-            isSecurityEnabled = profile.isSecurity,
+            isSecurityEnabled = security,
             isComputerUseEnabled = computerUse,
             isChromiumBridgeEnabled = chromium,
             isLearningEnabled = profile.isLearning,
             isHarnessEnabled = profile.isHarness,
             isContextEnabled = profile.isContext,
             isInterfacesEnabled = profile.isInterfaces,
+            isProjectConfigEnabled = profile.isProjectConfig,
             isLogsEnabled = logs,
             isDesktop = isDesktop,
         )
@@ -84,5 +90,5 @@ private data class ProfileSections(
     val isHarness: Boolean,
     val isContext: Boolean,
     val isInterfaces: Boolean,
-    val isSecurity: Boolean,
+    val isProjectConfig: Boolean,
 )

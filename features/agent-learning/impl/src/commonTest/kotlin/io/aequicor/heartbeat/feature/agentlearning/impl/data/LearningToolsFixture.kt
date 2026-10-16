@@ -99,6 +99,10 @@ internal class Worktrees(tasks: Map<String, WorktreeTask> = emptyMap()) : Machin
         override suspend fun send(intent: Nothing): SendResult = SendResult.Ignored
     }
 
+    fun updateTasks(tasks: Map<String, WorktreeTask>) {
+        worktree.state.value = WorktreeState.Ready(tasks)
+    }
+
     @Suppress("UNCHECKED_CAST") // The fake resolves only the worktree key.
     override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> find(
         key: MachineKey<S, I, P, E, O>,
