@@ -69,9 +69,11 @@ class DesktopBrowserNavigationTest {
         navigation.address("http://example.com/")
         navigation.loading(isLoading = false, isBackAvailable = false, isForwardAvailable = false)
         assertEquals(BrowserSecurity.Http, states.last().security)
-        // A load the page starts keeps the committed address, so its indicator stays.
+        // A navigation the page starts keeps the committed address, so its indicator stays while it awaits.
+        navigation.navigating()
         navigation.loading(isLoading = true, isBackAvailable = true, isForwardAvailable = false)
         assertEquals(BrowserSecurity.Http, states.last().security)
+        assertEquals(true, states.last().isAwaitingResponse)
         navigation.execute(BrowserViewCommand.Reload)
         assertEquals(BrowserSecurity.Http, states.last().security)
         // A typed address is not the committed page, also after it is stopped.

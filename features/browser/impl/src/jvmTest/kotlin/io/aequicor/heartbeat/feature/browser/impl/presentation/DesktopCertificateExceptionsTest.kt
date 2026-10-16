@@ -103,6 +103,11 @@ class DesktopCertificateExceptionsTest {
         exceptions.warned("https://warned.example/")
         guard.restrict(null)
         assertFalse(policy.allows("https://warned.example/", BrowserRequestKind.MainDocument))
+        // Frameless agent requests such as site icons are held to the same rule.
+        assertTrue(policy.withholds("https://example.com/favicon.ico"))
+        assertFalse(policy.withholds("https://public.example/favicon.ico"))
+        guard.unrestrict()
+        assertFalse(policy.withholds("https://example.com/favicon.ico"))
     }
 }
 

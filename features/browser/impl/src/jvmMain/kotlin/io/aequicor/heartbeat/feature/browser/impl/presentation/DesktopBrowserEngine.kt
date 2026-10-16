@@ -125,8 +125,11 @@ internal class DesktopBrowserEngine(
 
     override suspend fun captureResource(url: String): JsonObject = downloads.capture(url)
 
-    override suspend fun loadIcon(url: String, allows: (String) -> Boolean): ByteArray =
-        icons.capture(url) { iconTransfer(createContext, it, urlResolver, allows) }
+    override suspend fun loadIcon(url: String, allows: (String) -> Boolean): ByteArray {
+        // An agent tab's icon and each redirect obey its certificate withholding, like its page requests.
+        val isAllowed = { hop: String -> allows(hop) && !policy.withholds(hop) }
+        return icons.capture(url) { iconTransfer(createContext, it, urlResolver, isAllowed) }
+    }
 
     private fun cancelTransfers() {
         downloads.cancel()
