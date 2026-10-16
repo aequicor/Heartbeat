@@ -20,6 +20,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -87,7 +89,9 @@ class SettingsIntegrationTest {
             listOf(ProductionWelcomeRoute, SettingsRoute(SettingsSection.FeatureFlags)),
             process.host.routes,
         )
-        assertNotNull(process.graph.machines.find(TogglesPanelMachineKey), "the section runs inside the window")
+        // Sections wait for DataStore reads on IO; advanceUntilIdle only drains the test dispatcher.
+        val section = process.graph.machines.observe(TogglesPanelMachineKey).filterNotNull().first()
+        assertNotNull(section, "the section runs inside the window")
 
         process.host.onBack()
         advanceUntilIdle()
@@ -107,8 +111,9 @@ class SettingsIntegrationTest {
         process.root.handleDeepLink("heartbeat://settings")
         advanceUntilIdle()
         assertEquals(listOf(ProductionWelcomeRoute, SettingsRoute()), process.host.routes)
-        // Feature flags are the only section of the guest tree, so they open without a profile.
-        assertNotNull(process.graph.machines.find(TogglesPanelMachineKey))
+        // Feature flags are the only guest section; its first availability still waits for DataStore reads on IO.
+        val section = process.graph.machines.observe(TogglesPanelMachineKey).filterNotNull().first()
+        assertNotNull(section)
         process.close()
     }
 
