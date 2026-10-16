@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProviderUsageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.RenameUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SecurityLevelUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionConfigurationUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SidebarUi
@@ -46,6 +47,15 @@ class StudioScreenModelsTest {
         ),
         now = Instant.fromEpochSeconds(130),
     )
+
+    @Test
+    fun `ordinary panes show profile trust while parentless helpers retain automatic review`() {
+        val trusted = state.copy(securityLevel = SecurityLevelUi.Trust)
+        assertEquals(SecurityLevelUi.Trust, trusted.paneContent(trusted.panes.first()).securityLevel)
+        assertEquals(SecurityLevelUi.Trust, trusted.paneContent(PaneUi(7)).securityLevel)
+        val helper = trusted.copy(sessions = persistentListOf(session.copy(isHelper = true)))
+        assertEquals(SecurityLevelUi.Automatic, helper.paneContent(helper.panes.first()).securityLevel)
+    }
 
     @Test
     fun `organism pane uses only its selected cell telemetry and clears it on selection change`() {

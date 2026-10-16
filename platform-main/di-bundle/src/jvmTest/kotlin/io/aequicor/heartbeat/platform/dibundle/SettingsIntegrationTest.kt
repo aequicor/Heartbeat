@@ -8,7 +8,13 @@ import dev.zacsweers.metro.createGraphFactory
 import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.navigation.RootHost
 import io.aequicor.heartbeat.core.navigation.Route
+import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
+import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityIntent
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityLevel
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityMachineKey
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityState
 import io.aequicor.heartbeat.feature.applogs.api.AppLogsEnabled
 import io.aequicor.heartbeat.feature.applogs.api.AppLogsMachineKey
 import io.aequicor.heartbeat.feature.settings.api.SettingsRoute
@@ -140,6 +146,29 @@ class SettingsIntegrationTest {
         advanceUntilIdle()
         assertEquals(listOf<Route>(ProductionWelcomeRoute), process.host.routes)
         assertNull(process.graph.machines.find(AppLogsMachineKey))
+        process.close()
+    }
+
+    @Test
+    fun `security deep link opens a profile setting that survives closing its window`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val process = Process()
+        (process.graph as TestToggleAccessors).toggleControl.setOverride(StudioEngineRuntime, true)
+        process.graph.profileSessions.open(ProfileId("settings-security"))
+        advanceUntilIdle()
+        process.root.handleDeepLink("heartbeat://settings/security")
+        val security = process.graph.machines.observe(StudioSecurityMachineKey).filterNotNull().first()
+        security.state.first { it is StudioSecurityState.Ready }
+        advanceUntilIdle()
+        assertEquals(SettingsSection.Security, (process.host.routes.last() as SettingsRoute).section)
+        security.send(StudioSecurityIntent.Public.SetLevel(StudioSecurityLevel.Ask))
+        security.state.first { it == StudioSecurityState.Ready(StudioSecurityLevel.Ask) }
+        process.host.onBack()
+        advanceUntilIdle()
+        assertNotNull(process.graph.machines.find(StudioSecurityMachineKey))
+        process.root.handleDeepLink("heartbeat://settings/security")
+        advanceUntilIdle()
+        assertEquals(StudioSecurityState.Ready(StudioSecurityLevel.Ask), security.state.value)
         process.close()
     }
 

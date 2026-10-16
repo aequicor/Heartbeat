@@ -110,6 +110,8 @@ internal data class StudioTurnRequest(
     val isSummarized: Boolean = false,
     /** The outside host routing retained throughout this turn. */
     val environment: StudioChatEnvironment? = null,
+    /** Only a user submission may read the profile confirmation level; host jobs retain their own policy. */
+    val isUserPrompt: Boolean = false,
     /** Executor-owned evidence recorded at the native send boundary, after preparation. */
     val delivery: StudioPromptDelivery? = null,
 ) {

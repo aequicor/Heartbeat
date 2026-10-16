@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.PermissionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProviderUsageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.RenameUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SecurityLevelUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionConfigurationUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionTreeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
@@ -97,6 +98,8 @@ data class PaneContent(
     /** Targets captured with this pane's snapshot, including for delayed remote clicks. */
     val noticeTargets: ImmutableMap<StudioNoticeUi, StudioNoticeDismissalUi>,
     val models: ImmutableList<ModelUi> = persistentListOf(),
+    /** The profile choice shown in the composer of ordinary native chats. */
+    val securityLevel: SecurityLevelUi = SecurityLevelUi.Automatic,
     val enginePreparations: ImmutableList<EnginePreparationUi> = persistentListOf(),
     val dismissedNotices: ImmutableSet<StudioNoticeUi> = persistentSetOf(),
     val cardFocus: CardFocusRequestUi? = null,
@@ -222,6 +225,7 @@ fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         isSubmitFailed = pane.id in failedPanes,
         renaming = sidebar.renaming?.takeIf { it.origin == paneOrigin(pane.id) },
         settings = effectiveSettings,
+        securityLevel = if (session?.isHelper == true) SecurityLevelUi.Automatic else securityLevel,
         configuration = configuration,
         isStopFailed = pane.sessionId in stopFailures,
         isStoppable = pane.sessionId !in uncancellable,

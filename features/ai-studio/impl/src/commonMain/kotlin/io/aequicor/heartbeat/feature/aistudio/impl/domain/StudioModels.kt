@@ -45,6 +45,8 @@ data class StudioSession(
     val isReady: Boolean = false,
     /** Logical caller chat of a durable helper; null for parentless helpers and ordinary chats. */
     val parentChatId: String? = null,
+    /** Helper approvals remain bounded by their owner even for parentless helpers. */
+    val isHelper: Boolean = false,
     /** Route for observing native descendants without attaching an execution handle. */
     val treeAccess: io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess? = null,
 )

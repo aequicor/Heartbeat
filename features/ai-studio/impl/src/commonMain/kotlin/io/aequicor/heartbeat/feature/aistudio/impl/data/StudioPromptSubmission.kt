@@ -37,6 +37,7 @@ internal suspend fun ActiveSession.submitStudioPrompt(
     requestId: RequestId,
     compaction: ContextCompaction? = null,
     delivery: StudioPromptDelivery? = null,
+    decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.AutomaticSafety,
 ): TurnId {
     // A compaction carries no input and no effort: it only summarizes the native context. It keeps the chat's trust,
     // which the engine would otherwise reset to its default and report back as the chat's configuration.
@@ -46,7 +47,7 @@ internal suspend fun ActiveSession.submitStudioPrompt(
             emptyList(),
             trust = trust,
             compaction = supportedCompaction(compaction),
-            decisionMode = AgentToolDecisionMode.AutomaticSafety,
+            decisionMode = decisionMode,
         )
     } else {
         PromptRequest(
@@ -56,7 +57,7 @@ internal suspend fun ActiveSession.submitStudioPrompt(
             },
             reasoningEffort = reasoningEffort,
             trust = trust,
-            decisionMode = AgentToolDecisionMode.AutomaticSafety,
+            decisionMode = decisionMode,
         )
     }
     val sender = features.requireFeature(SendsPrompts)

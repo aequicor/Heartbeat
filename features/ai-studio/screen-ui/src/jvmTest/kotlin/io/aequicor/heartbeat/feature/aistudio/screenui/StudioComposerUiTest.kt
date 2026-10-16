@@ -33,6 +33,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_effort_men
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_default
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_low
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_menu_section
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.security_ask
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.security_trust
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan_prompt
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_remember
@@ -43,6 +45,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoicesUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessOptionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SecurityLevelUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionConfigurationUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.withDraft
 import kotlinx.collections.immutable.persistentListOf
@@ -236,6 +239,40 @@ class StudioComposerUiTest {
             runOnIdle {
                 assertEquals(emptyList(), events)
             }
+        }
+
+    @Test
+    fun `native composer reflects profile confirmation changes without offering local trust choices`() =
+        runSkikoComposeUiTest(size = Size(900f, 700f)) {
+            val pane = PaneUi(0)
+            val native = ModelUi("native-route", "Native model", isTrustSupported = true)
+            val initial = AiStudioScreenState(panes = persistentListOf(pane))
+            var state by mutableStateOf(
+                initial.copy(
+                    models = persistentListOf(native),
+                    settings = initial.settings.copy(modelId = native.id),
+                    securityLevel = SecurityLevelUi.Ask,
+                ),
+            )
+            var askLabel = ""
+            var trustLabel = ""
+            var safetyLabel = ""
+            var addLabel = ""
+            setContent {
+                askLabel = stringResource(Res.string.security_ask)
+                trustLabel = stringResource(Res.string.security_trust)
+                safetyLabel = stringResource(Res.string.approval_safety)
+                addLabel = stringResource(Res.string.composer_add)
+                NativeComposerFixture(state.paneContent(pane)) {}
+            }
+            onNodeWithContentDescription(addLabel).performClick()
+            onNodeWithText(askLabel).assertIsDisplayed().assertIsNotEnabled()
+            onNodeWithText(safetyLabel).assertDoesNotExist()
+            onNodeWithText(trustLabel).assertDoesNotExist()
+            runOnIdle { state = state.copy(securityLevel = SecurityLevelUi.Trust) }
+            onNodeWithText(trustLabel).assertIsDisplayed().assertIsNotEnabled()
+            onNodeWithText(askLabel).assertDoesNotExist()
+            onNodeWithText(safetyLabel).assertDoesNotExist()
         }
 
     @Test

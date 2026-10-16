@@ -1,0 +1,6 @@
+<resources>
+    <string name="security_ask">Ask for approval</string>
+    <string name="security_trust">Full trust</string>
+    <string name="security_settings_hint">Change in Settings → Security</string>
+    <string name="security_unsupported">This engine does not support native approval levels</string>
+</resources>

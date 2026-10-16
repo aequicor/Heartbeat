@@ -11,4 +11,5 @@
     <string name="settings_section_interfaces">Интерфейсы</string>
     <string name="settings_section_harness">Харнесс</string>
     <string name="settings_section_logs">Логи приложения</string>
+    <string name="settings_section_security">Безопасность</string>
 </resources>

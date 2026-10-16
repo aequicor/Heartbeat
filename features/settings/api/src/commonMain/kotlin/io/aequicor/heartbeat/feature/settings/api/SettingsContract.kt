@@ -15,6 +15,10 @@ public enum class SettingsSection {
     @SerialName("models")
     Models,
 
+    /** Confirmation policy for ordinary agent turns in the studio. */
+    @SerialName("security")
+    Security,
+
     /** Search providers of the profile. */
     @SerialName("search")
     Search,
@@ -85,6 +89,7 @@ public val UnifiedSettings: FeatureToggle.Flag = FeatureToggle.Flag(
 public val SettingsSection.deepLinkName: String
     get() = when (this) {
         SettingsSection.Models -> "models"
+        SettingsSection.Security -> "security"
         SettingsSection.Search -> "search"
         SettingsSection.ComputerUse -> "computer_use"
         SettingsSection.ChromiumBrowser -> "chromium_browser"

@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningEnabled
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
+import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.applogs.api.AppLogsEnabled
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeEnabled
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
@@ -51,13 +52,17 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             toggles.observe(HarnessEnabled),
             toggles.observe(ContextOptimizationEnabled),
             toggles.observe(ServiceUiEnabled),
-        ) { learning, harness, context, interfaces -> ProfileSections(learning, harness, context, interfaces) },
+            toggles.observe(StudioEngineRuntime),
+        ) { learning, harness, context, interfaces, security ->
+            ProfileSections(learning, harness, context, interfaces, security)
+        },
         combine(sessions.active, toggles.observe(AppLogsEnabled)) { session, logs -> session to logs },
     ) { connections, search, (computerUse, chromium), profile, (session, logs) ->
         availableSections(
             isModelsEnabled = connections,
             isSearchEnabled = search,
             hasProfile = session != null,
+            isSecurityEnabled = profile.isSecurity,
             isComputerUseEnabled = computerUse,
             isChromiumBridgeEnabled = chromium,
             isLearningEnabled = profile.isLearning,
@@ -79,4 +84,5 @@ private data class ProfileSections(
     val isHarness: Boolean,
     val isContext: Boolean,
     val isInterfaces: Boolean,
+    val isSecurity: Boolean,
 )

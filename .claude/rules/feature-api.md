@@ -117,7 +117,10 @@ non-null решение никогда не вызывает диалог, не�
 `AgentToolApproval` и непустого binding до и после ревью; Deny/Ask-хук даёт отказ агенту. Контрибуция повторно
 проверяет снимок при выполнении; `AgentSafetyReviewer` работает в изолированной сессии без инструментов.
 `AgentToolDecisionMode` — доверенный режим хоста, сохраняемый в запросе/ходе и привязке `bindTurn`; адаптер
-передаёт его при восстановлении, диспетчер предпочитает привязку хоста. Обычная студия задаёт `AutomaticSafety`:
+передаёт его при восстановлении, диспетчер предпочитает привязку хоста. Профильная `StudioSecurityMachine`
+в `ai-studio:api` выбирает режим обычных пользовательских ходов: Ask → Interactive/Ask, Automatic → AutomaticSafety,
+Trust → Interactive/Full. По умолчанию Automatic; helper и служебные ходы сохраняют политику своего хоста.
+Настройки встраивают `StudioSecurityRoute`; значение применяется только после успешного сохранения. В AutomaticSafety:
 нативный вызов проверяется независимо от trust по полным аргументам и cwd с повторными policy/hook/lifetime
 проверками. Hosted mutation без `automaticAuthorization`, Ask-хук, неопределённый или ошибочный вердикт дают
 отказ без permission callback. Другие хосты по умолчанию сохраняют `Interactive`; в нём
