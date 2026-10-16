@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineConfigurator
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineManager
 
 /** Qualified manager contract, like [PiAdapter], so it never collides with other engines' managers. */
@@ -24,3 +25,6 @@ internal val PiManagementSpec = ManagementSpec(
         reservedEnvironmentPrefixes = setOf("PI_", "HEARTBEAT_"),
     ),
 )
+
+/** Qualified configurator contract of Pi's files, like [PiEngineManager]. */
+internal interface PiConfigurator : EngineConfigurator
