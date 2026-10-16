@@ -130,6 +130,19 @@ public object HbIcons {
     public val Minimize: ImageVector = outlineIcon("Minimize", "M3,8 H8 V3 M12,3 V8 H17 M17,12 H12 V17 M8,17 V12 H3")
     public val Minus: ImageVector = outlineIcon("Minus", "M4,10 H16")
     public val Close: ImageVector = outlineIcon("Close", "M5,5 L15,15 M15,5 L5,15")
+
+    /** Page zoom controls: a magnifier with the direction of the current scale. */
+    public val ZoomIn: ImageVector = outlineIcon(
+        "ZoomIn",
+        "M14,8.5 A5.5,5.5 0,1 1,3,8.5 A5.5,5.5 0,1 1,14,8.5 Z M12.5,12.5 L17,17 M6,8.5 H11 M8.5,6 V11",
+    )
+
+    /** A magnifier for a page displayed below its default scale. */
+    public val ZoomOut: ImageVector = outlineIcon(
+        "ZoomOut",
+        "M14,8.5 A5.5,5.5 0,1 1,3,8.5 A5.5,5.5 0,1 1,14,8.5 Z M12.5,12.5 L17,17 M6,8.5 H11",
+    )
+
     public val Search: ImageVector = outlineIcon(
         "Search",
         "M14,8.5 A5.5,5.5 0,1 1,3,8.5 A5.5,5.5 0,1 1,14,8.5 Z M12.5,12.5 L17,17",
@@ -460,7 +473,8 @@ public object HbIcons {
     public val All: ImmutableList<ImageVector> = persistentListOf(
         Home, HomeFilled, History, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, ChevronLeft, ChevronRight,
         ChevronUp, ChevronDown, Sidebar, Grid, Menu, ExternalLink, Maximize, Minimize,
-        Plus, Minus, Close, Check, Search, Edit, Copy, Clipboard, Trash, Download, Upload, Refresh, Undo,
+        Plus, Minus, Close, Check, Search, ZoomIn, ZoomOut, Edit, Copy, Clipboard, Trash,
+        Download, Upload, Refresh, Undo,
         Redo, Filter, Sort, Share, Link, Pin, Unpin, More, MoreVertical, Settings, Sliders,
         Folder, FolderOpen, FolderPlus, File, FileText, FileCode, FilePlus, Library, Images, Image,
         Archive, Bookmark, Tag, Calendar,
