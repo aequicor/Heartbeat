@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.reviewModel
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.CodeReview
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HARNESS_COMMANDS_POLICY
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessApiReference
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeReviewer
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeReviews
@@ -73,8 +74,8 @@ internal suspend fun reviewHarnessChange(
     return AgentToolAutomaticAuthorization.Allowed(snapshot.approval)
 }
 
-private fun harnessSafetyPolicy(): String = HARNESS_SAFETY_POLICY + "\n\nHost API:\n" +
-    referenceText(HarnessApiReference.Api)
+private fun harnessSafetyPolicy(): String = HARNESS_SAFETY_POLICY + "\n" + HARNESS_COMMANDS_POLICY +
+    "\n\nHost API:\n" + referenceText(HarnessApiReference.Api)
 
 private const val HARNESS_SAFETY_POLICY = """
 Assess the complete proposed Heartbeat harness operation and the previous harness, not only the changed text.

@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessMachineSpec
+import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessCommandsEnabled
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessEffects
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessLibraryStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
@@ -40,4 +41,9 @@ public object HarnessToggleBindings {
     @Provides
     @IntoSet
     public fun enabled(): FeatureToggle<*> = HarnessEnabled
+
+    /** Mini-app commands of approved scripts, off by default. */
+    @Provides
+    @IntoSet
+    public fun commands(): FeatureToggle<*> = HarnessCommandsEnabled
 }

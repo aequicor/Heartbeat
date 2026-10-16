@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
 import io.aequicor.heartbeat.feature.harness.api.storageBytes
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.CodeCheck
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HARNESS_COMMANDS_POLICY
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessApiReference
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeChecks
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCreationScope
@@ -78,7 +79,8 @@ internal class HarnessConfigSection(
     override val id: ConfigSectionId = HarnessConfigCodec.section
 
     override val reviewPolicy: String
-        get() = HARNESS_CONFIG_POLICY + "\n\nHost API:\n" + referenceText(HarnessApiReference.Api)
+        get() = HARNESS_CONFIG_POLICY + "\n" + HARNESS_COMMANDS_POLICY + "\n\nHost API:\n" +
+            referenceText(HarnessApiReference.Api)
 
     override val entities: Flow<List<ConfigEntity>?>
         get() = combine(toggles.observe(HarnessEnabled), machine.value.state) { isEnabled, state ->

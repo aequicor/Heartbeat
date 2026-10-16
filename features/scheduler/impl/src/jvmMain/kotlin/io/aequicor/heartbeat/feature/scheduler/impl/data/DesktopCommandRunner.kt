@@ -36,6 +36,7 @@ internal class DesktopCommandRunner(private val dispatchers: DispatcherProvider)
 
     override val isAvailable: Boolean = true
     override val isStartTracked: Boolean = true
+    override val shell: CommandShell = if (isWindows) CommandShell.PowerShell else CommandShell.Posix
 
     override suspend fun run(directory: String, command: String, timeout: Duration): CommandOutcome =
         runTracked(directory, command, timeout) {}
@@ -49,7 +50,7 @@ internal class DesktopCommandRunner(private val dispatchers: DispatcherProvider)
         val environment = ProcessBuilder().environment().toMutableMap()
         val removed = environment.keys.filter(::isSecretName)
         removed.forEach(environment::remove)
-        log.i { "starting contained background command; ${removed.size} secret-like variables withheld" }
+        log.d { "starting contained background command; ${removed.size} secret-like variables withheld" }
         val process = startProcess(directory, command, environment)
         var job: WindowsGraphJob? = null
         val output = HeadTail()
@@ -97,7 +98,7 @@ internal class DesktopCommandRunner(private val dispatchers: DispatcherProvider)
             }
         }
         val exitCode = if (hasExited) process.exitValue() else null
-        log.i { "background command ended exitCode=${exitCode ?: "timeout"}" }
+        log.d { "background command ended exitCode=${exitCode ?: "timeout"}" }
         CommandOutcome(exitCode, output.text())
     }
 
@@ -122,7 +123,7 @@ internal class DesktopCommandRunner(private val dispatchers: DispatcherProvider)
         val encoded = Base64.getEncoder().encodeToString(command.toByteArray(Charsets.UTF_16LE))
         val script = "if ([Console]::ReadLine() -ne 'heartbeat-run') { exit 125 }; " +
             "& powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand $encoded; exit \$LASTEXITCODE"
-        val shell = listOf(
+        val launcher = listOf(
             "powershell.exe",
             "-NoLogo",
             "-NoProfile",
@@ -130,7 +131,7 @@ internal class DesktopCommandRunner(private val dispatchers: DispatcherProvider)
             "-EncodedCommand",
             Base64.getEncoder().encodeToString(script.toByteArray(Charsets.UTF_16LE)),
         )
-        return ProcessBuilder(shell).directory(File(directory)).redirectErrorStream(true).apply {
+        return ProcessBuilder(launcher).directory(File(directory)).redirectErrorStream(true).apply {
             environment().clear()
             environment().putAll(environment)
         }.start()

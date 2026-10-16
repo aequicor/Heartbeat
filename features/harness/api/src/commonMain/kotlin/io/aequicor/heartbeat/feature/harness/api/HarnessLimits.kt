@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.harness.api
 
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 /** Shared library and runtime quotas. UTF-8 storage limits include serialized metadata and code. */
@@ -18,6 +19,11 @@ public object HarnessLimits {
     public const val UI_METHODS: Int = 16
     public const val UI_RESULT_BYTES: Int = 256 * 1024
     public const val UI_ERROR_CHARS: Int = 500
+    public const val COMMANDS: Int = 16
+    public const val COMMAND_ARGUMENTS: Int = 64
+    public const val COMMAND_PARAMETER_CHARS: Int = 512
+    public const val COMMAND_RUNS: Int = 2
+    public val COMMAND_TIMEOUT: Duration = 30.minutes
     public const val TIMERS: Int = 8
     public val MIN_TIMER: Duration = 30.seconds
     public const val SENDS_PER_MINUTE: Int = 6

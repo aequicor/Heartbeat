@@ -43,8 +43,12 @@ class HarnessReferenceExamplesTest {
                 val request = HarnessCompilationRequest(HarnessId("reference"), ItemId(kind.name), kind, source)
                 val result = host.compile(request)
                 val success = assertIs<HarnessCompilationResult.Success>(result, result.toDiagnosticText())
-                success.code.close()
-                assertEquals(emptyList(), success.warnings.map { it.message })
+                try {
+                    assertEquals(emptyList(), success.warnings.map { it.message })
+                    if (source == EXAMPLE_UI_SCRIPT) verifyUiExampleCommandOutput(host, success.code, backgroundScope)
+                } finally {
+                    success.code.close()
+                }
             }
         } finally {
             directory.toFile().deleteRecursively()
