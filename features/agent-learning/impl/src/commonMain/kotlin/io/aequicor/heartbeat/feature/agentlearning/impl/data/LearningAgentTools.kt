@@ -27,9 +27,12 @@ import io.aequicor.heartbeat.feature.agentlearning.impl.domain.applicable
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.isRatedSafe
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.learningPrompt
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.parseRemember
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAutomaticAuthorization
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
@@ -60,7 +63,9 @@ import kotlin.uuid.Uuid
  * The agent's side of self-learning: `remember` saves an instruction for the project of the session (or for chats
  * without a project) and `load_learned_skill` returns a learned skill. Instructions of the session are added to its
  * prompt even when no learning tools are declared. Declarations never change while the toggle is on, so native
- * threads that froze their tools stay valid. Instruction texts are never logged.
+ * threads that froze their tools stay valid. AutomaticSafety uses independent review of the exact instruction and
+ * trusted scope, regardless of the instruction's self-rating or local learning policy. Instruction texts are never
+ * logged.
  */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
@@ -70,6 +75,7 @@ internal class LearningAgentTools(
     private val machines: MachineRegistry,
     private val workspaces: LocalWorkspaces,
     private val platform: PlatformInfo,
+    private val safety: LearningToolSafety,
 ) : AgentToolContribution {
     override val group: String = "learning"
     override val title: String = "Обучение"
@@ -111,6 +117,12 @@ internal class LearningAgentTools(
         arguments: JsonObject,
     ): AgentToolApproval {
         if (spec.name != LearningTools.REMEMBER) return AgentToolApproval(spec.name, spec.description)
+        if (context.decisionMode == AgentToolDecisionMode.AutomaticSafety) {
+            return when (val plan = rememberPlan(context, arguments)) {
+                is RememberPlan.Ready -> safetyRequest(context, plan).approval
+                is RememberPlan.Invalid -> AgentToolApproval(spec.name, spec.description, plan.message, "invalid")
+            }
+        }
         val draft = (parseRemember(arguments) as? DraftResult.Valid)?.draft
         val level = approvalLevel()
         return AgentToolApproval(
@@ -119,6 +131,23 @@ internal class LearningAgentTools(
             draft?.let { approvalText(it, context) },
             binding = "approval=$level",
         )
+    }
+
+    override suspend fun automaticAuthorization(
+        context: AgentToolContext,
+        spec: AgentToolSpec,
+        arguments: JsonObject,
+    ): AgentToolAutomaticAuthorization? {
+        if (spec.name != LearningTools.REMEMBER || context.decisionMode != AgentToolDecisionMode.AutomaticSafety) {
+            return null
+        }
+        if (!toggles.get(AgentLearningEnabled)) {
+            return AgentToolAutomaticAuthorization.Denied("Self-learning is turned off")
+        }
+        return when (val plan = rememberPlan(context, arguments)) {
+            is RememberPlan.Invalid -> AgentToolAutomaticAuthorization.Denied(plan.message)
+            is RememberPlan.Ready -> safety.authorize(context, safetyRequest(context, plan))
+        }
     }
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
@@ -131,36 +160,67 @@ internal class LearningAgentTools(
     }
 
     private suspend fun remember(context: AgentToolContext, arguments: JsonObject): AgentToolResult {
-        val draft = when (val parsed = parseRemember(arguments)) {
-            is DraftResult.Invalid -> return failure("not saved: ${parsed.message}")
-            is DraftResult.Valid -> parsed.draft
+        val plan = when (val planned = rememberPlan(context, arguments)) {
+            is RememberPlan.Invalid -> return failure(planned.message)
+            is RememberPlan.Ready -> planned
         }
-        val project = projectOf(context.workspace) as? Project.Known
-            ?: return failure("not saved: this workspace is not a saved project")
-        val scope = if (draft.kind == InstructionKind.Model) {
-            modelScope(
-                context,
-                draft.reach,
-            ) ?: return failure("not saved: the model is unknown, use ${LearningTools.Arguments.MODEL_SCOPE}=engine")
-        } else {
-            null
+        if (context.decisionMode == AgentToolDecisionMode.AutomaticSafety &&
+            !safety.isAuthorized(context, safetyRequest(context, plan))
+        ) {
+            return failure("the instruction or its scope changed after safety review; request it again")
         }
+        val draft = plan.draft
         val now = Clock.System.now().toEpochMilliseconds()
         val instruction = LearnedInstruction(
             InstructionId(Uuid.random().toString()),
             draft.kind,
-            project.ref,
+            plan.project,
             draft.title,
             draft.content,
             draft.description,
-            scope,
+            plan.modelScope,
             createdAtMillis = now,
         )
         val outcome = learn(instruction)
         // The outcome names only its kind and, for a refusal, the reason; never a text of the instruction.
         log.i { "remember kind=${draft.kind} outcome=$outcome" }
-        return result(outcome, draft, project.ref)
+        return result(outcome, draft, plan.project)
     }
+
+    /** Resolves the stored scope once; approval and execution rebuild the same immutable proposal. */
+    private suspend fun rememberPlan(context: AgentToolContext, arguments: JsonObject): RememberPlan {
+        val draft = when (val parsed = parseRemember(arguments)) {
+            is DraftResult.Invalid -> return RememberPlan.Invalid("not saved: ${parsed.message}")
+            is DraftResult.Valid -> parsed.draft
+        }
+        val project = projectOf(context.workspace) as? Project.Known
+            ?: return RememberPlan.Invalid("not saved: this workspace is not a saved project")
+        val scope = if (draft.kind == InstructionKind.Model) {
+            modelScope(
+                context,
+                draft.reach,
+            ) ?: return RememberPlan.Invalid(
+                "not saved: the model is unknown, use ${LearningTools.Arguments.MODEL_SCOPE}=engine",
+            )
+        } else {
+            null
+        }
+        return RememberPlan.Ready(draft, project.ref, scope)
+    }
+
+    private fun safetyRequest(context: AgentToolContext, plan: RememberPlan.Ready): LearningSafetyRequest =
+        learningSafetyRequest(
+            context,
+            plan.draft,
+            plan.project,
+            plan.modelScope,
+            AgentToolApproval(
+                LearningTools.REMEMBER,
+                "Remember instruction \"${plan.draft.title}\"",
+                approvalText(plan.draft, context),
+                binding = "approval=${approvalLevel()}",
+            ),
+        )
 
     private fun result(outcome: LearnOutcome, draft: RememberDraft, project: WorkspaceRef?) = when (outcome) {
         LearnOutcome.Learned -> AgentToolResult(
@@ -286,6 +346,12 @@ internal class LearningAgentTools(
         data object Unknown : Project
     }
 
+    private sealed interface RememberPlan {
+        data class Ready(val draft: RememberDraft, val project: WorkspaceRef?, val modelScope: ModelScope?) :
+            RememberPlan
+        data class Invalid(val message: String) : RememberPlan
+    }
+
     private companion object {
         const val OUTCOME_TIMEOUT_MILLIS = 10_000L
         const val LOAD_TIMEOUT_MILLIS = 3_000L
@@ -335,6 +401,7 @@ internal class LearningAgentTools(
                     },
                 )
             },
+            action = AgentToolAction.Edit,
         )
 
         val LOAD_SKILL_SPEC = AgentToolSpec(

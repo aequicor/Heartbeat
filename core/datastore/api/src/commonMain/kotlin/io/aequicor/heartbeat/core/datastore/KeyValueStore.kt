@@ -3,6 +3,15 @@ package io.aequicor.heartbeat.core.datastore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.KSerializer
 
+/** Read failure handling for a key-value file and its values. Missing or expired keys always return null. */
+public enum class KeyValueReadPolicy {
+    /** Recover corrupt files with empty data and treat unreadable or undecodable values as absent. */
+    Recover,
+
+    /** Preserve corrupt files and report IO, incompatible types and decoding failures to the caller. */
+    Strict,
+}
+
 /**
  * Description of a key-value store.
  *
@@ -11,11 +20,14 @@ import kotlinx.serialization.KSerializer
  * @property defaultRetention retention of [KeyValueStore.set] without an explicit one.
  * @property areValuesLogged log old and new values of changes (`I`) — only for settings without personal data;
  *   otherwise only key names are logged (`D`).
+ * @property readPolicy whether failed reads recover or throw. One file keeps this policy for the app lifetime,
+ *   including when its profile is closed and reopened; reopening with another policy is rejected.
  */
 public data class KeyValueSpec(
     public val name: String,
     public val defaultRetention: Retention = Retention.Permanent,
     public val areValuesLogged: Boolean = false,
+    public val readPolicy: KeyValueReadPolicy = KeyValueReadPolicy.Recover,
 ) {
     init {
         requireStorageName(name)
@@ -30,7 +42,9 @@ public data class KeyValueSpec(
  *
  * Bound to its owner's scope: closing the owner cancels in-flight operations and observations. Subsequent calls
  * (including collection of a previously created flow) fail with [IllegalStateException]. Reopening the profile
- * provides a new store; old references remain closed.
+ * provides a new store; old references remain closed. [KeyValueSpec.readPolicy] controls read failures: Strict
+ * propagates errors instead of returning null and never replaces a corrupted file. Decoding errors omit stored
+ * values and the original decoder message and cause.
  */
 public interface KeyValueStore {
     /** What this store is. */
@@ -99,7 +113,7 @@ public sealed interface StoreValueType<T : Any> {
     /** `Set<String>`. */
     public data object TextSet : StoreValueType<Set<String>>
 
-    /** Any `@Serializable` value, stored as JSON; an undecodable value reads as absent. */
+    /** Any `@Serializable` value, stored as JSON; decoding failures follow [KeyValueSpec.readPolicy]. */
     @Suppress("UseDataClass") // equal by the serial descriptor: serializer instances have no equality of their own
     public class Json<T : Any>(
         /** Serializer of the value. */

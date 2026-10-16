@@ -9,6 +9,8 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineEnabled
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityLevel
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSecurityPolicy
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiEnabled
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatEnabled
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
@@ -24,7 +26,45 @@ class ToggleStudioEntriesTest {
     private val enabled = MutableStateFlow(true)
     private val sessions = FakeSessions()
     private val searchEnabled = MutableStateFlow(false)
-    private val entries = ToggleStudioEntries(FakeToggles(enabled, searchEnabled), sessions, Unused, UnusedChecklists)
+    private val entries = ToggleStudioEntries(
+        FakeToggles(enabled, searchEnabled),
+        sessions,
+        Unused,
+        UnusedChecklists,
+        UnusedSecurity,
+    )
+
+    @Test
+    fun `guest and demo views never resolve profile security while native views follow its level`() = runTest {
+        val runtime = MutableStateFlow(true)
+        val levels = MutableStateFlow(StudioSecurityLevel.Trust)
+        var reads = 0
+        val security = lazy<StudioSecurityPolicy> {
+            reads += 1
+            object : StudioSecurityPolicy {
+                override val levels = levels
+                override suspend fun level() = levels.value
+            }
+        }
+        val gated = ToggleStudioEntries(
+            FakeToggles(enabled, searchEnabled, runtime = runtime),
+            sessions,
+            Unused,
+            UnusedChecklists,
+            security,
+        )
+        assertEquals(StudioSecurityLevel.Automatic, gated.securityLevels.first())
+        assertEquals(0, reads)
+        sessions.active.value = ProfileSession(ProfileId("p1"), UnusedGraph)
+        runtime.value = false
+        assertEquals(StudioSecurityLevel.Automatic, gated.securityLevels.first())
+        assertEquals(0, reads)
+        runtime.value = true
+        assertEquals(StudioSecurityLevel.Trust, gated.securityLevels.first())
+        levels.value = StudioSecurityLevel.Ask
+        assertEquals(StudioSecurityLevel.Ask, gated.securityLevels.first())
+        assertEquals(1, reads)
+    }
 
     @Test
     fun `research entry observes all prerequisites and disappears on disable`() = runTest {
@@ -36,6 +76,7 @@ class ToggleStudioEntriesTest {
             sessions,
             Unused,
             UnusedChecklists,
+            UnusedSecurity,
         )
         assertEquals(false, gated.showsResearch.first())
         sessions.active.value = ProfileSession(ProfileId("p1"), UnusedGraph)
@@ -59,6 +100,7 @@ class ToggleStudioEntriesTest {
             sessions,
             Unused,
             UnusedChecklists,
+            UnusedSecurity,
         )
         assertEquals(false, gated.showsOrganism.first())
         sessions.active.value = ProfileSession(ProfileId("p1"), UnusedGraph)
@@ -136,3 +178,5 @@ private object UnusedGraph : ProfileGraph {
 private val Unused = lazy<StudioQuestionBridge> { error("unused") }
 
 private val UnusedChecklists = lazy<StudioChecklists> { error("unused") }
+
+private val UnusedSecurity = lazy<StudioSecurityPolicy> { error("unused") }

@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.api.StudioChatEnvironment
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityLevel
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAttachmentPreviews
@@ -42,6 +43,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.FeedCollapseUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.HarnessChoicesUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.NativeAttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.SecurityLevelUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.StudioNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.afterNavigation
@@ -193,6 +195,11 @@ class AiStudioModel(
                 launch { embeddedScreens.observe(pipeline) }
                 launch {
                     entries.showsAttachments.collect { updateState { copy(isAttachmentsEnabled = it) } }
+                }
+                launch {
+                    entries.securityLevels.collect { level ->
+                        updateState { copy(securityLevel = level.toUi()) }
+                    }
                 }
                 launch { entries.showsRemember.collect { updateState { copy(isRememberEnabled = it) } } }
                 launch { compactions.availability.collect { updateState { copy(isCompactEnabled = it) } } }
@@ -740,4 +747,10 @@ sealed interface StudioAttachmentNavigation {
 
     /** Opens an existing file; optional export starts its native save dialog. */
     data class Preview(val id: String, val isExportRequested: Boolean = false) : StudioAttachmentNavigation
+}
+
+private fun StudioSecurityLevel.toUi(): SecurityLevelUi = when (this) {
+    StudioSecurityLevel.Ask -> SecurityLevelUi.Ask
+    StudioSecurityLevel.Automatic -> SecurityLevelUi.Automatic
+    StudioSecurityLevel.Trust -> SecurityLevelUi.Trust
 }

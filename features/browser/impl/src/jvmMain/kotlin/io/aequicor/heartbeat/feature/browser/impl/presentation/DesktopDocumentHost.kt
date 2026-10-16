@@ -12,10 +12,10 @@ import java.awt.geom.RoundRectangle2D
 import javax.swing.JPanel
 
 /**
- * Compose punches a rectangular hole for a heavyweight Swing view, including its surrounding surface at the corners.
- * The native page's mask exposes that hole. Restore only the missing backdrop outside the rounded page; the page
- * itself and its inner spacing remain untouched. The host supplies its opaque surrounding surface, with the
- * owning dialog's scrim already composited: translucent pixels have no Compose backing inside the interop hole.
+ * Paints the surrounding surface outside the rounded page into the window's Swing backing; the page itself and
+ * its inner spacing remain untouched. Documents keep their Compose backing (see nativeViewBacking), which covers
+ * this paint, so only a cleared interop hole would expose it. The host supplies its opaque surrounding surface,
+ * with the owning dialog's scrim already composited.
  */
 internal class DesktopDocumentHost : JPanel(BorderLayout()) {
     private var radius = 0.0

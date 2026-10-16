@@ -38,6 +38,7 @@ internal suspend fun ActiveSession.submitStudioPrompt(
     requestId: RequestId,
     compaction: ContextCompaction? = null,
     delivery: StudioPromptDelivery? = null,
+    decisionMode: AgentToolDecisionMode = AgentToolDecisionMode.AutomaticSafety,
     /** Model reviewing the turn's automatic safety decisions; null reviews on the turn's own model. */
     reviewTarget: EngineTarget? = null,
 ): TurnId {
@@ -49,7 +50,7 @@ internal suspend fun ActiveSession.submitStudioPrompt(
             emptyList(),
             trust = trust,
             compaction = supportedCompaction(compaction),
-            decisionMode = AgentToolDecisionMode.AutomaticSafety,
+            decisionMode = decisionMode,
             reviewTarget = reviewTarget,
         )
     } else {
@@ -60,7 +61,7 @@ internal suspend fun ActiveSession.submitStudioPrompt(
             },
             reasoningEffort = reasoningEffort,
             trust = trust,
-            decisionMode = AgentToolDecisionMode.AutomaticSafety,
+            decisionMode = decisionMode,
             reviewTarget = reviewTarget,
         )
     }

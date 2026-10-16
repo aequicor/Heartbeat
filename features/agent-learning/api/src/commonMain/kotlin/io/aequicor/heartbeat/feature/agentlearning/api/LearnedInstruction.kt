@@ -61,18 +61,22 @@ public data class LearnedInstruction(
     override fun toString(): String = "LearnedInstruction(id=${id.value}, kind=$kind, enabled=$isEnabled)"
 }
 
-/** How new instructions created by the agent are accepted. */
+/**
+ * Additional learning confirmation policy for hosts using interactive trust rules. The host may still require
+ * confirmation for this mutation regardless of this preference. Hosts using independent automatic safety review
+ * assess every instruction themselves, regardless of this policy or the authoring agent's safety rating.
+ */
 @Serializable
 public enum class LearningApproval {
     /** Every new instruction waits for the user's decision. */
     @SerialName("ask")
     Ask,
 
-    /** The agent rates each instruction: a safe one is saved at once, any other waits for the user. */
+    /** The agent's safe rating needs no additional learning confirmation; other instructions ask the user. */
     @SerialName("automatic")
     Automatic,
 
-    /** Every instruction is saved without asking. */
+    /** Learning requires no additional confirmation; the host's trust gate still applies. */
     @SerialName("accept_all")
     AcceptAll,
     ;

@@ -58,6 +58,7 @@ import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_lo
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_models
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_project_config
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_search
+import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_security
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_subagents
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_title
 import kotlinx.collections.immutable.persistentListOf
@@ -256,6 +257,7 @@ private fun BackButton(onBack: () -> Unit) {
 private fun sectionTitle(section: SettingsSectionUi): String = stringResource(
     when (section) {
         SettingsSectionUi.Models -> Res.string.settings_section_models
+        SettingsSectionUi.Security -> Res.string.settings_section_security
         SettingsSectionUi.Subagents -> Res.string.settings_section_subagents
         SettingsSectionUi.Search -> Res.string.settings_section_search
         SettingsSectionUi.ComputerUse -> Res.string.settings_section_computer_use
@@ -273,6 +275,7 @@ private fun sectionTitle(section: SettingsSectionUi): String = stringResource(
 
 private fun SettingsSectionUi.icon(): ImageVector = when (this) {
     SettingsSectionUi.Models -> HbIcons.Layers
+    SettingsSectionUi.Security -> HbIcons.Shield
     SettingsSectionUi.Subagents -> HbIcons.Users
     SettingsSectionUi.Search -> HbIcons.Search
     SettingsSectionUi.ComputerUse -> HbIcons.Layers

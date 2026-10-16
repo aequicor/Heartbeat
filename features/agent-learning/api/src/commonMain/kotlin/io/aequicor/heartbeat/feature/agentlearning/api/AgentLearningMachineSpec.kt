@@ -6,7 +6,7 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
 
 /**
  * Holds the profile's learned instructions and persists every change. The machine never runs tools or decides
- * approvals: the hosted tool asks the user first and sends only accepted instructions.
+ * approvals: the hosted tool obtains the host's authorization first and sends only accepted instructions.
  *
  * | From | Intent | Guard | To | Effect / output |
  * |---|---|---|---|---|

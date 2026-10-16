@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveSubagentsEnabled
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningEnabled
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
+import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.applogs.api.AppLogsEnabled
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeEnabled
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
@@ -69,12 +70,17 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
         ) { learning, harness, context, interfaces, (subagents, config, builds) ->
             ProfileSections(learning, harness, context, interfaces, subagents, config, builds)
         },
-        combine(sessions.active, toggles.observe(AppLogsEnabled)) { session, logs -> session to logs },
-    ) { connections, search, (computerUse, chromium), profile, (session, logs) ->
+        combine(
+            sessions.active,
+            toggles.observe(AppLogsEnabled),
+            toggles.observe(StudioEngineRuntime),
+        ) { session, logs, security -> Triple(session, logs, security) },
+    ) { connections, search, (computerUse, chromium), profile, (session, logs, security) ->
         availableSections(
             isModelsEnabled = connections,
             isSearchEnabled = search,
             hasProfile = session != null,
+            isSecurityEnabled = security,
             isComputerUseEnabled = computerUse,
             isChromiumBridgeEnabled = chromium,
             isLearningEnabled = profile.isLearning,

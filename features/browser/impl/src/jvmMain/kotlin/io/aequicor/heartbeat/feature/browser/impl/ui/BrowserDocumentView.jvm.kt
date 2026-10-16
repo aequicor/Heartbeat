@@ -88,8 +88,8 @@ private fun RetainedDocumentPanel(
     } else {
         0.0
     }
-    // SwingPanel clears the Compose backing under the entire native rectangle. Its masked corners
-    // need the final opaque backdrop: a translucent scrim alone composites over the empty black hole.
+    // The Swing host keeps its legacy corner backdrop; the kept Compose backing (see nativeViewBacking)
+    // draws above it, so its masked corners show the real dialog backdrop instead.
     val backdrop = if (modalDismiss != null) {
         HbTheme.colors.scrim.compositeOver(HbTheme.surfaces.assistant)
     } else {
@@ -109,7 +109,7 @@ private fun RetainedDocumentPanel(
     if (preparation != BrowserRuntimeUi.Ready) {
         BrowserRuntimeStatus(preparation, panel::retry, sized)
     } else {
-        // The panel's own background shows until the page paints: the surface color, not Swing's white.
+        // Compose keeps the surface color under the page until its native view paints, follows new bounds or hides.
         val name = surface.title.ifBlank { stringResource(Res.string.browser_document_page) }
         DocumentViewport(sized.onSizeChanged { viewportWidth = it.width }) {
             BrowserNativeView(

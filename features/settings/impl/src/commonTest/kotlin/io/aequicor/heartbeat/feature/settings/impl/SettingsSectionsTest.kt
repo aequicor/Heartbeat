@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.settings.impl
 
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveSubagentsRoute
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningRoute
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityRoute
 import io.aequicor.heartbeat.feature.applogs.api.AppLogsRoute
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeRoute
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRoute
@@ -36,6 +37,7 @@ class SettingsSectionsTest {
                 isModelsEnabled = true,
                 isSearchEnabled = true,
                 hasProfile = true,
+                isSecurityEnabled = true,
                 isComputerUseEnabled = true,
                 isChromiumBridgeEnabled = true,
                 isLearningEnabled = true,
@@ -164,6 +166,18 @@ class SettingsSectionsTest {
         }
         assertEquals(ContextOptimizationRoute(isEmbedded = true), SettingsSection.Context.route())
         assertEquals("context", SettingsSection.Context.deepLinkName)
+    }
+
+    @Test
+    fun `security requires studio runtime and a profile and opens embedded`() {
+        for (enabled in listOf(false, true)) {
+            for (profile in listOf(false, true)) {
+                val sections = availableSections(false, false, profile, isSecurityEnabled = enabled)
+                assertEquals(enabled && profile, SettingsSection.Security in sections)
+            }
+        }
+        assertEquals(StudioSecurityRoute(isEmbedded = true), SettingsSection.Security.route())
+        assertEquals(SettingsSection.Security, settingsSectionOf("security"))
     }
 
     private val allUi = all.map { it.toUi() }

@@ -8,6 +8,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(projects.features.settings.api)
+            implementation(projects.features.aiStudio.api)
             implementation(projects.features.appLogs.api)
             implementation(projects.core.common)
             implementation(projects.features.togglesPanel.api)

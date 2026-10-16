@@ -7,6 +7,8 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolDecisionMode
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextCompaction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
@@ -24,13 +26,17 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityLevel
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSecurityPolicy
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.HANDOFF_REQUEST_PREFIX
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
+import io.aequicor.heartbeat.feature.scheduler.api.ActionId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperModelOptions
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -49,6 +55,118 @@ import kotlin.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioConfiguredSubmissionTest {
+    @Test
+    fun `automatic safety stays the default for ordinary user prompts`() = runTest {
+        val fixture = SubmissionFixture(this)
+
+        fixture.submit("ordinary")
+
+        val request = fixture.session.requests.single()
+        assertEquals(AgentToolDecisionMode.AutomaticSafety, request.decisionMode)
+        assertEquals(TrustLevel.AutoEdits, request.trust)
+        assertEquals(1, fixture.securityReads)
+    }
+
+    @Test
+    fun `each user prompt snapshots the current profile level instead of saved chat trust`() = runTest {
+        val fixture = SubmissionFixture(this)
+        fixture.security.value = StudioSecurityLevel.Ask
+        fixture.submit("ask")
+        runCurrent()
+        fixture.security.value = StudioSecurityLevel.Trust
+        fixture.submit("trust")
+        runCurrent()
+        fixture.security.value = StudioSecurityLevel.Automatic
+        fixture.submit("review")
+
+        assertEquals(
+            listOf(TrustLevel.Ask, TrustLevel.Full, TrustLevel.Full),
+            fixture.session.requests.map { it.trust },
+        )
+        assertEquals(
+            listOf(
+                AgentToolDecisionMode.Interactive,
+                AgentToolDecisionMode.Interactive,
+                AgentToolDecisionMode.AutomaticSafety,
+            ),
+            fixture.session.requests.map { it.decisionMode },
+        )
+        assertEquals(3, fixture.securityReads)
+    }
+
+    @Test
+    fun `interactive profile levels leave trust unset for engines without native trust support`() = runTest {
+        val fixture = SubmissionFixture(this, isTrustSupported = false)
+        fixture.security.value = StudioSecurityLevel.Ask
+        fixture.submit("unsupported-ask")
+        fixture.security.value = StudioSecurityLevel.Trust
+        fixture.submit("unsupported-trust")
+
+        assertEquals(listOf(null, null), fixture.session.requests.map { it.trust })
+        assertTrue(fixture.session.requests.all { it.decisionMode == AgentToolDecisionMode.Interactive })
+    }
+
+    @Test
+    fun `full profile trust does not replace host jobs or compaction or handoff policy`() = runTest {
+        val fixture = SubmissionFixture(this)
+        fixture.security.value = StudioSecurityLevel.Trust
+
+        fixture.submit("scheduled", isUserPrompt = false)
+        fixture.submit("compact", compaction = ContextCompaction())
+        fixture.submit("${HANDOFF_REQUEST_PREFIX}1")
+
+        assertEquals(
+            listOf(TrustLevel.AutoEdits, TrustLevel.AutoEdits, TrustLevel.Ask),
+            fixture.session.requests.map { it.trust },
+        )
+        assertTrue(fixture.session.requests.all { it.decisionMode == AgentToolDecisionMode.AutomaticSafety })
+        assertEquals(0, fixture.securityReads)
+    }
+
+    @Test
+    fun `full profile trust never raises the ceiling of a helper user prompt`() = runTest {
+        val fixture = SubmissionFixture(this)
+        fixture.security.value = StudioSecurityLevel.Trust
+        fixture.access.records["chat"] = fixture.access.records.getValue("chat").copy(
+            helper = StudioHelperIdentity(ActionId("owner"), null, null, TrustLevel.Ask),
+        )
+
+        fixture.submit("helper-user-message")
+
+        val request = fixture.session.requests.single()
+        assertEquals(TrustLevel.Ask, request.trust)
+        assertEquals(AgentToolDecisionMode.AutomaticSafety, request.decisionMode)
+        assertEquals(0, fixture.securityReads)
+    }
+
+    @Test
+    fun `helper turns retain parent review and automatic policy under full profile trust`() = runTest {
+        val fixture = SubmissionFixture(this)
+        fixture.security.value = StudioSecurityLevel.Trust
+        val parent = fixture.configuration.target.copy(model = ModelId("parent"))
+        fixture.access.records["chat"] = fixture.access.records.getValue("chat").copy(
+            helper = StudioHelperIdentity(
+                ActionId("owner"),
+                null,
+                null,
+                TrustLevel.Ask,
+                HelperModelOptions(reviewTarget = parent),
+            ),
+        )
+
+        fixture.submit("helper-user-message")
+        fixture.submit("helper-host-message", isUserPrompt = false)
+        fixture.submit("helper-compact", compaction = ContextCompaction())
+
+        assertEquals(3, fixture.session.requests.size)
+        fixture.session.requests.forEach { request ->
+            assertEquals(parent, request.reviewTarget)
+            assertEquals(AgentToolDecisionMode.AutomaticSafety, request.decisionMode)
+            assertEquals(TrustLevel.Ask, request.trust)
+        }
+        assertEquals(0, fixture.securityReads)
+    }
+
     @Test
     fun `a compaction keeps the chat's trust which the engine then reports back unchanged`() = runTest {
         val fixture = SubmissionFixture(this)
@@ -152,12 +270,14 @@ class StudioConfiguredSubmissionTest {
     private fun PromptRequest.text(): String = parts.filterIsInstance<ContentPart.Text>().joinToString { it.text }
 }
 
-private class SubmissionFixture(test: TestScope) {
+private class SubmissionFixture(test: TestScope, private val isTrustSupported: Boolean = true) {
     val configuration = StudioConfigurationFixture(test)
     private val target: EngineTarget = configuration.target
     val access = configuration.access
     val native = ConfigurationNative(configuration.initial.copy(trust = TrustLevel.AutoEdits))
-    val session = SubmissionSession(target, native)
+    val session = SubmissionSession(target, native, isTrustSupported)
+    val security = MutableStateFlow(StudioSecurityLevel.Automatic)
+    var securityReads = 0
     private val submission = StudioConfiguredSubmission(
         configuration.controller,
         StudioLearningPrompts(LearningOff, UnconfinedDispatchers),
@@ -166,6 +286,13 @@ private class SubmissionFixture(test: TestScope) {
             override val state = MutableStateFlow<EffortConfigurationState>(EffortConfigurationState.Ready())
         },
         StudioRequestOrigins(lazyOf(emptySet())),
+        object : StudioSecurityPolicy {
+            override val levels = security
+            override suspend fun level(): StudioSecurityLevel {
+                securityReads += 1
+                return security.value
+            }
+        },
     )
 
     init {
@@ -179,27 +306,34 @@ private class SubmissionFixture(test: TestScope) {
         )
     }
 
-    suspend fun submit(request: String, compaction: ContextCompaction? = null): TurnId = submission.submit(
-        access,
-        session,
-        target,
-        StudioTurnRequest(
-            "chat",
-            prompt = if (compaction == null) "Hello" else "",
-            settings = DefaultRunSettings,
-            kind = WorktreeRunKind.Coding,
-            request = RequestId(request),
-            compaction = compaction,
-        ),
-        { listOf(StudioModel(target.studioModelId(), "Model", isTrustSupported = true)) },
-        { access.states },
-    )
+    suspend fun submit(request: String, compaction: ContextCompaction? = null, isUserPrompt: Boolean = true): TurnId =
+        submission.submit(
+            access,
+            session,
+            target,
+            StudioTurnRequest(
+                "chat",
+                prompt = if (compaction == null) "Hello" else "",
+                settings = DefaultRunSettings,
+                kind = WorktreeRunKind.Coding,
+                request = RequestId(request),
+                compaction = compaction,
+                isUserPrompt = isUserPrompt,
+            ),
+            { listOf(StudioModel(target.studioModelId(), "Model", isTrustSupported = isTrustSupported)) },
+            { access.states },
+        )
 
     fun storedApproval(): ApprovalMode? = access.records.getValue("chat").configuration?.approval
 }
 
 /** Publishes the trust of every accepted turn as its configuration, the way Pi does after acceptance. */
-private class SubmissionSession(target: EngineTarget, private val native: ConfigurationNative) : ActiveSession {
+private class SubmissionSession(
+    target: EngineTarget,
+    private val native: ConfigurationNative,
+    isTrustSupported: Boolean,
+) : ActiveSession {
+    private val trust = (object : AppliesTrustLevels {}).takeIf { isTrustSupported }
     val requests = mutableListOf<PromptRequest>()
     override val ref = SessionRef(target.engine, SessionSourceId("source"), "native")
     override val route = ExecutionRoute(target.engine, target.binding, AuthSourceId("auth"), AuthRevision.Known("1"))
@@ -213,7 +347,7 @@ private class SubmissionSession(target: EngineTarget, private val native: Config
     }
     override val features = object : EngineFeatures {
         override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> =
-            listOf(prompts, native).firstNotNullOfOrNull { key.type.safeCast(it) }
+            listOfNotNull(prompts, native, trust).firstNotNullOfOrNull { key.type.safeCast(it) }
                 ?.let { FeatureAccess.Available(it) } ?: FeatureAccess.Unsupported
     }
 

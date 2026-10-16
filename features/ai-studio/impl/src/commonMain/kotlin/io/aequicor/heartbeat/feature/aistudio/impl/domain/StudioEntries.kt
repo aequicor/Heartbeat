@@ -1,10 +1,14 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.domain
 
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSecurityLevel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
 /** Optional entry points offered by the studio. */
 interface StudioEntries {
+    /** Profile confirmation level shown for ordinary native chats. */
+    val securityLevels: Flow<StudioSecurityLevel> get() = flowOf(StudioSecurityLevel.Automatic)
+
     /** Whether new attachment input is available in this profile. */
     val showsAttachments: Flow<Boolean> get() = flowOf(false)
 

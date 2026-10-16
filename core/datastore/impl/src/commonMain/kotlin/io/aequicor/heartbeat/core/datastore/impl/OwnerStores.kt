@@ -33,6 +33,7 @@ internal class OwnerStores(
 
     override fun keyValue(spec: KeyValueSpec): KeyValueStore = openGate.open {
         checkOpen()
+        registry.checkKeyValueReadPolicy(owner, spec)
         val store = keyValues.getOrPut(spec.name) { registry.openKeyValue(owner, spec, scope) }
         check(store.spec == spec) { "${owner.label}: kv ${spec.name} is already open as ${store.spec}, not $spec" }
         checkStillOpen()
