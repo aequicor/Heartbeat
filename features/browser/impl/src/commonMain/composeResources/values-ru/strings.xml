@@ -47,4 +47,8 @@
     <string name="browser_runtime_invalid">Не удалось проверить скачанные компоненты браузера. Повторите загрузку.</string>
     <string name="browser_runtime_unavailable">Не удалось запустить браузер. Повторите попытку.</string>
     <string name="browser_runtime_retry">Повторить</string>
+    <string name="browser_zoom">Масштаб страницы: %1$d%%</string>
+    <string name="browser_zoom_in">Увеличить</string>
+    <string name="browser_zoom_out">Уменьшить</string>
+    <string name="browser_zoom_reset">Сбросить</string>
 </resources>

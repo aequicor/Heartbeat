@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserPage
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserTab
+import io.aequicor.heartbeat.feature.browser.api.BrowserZoom
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
@@ -31,8 +32,11 @@ internal interface BrowserSession {
     /** Applies the live page zoom toggle; a disabled zoom shows every page at its default level. */
     suspend fun setZoomEnabled(isEnabled: Boolean): Unit = Unit
 
-    /** Sets [percent] for the site of tab [tabId] (the selected one when null), on all its tabs and future visits. */
-    suspend fun zoom(tabId: String?, percent: Int): Unit = Unit
+    /**
+     * Applies [direction] to the latest site level in command order, updating all its tabs and future visits.
+     * [url] binds the expected host before waiting for IO; a navigated or closed target is ignored.
+     */
+    suspend fun zoom(tabId: String?, direction: BrowserZoom, url: String? = null): Unit = Unit
 
     val pages: Flow<BrowserPage>
     suspend fun setEnabled(isEnabled: Boolean)

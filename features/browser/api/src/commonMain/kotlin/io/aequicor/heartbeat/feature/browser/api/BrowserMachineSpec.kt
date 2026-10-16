@@ -19,9 +19,10 @@ import kotlin.coroutines.cancellation.CancellationException
  * contents are retained in machine state. Running + ObserverFailed -> stay disabled and hidden
  * [Reobserve]; the effect already revoked the session. Running + Failed -> stay with
  * EngineUnavailable. Disabled navigation and duplicate Start are ignored.
- * Running + ZoomAvailabilityChanged -> stay with isZoomEnabled. Enabled + Zoom (zoom enabled, HTTP/S page, level
- * changes) -> stay with the page at [browserZoomStep]'s level [Zoom(selected tab, level)]; a zoom that changes
- * nothing (the last preset, a reset at 100 %) is ignored. The page's level comes back with PageChanged.
+ * Running + ZoomAvailabilityChanged -> stay with isZoomEnabled. Enabled + Zoom (zoom enabled, HTTP/S page)
+ * -> stay [Zoom(selected tab, direction, URL)]. The session serializes commands against the latest saved level;
+ * bounds and no-op resets are resolved there because earlier commands may still be pending. PageChanged supplies
+ * the confirmed level; accepting input never projects an optimistic percentage.
  *
  * ```mermaid
  * stateDiagram-v2
@@ -148,9 +149,10 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
             on<BrowserIntent.Internal.ZoomAvailabilityChanged> {
                 stay { state.copy(isZoomEnabled = intent.isEnabled) }
             }
-            on<BrowserIntent.Public.Zoom>(guard = { state.zoomed(intent.zoom) != null }) {
-                stay { state.copy(page = state.page.copy(zoomPercent = requireNotNull(state.zoomed(intent.zoom)))) }
-                effect { BrowserEffect.Zoom(state.selectedTabId, requireNotNull(state.zoomed(intent.zoom))) }
+            on<BrowserIntent.Public.Zoom>(
+                guard = { state.isEnabled && state.isZoomEnabled && isBrowserUrlAllowed(state.page.url) },
+            ) {
+                effect { BrowserEffect.Zoom(state.selectedTabId, intent.zoom, state.page.url) }
             }
             on<BrowserIntent.Internal.PageChanged>(
                 guard = {
@@ -205,12 +207,6 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
             }
         }
     }
-
-/** The level [zoom] moves the current page to, or null when the page cannot be zoomed or would not change. */
-private fun BrowserState.Running.zoomed(zoom: BrowserZoom): Int? {
-    if (!isEnabled || !isZoomEnabled || !isBrowserUrlAllowed(page.url)) return null
-    return browserZoomStep(page.zoomPercent, zoom).takeIf { it != page.zoomPercent }
-}
 
 /** Revoked availability hides the surface and drops transient native state, keeping the address. */
 private fun BrowserState.Running.disabled(): BrowserState.Running = copy(

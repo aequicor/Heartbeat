@@ -47,4 +47,8 @@
     <string name="browser_runtime_invalid">The downloaded browser components could not be verified. Retry the download.</string>
     <string name="browser_runtime_unavailable">The browser could not start. Try again.</string>
     <string name="browser_runtime_retry">Retry</string>
+    <string name="browser_zoom">Page zoom: %1$d%%</string>
+    <string name="browser_zoom_in">Zoom in</string>
+    <string name="browser_zoom_out">Zoom out</string>
+    <string name="browser_zoom_reset">Reset</string>
 </resources>
