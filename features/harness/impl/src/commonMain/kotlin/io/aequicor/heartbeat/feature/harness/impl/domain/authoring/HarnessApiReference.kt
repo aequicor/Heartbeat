@@ -132,12 +132,14 @@ private val API = """
     - commands.define(ItemName("test"), ScriptCommand(program, arguments, parameters, timeout)) during evaluation;
       commands.run(ItemName("test"), call.workspace, mapOf("filter" to value)): ScriptCommandResult (Desktop).
       The program and arguments are fixed in this source; an argument that is exactly {name} takes parameter
-      name, whose value must fully match its Regex. No shell parses the words; relative programs run from the
+      name, whose value must fully match its Regex. Words are not expanded or split; on Windows values with
+      & | < > ^ % ! ( ) " or line breaks are refused (batch files parse them again). Relative programs run from the
       project directory (./gradlew; on Windows .\gradlew.bat). Results: Exited(exitCode, output) — a non-zero
       code is ordinary —, TimedOut(output) or Refused(reason: Disabled, Unsupported, NoProject, OutsideScope,
       NotDefined, InvalidParameter, Busy). Output keeps the head and tail of stdout and stderr. Timeout
       ≤ ${HarnessLimits.COMMAND_TIMEOUT}, ≤ ${HarnessLimits.COMMANDS} commands, ${HarnessLimits.COMMAND_RUNS} runs at once per harness;
-      hooks cannot run commands. The safety review of this script is the only check: button presses (native or
+      hooks cannot run commands. Pass the trusted call.workspace, never a WorkspaceRef built from input; keep
+      parameter patterns simple anchored character classes. The safety review of this script is the only check: button presses (native or
       WebView heartbeat.call), timers and events then run the declared commands with no agent turn, review or
       confirmation, so a mini-app keeps working while no agent is available. A UI method waits at most its
       budget: start longer commands in script.scope.launch { } and save the outcome in data. Never use
