@@ -2,11 +2,16 @@ package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.network.NetworkException
+import io.aequicor.heartbeat.core.network.networkResult
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthScope
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibleProtocol
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
@@ -16,7 +21,6 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.CancellationException
-import kotlinx.io.IOException
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -34,7 +38,9 @@ internal data class PiCompatibleModel(val id: String, val name: String?)
 
 /**
  * Lists models of an OpenAI-/Anthropic-compatible server (`GET <base>/models`, Anthropic `<base>/v1/models`).
- * Pi requires custom providers to name their models, so the list is fetched before each process start.
+ * Pi requires custom providers to name their models. Discovery requires a fresh list; session startup may
+ * declare only its already selected model when the catalog is temporarily unavailable. The subsequent model
+ * request still authenticates with the same server and must succeed before a safety review can allow anything.
  * Redirects are never followed with the key.
  */
 @Inject
@@ -42,6 +48,37 @@ internal class PiCompatibleCatalog(private val httpClient: HttpClient) {
     private val log = Log.tag("PiCompatibleCatalog")
 
     suspend fun models(
+        protocol: CompatibleProtocol,
+        scope: AuthScope,
+        key: String,
+        source: AuthSourceId,
+        selectedModel: ModelId? = null,
+    ): List<PiCompatibleModel> {
+        val selected = selectedModel?.let { model ->
+            val prefix = scope.provider.value + "/"
+            if (!model.value.startsWith(prefix) || model.value.removePrefix(prefix).isBlank()) {
+                piFailure(EngineFailure.Access(AccessFailureReason.ModelAccessDenied))
+            }
+            PiCompatibleModel(model.value.removePrefix(prefix), null)
+        }
+        return try {
+            discover(protocol, scope, key, source)
+        } catch (e: EngineException) {
+            val reason = (e.failure as? EngineFailure.Transport)?.reason
+            if (selected == null || reason !in setOf(
+                    TransportFailureReason.NetworkUnavailable,
+                    TransportFailureReason.ServiceUnavailable,
+                    TransportFailureReason.Timeout,
+                )
+            ) {
+                throw e
+            }
+            log.w(e) { "Compatible catalog unavailable; declaring only the selected session model" }
+            listOf(selected)
+        }
+    }
+
+    private suspend fun discover(
         protocol: CompatibleProtocol,
         scope: AuthScope,
         key: String,
@@ -54,27 +91,39 @@ internal class PiCompatibleCatalog(private val httpClient: HttpClient) {
             CompatibleProtocol.Anthropic -> "$base/v1/models"
         }
         log.i { "Listing models of a ${protocol.name}-compatible server" }
-        val client = httpClient.config { followRedirects = false }
+        val client = httpClient.config {
+            followRedirects = false
+            // Handle statuses here, before Ktor buffers an error body into ResponseException.
+            expectSuccess = false
+        }
         val text = try {
-            client.use {
-                val response = it.get(url) {
-                    when (protocol) {
-                        CompatibleProtocol.OpenAI -> header(HttpHeaders.Authorization, "Bearer $key")
+            networkResult {
+                client.use {
+                    val response = it.get(url) {
+                        when (protocol) {
+                            CompatibleProtocol.OpenAI -> header(HttpHeaders.Authorization, "Bearer $key")
 
-                        CompatibleProtocol.Anthropic -> {
-                            header("x-api-key", key)
-                            header("anthropic-version", ANTHROPIC_VERSION)
+                            CompatibleProtocol.Anthropic -> {
+                                header("x-api-key", key)
+                                header("anthropic-version", ANTHROPIC_VERSION)
+                            }
                         }
                     }
+                    checkStatus(response.status, source)
+                    response.bodyAsText()
                 }
-                checkStatus(response.status, source)
-                response.bodyAsText()
+            }.getOrElse { e ->
+                log.w(e) { "Compatible model catalog request failed" }
+                val reason = when (e) {
+                    is NetworkException.Timeout -> TransportFailureReason.Timeout
+                    is NetworkException.Connectivity -> TransportFailureReason.NetworkUnavailable
+                    is NetworkException.InvalidResponse -> TransportFailureReason.ProtocolViolation
+                    else -> throw e
+                }
+                piFailure(EngineFailure.Transport(reason))
             }
         } catch (e: CancellationException) {
             throw e
-        } catch (e: IOException) {
-            log.w(e) { "Compatible server is unreachable" }
-            piFailure(EngineFailure.Transport(TransportFailureReason.NetworkUnavailable))
         } catch (e: IllegalArgumentException) {
             // Unresolvable hosts surface as UnresolvedAddressException, an IllegalArgumentException on the JVM.
             log.w(e) { "Compatible server is unreachable" }
@@ -98,7 +147,12 @@ private fun checkStatus(status: HttpStatusCode, source: AuthSourceId) {
     if (status == HttpStatusCode.Unauthorized || status == HttpStatusCode.Forbidden) {
         authenticationFailure(AuthFailureReason.NotAuthenticated, source)
     }
-    piFailure(EngineFailure.Transport(TransportFailureReason.ServiceUnavailable))
+    val reason = if (status.value >= 500 || status == HttpStatusCode.TooManyRequests) {
+        TransportFailureReason.ServiceUnavailable
+    } else {
+        TransportFailureReason.ProtocolViolation
+    }
+    piFailure(EngineFailure.Transport(reason))
 }
 
 /** Both protocols answer `{"data":[{"id":…}]}`; Anthropic adds `display_name`. */

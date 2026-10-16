@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePreparationFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
@@ -176,7 +177,7 @@ internal class PiProcessLauncher(
     ): PiConnection {
         val startup = prepare()
         // Fetched before the non-cancellable launch so a slow compatible server stays cancellable.
-        val modelsJson = modelsJson(source)
+        val modelsJson = modelsJson(source, plan?.selectedModel)
         return launch(source, workspace, modelsJson, event, failed, plan ?: discoveryPlan(), startup)
     }
 
@@ -187,13 +188,13 @@ internal class PiProcessLauncher(
     )
 
     /** Custom model declarations or a fixed vendor endpoint; otherwise Pi uses its native catalog. */
-    private suspend fun modelsJson(source: AuthSource.ManagedKey): String? {
+    private suspend fun modelsJson(source: AuthSource.ManagedKey, selectedModel: ModelId?): String? {
         val provider = provider(source) ?: authenticationFailure(AuthFailureReason.AuthMismatch, source.info.id)
         val protocol = provider.compatible ?: return piVendorModelsJson(provider)
         val secret = withContext(dispatchers.io) { secrets.read(SecretKey(source.secret.value)) }
             ?: authenticationFailure(AuthFailureReason.NotAuthenticated, source.info.id)
         val key = secret.use { it.reveal { chars -> String(chars) } }
-        val models = catalog.models(protocol, source.scope, key, source.info.id)
+        val models = catalog.models(protocol, source.scope, key, source.info.id, selectedModel)
         val known = builtinCatalog()
         val inherited = piBuiltinModelsAt(known, protocol.piApi(), piCompatibleBaseUrl(protocol, source.scope))
         log.d { "Compatible route inherits Pi catalog metadata for ${models.count { it.id in inherited }} models" }

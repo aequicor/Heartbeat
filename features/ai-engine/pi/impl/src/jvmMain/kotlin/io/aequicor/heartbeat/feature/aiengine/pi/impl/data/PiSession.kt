@@ -449,7 +449,7 @@ internal class PiSession(
 
     private suspend fun open(factory: PiConnector, emptySessionId: String? = null): PiConnection =
         processLifetime.open(factory) {
-            val plan = toolPlans.launch().copy(emptySessionId = emptySessionId)
+            val plan = toolPlans.launch().copy(emptySessionId = emptySessionId, selectedModel = target.model)
             ensureOpen()
             if (nativeRef != null) turnJournal.restoreForOpening()
             ensureOpen()

@@ -207,6 +207,7 @@ class PiToolPlanTest {
         assertEquals(original, fixture.session.ref)
         assertEquals(original.nativeId, replacement.sessionId)
         assertEquals("reviewer", replacement.model)
+        assertEquals(ModelId("anthropic/reviewer"), replacement.plan?.selectedModel)
         assertEquals("high", replacement.thinkingLevel)
         assertEquals(1, fixture.connection.stopRequests)
         assertFalse("prompt" in fixture.connection.commands)
@@ -219,6 +220,7 @@ class PiToolPlanTest {
 
         val recovered = fixture.connections.last()
         assertEquals(3, fixture.connections.size)
+        assertEquals(ModelId("anthropic/reviewer"), recovered.plan?.selectedModel)
         val switch = recovered.fields[recovered.commands.indexOf("switch_session")]
         assertEquals("replacement.jsonl", switch.string("sessionPath"))
         assertEquals(original, fixture.session.ref)
