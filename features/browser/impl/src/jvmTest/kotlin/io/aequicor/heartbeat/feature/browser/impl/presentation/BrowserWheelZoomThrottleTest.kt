@@ -8,12 +8,21 @@ class BrowserWheelZoomThrottleTest {
     fun `listener steps delayed by IPC jitter are still accepted`() {
         var now = 0L
         val throttle = BrowserWheelZoomThrottle { now }
-        // Steps sent 80 ms apart by the listener; the first is delivered 25 ms late, the second on time.
-        val accepted = listOf(25L, 80L, 160L).map { millis ->
+        // Steps sent 80 ms apart by the listener; the first is delivered 30 ms late, the second on time.
+        val accepted = listOf(30L, 80L, 160L).map { millis ->
             now = millis * 1_000_000
             throttle.tryAcquire()
         }
         assertEquals(listOf(true, true, true), accepted)
+    }
+
+    @Test
+    fun `delivery jitter beyond the margin drops the later step`() {
+        var now = 31_000_000L
+        val throttle = BrowserWheelZoomThrottle { now }
+        assertEquals(true, throttle.tryAcquire())
+        now = 80_000_000L
+        assertEquals(false, throttle.tryAcquire())
     }
 
     @Test

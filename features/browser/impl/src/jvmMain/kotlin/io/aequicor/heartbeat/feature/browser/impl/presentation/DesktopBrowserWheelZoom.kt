@@ -61,7 +61,8 @@ internal class DesktopBrowserWheelZoom(
 
 /**
  * Accepts one step per [HOST_ZOOM_INTERVAL_MS] on a monotonic clock; CEF calls it on its UI thread. The bound is
- * below the listener's [WHEEL_ZOOM_INTERVAL_MS], so IPC jitter never drops a step the trusted listener already took.
+ * below the listener's [WHEEL_ZOOM_INTERVAL_MS], so consecutive listener steps tolerate up to 30 ms of delivery
+ * jitter; a step from another frame of the tab sooner than the bound is still dropped.
  */
 internal class BrowserWheelZoomThrottle(private val nanoTime: () -> Long = System::nanoTime) {
     private var lastAccepted: Long? = null
