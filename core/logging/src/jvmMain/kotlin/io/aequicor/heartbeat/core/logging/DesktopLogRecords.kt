@@ -1,9 +1,13 @@
 package io.aequicor.heartbeat.core.logging
 
+import java.io.BufferedReader
+import java.io.InputStreamReader
 import java.io.Writer
+import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
 import java.nio.channels.OverlappingFileLockException
+import java.nio.charset.CodingErrorAction
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
@@ -60,6 +64,15 @@ internal fun logFiles(directory: Path): List<Path> = Files.list(directory).use {
         .toList()
 }
 
+/** Replaces damaged UTF-8 bytes, including a truncated crash tail, with U+FFFD; IO failures still propagate. */
+internal fun openLogReader(file: Path): BufferedReader {
+    val decoder = Charsets.UTF_8.newDecoder()
+        .onMalformedInput(CodingErrorAction.REPLACE)
+        .onUnmappableCharacter(CodingErrorAction.REPLACE)
+        .replaceWith("\uFFFD")
+    return InputStreamReader(Files.newInputStream(file), decoder).buffered()
+}
+
 /** Streams one line at a time; a timestamped header owns all following throwable lines. */
 internal fun copyLogRecords(
     file: Path,
@@ -70,7 +83,7 @@ internal fun copyLogRecords(
 ): Boolean {
     var isRecordIncluded = false
     var hasRecords = false
-    Files.newBufferedReader(file, Charsets.UTF_8).use { reader ->
+    openLogReader(file).use { reader ->
         reader.lineSequence().forEach { line ->
             recordTime(line)?.let { timestamp ->
                 isRecordIncluded = timestamp >= from && timestamp <= through
@@ -98,7 +111,10 @@ internal fun recordTime(line: String): Instant? {
     )
 }
 
-/** Rewrites only unlocked JUL streams. Each live sink closes its own stream during maintenance. */
+/**
+ * Prunes and repairs only unlocked JUL streams. Each live sink closes its own stream during maintenance.
+ * A missing final newline is restored before reopening the writer so the next record starts separately.
+ */
 internal fun pruneLogRecords(directory: Path, cutoff: Instant) {
     logFiles(
         directory,
@@ -123,10 +139,13 @@ private fun tryJulLock(channel: FileChannel): Result<FileLock?> = try {
 }
 
 private fun pruneLogFile(file: Path, cutoff: Instant) {
-    val hasExpiredRecords = Files.newBufferedReader(file, Charsets.UTF_8).use { reader ->
+    val hasExpiredRecords = openLogReader(file).use { reader ->
         reader.lineSequence().any { line -> recordTime(line)?.isBefore(cutoff) == true }
     }
-    if (!hasExpiredRecords) return
+    if (!hasExpiredRecords) {
+        finishLogLine(file)
+        return
+    }
     val temporary = Files.createTempFile(file.parent, ".heartbeat-prune-", ".tmp")
     try {
         val hasRecords = Files.newBufferedWriter(temporary, Charsets.UTF_8).use { writer ->
@@ -140,4 +159,18 @@ private fun pruneLogFile(file: Path, cutoff: Instant) {
     } finally {
         Files.deleteIfExists(temporary)
     }
+}
+
+/** Called while holding the stream's JUL lock; only the absent final LF is appended. */
+private fun finishLogLine(file: Path) {
+    val isTerminated = FileChannel.open(file, StandardOpenOption.READ).use { channel ->
+        val size = channel.size()
+        if (size == 0L) {
+            true
+        } else {
+            val lastByte = ByteBuffer.allocate(1)
+            channel.read(lastByte, size - 1) == 1 && lastByte.get(0) == '\n'.code.toByte()
+        }
+    }
+    if (!isTerminated) Files.write(file, byteArrayOf('\n'.code.toByte()), StandardOpenOption.APPEND)
 }

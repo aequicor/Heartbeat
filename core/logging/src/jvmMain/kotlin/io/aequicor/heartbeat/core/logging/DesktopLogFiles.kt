@@ -14,6 +14,7 @@ import java.util.zip.ZipOutputStream
  * Blocking desktop diagnostics IO; callers must use their IO dispatcher. Exports include only recognized
  * Heartbeat logs, redact legacy content again and preserve complete throwable records. The ten-minute
  * window includes both endpoints. Archives stream retained records without loading all files into memory.
+ * Damaged UTF-8 bytes are replaced with U+FFFD without discarding surrounding records.
  * Active legacy writers are never modified; their expired records are still excluded from exports.
  */
 public class DesktopLogFiles(
@@ -68,7 +69,7 @@ public class DesktopLogFiles(
             time?.let { records.add(TimedLogRecord(it, text.toString())) }
             text.clear()
         }
-        Files.newBufferedReader(file, Charsets.UTF_8).use { reader ->
+        openLogReader(file).use { reader ->
             reader.lineSequence().forEach { line ->
                 recordTime(line)?.let { timestamp ->
                     completeRecord()

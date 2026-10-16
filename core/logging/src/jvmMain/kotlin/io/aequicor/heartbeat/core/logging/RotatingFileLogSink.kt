@@ -18,6 +18,7 @@ import java.util.logging.LogRecord
  * JUL's unique `%u` suffix and file lock separate parallel app launches. Messages and rendered throwable
  * stacks are redacted before reaching the handler. Expired records are removed at startup and once per
  * minute, including in idle processes; file modification times never determine record retention.
+ * Truncated UTF-8 tails remain readable, and incomplete final lines are terminated before appending.
  * IO failures are reported through JUL's ErrorManager without recursing through the project logger.
  */
 public class RotatingFileLogSink internal constructor(
