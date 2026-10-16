@@ -47,6 +47,7 @@ internal fun NavigationExample(modifier: Modifier = Modifier) {
         }
         GroupMenuExample()
         MultiSelectExample()
+        PopoverExample()
         HbColumn(Modifier.widthIn(max = HbTheme.dimensions.sidebarWidth).fillMaxWidth(), gap = HbTheme.spacing.xxs) {
             HbNavigationHeader(
                 title = hbString(HbString.Projects),
