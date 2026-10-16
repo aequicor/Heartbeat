@@ -28,6 +28,8 @@ data class HbColors(
     /** Semantic keyboard focus accent; scoped surfaces may match their attention accent. */
     val focusAccent: Color = if (isDark) Color(0xFFC2B4EE) else Color(0xFF6947A3),
 ) {
+    /** Red error text and icons on neutral surfaces and inputs, with AA text contrast in every host preset. */
+    val errorForeground: Color = if (isDark) Color(0xFFFFB4AB) else Color(0xFF9C2733)
     val textSecondary: Color = textPrimary.copy(alpha = 0.72f).compositeOver(surface)
     val syntaxKeyword: Color = if (isDark) Color(0xFFDDD2F4) else Color(0xFF654D92)
     val syntaxString: Color = if (isDark) Color(0xFFB4D8C2) else Color(0xFF356953)

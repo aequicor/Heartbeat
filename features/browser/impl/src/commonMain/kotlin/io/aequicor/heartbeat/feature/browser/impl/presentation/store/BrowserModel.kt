@@ -11,9 +11,11 @@ import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
 import io.aequicor.heartbeat.feature.browser.api.BrowserDisplay
 import io.aequicor.heartbeat.feature.browser.api.BrowserError
 import io.aequicor.heartbeat.feature.browser.api.BrowserIntent
+import io.aequicor.heartbeat.feature.browser.api.BrowserLoadFailure
 import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserOutput
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
+import io.aequicor.heartbeat.feature.browser.api.BrowserSecurity
 import io.aequicor.heartbeat.feature.browser.api.BrowserState
 import io.aequicor.heartbeat.feature.browser.api.browserAddress
 import io.aequicor.heartbeat.feature.browser.impl.di.scope.BrowserScope
@@ -51,6 +53,20 @@ internal class BrowserModel(
         }
         reduce { intent ->
             when (intent) {
+                BrowserScreenIntent.ToggleErrorDetails -> updateState {
+                    copy(isErrorDetailsExpanded = !isErrorDetailsExpanded)
+                }
+
+                is BrowserScreenIntent.ProceedCertificate -> sendTo(
+                    machine,
+                    BrowserIntent.Internal.ProceedCertificate(intent.tabId, intent.failure.toDomain()),
+                )
+
+                is BrowserScreenIntent.ReturnToSafety -> sendTo(
+                    machine,
+                    BrowserIntent.Internal.ReturnToSafety(intent.tabId, intent.failure.toDomain()),
+                )
+
                 is BrowserScreenIntent.ApproveControl -> sendTo(
                     machine,
                     controlRequest(intent.tabId, intent.requestId, BrowserOperation.ApproveControl),
@@ -250,6 +266,9 @@ internal fun BrowserScreenState.reflectState(state: BrowserState): BrowserScreen
         } else {
             address
         },
+        failure = state.failureUi(),
+        security = state.securityUi(),
+        isErrorDetailsExpanded = keepsDetails(state),
         url = state.page.url,
         title = state.page.title,
         isLoading = state.page.isLoading,
@@ -280,3 +299,31 @@ private fun controlRequest(tabId: String, requestId: String, operation: BrowserO
             arguments = buildJsonObject { put("controlRequestId", requestId) },
         ),
     )
+
+private fun BrowserFailureUi.toDomain(): BrowserLoadFailure = BrowserLoadFailure(
+    url = url,
+    code = code,
+    isCertificate = isCertificate,
+    isProceedAllowed = isProceedAllowed,
+    id = id,
+)
+
+private fun BrowserState.Running.failureUi(): BrowserFailureUi? = page.failure?.takeIf { areErrorPagesEnabled }?.let {
+    val isHuman = tabs.any { tab -> tab.id == selectedTabId && (tab.owner == null || tab.isHumanControlled) }
+    BrowserFailureUi(it.url, it.code, it.isCertificate, it.isProceedAllowed && isHuman, it.id)
+}
+
+private fun BrowserState.Running.securityUi(): BrowserSecurityUi {
+    if (!areErrorPagesEnabled || page.isLoading) return BrowserSecurityUi.Unknown
+    if (page.error != null || page.failure != null) return BrowserSecurityUi.Unknown
+    return when (page.security) {
+        BrowserSecurity.Unknown -> BrowserSecurityUi.Unknown
+        BrowserSecurity.Https -> BrowserSecurityUi.Https
+        BrowserSecurity.Http -> BrowserSecurityUi.Http
+        BrowserSecurity.CertificateException -> BrowserSecurityUi.CertificateException
+    }
+}
+
+private fun BrowserScreenState.keepsDetails(state: BrowserState.Running): Boolean =
+    isErrorDetailsExpanded && state.areErrorPagesEnabled &&
+        state.selectedTabId == selectedTabId && state.page.failure?.id == failure?.id

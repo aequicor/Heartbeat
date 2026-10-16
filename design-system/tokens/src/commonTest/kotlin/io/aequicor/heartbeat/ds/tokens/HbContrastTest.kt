@@ -80,6 +80,8 @@ class HbContrastTest {
     fun `semantic text meets WCAG AA in both themes`() {
         listOf(HbColors.Light, HbColors.Dark, HbColors.DesktopLight, HbColors.DesktopDark).forEach { colors ->
             val pairs = listOf(
+                colors.errorForeground to colors.inputFill,
+                colors.errorForeground to colors.surface,
                 colors.textPrimary to colors.background,
                 colors.textPrimary to colors.surface,
                 colors.textSecondary to colors.surface,

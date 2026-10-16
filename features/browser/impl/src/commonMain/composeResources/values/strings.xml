@@ -47,4 +47,21 @@
     <string name="browser_runtime_invalid">The downloaded browser components could not be verified. Retry the download.</string>
     <string name="browser_runtime_unavailable">The browser could not start. Try again.</string>
     <string name="browser_runtime_retry">Retry</string>
+    <string name="browser_failure_title">This site can’t be reached</string>
+    <string name="browser_certificate_title">Your connection is not private</string>
+    <string name="browser_certificate_description">The site’s certificate could not be verified. Your information may be at risk.</string>
+    <string name="browser_failure_description">Check your internet connection and the site address, then try again.</string>
+    <string name="browser_failure_details">Details</string>
+    <string name="browser_certificate_advanced">Advanced</string>
+    <string name="browser_certificate_back">Back to safety</string>
+    <string name="browser_certificate_proceed">Proceed to site (unsafe)</string>
+    <string name="browser_certificate_blocked">This certificate error cannot be bypassed. The site may require a secure connection (HSTS).</string>
+    <string name="browser_failure_dns">The server address could not be found. Check the spelling of the address and your DNS settings.</string>
+    <string name="browser_failure_refused">The server refused the connection. Check whether the site is available.</string>
+    <string name="browser_failure_timeout">The server took too long to respond. Try again later.</string>
+    <string name="browser_failure_reset">The connection was interrupted. Check your connection and try again.</string>
+    <string name="browser_failure_redirects">The site redirected too many times. Try clearing this browser’s site data.</string>
+    <string name="browser_failure_offline">You are offline. This page will retry when a network connection is restored.</string>
+    <string name="browser_security_https">Connection information</string>
+    <string name="browser_security_insecure">Not secure</string>
 </resources>
