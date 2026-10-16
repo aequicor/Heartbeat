@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.browser.impl.presentation
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
+import io.aequicor.heartbeat.feature.browser.api.BROWSER_DEFAULT_ZOOM
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserUrlResolver
 import kotlinx.coroutines.CancellableContinuation
@@ -28,6 +29,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import javax.swing.SwingUtilities
+import kotlin.math.ln
 
 /**
  * Windowed Swing embedding works on macOS, Windows (including ARM64 without JOGL), and Linux X11. Each instance
@@ -38,13 +40,15 @@ import javax.swing.SwingUtilities
 internal class DesktopBrowserEngine(
     app: CefApp,
     dispatchers: DispatcherProvider,
-    urlResolver: BrowserUrlResolver,
+    private val urlResolver: BrowserUrlResolver,
     private val isReleased: () -> Boolean,
     private val changed: (BrowserViewState) -> Unit,
     private val onClosed: () -> Unit = {},
     guard: DesktopBrowserAgentGuard,
     openTab: ((BrowserCommand.Load) -> Unit)? = null,
-    createContext: (CefRequestContextHandler) -> CefRequestContext,
+    onShortcut: ((BrowserShortcut) -> Unit)? = null,
+    private val certificateExceptions: DesktopCertificateExceptions = DesktopCertificateExceptions(),
+    private val createContext: (CefRequestContextHandler) -> CefRequestContext,
 ) : DesktopBrowserRuntime {
     private val log = Log.tag("DesktopBrowserEngine")
     private val isClosed = AtomicBoolean(false)
@@ -64,8 +68,10 @@ internal class DesktopBrowserEngine(
         unsupported = { onSwing { navigation?.unsupported() } },
         open = { load -> openTab?.invoke(load) ?: execute(BrowserViewCommand.Load(load.url, load.referrer)) },
         areLinksOpenedInTabs = openTab != null,
+        navigating = { onSwing { navigation?.navigating() } },
         unavailable = { onSwing { changed(BrowserViewState(error = BrowserViewError.EngineUnavailable)) } },
         guard = guard,
+        certificateExceptions = certificateExceptions,
     )
     private val context = try {
         createContext(policy.contextHandler)
@@ -79,11 +85,56 @@ internal class DesktopBrowserEngine(
         client.dispose()
         throw error
     }
-    private val downloads = DesktopBrowserDownload(createContext, dispatchers, urlResolver)
+    private val downloads = documentDownload(createContext, dispatchers, urlResolver)
+    private val icons = iconDownload(dispatchers)
     private val browser: CefBrowser
     private var isReady = false
 
+    @Volatile
+    private var isZoomEnabled = false
+    private var zoomPercent = BROWSER_DEFAULT_ZOOM
+    private var zoomUrl = ""
+    private var committedUrl = ""
+    private val wheelZoom = onShortcut?.let {
+        DesktopBrowserWheelZoom({ isZoomEnabled && !isClosed.get() && !isReleased() }, it)
+    }
+
+    override fun setZoom(isEnabled: Boolean, percent: Int, url: String) = onSwing {
+        val isAvailabilityChanged = isZoomEnabled != isEnabled
+        isZoomEnabled = isEnabled
+        zoomUrl = url
+        zoomPercent = if (isEnabled) percent else BROWSER_DEFAULT_ZOOM
+        if (isReady) {
+            applyZoom()
+            // A zoom step keeps each listener and its wheel throttle; new documents get theirs in onLoadStart.
+            if (isAvailabilityChanged) {
+                browser.frameIdentifiers.forEach { id ->
+                    browser.getFrameByIdentifier(id)?.let { wheelZoom?.install(it) }
+                }
+            }
+        }
+    }
+
+    private fun applyZoom() {
+        // A provisional Load already changes the UI URL, but must never change the old document's host setting.
+        // While zoom is off every document is reset: Chromium keeps its own per-host levels in the profile.
+        if (!isZoomEnabled || browserZoomHost(committedUrl) == browserZoomHost(zoomUrl)) {
+            browser.zoomLevel = ln(zoomPercent.toDouble() / BROWSER_DEFAULT_ZOOM) / ln(CHROMIUM_ZOOM_FACTOR)
+        }
+    }
+
     override suspend fun captureResource(url: String): JsonObject = downloads.capture(url)
+
+    override suspend fun loadIcon(url: String, allows: (String) -> Boolean): ByteArray {
+        // An agent tab's icon and each redirect obey its certificate withholding, like its page requests.
+        val isAllowed = { hop: String -> allows(hop) && !policy.withholds(hop) }
+        return icons.capture(url) { iconTransfer(createContext, it, urlResolver, isAllowed) }
+    }
+
+    private fun cancelTransfers() {
+        downloads.cancel()
+        icons.cancel()
+    }
 
     override suspend fun devTools(method: String, arguments: JsonObject): String = devToolsCalls.call(
         post = { if (SwingUtilities.isEventDispatchThread()) it() else SwingUtilities.invokeLater(it) },
@@ -97,6 +148,7 @@ internal class DesktopBrowserEngine(
         try {
             check(!context.isGlobal) { "Browser request context must be isolated" }
             client.addRequestHandler(policy.requestHandler)
+            wheelZoom?.let { client.addMessageRouter(it.router) }
             client.addLifeSpanHandler(
                 object : CefLifeSpanHandlerAdapter() {
                     override fun onBeforePopup(
@@ -112,7 +164,7 @@ internal class DesktopBrowserEngine(
                     override fun onBeforeClose(browser: CefBrowser) {
                         log.v { "Browser $traceId received before-close (native=${browser.identifier})" }
                         isClosed.set(true)
-                        downloads.cancel()
+                        cancelTransfers()
                         failDevToolsCalls()
                     }
 
@@ -120,6 +172,7 @@ internal class DesktopBrowserEngine(
                         log.v { "Browser $traceId received after-close" }
                         // This hook follows JCEF's wrapper disposal and browser registry removal.
                         // A queued Swing callback alone cannot establish that barrier on AppKit.
+                        wheelZoom?.close()
                         client.dispose()
                         completeClose()
                     }
@@ -152,6 +205,12 @@ internal class DesktopBrowserEngine(
                             "profile.default_content_setting_values.notifications",
                         )
                         val isDenied = preferences.all { context.setPreference(it, CONTENT_SETTING_BLOCK) == null }
+                        // Labels grant nothing: unreadable decisions block agent requests (see policy), not the tab.
+                        if (!certificateExceptions.restore(context.getPreference(SSL_CERTIFICATE_DECISIONS))) {
+                            log.w(IllegalStateException("JCEF certificate decisions unreadable")) {
+                                "Chromium certificate exceptions could not be labelled"
+                            }
+                        }
                         onSwing {
                             // A hidden host can miss SHOWING_CHANGED while its native browser is still being created.
                             if (OS.isMacintosh()) browser.setWindowVisibility(browser.uiComponent.isShowing)
@@ -181,7 +240,13 @@ internal class DesktopBrowserEngine(
             client.addDisplayHandler(
                 object : CefDisplayHandlerAdapter() {
                     override fun onAddressChange(browser: CefBrowser, frame: CefFrame, url: String) {
-                        if (frame.isMain) onSwing { navigation?.address(url) }
+                        if (frame.isMain) {
+                            onSwing {
+                                committedUrl = url
+                                applyZoom()
+                                navigation?.address(url)
+                            }
+                        }
                     }
 
                     override fun onTitleChange(browser: CefBrowser, title: String) {
@@ -205,6 +270,7 @@ internal class DesktopBrowserEngine(
                         canGoBack: Boolean,
                         canGoForward: Boolean,
                     ) {
+                        if (!isLoading) certificateExceptions.restore(context.getPreference(SSL_CERTIFICATE_DECISIONS))
                         if (!isBootstrap.get()) {
                             onSwing { navigation?.loading(isLoading, canGoBack, canGoForward) }
                         }
@@ -215,7 +281,20 @@ internal class DesktopBrowserEngine(
                         frame: CefFrame,
                         transitionType: CefRequest.TransitionType,
                     ) {
-                        if (frame.isMain && !isBootstrap.get()) onSwing { navigation?.started() }
+                        if (isZoomEnabled) wheelZoom?.install(frame)
+                        val url = frame.url
+                        if (frame.isMain && !isBootstrap.get()) {
+                            onSwing {
+                                committedUrl = url
+                                applyZoom()
+                                navigation?.started(url)
+                            }
+                        }
+                    }
+
+                    // A script sent at load start can miss a context that is not ready yet; installs are idempotent.
+                    override fun onLoadEnd(browser: CefBrowser, frame: CefFrame, httpStatusCode: Int) {
+                        if (isZoomEnabled) wheelZoom?.install(frame)
                     }
 
                     override fun onLoadError(
@@ -226,19 +305,30 @@ internal class DesktopBrowserEngine(
                         failedUrl: String,
                     ) {
                         if (frame.isMain && errorCode != CefLoadHandler.ErrorCode.ERR_ABORTED) {
+                            val isSubmission = policy.isMainDocumentSubmission
                             onSwing {
                                 log.w(IllegalStateException("JCEF load error code=$errorCode")) {
                                     "Main document load failed"
                                 }
-                                navigation?.failed()
+                                navigation?.failed(failedUrl, errorCode.name, isSubmission)
                             }
                         }
                     }
                 },
             )
+            onShortcut?.let {
+                client.addKeyboardHandler(
+                    DesktopBrowserShortcuts(it, isZoomEnabled = { isZoomEnabled }),
+                )
+            }
             installDesktopBrowserRestrictions(client)
             browser = client.createBrowser("about:blank", false, false, context)
-            navigation = DesktopBrowserNavigation(browser, changed, policy::prepareNavigation)
+            navigation = DesktopBrowserNavigation(
+                browser,
+                changed,
+                policy::prepareNavigation,
+                certificateExceptions::security,
+            )
             isCreated = true
         } finally {
             if (!isCreated) {
@@ -279,7 +369,7 @@ internal class DesktopBrowserEngine(
 
     override fun release() {
         check(SwingUtilities.isEventDispatchThread())
-        downloads.cancel()
+        cancelTransfers()
         failDevToolsCalls()
         if (!isClosed.compareAndSet(false, true)) return
         log.v {
@@ -290,6 +380,7 @@ internal class DesktopBrowserEngine(
             // The component has never escaped and creation has never been queued: no native
             // callback can race.
             browser.onBeforeClose()
+            wheelZoom?.close()
             client.dispose()
             completeClose()
         } else if (isNativeCreated.get()) {
@@ -302,6 +393,7 @@ internal class DesktopBrowserEngine(
     override suspend fun awaitClosed() {
         log.v { "Waiting for browser $traceId downloads to close" }
         downloads.awaitClosed()
+        icons.awaitClosed()
         log.v { "Waiting for browser $traceId native close callback" }
         closed.await()
         log.v { "Browser $traceId native close completed" }
@@ -309,8 +401,9 @@ internal class DesktopBrowserEngine(
 
     private fun creationFailed() {
         // JCEF has already disposed the unregistered browser wrapper on this terminal path.
+        wheelZoom?.close()
         isClosed.set(true)
-        downloads.cancel()
+        cancelTransfers()
         failDevToolsCalls()
         client.dispose()
         completeClose()
@@ -420,3 +513,5 @@ internal class DesktopBrowserDevToolsCalls(private val log: Log) {
         }
     }
 }
+
+private const val CHROMIUM_ZOOM_FACTOR = 1.2

@@ -7,12 +7,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.MouseButton
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
@@ -28,18 +30,24 @@ import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
+import androidx.compose.ui.test.withKeyDown
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
+import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserFaviconImage
+import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserShortcut
+import io.aequicor.heartbeat.feature.browser.impl.presentation.isBrowserMetaShortcut
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserPhase
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserScreenIntent
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserScreenState
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserTabUi
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableList
 import java.io.File
 import javax.imageio.ImageIO
@@ -131,6 +139,159 @@ class BrowserUiTest {
         runOnIdle { assertEquals(listOf<BrowserScreenIntent>(BrowserScreenIntent.CloseTab("two")), events) }
         onNodeWithTag("browser-tab-two").performClick()
         runOnIdle { assertEquals(BrowserScreenIntent.SelectTab("two"), events.last()) }
+    }
+
+    @Test
+    fun `loading tab shows activity in place of its site icon and middle click closes it`() =
+        runSkikoComposeUiTest(size = Size(1280f, 800f)) {
+            val events = mutableListOf<BrowserScreenIntent>()
+            setContent {
+                HbTheme(dimensions = HbDimensions.Desktop) {
+                    BrowserScreenContent(
+                        BrowserScreenState(
+                            phase = BrowserPhase.Ready,
+                            hasTabs = true,
+                            isLoading = true,
+                            selectedTabId = "one",
+                            tabs = persistentListOf(
+                                BrowserTabUi("one", "First", true, false, isLoading = true, faviconUrl = "icon"),
+                                BrowserTabUi("two", "Second", true, false, faviconUrl = "icon"),
+                                BrowserTabUi(
+                                    "three",
+                                    "Third",
+                                    isHumanControlled = true,
+                                    hasAgent = false,
+                                    isLoading = true,
+                                    isAwaitingResponse = true,
+                                ),
+                            ),
+                            favicons = persistentMapOf("icon" to BrowserFaviconImage(testIcon())),
+                        ),
+                        { events += it },
+                    )
+                }
+            }
+            onNodeWithTag("browser-tab-loading-one", useUnmergedTree = true).assertIsDisplayed()
+            onNodeWithTag("browser-tab-favicon-one", useUnmergedTree = true).assertDoesNotExist()
+            onNodeWithTag("browser-tab-favicon-two", useUnmergedTree = true).assertIsDisplayed()
+            onNodeWithTag("browser-tab-waiting-three", useUnmergedTree = true).assertExists()
+            onNodeWithTag("browser-tab-loading-three", useUnmergedTree = true).assertDoesNotExist()
+            onNodeWithTag("browser-tab-loading-two", useUnmergedTree = true).assertDoesNotExist()
+            onNodeWithTag("browser-loading").assertDoesNotExist()
+            onNodeWithTag("browser-tab-two").performMouseInput {
+                moveTo(centerLeft + Offset(width / 4f, 0f))
+                press(MouseButton.Tertiary)
+                release(MouseButton.Tertiary)
+            }
+            runOnIdle { assertEquals(listOf<BrowserScreenIntent>(BrowserScreenIntent.CloseTab("two")), events) }
+            // A middle press that ends with another button is no middle click.
+            onNodeWithTag("browser-tab-one").performMouseInput {
+                moveTo(centerLeft + Offset(width / 4f, 0f))
+                press(MouseButton.Tertiary)
+                press(MouseButton.Primary)
+                release(MouseButton.Primary)
+                release(MouseButton.Tertiary)
+            }
+            runOnIdle { assertTrue(BrowserScreenIntent.CloseTab("one") !in events) }
+        }
+
+    @Test
+    fun `closing tabs under the pointer keeps their width until the pointer leaves the strip`() =
+        runSkikoComposeUiTest(size = Size(1280f, 800f)) {
+            var tabs by mutableStateOf((0..5).map { BrowserTabUi("$it", "Page $it", true, false) }.toImmutableList())
+            setContent {
+                HbTheme(dimensions = HbDimensions.Desktop) {
+                    BrowserScreenContent(
+                        BrowserScreenState(
+                            phase = BrowserPhase.Ready,
+                            hasTabs = true,
+                            selectedTabId = "0",
+                            tabs = tabs,
+                        ),
+                        { intent ->
+                            if (intent is BrowserScreenIntent.CloseTab) {
+                                tabs = tabs.filter { it.id != intent.id }.toImmutableList()
+                            }
+                        },
+                    )
+                }
+            }
+            fun width() = onNodeWithTag("browser-tab-0").fetchSemanticsNode().size.width
+            val before = width()
+            onNodeWithTag("browser-close-tab-5").performMouseInput { click(center) }
+            waitForIdle()
+            assertEquals(before, width())
+            onNodeWithTag("browser-tab-0").performMouseInput { moveTo(Offset(center.x, height * 20f)) }
+            waitForIdle()
+            assertTrue(width() > before)
+        }
+
+    @Test
+    fun `touch closes and new tabs lay the strip out at once`() = runSkikoComposeUiTest(size = Size(1280f, 800f)) {
+        var tabs by mutableStateOf((0..5).map { BrowserTabUi("$it", "Page $it", true, false) }.toImmutableList())
+        setContent {
+            HbTheme(dimensions = HbDimensions.Desktop) {
+                BrowserScreenContent(
+                    BrowserScreenState(phase = BrowserPhase.Ready, hasTabs = true, selectedTabId = "0", tabs = tabs),
+                    { intent ->
+                        tabs = when (intent) {
+                            is BrowserScreenIntent.CloseTab -> tabs.filter { it.id != intent.id }.toImmutableList()
+
+                            BrowserScreenIntent.NewTab ->
+                                (tabs + BrowserTabUi("new${tabs.size}", "New", true, false)).toImmutableList()
+
+                            else -> tabs
+                        }
+                    },
+                )
+            }
+        }
+        fun width() = onNodeWithTag("browser-tab-0").fetchSemanticsNode().size.width
+        val six = width()
+        onNodeWithTag("browser-close-tab-5").performTouchInput { click(center) }
+        waitForIdle()
+        val five = width()
+        assertTrue(five > six)
+        onNodeWithTag("browser-close-tab-4").performMouseInput { click(center) }
+        waitForIdle()
+        assertEquals(five, width())
+        repeat(2) { onNodeWithTag("browser-new-tab").performMouseInput { click(center) } }
+        waitForIdle()
+        assertTrue(width() < five)
+    }
+
+    @Test
+    fun `tab keys reach the store from the browser while ordinary keys stay with the field`() = runSkikoComposeUiTest {
+        val events = mutableListOf<BrowserScreenIntent>()
+        setContent {
+            HbTheme {
+                BrowserScreenContent(
+                    BrowserScreenState(
+                        phase = BrowserPhase.Ready,
+                        hasTabs = true,
+                        selectedTabId = "one",
+                        tabs = persistentListOf(BrowserTabUi("one", "First", true, false)),
+                    ),
+                    { events += it },
+                )
+            }
+        }
+        val accelerator = if (isBrowserMetaShortcut()) Key.MetaLeft else Key.CtrlLeft
+        onNodeWithTag("browser-address").performClick()
+        onNodeWithTag("browser-address").performKeyInput {
+            withKeyDown(accelerator) { pressKey(Key.T) }
+            withKeyDown(Key.CtrlLeft) { withKeyDown(Key.ShiftLeft) { pressKey(Key.Tab) } }
+            pressKey(Key.T)
+        }
+        runOnIdle {
+            assertEquals(
+                listOf(
+                    BrowserScreenIntent.Shortcut(BrowserShortcut.NewTab),
+                    BrowserScreenIntent.Shortcut(BrowserShortcut.PreviousTab),
+                ),
+                events.filterIsInstance<BrowserScreenIntent.Shortcut>(),
+            )
+        }
     }
 
     @Test
@@ -329,4 +490,9 @@ class BrowserUiTest {
             }
         }
     }
+}
+
+private fun testIcon(): ByteArray = java.io.ByteArrayOutputStream().use { output ->
+    ImageIO.write(java.awt.image.BufferedImage(32, 32, java.awt.image.BufferedImage.TYPE_INT_ARGB), "png", output)
+    output.toByteArray()
 }

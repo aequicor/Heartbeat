@@ -8,15 +8,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import io.aequicor.heartbeat.ds.components.HbLoadingState
-import io.aequicor.heartbeat.ds.layouts.HbColumn
-import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserRuntimeUi
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserSurface
 import io.aequicor.heartbeat.feature.browser.impl.presentation.createDesktopPanel
-import io.aequicor.heartbeat.feature.browser.impl.resources.Res
-import io.aequicor.heartbeat.feature.browser.impl.resources.browser_loading
-import org.jetbrains.compose.resources.stringResource
 
 @Composable
 internal actual fun BrowserWebView(surface: BrowserSurface, modifier: Modifier) {
@@ -25,14 +19,11 @@ internal actual fun BrowserWebView(surface: BrowserSurface, modifier: Modifier) 
         val preparation by panel.preparation.collectAsState()
         SideEffect { panel.prepare() }
         if (preparation == BrowserRuntimeUi.Ready) {
-            val isLoading by panel.loading.collectAsState()
-            HbColumn(modifier, gap = HbTheme.spacing.none) {
-                if (isLoading) HbLoadingState(stringResource(Res.string.browser_loading))
-                BrowserNativeView(
-                    factory = remember(panel) { panel::createComponent },
-                    modifier = Modifier.weight(1f).fillMaxSize(),
-                )
-            }
+            // Page loading is shown by the tab's activity indicator, as in Chromium, so the viewport keeps its size.
+            BrowserNativeView(
+                factory = remember(panel) { panel::createComponent },
+                modifier = modifier.fillMaxSize(),
+            )
         } else {
             BrowserRuntimeStatus(
                 preparation,

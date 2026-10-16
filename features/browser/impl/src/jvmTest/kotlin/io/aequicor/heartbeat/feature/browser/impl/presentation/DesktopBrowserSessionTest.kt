@@ -1,14 +1,19 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
+import io.aequicor.heartbeat.feature.browser.api.BrowserLoadFailure
 import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserAgentPolicy
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserFaviconPolicy
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserReferrer
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserReferrerPolicy
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserRequestKind
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserWorkspaceStorage
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserZoomStorage
+import io.aequicor.heartbeat.feature.browser.impl.domain.SavedBrowserTab
+import io.aequicor.heartbeat.feature.browser.impl.domain.SavedBrowserWorkspace
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -16,6 +21,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -38,6 +44,101 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DesktopBrowserSessionTest {
+    @Test
+    fun `profile restores conservative certificate labels before opening tabs`() = runTest {
+        val storage = MemoryBrowserWorkspaceStorage()
+        val first = Fixture(this, storage = storage)
+        first.create()
+        first.exceptions.remember("https://example.com:8443/")
+        first.create()
+        val restored = Fixture(this, storage = storage)
+        restored.session.setEnabled(true)
+        assertTrue(restored.exceptions.contains("https://example.com/"))
+        assertFalse(restored.exceptions.contains("https://other.example/"))
+    }
+
+    @Test
+    fun `network recovery reloads only idle human network failures while enabled`() = runTest {
+        val fixture = Fixture(this)
+        val cases = listOf(
+            Triple(null, "ERR_NAME_NOT_RESOLVED", false),
+            Triple("agent", "ERR_CONNECTION_RESET", false),
+            Triple(null, "ERR_CERT_AUTHORITY_INVALID", false),
+            Triple(null, "ERR_TOO_MANY_REDIRECTS", false),
+            Triple(null, "ERR_INTERNET_DISCONNECTED", true),
+        )
+        val controllers = cases.map { (owner, code, loading) ->
+            fixture.create(owner)
+            val controller = RecordingBrowserController()
+            val surface = fixture.surfaces.last()
+            surface.attached(controller)
+            surface.changed(
+                controller,
+                BrowserViewState(
+                    url = "https://example.com/",
+                    isLoading = loading,
+                    failure = BrowserLoadFailure(
+                        "https://example.com/",
+                        code,
+                        isCertificate = code.startsWith("ERR_CERT_"),
+                    ),
+                ),
+            )
+            controller
+        }
+        runCurrent()
+        fixture.errorPages.value = false
+        fixture.session.retryNetworkErrors()
+        assertTrue(controllers.all { it.commands.isEmpty() })
+        fixture.errorPages.value = true
+        fixture.session.retryNetworkErrors()
+        runCurrent()
+        assertEquals(listOf<BrowserViewCommand>(BrowserViewCommand.Reload), controllers.first().commands)
+        assertTrue(controllers.drop(1).all { it.commands.isEmpty() })
+    }
+
+    @Test
+    fun `a human certificate warning cannot be handed to an agent`() = runTest {
+        val fixture = Fixture(this, nativeCommand = { error("Unexpected native access") })
+        val tab = fixture.create()
+        fixture.attach()
+        runCurrent()
+        fixture.emit(
+            BrowserViewState(
+                url = "https://example.com/",
+                failure = BrowserLoadFailure(
+                    "https://example.com/",
+                    "ERR_CERT_AUTHORITY_INVALID",
+                    isCertificate = true,
+                ),
+            ),
+        )
+        runCurrent()
+        val pending = fixture.request(BrowserOperation.RequestControl, tab, "session-a")
+        assertNotNull(fixture.request(BrowserOperation.ApproveControl, tab, controlRequestId = pending.requestId).error)
+        for (operation in listOf(BrowserOperation.Read, BrowserOperation.Click, BrowserOperation.Key)) {
+            assertNotNull(fixture.request(operation, tab, "session-a").error)
+        }
+        assertTrue(fixture.session.tabs.value.first.single().isHumanControlled)
+        fixture.emit(BrowserViewState(url = "https://example.com/", isCertificateWarningActive = true))
+        runCurrent()
+        assertNotNull(fixture.request(BrowserOperation.ApproveControl, tab, controlRequestId = pending.requestId).error)
+        assertNotNull(fixture.request(BrowserOperation.Key, tab, "session-a").error)
+    }
+
+    @Test
+    fun `an agent can abandon its tab on a certificate exception host but cannot use it`() = runTest {
+        val fixture = Fixture(this)
+        val tab = fixture.create("session-a")
+        fixture.attachNavigation(0) { null }
+        runCurrent()
+        fixture.exceptions.remember("https://example.com/")
+        fixture.request(BrowserOperation.Navigate, tab, "session-a", url = "https://example.com/")
+        assertNotNull(fixture.request(BrowserOperation.Read, tab, "session-a").error)
+        assertNull(fixture.request(BrowserOperation.CloseTab, tab, "session-a").error)
+        assertTrue(fixture.session.tabs.value.first.isEmpty())
+    }
+
     @Test
     fun `linked navigation retains referrer alongside the inherited session and origin`() = runTest {
         val fixture = Fixture(this)
@@ -218,14 +319,17 @@ class DesktopBrowserSessionTest {
         val released = CompletableDeferred<Unit>()
         val fixture = Fixture(this, released)
         fixture.create()
+        fixture.exceptions.remember("https://example.com/")
         val clearing = async { fixture.request(BrowserOperation.ClearData) }
         runCurrent()
         assertFalse(clearing.isCompleted)
+        assertEquals(listOf("https://example.com/"), fixture.storage.load().certificateExceptionUrls)
         assertTrue(fixture.session.tabs.value.first.isEmpty())
         assertNotNull(fixture.request(BrowserOperation.NewTab, owner = "session-a").error)
         assertEquals(1, fixture.clearCount)
         released.complete(Unit)
         assertNull(clearing.await().error)
+        assertTrue(fixture.storage.load().certificateExceptionUrls.isEmpty())
         assertNull(fixture.request(BrowserOperation.NewTab, owner = "session-a").error)
         assertEquals(1, fixture.session.tabs.value.first.size)
     }
@@ -408,17 +512,180 @@ class DesktopBrowserSessionTest {
         assertFalse(fixture.guards.last().isRestricted)
     }
 
+    @Test
+    fun `a loaded page shows its declared icon until the tab leaves its origin`() = runTest {
+        val methods = mutableListOf<String>()
+        val fixture = Fixture(this, devTools = { method, _ ->
+            methods += method
+            iconResponse(method, "https://cdn.example.net/icon.png", type = "image/png")
+        })
+        fixture.create()
+        fixture.attach()
+        runCurrent()
+        fixture.emit(BrowserViewState(url = "https://example.com/a"))
+        runCurrent()
+        assertEquals(listOf("Page.getFrameTree", "Page.createIsolatedWorld", "Runtime.evaluate"), methods)
+        assertEquals("https://cdn.example.net/icon.png", fixture.session.tabs.value.first.single().page.faviconUrl)
+        val storage = fixture.storage as MemoryBrowserWorkspaceStorage
+        assertEquals("https://cdn.example.net/icon.png", storage.workspace.tabs.single().faviconUrl)
+        fixture.emit(BrowserViewState(url = "https://example.com/b", isLoading = true))
+        runCurrent()
+        assertEquals("https://cdn.example.net/icon.png", fixture.session.tabs.value.first.single().page.faviconUrl)
+        fixture.emit(BrowserViewState(url = "https://other.example.org/", isLoading = true))
+        runCurrent()
+        assertEquals("", fixture.session.tabs.value.first.single().page.faviconUrl)
+    }
+
+    @Test
+    fun `a found icon is fetched once through its tab and clearing browser data forgets it`() = runTest {
+        val fetched = mutableListOf<String>()
+        val fixture = Fixture(
+            this,
+            devTools = { method, _ -> iconResponse(method, "https://example.com/icon.png") },
+            icons = { url, _ -> fetched.add(url).let { testPng(48, 48) } },
+        )
+        val tab = fixture.create()
+        fixture.attach()
+        runCurrent()
+        repeat(2) {
+            fixture.emit(BrowserViewState(url = "https://example.com/", isLoading = true))
+            fixture.emit(BrowserViewState(url = "https://example.com/"))
+            runCurrent()
+        }
+        assertEquals(listOf("https://example.com/icon.png"), fetched)
+        assertTrue(fixture.favicons.images.value.getValue("https://example.com/icon.png").png.isNotEmpty())
+        fixture.request(BrowserOperation.ClearData)
+        assertTrue(fixture.favicons.images.value.isEmpty())
+        assertTrue(tab.isNotEmpty())
+    }
+
+    @Test
+    fun `an agent tab holds every redirect of its icon to its guard`() = runTest {
+        var allows: ((String) -> Boolean)? = null
+        val fixture = Fixture(
+            this,
+            devTools = { method, _ -> iconResponse(method, "https://cdn.example.net/icon.png") },
+            icons = { _, check -> testPng(16, 16).also { allows = check } },
+        )
+        fixture.create("session-a")
+        fixture.attach()
+        runCurrent()
+        fixture.emit(BrowserViewState(url = "https://example.com/"))
+        runCurrent()
+        val check = requireNotNull(allows)
+        assertFalse(check("http://192.168.1.1/icon.png"))
+        assertFalse(check("http://localhost:8080/icon.png"))
+        assertTrue(check("https://other.example.org/icon.png"))
+        assertTrue(check("https://example.com/favicon.ico"))
+    }
+
+    @Test
+    fun `a load never seen loading still finds the new page's icon`() = runTest {
+        val fixture = Fixture(this, devTools = { _, _ -> error("Page went away") })
+        fixture.create()
+        fixture.attach()
+        runCurrent()
+        fixture.emit(BrowserViewState(url = "https://example.com/"))
+        runCurrent()
+        fixture.emit(BrowserViewState(url = "https://other.example.org/page"))
+        runCurrent()
+        assertEquals("https://other.example.org/favicon.ico", fixture.session.tabs.value.first.single().page.faviconUrl)
+    }
+
+    @Test
+    fun `turning icons off forgets found and restored ones`() = runTest {
+        val storage = MemoryBrowserWorkspaceStorage(
+            SavedBrowserWorkspace(
+                listOf(SavedBrowserTab("saved", "https://example.com/", "Saved", null, "https://example.com/i.png")),
+            ),
+        )
+        val restored = Fixture(this, storage = storage, areFaviconsEnabled = false)
+        restored.session.setEnabled(true)
+        runCurrent()
+        assertEquals("", restored.session.tabs.value.first.single().page.faviconUrl)
+
+        val fixture = Fixture(
+            this,
+            devTools = { method, _ -> iconResponse(method, "https://example.com/icon.png") },
+            icons = { _, _ -> testPng(16, 16) },
+        )
+        fixture.create()
+        fixture.attach()
+        runCurrent()
+        fixture.emit(BrowserViewState(url = "https://example.com/"))
+        runCurrent()
+        assertEquals("https://example.com/icon.png", fixture.session.tabs.value.first.single().page.faviconUrl)
+        assertTrue(fixture.favicons.images.value.isNotEmpty())
+        fixture.faviconFlag.value = false
+        runCurrent()
+        assertEquals("", fixture.session.tabs.value.first.single().page.faviconUrl)
+        assertEquals("", (fixture.storage as MemoryBrowserWorkspaceStorage).workspace.tabs.single().faviconUrl)
+        assertTrue(fixture.favicons.images.value.isEmpty())
+    }
+
+    @Test
+    fun `tab keys pressed inside a page reach the strip`() = runTest {
+        val fixture = Fixture(this)
+        fixture.create()
+        val received = async { fixture.session.shortcuts.first() }
+        runCurrent()
+        fixture.shortcuts.single()(BrowserShortcut.NextTab)
+        assertEquals(BrowserShortcut.NextTab, received.await())
+    }
+
+    @Test
+    fun `an unreadable page falls back to the origin icon`() = runTest {
+        val fixture = Fixture(this, devTools = { _, _ -> error("Page went away") })
+        fixture.create()
+        fixture.attach()
+        runCurrent()
+        fixture.emit(BrowserViewState(url = "https://example.com/path?q=1"))
+        runCurrent()
+        assertEquals("https://example.com/favicon.ico", fixture.session.tabs.value.first.single().page.faviconUrl)
+    }
+
+    @Test
+    fun `an agent tab refuses a private network icon and disabled icons are never read`() = runTest {
+        val agent = Fixture(this, devTools = { method, _ ->
+            iconResponse(method, "http://192.168.1.1/icon.png")
+        })
+        agent.create("session-a")
+        agent.attach()
+        runCurrent()
+        agent.emit(BrowserViewState(url = "https://example.com/"))
+        runCurrent()
+        assertEquals("", agent.session.tabs.value.first.single().page.faviconUrl)
+
+        var calls = 0
+        val disabled = Fixture(this, devTools = { _, _ -> "{}".also { calls++ } }, areFaviconsEnabled = false)
+        disabled.create()
+        disabled.attach()
+        runCurrent()
+        disabled.emit(BrowserViewState(url = "https://example.com/"))
+        runCurrent()
+        assertEquals(0, calls)
+        assertEquals("", disabled.session.tabs.value.first.single().page.faviconUrl)
+    }
+
     internal class Fixture(
         scope: TestScope,
         private val clearRelease: CompletableDeferred<Unit>? = null,
         private val nativeCommand: (suspend () -> String)? = null,
         val storage: BrowserWorkspaceStorage = MemoryBrowserWorkspaceStorage(),
+        val zoomStorage: BrowserZoomStorage = MemoryBrowserZoomStorage(),
         private val failCreateAt: Int? = null,
+        private val devTools: (suspend (String, JsonObject) -> String)? = null,
+        private val areFaviconsEnabled: Boolean = true,
+        private val icons: suspend (String, (String) -> Boolean) -> ByteArray = { _, _ -> error("No site icon") },
     ) {
+        val errorPages = MutableStateFlow(true)
+        val exceptions = DesktopCertificateExceptions()
+        private val nativeStates = mutableListOf<(BrowserViewState) -> Unit>()
         val closed = mutableListOf<BrowserSurface>()
         val surfaces = mutableListOf<BrowserSurface>()
         val guards = mutableListOf<DesktopBrowserAgentGuard>()
         val links = mutableListOf<(BrowserCommand.Load) -> Unit>()
+        val shortcuts = mutableListOf<(BrowserShortcut) -> Unit>()
         private val panels = mutableListOf<DesktopBrowserPanel>()
         var clearCount = 0
         private var requestIndex = 0
@@ -430,10 +697,24 @@ class DesktopBrowserSessionTest {
             override suspend fun isEnabled() = enabled.value
         }
         private val dispatchers = BrowserTestDispatchers(StandardTestDispatcher(scope.testScheduler))
+        val faviconFlag = MutableStateFlow(areFaviconsEnabled)
+        val favicons = DesktopBrowserFaviconImages(
+            dispatchers,
+            object : BrowserFaviconPolicy {
+                override suspend fun isEnabled() = faviconFlag.value
+
+                override fun observe() = faviconFlag
+            },
+        )
         private val resources = object : DesktopBrowserPanelFactory {
+            override val errorPagesEnabled = errorPages
+            override fun rememberCertificateException(url: String) = exceptions.remember(url)
+            override fun hasCertificateException(url: String): Boolean = exceptions.contains(url)
+            override fun certificateExceptionUrls(): List<String> = exceptions.urls()
             override suspend fun clearData() {
                 clearCount++
                 clearRelease?.await()
+                exceptions.clear()
             }
 
             override fun close(surface: BrowserSurface) {
@@ -444,7 +725,9 @@ class DesktopBrowserSessionTest {
                 surface: BrowserSurface,
                 guard: DesktopBrowserAgentGuard,
                 openTab: ((BrowserCommand.Load) -> Unit)?,
+                onShortcut: ((BrowserShortcut) -> Unit)?,
             ): DesktopBrowserPanel {
+                shortcuts += requireNotNull(onShortcut)
                 check(surfaces.size != failCreateAt) { "Panel creation failed" }
                 links += requireNotNull(openTab)
                 surfaces += surface
@@ -453,14 +736,20 @@ class DesktopBrowserSessionTest {
             }
 
             private fun panel(surface: BrowserSurface) =
-                DesktopBrowserPanel(surface, scope.backgroundScope, dispatchers) { _, _ ->
-                    val command = checkNotNull(nativeCommand) { "Native runtime must not be created for empty tabs" }
+                DesktopBrowserPanel(surface, scope.backgroundScope, dispatchers) { _, changed ->
+                    val hasNative = nativeCommand != null || devTools != null
+                    check(hasNative) { "Native runtime must not be created for empty tabs" }
+                    nativeStates += changed
                     object : DesktopBrowserRuntime {
                         override val component = JPanel()
                         override fun start(initialUrl: String) = Unit
                         override fun release() = Unit
                         override fun execute(command: BrowserViewCommand) = Unit
-                        override suspend fun devTools(method: String, arguments: JsonObject): String = command()
+                        override suspend fun devTools(method: String, arguments: JsonObject): String =
+                            devTools?.invoke(method, arguments) ?: nativeCommand!!()
+
+                        override suspend fun loadIcon(url: String, allows: (String) -> Boolean): ByteArray =
+                            icons(url, allows)
                     }
                 }.also(panels::add)
         }
@@ -470,9 +759,17 @@ class DesktopBrowserSessionTest {
             resources,
             policy,
             storage,
+            favicons,
+            zoomStorage,
         )
 
         fun attach() = SwingUtilities.invokeAndWait { panels.single().createComponent() }
+
+        /** Reports [state] from the attached native view and waits until the panel has received it. */
+        fun emit(state: BrowserViewState) {
+            nativeStates.last()(state)
+            SwingUtilities.invokeAndWait {}
+        }
 
         suspend fun create(owner: String? = null): String {
             session.setEnabled(true)
@@ -525,5 +822,20 @@ class DesktopBrowserSessionTest {
 
         suspend fun list(owner: String) =
             request(BrowserOperation.ListTabs, owner = owner).data.getValue("tabs").jsonArray
+    }
+}
+
+private fun iconResponse(method: String, url: String, type: String = ""): String = when (method) {
+    "Page.getFrameTree" -> """{"frameTree":{"frame":{"id":"main"}}}"""
+    "Page.createIsolatedWorld" -> """{"executionContextId":7}"""
+    else -> """{"result":{"value":[{"url":"$url","rel":"icon","sizes":"","type":"$type"}]}}"""
+}
+
+internal fun testPng(width: Int, height: Int): ByteArray {
+    val image = java.awt.image.BufferedImage(width, height, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+    for (x in 0 until width) for (y in 0 until height) image.setRGB(x, y, 0xFF3366CC.toInt())
+    return java.io.ByteArrayOutputStream().use { output ->
+        javax.imageio.ImageIO.write(image, "png", output)
+        output.toByteArray()
     }
 }

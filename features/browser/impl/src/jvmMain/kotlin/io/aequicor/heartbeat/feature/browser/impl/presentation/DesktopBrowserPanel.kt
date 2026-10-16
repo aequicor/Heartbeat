@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
+import io.aequicor.heartbeat.feature.browser.api.BROWSER_DEFAULT_ZOOM
 import io.aequicor.heartbeat.feature.browser.api.isBrowserUrlAllowed
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserRuntimePreparation
 import kotlinx.coroutines.CancellationException
@@ -40,16 +41,22 @@ internal class DesktopBrowserPanel(
     private val log = Log.tag("DesktopBrowserPanel")
     private val isReleased = AtomicBoolean(false)
     private var native: DesktopBrowserRuntime? = null
+    private var zoom = ZoomSetting(isEnabled = false, percent = BROWSER_DEFAULT_ZOOM, url = "")
     private val runtimes = mutableListOf<DesktopBrowserRuntime>()
     private val ready = MutableStateFlow<DesktopBrowserRuntime?>(null)
     private val preparationState = MutableStateFlow<BrowserRuntimeUi>(BrowserRuntimeUi.Preparing)
-    private val loadingState = MutableStateFlow(false)
 
-    /** Bootstrap progress belongs to this viewport and is displayed instead of ordinary page loading. */
+    /** Bootstrap progress belongs to this viewport; ordinary page loading is shown by the tab. */
     val preparation = preparationState.asStateFlow()
 
-    /** Normal page loading resumes in the viewport after the shared runtime has been prepared. */
-    val loading = loadingState.asStateFlow()
+    /** Retains the live setting while Chromium initializes or recovers, without starting a hidden tab. */
+    fun setZoom(isEnabled: Boolean, percent: Int, url: String) = onSwing {
+        val next = ZoomSetting(isEnabled, percent, url)
+        if (next != zoom) {
+            zoom = next
+            native?.setZoom(isEnabled, percent, url)
+        }
+    }
 
     /** A timeout fails the call with IllegalStateException; only the caller's own cancellation cancels it. */
     suspend fun devTools(method: String, arguments: JsonObject): String =
@@ -62,6 +69,13 @@ internal class DesktopBrowserPanel(
         availableRuntime("Browser resource capture", RESOURCE_TIMEOUT) {
             it.captureResource(url)
         }
+
+    /**
+     * The site icon [url] fetched through this tab's profile; fails when it is not a small image or when [allows]
+     * refuses the address or one of its redirects.
+     */
+    suspend fun loadIcon(url: String, allows: (String) -> Boolean): ByteArray =
+        availableRuntime("Site icon", ICON_TIMEOUT) { it.loadIcon(url, allows) }
 
     private suspend fun <T : Any> availableRuntime(
         operation: String,
@@ -85,6 +99,7 @@ internal class DesktopBrowserPanel(
     private companion object {
         const val DEVTOOLS_TIMEOUT = 30_000L
         const val RESOURCE_TIMEOUT = 60_000L
+        const val ICON_TIMEOUT = 15_000L
     }
 
     private var container: JPanel? = null
@@ -191,6 +206,7 @@ internal class DesktopBrowserPanel(
                 }
                 // Pending commands supersede restoration, including Stop during initialization.
                 val hasNavigation = pending.any { it is BrowserViewCommand.Load || it == BrowserViewCommand.Stop }
+                runtime.setZoom(zoom.isEnabled, zoom.percent, zoom.url)
                 runtime.start(if (hasNavigation) "" else currentUrl)
                 pending.toList().also { pending.clear() }.forEach(runtime::execute)
             } catch (error: CancellationException) {
@@ -252,7 +268,6 @@ internal class DesktopBrowserPanel(
     private fun publish(state: BrowserViewState) {
         if (isReleased.get()) return
         log.v { "Browser page projection changed" }
-        loadingState.value = state.isLoading
         if (isBrowserUrlAllowed(state.url)) currentUrl = state.url
         surface.changed(this, state)
     }
@@ -262,13 +277,22 @@ internal class DesktopBrowserPanel(
     }
 }
 
+/** The latest zoom setting, reapplied to a runtime created after it changed. */
+private data class ZoomSetting(val isEnabled: Boolean, val percent: Int, val url: String)
+
 /** Testable presentation port, independent of the CEF JNI lifetime. */
 internal interface DesktopBrowserRuntime : BrowserViewController {
+    /** Live zoom settings; the real engine reapplies them after a main-frame navigation. */
+    fun setZoom(isEnabled: Boolean, percent: Int, url: String) = Unit
+
     suspend fun devTools(method: String, arguments: JsonObject): String =
         throw UnsupportedOperationException("Browser automation is unavailable")
 
     suspend fun captureResource(url: String): JsonObject =
         throw UnsupportedOperationException("Browser resource loading is unavailable")
+
+    suspend fun loadIcon(url: String, allows: (String) -> Boolean): ByteArray =
+        throw UnsupportedOperationException("Browser icon loading is unavailable")
 
     val component: Component
     fun start(initialUrl: String)

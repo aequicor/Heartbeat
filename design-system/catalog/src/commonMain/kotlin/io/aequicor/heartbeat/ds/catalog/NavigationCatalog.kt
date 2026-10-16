@@ -47,6 +47,7 @@ internal fun NavigationExample(modifier: Modifier = Modifier) {
         }
         GroupMenuExample()
         MultiSelectExample()
+        PopoverExample()
         HbColumn(Modifier.widthIn(max = HbTheme.dimensions.sidebarWidth).fillMaxWidth(), gap = HbTheme.spacing.xxs) {
             HbNavigationHeader(
                 title = hbString(HbString.Projects),
@@ -84,6 +85,9 @@ internal fun NavigationExample(modifier: Modifier = Modifier) {
                     isSelected = selected == 2,
                     isEmphasized = true,
                     level = 1,
+                    leadingContent = {
+                        HbActivityIndicator(color = HbTheme.colors.textSecondary, isCounterClockwise = true)
+                    },
                 )
             }
         }

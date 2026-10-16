@@ -13,14 +13,18 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
 import io.aequicor.heartbeat.ds.components.HbBanner
 import io.aequicor.heartbeat.ds.components.HbEmptyState
-import io.aequicor.heartbeat.ds.components.HbIcon
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbLoadingState
@@ -28,6 +32,9 @@ import io.aequicor.heartbeat.ds.components.HbTextField
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserShortcut
+import io.aequicor.heartbeat.feature.browser.impl.presentation.browserShortcut
+import io.aequicor.heartbeat.feature.browser.impl.presentation.isBrowserMetaShortcut
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserModel
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserPhase
 import io.aequicor.heartbeat.feature.browser.impl.presentation.store.BrowserScreenError
@@ -74,13 +81,21 @@ internal fun BrowserScreenContent(
 ) {
     HbColumn(
         modifier.fillMaxSize().safeDrawingPadding()
-            .background(HbTheme.surfaces.backdrop).testTag("browser"),
+            .background(HbTheme.surfaces.backdrop).testTag("browser")
+            .onPreviewKeyEvent { event ->
+                val shortcut = event.browserShortcut().takeIf { state.hasTabs && event.type == KeyEventType.KeyDown }
+                val allowed = shortcut.takeUnless { it is BrowserShortcut.Zoom && !state.isZoomEnabled }
+                allowed?.let { onIntent(BrowserScreenIntent.Shortcut(it)) } != null
+            },
         gap = HbTheme.spacing.none,
     ) {
         BrowserTabs(state, onIntent)
         BrowserToolbar(state, onIntent)
         // Desktop viewports show the runtime failure with its own recovery action and download diagnostics.
-        state.error?.takeUnless { state.hasTabs && it == BrowserScreenError.EngineUnavailable }?.let {
+        state.error?.takeUnless {
+            (state.failure != null && it == BrowserScreenError.LoadFailed) ||
+                (state.hasTabs && it == BrowserScreenError.EngineUnavailable)
+        }?.let {
             HbBanner(stringResource(it.message()), Modifier.testTag("browser-error"))
         }
         if (state.isLoading && !state.hasTabs) {
@@ -89,13 +104,39 @@ internal fun BrowserScreenContent(
                 Modifier.testTag("browser-loading"),
             )
         }
-        BrowserViewport(state, Modifier.weight(1f).fillMaxWidth(), browser)
+        BrowserViewport(state, onIntent, Modifier.weight(1f).fillMaxWidth(), browser)
     }
 }
+
+/** The tab key this event presses, with the host's modifier conventions. */
+internal fun KeyEvent.browserShortcut(): BrowserShortcut? {
+    val isMeta = isBrowserMetaShortcut()
+    val character = when (key) {
+        Key.T -> 't'
+        Key.W -> 'w'
+        Key.Tab -> '\t'
+        Key.Equals, Key.Plus, Key.NumPadAdd -> '+'
+        Key.Minus, Key.NumPadSubtract -> '-'
+        Key.Zero, Key.NumPad0 -> '0'
+        in DIGIT_KEYS -> '1' + DIGIT_KEYS.indexOf(key)
+        else -> return null
+    }
+    return browserShortcut(
+        character,
+        isAccelerator = if (isMeta) isMetaPressed && !isCtrlPressed else isCtrlPressed && !isMetaPressed,
+        isControl = isCtrlPressed,
+        isShift = isShiftPressed,
+        isAlt = isAltPressed,
+    )
+}
+
+private val DIGIT_KEYS =
+    listOf(Key.One, Key.Two, Key.Three, Key.Four, Key.Five, Key.Six, Key.Seven, Key.Eight, Key.Nine)
 
 @Composable
 private fun BrowserViewport(
     state: BrowserScreenState,
+    onIntent: (BrowserScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
     browser: @Composable () -> Unit,
 ) {
@@ -109,8 +150,12 @@ private fun BrowserViewport(
             )
 
             BrowserPhase.Ready -> {
-                if (state.url.isNotEmpty() || state.error == BrowserScreenError.EngineUnavailable) browser()
-                if (state.url.isEmpty() && state.error == null) {
+                val failure = state.failure
+                if (failure != null) {
+                    BrowserLoadErrorPage(failure, state.isErrorDetailsExpanded, onIntent)
+                } else if (state.url.isNotEmpty() || state.error == BrowserScreenError.EngineUnavailable) {
+                    browser()
+                } else if (state.error == null) {
                     HbEmptyState(
                         stringResource(Res.string.browser_empty),
                         description = stringResource(Res.string.browser_empty_hint),
@@ -130,13 +175,13 @@ private fun BrowserScreenError.message(): StringResource = when (this) {
 
 @Composable
 private fun BrowserAddressField(
-    address: String,
+    state: BrowserScreenState,
     isEnabled: Boolean,
     onIntent: (BrowserScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     HbTextField(
-        value = address,
+        value = state.address,
         onValueChange = { onIntent(BrowserScreenIntent.AddressChanged(it)) },
         modifier = modifier.testTag("browser-address").onPreviewKeyEvent {
             if (isEnabled && it.key == Key.Enter && it.type == KeyEventType.KeyUp) {
@@ -150,15 +195,18 @@ private fun BrowserAddressField(
         enabled = isEnabled,
         selectAllOnFocus = true,
         shape = CircleShape,
-        leadingContent = { HbIcon(HbIcons.Globe, contentDescription = null) },
+        leadingContent = { BrowserSecurityIndicator(state.security) },
         trailingContent = {
-            HbIconButton(
-                HbIcons.ArrowRight,
-                stringResource(Res.string.browser_open),
-                { onIntent(BrowserScreenIntent.Open) },
-                Modifier.testTag("browser-open"),
-                enabled = isEnabled,
-            )
+            HbRow(gap = HbTheme.spacing.none) {
+                BrowserZoomControl(state, onIntent)
+                HbIconButton(
+                    HbIcons.ArrowRight,
+                    stringResource(Res.string.browser_open),
+                    { onIntent(BrowserScreenIntent.Open) },
+                    Modifier.testTag("browser-open"),
+                    enabled = isEnabled,
+                )
+            }
         },
     )
 }
@@ -201,6 +249,6 @@ private fun BrowserToolbar(
             Modifier.testTag("browser-reload-stop"),
             enabled = isEnabled && (state.url.isNotEmpty() || state.error == BrowserScreenError.EngineUnavailable),
         )
-        BrowserAddressField(state.address, isEnabled, onIntent, Modifier.weight(1f))
+        BrowserAddressField(state, isEnabled, onIntent, Modifier.weight(1f))
     }
 }

@@ -18,7 +18,19 @@ import kotlin.coroutines.cancellation.CancellationException
  * active tab, independent of surface attachment. Running + Completed -> emit Completed; no page
  * contents are retained in machine state. Running + ObserverFailed -> stay disabled and hidden
  * [Reobserve]; the effect already revoked the session. Running + Failed -> stay with
- * EngineUnavailable. Disabled navigation and duplicate Start are ignored.
+ * EngineUnavailable. ErrorPagesChanged updates the opt-in policy; enabled NetworkRestored emits
+ * RetryNetworkErrors. Internal ProceedCertificate/ReturnToSafety require the exact selected failure
+ * and human control; proceeding additionally requires an overridable certificate error. Disabling clears
+ * the failure and the connection indicator together with the native error.
+ * Navigation clears the failure; history and reload keep the committed page's connection indicator until the
+ * engine reports the next commit, while Open drops it with the address. Disabled navigation and duplicate Start
+ * are ignored.
+ * Running + ZoomAvailabilityChanged -> stay with isZoomEnabled. Enabled + Zoom (zoom enabled, HTTP/S page)
+ * -> stay [Zoom(selected tab, direction, URL)]; Enabled + Zoom (zoom enabled, any other page) -> accepted without
+ * an effect, since zoom keys on a new tab are routine input. During a pending main-frame navigation the URL is
+ * already the target's, so a zoom then applies to the next host (#423). The session serializes commands against
+ * the latest saved level; bounds and no-op resets are resolved there because earlier commands may still be
+ * pending. PageChanged supplies the confirmed level; accepting input never projects an optimistic percentage.
  *
  * ```mermaid
  * stateDiagram-v2
@@ -30,12 +42,17 @@ import kotlin.coroutines.cancellation.CancellationException
  *     Running --> Running: Perform / Perform, Completed / output Completed
  *     Running --> Running: CancelOperation / CancelOperation, OperationCancelled / output Cancelled
  *     Running --> Running: ObserverFailed / Reobserve
+ *     Running --> Running: ErrorPagesChanged
+ *     Running --> Running: NetworkRestored [error pages] / RetryNetworkErrors
+ *     Running --> Running: ProceedCertificate / ProceedCertificate, ReturnToSafety / ReturnToSafety
+ *     Running --> Running: ZoomAvailabilityChanged, Zoom [HTTP/S] / Zoom, Zoom [other]
  * ```
  *
  * All running updates use stay so the live toggle observer survives navigation, errors and
  * disabling. Effect failures never leave a request unanswered: Perform maps to an error result
  * ("cancelled" for a cancellation raised inside the operation), CancelOperation to its
- * acknowledgement, observation to a delayed restart; a failed SelectTab is only logged.
+ * acknowledgement, observation to a delayed restart; a failed SelectTab, Zoom, network retry or certificate
+ * decision is only logged: none of them may mark the selected page's engine unavailable.
  */
 public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserEffect, BrowserOutput> =
     machineSpec(BrowserMachineKey, BrowserState.Idle) {
@@ -46,6 +63,24 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
             }
         }
         state<BrowserState.Running> {
+            on<BrowserIntent.Internal.ErrorPagesChanged> {
+                stay { state.copy(areErrorPagesEnabled = intent.isEnabled) }
+            }
+            on<BrowserIntent.Internal.NetworkRestored>(
+                guard = { state.isEnabled && state.areErrorPagesEnabled },
+            ) {
+                effect { BrowserEffect.RetryNetworkErrors }
+            }
+            on<BrowserIntent.Internal.ProceedCertificate>(
+                guard = { state.matchesWarning(intent.tabId, intent.failure) && intent.failure.isProceedAllowed },
+            ) {
+                effect { BrowserEffect.ProceedCertificate(intent.tabId, intent.failure) }
+            }
+            on<BrowserIntent.Internal.ReturnToSafety>(
+                guard = { state.matchesWarning(intent.tabId, intent.failure) },
+            ) {
+                effect { BrowserEffect.ReturnToSafety(intent.tabId, intent.failure) }
+            }
             on<BrowserIntent.Public.Display>(
                 guard = { state.isEnabled || intent.mode == BrowserDisplay.Hidden },
             ) {
@@ -104,6 +139,9 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
                             url = requireNotNull(normalizeBrowserUrl(intent.address)),
                             isLoading = true,
                             error = null,
+                            failure = null,
+                            // The address no longer shows the committed page.
+                            security = BrowserSecurity.Unknown,
                         ),
                     )
                 }
@@ -119,13 +157,29 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
             on<BrowserIntent.Public.Back>(
                 guard = { state.isEnabled && state.page.isBackAvailable },
             ) {
-                stay { state.copy(page = state.page.copy(isLoading = true, error = null)) }
+                stay {
+                    state.copy(
+                        page = state.page.copy(
+                            isLoading = true,
+                            error = null,
+                            failure = null,
+                        ),
+                    )
+                }
                 effect { BrowserEffect.Back }
             }
             on<BrowserIntent.Public.Forward>(
                 guard = { state.isEnabled && state.page.isForwardAvailable },
             ) {
-                stay { state.copy(page = state.page.copy(isLoading = true, error = null)) }
+                stay {
+                    state.copy(
+                        page = state.page.copy(
+                            isLoading = true,
+                            error = null,
+                            failure = null,
+                        ),
+                    )
+                }
                 effect { BrowserEffect.Forward }
             }
             on<BrowserIntent.Public.Reload>(
@@ -134,13 +188,33 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
                         (state.page.url.isNotEmpty() || state.page.error == BrowserError.EngineUnavailable)
                 },
             ) {
-                stay { state.copy(page = state.page.copy(isLoading = true, error = null)) }
+                stay {
+                    state.copy(
+                        page = state.page.copy(
+                            isLoading = true,
+                            error = null,
+                            failure = null,
+                        ),
+                    )
+                }
                 effect { BrowserEffect.Reload }
             }
             on<BrowserIntent.Public.Stop>(guard = { state.isEnabled && state.page.isLoading }) {
                 stay { state.copy(page = state.page.copy(isLoading = false)) }
                 effect { BrowserEffect.Stop }
             }
+            on<BrowserIntent.Internal.ZoomAvailabilityChanged> {
+                stay { state.copy(isZoomEnabled = intent.isEnabled) }
+            }
+            on<BrowserIntent.Public.Zoom>(
+                guard = { state.isEnabled && state.isZoomEnabled && isBrowserUrlAllowed(state.page.url) },
+            ) {
+                effect { BrowserEffect.Zoom(state.selectedTabId, intent.zoom, state.page.url) }
+            }
+            // Zoom keys on a new tab or a non-web page are routine input, not a rejected command.
+            on<BrowserIntent.Public.Zoom>(
+                guard = { state.isEnabled && state.isZoomEnabled && !isBrowserUrlAllowed(state.page.url) },
+            ) {}
             on<BrowserIntent.Internal.PageChanged>(
                 guard = {
                     state.isEnabled && (intent.page.url.isEmpty() || isBrowserUrlAllowed(intent.page.url))
@@ -178,8 +252,14 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
 
                 is BrowserEffect.CancelOperation -> BrowserIntent.Internal.OperationCancelled(effect.id)
 
-                // Selection is presentation-only; a stale tab must not mark the whole engine unavailable.
-                is BrowserEffect.SelectTab -> null
+                // Selection and zoom are presentation-only; a stale tab must not mark the whole engine unavailable.
+                is BrowserEffect.SelectTab, is BrowserEffect.Zoom -> null
+
+                // Background retries touch other tabs, and a stale certificate decision leaves its warning in place.
+                is BrowserEffect.ProceedCertificate,
+                is BrowserEffect.ReturnToSafety,
+                BrowserEffect.RetryNetworkErrors,
+                -> null
 
                 BrowserEffect.Observe -> BrowserIntent.Internal.ObserverFailed(attempt = 1)
 
@@ -205,5 +285,19 @@ private fun BrowserState.Running.disabled(): BrowserState.Running = copy(
         isBackAvailable = false,
         isForwardAvailable = false,
         error = null,
+        failure = null,
+        security = BrowserSecurity.Unknown,
     ),
 )
+
+/**
+ * UI decisions cannot be replayed on another tab, load or an agent-controlled page. An anonymous failure (empty id)
+ * is never decidable: two loads of the same URL and code would be indistinguishable.
+ */
+private fun BrowserState.Running.matchesWarning(tabId: String, failure: BrowserLoadFailure): Boolean =
+    isEnabled && areErrorPagesEnabled && selectedTabId == tabId && page.failure == failure &&
+        failure.isCertificate && failure.id.isNotEmpty() && isHumanDecisionAllowed(tabId)
+
+/** Whether a person, not an agent session, may decide on [tabId]'s certificate warning. */
+public fun BrowserState.Running.isHumanDecisionAllowed(tabId: String): Boolean =
+    tabs.any { it.id == tabId && (it.owner == null || it.isHumanControlled) }

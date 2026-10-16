@@ -44,6 +44,9 @@ internal class BrowserSurfaceAdapter(
     private var isEnabled = false
     private var isClosed = false
 
+    var isCertificateWarningActive: Boolean = false
+        private set
+
     override val pages: StateFlow<BrowserPage> = page
     override val initialUrl: String get() = page.value.url
 
@@ -68,6 +71,7 @@ internal class BrowserSurfaceAdapter(
             previous?.execute(BrowserViewCommand.Stop)
             page.value = page.value.copy(
                 isLoading = false,
+                isAwaitingResponse = false,
                 isBackAvailable = false,
                 isForwardAvailable = false,
                 error = null,
@@ -81,11 +85,30 @@ internal class BrowserSurfaceAdapter(
         val native = command.toNative()
         if (command is BrowserCommand.Load) {
             require(isBrowserUrlAllowed(command.url)) { "Browser requires an HTTP(S) address" }
-            page.value = page.value.copy(url = command.url, isLoading = true, error = null)
+            page.value = page.value.copy(
+                url = command.url,
+                isLoading = true,
+                isAwaitingResponse = true,
+                error = null,
+                failure = null,
+            )
         }
-        if (command == BrowserCommand.Stop) page.value = page.value.copy(isLoading = false)
+        if (command == BrowserCommand.Stop) page.value = page.value.copy(isLoading = false, isAwaitingResponse = false)
         val current = controller
         if (current == null) pending += native else current.execute(native)
+    }
+
+    /**
+     * Queues [url] for the view that attaches next without reporting a load: a restored background tab stays idle, and
+     * keeps its address and [title], until it is shown. The page counts as loading from when a view runs it.
+     */
+    suspend fun restore(url: String, title: String = ""): Unit = withContext(dispatchers.main) {
+        if (!isEnabled || isClosed) return@withContext
+        require(isBrowserUrlAllowed(url)) { "Browser requires an HTTP(S) address" }
+        log.v { "Restoring browser address" }
+        page.value = page.value.copy(url = url, title = title, error = null)
+        val current = controller
+        if (current == null) pending += BrowserViewCommand.Load(url) else execute(BrowserCommand.Load(url))
     }
 
     override fun attached(controller: BrowserViewController) {
@@ -99,6 +122,12 @@ internal class BrowserSurfaceAdapter(
             this@BrowserSurfaceAdapter.controller = controller
             val commands = pending.toList()
             pending.clear()
+            if (commands.lastOrNull { it is BrowserViewCommand.Load || it == BrowserViewCommand.Stop } is
+                    BrowserViewCommand.Load
+            ) {
+                log.v { "Queued browser load started" }
+                page.value = page.value.copy(isLoading = true, isAwaitingResponse = true)
+            }
             commands.forEach(controller::execute)
         }
     }
@@ -109,6 +138,7 @@ internal class BrowserSurfaceAdapter(
             if (!isEnabled || isClosed || this@BrowserSurfaceAdapter.controller !== controller) {
                 return@launch
             }
+            isCertificateWarningActive = state.isCertificateWarningActive
             log.v { "Updating browser page projection" }
             if (state.url.isNotEmpty() && !isBrowserUrlAllowed(state.url)) {
                 page.value = page.value.copy(isLoading = false, error = BrowserError.UnsupportedAddress)
@@ -125,6 +155,7 @@ internal class BrowserSurfaceAdapter(
             this@BrowserSurfaceAdapter.controller = null
             page.value = page.value.copy(
                 isLoading = false,
+                isAwaitingResponse = false,
                 isBackAvailable = false,
                 isForwardAvailable = false,
             )
@@ -143,9 +174,12 @@ private fun BrowserCommand.toNative(): BrowserViewCommand = when (this) {
 private fun BrowserViewState.toDomain(previousUrl: String): BrowserPage = BrowserPage(
     url = url.ifEmpty { previousUrl },
     title = title,
+    failure = failure,
+    security = security,
     isLoading = isLoading,
     isBackAvailable = isBackAvailable,
     isForwardAvailable = isForwardAvailable,
+    isAwaitingResponse = isLoading && isAwaitingResponse,
     error = when (error) {
         null -> null
         BrowserViewError.LoadFailed -> BrowserError.LoadFailed

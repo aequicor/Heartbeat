@@ -1,7 +1,14 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
+import io.aequicor.heartbeat.feature.browser.api.BrowserLoadFailure
+import io.aequicor.heartbeat.feature.browser.api.BrowserSecurity
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserNativeResources
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserReferrer
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 
 /** Commands consumed by one native view on its platform UI thread. */
 internal sealed interface BrowserViewCommand {
@@ -20,6 +27,11 @@ internal data class BrowserViewState(
     val isBackAvailable: Boolean = false,
     val isForwardAvailable: Boolean = false,
     val error: BrowserViewError? = null,
+    val isAwaitingResponse: Boolean = false,
+    val failure: BrowserLoadFailure? = null,
+    /** Survives a cancelled navigation until a new main document replaces the native certificate warning. */
+    val isCertificateWarningActive: Boolean = false,
+    val security: BrowserSecurity = BrowserSecurity.Unknown,
 )
 
 internal enum class BrowserViewError {
@@ -41,6 +53,14 @@ internal interface BrowserSurface {
     val hasTabs: Boolean
         get() = false
 
+    /** Decoded site icons by address for the tab strip; platforms without tabs have none. */
+    val favicons: StateFlow<Map<String, BrowserFaviconImage>>
+        get() = NoFavicons
+
+    /** Tab keys pressed inside a page, which never reach Compose; platforms without tabs have none. */
+    val shortcuts: Flow<BrowserShortcut>
+        get() = emptyFlow()
+
     /** A stable surface for the selected desktop tab; mobile keeps the single surface. */
     fun forTab(id: String?): BrowserSurface = this
 
@@ -54,3 +74,6 @@ internal interface BrowserSurface {
     fun changed(controller: BrowserViewController, state: BrowserViewState)
     fun detached(controller: BrowserViewController)
 }
+
+private val NoFavicons: StateFlow<Map<String, BrowserFaviconImage>> =
+    MutableStateFlow(emptyMap<String, BrowserFaviconImage>()).asStateFlow()

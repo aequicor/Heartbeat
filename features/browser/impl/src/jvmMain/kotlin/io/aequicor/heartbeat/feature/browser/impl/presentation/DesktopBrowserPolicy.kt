@@ -9,6 +9,8 @@ import io.aequicor.heartbeat.feature.browser.impl.domain.isBrowserRequestAllowed
 import io.aequicor.heartbeat.feature.searchengine.api.isPublicWebUrl
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
+import org.cef.callback.CefCallback
+import org.cef.handler.CefLoadHandler
 import org.cef.handler.CefRequestContextHandlerAdapter
 import org.cef.handler.CefRequestHandlerAdapter
 import org.cef.handler.CefResourceRequestHandler
@@ -26,7 +28,7 @@ import java.util.concurrent.atomic.AtomicReference
  * Empty bootstrap is local to the newly created browser; user commands never accept about/file schemes.
  * Neither JVM cookies nor external protocol dispatch participate in this backend.
  * Documents (main and embedded, including every redirect hop and popup) also pass the tab's [guard] for its agent
- * owner.
+ * owner. An allowed main document reports `navigating` before its request starts.
  */
 internal class DesktopBrowserPolicy(
     private val isReleased: () -> Boolean,
@@ -36,9 +38,16 @@ internal class DesktopBrowserPolicy(
     unavailable: () -> Unit,
     private val guard: DesktopBrowserAgentGuard,
     private val areLinksOpenedInTabs: Boolean = false,
+    private val certificateExceptions: DesktopCertificateExceptions = DesktopCertificateExceptions(),
+    navigating: () -> Unit = {},
 ) {
     private val log = Log.tag("DesktopBrowserPolicy")
+    private val onMainNavigation = navigating
     private val linkedNavigation = AtomicReference<BrowserViewCommand.Load?>(null)
+    private val mainDocumentMethod = AtomicReference("GET")
+
+    /** Whether the latest main-document navigation, including history and redirects, was not a plain GET. */
+    val isMainDocumentSubmission: Boolean get() = mainDocumentMethod.get() != "GET"
 
     /**
      * LoadURL can open a fresh browser; LoadRequest cannot navigate about:blank to a different origin.
@@ -95,6 +104,11 @@ internal class DesktopBrowserPolicy(
                 open(request.linkedNavigation())
                 return true
             }
+            // Only a navigation this tab continues replaces the document whose failure may be retried.
+            if (!isRejected && kind == BrowserRequestKind.MainDocument) {
+                mainDocumentMethod.set(request.method?.uppercase() ?: "GET")
+            }
+            if (!isRejected && kind == BrowserRequestKind.MainDocument && !isBootstrap()) onMainNavigation()
             return isRejected
         }
 
@@ -137,7 +151,23 @@ internal class DesktopBrowserPolicy(
             }
         }
 
-        // Default getAuthCredentials and onCertificateError reject without bypassing TLS verification.
+        override fun onCertificateError(
+            browser: CefBrowser,
+            certError: CefLoadHandler.ErrorCode,
+            requestUrl: String,
+            callback: CefCallback?,
+        ): Boolean {
+            if (guard.isRestricted || isReleased()) {
+                // Cancel instead of default Chrome handling: an agent must not click the native bypass link.
+                callback?.cancel()
+                return callback != null
+            }
+            // The user may bypass natively before any load ends; withhold the host from agents first.
+            certificateExceptions.warned(requestUrl)
+            return false
+        }
+
+        // Default authentication handling rejects; user certificate decisions belong to Chrome's interstitial.
     }
 
     /** Only clicked main-frame GET links fork a tab; forms, history and redirects keep their document. */
@@ -204,8 +234,15 @@ internal class DesktopBrowserPolicy(
 
     fun allows(url: String?, kind: BrowserRequestKind): Boolean {
         if (isReleased() || !isBrowserRequestAllowed(url.orEmpty(), kind, isOwnBlank = isBootstrap())) return false
+        if (withholds(url.orEmpty())) return false
         return guard.allows(url.orEmpty(), kind)
     }
+
+    /**
+     * Chromium caches accepted certificates across this profile. Never lend that trust to an agent tab, also not to
+     * the frameless requests it makes outside this handler (site icons and their redirects).
+     */
+    fun withholds(url: String): Boolean = guard.isRestricted && certificateExceptions.isWithheldFromAgents(url)
 }
 
 /**

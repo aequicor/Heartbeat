@@ -6,12 +6,17 @@ import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.browser.api.BrowserDisplay
 import io.aequicor.heartbeat.feature.browser.api.BrowserError
 import io.aequicor.heartbeat.feature.browser.api.BrowserIntent
+import io.aequicor.heartbeat.feature.browser.api.BrowserLoadFailure
 import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserOutput
 import io.aequicor.heartbeat.feature.browser.api.BrowserPage
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
+import io.aequicor.heartbeat.feature.browser.api.BrowserSecurity
 import io.aequicor.heartbeat.feature.browser.api.BrowserState
 import io.aequicor.heartbeat.feature.browser.api.BrowserTab
+import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserFaviconImage
+import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserShortcut
+import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserSurface
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserSurfaceAdapter
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserTestDispatchers
 import io.aequicor.heartbeat.feature.browser.impl.presentation.BrowserTestScope
@@ -51,6 +56,139 @@ class BrowserModelTest {
             BrowserRequest("", BrowserOperation.NewTab, "parent"),
             fixture.machine.performed().single().copy(id = ""),
         )
+    }
+
+    @Test
+    fun `each tab reflects its own page loading`() = runTest {
+        val fixture = Fixture(this)
+        val screen = fixture.subscribe()
+        fixture.machine.state.value = ready(BrowserPage()).copy(
+            tabs = listOf(
+                BrowserTab("loading", BrowserPage("https://example.com/", isLoading = true)),
+                BrowserTab("idle", BrowserPage("https://example.org/", "Idle", isAwaitingResponse = true)),
+                BrowserTab("waiting", BrowserPage("https://example.net/", isLoading = true, isAwaitingResponse = true)),
+            ),
+            selectedTabId = "idle",
+        )
+        runCurrent()
+        assertEquals(listOf(true, false, true), screen.states.value.tabs.map { it.isLoading })
+        assertEquals(listOf(false, false, true), screen.states.value.tabs.map { it.isAwaitingResponse })
+        assertFalse(screen.states.value.isLoading)
+    }
+
+    @Test
+    fun `tabs carry their site icon address and decoded icons are reflected`() = runTest {
+        val fixture = Fixture(this)
+        val screen = fixture.subscribe()
+        fixture.machine.state.value = ready(BrowserPage()).copy(
+            tabs = listOf(
+                BrowserTab("tab", BrowserPage("https://example.com/", faviconUrl = "https://example.com/i.png")),
+            ),
+            selectedTabId = "tab",
+        )
+        val icon = BrowserFaviconImage(byteArrayOf(1))
+        fixture.favicons.value = mapOf("https://example.com/i.png" to icon)
+        runCurrent()
+        val state = screen.states.value
+        assertEquals(icon, state.favicons[state.tabs.single().faviconUrl])
+    }
+
+    @Test
+    fun `tab shortcuts cycle the visible group and pick positions`() = runTest {
+        val fixture = Fixture(this)
+        val screen = fixture.subscribe()
+        fixture.machine.state.value = ready(BrowserPage()).copy(
+            tabs = listOf(
+                BrowserTab("a"),
+                BrowserTab("b"),
+                BrowserTab("c"),
+                BrowserTab("agent", owner = "session"),
+            ),
+            selectedTabId = "c",
+        )
+        runCurrent()
+        assertEquals(3, screen.states.value.visibleTabs.size)
+        listOf(
+            BrowserShortcut.NextTab,
+            BrowserShortcut.PreviousTab,
+            BrowserShortcut.SelectTab(2),
+            BrowserShortcut.SelectTab(null),
+            BrowserShortcut.SelectTab(7),
+        ).forEach { fixture.model.store.intent(BrowserScreenIntent.Shortcut(it)) }
+        runCurrent()
+        assertEquals(
+            listOf("a", "b", "b", "c"),
+            fixture.machine.sent.filterIsInstance<BrowserIntent.Public.SelectTab>().map { it.id },
+        )
+    }
+
+    @Test
+    fun `tab keys from inside a page act like keys pressed in the strip`() = runTest {
+        val fixture = Fixture(this)
+        fixture.subscribe()
+        fixture.machine.state.value = ready(BrowserPage()).copy(
+            tabs = listOf(BrowserTab("a"), BrowserTab("b")),
+            selectedTabId = "a",
+        )
+        runCurrent()
+        fixture.shortcuts.emit(BrowserShortcut.NextTab)
+        runCurrent()
+        assertEquals(BrowserIntent.Public.SelectTab("b"), fixture.machine.sent.last())
+    }
+
+    @Test
+    fun `a closed tab reopens at its address among the user's own tabs`() = runTest {
+        val fixture = Fixture(this)
+        fixture.subscribe()
+        fixture.machine.state.value = ready(BrowserPage()).copy(
+            tabs = listOf(BrowserTab("a", BrowserPage("https://example.com/a")), BrowserTab("b")),
+            selectedTabId = "a",
+        )
+        runCurrent()
+        fixture.model.store.intent(BrowserScreenIntent.Shortcut(BrowserShortcut.CloseTab))
+        fixture.model.store.intent(BrowserScreenIntent.CloseTab("b"))
+        fixture.model.store.intent(BrowserScreenIntent.Shortcut(BrowserShortcut.ReopenClosedTab))
+        fixture.model.store.intent(BrowserScreenIntent.Shortcut(BrowserShortcut.ReopenClosedTab))
+        runCurrent()
+        val performed = fixture.machine.performed().map { it.copy(id = "") }
+        assertEquals(
+            listOf(
+                BrowserRequest("", BrowserOperation.CloseTab, "a"),
+                BrowserRequest("", BrowserOperation.CloseTab, "b"),
+                BrowserRequest(
+                    "",
+                    BrowserOperation.NewTab,
+                    null,
+                    arguments = JsonObject(mapOf("url" to JsonPrimitive("https://example.com/a"))),
+                ),
+            ),
+            performed,
+        )
+    }
+
+    @Test
+    fun `tab keys leave agent tabs alone and clearing data forgets closed tabs`() = runTest {
+        val fixture = Fixture(this)
+        val screen = fixture.subscribe()
+        fixture.machine.state.value = ready(BrowserPage()).copy(
+            tabs = listOf(
+                BrowserTab("mine", BrowserPage("https://example.com/mine")),
+                BrowserTab("agent", BrowserPage("https://example.com/agent"), owner = "session-a"),
+            ),
+            selectedTabId = "agent",
+        )
+        runCurrent()
+        fixture.model.store.intent(BrowserScreenIntent.Shortcut(BrowserShortcut.CloseTab))
+        fixture.model.store.intent(BrowserScreenIntent.CloseTab("agent"))
+        runCurrent()
+        assertEquals(listOf("agent"), fixture.machine.performed().map { it.tabId })
+        assertTrue(screen.states.value.closedTabUrls.isEmpty())
+        fixture.model.store.intent(BrowserScreenIntent.CloseTab("mine"))
+        runCurrent()
+        assertEquals(listOf("https://example.com/mine"), screen.states.value.closedTabUrls)
+        fixture.model.store.intent(BrowserScreenIntent.ClearData)
+        runCurrent()
+        assertTrue(screen.states.value.closedTabUrls.isEmpty())
     }
 
     @Test
@@ -196,15 +334,92 @@ class BrowserModelTest {
         )
     }
 
+    @Test
+    fun `error details reset on another failure and certificate action keeps original snapshot`() = runTest {
+        val fixture = Fixture(this)
+        val screen = fixture.subscribe()
+        val failure = certificateFailure()
+        val state = ready(BrowserPage(url = failure.url, failure = failure)).copy(
+            areErrorPagesEnabled = true,
+            selectedTabId = "tab",
+            tabs = listOf(BrowserTab("tab")),
+        )
+        fixture.machine.state.value = state
+        runCurrent()
+        val original = requireNotNull(screen.states.value.failure)
+        fixture.model.store.intent(BrowserScreenIntent.ToggleErrorDetails)
+        runCurrent()
+        assertTrue(screen.states.value.isErrorDetailsExpanded)
+        fixture.machine.state.value = state.copy(page = state.page.copy(failure = failure.copy(id = "next")))
+        runCurrent()
+        assertFalse(screen.states.value.isErrorDetailsExpanded)
+        fixture.model.store.intent(BrowserScreenIntent.ProceedCertificate(original))
+        runCurrent()
+        assertEquals(BrowserIntent.Internal.ProceedCertificate("tab", failure), fixture.machine.sent.last())
+        fixture.machine.state.value = state.copy(areErrorPagesEnabled = false)
+        runCurrent()
+        assertEquals(null, screen.states.value.failure)
+    }
+
+    @Test
+    fun `agent controlled warning offers no decision and keeps the exact snapshot`() = runTest {
+        val fixture = Fixture(this)
+        val screen = fixture.subscribe()
+        val failure = certificateFailure()
+        fixture.machine.state.value = ready(BrowserPage(url = failure.url, failure = failure)).copy(
+            areErrorPagesEnabled = true,
+            selectedTabId = "tab",
+            tabs = listOf(BrowserTab("tab", owner = "agent")),
+        )
+        runCurrent()
+        val shown = requireNotNull(screen.states.value.failure)
+        assertFalse(shown.isDecisionAvailable)
+        assertFalse(shown.isProceedAllowed)
+        assertEquals(failure, shown.failure)
+        fixture.model.store.intent(BrowserScreenIntent.ReturnToSafety(shown))
+        runCurrent()
+        assertEquals(BrowserIntent.Internal.ReturnToSafety("tab", failure), fixture.machine.sent.last())
+    }
+
+    @Test
+    fun `connection indicator follows the committed page through loads and address feedback`() = runTest {
+        val fixture = Fixture(this)
+        val screen = fixture.subscribe()
+        val committed = ready(BrowserPage(url = "https://example.com/", security = BrowserSecurity.Https))
+            .copy(areErrorPagesEnabled = true)
+        val cases = listOf(
+            committed to BrowserSecurityUi.Https,
+            committed.copy(page = committed.page.copy(security = BrowserSecurity.Http)) to BrowserSecurityUi.Http,
+            committed.copy(
+                page = committed.page.copy(security = BrowserSecurity.CertificateException, isLoading = true),
+            ) to BrowserSecurityUi.CertificateException,
+            committed.copy(page = committed.page.copy(error = BrowserError.UnsupportedAddress))
+                to BrowserSecurityUi.Https,
+            committed.copy(page = committed.page.copy(error = BrowserError.LoadFailed)) to BrowserSecurityUi.Unknown,
+            committed.copy(page = committed.page.copy(failure = certificateFailure())) to BrowserSecurityUi.Unknown,
+            committed.copy(areErrorPagesEnabled = false) to BrowserSecurityUi.Unknown,
+        )
+        for ((state, expected) in cases) {
+            fixture.machine.state.value = state
+            runCurrent()
+            assertEquals(expected, screen.states.value.security, "$state")
+        }
+    }
+
     private class Fixture(private val scope: TestScope) {
         val machine = TestBrowserMachine()
+        val favicons = MutableStateFlow<Map<String, BrowserFaviconImage>>(emptyMap())
+        val shortcuts = MutableSharedFlow<BrowserShortcut>()
         private val owner = BrowserTestScope(scope.backgroundScope)
         private val dispatchers = BrowserTestDispatchers(StandardTestDispatcher(scope.testScheduler))
         val model = BrowserModel(
             machine,
             owner,
             HeartbeatStoreFactory(dispatchers),
-            BrowserSurfaceAdapter(owner, dispatchers),
+            object : BrowserSurface by BrowserSurfaceAdapter(owner, dispatchers) {
+                override val favicons = this@Fixture.favicons
+                override val shortcuts = this@Fixture.shortcuts
+            },
         )
 
         suspend fun subscribe(): Provider<BrowserScreenState, BrowserScreenIntent, BrowserScreenAction> {
@@ -222,6 +437,14 @@ class BrowserModelTest {
         }
     }
 }
+
+private fun certificateFailure() = BrowserLoadFailure(
+    "https://example.com/",
+    "ERR_CERT_DATE_INVALID",
+    isCertificate = true,
+    isProceedAllowed = true,
+    id = "first",
+)
 
 private fun ready(page: BrowserPage) = BrowserState.Running(isConfigured = true, isEnabled = true, page = page)
 

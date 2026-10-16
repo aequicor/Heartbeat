@@ -13,6 +13,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -27,12 +28,21 @@ import kotlin.time.Duration.Companion.seconds
  * propagates, and the runtime answers it once through the spec's `onEffectFailure`. Cancellation of the
  * effect itself needs no answer: it only happens when the machine stops and would drop any feedback.
  */
-internal class BrowserEffects(private val availability: BrowserAvailability, private val session: BrowserSession) :
-    EffectHandler<BrowserEffect, BrowserIntent> {
+internal class BrowserEffects(
+    private val availability: BrowserAvailability,
+    private val session: BrowserSession,
+    private val zoom: BrowserZoomPolicy = BrowserZoomPolicy { flowOf(false) },
+) : EffectHandler<BrowserEffect, BrowserIntent> {
     private val log = Log.tag("BrowserEffects")
 
     override suspend fun handle(effect: BrowserEffect, machine: EffectScope<BrowserIntent>) {
         when (effect) {
+            is BrowserEffect.ProceedCertificate -> session.proceedCertificate(effect.tabId, effect.failure)
+
+            is BrowserEffect.ReturnToSafety -> session.returnToSafety(effect.tabId, effect.failure)
+
+            BrowserEffect.RetryNetworkErrors -> session.retryNetworkErrors()
+
             is BrowserEffect.Perform -> perform(effect, machine)
 
             is BrowserEffect.SelectTab -> selectTab(effect.id)
@@ -49,13 +59,13 @@ internal class BrowserEffects(private val availability: BrowserAvailability, pri
 
             is BrowserEffect.Load -> session.execute(BrowserCommand.Load(effect.url))
 
-            BrowserEffect.Back -> session.execute(BrowserCommand.Back)
+            BrowserEffect.Back,
+            BrowserEffect.Forward,
+            BrowserEffect.Reload,
+            BrowserEffect.Stop,
+            -> session.execute(HISTORY_COMMANDS.getValue(effect))
 
-            BrowserEffect.Forward -> session.execute(BrowserCommand.Forward)
-
-            BrowserEffect.Reload -> session.execute(BrowserCommand.Reload)
-
-            BrowserEffect.Stop -> session.execute(BrowserCommand.Stop)
+            is BrowserEffect.Zoom -> session.zoom(effect.tabId, effect.direction, effect.url)
         }
     }
 
@@ -69,6 +79,14 @@ internal class BrowserEffects(private val availability: BrowserAvailability, pri
         try {
             coroutineScope {
                 launch {
+                    session.errorPagesEnabled.collect { machine.send(BrowserIntent.Internal.ErrorPagesChanged(it)) }
+                }
+                launch {
+                    // A disabled browser inspects no network interfaces, whatever the error-page policy says.
+                    availability.observe().networkRecoveriesWhileEnabled { session.networkRestored }
+                        .collect { machine.send(BrowserIntent.Internal.NetworkRestored) }
+                }
+                launch {
                     session.tabs.collect { (tabs, selected) ->
                         machine.send(BrowserIntent.Internal.TabsChanged(tabs, selected))
                     }
@@ -76,6 +94,13 @@ internal class BrowserEffects(private val availability: BrowserAvailability, pri
                 launch {
                     session.pages.collect {
                         machine.send(BrowserIntent.Internal.PageChanged(it))
+                    }
+                }
+                launch {
+                    zoom.observe().collect { enabled ->
+                        val isZoomed = enabled && session.isZoomSupported
+                        session.setZoomEnabled(isZoomed)
+                        machine.send(BrowserIntent.Internal.ZoomAvailabilityChanged(isZoomed))
                     }
                 }
                 availability.observe().collect { enabled ->
@@ -142,3 +167,11 @@ internal fun browserObserverRetryDelay(attempt: Int): Duration =
 
 private const val MAX_BACKOFF_SHIFT = 7
 private val MAX_OBSERVER_RETRY_DELAY = 60.seconds
+
+/** Argument-free navigation effects and the native command each one runs. */
+private val HISTORY_COMMANDS: Map<BrowserEffect, BrowserCommand> = mapOf(
+    BrowserEffect.Back to BrowserCommand.Back,
+    BrowserEffect.Forward to BrowserCommand.Forward,
+    BrowserEffect.Reload to BrowserCommand.Reload,
+    BrowserEffect.Stop to BrowserCommand.Stop,
+)

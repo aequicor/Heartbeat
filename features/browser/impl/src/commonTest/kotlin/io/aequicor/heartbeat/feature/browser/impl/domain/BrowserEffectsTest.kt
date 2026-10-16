@@ -8,9 +8,13 @@ import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserPage
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
+import io.aequicor.heartbeat.feature.browser.api.BrowserZoom
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
@@ -24,6 +28,34 @@ import kotlin.time.Duration.Companion.seconds
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class BrowserEffectsTest {
+    @Test
+    fun `a disabled browser never observes network recovery and an enabled one forwards it`() = runTest {
+        val enabled = MutableStateFlow(false)
+        val restored = MutableSharedFlow<Unit>()
+        val session = TestBrowserSession(networkRestored = restored)
+        val sent = mutableListOf<BrowserIntent>()
+        val feedback = object : EffectScope<BrowserIntent> {
+            override suspend fun send(intent: BrowserIntent): SendResult {
+                sent += intent
+                return SendResult.Accepted
+            }
+        }
+        val observation = backgroundScope.launch {
+            BrowserEffects(BrowserAvailability { enabled }, session).handle(BrowserEffect.Observe, feedback)
+        }
+        runCurrent()
+        assertEquals(0, restored.subscriptionCount.value)
+        enabled.value = true
+        runCurrent()
+        restored.emit(Unit)
+        runCurrent()
+        assertTrue(BrowserIntent.Internal.NetworkRestored in sent)
+        enabled.value = false
+        runCurrent()
+        assertEquals(0, restored.subscriptionCount.value)
+        observation.cancel()
+    }
+
     @Test
     fun `live toggle revokes the session before notifying the machine and observation survives`() = runTest {
         val enabled = MutableStateFlow(false)
@@ -182,6 +214,44 @@ class BrowserEffectsTest {
         runCurrent()
         assertEquals(listOf(true), session.availability)
     }
+
+    @Test
+    fun `zoom toggle reaches the session and the machine only where pages can be zoomed`() = runTest {
+        val toggle = MutableStateFlow(true)
+        val session = TestBrowserSession(isZoomSupported = true)
+        val feedback = RecordingFeedback()
+        val effects = BrowserEffects(BrowserAvailability { MutableStateFlow(true) }, session) { toggle }
+        backgroundScope.launch { effects.handle(BrowserEffect.Observe, feedback) }
+        runCurrent()
+        toggle.value = false
+        runCurrent()
+        assertEquals(listOf(true, false), session.zoomAvailability)
+        assertEquals(
+            listOf(true, false),
+            feedback.sent.filterIsInstance<BrowserIntent.Internal.ZoomAvailabilityChanged>().map { it.isEnabled },
+        )
+
+        val mobile = TestBrowserSession()
+        val mobileFeedback = RecordingFeedback()
+        backgroundScope.launch {
+            BrowserEffects(BrowserAvailability { MutableStateFlow(true) }, mobile) { MutableStateFlow(true) }
+                .handle(BrowserEffect.Observe, mobileFeedback)
+        }
+        runCurrent()
+        assertEquals(listOf(false), mobile.zoomAvailability)
+        assertTrue(BrowserIntent.Internal.ZoomAvailabilityChanged(false) in mobileFeedback.sent)
+    }
+
+    @Test
+    fun `zoom effect preserves the direction and target site`() = runTest {
+        val session = TestBrowserSession(isZoomSupported = true)
+        BrowserEffects(BrowserAvailability { MutableStateFlow(true) }, session)
+            .handle(BrowserEffect.Zoom("tab", BrowserZoom.In, "https://example.com/"), RecordingFeedback())
+        assertEquals<List<Triple<String?, BrowserZoom, String?>>>(
+            listOf(Triple("tab", BrowserZoom.In, "https://example.com/")),
+            session.zooms,
+        )
+    }
 }
 
 private val request = BrowserRequest("operation", BrowserOperation.NewTab)
@@ -200,10 +270,22 @@ private class TestBrowserSession(
     private val cancel: suspend () -> Unit = {},
     private val select: suspend () -> Unit = {},
     private val onEnable: () -> BrowserPage = { BrowserPage() },
+    override val networkRestored: Flow<Unit> = emptyFlow(),
+    override val isZoomSupported: Boolean = false,
 ) : BrowserSession {
     override val pages = MutableStateFlow(BrowserPage())
     val availability = mutableListOf<Boolean>()
     val commands = mutableListOf<BrowserCommand>()
+    val zoomAvailability = mutableListOf<Boolean>()
+    val zooms = mutableListOf<Triple<String?, BrowserZoom, String?>>()
+
+    override suspend fun setZoomEnabled(isEnabled: Boolean) {
+        zoomAvailability += isEnabled
+    }
+
+    override suspend fun zoom(tabId: String?, direction: BrowserZoom, url: String?) {
+        zooms += Triple(tabId, direction, url)
+    }
 
     override suspend fun perform(request: BrowserRequest): BrowserResult = perform()
 

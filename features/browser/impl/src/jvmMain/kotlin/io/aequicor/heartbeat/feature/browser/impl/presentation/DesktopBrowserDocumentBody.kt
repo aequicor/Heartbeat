@@ -5,19 +5,27 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.util.Base64
 
+/** Accumulates one managed response within its size limit and turns the final response into [T]. */
+internal interface DesktopBrowserResponseBody<T> {
+    fun progress(current: Int, total: Int)
+    fun append(data: ByteArray, length: Int)
+    fun result(url: String, mime: String): T
+}
+
 /** Bounds bytes as native callbacks arrive, before either JVM accumulation or attachment import. */
-internal class DesktopBrowserDocumentBody(private val reject: (String) -> Unit) {
+internal class DesktopBrowserDocumentBody(private val reject: (String) -> Unit) :
+    DesktopBrowserResponseBody<JsonObject> {
     private var bytes = ByteArray(0)
     private var size = 0
     private var isRejected = false
 
     @Synchronized
-    fun progress(current: Int, total: Int) {
+    override fun progress(current: Int, total: Int) {
         if (current > MAX_BYTES || total > MAX_BYTES) fail()
     }
 
     @Synchronized
-    fun append(data: ByteArray, length: Int) {
+    override fun append(data: ByteArray, length: Int) {
         if (isRejected) return
         if (length !in 0..data.size || length > MAX_BYTES - size) {
             fail()
@@ -32,7 +40,7 @@ internal class DesktopBrowserDocumentBody(private val reject: (String) -> Unit) 
     }
 
     @Synchronized
-    fun result(url: String, mime: String): JsonObject {
+    override fun result(url: String, mime: String): JsonObject {
         check(!isRejected) { "Source document exceeds size limit" }
         if (mime in HTML_TYPES) {
             return buildJsonObject {

@@ -9,7 +9,9 @@ import io.aequicor.heartbeat.feature.browser.impl.data.DefaultBrowserUrlResolver
 import io.aequicor.heartbeat.feature.browser.impl.data.DesktopBrowserProfiles
 import io.aequicor.heartbeat.feature.browser.impl.data.DesktopDefaultBrowserResources
 import io.aequicor.heartbeat.feature.browser.impl.data.bundledBrowserRuntimeInstaller
+import io.aequicor.heartbeat.feature.browser.impl.domain.BROWSER_FAVICON_PIXELS
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
+import io.aequicor.heartbeat.feature.browser.impl.domain.chooseBrowserFavicon
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -25,6 +27,7 @@ import org.cef.browser.CefRequestContext
 import org.cef.handler.CefRequestContextHandler
 import org.junit.Assume.assumeTrue
 import java.awt.BorderLayout
+import java.io.ByteArrayInputStream
 import java.net.CookieHandler
 import java.net.InetSocketAddress
 import java.nio.file.Files
@@ -32,6 +35,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import javax.imageio.ImageIO
 import javax.swing.JFrame
 import javax.swing.SwingUtilities
 import kotlin.coroutines.resume
@@ -120,9 +124,62 @@ class DesktopBrowserNativeTest {
             awaitTitle = ::awaitTitle,
         ).verify(server)
         verifyLinkedTabs(app, "http://127.0.0.1:${server.address.port}")
+        DesktopBrowserCertificateProbe(
+            createEngine = { states, exceptions -> testEngine(app, states, certificateExceptions = exceptions) },
+            createFrame = ::nativeFrame,
+            awaitState = ::awaitState,
+        ).verify()
         verifyEarlyClose(app)
         verifyDirectDocument(app, "http://127.0.0.1:${server.address.port}")
+        verifyFavicon(app, "http://127.0.0.1:${server.address.port}")
         verifyAgentGuard(app, server)
+        val zoomContext = temporaryContextFactory()
+        DesktopBrowserZoomNativeProbe(
+            createEngine = { states, shortcut ->
+                testEngine(app, states, onShortcut = shortcut, createContext = zoomContext)
+            },
+            createFrame = ::nativeFrame,
+            awaitTitle = ::awaitTitle,
+        ).verify("http://127.0.0.1:${server.address.port}")
+    }
+
+    /**
+     * A typed load first awaits the response, then the page's declared icon is found through CDP and fetched through
+     * the tab's own profile into a decoded tab bitmap.
+     */
+    private fun verifyFavicon(app: org.cef.CefApp, base: String) {
+        val states = LinkedBlockingQueue<BrowserViewState>()
+        var engine: DesktopBrowserEngine? = null
+        var frame: JFrame? = null
+        SwingUtilities.invokeAndWait {
+            engine = testEngine(app, states)
+            frame = nativeFrame().apply {
+                add(assertNotNull(engine).component, BorderLayout.CENTER)
+                validate()
+            }
+            assertNotNull(engine).start("$base/icon-page")
+        }
+        val runtime = assertNotNull(engine)
+        try {
+            awaitState(states) { it.isLoading && it.isAwaitingResponse }
+            awaitState(states) { it.isLoading && !it.isAwaitingResponse }
+            awaitTitle(states, "Icon")
+            runBlocking {
+                val candidates = DesktopBrowserFaviconProbe(runtime::devTools).candidates()
+                val icon = assertNotNull(chooseBrowserFavicon("$base/icon-page", candidates))
+                assertEquals("$base/icon.png", icon)
+                val png = decodeBrowserFavicon(runtime.loadIcon(icon) { true })
+                val image = assertNotNull(ImageIO.read(ByteArrayInputStream(png)))
+                assertEquals(BROWSER_FAVICON_PIXELS, image.width)
+                assertFailsWith<BrowserFaviconRejected> { runtime.loadIcon("$base/icon-page") { true } }
+            }
+        } finally {
+            SwingUtilities.invokeAndWait {
+                runtime.release()
+                frame?.dispose()
+            }
+            runBlocking { runtime.awaitClosed() }
+        }
     }
 
     private fun closeNativeTest(
@@ -154,6 +211,9 @@ class DesktopBrowserNativeTest {
         states: LinkedBlockingQueue<BrowserViewState>,
         guard: DesktopBrowserAgentGuard = DesktopBrowserAgentGuard(),
         openTab: ((BrowserCommand.Load) -> Unit)? = null,
+        certificateExceptions: DesktopCertificateExceptions = DesktopCertificateExceptions(),
+        onShortcut: ((BrowserShortcut) -> Unit)? = null,
+        createContext: (CefRequestContextHandler) -> CefRequestContext = temporaryContextFactory(),
     ) = DesktopBrowserEngine(
         app,
         nativeDispatchers(),
@@ -162,7 +222,9 @@ class DesktopBrowserNativeTest {
         states::offer,
         guard = guard,
         openTab = openTab,
-        createContext = temporaryContextFactory(),
+        certificateExceptions = certificateExceptions,
+        onShortcut = onShortcut,
+        createContext = createContext,
     )
 
     private fun verifyLinkedTabs(app: org.cef.CefApp, base: String) {
@@ -422,6 +484,21 @@ class DesktopBrowserNativeTest {
                     "<a href='/check' target='_blank'>New window</a>"
             ).toByteArray()
             exchange.responseHeaders.add("Content-Type", "text/html; charset=utf-8")
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        }
+        server.createContext("/icon-page") { exchange ->
+            val bytes = (
+                "<title>Icon</title><link rel='apple-touch-icon' href='/touch.png'>" +
+                    "<link rel='icon' href='/icon.png' sizes='32x32'>"
+            ).toByteArray()
+            exchange.responseHeaders.add("Content-Type", "text/html; charset=utf-8")
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        }
+        server.createContext("/icon.png") { exchange ->
+            val bytes = testPng(32, 32)
+            exchange.responseHeaders.add("Content-Type", "image/png")
             exchange.sendResponseHeaders(200, bytes.size.toLong())
             exchange.responseBody.use { it.write(bytes) }
         }

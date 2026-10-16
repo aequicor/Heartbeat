@@ -12,11 +12,14 @@ import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.redactedFailure
 import io.aequicor.heartbeat.feature.browser.api.BrowserError
+import io.aequicor.heartbeat.feature.browser.api.BrowserLoadFailure
 import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserPage
 import io.aequicor.heartbeat.feature.browser.api.BrowserRequest
 import io.aequicor.heartbeat.feature.browser.api.BrowserResult
+import io.aequicor.heartbeat.feature.browser.api.BrowserSecurity
 import io.aequicor.heartbeat.feature.browser.api.BrowserTab
+import io.aequicor.heartbeat.feature.browser.api.BrowserZoom
 import io.aequicor.heartbeat.feature.browser.api.browserSearchUrl
 import io.aequicor.heartbeat.feature.browser.api.isBrowserUrlAllowed
 import io.aequicor.heartbeat.feature.browser.api.normalizeBrowserUrl
@@ -26,6 +29,7 @@ import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserNativeResources
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserRequestKind
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserSession
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserWorkspaceStorage
+import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserZoomStorage
 import io.aequicor.heartbeat.feature.browser.impl.domain.MAX_BROWSER_TABS
 import io.aequicor.heartbeat.feature.browser.impl.domain.SavedBrowserTab
 import io.aequicor.heartbeat.feature.browser.impl.domain.SavedBrowserWorkspace
@@ -34,7 +38,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.job
 import kotlinx.coroutines.joinAll
@@ -58,6 +65,8 @@ import kotlin.uuid.Uuid
  * All registry mutations run on main; each tab serializes its native
  * operations. Each tab's [DesktopBrowserAgentGuard] keeps an agent's documents on the public web and the
  * origin its owner approved; what it refuses is reported to the agent with its next operation on the tab.
+ * When a page finishes loading, its site icon is looked up and kept with the tab while the tab stays on that origin;
+ * turning the icon flag off forgets every icon, including those restored with the tabs.
  */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class, binding = binding<BrowserSession>(), priority = 1)
@@ -69,10 +78,12 @@ internal class DesktopBrowserSession(
     override val nativeResources: BrowserNativeResources,
     private val agentPolicy: BrowserAgentPolicy,
     private val storage: BrowserWorkspaceStorage,
+    private val icons: DesktopBrowserFavicons,
+    zoomStorage: BrowserZoomStorage,
 ) : BrowserSession,
     BrowserSurface {
     private val log = Log.tag("BrowserWorkspace")
-    private val entries = linkedMapOf<String, Entry>()
+    private val entries = linkedMapOf<String, DesktopBrowserEntry>()
     private val operations = mutableMapOf<String, Pair<String?, Job>>()
     private val agentOperations = mutableSetOf<String>()
 
@@ -84,6 +95,16 @@ internal class DesktopBrowserSession(
         }
     }
 
+    private val zooms =
+        DesktopBrowserZooms(zoomStorage, entries, { isBrowserEnabled && !isClearingData }, ::projectTabs)
+    override val isZoomSupported = true
+
+    override suspend fun setZoomEnabled(isEnabled: Boolean): Unit =
+        withContext(dispatchers.main) { zooms.setEnabled(isEnabled) }
+
+    override suspend fun zoom(tabId: String?, direction: BrowserZoom, url: String?): Unit =
+        withContext(dispatchers.main) { zooms.zoom(entries[tabId ?: selected], direction, url) }
+
     private val availabilityLock = Mutex()
     private var isRestoring = false
     private var isBrowserEnabled = false
@@ -92,11 +113,40 @@ internal class DesktopBrowserSession(
     override val pages = MutableStateFlow(BrowserPage())
     override val tabs = MutableStateFlow(emptyList<BrowserTab>() to null as String?)
     override val hasTabs = true
-    override val initialUrl: String
-        get() = pages.value.url
+    override val shortcuts = MutableSharedFlow<BrowserShortcut>(extraBufferCapacity = SHORTCUT_BUFFER)
+    override val favicons: StateFlow<Map<String, BrowserFaviconImage>> get() = icons.images
+    override val initialUrl: String get() = pages.value.url
 
-    private val factory
-        get() = nativeResources as DesktopBrowserPanelFactory
+    private val factory get() = nativeResources as DesktopBrowserPanelFactory
+
+    override val errorPagesEnabled get() = factory.errorPagesEnabled
+    override val networkRestored get() = factory.networkRestored
+
+    private val failures = DesktopBrowserFailures(
+        { factory },
+        entries,
+        { isBrowserEnabled && !isClearingData },
+        { selected },
+        { closedTab ->
+            closedTab?.let { close(it) }
+            publish()
+        },
+        operations,
+    )
+
+    override suspend fun retryNetworkErrors() = withContext(dispatchers.main) { failures.retryNetworkErrors() }
+
+    override suspend fun proceedCertificate(tabId: String, failure: BrowserLoadFailure) =
+        withContext(dispatchers.main) { failures.proceedCertificate(tabId, failure) }
+
+    override suspend fun returnToSafety(tabId: String, failure: BrowserLoadFailure) =
+        withContext(dispatchers.main) { failures.returnToSafety(tabId, failure) }
+
+    init {
+        scope.coroutineScope.launch(dispatchers.main) {
+            icons.observeEnabled().collect { isEnabled -> if (!isEnabled) forgetFavicons() }
+        }
+    }
 
     override fun forTab(id: String?): BrowserSurface = entries[id ?: selected]?.surface ?: this
 
@@ -124,6 +174,7 @@ internal class DesktopBrowserSession(
 
     private suspend fun restoreTabs() {
         val saved = storage.load().validated()
+        saved.certificateExceptionUrls.forEach(factory::rememberCertificateException)
         isRestoring = true
         var isComplete = false
         try {
@@ -225,9 +276,12 @@ internal class DesktopBrowserSession(
             pending.forEach { it.cancel() }
             pending.joinAll()
             // Remove recovery data before deleting native state; a restart during cleanup cannot resurrect tabs.
-            storage.save(SavedBrowserWorkspace())
+            zooms.clear()
+            storage.save(SavedBrowserWorkspace(certificateExceptionUrls = factory.certificateExceptionUrls()))
             entries.keys.toList().forEach { close(it) }
+            icons.clear()
             factory.clearData()
+            storage.save(SavedBrowserWorkspace())
             return BrowserResult(request.id)
         } finally {
             isClearingData = false
@@ -257,7 +311,7 @@ internal class DesktopBrowserSession(
         )
     }
 
-    private suspend fun newTab(request: BrowserRequest): Entry {
+    private suspend fun newTab(request: BrowserRequest): DesktopBrowserEntry {
         val parent = request.tabId?.let { id ->
             val entry = requireNotNull(entries[id]) { "Unknown tab" }
             require(request.owner == null || entry.tab.owner == request.owner) {
@@ -284,6 +338,8 @@ internal class DesktopBrowserSession(
         }
         if (request.owner != null) {
             require(!entry.tab.isHumanControlled) { "Tab is controlled by the user" }
+            // Closing reads nothing from the page: an agent can always abandon a tab its safety rules block.
+            if (request.operation != BrowserOperation.CloseTab) failures.requireAgentSafety(entry)
         }
         return when (request.operation) {
             BrowserOperation.ApproveControl,
@@ -317,6 +373,7 @@ internal class DesktopBrowserSession(
                 entry.lock.withLock {
                     if (request.owner != null) {
                         check(agentPolicy.isEnabled()) { "Browser tools disabled" }
+                        failures.requireAgentSafety(entry)
                     }
                     require(isBrowserEnabled && entry.tab.id in entries) { "Tab closed" }
                     require(request.owner == null || !entry.tab.isHumanControlled) {
@@ -328,7 +385,7 @@ internal class DesktopBrowserSession(
         }
     }
 
-    private suspend fun transfer(request: BrowserRequest, entry: Entry): BrowserResult {
+    private suspend fun transfer(request: BrowserRequest, entry: DesktopBrowserEntry): BrowserResult {
         require(request.owner == null) { "Only the user can transfer control" }
         val pendingOwner = entry.tab.pendingOwner
         val controlRequestId = entry.tab.controlRequestId
@@ -358,6 +415,11 @@ internal class DesktopBrowserSession(
         require(entry.tab.controlRequestId == controlRequestId && entry.tab.pendingOwner == pendingOwner) {
             "Control request changed; use the current request"
         }
+        if (request.operation == BrowserOperation.ApproveControl ||
+            request.operation == BrowserOperation.ReturnControl
+        ) {
+            failures.requireAgentSafety(entry)
+        }
         entry.tab =
             when {
                 request.operation == BrowserOperation.ApproveControl ->
@@ -384,43 +446,44 @@ internal class DesktopBrowserSession(
         // native page is read directly, as the tab projection may lag behind it.
         entry.syncGuard(approved = entry.surface.pages.value.url)
         publish()
-        return result(request, entry)
+        return entry.result(request)
     }
 
-    private suspend fun tabOperation(request: BrowserRequest, entry: Entry): BrowserResult = when (request.operation) {
-        BrowserOperation.CaptureResource -> {
-            require(request.owner == null) {
-                "Only explicit source recovery can download documents"
+    private suspend fun tabOperation(request: BrowserRequest, entry: DesktopBrowserEntry): BrowserResult =
+        when (request.operation) {
+            BrowserOperation.CaptureResource -> {
+                require(request.owner == null) {
+                    "Only explicit source recovery can download documents"
+                }
+                entry.driver.captureResource(request)
             }
-            entry.driver.captureResource(request)
+
+            BrowserOperation.NewTab,
+            BrowserOperation.Navigate,
+            BrowserOperation.Search,
+            -> navigate(request, entry)
+
+            BrowserOperation.Read,
+            BrowserOperation.Screenshot,
+            BrowserOperation.Click,
+            BrowserOperation.Type,
+            BrowserOperation.Key,
+            BrowserOperation.Scroll,
+            BrowserOperation.Drag,
+            -> withGuardNotes(request, entry, entry.driver.perform(request))
+
+            BrowserOperation.RequestControl,
+            BrowserOperation.ApproveControl,
+            BrowserOperation.RejectControl,
+            BrowserOperation.ListTabs,
+            BrowserOperation.CloseTab,
+            BrowserOperation.TakeControl,
+            BrowserOperation.ReturnControl,
+            BrowserOperation.ClearData,
+            -> error("Not a native tab operation")
         }
 
-        BrowserOperation.NewTab,
-        BrowserOperation.Navigate,
-        BrowserOperation.Search,
-        -> navigate(request, entry)
-
-        BrowserOperation.Read,
-        BrowserOperation.Screenshot,
-        BrowserOperation.Click,
-        BrowserOperation.Type,
-        BrowserOperation.Key,
-        BrowserOperation.Scroll,
-        BrowserOperation.Drag,
-        -> withGuardNotes(request, entry, entry.driver.perform(request))
-
-        BrowserOperation.RequestControl,
-        BrowserOperation.ApproveControl,
-        BrowserOperation.RejectControl,
-        BrowserOperation.ListTabs,
-        BrowserOperation.CloseTab,
-        BrowserOperation.TakeControl,
-        BrowserOperation.ReturnControl,
-        BrowserOperation.ClearData,
-        -> error("Not a native tab operation")
-    }
-
-    private suspend fun navigate(request: BrowserRequest, entry: Entry): BrowserResult {
+    private suspend fun navigate(request: BrowserRequest, entry: DesktopBrowserEntry): BrowserResult {
         val address = request.arguments["url"]?.jsonPrimitive?.content
         require(request.operation != BrowserOperation.Navigate || address != null) {
             "URL required"
@@ -455,14 +518,18 @@ internal class DesktopBrowserSession(
                 check(loaded.error == null) { "Page failed to load" }
             }
         }
-        return withGuardNotes(request, entry, result(request, entry))
+        return withGuardNotes(request, entry, entry.result(request))
     }
 
     /**
      * Tells the agent what its tab's guard stopped since the previous operation: a navigation the page started, or
      * an embedded document (an iframe) of a local or private-network address. The page keeps loading otherwise.
      */
-    private fun withGuardNotes(request: BrowserRequest, entry: Entry, result: BrowserResult): BrowserResult {
+    private fun withGuardNotes(
+        request: BrowserRequest,
+        entry: DesktopBrowserEntry,
+        result: BrowserResult,
+    ): BrowserResult {
         if (request.owner == null) return result
         val notes = buildMap {
             if (entry.guard.consumeRefusal()) put("blockedNavigation", JsonPrimitive(BLOCKED_NAVIGATION))
@@ -474,25 +541,44 @@ internal class DesktopBrowserSession(
     }
 
     /** A session owns one group; a user-created sibling inherits the selected group's authorization. */
-    private suspend fun create(owner: String?, parent: Entry? = null, restored: SavedBrowserTab? = null): Entry {
+    private suspend fun create(
+        owner: String?,
+        parent: DesktopBrowserEntry? = null,
+        restored: SavedBrowserTab? = null,
+    ): DesktopBrowserEntry {
         require(entries.size < MAX_BROWSER_TABS) { "Close a tab before opening another" }
         val id = restored?.id ?: Uuid.random().toString()
         val surface = BrowserSurfaceAdapter(scope, dispatchers, nativeResources)
         surface.setEnabled(true)
         val guard = DesktopBrowserAgentGuard()
-        val panel = factory.create(surface, guard) { url -> openLinkedTab(id, url) }
+        val panel = factory.create(surface, guard, { url -> openLinkedTab(id, url) }) { shortcut ->
+            scope.coroutineScope.launch(dispatchers.main) {
+                if (entries[id]?.surface === surface && selected == id) pagePressed(shortcut)
+            }
+        }
         val entry =
-            Entry(
+            DesktopBrowserEntry(
                 BrowserTab(
                     id,
-                    page = restored?.let { BrowserPage(url = it.url, title = it.title) } ?: BrowserPage(),
+                    page = restored?.let { BrowserPage(url = it.url, title = it.title, faviconUrl = it.faviconUrl) }
+                        ?: BrowserPage(),
                     owner = owner,
                     isHumanControlled = restored != null || parent?.tab?.isHumanControlled == true,
                 ),
                 surface,
-                DesktopBrowserAutomation(panel::devTools, panel::captureResource),
                 guard,
-            )
+                panel,
+                zooms,
+            ) { entry ->
+                val launch: (suspend () -> Unit) -> Job = { scope.coroutineScope.launch(dispatchers.main) { it() } }
+                val probe = DesktopBrowserFaviconProbe(panel::devTools)
+                DesktopBrowserTabFavicon(launch, icons, probe, panel::loadIcon, { guard.isRestricted }) {
+                    faviconResolved(entry)
+                }
+            }
+        restored?.takeIf { it.faviconUrl.isNotEmpty() && icons.isEnabled() }?.let {
+            entry.favicon.restore(it.url, it.faviconUrl)
+        }
         entry.syncGuard(approved = null)
         if (parent != null) guard.inheritFrom(parent.guard)
         val after = parent?.tab?.id ?: entries.values.lastOrNull { it.tab.owner == owner }?.tab?.id
@@ -502,27 +588,62 @@ internal class DesktopBrowserSession(
         entries.clear()
         ordered.forEach { entries[it.tab.id] = it }
         selected = id
-        if (!restored?.url.isNullOrEmpty()) surface.execute(BrowserCommand.Load(restored.url))
+        if (!restored?.url.isNullOrEmpty()) surface.restore(restored.url, restored.title)
         entry.observer = observeEntry(entry)
         publish()
         return entry
     }
 
     @HighFrequency
-    private fun observeEntry(entry: Entry): Job = scope.coroutineScope.launch(dispatchers.main) {
-        entry.surface.pages.collect { page ->
+    private fun observeEntry(entry: DesktopBrowserEntry): Job = scope.coroutineScope.launch(dispatchers.main) {
+        var previous: BrowserPage? = null
+        combine(entry.surface.pages, factory.errorPagesEnabled) { page, _ -> page }.collect { page ->
             if (entries[entry.tab.id] === entry) {
-                entry.update(page)
-                try {
-                    publish()
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: Exception) {
-                    log.e(error.redactedFailure()) { "Browser workspace could not be saved" }
-                    pages.value = pages.value.copy(error = BrowserError.EngineUnavailable)
-                }
+                previous?.let { entry.favicon.follow(it, page) }
+                previous = page
+                val projected = failures.project(entry, page)
+                if (!isCurrent(entry, page)) return@collect
+                entry.update(projected)
+                publishOrReport()
             }
         }
+    }
+
+    /** The icon flag was turned off: tabs drop their icons and the journal stops keeping them. */
+    private suspend fun forgetFavicons() {
+        if (entries.values.none { it.favicon.isKnown } && icons.images.value.isEmpty()) return
+        entries.values.forEach { entry ->
+            entry.favicon.forget()
+            entry.update(entry.tab.page)
+        }
+        icons.clear()
+        publishOrReport()
+    }
+
+    /** A resolved site icon re-projects its tab; the projected page keeps its certificate decision. */
+    private suspend fun faviconResolved(entry: DesktopBrowserEntry) {
+        if (entries[entry.tab.id] !== entry) return
+        entry.update(entry.tab.page)
+        publishOrReport()
+    }
+
+    /** A journal that cannot be saved is reported on the page instead of failing the caller. */
+    private suspend fun publishOrReport() {
+        try {
+            publish()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.e(error.redactedFailure()) { "Browser workspace could not be saved" }
+            pages.value = pages.value.copy(error = BrowserError.EngineUnavailable)
+        }
+    }
+
+    /** A key or wheel step inside the selected tab's page; the strip acts on it as on a key pressed in Compose. */
+    @HighFrequency
+    private fun pagePressed(shortcut: BrowserShortcut) {
+        log.v { "Browser shortcut pressed in a page: $shortcut" }
+        if (!shortcuts.tryEmit(shortcut)) log.w { "Browser tab shortcut dropped: $shortcut" }
     }
 
     /** Native callbacks may arrive on CEF threads; recheck the live parent on main before inheriting it. */
@@ -560,6 +681,7 @@ internal class DesktopBrowserSession(
             .toList()
             .forEach { it.second.cancel() }
         entry.observer?.cancel()
+        entry.favicon.cancel()
         entry.surface.setEnabled(false)
         factory.close(entry.surface)
         if (selected == id) selected = neighbor ?: entries.keys.lastOrNull()
@@ -570,8 +692,17 @@ internal class DesktopBrowserSession(
     private fun projectTabs() {
         log.v { "Browser tab projection changed" }
         tabs.value = entries.values.groupBy { it.tab.owner }.values.flatten().map { it.tab } to selected
-        pages.value = entries[selected]?.tab?.page ?: BrowserPage()
+        pages.value = entries[selected]?.tab?.page?.let { page ->
+            if (factory.hasCertificateException(page.url) && page.failure == null && !page.isLoading) {
+                page.copy(security = BrowserSecurity.CertificateException)
+            } else {
+                page
+            }
+        } ?: BrowserPage()
     }
+
+    private fun isCurrent(entry: DesktopBrowserEntry, page: BrowserPage): Boolean =
+        entries[entry.tab.id] === entry && entry.surface.pages.value == page
 
     @HighFrequency
     private suspend fun publish() {
@@ -579,24 +710,19 @@ internal class DesktopBrowserSession(
         if (isBrowserEnabled && !isRestoring && !isClearingData) {
             storage.save(
                 SavedBrowserWorkspace(
-                    tabs.value.first.map { SavedBrowserTab(it.id, it.page.url, it.page.title, it.owner) },
+                    tabs.value.first.map {
+                        SavedBrowserTab(it.id, it.page.url, it.page.title, it.owner, it.page.faviconUrl)
+                    },
                     selected,
+                    factory.certificateExceptionUrls(),
                 ),
             )
         }
     }
 
-    private fun result(request: BrowserRequest, entry: Entry) = BrowserResult(
-        request.id,
-        buildJsonObject {
-            put("tabId", entry.tab.id)
-            put("url", entry.surface.pages.value.url)
-            put("title", entry.surface.pages.value.title)
-        },
-    )
-
     private companion object {
         const val NAVIGATION_TIMEOUT = 30_000L
+        const val SHORTCUT_BUFFER = 16
         const val BLOCKED_NAVIGATION =
             "The page tried to open a local or private-network address and was stopped. " +
                 "Open such an address with browser_open so the user can approve it."
@@ -604,30 +730,7 @@ internal class DesktopBrowserSession(
             "The page embedded a local or private-network address; that content was blocked. " +
                 "Open such an address with browser_open so the user can approve it."
     }
-
-    private class Entry(
-        var tab: BrowserTab,
-        val surface: BrowserSurfaceAdapter,
-        val driver: DesktopBrowserAutomation,
-        val guard: DesktopBrowserAgentGuard,
-    ) {
-        val lock = Mutex()
-        var observer: Job? = null
-
-        /**
-         * Documents of an agent tab are limited to the public web and the origin of [approved]; the
-         * user's own tab, or one the user currently controls, is unrestricted.
-         */
-        fun syncGuard(approved: String?) {
-            if (tab.owner == null || tab.isHumanControlled) guard.unrestrict() else guard.restrict(approved)
-        }
-
-        @HighFrequency
-        fun update(page: BrowserPage) {
-            if (page.url != tab.page.url || page.isLoading) driver.invalidate()
-            val isPendingTitle = page.isLoading && page.url == tab.page.url
-            val title = if (isPendingTitle) page.title.ifBlank { tab.page.title } else page.title
-            tab = tab.copy(page = page.copy(title = title))
-        }
-    }
 }
+
+/** Chrome shares page zoom between schemes and ports of a host; subdomains remain separate. */
+internal fun browserZoomHost(url: String): String? = browserOrigin(url)?.substringAfter("://")?.substringBeforeLast(':')
