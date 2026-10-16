@@ -51,7 +51,7 @@ class EngineManagementUiTest {
     @Test
     fun `without engine management the panel is not shown`() = runSkikoComposeUiTest {
         val state = EngineConnectionsScreenState().reflect(EngineConnectionsState.Active(settingsSnapshot()))
-        setContent { HbTheme { EngineConnectionsContent(state, {}, {}, {}) } }
+        setContent { HbTheme { EngineConnectionsContent(state, {}, {}, {}, { _, _ -> }) } }
         onNodeWithTag("engine-panel").assertDoesNotExist()
     }
 
@@ -63,7 +63,7 @@ class EngineManagementUiTest {
                 EngineEnablement(isUserEnabled = false, reasons = setOf(DisabledReason.DisabledByUser)),
                 installation = InstallationState(Installation(InstallSource.Missing), latest = "0.2.0"),
             )
-            setContent { HbTheme { EngineConnectionsContent(selected(codex), { intents += it }, {}, {}) } }
+            setContent { HbTheme { EngineConnectionsContent(selected(codex), { intents += it }, {}, {}, { _, _ -> }) } }
 
             onNodeWithTag("engine-panel").assertExists()
             onNodeWithTag("settings-connections").assertDoesNotExist()
@@ -90,7 +90,7 @@ class EngineManagementUiTest {
                 Instant.fromEpochSeconds(1),
             ),
         )
-        setContent { HbTheme { EngineConnectionsContent(selected(codex), { intents += it }, {}, {}) } }
+        setContent { HbTheme { EngineConnectionsContent(selected(codex), { intents += it }, {}, {}, { _, _ -> }) } }
 
         onNodeWithTag("engine-job-progress").assertExists()
         // Units are localized; the sizes are not.
@@ -109,7 +109,7 @@ class EngineManagementUiTest {
     fun `a stale runtime is restarted`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineConnectionsScreenIntent>()
         val codex = managedCodex().copy(runtime = RuntimeSummary(runtimes = 1, isStale = true))
-        setContent { HbTheme { EngineConnectionsContent(selected(codex), { intents += it }, {}, {}) } }
+        setContent { HbTheme { EngineConnectionsContent(selected(codex), { intents += it }, {}, {}, { _, _ -> }) } }
 
         onNodeWithTag("engine-restart").performClick()
         runOnIdle {
@@ -121,7 +121,7 @@ class EngineManagementUiTest {
     fun `a removal is confirmed first`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineConnectionsScreenIntent>()
         val state = selected(managedCodex()).copy(confirmAction = EngineActionUi.Uninstall)
-        setContent { HbTheme { EngineConnectionsContent(state, { intents += it }, {}, {}) } }
+        setContent { HbTheme { EngineConnectionsContent(state, { intents += it }, {}, {}, { _, _ -> }) } }
 
         onNodeWithTag("engine-action-confirm").performClick()
         runOnIdle {
@@ -146,7 +146,7 @@ class EngineManagementUiTest {
         )
         setContent {
             CompositionLocalProvider(LocalUriHandler provides uriHandler) {
-                HbTheme { EngineConnectionsContent(selected(codex), {}, {}, {}) }
+                HbTheme { EngineConnectionsContent(selected(codex), {}, {}, {}, { _, _ -> }) }
             }
         }
 
@@ -163,7 +163,7 @@ class EngineManagementUiTest {
                 managedCodex(job = EngineJob(EngineAction.Login(), JobPhase.AwaitingCode(), Instant.DISTANT_PAST)),
             ).copy(loginCode = "abc#def"),
         )
-        setContent { HbTheme { EngineConnectionsContent(state, { intents += it }, {}, {}) } }
+        setContent { HbTheme { EngineConnectionsContent(state, { intents += it }, {}, {}, { _, _ -> }) } }
 
         onNodeWithTag("engine-login-submit").performClick()
         runOnIdle {
@@ -181,7 +181,7 @@ class EngineManagementUiTest {
     fun `launch settings are edited and a draft with a secret cannot be saved`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineConnectionsScreenIntent>()
         var state by mutableStateOf(selected(managedCodex()))
-        setContent { HbTheme { EngineConnectionsContent(state, { intents += it }, {}, {}) } }
+        setContent { HbTheme { EngineConnectionsContent(state, { intents += it }, {}, {}, { _, _ -> }) } }
 
         onNodeWithTag("engine-launch-edit").performClick()
         runOnIdle {
