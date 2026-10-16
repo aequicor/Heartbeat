@@ -26,6 +26,7 @@ internal fun nativeSafetySnapshot(context: AgentToolContext, call: NativeToolCal
         put("callId", callId.value)
         put("trust", context.trust.name)
         put("decisionMode", context.decisionMode.name)
+        context.reviewTarget?.let { put("reviewTarget", Json.encodeToJsonElement(it)) }
         put("name", call.name)
         put("action", call.action.name)
         put("workingDirectory", call.workingDirectory)

@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
+import io.aequicor.heartbeat.feature.aiengine.facade.api.reviewModel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.SessionHooks
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ToolPolicyResolver
 import kotlinx.coroutines.CancellationException
@@ -84,7 +85,7 @@ internal class NativeToolGate(
                 call.action == AgentToolAction.Edit && context.workspace == null
             }
         if (restriction != null) return denied(restriction)
-        val target = context.target ?: return denied("Native safety review has no trusted model target")
+        val target = context.reviewModel ?: return denied("Native safety review has no trusted model target")
         val snapshot = nativeSafetySnapshot(context, call)
             ?: return denied("Native action has no complete bounded safety snapshot")
         val review = safety.value.review(target, NATIVE_SAFETY_POLICY, snapshot)
