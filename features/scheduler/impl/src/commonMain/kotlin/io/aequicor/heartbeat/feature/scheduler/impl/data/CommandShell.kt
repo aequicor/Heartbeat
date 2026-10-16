@@ -13,30 +13,39 @@ internal enum class CommandShell {
  * Command text that makes [shell] run [program] with exactly [arguments], or null when the shell cannot pass them
  * unchanged. Every word is quoted literally: no expansion, globbing, redirection or command separators apply.
  *
- * Windows PowerShell needs more: it treats the typographic quotes U+2018..U+201B as single quotes too (each is
- * doubled), rebuilds native command lines without escaping `"` or a trailing backslash before its closing quote,
- * and batch files (`.bat`, `.cmd`, which `gradlew.bat` is) are parsed again by `cmd.exe`, where `& | < > ^ % !` and
- * parentheses run commands or expand variables even inside quotes. Words with any of those, empty words and line
- * breaks are refused.
+ * Windows resolves only external applications (including batch files), never cmdlets or PowerShell scripts.
+ * Resolution and invocation failures exit nonzero. Typographic single quotes U+2018..U+201B are doubled too.
+ * Arguments containing batch separators `, ; =` keep native double quotes, even without whitespace, so batch
+ * parameters do not split them. Native `"`, empty words, cmd specials and trailing backslashes in words requiring
+ * native quotes are refused. Program wildcards and their escape character are refused before command discovery.
  */
 internal fun quotedCommand(shell: CommandShell, program: String, arguments: List<String>): String? {
     val words = listOf(program) + arguments
     return when (shell) {
         CommandShell.Posix -> words.joinToString(" ") { "'" + it.replace("'", "'\\''") + "'" }
 
-        CommandShell.PowerShell -> if (words.any(::isUnsafeOnWindows)) {
+        CommandShell.PowerShell -> if (words.any(::isUnsafeOnWindows) || program.any { it in PROGRAM_WILDCARDS }) {
             null
         } else {
-            "& " + words.joinToString(" ", transform = ::powerShellQuoted) + "; exit \$LASTEXITCODE"
+            "try { \$heartbeatCommand = @(Get-Command -Name ${powerShellQuoted(program)} " +
+                "-CommandType Application -ErrorAction Stop)[0]; & \$heartbeatCommand.Path " +
+                arguments.joinToString(" ", transform = ::powerShellArgument) +
+                "; if (\$null -eq \$LASTEXITCODE) { exit 1 }; " +
+                "exit \$LASTEXITCODE } catch { Write-Error \$_; exit 1 }"
         }
     }
 }
 
 private const val POWERSHELL_QUOTES = "'\u2018\u2019\u201A\u201B"
 private const val CMD_SPECIAL = "\"&|<>^%!()\r\n"
+private const val CMD_SEPARATORS = ",;="
+private const val PROGRAM_WILDCARDS = "*?[]`"
 
 private fun isUnsafeOnWindows(word: String): Boolean = word.isEmpty() || word.any { it in CMD_SPECIAL } ||
-    (word.endsWith('\\') && word.any { it.isWhitespace() })
+    (word.endsWith('\\') && word.any { it.isWhitespace() || it in CMD_SEPARATORS })
+
+private fun powerShellArgument(word: String): String =
+    powerShellQuoted(if (word.any { it in CMD_SEPARATORS }) "\"$word\"" else word)
 
 private fun powerShellQuoted(word: String): String = buildString {
     append('\'')

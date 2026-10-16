@@ -9,9 +9,12 @@ import kotlin.time.Duration.Companion.minutes
  * features whose already reviewed code owns the command (harness mini-app buttons). Desktop only.
  *
  * It grants no authority: callers check their own admission and review before calling. Arguments reach the program
- * unchanged, without shell expansion or splitting; on Windows words that `cmd.exe` would parse again for a batch
- * program (`& | < > ^ % ! ( ) "`, line breaks) are refused as [LocalCommandOutcome.Invalid]. Secret-looking
- * environment variables are withheld, stdin is closed and the whole process tree dies on timeout or cancellation.
+ * unchanged, without shell expansion or splitting. Windows supports external applications and batch files,
+ * not cmdlets or PowerShell scripts; missing or unstartable programs exit nonzero. Words containing
+ * `& | < > ^ % ! ( ) "` or line breaks, empty words, and words ending in a backslash that contain whitespace or
+ * `, ; =` are refused as [LocalCommandOutcome.Invalid], as are program names containing wildcards or backticks.
+ * Secret-looking environment variables are withheld, stdin is closed and the whole process tree dies on timeout
+ * or cancellation.
  * Programs, arguments and output are never logged.
  */
 public interface LocalCommands {
@@ -44,7 +47,7 @@ public data class LocalCommandRequest(
 
 /** How a [LocalCommandRequest] ended. Output is user data: head and tail of stdout and stderr, never logged. */
 public sealed interface LocalCommandOutcome {
-    /** The program exited with [exitCode]. */
+    /** The program exited with [exitCode], or the platform shell failed to resolve or start it with a nonzero code. */
     public data class Exited(val exitCode: Int, val output: String) : LocalCommandOutcome {
         override fun toString(): String = "LocalCommandOutcome.Exited(exitCode=$exitCode, output=***)"
     }
@@ -57,7 +60,7 @@ public sealed interface LocalCommandOutcome {
     /** The project is unknown or no longer on disk. */
     public data object NoProject : LocalCommandOutcome
 
-    /** This platform cannot pass the words unchanged (Windows: `cmd.exe` specials, `"`, empty words). */
+    /** This platform cannot pass the words unchanged or resolve the program literally; see [LocalCommands]. */
     public data object Invalid : LocalCommandOutcome
 
     /** This platform has no local processes. */

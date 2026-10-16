@@ -28,34 +28,50 @@ class LocalCommandsTest {
     }
 
     @Test
-    fun `powershell quoting doubles single quotes and keeps the exit code`() {
-        val command = quotedCommand(CommandShell.PowerShell, ".\\gradlew.bat", listOf("it's", "a;b"))
+    fun `powershell resolves an external application and keeps batch separators quoted`() {
+        val command = checkNotNull(
+            quotedCommand(CommandShell.PowerShell, ".\\gradlew.bat", listOf("it's", "a;b", "a=b", "number,title")),
+        )
 
-        assertEquals("& '.\\gradlew.bat' 'it''s' 'a;b'; exit \$LASTEXITCODE", command)
+        assertTrue(command.contains("Get-Command -Name '.\\gradlew.bat' -CommandType Application -ErrorAction Stop"))
+        assertTrue(command.contains("& \$heartbeatCommand.Path 'it''s' '\"a;b\"' '\"a=b\"' '\"number,title\"'"))
+        assertTrue(command.contains("if (\$null -eq \$LASTEXITCODE) { exit 1 }"))
+        assertTrue(command.endsWith("exit \$LASTEXITCODE } catch { Write-Error \$_; exit 1 }"))
     }
 
     @Test
     fun `powershell doubles typographic single quotes`() {
         val breakout = "\u2019;Start-Process calc;#"
-        val command = quotedCommand(CommandShell.PowerShell, "git", listOf(breakout, "\u2018\u201A\u201B"))
+        val command = checkNotNull(
+            quotedCommand(CommandShell.PowerShell, "git", listOf(breakout, "\u2018\u201A\u201B")),
+        )
 
-        val doubled = "'\u2019\u2019;Start-Process calc;#' '\u2018\u2018\u201A\u201A\u201B\u201B'"
-        assertEquals("& 'git' $doubled; exit \$LASTEXITCODE", command)
+        val doubled = "'\"\u2019\u2019;Start-Process calc;#\"' '\u2018\u2018\u201A\u201A\u201B\u201B'"
+        assertTrue(command.contains(doubled), command)
     }
 
     @Test
     fun `powershell refuses words it cannot pass unchanged`() {
         val refused = listOf(
             "say \"hi\"", "", "x&calc", "a|b", "<in", ">out", "^", "%PATH%", "!x!", "(a)", "a\nb", "a\rb", "a b\\",
+            "a,b\\", "a;b\\", "a=b\\",
         )
         refused.forEach { word ->
             assertNull(quotedCommand(CommandShell.PowerShell, ".\\gradlew.bat", listOf(word)), word)
         }
         assertNull(quotedCommand(CommandShell.PowerShell, "x&calc", emptyList()))
-        assertEquals(
-            "& 'git' 'C:\\dir\\'; exit \$LASTEXITCODE",
-            quotedCommand(CommandShell.PowerShell, "git", listOf("C:\\dir\\")),
+        assertTrue(
+            checkNotNull(quotedCommand(CommandShell.PowerShell, "git", listOf("C:\\dir\\")))
+                .contains("& \$heartbeatCommand.Path 'C:\\dir\\'"),
         )
+    }
+
+    @Test
+    fun `powershell refuses program patterns before discovery`() {
+        listOf("git*", "git?", ".\\[tools]\\git.exe", ".\\git`name.exe").forEach { program ->
+            assertNull(quotedCommand(CommandShell.PowerShell, program, emptyList()), program)
+        }
+        assertTrue(checkNotNull(quotedCommand(CommandShell.PowerShell, "git", listOf("*", "[x]"))).isNotEmpty())
     }
 
     @Test

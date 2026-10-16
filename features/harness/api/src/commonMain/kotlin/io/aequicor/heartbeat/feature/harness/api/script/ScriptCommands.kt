@@ -8,10 +8,12 @@ import kotlin.time.Duration.Companion.minutes
 /**
  * A program with arguments fixed in the approved source. An argument that is exactly `{name}` is replaced by the
  * value of parameter `name`, which must fully match its pattern in [parameters]; nothing else is substituted and the
- * words are not expanded or split. On Windows, words with `cmd.exe` specials (`& | < > ^ % ! ( ) "`, line breaks),
- * which a batch program would parse again, are refused as invalid. A relative [program] runs from the project
- * directory (`./gradlew`, `.\gradlew.bat`). Pass the trusted `ScriptUiCall.workspace`, never a project built
- * from input.
+ * words are not expanded or split. Windows resolves [program] only to an external application or `.bat`/`.cmd`,
+ * never a PowerShell cmdlet, function or `.ps1` script; wildcard or backtick syntax in [program] is refused.
+ * Empty words, `cmd.exe` specials (`& | < > ^ % ! ( ) "`, line breaks), and words ending in `\` that also contain
+ * whitespace or `, ; =` are refused as invalid on Windows. Other arguments containing `, ; =` stay one argument.
+ * A relative [program] runs from the project directory (`./gradlew`, `.\gradlew.bat`). Pass the trusted
+ * `ScriptUiCall.workspace`, never a project built from input.
  */
 public data class ScriptCommand(
     val program: String,
@@ -69,7 +71,8 @@ public enum class ScriptCommandRefusal {
  */
 public interface ScriptCommands {
     /**
-     * Declares [name] while the script is evaluated; later calls throw IllegalStateException. At most
+     * Declares [name] while the script is evaluated, copying its argument and parameter collections so later
+     * mutations cannot change this declaration; later calls throw IllegalStateException. At most
      * HarnessLimits.COMMANDS per activation, each name once. Invalid declarations (blank or parameterized program,
      * undeclared or unused parameters, invalid parameter names, more than HarnessLimits.COMMAND_ARGUMENTS
      * arguments, timeout outside (0, HarnessLimits.COMMAND_TIMEOUT]) throw IllegalArgumentException.

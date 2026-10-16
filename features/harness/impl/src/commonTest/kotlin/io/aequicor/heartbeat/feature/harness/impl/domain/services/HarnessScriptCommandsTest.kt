@@ -62,6 +62,33 @@ class HarnessScriptCommandsTest {
     }
 
     @Test
+    fun `declarations keep snapshots of caller owned collections`() = runTest {
+        val fixture = CommandsFixture(this)
+        val arguments = GRADLE.arguments.toMutableList()
+        val patterns = GRADLE.parameters.toMutableMap()
+        fixture.commands.define(TEST, GRADLE.copy(arguments = arguments, parameters = patterns))
+        arguments[0] = "reset"
+        patterns["filter"] = Regex(".*")
+        fixture.publish()
+        arguments.clear()
+        patterns.clear()
+
+        assertEquals(
+            ScriptCommandResult.Exited(0, "ok"),
+            fixture.commands.run(TEST, PROJECT, mapOf("filter" to "io.*Test")),
+        )
+        assertEquals(
+            listOf(LocalCommandRequest(PROJECT, "./gradlew", listOf("test", "--tests", "io.*Test"), 1.minutes)),
+            fixture.local.requests,
+        )
+        assertEquals(
+            ScriptCommandResult.Refused(ScriptCommandRefusal.InvalidParameter),
+            fixture.commands.run(TEST, PROJECT, mapOf("filter" to "-x")),
+        )
+        assertEquals(1, fixture.local.requests.size)
+    }
+
+    @Test
     fun `parameters must match exactly and completely`() = runTest {
         val fixture = CommandsFixture(this)
         fixture.commands.define(TEST, GRADLE)

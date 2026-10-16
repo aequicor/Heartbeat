@@ -132,8 +132,10 @@ private val API = """
     - commands.define(ItemName("test"), ScriptCommand(program, arguments, parameters, timeout)) during evaluation;
       commands.run(ItemName("test"), call.workspace, mapOf("filter" to value)): ScriptCommandResult (Desktop).
       The program and arguments are fixed in this source; an argument that is exactly {name} takes parameter
-      name, whose value must fully match its Regex. Words are not expanded or split; on Windows values with
-      & | < > ^ % ! ( ) " or line breaks are refused (batch files parse them again). Relative programs run from the
+      name, whose value must fully match its Regex. Words are not expanded or split. On Windows program selects
+      an external application or .bat/.cmd, never a PowerShell cmdlet/function or .ps1; wildcard/backtick syntax
+      in program is refused. Empty words, & | < > ^ % ! ( ) " and line breaks are refused; values with , ; = stay
+      one argument, but a trailing \ with whitespace or , ; = is refused. Relative programs run from the
       project directory (./gradlew; on Windows .\gradlew.bat). Results: Exited(exitCode, output) — a non-zero
       code is ordinary —, TimedOut(output) or Refused(reason: Disabled, Unsupported, NoProject, OutsideScope,
       NotDefined, InvalidParameter, Busy). Output keeps the head and tail of stdout and stderr. Timeout
@@ -256,7 +258,7 @@ internal val EXAMPLE_UI_SCRIPT = """
         prList,
         ScriptCommand(
             "gh",
-            listOf("pr", "list", "--repo", "{repo}", "--limit", "50", "--json", fields),
+            listOf("pr", "list", "--repo", "{repo}", "--limit", "10", "--json", fields),
             parameters = mapOf("repo" to Regex("\\w[\\w.-]*/[\\w.-]+")),
             timeout = 30.seconds,
         ),
@@ -272,7 +274,15 @@ internal val EXAMPLE_UI_SCRIPT = """
     }
 
     fun pullRequests(output: String): ScriptUiResult {
-        val prs = Json.parseToJsonElement(output).jsonArray.map { it.jsonObject }
+        val invalidOutput = ScriptUiResult.Error("gh output was incomplete or invalid; request fewer pull requests")
+        // The runner's omission marker may land inside a JSON string and still parse as a partial list.
+        if (Regex("\\n… [0-9]+ bytes omitted …\\n").containsMatchIn(output)) return invalidOutput
+        val prs = try {
+            Json.parseToJsonElement(output).jsonArray.map { it.jsonObject }
+        } catch (_: IllegalArgumentException) {
+            // Bounded command output may be incomplete; never include it in errors or logs.
+            return invalidOutput
+        }
         val byBranch = prs.associateBy { field(it, "headRefName") }
         val items = buildJsonArray {
             prs.forEach { pr ->
@@ -316,7 +326,7 @@ internal val EXAMPLE_UI_SCRIPT = """
         is ScriptCommandResult.Refused -> ScriptUiResult.Error(refusal(result.reason))
     }
 
-    ui.method(ItemName("prs"), "Open PRs of {repo: owner/name} with dependencies and a PlantUML map") { call ->
+    ui.method(ItemName("prs"), "Up to 10 open PRs of {repo: owner/name} with dependencies and a PlantUML map") { call ->
         val repo = (call.arguments["repo"] as? JsonPrimitive)?.contentOrNull.orEmpty()
         shown(commands.run(prList, call.workspace, mapOf("repo" to repo)))
     }
@@ -441,7 +451,8 @@ ${EXAMPLE_VERIFY_SCRIPT.prependIndent("    ")}
     authenticated). The command is declared in the script, so the script's safety review covers it; afterwards a
     button runs it without another agent turn or confirmation, also while no agent is available. It is not a
     prerequisite or a setup step for local mini-apps. Harness pr_map gets script "methods", then a surface built
-    with ui_put calls it from a button (a web card: heartbeat.call("prs", {repo: "owner/name"})):
+    with ui_put calls it from a button to show up to 10 open PRs
+    (a web card: heartbeat.call("prs", {repo: "owner/name"})):
 
 ${EXAMPLE_UI_SCRIPT.prependIndent("    ")}
 """.trimIndent()

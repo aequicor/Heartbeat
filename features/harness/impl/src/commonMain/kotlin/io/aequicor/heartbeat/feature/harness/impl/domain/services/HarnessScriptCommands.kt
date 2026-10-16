@@ -41,7 +41,8 @@ internal data class HarnessCommandHost(
 )
 
 /**
- * Commands declared by one approved script activation. Declarations are frozen at publication, so every program and
+ * Commands declared by one approved script activation. Their collections are copied at registration and
+ * declarations are frozen at publication, so every program and
  * argument comes from the reviewed source; parameters only fill whole arguments after a full pattern match. A run
  * rechecks the published activation, the toggle and the harness's project scope, and shares
  * [HarnessLimits.COMMAND_RUNS] concurrent runs per harness. Programs, parameters and output are never logged.
@@ -55,7 +56,8 @@ internal class HarnessScriptCommands(
     private val state = MutableStateFlow(Declarations())
 
     override fun define(name: ItemName, command: ScriptCommand): ScriptRegistration {
-        command.validate()
+        val snapshot = command.copy(arguments = command.arguments.toList(), parameters = command.parameters.toMap())
+        snapshot.validate()
         while (true) {
             val previous = state.value
             check(!previous.isSealed && access.isRegistrationAllowed && !access.isActive) {
@@ -63,7 +65,7 @@ internal class HarnessScriptCommands(
             }
             check(name !in previous.commands) { "Command is already declared" }
             check(previous.commands.size < HarnessLimits.COMMANDS) { "Too many commands" }
-            if (state.compareAndSet(previous, previous.copy(commands = previous.commands + (name to command)))) break
+            if (state.compareAndSet(previous, previous.copy(commands = previous.commands + (name to snapshot)))) break
         }
         log.v { "state: a script command declared" }
         return ScriptRegistration {
