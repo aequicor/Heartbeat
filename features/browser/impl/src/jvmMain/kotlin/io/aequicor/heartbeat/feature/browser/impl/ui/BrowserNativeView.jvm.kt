@@ -11,51 +11,37 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import io.aequicor.heartbeat.ds.components.HbNativeModalOwner
 import io.aequicor.heartbeat.ds.components.HbNativeModalVisibility
-import io.aequicor.heartbeat.ds.components.LocalHbActiveNativeModalOwner
 import io.aequicor.heartbeat.ds.components.LocalHbNativeModalOwner
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import javax.swing.JComponent
 
-/**
- * Native peers follow the window's modal owner while their retained browser and DOM stay alive.
- * [isBackingCleared] false keeps the Compose canvas beneath the peer: see [nativeViewBacking].
- */
+/** Native peers follow the window's modal owner while their retained browser and DOM stay alive. */
 @Composable
 internal fun BrowserNativeView(
     factory: () -> JComponent,
     modifier: Modifier = Modifier,
     background: Color = HbTheme.colors.surface,
-    isBackingCleared: Boolean = true,
 ) {
     val owner = LocalHbNativeModalOwner.current
-    val active = LocalHbActiveNativeModalOwner.current
     val lease = remember(factory) { NativeViewLease(factory, owner) }
     SideEffect { lease.updateOwner(owner) }
     SwingPanel(
         background = background,
         factory = lease::createComponent,
-        modifier = if (isBackingCleared) {
-            modifier.nativeViewDrawing(active == null || active === owner)
-        } else {
-            modifier.nativeViewBacking(background)
-        },
+        modifier = modifier.nativeViewBacking(background),
     )
-}
-
-/** Hides interop's Clear draw along with its native peer, without changing layout or the retained DOM. */
-internal fun Modifier.nativeViewDrawing(isVisible: Boolean): Modifier = graphicsLayer {
-    alpha = if (isVisible) 1f else 0f
 }
 
 /**
  * A windowed browser draws its own native view above the Compose canvas, so interop's Clear only exposes the
  * window's unpainted backing beneath it. That backing shows as black wherever the peer lags behind Compose:
  * a growing host before the native view follows its new bounds, or a closing host whose peer hides before
- * Compose presents the frame without it. Kept [background] fills those gaps instead, and a rounded native
- * mask reveals the real Compose backdrop at its corners.
+ * Compose presents the frame without it. Kept [background] fills those gaps and the area of a peer hidden by
+ * another modal, and a rounded native mask reveals the real Compose backdrop at its corners. Layout, the
+ * native peer and the retained DOM are unaffected.
  */
 internal fun Modifier.nativeViewBacking(background: Color): Modifier =
-    background(background).nativeViewDrawing(isVisible = false)
+    background(background).graphicsLayer { alpha = 0f }
 
 private class NativeViewLease(private val factory: () -> JComponent, private var owner: HbNativeModalOwner?) :
     RememberObserver {

@@ -116,7 +116,6 @@ private fun RetainedDocumentPanel(
                 background = HbTheme.colors.surface,
                 factory = remember(attachment) { attachment::createComponent },
                 modifier = Modifier.semantics { contentDescription = name },
-                isBackingCleared = false,
             )
         }
     }
