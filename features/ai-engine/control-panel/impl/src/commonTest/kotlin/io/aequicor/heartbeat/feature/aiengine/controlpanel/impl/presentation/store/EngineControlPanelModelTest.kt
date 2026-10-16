@@ -278,6 +278,28 @@ class EngineControlPanelModelTest {
     }
 
     @Test
+    fun `a project reload waits for a running operation instead of closing the project`() = runTest {
+        machine.state.value = configured(ConfigRevision(0))
+        val model = model()
+        val screen = subscribe(model.store)
+        val web = WorkspaceRef("web")
+        model.store.intent(ProjectIntent.Open("web"))
+        runCurrent()
+        val project = ProjectConfig(CodexId, web, EngineConfigValues(), ProjectRevision())
+        val active = (configured(ConfigRevision(0)) as EngineControlState.Active).copy(project = project)
+        machine.state.value = active.copy(pending = ControlOperation.ListResources(CodexId, web))
+        runCurrent()
+        val sent = machine.sent.size
+
+        model.store.intent(ProjectIntent.Reload)
+        runCurrent()
+
+        assertEquals(sent, machine.sent.size)
+        assertEquals("web", screen.states.value.openProject)
+        assertEquals("web", screen.states.value.project?.id)
+    }
+
+    @Test
     fun `an import is previewed chosen and run against the saved revision`() = runTest {
         machine.state.value = configured(ConfigRevision(3), capabilities = setOf(ConfigCapability.ImportNative))
         val model = model()

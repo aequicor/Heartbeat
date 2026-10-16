@@ -112,7 +112,9 @@ internal fun ConfigSaveBar(
             HbButton(
                 discard,
                 { onIntent(ConfigIntent.DiscardConfig) },
+                Modifier.testTag("config-conflict-discard"),
                 style = HbButtonStyle.Ghost,
+                enabled = !isBusy,
                 size = HbButtonSize.Small,
             )
         }

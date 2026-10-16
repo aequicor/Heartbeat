@@ -11,6 +11,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceOrigin
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceState
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngineId
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -18,17 +20,23 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
 
 /**
  * File inventory of the roots owned by Heartbeat. Installed packages and ancestors outside the saved project are
  * not traversed. Enabled means selected by saved settings and launch flags, not a guarantee that extension code runs.
+ * The read stops at [timeLimit] or when its caller is cancelled, returning what it found as incomplete.
  */
 internal suspend fun piResourceInventory(
     home: Path,
     profile: EngineConfigValues,
     directory: String?,
     trust: ProjectTrust,
+    timeLimit: Duration = RESOURCE_TIME_LIMIT,
 ): ResourceInventory {
+    val limit = ResourceLimit(TimeSource.Monotonic.markNow() + timeLimit, currentCoroutineContext()[Job])
     val flags = piAgentConfig(profile, home, isProjectTrusted = directory != null && trust == ProjectTrust.Trusted) {
         null
     }
@@ -36,24 +44,30 @@ internal suspend fun piResourceInventory(
     val profileSettings = (profile.documents[PiDocuments.Settings] as? ConfigDocument.Json)?.value ?: JsonObject(
         emptyMap(),
     )
-    val globs = ResourceGlobs()
+    val globs = ResourceGlobs(limit)
     val roots = buildList {
-        directory?.let { add(ResourceRoot(Path.of(it).toRealPath(), ResourceOrigin.Project, trust, flags, globs)) }
-        add(ResourceRoot(profileRoot, ResourceOrigin.Profile, trust, flags, globs))
+        directory?.let {
+            add(
+                ResourceRoot(Path.of(it).toRealPath(), ResourceOrigin.Project, trust, flags, limit, globs),
+            )
+        }
+        add(ResourceRoot(profileRoot, ResourceOrigin.Profile, trust, flags, limit, globs))
     }
     val resources = roots.flatMap { root ->
         val settings = if (root.origin == ResourceOrigin.Profile) profileSettings else root.projectSettings()
         root.inventory(settings, hasProject = directory != null)
     }
+    val repeated = roots.sumOf { it.files.repeated }
     val skipped = roots.sumOf { it.files.skipped }
-    if (skipped > 1) log.w { "Pi resource entries skipped count=$skipped" }
+    if (repeated > 0) log.w { "Pi resource failures repeated count=$repeated skipped=$skipped" }
+    if (limit.isReached) log.w { "Pi resource inventory stopped at its time limit or cancellation" }
     return ResourceInventory(
         PiEngineId,
         null,
         // Stable: within a kind, project resources stay before profile resources.
         resources.sortedBy { it.kind.ordinal },
         external = roots.sumOf { it.external },
-        isTruncated = globs.isIncomplete || roots.any { it.files.isTruncated },
+        isTruncated = limit.isReached || globs.isIncomplete || roots.any { it.files.isTruncated },
     )
 }
 
@@ -62,9 +76,10 @@ private class ResourceRoot(
     val origin: ResourceOrigin,
     val trust: ProjectTrust,
     val flags: PiAgentConfig,
+    private val limit: ResourceLimit,
     private val globs: ResourceGlobs,
 ) {
-    val files = PiResourceFiles(root, globs)
+    val files = PiResourceFiles(root, globs, limit)
     var external = 0
         private set
     private val base = if (origin == ResourceOrigin.Project) root.resolve(".pi") else root
@@ -87,12 +102,12 @@ private class ResourceRoot(
         val automatic = automatic(kind).toSet()
         val agents = agents(kind).toSet()
         val agentPatterns = PiResourcePatterns(entries, root.resolve(".agents"), globs)
-        return (explicit + automatic + agents).map { path ->
+        return (explicit + automatic + agents).asSequence().takeWhile { !limit.isOver() }.map { path ->
             val matching = if (path in agents) agentPatterns else patterns
             val isSelected = matching.enabled(path, isAutomatic = path !in explicit)
             val selection = Selection(path in explicit, isSelected, path in automatic || path in agents)
             resource(path, kind, state(kind, selection, hasProject))
-        }
+        }.toList()
     }
 
     private fun automatic(kind: ResourceKind): List<Path> {
@@ -162,7 +177,7 @@ private class ResourceRoot(
         val entered = try {
             Path.of(entry)
         } catch (e: InvalidPathException) {
-            if (files.skip()) log.w(e.redactedFailure()) { ENTRY_FAILURE } else log.v { ENTRY_FAILURE }
+            if (files.skip(ENTRY_FAILURE)) log.w(e.redactedFailure()) { ENTRY_FAILURE } else log.v { ENTRY_FAILURE }
             return null
         }
         if (WindowsPath.matches(entry) && !entered.isAbsolute) {
@@ -181,7 +196,7 @@ private class ResourceRoot(
     private fun confined(path: Path): Boolean = try {
         isInside(root, path, PI_MAX_LINKS)
     } catch (e: IOException) {
-        if (files.skip()) log.w(e.redactedFailure()) { LINK_FAILURE } else log.v { LINK_FAILURE }
+        if (files.skip(LINK_FAILURE)) log.w(e.redactedFailure()) { LINK_FAILURE } else log.v { LINK_FAILURE }
         false
     }
 }
@@ -220,5 +235,8 @@ private val log = Log.tag("PiResourceInventory")
 
 private const val ENTRY_FAILURE = "Pi resource entry is not a valid path"
 private const val LINK_FAILURE = "Pi resource entry link not resolved"
+
+/** Ample for the bounded walk of real folders; a hostile project's masks or ignore files stop here. */
+private val RESOURCE_TIME_LIMIT = 5.seconds
 
 private val WindowsPath = Regex("^[A-Za-z]:[/\\\\].*")

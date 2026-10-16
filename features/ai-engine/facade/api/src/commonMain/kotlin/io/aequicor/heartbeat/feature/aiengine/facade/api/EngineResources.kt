@@ -63,7 +63,7 @@ public data class EngineResource(
  * with project resources before profile resources. [external]
  * counts settings entries naming places outside those folders (absolute and home paths), whose files are not listed;
  * [isTruncated] when the listing is incomplete: the folders hold more than it reads, some entries could not be read,
- * or masks needed more work than the limits allow (such a mask is treated as not matching).
+ * a mask was beyond the limits of a single match (it is treated as not matching), or the read ran out of time.
  */
 public data class ResourceInventory(
     val engine: EngineId,

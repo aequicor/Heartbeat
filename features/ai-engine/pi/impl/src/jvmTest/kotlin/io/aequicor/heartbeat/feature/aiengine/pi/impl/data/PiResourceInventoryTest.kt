@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceOrigin
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceState
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -19,6 +20,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.TimeSource
 
 class PiResourceInventoryTest {
     private val root = Files.createTempDirectory("pi-inventory").toRealPath()
@@ -163,7 +167,8 @@ class PiResourceInventoryTest {
 
     @Test
     fun `direct settings entries share the traversal budget`() {
-        val files = PiResourceFiles(home, ResourceGlobs())
+        val limit = openLimit()
+        val files = PiResourceFiles(home, ResourceGlobs(limit), limit)
         repeat(4100) { files.safe(home.resolve("explicit$it.ts")) }
         assertTrue(files.isTruncated)
     }
@@ -256,17 +261,45 @@ class PiResourceInventoryTest {
     }
 
     @Test
-    fun `a spent allowance ends matching while a single refused mask leaves the others matching`() {
-        val spent = ResourceGlobs(steps = 10)
-        assertFalse(spent.matches("*a".repeat(30) + "b", "a".repeat(80)))
-        assertTrue(spent.isSpent && spent.isIncomplete)
-        assertFalse(spent.matches("a", "a"))
-        val refused = ResourceGlobs()
+    fun `a read over its time limit or cancelled stops matching while one refused mask leaves the others`() {
+        val over = ResourceGlobs(ResourceLimit(TimeSource.Monotonic.markNow()))
+        assertFalse(over.matches("a", "a"))
+        assertTrue(over.isIncomplete)
+        assertTrue(ResourceLimit(TimeSource.Monotonic.markNow() + 1.minutes, Job().apply { cancel() }).isOver())
+        val refused = ResourceGlobs(openLimit())
         assertFalse(refused.matches("{a,b,c}".repeat(6), "abc"))
         assertFalse(refused.matches("x".repeat(5000), "x"))
-        assertTrue(refused.isIncomplete && !refused.isSpent)
+        assertFalse(refused.matches("*a".repeat(2000), "a".repeat(1000)))
+        assertTrue(refused.isIncomplete)
         assertTrue(refused.matches("a*", "ab"))
     }
+
+    @Test
+    fun `an inventory over its time limit returns what it found as incomplete`() = runTest {
+        write(home, "prompts/a.md")
+        val result = piResourceInventory(
+            home,
+            settings("""{"prompts":["prompts"]}"""),
+            null,
+            ProjectTrust.Undecided,
+            timeLimit = Duration.ZERO,
+        )
+        assertTrue(result.isTruncated)
+        assertTrue(result.resources.isEmpty())
+    }
+
+    @Test
+    fun `ignore rules beyond the cap are dropped and mark the listing incomplete`() = runTest {
+        write(home, "prompts/.gitignore", (List(1024) { "x$it" } + "foo.md").joinToString("\n"))
+        write(home, "prompts/foo.md")
+        val result = configurator.resources(settings("""{"prompts":["prompts"]}"""), null, ProjectTrust.Undecided)
+        assertEquals(listOf("prompts/foo.md"), result.resources.map { it.path })
+        assertTrue(result.isTruncated)
+    }
+
+    private fun openLimit() = ResourceLimit(TimeSource.Monotonic.markNow() + 1.minutes)
+
+    private fun piResourceGlob(pattern: String, value: String) = ResourceGlobs(openLimit()).matches(pattern, value)
 
     private fun java.io.File.setReadableRecursively() {
         walkTopDown().onEnter { it.setReadable(true) && it.setExecutable(true) }.forEach { it.setReadable(true) }

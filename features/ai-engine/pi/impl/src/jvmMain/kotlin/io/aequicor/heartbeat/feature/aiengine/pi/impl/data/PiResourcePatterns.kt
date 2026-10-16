@@ -1,29 +1,32 @@
 package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
+import kotlinx.coroutines.Job
 import java.nio.file.Path
+import kotlin.time.TimeMark
 
 /** Pi's include, exclude and exact override order, evaluated against the same three path forms as Pi. */
-internal class PiResourcePatterns(
-    private val entries: List<String>,
-    private val base: Path,
-    private val globs: ResourceGlobs,
-) {
+internal class PiResourcePatterns(entries: List<String>, private val base: Path, private val globs: ResourceGlobs) {
+    private val patterns = entries.filter { it.isResourcePattern() }
+    private val includes = patterns.filter { it.firstOrNull() !in listOf('!', '+', '-') }
+    private val exclusions = patterns.filter { it.startsWith('!') }.map { it.drop(1) }
+    private val exactIncludes = patterns.filter { it.startsWith('+') }.map { it.drop(1).exactForm() }
+    private val exactExclusions = patterns.filter { it.startsWith('-') }.map { it.drop(1).exactForm() }
+
     fun enabled(path: Path, isAutomatic: Boolean): Boolean {
-        val patterns = entries.filter { it.isResourcePattern() }
-        val includes = patterns.filter { it.firstOrNull() !in listOf('!', '+', '-') }
-        var isEnabled = isAutomatic || includes.isEmpty() || includes.any { matches(path, it) }
-        if (patterns.any { it.startsWith('!') && matches(path, it.drop(1)) }) isEnabled = false
-        if (patterns.any { it.startsWith('+') && exact(path, it.drop(1)) }) isEnabled = true
-        if (patterns.any { it.startsWith('-') && exact(path, it.drop(1)) }) isEnabled = false
+        val named = forms(path, includeName = true)
+        val exact = forms(path, includeName = false).toSet()
+        var isEnabled = isAutomatic || includes.isEmpty() || includes.any { matches(named, it) }
+        if (exclusions.any { matches(named, it) }) isEnabled = false
+        if (exactIncludes.any { it in exact }) isEnabled = true
+        if (exactExclusions.any { it in exact }) isEnabled = false
         return isEnabled
     }
 
-    private fun matches(path: Path, pattern: String): Boolean = forms(path, includeName = true).any {
+    private fun matches(forms: List<String>, pattern: String): Boolean = forms.any {
         globs.matches(pattern.removePrefix("./"), it)
     }
 
-    private fun exact(path: Path, pattern: String): Boolean =
-        pattern.replace('\\', '/').removePrefix("./") in forms(path, includeName = false)
+    private fun String.exactForm(): String = replace('\\', '/').removePrefix("./")
 
     private fun forms(path: Path, includeName: Boolean): List<String> {
         val paths = if (path.fileName.toString() == "SKILL.md") listOf(path, path.parent) else listOf(path)
@@ -38,33 +41,41 @@ internal fun String.isResourcePattern(): Boolean = firstOrNull() in listOf('!', 
 internal fun Path.posix(): String = toString().replace('\\', '/')
 
 /**
- * Glob matching of one inventory read. Masks and ignore files may come from a project, so all matching shares one
- * step allowance and an expanded pattern is reused. A mask beyond the limits of a single match only counts as not
- * matching; once the allowance is spent no mask matches any more. Either marks the listing incomplete.
+ * The time limit of one inventory read together with its caller's cancellation. Resource files and masks may come from
+ * a project, so the walk and the matching stop once the limit passes or the read is cancelled; the listing is then
+ * incomplete, and a cancelled caller never sees it.
  */
-internal class ResourceGlobs(private var steps: Int = MAX_TOTAL_STEPS) {
+internal class ResourceLimit(private val deadline: TimeMark, private val job: Job? = null) {
+    var isReached: Boolean = false
+        private set
+
+    fun isOver(): Boolean {
+        if (!isReached && (deadline.hasPassedNow() || job?.isActive == false)) isReached = true
+        return isReached
+    }
+}
+
+/**
+ * Glob matching of one inventory read; an expanded pattern is reused. A mask beyond the limits of a single match only
+ * counts as not matching, and once the read's [limit] is over no mask matches any more. Either marks the listing
+ * incomplete.
+ */
+internal class ResourceGlobs(private val limit: ResourceLimit) {
     var isIncomplete: Boolean = false
         private set
-    val isSpent: Boolean get() = steps <= 0
     private val expansions = HashMap<String, List<String>?>()
 
     fun matches(pattern: String, value: String): Boolean {
-        val alternatives = if (isSpent || value.length > MAX_PATH) null else alternatives(pattern)
+        val alternatives = if (limit.isOver() || value.length > MAX_PATH) null else alternatives(pattern)
         if (alternatives == null) isIncomplete = true
         return alternatives.orEmpty().any { ResourceGlob(it, value, this).matches() }
     }
 
-    /** Charges [cost] steps of the shared allowance; false once it is spent. */
-    fun spend(cost: Int = 1): Boolean {
-        steps -= cost
-        if (steps < 0) isIncomplete = true
-        return steps >= 0
-    }
-
-    /** A single match beyond its own limit: that mask does not match, later ones still do. */
-    fun refuse(): Boolean {
-        isIncomplete = true
-        return false
+    /** False once a match visited [states] beyond its own limit or, checked every few states, the read is over. */
+    fun proceed(states: Int): Boolean {
+        val isStopped = states > MAX_STATES || (states % LIMIT_CHECK_STATES == 0 && limit.isOver())
+        if (isStopped) isIncomplete = true
+        return !isStopped
     }
 
     private fun alternatives(pattern: String): List<String>? = if (pattern in expansions) {
@@ -73,30 +84,26 @@ internal class ResourceGlobs(private var steps: Int = MAX_TOTAL_STEPS) {
         (if (pattern.length > MAX_PATTERN) null else expandBraces(pattern)).also { expansions[pattern] = it }
     }
 
-    /** The brace alternatives of [pattern], each charged by its length; null when there are too many. */
+    /** The brace alternatives of [pattern]; null when there are too many, counted before any is built. */
     private fun expandBraces(pattern: String): List<String>? {
         val pending = ArrayDeque<String>()
         val result = mutableListOf<String>()
         pending.add(pattern)
-        var isRefused = false
-        while (!isRefused && pending.isNotEmpty()) {
+        while (pending.isNotEmpty()) {
             val next = pending.removeFirst()
-            isRefused = pending.size + result.size >= MAX_ALTERNATIVES || !spend(next.length)
             val end = next.indexOf('}')
             val start = if (end >= 0) next.lastIndexOf('{', end) else -1
             val parts = if (start >= 0) next.substring(start + 1, end).split(',') else emptyList()
-            when {
-                isRefused -> Unit
-                parts.size > 1 -> parts.forEach { pending.add(next.take(start) + it + next.substring(end + 1)) }
-                else -> result.add(next)
+            if (parts.size > 1) {
+                if (pending.size + result.size + parts.size > MAX_ALTERNATIVES) return null
+                parts.forEach { pending.add(next.take(start) + it + next.substring(end + 1)) }
+            } else {
+                result.add(next)
             }
         }
-        return result.takeUnless { isRefused }
+        return result
     }
 }
-
-/** Portable glob matching with a bounded state graph instead of regex backtracking. */
-internal fun piResourceGlob(pattern: String, value: String): Boolean = ResourceGlobs().matches(pattern, value)
 
 private class ResourceGlob(private val pattern: String, private val value: String, private val globs: ResourceGlobs) {
     private val pending = ArrayDeque<Pair<Int, Int>>()
@@ -109,7 +116,7 @@ private class ResourceGlob(private val pattern: String, private val value: Strin
         while (!isMatched && !isStopped && pending.isNotEmpty()) {
             val position = pending.removeFirst()
             if (visited.add(position)) {
-                isStopped = !spend()
+                isStopped = !globs.proceed(visited.size)
                 val (p, v) = position
                 isMatched = !isStopped && p == pattern.length && v == value.length
                 if (!isStopped && !isMatched && p < pattern.length) step(p, v)
@@ -117,9 +124,6 @@ private class ResourceGlob(private val pattern: String, private val value: Strin
         }
         return isMatched
     }
-
-    /** One more state within this match's own limit and the read's shared allowance. */
-    private fun spend(): Boolean = if (visited.size > MAX_STATES) globs.refuse() else globs.spend()
 
     private fun step(p: Int, v: Int) {
         when (pattern[p]) {
@@ -185,5 +189,5 @@ private const val MAX_ALTERNATIVES = 256
 private const val MAX_PATTERN = 4096
 private const val MAX_PATH = 32768
 private const val MAX_STATES = 262144
-private const val MAX_TOTAL_STEPS = 4_000_000
+private const val LIMIT_CHECK_STATES = 256
 private const val RANGE_LENGTH = 3

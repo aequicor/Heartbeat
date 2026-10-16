@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectEdit
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -107,6 +108,23 @@ class EngineControlEffectsTest {
         assertEquals(pi, result.inventory.engine)
         assertEquals(workspace, result.inventory.workspace)
         assertEquals(listOf("resources"), configuration.calls)
+    }
+
+    @Test
+    fun `a resource read stops with the panel while a write completes`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        configuration.gate = gate
+        val save = ControlOperation.SaveProfile(pi, ConfigEdit(EngineConfigValues()), ConfigRevision(0))
+        val jobs = listOf(ControlOperation.ListResources(pi), save).map {
+            launch { effects.handle(EngineControlEffect.Execute(it), scope) }
+        }
+        runCurrent()
+        jobs.forEach { it.cancel() }
+        gate.complete(Unit)
+        runCurrent()
+
+        assertEquals(listOf("resources", "saveProfile"), configuration.calls)
+        assertEquals(listOf("saveProfile"), configuration.completed)
     }
 
     @Test

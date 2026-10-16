@@ -155,6 +155,14 @@ class ConfigPageUiTest {
     }
 
     @Test
+    fun `a conflict waits for a running operation before it can be discarded`() = runSkikoComposeUiTest {
+        val conflict = overview.copy(openPage = "network", config = form.copy(hasConflict = true), isBusy = true)
+        setContent { HbTheme { EngineControlPanelContent(conflict, {}) } }
+
+        onNodeWithTag("config-conflict-discard").assertIsNotEnabled()
+    }
+
+    @Test
     fun `entries and pairs send their edits through their field`() = runSkikoComposeUiTest {
         val intents = mutableListOf<EngineControlPanelIntent>()
         val servers = ConfigFieldUi("servers", text("Servers"), null, serversEditor, isSet = true)

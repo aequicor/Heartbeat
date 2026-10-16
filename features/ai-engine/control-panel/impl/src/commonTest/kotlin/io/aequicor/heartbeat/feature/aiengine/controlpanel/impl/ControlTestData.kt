@@ -45,6 +45,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrustStatus
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceInventory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -126,14 +127,22 @@ internal class FakeConfiguration(initial: EngineConfigurationState = EngineConfi
     val calls = mutableListOf<String>()
     var failure: Exception? = null
 
+    /** Holds resource reads and profile saves until completed; [completed] records those that ran to the end. */
+    var gate: CompletableDeferred<Unit>? = null
+    val completed = mutableListOf<String>()
+
     override suspend fun resources(engine: EngineId, workspace: WorkspaceRef?): ResourceInventory {
         calls += "resources"
+        gate?.await()
+        completed += "resources"
         return ResourceInventory(engine, workspace, emptyList())
     }
 
     override suspend fun saveProfile(engine: EngineId, edit: ConfigEdit, expected: ConfigRevision): ConfigRevision {
         calls += "saveProfile"
+        gate?.await()
         failure?.let { throw it }
+        completed += "saveProfile"
         return ConfigRevision(expected.value + 1)
     }
 

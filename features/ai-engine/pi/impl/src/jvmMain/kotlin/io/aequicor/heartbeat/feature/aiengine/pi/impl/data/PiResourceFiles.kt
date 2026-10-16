@@ -17,9 +17,13 @@ import java.nio.file.Path
 /**
  * A bounded, confined view of resource files; links are followed only within the root and never recursively twice.
  * An entry that cannot be read or named is skipped and marks the view incomplete, as Pi skips it too. Ignore rules are
- * capped and matched within the read's shared [globs] allowance, since a project supplies them.
+ * capped, and the walk stops once the read's [limit] is over, since a project supplies the files.
  */
-internal class PiResourceFiles(private val root: Path, private val globs: ResourceGlobs) {
+internal class PiResourceFiles(
+    private val root: Path,
+    private val globs: ResourceGlobs,
+    private val limit: ResourceLimit,
+) {
     var isTruncated: Boolean = false
         private set
 
@@ -29,36 +33,47 @@ internal class PiResourceFiles(private val root: Path, private val globs: Resour
     private val inspected = mutableSetOf<Path>()
     private var readBytes = 0
     private var ignoreRules = 0
-    private var failures = 0
+    private val failures = HashMap<String, Int>()
+
+    /** Failures logged only at VERBOSE because one of their kind was already logged at WARN in this read. */
+    var repeated: Int = 0
+        private set
 
     fun safe(path: Path): Boolean = reserve(path) && path.normalize().startsWith(root) && try {
         isInside(root, path, PI_MAX_LINKS)
     } catch (e: IOException) {
-        if (skip()) log.w(e.redactedFailure()) { LINK_FAILURE } else log.v { LINK_FAILURE }
+        if (skip(LINK_FAILURE)) log.w(e.redactedFailure()) { LINK_FAILURE } else log.v { LINK_FAILURE }
         false
     }
 
     /**
-     * Records an entry Pi would not load either. True for the read's first failure, which the caller logs at WARN with
-     * its cause; the rest go to VERBOSE and the inventory sums them up, so a hostile project cannot flood the log.
+     * Records an entry Pi would not load either. True for the read's first failure of [kind], which the caller logs at
+     * WARN with its cause; repeats go to VERBOSE and the inventory sums them up, so a project cannot flood the log.
      */
-    fun skip(): Boolean {
+    fun skip(kind: String): Boolean {
         isTruncated = true
         skipped++
-        return failures++ == 0
+        return isFirst(kind)
+    }
+
+    private fun isFirst(kind: String): Boolean {
+        val count = failures.getOrElse(kind) { 0 } + 1
+        failures[kind] = count
+        if (count > 1) repeated++
+        return count == 1
     }
 
     /** Pi ignores malformed resource manifests and settings and falls back to directory discovery. */
     fun json(text: String): JsonObject? = try {
         Json.parseToJsonElement(text.removePrefix("\uFEFF")) as? JsonObject
     } catch (e: SerializationException) {
-        if (failures++ == 0) log.w(e.redactedFailure()) { JSON_FAILURE } else log.v { JSON_FAILURE }
+        if (isFirst(JSON_FAILURE)) log.w(e.redactedFailure()) { JSON_FAILURE } else log.v { JSON_FAILURE }
         null
     }
 
     private fun reserve(path: Path): Boolean {
         if (path in inspected) return true
-        if (inspected.size >= MAX_ENTRIES) {
+        if (inspected.size >= MAX_ENTRIES || limit.isOver()) {
             isTruncated = true
             return false
         }
@@ -88,7 +103,7 @@ internal class PiResourceFiles(private val root: Path, private val globs: Resour
             }
             Files.newInputStream(path).use { it.readNBytes(MAX_FILE_BYTES + 1) }
         } catch (e: IOException) {
-            if (skip()) log.w(e.redactedFailure()) { FILE_FAILURE } else log.v { FILE_FAILURE }
+            if (skip(FILE_FAILURE)) log.w(e.redactedFailure()) { FILE_FAILURE } else log.v { FILE_FAILURE }
             return null
         }
         readBytes += bytes.size
@@ -108,7 +123,7 @@ internal class PiResourceFiles(private val root: Path, private val globs: Resour
         val real = try {
             path.toRealPath()
         } catch (e: IOException) {
-            if (skip()) log.w(e.redactedFailure()) { FOLDER_FAILURE } else log.v { FOLDER_FAILURE }
+            if (skip(FOLDER_FAILURE)) log.w(e.redactedFailure()) { FOLDER_FAILURE } else log.v { FOLDER_FAILURE }
             return emptyList()
         }
         if (real in ancestors) return emptyList()
@@ -184,7 +199,7 @@ internal class PiResourceFiles(private val root: Path, private val globs: Resour
     private fun resolve(path: Path, entry: String): Path? = try {
         path.resolve(entry).normalize()
     } catch (e: InvalidPathException) {
-        if (skip()) log.w(e.redactedFailure()) { ENTRY_FAILURE } else log.v { ENTRY_FAILURE }
+        if (skip(ENTRY_FAILURE)) log.w(e.redactedFailure()) { ENTRY_FAILURE } else log.v { ENTRY_FAILURE }
         null
     }
 
@@ -200,11 +215,11 @@ internal class PiResourceFiles(private val root: Path, private val globs: Resour
             result.sortedBy { it.fileName.toString() }
         }
     } catch (e: IOException) {
-        if (skip()) log.w(e.redactedFailure()) { FOLDER_FAILURE } else log.v { FOLDER_FAILURE }
+        if (skip(FOLDER_FAILURE)) log.w(e.redactedFailure()) { FOLDER_FAILURE } else log.v { FOLDER_FAILURE }
         emptyList()
     } catch (e: DirectoryIteratorException) {
         // Thrown by the stream's iterator when reading the folder fails midway; its cause is the IOException.
-        if (skip()) log.w(e.cause?.redactedFailure()) { FOLDER_FAILURE } else log.v { FOLDER_FAILURE }
+        if (skip(FOLDER_FAILURE)) log.w(e.cause?.redactedFailure()) { FOLDER_FAILURE } else log.v { FOLDER_FAILURE }
         emptyList()
     }
 
@@ -217,11 +232,11 @@ internal class PiResourceFiles(private val root: Path, private val globs: Resour
         kept.map { IgnoreRule(path, it.removePrefix("!"), it.startsWith('!')) }
     }
 
-    /** Every rule evaluation is charged, so rules stop applying once the read's allowance is spent. */
+    /** Rules stop applying once the read's limit is over; the listing is then incomplete anyway. */
     private fun isIgnored(path: Path, rules: List<IgnoreRule>): Boolean {
         var isIgnored = false
         for (rule in rules) {
-            if (!globs.spend()) break
+            if (limit.isOver()) break
             val relative = rule.base.relativize(path).posix()
             val pattern = rule.pattern.removePrefix("/").removeSuffix("/")
             val isMatched = if ('/' in pattern || rule.pattern.startsWith('/')) {
