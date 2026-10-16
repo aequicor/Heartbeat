@@ -69,6 +69,7 @@ class EngineStudioEffects(
                     titleOf(effect.prompt),
                     effect.isWorktree,
                     effect.organism(),
+                    isSandbox = effect.isSandbox,
                 )
                 machine.send(
                     AiStudioIntent.Internal.SessionCreated(
@@ -137,8 +138,9 @@ class EngineStudioEffects(
             projects?.availability ?: flowOf(false),
             projects?.worktreeAvailability ?: flowOf(false),
             projects?.repositoryProjects ?: flowOf(emptySet()),
-        ) { folders, worktree, repositories ->
-            AiStudioIntent.Internal.ProjectAvailabilityChanged(folders, worktree, repositories)
+            projects?.sandboxAvailability ?: flowOf(false),
+        ) { folders, worktree, repositories, sandbox ->
+            AiStudioIntent.Internal.ProjectAvailabilityChanged(folders, worktree, repositories, sandbox)
         }.collect {
             machine.send(it)
         }

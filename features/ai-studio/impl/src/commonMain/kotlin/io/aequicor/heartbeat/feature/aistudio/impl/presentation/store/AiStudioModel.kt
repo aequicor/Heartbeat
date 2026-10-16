@@ -624,7 +624,7 @@ class AiStudioModel(
         when (intent) {
             is AiStudioScreenIntent.SelectWorktree -> sendTo(
                 machine,
-                AiStudioIntent.Public.SelectWorktree(intent.paneId, intent.isEnabled),
+                AiStudioIntent.Public.SelectWorktree(intent.paneId, intent.isEnabled, intent.isSandbox),
             )
 
             is AiStudioScreenIntent.DecideWorktree -> machines.send(

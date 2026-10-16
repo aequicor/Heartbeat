@@ -13,6 +13,31 @@ import kotlin.time.Instant
 
 class StudioScreenSerializationTest {
     @Test
+    fun `isolation choice survives remote snapshots and intents`() {
+        val pane = PaneUi(7, projectId = "project", isWorktree = true, isSandbox = true)
+        val screen = AiStudioScreenState(isSandboxAvailable = true, panes = persistentListOf(pane))
+        assertEquals(
+            screen,
+            StudioViewJson.decodeFromString(
+                AiStudioScreenState.serializer(),
+                StudioViewJson.encodeToString(AiStudioScreenState.serializer(), screen),
+            ),
+        )
+        val intent = AiStudioScreenIntent.SelectWorktree(7, true, true)
+        assertEquals(
+            intent,
+            StudioViewJson.decodeFromString(
+                AiStudioScreenIntent.serializer(),
+                StudioViewJson.encodeToString(AiStudioScreenIntent.serializer(), intent),
+            ),
+        )
+        assertEquals(
+            PaneUi(7),
+            StudioViewJson.decodeFromString(PaneUi.serializer(), """{"id":7}"""),
+        )
+    }
+
+    @Test
     fun `child intent wire names survive the shared package move`() {
         val prefix = "io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent."
         assertEquals(prefix + "Embed", AiStudioScreenIntent.Embed.serializer().descriptor.serialName)

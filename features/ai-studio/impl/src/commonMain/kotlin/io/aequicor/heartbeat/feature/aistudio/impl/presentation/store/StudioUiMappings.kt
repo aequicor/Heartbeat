@@ -63,7 +63,15 @@ internal fun StudioModel.toUi(): ModelUi = ModelUi(
     isScripted = StudioModels.any { it.id == id },
 )
 
-internal fun StudioPane.toUi(): PaneUi = PaneUi(id, sessionId, projectId, isCreating, isWorktree, isOrganism)
+internal fun StudioPane.toUi(): PaneUi = PaneUi(
+    id = id,
+    sessionId = sessionId,
+    projectId = projectId,
+    isCreating = isCreating,
+    isWorktree = isWorktree,
+    isOrganism = isOrganism,
+    isSandbox = isSandbox,
+)
 internal fun StudioEnvironment.toUi(): EnvironmentUi = when (this) {
     StudioEnvironment.Local -> EnvironmentUi.Local
     StudioEnvironment.Cloud -> EnvironmentUi.Cloud

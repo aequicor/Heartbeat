@@ -24,6 +24,8 @@ data class PaneUi(
     val isCreating: Boolean = false,
     val isWorktree: Boolean = false,
     val isOrganism: Boolean = false,
+    /** Source-only isolation selected for a new pane. */
+    val isSandbox: Boolean = false,
 )
 
 /** Where a project's agent runs. */

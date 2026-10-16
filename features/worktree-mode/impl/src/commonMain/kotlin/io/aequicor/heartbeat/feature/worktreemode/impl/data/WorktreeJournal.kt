@@ -340,10 +340,11 @@ internal class WorktreeJournal(
     suspend fun failed(command: WorktreeIntent.Public, reason: String): WorktreeTask? {
         val chatId = command.chatId() ?: return null
         if (command is WorktreeIntent.Public.Prepare) {
+            val isSandbox = isSandbox(command)
             mutex.withLock {
                 val saved = read()
                 if (chatId !in saved) {
-                    val task = WorktreeTask(chatId, command.project).failed(reason)
+                    val task = WorktreeTask(chatId, command.project, isSandbox = isSandbox).failed(reason)
                     write(saved + (chatId to WorktreeRecord(task, "", "", "", "")))
                 }
             }
@@ -380,7 +381,7 @@ internal class WorktreeJournal(
                 sourceBranch = plan.sourceBranch,
                 branch = plan.branch,
                 baseCommit = plan.baseCommit,
-                isSandbox = toggles.get(WorktreeSandboxEnabled),
+                isSandbox = isSandbox(command),
             )
             val pending = WorktreeRecord(
                 task,
@@ -683,6 +684,10 @@ internal class WorktreeJournal(
     private fun requireAvailable() {
         check(git.isAvailable) { "WorktreeModeUnavailable" }
     }
+
+    /** The chat's isolation choice; a sandbox is granted only while sandboxes are enabled. */
+    private suspend fun isSandbox(command: WorktreeIntent.Public.Prepare): Boolean =
+        command.isSandbox != false && toggles.get(WorktreeSandboxEnabled)
 
     private suspend fun record(chatId: String): WorktreeRecord? = mutex.withLock { read()[chatId] }
 

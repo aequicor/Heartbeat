@@ -294,6 +294,40 @@ class WorktreeJournalTest {
     }
 
     @Test
+    fun `the chat isolation choice overrides the sandbox toggle and stays with the created task`() = runTest {
+        val fixture = Fixture()
+        fixture.toggles.isSandbox = true
+        fixture.journal.load()
+        fixture.send(WorktreeIntent.Public.Prepare(CHAT, PROJECT, isSandbox = false))
+        assertFalse(fixture.task().isSandbox)
+        fixture.send(WorktreeIntent.Public.Prepare(CHAT, PROJECT, isSandbox = true))
+        assertFalse(fixture.task().isSandbox)
+        fixture.send(WorktreeIntent.Public.Prepare("sandbox", PROJECT, isSandbox = true))
+        assertTrue(fixture.task().isSandbox)
+    }
+
+    @Test
+    fun `a preparation failing before planning keeps the chosen isolation`() = runTest {
+        val fixture = Fixture()
+        fixture.toggles.isSandbox = true
+        fixture.journal.load()
+        fixture.git.hasPlanFailure = true
+        listOf(true, false).forEach { isSandbox ->
+            val prepare = WorktreeIntent.Public.Prepare("chat-$isSandbox", PROJECT, isSandbox)
+            assertFailsWith<IllegalStateException> { fixture.send(prepare) }
+            assertEquals(isSandbox, fixture.journal.failed(prepare, "GitProcessUnavailable")?.isSandbox)
+        }
+    }
+
+    @Test
+    fun `a sandbox choice falls back to a worktree while sandboxes are off`() = runTest {
+        val fixture = Fixture()
+        fixture.journal.load()
+        fixture.send(WorktreeIntent.Public.Prepare(CHAT, PROJECT, isSandbox = true))
+        assertFalse(fixture.task().isSandbox)
+    }
+
+    @Test
     fun `sandbox toggle creates sandbox tasks whose builds carry a fresh snapshot`() = runTest {
         val fixture = Fixture()
         fixture.toggles.isSandbox = true

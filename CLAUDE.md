@@ -315,7 +315,9 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > проект», экспорт и импорт `.hbai` (в профиль или в папку проекта).
 > `features:worktree-mode:{api,impl}` — изолированные задачи кодинга (тогл `worktree_mode.enabled`, по умолчанию false;
 > только Desktop): git worktree на чат, инструменты `configure_build`/`run_build`/`build_status`, завершение PR или merge.
-> Sandbox mode (`worktree_mode.sandbox`, по умолчанию false) делает новую задачу песочницей только с исходниками: `run_build`
+> Sandbox mode (`worktree_mode.sandbox`, по умолчанию false) предлагает в новом чате переключатель «Песочница»
+> вместо «Worktree»; обычный Worktree выбирается из меню «+». Переключатель изначально выключен, выбор сохраняется
+> до подготовки и переживает рестарт; старые записи без выбора следуют тоглу. Песочница содержит только исходники: `run_build`
 > снимает снимок файлов (`refs/heartbeat/snapshots/*`) и собирает его в тёплом build-слоте репозитория
 > (`<git-common-dir>/heartbeat-worktree-data/slots`, до 4 на репозиторий; слоты под OS-локом чужого воркера пропускаются,
 > лишние сверх лимита, без песочниц или без проекта удаляются `SandboxSlotSweeper`); оставленная песочница чистит

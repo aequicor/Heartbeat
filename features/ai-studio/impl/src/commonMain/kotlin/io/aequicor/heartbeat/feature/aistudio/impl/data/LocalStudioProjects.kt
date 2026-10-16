@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioLocalProjects
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioDirectoryPicker
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioProjects
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeModeEnabled
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSandboxEnabled
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -37,6 +38,11 @@ internal class LocalStudioProjects(
         toggles.observe(WorktreeModeEnabled),
         toggles.observe(StudioEngineRuntime),
     ) { enabled, runtime -> enabled && runtime && workspaces.isAvailable }
+
+    override val sandboxAvailability: Flow<Boolean> = combine(
+        worktreeAvailability,
+        toggles.observe(WorktreeSandboxEnabled),
+    ) { worktree, sandbox -> worktree && sandbox }
 
     /** Folders are probed again whenever the catalog changes, so a newly initialised repository appears then. */
     @OptIn(ExperimentalCoroutinesApi::class)

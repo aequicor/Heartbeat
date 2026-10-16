@@ -131,6 +131,8 @@ internal data class StudioChatRecord(
     /** Managed execution identity, distinct from the project's sidebar grouping. */
     val executionWorkspace: WorkspaceRef? = null,
     val worktreeTaskId: String? = null,
+    /** Explicit isolation choice; old records without it follow the sandbox toggle when preparation resumes. */
+    val isSandbox: Boolean? = null,
     val configuration: StudioSessionSettings? = null,
     /** Set for a conversation run as the organic AI organism of the same id. */
     val organismId: String? = null,
@@ -348,6 +350,7 @@ internal class EngineStudioRepository(
         isWorktree: Boolean,
         organism: OrganismRequest?,
         executionWorkspace: WorkspaceRef?,
+        isSandbox: Boolean?,
     ): StudioSession {
         workspaces.requireExecutionWorkspace(executionWorkspace, projectId != null && !isWorktree && organism == null)
         log.i { "Create studio conversation worktree=$isWorktree organism=${organism != null}" }
@@ -362,6 +365,7 @@ internal class EngineStudioRepository(
             clock.now(),
             projectId = projectId,
             worktreeTaskId = id.takeIf { isWorktree },
+            isSandbox = isSandbox.takeIf { isWorktree },
             executionWorkspace = executionWorkspace,
             organismId = organism?.let { organisms.admit(id, it, isWorktree) },
         )

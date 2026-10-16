@@ -121,6 +121,7 @@ data class PaneContent(
     val contextUsage: ContextUsageUi? = null,
     val providerUsage: ProviderUsageUi? = null,
     val isWorktreeAvailable: Boolean = false,
+    val isSandboxAvailable: Boolean = false,
     val worktree: WorktreeUi? = null,
     val worktreeJournal: WorktreeJournalUi = WorktreeJournalUi.Ready,
     val configuration: SessionConfigurationUi? = null,
@@ -260,6 +261,7 @@ private fun AiStudioScreenState.projectPaneContent(
         contextUsage = contextOf(pane.sessionId, session),
         providerUsage = providerUsage[effectiveSettings.modelId],
         isWorktreeAvailable = isWorktreeOffered(pane),
+        isSandboxAvailable = isSandboxAvailable && isWorktreeOffered(pane),
         worktree = worktrees[pane.sessionId],
         worktreeJournal = worktreeJournal,
     )

@@ -36,6 +36,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -46,6 +48,41 @@ import kotlin.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioConversationCreationTest {
+    @Test
+    fun `saved isolation choice reaches preparation and survives a restart`() = runTest {
+        for (choice in listOf(false, true, null)) {
+            val fixture = CreationFixture(backgroundScope)
+            val record = fixture.pending().copy(isSandbox = choice)
+            val caller = async { fixture.creation.create(record) { fixture.saved[it.id] = it } }
+            runCurrent()
+            assertEquals(choice, fixture.machine.sandboxChoice)
+            // The record saved before preparation is what a restart finds.
+            val pending = fixture.saved.getValue("chat")
+            assertEquals(choice, pending.isSandbox)
+            fixture.machine.prepared()
+            caller.await()
+
+            val restored = Json.decodeFromString<StudioChatRecord>(Json.encodeToString(pending))
+            val restarted = CreationFixture(backgroundScope)
+            restarted.saved["chat"] = restored
+            restarted.recoverPending()
+            runCurrent()
+            assertEquals(1, restarted.machine.preparations)
+            assertEquals(choice, restarted.machine.sandboxChoice)
+            restarted.machine.prepared()
+            runCurrent()
+            assertEquals(choice, restarted.saved.getValue("chat").isSandbox)
+        }
+    }
+
+    @Test
+    fun `legacy pending records retain toggle based isolation`() {
+        val record = Json.decodeFromString<StudioChatRecord>(
+            """{"id":"chat","title":"Task","updatedAt":"2026-10-05T10:00:00Z","worktreeTaskId":"chat"}""",
+        )
+        assertNull(record.isSandbox)
+    }
+
     @Test
     fun `helper creation durably keeps the approved existing checkout without provisioning another`() = runTest {
         val fixture = CreationFixture(backgroundScope)
@@ -224,6 +261,8 @@ private class CreationMachine(private val beforePrepare: (String) -> Unit) :
     private var task = WorktreeTask("chat", WorkspaceRef("project"))
     override val state = MutableStateFlow<WorktreeState>(WorktreeState.Ready())
     override val outputs = emptyFlow<WorktreeOutput>()
+    var sandboxChoice: Boolean? = null
+        private set
     var preparations = 0
         private set
 
@@ -231,6 +270,7 @@ private class CreationMachine(private val beforePrepare: (String) -> Unit) :
         val prepare = intent as WorktreeIntent.Public.Prepare
         beforePrepare(prepare.chatId)
         preparations++
+        sandboxChoice = prepare.isSandbox
         state.value = WorktreeState.Ready(mapOf(task.chatId to task))
         return SendResult.Accepted
     }

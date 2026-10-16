@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.domain
 
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioEffect
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
@@ -23,6 +24,52 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class EngineStudioEffectsUsageTest {
+    @Test
+    fun `creation forwards the explicit isolation choice to the profile repository`() = runTest {
+        val ordinary = InMemoryStudioRepository(TestClock(this))
+        val choices = mutableListOf<Boolean?>()
+        val repository = object : StudioRepository by ordinary {
+            override suspend fun createSession(
+                projectId: String?,
+                title: String,
+                isWorktree: Boolean,
+                organism: OrganismRequest?,
+                executionWorkspace: WorkspaceRef?,
+                isSandbox: Boolean?,
+            ): StudioSession {
+                assertTrue(isWorktree)
+                choices += isSandbox
+                return ordinary.createSession(projectId, title)
+            }
+        }
+        val effects = EngineStudioEffects(
+            repository,
+            UsageRuntime(),
+            object : StudioAvailability {
+                override suspend fun isEnabled() = true
+                override fun observe() = flowOf(true)
+            },
+        )
+        val machine = object : EffectScope<AiStudioIntent> {
+            override suspend fun send(intent: AiStudioIntent) = SendResult.Accepted
+        }
+        for (sandbox in listOf(false, true)) {
+            effects.handle(
+                AiStudioEffect.CreateSession(
+                    0,
+                    "project",
+                    "Implement",
+                    DefaultRunSettings,
+                    requestId = 0,
+                    isWorktree = true,
+                    isSandbox = sandbox,
+                ),
+                machine,
+            )
+        }
+        assertEquals(listOf<Boolean?>(false, true), choices)
+    }
+
     @Test
     fun `closing the feature detaches usage after the machine stops and preserves profile runs`() = runTest {
         val runtime = UsageRuntime()
