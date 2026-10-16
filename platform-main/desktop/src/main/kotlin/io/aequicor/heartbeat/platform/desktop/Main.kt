@@ -65,13 +65,25 @@ internal fun launchHeartbeat(isDevelopment: Boolean) {
     // `heartbeat.trace` (system property or HEARTBEAT_TRACE) adds the VERBOSE level for deep debugging.
     val sink = initializeDesktopLogging(isDevelopment || classes.getOrNull() != null, isTraceRequested())
     try {
-        launchLoggedHeartbeat(isDevelopment, classes)
+        // Development runs (IDE, Gradle, several worktrees) stay independent; release launches share one process.
+        val claim = if (isDevelopment) {
+            DesktopInstanceClaim.Unguarded
+        } else {
+            claimDesktopInstance(desktopInstanceDirectory())
+        }
+        if (claim == DesktopInstanceClaim.Forwarded) return
+        val instance = (claim as? DesktopInstanceClaim.Owner)?.instance
+        try {
+            launchLoggedHeartbeat(isDevelopment, classes, instance)
+        } finally {
+            instance?.close()
+        }
     } finally {
         sink?.close()
     }
 }
 
-private fun launchLoggedHeartbeat(isDevelopment: Boolean, classes: Result<Path?>) {
+private fun launchLoggedHeartbeat(isDevelopment: Boolean, classes: Result<Path?>, instance: DesktopInstance?) {
     val log = Log.tag("Desktop")
     classes.onFailure { log.w(it) { "Entry point location is unknown; treating the launch as packaged" } }
     classes.getOrNull()?.let(::attachLocalPiRuntime)
@@ -105,6 +117,7 @@ private fun launchLoggedHeartbeat(isDevelopment: Boolean, classes: Result<Path?>
             windowState,
             applicationIcons.last(),
             computerUse.isActive,
+            instance,
             quitRequests.quit,
         )
         val plantUml = remember(graph) { (graph as PlantUmlAccessors).plantUml }
