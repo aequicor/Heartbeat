@@ -55,6 +55,7 @@ import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_ha
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_interfaces
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_logs
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_models
+import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_project_config
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_search
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_section_subagents
 import io.aequicor.heartbeat.feature.settings.impl.resources.settings_title
@@ -262,6 +263,7 @@ private fun sectionTitle(section: SettingsSectionUi): String = stringResource(
         SettingsSectionUi.Context -> Res.string.settings_section_context
         SettingsSectionUi.Harness -> Res.string.settings_section_harness
         SettingsSectionUi.Interfaces -> Res.string.settings_section_interfaces
+        SettingsSectionUi.ProjectConfig -> Res.string.settings_section_project_config
         SettingsSectionUi.Logs -> Res.string.settings_section_logs
         SettingsSectionUi.FeatureFlags -> Res.string.settings_section_feature_flags
     },
@@ -277,6 +279,7 @@ private fun SettingsSectionUi.icon(): ImageVector = when (this) {
     SettingsSectionUi.Context -> HbIcons.Minimize
     SettingsSectionUi.Harness -> HbIcons.Code
     SettingsSectionUi.Interfaces -> HbIcons.Grid
+    SettingsSectionUi.ProjectConfig -> HbIcons.FolderOpen
     SettingsSectionUi.Logs -> HbIcons.FileText
     SettingsSectionUi.FeatureFlags -> HbIcons.Sliders
 }

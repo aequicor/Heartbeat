@@ -45,6 +45,19 @@ public sealed interface HarnessChange {
 
     /** Replaces declarative tool switches. */
     public data class Tools(val tools: ToolPolicySpec) : HarnessChange
+
+    /**
+     * Replaces metadata, every item and tool switches in one revision (configuration from a project folder or
+     * bundle). Items keep their identities: an existing id keeps its name, absent items are removed.
+     */
+    public data class Content(
+        val title: String,
+        val description: String,
+        val items: List<HarnessItem>,
+        val tools: ToolPolicySpec,
+    ) : HarnessChange {
+        override fun toString(): String = "HarnessChange.Content(items=${items.size}, ***)"
+    }
 }
 
 /** Stable reasons without source code, prompt content or storage exception messages. */

@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeEnabled
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
+import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigEnabled
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import io.aequicor.heartbeat.feature.serviceasui.api.ServiceUiEnabled
 import io.aequicor.heartbeat.feature.settings.api.SettingsSection
@@ -52,9 +53,14 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             toggles.observe(HarnessEnabled),
             toggles.observe(ContextOptimizationEnabled),
             toggles.observe(ServiceUiEnabled),
-            toggles.observe(AdaptiveSubagentsEnabled),
-        ) { learning, harness, context, interfaces, subagents ->
-            ProfileSections(learning, harness, context, interfaces, subagents)
+            combine(
+                toggles.observe(AdaptiveSubagentsEnabled),
+                toggles.observe(ProjectConfigEnabled),
+            ) { subagents, config ->
+                subagents to config
+            },
+        ) { learning, harness, context, interfaces, (subagents, config) ->
+            ProfileSections(learning, harness, context, interfaces, subagents, config)
         },
         combine(sessions.active, toggles.observe(AppLogsEnabled)) { session, logs -> session to logs },
     ) { connections, search, (computerUse, chromium), profile, (session, logs) ->
@@ -69,6 +75,7 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             isContextEnabled = profile.isContext,
             isInterfacesEnabled = profile.isInterfaces,
             isSubagentsEnabled = profile.isSubagents,
+            isProjectConfigEnabled = profile.isProjectConfig,
             isLogsEnabled = logs,
             isDesktop = isDesktop,
         )
@@ -85,4 +92,5 @@ private data class ProfileSections(
     val isContext: Boolean,
     val isInterfaces: Boolean,
     val isSubagents: Boolean,
+    val isProjectConfig: Boolean,
 )
