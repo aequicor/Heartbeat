@@ -14,21 +14,27 @@ import java.awt.EventQueue
 import java.awt.Image
 import java.awt.Window
 
-/** Installs the tray for the host's lifetime and exposes Stop when computer use starts in the background. */
+/**
+ * Installs the tray for the host's lifetime and exposes Stop when computer use starts in the background. The Dock
+ * (macOS) and a repeated launch reaching the single [instance] (Windows taskbar, Linux launchers) open the window.
+ */
 @Composable
 internal fun rememberDesktopWindowVisibility(
     windowState: WindowState,
     image: Image,
     isComputerUseActive: Boolean,
+    instance: DesktopInstance?,
     onQuit: () -> Unit,
 ): DesktopWindowVisibility {
     val currentQuit by rememberUpdatedState(onQuit)
     val visibility = remember(windowState) { DesktopWindowVisibility(windowState) { currentQuit() } }
-    DisposableEffect(visibility, image) {
+    DisposableEffect(visibility, image, instance) {
         visibility.installTray { open, quit -> installDesktopTray(image, open, quit) }
         val reopen = installDesktopReopenHandler(visibility::openWindow)
+        val activation = instance?.onActivate(visibility::openWindow)
         onDispose {
             try {
+                activation?.close()
                 reopen?.close()
             } finally {
                 visibility.close()

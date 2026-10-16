@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.core.navigation.routeEntry
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectEngineRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsRoute
+import io.aequicor.heartbeat.feature.applogs.api.AppLogsRoute
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeRoute
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRoute
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationRoute
@@ -161,6 +162,7 @@ class SettingsComponent(
             ConnectEngineRoute::class,
             ProfileSettingsRoute::class,
             TogglesPanelRoute::class,
+            AppLogsRoute::class,
         )
     }
 }
@@ -175,6 +177,7 @@ internal fun SettingsSection.route(): Route = when (this) {
     SettingsSection.Context -> ContextOptimizationRoute(isEmbedded = true)
     SettingsSection.Harness -> HarnessRoute(isEmbedded = true)
     SettingsSection.Interfaces -> ServiceUiLibraryRoute(isEmbedded = true)
+    SettingsSection.Logs -> AppLogsRoute(isEmbedded = true)
     SettingsSection.FeatureFlags -> TogglesPanelRoute(isEmbedded = true)
 }
 

@@ -9,6 +9,8 @@ import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.navigation.RootHost
 import io.aequicor.heartbeat.core.navigation.Route
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
+import io.aequicor.heartbeat.feature.applogs.api.AppLogsEnabled
+import io.aequicor.heartbeat.feature.applogs.api.AppLogsMachineKey
 import io.aequicor.heartbeat.feature.settings.api.SettingsRoute
 import io.aequicor.heartbeat.feature.settings.api.SettingsSection
 import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelMachineKey
@@ -104,6 +106,7 @@ class SettingsIntegrationTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val process = Process()
         advanceUntilIdle()
+        (process.graph as TestToggleAccessors).toggleControl.setOverride(AppLogsEnabled, false)
         process.root.handleDeepLink("heartbeat://settings/unknown")
         advanceUntilIdle()
         assertEquals(listOf<Route>(ProductionWelcomeRoute), process.host.routes, "an unknown section is rejected")
@@ -111,9 +114,35 @@ class SettingsIntegrationTest {
         process.root.handleDeepLink("heartbeat://settings")
         advanceUntilIdle()
         assertEquals(listOf(ProductionWelcomeRoute, SettingsRoute()), process.host.routes)
-        // Feature flags are the only guest section; its first availability still waits for DataStore reads on IO.
+        // With diagnostics disabled the guest flags section still waits for DataStore reads on IO.
         val section = process.graph.machines.observe(TogglesPanelMachineKey).filterNotNull().first()
         assertNotNull(section)
+        process.close()
+    }
+
+    @Test
+    fun `application logs open inside guest settings and close with the window`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val process = Process()
+        val toggles = process.graph as TestToggleAccessors
+        toggles.toggleControl.setOverride(AppLogsEnabled, true)
+        advanceUntilIdle()
+        assertNull(process.graph.machines.find(AppLogsMachineKey))
+
+        process.root.handleDeepLink("heartbeat://settings/logs")
+        // Settings waits for persisted flags on the IO dispatcher before exposing the logs section.
+        process.graph.machines.observe(AppLogsMachineKey).filterNotNull().first()
+        advanceUntilIdle()
+        assertEquals(
+            listOf(ProductionWelcomeRoute, SettingsRoute(SettingsSection.Logs)),
+            process.host.routes,
+        )
+        assertNotNull(process.graph.machines.find(AppLogsMachineKey))
+
+        process.host.onBack()
+        advanceUntilIdle()
+        assertEquals(listOf<Route>(ProductionWelcomeRoute), process.host.routes)
+        assertNull(process.graph.machines.find(AppLogsMachineKey))
         process.close()
     }
 

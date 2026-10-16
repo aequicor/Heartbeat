@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.settings.impl
 
+import io.aequicor.heartbeat.core.common.HostPlatform
+import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.profilefacade.ProfileGraph
@@ -24,7 +26,12 @@ class ToggleSettingsSectionsTest {
     fun `the first sections are the read toggles without an ungated placeholder`() = runTest {
         val sessions = Sessions(ProfileSession(ProfileId("p1"), UnusedGraph))
         val emitted = mutableListOf<List<SettingsSection>>()
-        backgroundScope.launch { ToggleSettingsSections(EnabledToggles, sessions).available.collect { emitted += it } }
+        val platform = object : PlatformInfo {
+            override val host = HostPlatform.Linux
+        }
+        backgroundScope.launch {
+            ToggleSettingsSections(EnabledToggles, sessions, platform).available.collect { emitted += it }
+        }
         runCurrent()
         assertEquals(1, emitted.size, "A requested section opens with a single navigation")
         assertTrue(SettingsSection.Models in emitted.single())

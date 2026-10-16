@@ -27,7 +27,9 @@ private val GUIDE = """
 
     A harness is a reusable environment for a task or project, including an embedded mini-app. Steps:
     1. For scripts, read harness_api_reference(topic="api") and topic="examples" before writing code.
-    2. harness_create(name, title, description, attach). The harness is connected only to chats selected
+    2. harness_create(name, title, description, attach). It belongs to the current project (a worktree uses its
+       source project), or the shared library when created without a project. The attach flag only controls
+       connection to this chat; it does not change that library scope. Other chats connect it explicitly
        from the composer’s + menu or by the agent with harness_attach.
     3. harness_item_put for each item:
        - instruction: a short rule every session follows (≤ ${HarnessLimits.INSTRUCTION_CHARS} chars);

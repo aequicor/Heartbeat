@@ -43,6 +43,10 @@ public enum class SettingsSection {
     @SerialName("interfaces")
     Interfaces,
 
+    /** Desktop application diagnostics: recent logs, archive and the logs directory. */
+    @SerialName("logs")
+    Logs,
+
     /** Device-local feature flags. */
     @SerialName("feature_flags")
     FeatureFlags,
@@ -88,6 +92,7 @@ public val SettingsSection.deepLinkName: String
         SettingsSection.Context -> "context"
         SettingsSection.Harness -> "harness"
         SettingsSection.Interfaces -> "interfaces"
+        SettingsSection.Logs -> "logs"
         SettingsSection.FeatureFlags -> "feature_flags"
     }
 

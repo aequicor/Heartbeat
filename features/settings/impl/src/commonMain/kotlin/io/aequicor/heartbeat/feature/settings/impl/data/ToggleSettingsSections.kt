@@ -2,10 +2,13 @@ package io.aequicor.heartbeat.feature.settings.impl.data
 
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
+import io.aequicor.heartbeat.core.common.HostPlatform
+import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningEnabled
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
+import io.aequicor.heartbeat.feature.applogs.api.AppLogsEnabled
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeEnabled
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationEnabled
@@ -24,11 +27,17 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 /**
  * Sections gated like their former entry points: models and search are profile routes behind their own toggles
  * and need an active profile (the guest tree cannot show them); feature flags are always available, as the flag
- * panel was.
+ * panel was. Desktop diagnostics are application-wide and also need no profile.
  */
 @Inject
 @ContributesBinding(SettingsScope::class)
-internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: ProfileSessions) : SettingsSections {
+internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: ProfileSessions, platform: PlatformInfo) :
+    SettingsSections {
+    private val isDesktop = when (platform.host) {
+        HostPlatform.MacOs, HostPlatform.Windows, HostPlatform.Linux -> true
+        HostPlatform.Android, HostPlatform.Ios -> false
+    }
+
     override val available: Flow<ImmutableList<SettingsSection>> = combine(
         toggles.observe(EngineConnectionsEnabled),
         toggles.observe(SearchEngineTools),
@@ -42,8 +51,8 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             toggles.observe(ContextOptimizationEnabled),
             toggles.observe(ServiceUiEnabled),
         ) { learning, harness, context, interfaces -> ProfileSections(learning, harness, context, interfaces) },
-        sessions.active,
-    ) { connections, search, (computerUse, chromium), profile, session ->
+        combine(sessions.active, toggles.observe(AppLogsEnabled)) { session, logs -> session to logs },
+    ) { connections, search, (computerUse, chromium), profile, (session, logs) ->
         availableSections(
             isModelsEnabled = connections,
             isSearchEnabled = search,
@@ -54,6 +63,8 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             isHarnessEnabled = profile.isHarness,
             isContextEnabled = profile.isContext,
             isInterfacesEnabled = profile.isInterfaces,
+            isLogsEnabled = logs,
+            isDesktop = isDesktop,
         )
     }
         // No placeholder of ungated sections first: it made a requested section open only after a second fade, and
