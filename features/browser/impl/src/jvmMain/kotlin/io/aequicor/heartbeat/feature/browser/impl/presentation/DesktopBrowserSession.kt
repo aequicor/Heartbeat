@@ -33,8 +33,6 @@ import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserZoomStorage
 import io.aequicor.heartbeat.feature.browser.impl.domain.MAX_BROWSER_TABS
 import io.aequicor.heartbeat.feature.browser.impl.domain.SavedBrowserTab
 import io.aequicor.heartbeat.feature.browser.impl.domain.SavedBrowserWorkspace
-import io.aequicor.heartbeat.feature.browser.impl.domain.chooseBrowserFavicon
-import io.aequicor.heartbeat.feature.searchengine.api.isPublicWebUrl
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -66,7 +64,8 @@ import kotlin.uuid.Uuid
  * All registry mutations run on main; each tab serializes its native
  * operations. Each tab's [DesktopBrowserAgentGuard] keeps an agent's documents on the public web and the
  * origin its owner approved; what it refuses is reported to the agent with its next operation on the tab.
- * When a page finishes loading, its site icon is looked up and kept with the tab while the tab stays on that origin.
+ * When a page finishes loading, its site icon is looked up and kept with the tab while the tab stays on that origin;
+ * turning the icon flag off forgets every icon, including those restored with the tabs.
  */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class, binding = binding<BrowserSession>(), priority = 1)
@@ -159,6 +158,12 @@ internal class DesktopBrowserSession(
 
     private val factory
         get() = nativeResources as DesktopBrowserPanelFactory
+
+    init {
+        scope.coroutineScope.launch(dispatchers.main) {
+            icons.observeEnabled().collect { isEnabled -> if (!isEnabled) forgetFavicons() }
+        }
+    }
 
     override fun forTab(id: String?): BrowserSurface = entries[id ?: selected]?.surface ?: this
 
@@ -568,7 +573,9 @@ internal class DesktopBrowserSession(
                 panel::loadIcon,
                 panel,
             )
-        restored?.takeIf { it.faviconUrl.isNotEmpty() }?.let { entry.favicon = Favicon(it.url, it.faviconUrl) }
+        restored?.takeIf { it.faviconUrl.isNotEmpty() && icons.isEnabled() }?.let {
+            entry.favicon.restore(it.url, it.faviconUrl)
+        }
         entry.syncGuard(approved = null)
         if (parent != null) guard.inheritFrom(parent.guard)
         val after = parent?.tab?.id ?: entries.values.lastOrNull { it.tab.owner == owner }?.tab?.id
@@ -586,59 +593,37 @@ internal class DesktopBrowserSession(
 
     @HighFrequency
     private fun observeEntry(entry: Entry): Job = scope.coroutineScope.launch(dispatchers.main) {
-        var hasBeenLoading = false
+        var previous: BrowserPage? = null
         entry.surface.pages.collect { page ->
             if (entries[entry.tab.id] === entry) {
-                followFavicon(entry, page, hasBeenLoading)
-                hasBeenLoading = page.isLoading
+                previous?.let { entry.favicon.follow(it, page) }
+                previous = page
                 entry.update(page)
-                try {
-                    publish()
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: Exception) {
-                    log.e(error.redactedFailure()) { "Browser workspace could not be saved" }
-                    pages.value = pages.value.copy(error = BrowserError.EngineUnavailable)
-                }
+                publishOrReport()
             }
         }
     }
 
-    /** A new load abandons the previous page's lookup; a finished one looks its icon up. */
-    @HighFrequency
-    private fun followFavicon(entry: Entry, page: BrowserPage, hasBeenLoading: Boolean) {
-        if (page.isLoading) {
-            entry.faviconLookup?.cancel()
-        } else if (hasBeenLoading && page.error == null) {
-            lookUpFavicon(entry, page.url)
-        }
-    }
-
-    /**
-     * Finds the icon of the page that just loaded. A failed read still tries the origin's `/favicon.ico`; an agent's
-     * restricted tab accepts only a public icon or one from the page's own origin, as it could load nothing else.
-     */
-    private fun lookUpFavicon(entry: Entry, pageUrl: String) {
-        entry.faviconLookup?.cancel()
-        entry.faviconLookup = scope.coroutineScope.launch(dispatchers.main) {
-            if (!icons.isEnabled()) return@launch
-            val candidates = try {
-                entry.favicons.candidates()
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                log.w(error.redactedFailure()) { "Site icon links could not be read" }
-                emptyList()
-            }
-            val icon = chooseBrowserFavicon(pageUrl, candidates)?.takeIf {
-                !entry.guard.isRestricted || isPublicWebUrl(it) || browserOrigin(it) == browserOrigin(pageUrl)
-            }
-            if (entries[entry.tab.id] !== entry) return@launch
-            log.v { "Site icon resolved: found=${icon != null}" }
-            entry.favicon = icon?.let { Favicon(pageUrl, it) }
+    /** The icon flag was turned off: tabs drop their icons and the journal stops keeping them. */
+    private suspend fun forgetFavicons() {
+        if (entries.values.none { it.favicon.isKnown } && icons.images.value.isEmpty()) return
+        entries.values.forEach { entry ->
+            entry.favicon.forget()
             entry.update(entry.surface.pages.value)
+        }
+        icons.clear()
+        publishOrReport()
+    }
+
+    /** A journal that cannot be saved is reported on the page instead of failing the caller. */
+    private suspend fun publishOrReport() {
+        try {
             publish()
-            if (icon != null) icons.load(icon, entry.loadIcon)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.e(error.redactedFailure()) { "Browser workspace could not be saved" }
+            pages.value = pages.value.copy(error = BrowserError.EngineUnavailable)
         }
     }
 
@@ -684,7 +669,7 @@ internal class DesktopBrowserSession(
             .toList()
             .forEach { it.second.cancel() }
         entry.observer?.cancel()
-        entry.faviconLookup?.cancel()
+        entry.favicon.cancel()
         entry.surface.setEnabled(false)
         factory.close(entry.surface)
         if (selected == id) selected = neighbor ?: entries.keys.lastOrNull()
@@ -734,21 +719,30 @@ internal class DesktopBrowserSession(
     }
 
     /** The icon found for [pageUrl]; it stays with the tab while the tab shows a page of the same origin. */
-    private data class Favicon(val pageUrl: String, val url: String)
 
     private inner class Entry(
         var tab: BrowserTab,
         val surface: BrowserSurfaceAdapter,
         val driver: DesktopBrowserAutomation,
         val guard: DesktopBrowserAgentGuard,
-        val favicons: DesktopBrowserFaviconProbe,
-        val loadIcon: suspend (String) -> ByteArray,
+        probe: DesktopBrowserFaviconProbe,
+        loadIcon: suspend (String, (String) -> Boolean) -> ByteArray,
         val panel: DesktopBrowserPanel,
     ) {
         val lock = Mutex()
         var observer: Job? = null
-        var faviconLookup: Job? = null
-        var favicon: Favicon? = null
+        val favicon = DesktopBrowserTabFavicon(
+            { block -> scope.coroutineScope.launch(dispatchers.main) { block() } },
+            icons,
+            probe,
+            loadIcon,
+            { guard.isRestricted },
+        ) {
+            if (entries[tab.id] === this) {
+                update(surface.pages.value)
+                publishOrReport()
+            }
+        }
 
         /**
          * Documents of an agent tab are limited to the public web and the origin of [approved]; the
@@ -763,7 +757,7 @@ internal class DesktopBrowserSession(
             if (page.url != tab.page.url || page.isLoading) driver.invalidate()
             val isPendingTitle = page.isLoading && page.url == tab.page.url
             val title = if (isPendingTitle) page.title.ifBlank { tab.page.title } else page.title
-            val icon = favicon?.takeIf { browserOrigin(it.pageUrl) == browserOrigin(page.url) }?.url.orEmpty()
+            val icon = favicon.urlFor(page.url)
             val percent = zoomPercent(page.url)
             panel.setZoom(isZoomEnabled, percent, page.url)
             tab = tab.copy(page = page.copy(title = title, faviconUrl = icon, zoomPercent = percent))

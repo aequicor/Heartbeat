@@ -32,7 +32,8 @@ internal class DesktopBrowserDownload<T>(
     private val operations = mutableSetOf<Job>()
     private var isClosed = false
 
-    suspend fun capture(address: String): T {
+    /** [transfer] replaces the default one for this call only; it still shares the closure barrier. */
+    suspend fun capture(address: String, transfer: suspend (String) -> T = this.transfer): T {
         val url = requireNotNull(normalizeBrowserUrl(address)) { "Invalid source URL" }
         // A supervisor scope keeps the transfer's own cancellation (browser closed) away from the caller's job.
         return supervisorScope {
@@ -85,13 +86,26 @@ internal fun documentDownload(
     DesktopBrowserTransfer(createContext, it, urlResolver, createBody = ::DesktopBrowserDocumentBody).capture()
 }
 
-/** Site icons: the profile's cache may answer, the body is a small image, and a slow server fails sooner. */
-internal fun iconDownload(
+/**
+ * Site icons: the profile's cache may answer, the body is a small image, and a slow server fails sooner. Each capture
+ * passes its own [iconTransfer] with the tab's destination check; there is no unchecked default.
+ */
+internal fun iconDownload(dispatchers: DispatcherProvider): DesktopBrowserDownload<ByteArray> =
+    DesktopBrowserDownload(dispatchers, ICON_TIMEOUT) { error("Site icons are loaded with a destination check") }
+
+/** One site icon whose every redirect hop must pass [allows]. */
+internal suspend fun iconTransfer(
     createContext: (CefRequestContextHandler) -> CefRequestContext,
-    dispatchers: DispatcherProvider,
+    url: String,
     urlResolver: BrowserUrlResolver,
-): DesktopBrowserDownload<ByteArray> = DesktopBrowserDownload(dispatchers, ICON_TIMEOUT) {
-    DesktopBrowserTransfer(createContext, it, urlResolver, isCacheAllowed = true, ::DesktopBrowserIconBody).capture()
-}
+    allows: (String) -> Boolean,
+): ByteArray = DesktopBrowserTransfer(
+    createContext,
+    url,
+    urlResolver,
+    isCacheAllowed = true,
+    allows = allows,
+    createBody = ::DesktopBrowserIconBody,
+).capture()
 
 private const val ICON_TIMEOUT = 10_000L

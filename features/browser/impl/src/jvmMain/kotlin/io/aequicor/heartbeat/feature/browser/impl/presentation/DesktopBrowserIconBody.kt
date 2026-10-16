@@ -28,10 +28,15 @@ internal class DesktopBrowserIconBody(private val reject: (String) -> Unit) : De
 
     @Synchronized
     override fun result(url: String, mime: String): ByteArray {
-        check(!isRejected) { "Site icon exceeds size limit" }
-        check(mime.isEmpty() || mime.startsWith("image/") || mime in UNTYPED) { "Site icon is not an image" }
-        check(size > 0) { "Site icon is empty" }
+        refuseIf(isRejected) { "Site icon exceeds size limit" }
+        refuseIf(mime == SVG_TYPE) { "SVG site icons are not supported" }
+        refuseIf(mime.isNotEmpty() && !mime.startsWith("image/") && mime !in UNTYPED) { "Site icon is not an image" }
+        refuseIf(size == 0) { "Site icon is empty" }
         return bytes.copyOf(size)
+    }
+
+    private inline fun refuseIf(isRefused: Boolean, message: () -> String) {
+        if (isRefused) throw BrowserFaviconRejected(message())
     }
 
     private fun fail() {
@@ -40,6 +45,7 @@ internal class DesktopBrowserIconBody(private val reject: (String) -> Unit) : De
     }
 
     private companion object {
+        const val SVG_TYPE = "image/svg+xml"
         val UNTYPED = setOf("application/octet-stream", "text/plain")
     }
 }

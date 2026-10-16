@@ -17,14 +17,28 @@ class BrowserFaviconsTest {
     }
 
     @Test
-    fun `scalable icons rank first and equal icons keep document order`() {
+    fun `icons of any size rank first and equal icons keep document order`() {
         val candidates = listOf(
             BrowserFaviconCandidate("https://example.com/a.ico", "icon"),
             BrowserFaviconCandidate("https://example.com/b.ico", "ICON"),
-            BrowserFaviconCandidate("https://example.com/c.svg", "icon", type = "image/svg+xml"),
+            BrowserFaviconCandidate("https://example.com/c.png", "icon", "any"),
         )
-        assertEquals("https://example.com/c.svg", chooseBrowserFavicon("https://example.com/", candidates))
+        assertEquals("https://example.com/c.png", chooseBrowserFavicon("https://example.com/", candidates))
         assertEquals("https://example.com/a.ico", chooseBrowserFavicon("https://example.com/", candidates.take(2)))
+    }
+
+    @Test
+    fun `svg icons are skipped since they are not decoded`() {
+        val candidates = listOf(
+            BrowserFaviconCandidate("https://example.com/a.svg", "icon", "any", "image/svg+xml"),
+            BrowserFaviconCandidate("https://example.com/b.SVG?v=2", "icon", "32x32"),
+            BrowserFaviconCandidate("https://example.com/c.png", "icon", "16x16"),
+        )
+        assertEquals("https://example.com/c.png", chooseBrowserFavicon("https://example.com/", candidates))
+        assertEquals(
+            "https://example.com/favicon.ico",
+            chooseBrowserFavicon("https://example.com/", candidates.take(2)),
+        )
     }
 
     @Test

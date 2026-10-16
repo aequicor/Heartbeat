@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserReferrer
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 
 /** Commands consumed by one native view on its platform UI thread. */
@@ -68,4 +69,5 @@ internal interface BrowserSurface {
     fun detached(controller: BrowserViewController)
 }
 
-private val NoFavicons: StateFlow<Map<String, BrowserFaviconImage>> = MutableStateFlow(emptyMap())
+private val NoFavicons: StateFlow<Map<String, BrowserFaviconImage>> =
+    MutableStateFlow(emptyMap<String, BrowserFaviconImage>()).asStateFlow()

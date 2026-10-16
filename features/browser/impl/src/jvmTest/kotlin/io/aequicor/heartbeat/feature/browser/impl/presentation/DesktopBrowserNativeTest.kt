@@ -163,10 +163,10 @@ class DesktopBrowserNativeTest {
                 val candidates = DesktopBrowserFaviconProbe(runtime::devTools).candidates()
                 val icon = assertNotNull(chooseBrowserFavicon("$base/icon-page", candidates))
                 assertEquals("$base/icon.png", icon)
-                val png = decodeBrowserFavicon(runtime.loadIcon(icon))
+                val png = decodeBrowserFavicon(runtime.loadIcon(icon) { true })
                 val image = assertNotNull(ImageIO.read(ByteArrayInputStream(png)))
                 assertEquals(BROWSER_FAVICON_PIXELS, image.width)
-                assertFailsWith<IllegalStateException> { runtime.loadIcon("$base/icon-page") }
+                assertFailsWith<BrowserFaviconRejected> { runtime.loadIcon("$base/icon-page") { true } }
             }
         } finally {
             SwingUtilities.invokeAndWait {

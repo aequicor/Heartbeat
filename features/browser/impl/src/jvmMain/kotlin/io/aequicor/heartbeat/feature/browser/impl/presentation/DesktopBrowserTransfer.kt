@@ -23,16 +23,18 @@ import kotlin.coroutines.resume
 /**
  * Explicit redirect hops share one profile wrapper and bounded lifetime, without automatic redirect IO. [createBody]
  * bounds and interprets the final response; only [isCacheAllowed] transfers may be answered from the profile's cache.
+ * Every hop must also pass the caller's `allows`.
  */
 internal class DesktopBrowserTransfer<T>(
     private val createContext: (CefRequestContextHandler) -> CefRequestContext,
     url: String,
     urlResolver: BrowserUrlResolver,
     private val isCacheAllowed: Boolean = false,
+    allows: (String) -> Boolean = { true },
     private val createBody: (reject: (String) -> Unit) -> DesktopBrowserResponseBody<T>,
 ) {
     private val log = Log.tag("BrowserTransfer")
-    private val policy = DesktopBrowserTransferPolicy(url, urlResolver)
+    private val policy = DesktopBrowserTransferPolicy(url, urlResolver, allows)
     private val downloadedBytes = AtomicLong()
 
     suspend fun capture(): T {
@@ -64,7 +66,7 @@ internal class DesktopBrowserTransfer<T>(
                 "Browser request could not start"
             }
             select {
-                client.rejected.onAwait { error(it) }
+                client.rejected.onAwait { throw DesktopBrowserSourceRejected(it) }
                 client.completed.onAwait { }
             }
             check(!client.rejected.isCompleted) { "Source request was rejected" }

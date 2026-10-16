@@ -40,14 +40,14 @@ import kotlin.math.ln
 internal class DesktopBrowserEngine(
     app: CefApp,
     dispatchers: DispatcherProvider,
-    urlResolver: BrowserUrlResolver,
+    private val urlResolver: BrowserUrlResolver,
     private val isReleased: () -> Boolean,
     private val changed: (BrowserViewState) -> Unit,
     private val onClosed: () -> Unit = {},
     guard: DesktopBrowserAgentGuard,
     openTab: ((BrowserCommand.Load) -> Unit)? = null,
     onShortcut: ((BrowserShortcut) -> Unit)? = null,
-    createContext: (CefRequestContextHandler) -> CefRequestContext,
+    private val createContext: (CefRequestContextHandler) -> CefRequestContext,
 ) : DesktopBrowserRuntime {
     private val log = Log.tag("DesktopBrowserEngine")
     private val isClosed = AtomicBoolean(false)
@@ -83,7 +83,7 @@ internal class DesktopBrowserEngine(
         throw error
     }
     private val downloads = documentDownload(createContext, dispatchers, urlResolver)
-    private val icons = iconDownload(createContext, dispatchers, urlResolver)
+    private val icons = iconDownload(dispatchers)
     private val browser: CefBrowser
     private var isReady = false
 
@@ -122,7 +122,8 @@ internal class DesktopBrowserEngine(
 
     override suspend fun captureResource(url: String): JsonObject = downloads.capture(url)
 
-    override suspend fun loadIcon(url: String): ByteArray = icons.capture(url)
+    override suspend fun loadIcon(url: String, allows: (String) -> Boolean): ByteArray =
+        icons.capture(url) { iconTransfer(createContext, it, urlResolver, allows) }
 
     private fun cancelTransfers() {
         downloads.cancel()

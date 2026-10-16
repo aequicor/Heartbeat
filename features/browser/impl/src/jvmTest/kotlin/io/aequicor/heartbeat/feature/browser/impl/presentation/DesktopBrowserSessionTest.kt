@@ -11,6 +11,8 @@ import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserReferrerPolicy
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserRequestKind
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserWorkspaceStorage
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserZoomStorage
+import io.aequicor.heartbeat.feature.browser.impl.domain.SavedBrowserTab
+import io.aequicor.heartbeat.feature.browser.impl.domain.SavedBrowserWorkspace
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -416,7 +418,7 @@ class DesktopBrowserSessionTest {
         val methods = mutableListOf<String>()
         val fixture = Fixture(this, devTools = { method, _ ->
             methods += method
-            iconResponse(method, "https://cdn.example.net/icon.svg", type = "image/svg+xml")
+            iconResponse(method, "https://cdn.example.net/icon.png", type = "image/png")
         })
         fixture.create()
         fixture.attach()
@@ -424,12 +426,12 @@ class DesktopBrowserSessionTest {
         fixture.emit(BrowserViewState(url = "https://example.com/a"))
         runCurrent()
         assertEquals(listOf("Page.getFrameTree", "Page.createIsolatedWorld", "Runtime.evaluate"), methods)
-        assertEquals("https://cdn.example.net/icon.svg", fixture.session.tabs.value.first.single().page.faviconUrl)
+        assertEquals("https://cdn.example.net/icon.png", fixture.session.tabs.value.first.single().page.faviconUrl)
         val storage = fixture.storage as MemoryBrowserWorkspaceStorage
-        assertEquals("https://cdn.example.net/icon.svg", storage.workspace.tabs.single().faviconUrl)
+        assertEquals("https://cdn.example.net/icon.png", storage.workspace.tabs.single().faviconUrl)
         fixture.emit(BrowserViewState(url = "https://example.com/b", isLoading = true))
         runCurrent()
-        assertEquals("https://cdn.example.net/icon.svg", fixture.session.tabs.value.first.single().page.faviconUrl)
+        assertEquals("https://cdn.example.net/icon.png", fixture.session.tabs.value.first.single().page.faviconUrl)
         fixture.emit(BrowserViewState(url = "https://other.example.org/", isLoading = true))
         runCurrent()
         assertEquals("", fixture.session.tabs.value.first.single().page.faviconUrl)
@@ -441,7 +443,7 @@ class DesktopBrowserSessionTest {
         val fixture = Fixture(
             this,
             devTools = { method, _ -> iconResponse(method, "https://example.com/icon.png") },
-            icons = { url -> fetched.add(url).let { testPng(48, 48) } },
+            icons = { url, _ -> fetched.add(url).let { testPng(48, 48) } },
         )
         val tab = fixture.create()
         fixture.attach()
@@ -456,6 +458,70 @@ class DesktopBrowserSessionTest {
         fixture.request(BrowserOperation.ClearData)
         assertTrue(fixture.favicons.images.value.isEmpty())
         assertTrue(tab.isNotEmpty())
+    }
+
+    @Test
+    fun `an agent tab holds every redirect of its icon to its guard`() = runTest {
+        var allows: ((String) -> Boolean)? = null
+        val fixture = Fixture(
+            this,
+            devTools = { method, _ -> iconResponse(method, "https://cdn.example.net/icon.png") },
+            icons = { _, check -> testPng(16, 16).also { allows = check } },
+        )
+        fixture.create("session-a")
+        fixture.attach()
+        runCurrent()
+        fixture.emit(BrowserViewState(url = "https://example.com/"))
+        runCurrent()
+        val check = requireNotNull(allows)
+        assertFalse(check("http://192.168.1.1/icon.png"))
+        assertFalse(check("http://localhost:8080/icon.png"))
+        assertTrue(check("https://other.example.org/icon.png"))
+        assertTrue(check("https://example.com/favicon.ico"))
+    }
+
+    @Test
+    fun `a load never seen loading still finds the new page's icon`() = runTest {
+        val fixture = Fixture(this, devTools = { _, _ -> error("Page went away") })
+        fixture.create()
+        fixture.attach()
+        runCurrent()
+        fixture.emit(BrowserViewState(url = "https://example.com/"))
+        runCurrent()
+        fixture.emit(BrowserViewState(url = "https://other.example.org/page"))
+        runCurrent()
+        assertEquals("https://other.example.org/favicon.ico", fixture.session.tabs.value.first.single().page.faviconUrl)
+    }
+
+    @Test
+    fun `turning icons off forgets found and restored ones`() = runTest {
+        val storage = MemoryBrowserWorkspaceStorage(
+            SavedBrowserWorkspace(
+                listOf(SavedBrowserTab("saved", "https://example.com/", "Saved", null, "https://example.com/i.png")),
+            ),
+        )
+        val restored = Fixture(this, storage = storage, areFaviconsEnabled = false)
+        restored.session.setEnabled(true)
+        runCurrent()
+        assertEquals("", restored.session.tabs.value.first.single().page.faviconUrl)
+
+        val fixture = Fixture(
+            this,
+            devTools = { method, _ -> iconResponse(method, "https://example.com/icon.png") },
+            icons = { _, _ -> testPng(16, 16) },
+        )
+        fixture.create()
+        fixture.attach()
+        runCurrent()
+        fixture.emit(BrowserViewState(url = "https://example.com/"))
+        runCurrent()
+        assertEquals("https://example.com/icon.png", fixture.session.tabs.value.first.single().page.faviconUrl)
+        assertTrue(fixture.favicons.images.value.isNotEmpty())
+        fixture.faviconFlag.value = false
+        runCurrent()
+        assertEquals("", fixture.session.tabs.value.first.single().page.faviconUrl)
+        assertEquals("", (fixture.storage as MemoryBrowserWorkspaceStorage).workspace.tabs.single().faviconUrl)
+        assertTrue(fixture.favicons.images.value.isEmpty())
     }
 
     @Test
@@ -511,7 +577,7 @@ class DesktopBrowserSessionTest {
         private val failCreateAt: Int? = null,
         private val devTools: (suspend (String, JsonObject) -> String)? = null,
         private val areFaviconsEnabled: Boolean = true,
-        private val icons: suspend (String) -> ByteArray = { error("No site icon") },
+        private val icons: suspend (String, (String) -> Boolean) -> ByteArray = { _, _ -> error("No site icon") },
     ) {
         private val nativeStates = mutableListOf<(BrowserViewState) -> Unit>()
         val closed = mutableListOf<BrowserSurface>()
@@ -530,10 +596,13 @@ class DesktopBrowserSessionTest {
             override suspend fun isEnabled() = enabled.value
         }
         private val dispatchers = BrowserTestDispatchers(StandardTestDispatcher(scope.testScheduler))
+        val faviconFlag = MutableStateFlow(areFaviconsEnabled)
         val favicons = DesktopBrowserFaviconImages(
             dispatchers,
             object : BrowserFaviconPolicy {
-                override suspend fun isEnabled() = areFaviconsEnabled
+                override suspend fun isEnabled() = faviconFlag.value
+
+                override fun observe() = faviconFlag
             },
         )
         private val resources = object : DesktopBrowserPanelFactory {
@@ -573,7 +642,8 @@ class DesktopBrowserSessionTest {
                         override suspend fun devTools(method: String, arguments: JsonObject): String =
                             devTools?.invoke(method, arguments) ?: nativeCommand!!()
 
-                        override suspend fun loadIcon(url: String): ByteArray = icons(url)
+                        override suspend fun loadIcon(url: String, allows: (String) -> Boolean): ByteArray =
+                            icons(url, allows)
                     }
                 }.also(panels::add)
         }
