@@ -380,7 +380,7 @@ internal class WorktreeJournal(
                 sourceBranch = plan.sourceBranch,
                 branch = plan.branch,
                 baseCommit = plan.baseCommit,
-                isSandbox = toggles.get(WorktreeSandboxEnabled),
+                isSandbox = command.isSandbox != false && toggles.get(WorktreeSandboxEnabled),
             )
             val pending = WorktreeRecord(
                 task,

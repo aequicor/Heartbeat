@@ -294,6 +294,25 @@ class WorktreeJournalTest {
     }
 
     @Test
+    fun `a chat choosing a plain worktree keeps it even while sandboxes are on`() = runTest {
+        val fixture = Fixture()
+        fixture.toggles.isSandbox = true
+        fixture.journal.load()
+        fixture.send(WorktreeIntent.Public.Prepare(CHAT, PROJECT, isSandbox = false))
+        assertFalse(fixture.task().isSandbox)
+        fixture.send(WorktreeIntent.Public.Prepare("sandbox", PROJECT, isSandbox = true))
+        assertTrue(fixture.task().isSandbox)
+    }
+
+    @Test
+    fun `a sandbox choice falls back to a worktree while sandboxes are off`() = runTest {
+        val fixture = Fixture()
+        fixture.journal.load()
+        fixture.send(WorktreeIntent.Public.Prepare(CHAT, PROJECT, isSandbox = true))
+        assertFalse(fixture.task().isSandbox)
+    }
+
+    @Test
     fun `sandbox toggle creates sandbox tasks whose builds carry a fresh snapshot`() = runTest {
         val fixture = Fixture()
         fixture.toggles.isSandbox = true

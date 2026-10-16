@@ -36,8 +36,13 @@ public sealed interface WorktreeIntent : MachineIntent {
         /** Retries journal restoration after failure. */
         public data object RetryLoad : Public
 
-        /** Creates one checkout per chat from the selected project's current committed HEAD. */
-        public data class Prepare(val chatId: String, val project: WorkspaceRef) : Public
+        /**
+         * Creates one checkout per chat from the selected project's current committed HEAD. [isSandbox] is the chat's
+         * choice: false keeps a plain worktree, true asks for a sandbox, null follows [WorktreeSandboxEnabled]. A
+         * sandbox is created only while that toggle is on; an existing task keeps the isolation it was created with.
+         */
+        public data class Prepare(val chatId: String, val project: WorkspaceRef, val isSandbox: Boolean? = null) :
+            Public
 
         /** Tracks an original-checkout native session in the shared queue, without a completion card. */
         public data class TrackMainSession(
