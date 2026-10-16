@@ -102,9 +102,11 @@ class DesktopSingleInstanceTest {
             Path.of("/Users/u", "Library", "Application Support", "Heartbeat", "run"),
             desktopInstanceDirectory("Mac OS X", "/Users/u", null, null),
         )
+        // Absolute on the test host as well: `/data` has no drive on Windows runners.
+        val dataHome = directory.parent.resolve("data").toAbsolutePath()
         assertEquals(
-            Path.of("/data", "heartbeat", "run"),
-            desktopInstanceDirectory("Linux", "/home/u", null, "/data"),
+            dataHome.resolve("heartbeat").resolve("run"),
+            desktopInstanceDirectory("Linux", "/home/u", null, dataHome.toString()),
         )
         assertEquals(
             Path.of("/home/u/.local/share", "heartbeat", "run"),
