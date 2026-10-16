@@ -27,6 +27,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.CodeCheck
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessApiReference
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeChecks
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCreationScope
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessToolCatalogs
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.LibraryOutcome
@@ -57,7 +58,8 @@ import kotlin.uuid.Uuid
 
 /**
  * Harnesses as the `harnesses` section of project folders and bundles. A unit is applied as a user edit after the
- * user trusted it: a new harness through `Create`, a bound one through `Update(Content)` in one revision, keeping
+ * user trusted it: a new harness through `Create` in the source project of its folder (shared for a profile bundle),
+ * a bound one through `Update(Content)` in one revision, keeping its stored scope and
  * the identities of items with the same names. Code is compiled when a unit is checked, before it is put to the
  * user. Unavailable while harnesses are off, loading, failed or suspended.
  */
@@ -69,6 +71,7 @@ internal class HarnessConfigSection(
     private val checks: Lazy<HarnessCodeChecks>,
     private val catalogs: HarnessToolCatalogs,
     private val toggles: FeatureToggles,
+    private val creationScopes: HarnessCreationScope,
 ) : ConfigSection {
     private val log = Log.tag("HarnessConfigSection")
 
@@ -132,12 +135,14 @@ internal class HarnessConfigSection(
         val now = Clock.System.now()
         val request = RequestId("config-" + Uuid.random().toHexString())
         val (id, intent) = if (target == null) {
+            val scope = creationScopes.resolve(context.project)
+                ?: return ConfigApplyResult.Rejected(ConfigRejection.Unavailable)
             val id = HarnessId("h_" + Uuid.random().toHexString())
             val draft = HarnessDraft(
                 content.name,
                 content.title,
                 content.description,
-                HarnessScope.Attached,
+                scope,
                 true,
                 content.items.withIds(emptyList()),
                 content.tools,

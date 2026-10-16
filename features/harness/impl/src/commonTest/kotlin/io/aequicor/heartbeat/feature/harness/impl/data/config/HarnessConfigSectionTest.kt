@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolGroup
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessChange
 import io.aequicor.heartbeat.feature.harness.api.HarnessEffect
@@ -30,6 +31,7 @@ import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeChecks
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCreationScope
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessToolCatalogs
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.LibraryOutcome
@@ -99,12 +101,18 @@ class HarnessConfigSectionTest {
     private val library = SpecLibrary(HarnessState.Ready(listOf(HarnessEntry(review)), isRuntimeAvailable = true))
     private val host = FakeHost()
     private val toggles = Toggles()
+    private var creationScope: HarnessScope? = HarnessScope.Attached
+    private val resolvedProjects = mutableListOf<WorkspaceRef?>()
     private val section = HarnessConfigSection(
         lazyOf(library),
         library,
         lazyOf(HarnessCodeChecks(host) { it }),
         Catalogs(),
         toggles,
+        HarnessCreationScope { project ->
+            resolvedProjects += project
+            creationScope
+        },
     )
 
     @Test
@@ -135,6 +143,8 @@ class HarnessConfigSectionTest {
         val created = assertIs<ConfigApplyResult.Applied>(section.apply(renamed, null, ConfigApplyContext(null)))
         val audit = library.harness(created.key.value)
         assertEquals(HarnessName("audit"), audit.name)
+        assertEquals(HarnessScope.Attached, audit.scope)
+        assertEquals(listOf<WorkspaceRef?>(null), resolvedProjects)
         assertTrue(audit.isEnabled)
         assertTrue(audit.items.none { it.id.value in setOf("s", "i", "t", "c", "w") })
 
@@ -155,6 +165,45 @@ class HarnessConfigSectionTest {
             ConfigApplyResult.Rejected(ConfigRejection.Invalid),
             section.apply(renamed, ConfigEntityKey("h_review"), ConfigApplyContext(null)),
         )
+    }
+
+    @Test
+    fun `project folder imports use the resolved source project including worktrees`() = runTest {
+        val source = WorkspaceRef("source")
+        creationScope = HarnessScope.Projects(setOf(source))
+        val unit = section.encode(ConfigEntityKey("h_review"), "review")!!
+        for ((index, project) in listOf(source, WorkspaceRef("checkout")).withIndex()) {
+            val result = section.apply(unit.renamed("audit$index"), null, ConfigApplyContext(project))
+            val created = assertIs<ConfigApplyResult.Applied>(result)
+
+            assertEquals(creationScope, library.harness(created.key.value).scope)
+            assertEquals(project, resolvedProjects.last())
+        }
+    }
+
+    @Test
+    fun `an unknown project refuses import without creating a shared harness`() = runTest {
+        creationScope = null
+        val unit = section.encode(ConfigEntityKey("h_review"), "review")!!.renamed("audit")
+
+        val result = section.apply(unit, null, ConfigApplyContext(WorkspaceRef("unknown")))
+
+        assertEquals(ConfigApplyResult.Rejected(ConfigRejection.Unavailable), result)
+        assertTrue(library.sent.isEmpty())
+        assertEquals(listOf(review), library.ready.harnesses.map { it.harness })
+    }
+
+    @Test
+    fun `replacing a bound harness preserves its stored project scope`() = runTest {
+        val scoped = review.copy(scope = HarnessScope.Projects(setOf(WorkspaceRef("original"))))
+        library.state.value = library.ready.copy(harnesses = listOf(HarnessEntry(scoped)))
+        val unit = section.encode(ConfigEntityKey("h_review"), "review")!!
+
+        val result = section.apply(unit, ConfigEntityKey("h_review"), ConfigApplyContext(WorkspaceRef("other")))
+
+        assertEquals(ConfigApplyResult.Applied(ConfigEntityKey("h_review")), result)
+        assertEquals(scoped.scope, library.harness("h_review").scope)
+        assertTrue(resolvedProjects.isEmpty())
     }
 
     @Test

@@ -47,6 +47,10 @@ public enum class SettingsSection {
     @SerialName("project_config")
     ProjectConfig,
 
+    /** Desktop application diagnostics: recent logs, archive and the logs directory. */
+    @SerialName("logs")
+    Logs,
+
     /** Device-local feature flags. */
     @SerialName("feature_flags")
     FeatureFlags,
@@ -93,6 +97,7 @@ public val SettingsSection.deepLinkName: String
         SettingsSection.Harness -> "harness"
         SettingsSection.Interfaces -> "interfaces"
         SettingsSection.ProjectConfig -> "project_config"
+        SettingsSection.Logs -> "logs"
         SettingsSection.FeatureFlags -> "feature_flags"
     }
 

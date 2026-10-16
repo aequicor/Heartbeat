@@ -313,7 +313,7 @@ class AgentLearningMachineTest {
     }
 
     @Test
-    fun `replace confirms an unchanged lesson and refuses unknown, invalid or taken ones`() {
+    fun `replace confirms an unchanged lesson and refuses unknown or invalid or taken ones`() {
         spec.assertTransition(
             ready,
             AgentLearningIntent.Public.Replace("same", encoding.copy(updatedAtMillis = 99)),

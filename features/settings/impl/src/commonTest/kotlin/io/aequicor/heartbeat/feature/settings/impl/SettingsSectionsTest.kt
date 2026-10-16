@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.settings.impl
 
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningRoute
+import io.aequicor.heartbeat.feature.applogs.api.AppLogsRoute
 import io.aequicor.heartbeat.feature.chromiumbridge.api.ChromiumBridgeRoute
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRoute
 import io.aequicor.heartbeat.feature.contextwindowoptimization.api.ContextOptimizationRoute
@@ -40,6 +41,8 @@ class SettingsSectionsTest {
                 isContextEnabled = true,
                 isInterfacesEnabled = true,
                 isProjectConfigEnabled = true,
+                isLogsEnabled = true,
+                isDesktop = true,
             ),
         )
         assertEquals(
@@ -153,6 +156,26 @@ class SettingsSectionsTest {
             wanted = null,
         )
         assertEquals(SettingsSectionUi.FeatureFlags, state.selected)
+    }
+
+    @Test
+    fun `application logs need desktop and their toggle but no profile`() {
+        for (desktop in listOf(false, true)) {
+            for (enabled in listOf(false, true)) {
+                for (profile in listOf(false, true)) {
+                    val sections = availableSections(
+                        false,
+                        false,
+                        profile,
+                        isLogsEnabled = enabled,
+                        isDesktop = desktop,
+                    )
+                    assertEquals(desktop && enabled, SettingsSection.Logs in sections)
+                }
+            }
+        }
+        assertEquals(AppLogsRoute(isEmbedded = true), SettingsSection.Logs.route())
+        assertEquals(SettingsSection.Logs, settingsSectionOf("logs"))
     }
 
     @Test

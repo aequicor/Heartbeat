@@ -18,7 +18,7 @@ class ProjectConfigMachineTest {
     private val idle = ProjectConfigState.Ready(bindings = listOf(binding), projects = mapOf(project to ProjectSync(1)))
 
     @Test
-    fun `enabling loads bindings and syncs every project, a failed load waits for reload`() {
+    fun `enabling loads bindings and syncs every project and a failed load waits for reload`() {
         spec.assertTransition(
             ProjectConfigState.Off,
             Internal.Enabled(setOf(project)),
@@ -65,7 +65,7 @@ class ProjectConfigMachineTest {
     }
 
     @Test
-    fun `a new unit is reviewed, trusted only when safe or accepted, and its binding is stored`() {
+    fun `a new unit is reviewed and trusted only when safe or accepted and its binding is stored`() {
         val learning = ConfigUnitRef(ConfigSectionId.Learning, "style")
         val scanned = ScannedUnit(learning, ConfigDigest("n1"), valid("c1"))
         val syncing = idle.send(Public.Sync(project))
@@ -264,7 +264,7 @@ class ProjectConfigMachineTest {
     }
 
     @Test
-    fun `an opened bundle replaces the previous one and is reviewed, closing drops its proposals`() {
+    fun `an opened bundle replaces the previous one and is reviewed and closing drops its proposals`() {
         val previous = ConfigBundle("old", "old.hbai")
         val incoming = ConfigProposal(ConfigSource.Bundle("r1"), review, ProposalKind.Create, null, ConfigDigest("b1"))
         val state = idle.copy(bundle = previous, task = ConfigTask("r1", ConfigTaskKind.OpenBundle))

@@ -34,7 +34,7 @@ class ConfigReconcileTest {
     }
 
     @Test
-    fun `changed files become an update, a conflict, or only a new digest when canonically equal`() {
+    fun `changed files become an update or a conflict or only a new digest when canonically equal`() {
         val update = reconcile(listOf(binding), snapshot(unit(review, "f2", "c2"), entity(key, "e1")))
         assertEquals(ProposalKind.Update, update.proposals.single().kind)
         assertEquals(key, update.proposals.single().target)
@@ -57,7 +57,7 @@ class ConfigReconcileTest {
     }
 
     @Test
-    fun `an unbound unit binds silently to an equal entity, updates a different one or creates one`() {
+    fun `an unbound unit binds silently to an equal entity or updates a different one or creates one`() {
         val equal = reconcile(emptyList(), snapshot(unit(review, "f1", "e1"), entity(key, "e1")))
         assertEquals(listOf(ConfigBinding(project, review, key, digest("f1"), digest("e1"))), equal.bindings)
         assertTrue(equal.proposals.isEmpty())
@@ -114,7 +114,7 @@ class ConfigReconcileTest {
     }
 
     @Test
-    fun `bundle units create, update or are left out when the profile already has them`() {
+    fun `bundle units create or update or are left out when the profile already has them`() {
         val learning = ConfigUnitRef(ConfigSectionId.Learning, "style")
         val proposals = bundleProposals(
             "b1",

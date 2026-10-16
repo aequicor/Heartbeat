@@ -35,7 +35,7 @@ class ProjectConfigEffectsTest {
     private val fixture = EffectsFixture(harnesses, interfaces, learning)
 
     @Test
-    fun `a project unit is reviewed, trusted into the profile and kept in sync both ways`() = runTest {
+    fun `a project unit is reviewed and trusted into the profile and kept in sync both ways`() = runTest {
         fixture.files["harnesses/review.md"] = "rules\n"
         fixture.run(Internal.Enabled(setOf(PROJECT)))
         fixture.run(Internal.ProjectsChanged(setOf(PROJECT)))
@@ -121,7 +121,7 @@ class ProjectConfigEffectsTest {
     }
 
     @Test
-    fun `entities are saved into a project, skipping existing units and moving lessons there`() = runTest {
+    fun `entities are saved into a project while skipping existing units and moving lessons there`() = runTest {
         harnesses.state.value = listOf(FakeEntity("h1", "review", "rules"), FakeEntity("h2", "taken", "x"))
         learning.state.value = listOf(FakeEntity("l1", "style", "tabs"))
         fixture.files["harnesses/taken.md"] = "theirs\n"
@@ -143,7 +143,7 @@ class ProjectConfigEffectsTest {
     }
 
     @Test
-    fun `bundles export, open as proposals for the profile and import into a project`() = runTest {
+    fun `bundles export and open as proposals for the profile and import into a project`() = runTest {
         harnesses.state.value = listOf(FakeEntity("h1", "review", "rules"))
         learning.state.value = listOf(FakeEntity("l1", "style", "tabs", PROJECT))
         fixture.run(Internal.Enabled(setOf(PROJECT)))
@@ -177,7 +177,7 @@ class ProjectConfigEffectsTest {
     }
 
     @Test
-    fun `an import asks before replacing units the project has with other files, then overwrites or skips`() = runTest {
+    fun `an import asks before replacing different project units and then overwrites or skips`() = runTest {
         harnesses.state.value = listOf(FakeEntity("h1", "review", "rules"), FakeEntity("h2", "audit", "checks"))
         fixture.run(Internal.Enabled(setOf(PROJECT)))
         val refs = listOf("h1", "h2").map { ConfigEntityRef(ConfigSectionId.Harnesses, ConfigEntityKey(it)) }
