@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessTools
+import io.aequicor.heartbeat.feature.harness.impl.domain.content.HARNESS_CONTEXT_USAGE
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessActiveAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessContent
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessScriptInstructionAccess
@@ -120,13 +121,17 @@ private fun JsonObject.string(key: String): String {
 
 internal fun harnessContentGuide(declared: Set<String>?): List<String> = buildList {
     add("Харнессы содержат инструкции, скиллы и шаблоны. Используй их для подходящих задач; не сохраняй секреты.")
+    add(HARNESS_CONTEXT_USAGE)
     if (declared == null || HarnessTools.SKILL_LOAD in declared) {
-        add("Перед задачей загрузи подходящий скилл через harness_skill_load по имени harness/name.")
+        add(
+            "Скиллы загружай по необходимости через harness_skill_load по имени harness/name, " +
+                "только если нужного содержимого ещё нет в контексте.",
+        )
     }
     if (declared == null || HarnessTools.PROMPT_GET in declared) {
         add("Шаблон шага получи через harness_prompt_get с именем harness/name и строковыми args.")
     }
     if (declared == null || HarnessTools.CONTEXT in declared) {
-        add("Актуальные инструкции и индексы доступны через harness_context.")
+        add("Вызывай harness_context только для восстановления отсутствующих или усечённых инструкций и индексов.")
     }
 }

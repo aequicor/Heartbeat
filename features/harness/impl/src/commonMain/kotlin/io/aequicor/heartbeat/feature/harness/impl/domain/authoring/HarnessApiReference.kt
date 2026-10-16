@@ -44,6 +44,11 @@ private val GUIDE = """
        tools off or switch native engine tools on/off. Enabling a tool never bypasses the host safety checks.
     5. Check with harness_get, then tell the user what was set up.
 
+    Connected harness instructions are supplied automatically in the session context and refreshed by the host
+    when they change or context is rebuilt. Apply instructions already present; do not reload them on every turn.
+    Use harness_context only to recover missing or truncated instructions/indexes. Skill bodies remain on demand:
+    use harness_skill_load when a relevant skill is needed and its body is not already in context.
+
     Embedded mini-app path:
     - Read the built-in skills with ui_reference(topic="mini-app-design") for design and topic="service-as-ui"
       for rendering choices, placements and examples. Use topic="spec" for the exact format.

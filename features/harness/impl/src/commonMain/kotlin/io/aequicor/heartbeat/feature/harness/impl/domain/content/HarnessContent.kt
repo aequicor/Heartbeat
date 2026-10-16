@@ -45,7 +45,7 @@ internal class HarnessContent(active: List<Harness>, private val isFullContextRe
     /** Complete canonical projection and renderer version for hashing, never only revisions or a truncated prefix. */
     fun canonical(contextRevision: String?, instructions: String): String = Json.encodeToString(
         listOf(
-            "harness-context-v2",
+            "harness-context-v3",
             contextRevision,
             Json.encodeToString(markers),
             lines().joinToString("\n"),

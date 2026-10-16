@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.impl.data.delivery.HarnessContentTools
 import io.aequicor.heartbeat.feature.harness.impl.data.services.SchedulerAccessToggles
+import io.aequicor.heartbeat.feature.harness.impl.domain.content.HARNESS_CONTEXT_USAGE
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessActiveAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.harness
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.dispatchSession
@@ -47,6 +48,35 @@ class HarnessContentToolsTest {
         },
     )
     private val scope = AgentToolScope(null, session = dispatchSession)
+
+    @Test
+    fun `automatic instructions remain available without tools and skill bodies stay on demand`() = runTest {
+        val automatic = scope.copy(isRefreshedPerTurn = true, declared = emptySet())
+        val first = tools.instructions(automatic)
+        assertTrue(first.contains(instruction.text))
+        assertTrue(first.contains(HARNESS_CONTEXT_USAGE))
+        assertTrue(first.contains(skill.description))
+        assertFalse(first.contains(skill.body))
+        assertFalse(first.contains(HarnessTools.CONTEXT))
+        assertFalse(first.contains(HarnessTools.SKILL_LOAD))
+        assertEquals(first, tools.instructions(automatic))
+        val updated = instruction.copy(text = "Updated instruction")
+        active = listOf(harness.copy(items = listOf(updated, skill)))
+        val refreshed = tools.instructions(automatic)
+        assertTrue(refreshed.contains(updated.text))
+        assertFalse(refreshed.contains(instruction.text))
+    }
+
+    @Test
+    fun `frozen and refreshed guidance reserve context reads for recovery`() = runTest {
+        listOf(false, true).forEach { refreshed ->
+            val guide = tools.instructions(scope.copy(isRefreshedPerTurn = refreshed))
+            assertTrue(guide.contains(HARNESS_CONTEXT_USAGE))
+            assertTrue(guide.contains("harness_context только для восстановления"))
+            assertTrue(guide.contains("Скиллы загружай по необходимости"))
+            assertTrue(guide.contains("только если нужного содержимого ещё нет в контексте"))
+        }
+    }
 
     @Test
     fun `frozen instructions stay stable while refreshed instructions use the latest committed text`() = runTest {

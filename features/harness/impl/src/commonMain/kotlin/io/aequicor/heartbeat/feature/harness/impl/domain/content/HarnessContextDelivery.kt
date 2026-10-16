@@ -194,5 +194,12 @@ private data class DeliveryToken(
 
 private class DeliveryFailure(type: String) : Exception(type)
 
+/** Shared guidance for refreshed prompts and receipt-bearing blocks, independent of declared tools. */
+internal const val HARNESS_CONTEXT_USAGE =
+    "Хост автоматически добавляет инструкции подключённых харнессов в контекст и обновляет их при изменениях. " +
+        "Применяй уже полученные инструкции; не загружай их повторно перед каждым ответом. " +
+        "После сжатия контекста используй восстановленный хостом блок; читай заново только недостающие детали."
+
 internal const val HARNESS_CONTEXT_PROTOCOL =
-    "Этот блок заменяет все прежние инструкции харнесса. Действуют только перечисленные ниже харнессы."
+    "Этот блок заменяет все прежние инструкции харнесса. Действуют только перечисленные ниже харнессы.\n" +
+        HARNESS_CONTEXT_USAGE
