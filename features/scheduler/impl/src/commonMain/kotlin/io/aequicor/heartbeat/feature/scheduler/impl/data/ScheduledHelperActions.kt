@@ -63,8 +63,12 @@ internal class ScheduledHelperActions(
 
     suspend fun isHelper(session: SessionRef): Boolean = helpers.isHelper(session)
 
-    /** Caller already journaled the action and reserved one scheduled slot; this method owns their cleanup. */
-    suspend fun start(record: ActionRecord, request: SpawnRequest): String? {
+    /**
+     * Caller already journaled the action and reserved one scheduled slot; this method owns their cleanup. Without
+     * [awaitAcceptance] it returns once the helper chat is journaled: the first prompt continues in the profile, and
+     * its exact barrier and result finish the action whatever that prompt's outcome.
+     */
+    suspend fun start(record: ActionRecord, request: SpawnRequest, awaitAcceptance: Boolean = true): String? {
         val entry = register(record)
         var lease: HelperLease? = null
         var helper: HelperId? = null
@@ -85,7 +89,12 @@ internal class ScheduledHelperActions(
             journal.add(saved)
             entry.record = saved
             isPromptAttempted = true
-            launchWatch(entry, lease, submitFirst(record, request, helper))
+            if (awaitAcceptance) {
+                launchWatch(entry, lease, submitFirst(record, request, helper))
+            } else {
+                val owned = lease
+                scope.coroutineScope.launch { watch(entry, owned, firstPayload(record, request, helper)) }
+            }
             isWatching = true
             log.i { "action ${record.id}: supervised helper started" }
             return null
@@ -140,6 +149,16 @@ internal class ScheduledHelperActions(
             is HelperSubmission.NotSubmitted -> "status: failed (helper was not submitted)"
             null -> "status: timed out after $MAX_HELPER_TIME"
         }
+    }
+
+    /** [submitFirst] off the caller's path: a failed call settles through the same barrier as a waited start. */
+    private suspend fun firstPayload(record: ActionRecord, request: SpawnRequest, helper: HelperId): String? = try {
+        submitFirst(record, request, helper)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e) { "action ${record.id}: helper submission outcome unknown; settling its exact attempt" }
+        failedPromptPayload(record, helper, request.prompt.request)
     }
 
     /**
