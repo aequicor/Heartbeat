@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="control_back">Назад</string>
+    <string name="control_loading">Загрузка…</string>
+    <string name="control_load_failed">Не удалось загрузить движки.</string>
+    <string name="control_retry">Повторить</string>
+    <string name="control_off">Управление движками выключено.</string>
+    <string name="control_list_description">Движки, которые Heartbeat может запускать. Откройте движок, чтобы управлять им, обновлять и настраивать.</string>
+    <string name="control_list_engines">Движки</string>
+    <string name="control_list_empty">Нет зарегистрированных движков.</string>
+    <string name="control_status_on">Включён</string>
+    <string name="control_status_off">Выключен</string>
+    <string name="control_status_unavailable">Недоступен</string>
+    <string name="control_configurable">Настраивается</string>
+    <string name="control_version">Версия %1$s</string>
+    <string name="control_version_unknown">Версия неизвестна</string>
+    <string name="control_panel_missing">Этот движок больше недоступен.</string>
+    <string name="control_panel_settings">Настройки движка</string>
+    <string name="control_panel_settings_description">Что делает сам движок: его настройки, инструкции, расширения и серверы инструментов.</string>
+    <string name="control_panel_configuration_off">Настройка движков выключена. Включите флаг ai.engine_configuration, чтобы настраивать движки здесь.</string>
+    <string name="control_panel_no_settings">У этого движка нет настроек, которые Heartbeat может изменить.</string>
+</resources>

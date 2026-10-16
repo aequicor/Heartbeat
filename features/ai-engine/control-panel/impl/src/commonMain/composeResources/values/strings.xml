@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="control_back">Back</string>
+    <string name="control_loading">Loading…</string>
+    <string name="control_load_failed">Engines could not be loaded.</string>
+    <string name="control_retry">Retry</string>
+    <string name="control_off">Engine management is off.</string>
+    <string name="control_list_description">Engines Heartbeat can run. Open an engine to manage, update and configure it.</string>
+    <string name="control_list_engines">Engines</string>
+    <string name="control_list_empty">No engines are registered.</string>
+    <string name="control_status_on">On</string>
+    <string name="control_status_off">Off</string>
+    <string name="control_status_unavailable">Unavailable</string>
+    <string name="control_configurable">Configurable</string>
+    <string name="control_version">Version %1$s</string>
+    <string name="control_version_unknown">Version unknown</string>
+    <string name="control_panel_missing">This engine is no longer available.</string>
+    <string name="control_panel_settings">Engine settings</string>
+    <string name="control_panel_settings_description">What the engine itself does: its settings, instructions, extensions and tool servers.</string>
+    <string name="control_panel_configuration_off">Engine configuration is off. Turn on the ai.engine_configuration flag to configure engines here.</string>
+    <string name="control_panel_no_settings">This engine has no settings Heartbeat can edit.</string>
+</resources>
