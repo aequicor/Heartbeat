@@ -209,7 +209,14 @@ private fun Organism.abort(): Step? {
 
 private fun Organism.divide(intent: OrganicAiIntent.Internal.Divide): Step? {
     if (divisionRefusal(intent.parent) != null || intent.child != nextCellId()) return null
-    val child = Cell(intent.child, intent.name, intent.parent, intent.task, CellPhase.Resting)
+    val child = Cell(
+        intent.child,
+        intent.name,
+        intent.parent,
+        intent.task,
+        CellPhase.Resting,
+        configuration = intent.configuration,
+    )
     return Step(copy(cells = cells + begin(child, Work.Genesis)), drive = child.id)
 }
 

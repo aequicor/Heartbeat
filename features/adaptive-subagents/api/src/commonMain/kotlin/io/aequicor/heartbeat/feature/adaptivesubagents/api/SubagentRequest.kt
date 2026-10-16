@@ -52,6 +52,33 @@ public data class SubagentRequest(
             "tags=${tags.size})"
 }
 
+/**
+ * A request from tool argument values: lowercase [priority] and [complexity] names, [needs] as `images`, `pdf` or
+ * `long_context`. Unknown values are ignored, so a host can accept partial hints.
+ */
+public fun subagentRequestOf(
+    task: String,
+    priority: String? = null,
+    complexity: String? = null,
+    needs: Collection<String> = emptyList(),
+    tags: Collection<String> = emptyList(),
+): SubagentRequest = SubagentRequest(
+    task,
+    SubagentPriority.entries.firstOrNull { it.name.equals(priority, ignoreCase = true) },
+    SubagentComplexity.entries.firstOrNull { it.name.equals(complexity, ignoreCase = true) }
+        ?: SubagentComplexity.Medium,
+    needs.mapNotNull { need -> SubagentNeed.entries.firstOrNull { it.argument == need.lowercase() } }.toSet(),
+    tags.map(String::lowercase).toSet(),
+)
+
+/** The tool argument value of this need. */
+public val SubagentNeed.argument: String
+    get() = when (this) {
+        SubagentNeed.Images -> "images"
+        SubagentNeed.Pdf -> "pdf"
+        SubagentNeed.LongContext -> "long_context"
+    }
+
 /** Where the subagent runs: its host, the parent's model (when known) and the execution workspace. */
 public data class SelectionContext(
     val host: SubagentHost,

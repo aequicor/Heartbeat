@@ -6,6 +6,11 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.AdaptiveModels
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.ModelChoice
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.SelectionContext
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.SubagentHost
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.subagentRequestOf
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
@@ -13,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
+import io.aequicor.heartbeat.feature.organicai.api.CellConfiguration
 import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.ImmuneCase
@@ -31,6 +37,7 @@ import io.aequicor.heartbeat.feature.organicai.api.isDeveloping
 import io.aequicor.heartbeat.feature.organicai.api.isWaiting
 import io.aequicor.heartbeat.feature.organicai.api.nextCaseId
 import io.aequicor.heartbeat.feature.organicai.api.nextCellId
+import io.aequicor.heartbeat.feature.organicai.api.targetOf
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicAiMachine
 import io.aequicor.heartbeat.feature.organicai.impl.domain.explain
 import io.aequicor.heartbeat.feature.organicai.impl.domain.inboxReport
@@ -40,7 +47,9 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.SubagentTools.Arguments as Hints
 
 /**
  * The tools of a cell: divide, complain, dispute, status and receive. They are declared only while an organism
@@ -54,6 +63,8 @@ internal class OrganismAgentTools(
     // Lazy: the machine's effects reach the engine facade, whose hosted tools include these.
     private val machine: Lazy<OrganicAiMachine>,
     private val toggles: FeatureToggles,
+    // Lazy: selection reads the engine catalog, which hosts these tools.
+    private val adaptive: Lazy<AdaptiveModels>,
 ) : AgentToolContribution {
     override val group: String = "organic"
     override val title: String = "Организмы"
@@ -156,13 +167,47 @@ internal class OrganismAgentTools(
             ?.takeIf(String::isNotBlank)
             ?: "cell ${child.value}"
         organism.divisionRefusal(parent)?.let { return refused(it) }
-        val sent = send(OrganicAiIntent.Internal.Divide(organism.id, parent, child, label, task))
-        log.i { "organism ${organism.id.value}: ${parent.value} divides into ${child.value}, $sent" }
+        val configuration = configure(organism, parent, task, arguments)
+        val sent = send(OrganicAiIntent.Internal.Divide(organism.id, parent, child, label, task, configuration))
+        log.i {
+            "organism ${organism.id.value}: ${parent.value} divides into ${child.value} " +
+                "adaptive=${configuration != null}, $sent"
+        }
         return receipt(sent) {
-            "Divided: child ${child.value} \"$label\" started on its task. Continue independent work. " +
-                "Use ${OrganismTools.RECEIVE} to read its result, or wait=true when ready to wait."
+            val model = configuration?.describe()
+            "Divided: child ${child.value} \"$label\" started on its task${model.orEmpty()}. Continue independent " +
+                "work. Use ${OrganismTools.RECEIVE} to read its result, or wait=true when ready to wait."
         }
     }
+
+    private fun CellConfiguration.describe(): String {
+        val effort = reasoningEffort?.let { ", effort $it" }.orEmpty()
+        return " on ${target.model.value}$effort ($rationale)"
+    }
+
+    /** The child's own model when adaptive subagents choose one; null keeps the organism's model. */
+    private suspend fun configure(organism: Organism, parent: CellId, task: String, arguments: JsonObject) =
+        when (val choice = adaptive.value.select(arguments.hints(task), cellContext(organism, parent))) {
+            is ModelChoice.Selected -> CellConfiguration(choice.target, choice.reasoningEffort, choice.rationale)
+            is ModelChoice.Inherit -> null
+        }
+
+    private fun cellContext(organism: Organism, parent: CellId) = SelectionContext(
+        SubagentHost.OrganismCell,
+        organism.cell(parent)?.let { organism.targetOf(it) } ?: organism.target,
+        organism.workspace,
+    )
+
+    private fun JsonObject.hints(task: String) = subagentRequestOf(
+        task,
+        text(Hints.PRIORITY),
+        text(Hints.COMPLEXITY),
+        texts(Hints.NEEDS),
+        texts(Hints.TAGS),
+    )
+
+    private fun JsonObject.texts(name: String): List<String> =
+        (get(name) as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
 
     private suspend fun complain(organism: Organism, plaintiff: CellId, arguments: JsonObject): AgentToolResult {
         val accused = arguments.text(OrganismTools.Arguments.CELL)?.let { organism.idOf(it) }
