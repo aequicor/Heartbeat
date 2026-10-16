@@ -13,12 +13,11 @@ import io.aequicor.heartbeat.feature.harness.api.script.ScriptCommandResult
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptCommands
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptRegistration
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCreationScope
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceAccess
-import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessOriginContext
 import io.aequicor.heartbeat.feature.scheduler.api.LocalCommandOutcome
 import io.aequicor.heartbeat.feature.scheduler.api.LocalCommandRequest
 import io.aequicor.heartbeat.feature.scheduler.api.LocalCommands
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlin.time.TimeSource
@@ -37,6 +36,7 @@ internal data class HarnessCommandHost(
     val commands: LocalCommands,
     val scopes: HarnessCreationScope,
     val slots: HarnessCommandRuns,
+    val origins: HarnessCallOrigins,
     val isEnabled: suspend () -> Boolean,
 )
 
@@ -89,8 +89,7 @@ internal class HarnessScriptCommands(
         workspace: WorkspaceRef?,
         parameters: Map<String, String>,
     ): ScriptCommandResult {
-        val origin = currentCoroutineContext()[HarnessOriginContext]?.origin
-        check(origin?.isHookRestricted != true) { "Hooks cannot run commands" }
+        check(!host.origins.current().isHookRestricted) { "Hooks cannot run commands" }
         check(access.isActive) { "Commands require the published activation" }
         val started = TimeSource.Monotonic.markNow()
         val result = admitted(name, workspace, parameters)

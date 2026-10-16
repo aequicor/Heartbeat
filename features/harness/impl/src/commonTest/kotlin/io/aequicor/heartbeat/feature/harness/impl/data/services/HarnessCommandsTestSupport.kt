@@ -6,11 +6,15 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessScriptCommandsFactory
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCreationScope
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigins
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessOriginContext
 import io.aequicor.heartbeat.feature.scheduler.api.LocalCommandOutcome
 import io.aequicor.heartbeat.feature.scheduler.api.LocalCommandRequest
 import io.aequicor.heartbeat.feature.scheduler.api.LocalCommands
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlin.coroutines.CoroutineContext
 
 /** Records requests and answers them with [outcome], suspending in [before] first. */
 internal class RecordingLocalCommands(
@@ -45,10 +49,17 @@ internal class CommandToggles(var isEnabled: Boolean = true) : FeatureToggles {
     override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = isEnabled as T
 }
 
+/** Origins whose current value the test sets, as the platform carrier would. */
+internal class CommandOrigins(var current: HarnessCallOrigin = HarnessCallOrigin()) : HarnessCallOrigins {
+    override fun current(): HarnessCallOrigin = current
+    override fun context(origin: HarnessCallOrigin): CoroutineContext = HarnessOriginContext(origin)
+}
+
 /** A factory whose commands never run: fixtures of other script services do not exercise them. */
 internal fun commandsTestFactory(
     commands: LocalCommands = RecordingLocalCommands(isAvailable = false),
     scopes: HarnessCreationScope = SavedProjectScopes(emptySet()),
     toggles: FeatureToggles = CommandToggles(),
     slots: HarnessCommandSlots = HarnessCommandSlots(),
-) = HarnessScriptCommandsFactory(commands, scopes, slots, toggles)
+    origins: HarnessCallOrigins = CommandOrigins(),
+) = HarnessScriptCommandsFactory(commands, scopes, slots, origins, toggles)

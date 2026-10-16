@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptCommand
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptCommandRefusal
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptCommandResult
+import io.aequicor.heartbeat.feature.harness.impl.data.services.CommandOrigins
 import io.aequicor.heartbeat.feature.harness.impl.data.services.CommandToggles
 import io.aequicor.heartbeat.feature.harness.impl.data.services.RecordingLocalCommands
 import io.aequicor.heartbeat.feature.harness.impl.data.services.SavedProjectScopes
@@ -128,16 +129,20 @@ class HarnessScriptCommandsTest {
     }
 
     @Test
-    fun `hooks cannot run commands`() = runTest {
-        val fixture = CommandsFixture(this)
+    fun `hooks cannot run commands whatever coroutine context they use`() = runTest {
+        val origins = CommandOrigins(HarnessCallOrigin(isHookRestricted = true))
+        val fixture = CommandsFixture(this, origins = origins)
         fixture.commands.define(TEST, ScriptCommand("git"))
         fixture.publish()
 
+        // A derived scope captured during evaluation keeps an unrestricted element; the carrier still decides.
         assertFailsWith<IllegalStateException> {
-            withContext(HarnessOriginContext(HarnessCallOrigin(isHookRestricted = true))) {
-                fixture.commands.run(TEST, PROJECT)
-            }
+            withContext(HarnessOriginContext(HarnessCallOrigin())) { fixture.commands.run(TEST, PROJECT) }
         }
+        assertFailsWith<IllegalStateException> { fixture.commands.run(TEST, PROJECT) }
+        assertTrue(fixture.local.requests.isEmpty())
+        origins.current = HarnessCallOrigin()
+        assertEquals(ScriptCommandResult.Exited(0, "ok"), fixture.commands.run(TEST, PROJECT))
     }
 
     @Test
@@ -218,9 +223,10 @@ private class CommandsFixture(
     val local: RecordingLocalCommands = RecordingLocalCommands(),
     toggles: CommandToggles = CommandToggles(),
     scope: HarnessScope = HarnessScope.Attached,
+    origins: CommandOrigins = CommandOrigins(),
 ) {
     val access = MutableAccess(test, StandardTestDispatcher(test.testScheduler))
-    val commands = commandsTestFactory(local, SavedProjectScopes(setOf(PROJECT, OTHER)), toggles)
+    val commands = commandsTestFactory(local, SavedProjectScopes(setOf(PROJECT, OTHER)), toggles, origins = origins)
         .create(HarnessActivationRequest(harness.copy(scope = scope), code, 1), access)
 
     fun publish() {

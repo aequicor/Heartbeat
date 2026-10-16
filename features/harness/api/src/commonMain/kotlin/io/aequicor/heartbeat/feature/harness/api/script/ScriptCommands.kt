@@ -7,8 +7,11 @@ import kotlin.time.Duration.Companion.minutes
 
 /**
  * A program with arguments fixed in the approved source. An argument that is exactly `{name}` is replaced by the
- * value of parameter `name`, which must fully match its pattern in [parameters]; nothing else is substituted and no
- * shell interprets the words. A relative [program] runs from the project directory (`./gradlew`, `.\gradlew.bat`).
+ * value of parameter `name`, which must fully match its pattern in [parameters]; nothing else is substituted and the
+ * words are not expanded or split. On Windows, words with `cmd.exe` specials (`& | < > ^ % ! ( ) "`, line breaks),
+ * which a batch program would parse again, are refused as invalid. A relative [program] runs from the project
+ * directory (`./gradlew`, `.\gradlew.bat`). Pass the trusted `ScriptUiCall.workspace`, never a project built
+ * from input.
  */
 public data class ScriptCommand(
     val program: String,
