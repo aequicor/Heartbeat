@@ -262,6 +262,13 @@ chromium-plugin/ расширение для Chrome и других Chromium-б�
 > `ServiceUiAppRoute` удерживает одну поверхность вне lazy-ленты; `focusCard` открывает её. Скрытие сохраняет DOM,
 > вкладки и ввод, переход Start→первый чат перевязывает контекст с отзывом старых вызовов. Данные обновляются по
 > ревизии владельца. Другой контекст/владелец/спека освобождают документ. Скилл `service-as-ui`.
+> `features:worktree-mode:{api,impl}` — изолированные задачи кодинга (тогл `worktree_mode.enabled`, по умолчанию false;
+> только Desktop): git worktree на чат, инструменты `configure_build`/`run_build`/`build_status`, завершение PR или merge.
+> Sandbox mode (`worktree_mode.sandbox`, по умолчанию false) делает новую задачу песочницей только с исходниками: `run_build`
+> снимает снимок файлов (`refs/heartbeat/snapshots/*`) и собирает его в тёплом build-слоте репозитория
+> (`<git-common-dir>/heartbeat-worktree-data/slots`, до 4 на репозиторий); оставленная песочница чистит игнорируемые выходы.
+> Очередь сборок одна на машину: вес по типу сборки (`WorktreeBuildKind`), бюджет по CPU/RAM или лимит из раздела
+> настроек «Сборки» (`BuildCapacitySettings`, app-wide), round-robin между проектами, без обгона тяжёлой сборки.
 > Приложение: `core:mvi`, фичи `welcome`, `ai-studio`, `toggles-panel`, `ai-engine:connections` (профильные маршруты); платформенные входы подключены к root.
 
 ## Жёсткие правила (нарушение = блокер ревью)

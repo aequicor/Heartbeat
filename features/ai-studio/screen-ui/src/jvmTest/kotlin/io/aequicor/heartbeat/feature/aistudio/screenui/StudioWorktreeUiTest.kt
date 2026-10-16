@@ -37,9 +37,11 @@ import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.test.withKeyDown
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_failure_checkout_dirty
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_failure_unknown
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_merge_target
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_preparing
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_result
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_this_computer
@@ -156,6 +158,19 @@ class StudioWorktreeUiTest {
             runOnIdle { assertEquals(listOf("https://example.test/pr/9"), opened) }
             onNodeWithTag(card("worktree:chat")).assertIsDisplayed()
         }
+
+    @Test
+    fun `a sandbox chat pins the sandbox label instead of worktree`() = runSkikoComposeUiTest(size = Size(520f, 700f)) {
+        val pane = PaneUi(7, sessionId = "chat")
+        var labels = "" to ""
+        setContent {
+            labels = stringResource(Res.string.sandbox_mode) to stringResource(Res.string.worktree_mode)
+            PaneHost(savedWorkspace(pane, task(WorktreePhaseUi.Idle).copy(isSandbox = true)), pane, onIntent = {})
+        }
+        onNodeWithTag("worktree-pinned-7").assertIsDisplayed()
+        assertTrue(onAllNodesWithText(labels.first, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty())
+        assertTrue(onAllNodesWithText(labels.second, useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
+    }
 
     @Test
     fun `compact composer wraps selected context without consuming keyboard submit`() {

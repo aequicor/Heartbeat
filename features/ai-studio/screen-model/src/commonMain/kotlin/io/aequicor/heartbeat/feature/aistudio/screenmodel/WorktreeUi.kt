@@ -63,4 +63,6 @@ data class WorktreeUi(
     val pullRequestUrl: String?,
     val failure: String?,
     val builds: ImmutableList<BuildUi>,
+    /** Source-only sandbox whose builds run in shared build slots of the repository. */
+    val isSandbox: Boolean = false,
 )

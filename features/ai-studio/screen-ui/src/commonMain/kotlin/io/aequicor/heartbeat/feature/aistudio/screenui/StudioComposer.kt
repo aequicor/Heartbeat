@@ -70,6 +70,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_mode_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.research_mode
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.sandbox_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestions_section_commands
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestions_section_engine_commands
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestions_section_engine_skills
@@ -428,12 +429,13 @@ private fun StudioComposerModes(content: PaneContent, onIntent: (StudioIntent) -
     val pane = content.pane
     OrganismModeToggle(content, onIntent)
     if (content.worktree != null || content.session?.isWorktree == true) {
+        val isSandbox = content.worktree?.isSandbox == true
         HbComposerToggle(
-            label = stringResource(Res.string.worktree_mode),
+            label = stringResource(if (isSandbox) Res.string.sandbox_mode else Res.string.worktree_mode),
             isChecked = true,
             onCheckedChange = {},
             enabled = false,
-            icon = HbIcons.Branch,
+            icon = if (isSandbox) HbIcons.Layers else HbIcons.Branch,
             modifier = Modifier.testTag("worktree-pinned-${pane.id}"),
         )
         val branch = content.worktree?.branch ?: stringResource(Res.string.worktree_mode)
