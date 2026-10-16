@@ -69,7 +69,7 @@ import pro.respawn.flowmvi.dsl.collect
 
 @Composable
 internal fun TogglesPanelScreen(model: TogglesPanelModel, onBack: (() -> Unit)?, modifier: Modifier = Modifier) {
-    val state by produceState(TogglesPanelScreenState(), model) {
+    val state by produceState(model.current.value, model) {
         model.store.collect { states.collect { value = it } }
     }
     TogglesPanelContent(state, model.store::intent, onBack, modifier)

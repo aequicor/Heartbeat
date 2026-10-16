@@ -77,7 +77,11 @@ class TogglesPanelModel(
 ) {
     private val log = Log.tag("TogglesPanelModel")
 
-    val store = factory.create<TogglesPanelScreenState, TogglesPanelScreenIntent, TogglesPanelScreenAction>(
+    private val screen = factory.createScreen<
+        TogglesPanelScreenState,
+        TogglesPanelScreenIntent,
+        TogglesPanelScreenAction,
+    >(
         "TogglesPanel",
         TogglesPanelScreenState().reflectState(machine.state.value),
         onError = { copy(hasLoadError = true, isLoading = false, isSaving = false) },
@@ -104,6 +108,10 @@ class TogglesPanelModel(
             }
         }
     }
+    val store = screen.store
+
+    /** Latest screen state, read synchronously for the first frame. */
+    val current = screen.current
 
     init {
         store.start(scope.coroutineScope)

@@ -67,7 +67,7 @@ internal class HarnessLibraryModel(
     /** Requests of this screen; only their failures are shown here, agent writes report to the agent. */
     private val issued = MutableStateFlow<Set<RequestId>>(emptySet())
 
-    val store = factory.create<HarnessLibraryState, HarnessLibraryIntent, HarnessLibraryAction>(
+    private val screen = factory.createScreen<HarnessLibraryState, HarnessLibraryIntent, HarnessLibraryAction>(
         "HarnessLibrary",
         HarnessLibraryState().reflectLibrary(machine.state.value),
         onError = { this },
@@ -79,6 +79,10 @@ internal class HarnessLibraryModel(
         }) { reflectLibrary(it) }
         reduce { intent -> handle(intent) }
     }
+    val store = screen.store
+
+    /** Latest screen state, read synchronously for the first frame. */
+    val current = screen.current
 
     init {
         store.start(scope)

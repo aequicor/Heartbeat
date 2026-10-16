@@ -86,7 +86,7 @@ internal fun EngineConnectionsScreen(
     onBack: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
-    val state by produceState(EngineConnectionsScreenState(), model) {
+    val state by produceState(model.current.value, model) {
         model.store.collect { states.collect { value = it } }
     }
     EngineConnectionsContent(state, model.store::intent, onAddConnection, onBack, modifier)
