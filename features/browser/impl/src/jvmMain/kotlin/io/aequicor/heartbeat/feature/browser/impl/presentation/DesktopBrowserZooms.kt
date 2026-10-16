@@ -53,8 +53,9 @@ internal class DesktopBrowserZooms(
         }
     }
 
+    /** Re-applies levels to each tab's projected page: a raw surface page would drop its certificate decision. */
     private fun refresh() {
-        entries.values.forEach { it.update(it.surface.pages.value) }
+        entries.values.forEach { it.update(it.tab.page) }
         project()
     }
 

@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.browser.impl.presentation
 
+import io.aequicor.heartbeat.feature.browser.api.BrowserLoadFailure
 import io.aequicor.heartbeat.feature.browser.api.BrowserOperation
 import io.aequicor.heartbeat.feature.browser.api.BrowserZoom
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
@@ -48,6 +49,25 @@ class DesktopBrowserZoomTest {
         restored.session.zoom(first, BrowserZoom.Reset)
         assertEquals(listOf(100, 100, 100), restored.session.tabs.value.first.map { it.page.zoomPercent })
         assertEquals(emptyMap(), storage.load())
+    }
+
+    @Test
+    fun `zooming a certificate warning keeps its native proceed decision`() = runTest {
+        val url = "https://example.com/"
+        val fixture = Fixture(this, devTools = { method, _ -> warningResponse(method, url) })
+        fixture.errorPages.value = true
+        fixture.session.setZoomEnabled(true)
+        val tab = fixture.create()
+        fixture.attach()
+        runCurrent()
+        val failure = BrowserLoadFailure(url, "ERR_CERT_DATE_INVALID", isCertificate = true, id = "one")
+        fixture.emit(BrowserViewState(url = url, error = BrowserViewError.LoadFailed, failure = failure))
+        runCurrent()
+        assertEquals(true, fixture.session.pages.value.failure?.isProceedAllowed)
+        fixture.session.zoom(tab, BrowserZoom.In)
+        runCurrent()
+        assertEquals(110, fixture.session.pages.value.zoomPercent)
+        assertEquals(true, fixture.session.pages.value.failure?.isProceedAllowed)
     }
 
     @Test
@@ -198,4 +218,16 @@ private class BlockingZoomStorage : BrowserZoomStorage {
     }
 
     override suspend fun clear() = delegate.clear()
+}
+
+/** Chromium's native certificate interstitial for [url], with its proceed link. */
+private fun warningResponse(method: String, url: String): String = when (method) {
+    "Page.getFrameTree" ->
+        """{"frameTree":{"frame":{"id":"main","loaderId":"1","url":"chrome-error://chromewebdata/","unreachableUrl":"$url"}}}"""
+
+    "Page.createIsolatedWorld" -> """{"executionContextId":7}"""
+
+    "Runtime.evaluate" -> """{"result":{"value":true}}"""
+
+    else -> error("Unexpected CDP method: $method")
 }
