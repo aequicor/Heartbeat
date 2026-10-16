@@ -6,6 +6,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import java.util.concurrent.FutureTask
 import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -25,7 +26,9 @@ class DesktopQuitControllerTest {
             // The updater starts a child while an ordinary quit is already awaiting cleanup.
             fixture.isInstallerAlive = true
             // Do not suspend the test here: virtual cleanup timeouts must not overtake this real thread.
-            thread { fixture.requests.restart() }.join()
+            val restart = FutureTask { fixture.requests.restart() }
+            thread { restart.run() }.join()
+            restart.get()
             fixture.requests.restart()
             fixture.requests.quit()
             fixture.release.complete(Unit)
