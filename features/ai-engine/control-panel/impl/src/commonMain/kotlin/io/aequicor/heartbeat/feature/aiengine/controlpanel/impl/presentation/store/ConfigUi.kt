@@ -189,6 +189,9 @@ enum class ConfigProblemReasonUi {
 
     /** The typed text is not an integer. */
     NotANumber,
+
+    /** The file has comments or is not plain JSON; its values are edited in the file editor. */
+    Unparsed,
 }
 
 /** A value the user typed or chose for a field. Never printed: values may be paths or server addresses. */
@@ -248,7 +251,8 @@ sealed interface FieldInputUi {
  * save of it was accepted ([isSubmitted]). Never printed.
  */
 data class ConfigDraft(
-    val base: ConfigRevision,
+    /** The profile revision the draft was read at; null for a project, whose draft keeps its own revision. */
+    val base: ConfigRevision?,
     val values: EngineConfigValues,
     val invalidNumbers: Map<String, String> = emptyMap(),
     val secrets: Map<String, String> = emptyMap(),
@@ -256,10 +260,13 @@ data class ConfigDraft(
     val files: Map<String, String> = emptyMap(),
     val isSubmitted: Boolean = false,
 ) {
-    override fun toString(): String = "ConfigDraft(base=${base.value}, isSubmitted=$isSubmitted)"
+    override fun toString(): String = "ConfigDraft(base=${base?.value}, isSubmitted=$isSubmitted)"
 }
 
-/** Vault slots with a saved value and the values typed for slots in the draft. Never printed. */
-internal data class SecretView(val saved: Set<String>, val typed: Map<String, String>) {
+/**
+ * Vault slots with a saved value and the values typed for slots in the draft; [isAllowed] where values may move to
+ * the vault (the profile, never a project). Never printed.
+ */
+internal data class SecretView(val saved: Set<String>, val typed: Map<String, String>, val isAllowed: Boolean = true) {
     override fun toString(): String = "SecretView(saved=${saved.size}, typed=${typed.size})"
 }

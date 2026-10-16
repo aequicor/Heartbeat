@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.contro
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_problem_too_long
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_problem_unknown_document
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_problem_unknown_variant
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_problem_unparsed
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_problem_wrong_format
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_problem_wrong_type
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.resources.control_unit_ms
@@ -40,6 +41,7 @@ internal val ConfigProblemTexts: Map<ConfigProblemReasonUi, StringResource> = ma
     ConfigProblemReasonUi.MissingSecret to Res.string.control_problem_missing_secret,
     ConfigProblemReasonUi.SecretLiteral to Res.string.control_problem_secret_literal,
     ConfigProblemReasonUi.NotANumber to Res.string.control_problem_not_a_number,
+    ConfigProblemReasonUi.Unparsed to Res.string.control_problem_unparsed,
 )
 
 /** Label of a number unit. */

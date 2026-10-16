@@ -234,4 +234,5 @@
     <string name="engine_packages_description">Устанавливает пакеты из списка и удаляет исключённые из него или обновляет установленные.</string>
     <string name="engine_packages_sync">Установить по списку</string>
     <string name="engine_packages_update">Обновить</string>
+    <string name="control_problem_unparsed">В файле есть комментарии, или это не простой JSON. Измените значение в редакторе файла.</string>
 </resources>

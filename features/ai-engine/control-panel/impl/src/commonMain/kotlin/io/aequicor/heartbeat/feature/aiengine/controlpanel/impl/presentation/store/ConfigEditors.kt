@@ -13,35 +13,51 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.longOrNull
 
 /**
  * The editor of a value of this kind. [typed] is a number as typed when it does not parse; [problems] are relative
- * to the value and are spread over the entries of an entries field.
+ * to the value and are spread over the entries of an entries field; an [inherited] value (a project's profile
+ * value) is the default the value falls back to.
  */
 internal fun ConfigFieldKind.editor(
     value: JsonElement?,
     typed: String?,
     secrets: SecretView,
     problems: List<ConfigProblemUi>,
+    inherited: JsonElement? = null,
+): FieldEditorUi {
+    val fallback = inherited as? JsonPrimitive
+    return when (this) {
+        is ConfigFieldKind.Flag ->
+            FieldEditorUi.Flag((value as? JsonPrimitive)?.booleanOrNull, fallback?.booleanOrNull ?: isOnByDefault)
+
+        is ConfigFieldKind.Choice -> FieldEditorUi.Choice(
+            options.map { OptionUi(it.value.toString(), it.title.toUi()) }.toImmutableList(),
+            selected = (value as? JsonPrimitive)?.toString(),
+            default = fallback?.toString() ?: default?.toString(),
+        )
+
+        is ConfigFieldKind.Number -> FieldEditorUi.Number(
+            typed ?: value?.text().orEmpty(),
+            fallback?.longOrNull ?: default,
+            min,
+            max,
+            unit?.let { UnitUi.valueOf(it.name) },
+        )
+
+        is ConfigFieldKind.Text ->
+            FieldEditorUi.Text(value?.text().orEmpty(), TextRoleUi.valueOf(role.name), fallback?.text() ?: default)
+
+        else -> structuredEditor(value, secrets, problems)
+    }
+}
+
+private fun ConfigFieldKind.structuredEditor(
+    value: JsonElement?,
+    secrets: SecretView,
+    problems: List<ConfigProblemUi>,
 ): FieldEditorUi = when (this) {
-    is ConfigFieldKind.Flag -> FieldEditorUi.Flag((value as? JsonPrimitive)?.booleanOrNull, isOnByDefault)
-
-    is ConfigFieldKind.Choice -> FieldEditorUi.Choice(
-        options.map { OptionUi(it.value.toString(), it.title.toUi()) }.toImmutableList(),
-        selected = (value as? JsonPrimitive)?.toString(),
-        default = default?.toString(),
-    )
-
-    is ConfigFieldKind.Number -> FieldEditorUi.Number(
-        typed ?: value?.text().orEmpty(),
-        default,
-        min,
-        max,
-        unit?.let { UnitUi.valueOf(it.name) },
-    )
-
-    is ConfigFieldKind.Text -> FieldEditorUi.Text(value?.text().orEmpty(), TextRoleUi.valueOf(role.name), default)
-
     is ConfigFieldKind.TextList -> FieldEditorUi.TextList(
         (value as? JsonArray).orEmpty().map { it.text() }.toImmutableList(),
         TextRoleUi.valueOf(role.name),
@@ -54,7 +70,7 @@ internal fun ConfigFieldKind.editor(
 
     is ConfigFieldKind.KeyValues -> FieldEditorUi.KeyValues(
         (value as? JsonObject).orEmpty().map { (key, item) -> row(key, item.text(), secrets) }.toImmutableList(),
-        isSecretAllowed,
+        isSecretAllowed && secrets.isAllowed,
         valueChoices?.map { OptionUi(it.value.toString(), it.title.toUi()) }?.toImmutableList(),
     )
 
@@ -64,6 +80,9 @@ internal fun ConfigFieldKind.editor(
         variants = variants.map { OptionUi(it.id, it.title.toUi()) }.toImmutableList(),
         items = items(value).map { (key, item) -> entry(key, item, secrets, problems) }.toImmutableList(),
     )
+
+    is ConfigFieldKind.Flag, is ConfigFieldKind.Choice, is ConfigFieldKind.Number, is ConfigFieldKind.Text ->
+        editor(value, null, secrets, problems)
 }
 
 /** The items of an entries value with their keys: names of a map, positions of a list. */

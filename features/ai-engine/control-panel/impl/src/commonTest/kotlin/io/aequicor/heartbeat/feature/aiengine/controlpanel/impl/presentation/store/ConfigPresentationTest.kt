@@ -204,7 +204,7 @@ class ConfigPresentationTest {
     @Test
     fun `a submitted draft stays while saved and leaves once the saved revision changes`() {
         val draft = config.edit(null, "offline", FieldInputUi.Flag(true))!!.copy(isSubmitted = true)
-        val save = ControlOperation.SaveProfile(EngineId("pi"), ConfigEdit(draft.values), draft.base)
+        val save = ControlOperation.SaveProfile(EngineId("pi"), ConfigEdit(draft.values), config.revision)
         val conflict = FailedOperation(save, ControlFailure.Config(ConfigFailure.Conflict))
         val newer = config.copy(revision = ConfigRevision(4))
 

@@ -22,8 +22,8 @@ internal data class Change(val value: JsonElement?, val secrets: Map<String, Str
     override fun toString(): String = "Change(secrets=${secrets.size})"
 }
 
-/** Names a new vault slot after [hint], unlike any of [taken]. */
-internal data class SlotNames(val hint: String, val taken: Set<String>) {
+/** Names a new vault slot after [hint], unlike any of [taken]; [isAllowed] where values may move to the vault. */
+internal data class SlotNames(val hint: String, val taken: Set<String>, val isAllowed: Boolean = true) {
     /** A slot for the value of [key]. */
     fun next(key: String): String {
         val base = "${hint}_$key".uppercase().map { if (it in 'A'..'Z' || it in '0'..'9') it else '_' }
@@ -100,7 +100,7 @@ private fun ConfigFieldKind.KeyValues.secretChange(
     val value = (pairs[input.key] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
     val slot = secretSlotOf(value)
     return when {
-        input.isSecret && slot == null && isSecretAllowed -> {
+        input.isSecret && slot == null && isSecretAllowed && slots.isAllowed -> {
             val new = slots.next(input.key)
             Change(
                 JsonObject(pairs + (input.key to JsonPrimitive(secretReference(new)))),

@@ -38,35 +38,73 @@ internal fun EngineControlState.configOf(engine: EngineId): EngineConfigState? =
     (this as? EngineControlState.Active)?.snapshot?.configuration?.takeIf { it.isEnabled }?.engine(engine)
 
 /**
- * The profile form of this configuration with [draft] applied: the visible profile fields of every page with their
- * values, defaults and problems. Problems are those of the values as they would be saved, so rows being typed do
- * not block saving. A page without a visible field is left out.
+ * What a form edits: the [saved] values of [scope]; a project also shows the [inherited] profile values as its
+ * defaults and the [unparsed] text of files that exist but do not parse.
  */
-internal fun EngineConfigState.form(draft: ConfigDraft?): ConfigFormUi {
-    val values = draft?.values ?: profile
+internal data class FormSource(
+    val schema: EngineConfigSchema,
+    val scope: ConfigScope,
+    val saved: EngineConfigValues,
+    val inherited: EngineConfigValues? = null,
+    val unparsed: Map<String, String> = emptyMap(),
+) {
+    override fun toString(): String = "FormSource(scope=$scope)"
+}
+
+/** The profile configuration as a form source. */
+internal val EngineConfigState.profileSource: FormSource
+    get() = FormSource(schema, ConfigScope.Profile, profile)
+
+/** The profile form with [draft] applied; a draft read at another revision is in conflict. */
+internal fun EngineConfigState.form(draft: ConfigDraft?): ConfigFormUi = profileSource.form(draft)
+    .copy(hasConflict = draft != null && !draft.isSubmitted && draft.base != revision)
+
+/**
+ * [draft] (or a new one from the saved configuration) after [input] for the field [fieldId]; an unknown field and
+ * edits of a draft being saved change nothing.
+ */
+internal fun EngineConfigState.edit(draft: ConfigDraft?, fieldId: String, input: FieldInputUi): ConfigDraft? =
+    if (draft?.isSubmitted == true || schema.field(fieldId) == null) {
+        draft
+    } else {
+        profileSource.edit(draft ?: ConfigDraft(revision, profile), fieldId, input)
+    }
+
+/**
+ * The form of this source with [draft] applied: the visible fields of every page with their values, defaults and
+ * problems. Problems are those of the values as they would be saved, so rows being typed do not block saving; a file
+ * that does not parse blocks it when [isUnparsedBlocking]. A page without a visible field is left out.
+ */
+internal fun FormSource.form(draft: ConfigDraft?, isUnparsedBlocking: Boolean = true): ConfigFormUi {
+    val values = draft?.values ?: saved
     val typed = draft?.invalidNumbers.orEmpty()
-    val secrets = SecretView(values.secrets.keys, draft?.secrets.orEmpty())
-    val visible = schema.fields().filter { it.isShown(values) }
-    val saved = schema.cleaned(values).let { it.copy(secrets = it.secrets + secrets.typed.mapValues { PENDING }) }
-    val problems = validateEngineConfig(schema, saved, ConfigScope.Profile)
+    val secrets = SecretView(values.secrets.keys, draft?.secrets.orEmpty(), isAllowed = scope == ConfigScope.Profile)
+    val visible = schema.fields().filter { it.isShown(values, scope) }
+    val unparsedFiles = unparsed.filterKeys { id -> values.documents.keys.none { it.value == id } }
+    val pending = schema.cleaned(values).let { it.copy(secrets = it.secrets + secrets.typed.mapValues { PENDING }) }
+    val problems = validateEngineConfig(schema, pending, scope)
     val owned = problems.groupBy { it.owner(visible)?.id }
     val pages = schema.pages.map { page ->
         val sections = page.sections.mapNotNull { section ->
             val fields = section.fields.filter { it in visible }
             if (fields.isEmpty()) return@mapNotNull null
-            val rows = fields.map { it.toUi(values, owned[it.id].orEmpty(), typed[it.id], secrets) }
+            val rows = fields.map { field ->
+                val row = field.toUi(values, owned[field.id].orEmpty(), typed[field.id], secrets, inherited)
+                // A field of a file that does not parse is edited in the file editor.
+                if (field.binding.document.value in unparsedFiles) row.unparsed() else row
+            }
             ConfigSectionUi(section.id, section.title.toUi(), section.note?.toUi(), rows.toImmutableList())
         }
         ConfigPageUi(page.id, page.title.toUi(), sections.toImmutableList())
     }
-    val files = schema.files(values, draft?.files.orEmpty())
+    val files = schema.files(scope, values, unparsedFiles + draft?.files.orEmpty())
     val invalidFiles = files.count { it.isInvalid }
-    val isChanged = draft != null && (draft.values != profile || draft.secrets.isNotEmpty())
+    val isChanged = draft != null && (draft.values != saved || draft.secrets.isNotEmpty() || draft.files.isNotEmpty())
     return ConfigFormUi(
         pages = pages.filter { it.sections.isNotEmpty() }.toImmutableList(),
-        isDirty = isChanged || typed.isNotEmpty() || invalidFiles > 0,
-        blockingProblems = problems.count { it.isBlocking } + typed.size + invalidFiles,
-        hasConflict = draft != null && !draft.isSubmitted && draft.base != revision,
+        isDirty = isChanged || typed.isNotEmpty(),
+        blockingProblems = problems.count { it.isBlocking } + typed.size +
+            if (isUnparsedBlocking) invalidFiles else 0,
         isSubmitted = draft?.isSubmitted == true,
         otherProblems = owned[null].orEmpty().map { it.toUi(emptyList()) }.toImmutableList(),
         files = files.toImmutableList(),
@@ -74,30 +112,28 @@ internal fun EngineConfigState.form(draft: ConfigDraft?): ConfigFormUi {
 }
 
 /**
- * [draft] (or a new one from the saved configuration) after [input] for the field [fieldId]. A number that does not
- * parse is kept as typed and blocks saving; an input that does not fit the field, an unknown field and edits of a
- * draft being saved change nothing.
+ * [draft] after [input] for the field [fieldId]. A number that does not parse is kept as typed and blocks saving;
+ * an input that does not fit the field changes nothing.
  */
-internal fun EngineConfigState.edit(draft: ConfigDraft?, fieldId: String, input: FieldInputUi): ConfigDraft? {
-    val field = schema.field(fieldId)
-    if (draft?.isSubmitted == true || field == null) return draft
-    val current = draft ?: ConfigDraft(revision, profile)
-    val typed = current.invalidNumbers - fieldId
+internal fun FormSource.edit(draft: ConfigDraft, fieldId: String, input: FieldInputUi): ConfigDraft {
+    val field = schema.field(fieldId) ?: return draft
+    val typed = draft.invalidNumbers - fieldId
     val unparsed = (input as? FieldInputUi.Number)?.text
         ?.takeIf { field.kind is ConfigFieldKind.Number && it.isNotBlank() && it.trim().toLongOrNull() == null }
-    val slots = SlotNames(field.id, current.values.secretSlots() + current.secrets.keys + profile.secrets.keys)
-    val change = field.kind.change(current.values.read(field.binding), input, slots)
+    val taken = draft.values.secretSlots() + draft.secrets.keys + saved.secrets.keys
+    val slots = SlotNames(field.id, taken, isAllowed = scope == ConfigScope.Profile)
+    val change = field.kind.change(draft.values.read(field.binding), input, slots)
     return when {
-        unparsed != null -> current.copy(invalidNumbers = typed + (fieldId to unparsed))
+        unparsed != null -> draft.copy(invalidNumbers = typed + (fieldId to unparsed))
 
-        change == null -> current
+        change == null -> draft
 
-        else -> current.copy(
-            values = current.values.write(field.binding, change.value),
+        else -> draft.copy(
+            values = draft.values.write(field.binding, change.value),
             invalidNumbers = typed,
             // The file editor of the changed document shows it anew.
-            files = current.files - field.binding.document.value,
-            secrets = current.secrets + change.secrets.mapNotNull { (slot, text) -> text?.let { slot to it } } -
+            files = draft.files - field.binding.document.value,
+            secrets = draft.secrets + change.secrets.mapNotNull { (slot, text) -> text?.let { slot to it } } -
                 change.secrets.filterValues { it == null }.keys,
         )
     }
@@ -162,9 +198,9 @@ private fun ConfigFieldKind.Entries.cleanEntries(value: JsonElement): JsonElemen
     return if (shape == EntriesShape.NamedMap) JsonObject(items.toMap()) else JsonArray(items.map { it.second })
 }
 
-/** A profile field whose condition holds. */
-private fun ConfigField.isShown(values: EngineConfigValues): Boolean {
-    if (ConfigScope.Profile !in scopes) return false
+/** A field of [scope] whose condition holds. */
+private fun ConfigField.isShown(values: EngineConfigValues, scope: ConfigScope): Boolean {
+    if (scope !in scopes) return false
     val condition = visibleWhen ?: return true
     val value = values.read(condition.binding) ?: return condition.isMetWhenAbsent
     return value == condition.value
@@ -190,12 +226,13 @@ private fun ConfigField.toUi(
     problems: List<ConfigProblem>,
     typed: String?,
     secrets: SecretView,
+    inherited: EngineConfigValues?,
 ): ConfigFieldUi {
     val value = values.read(binding)
     val base = (binding as? ConfigBinding.JsonPath)?.path.orEmpty()
     val relative = problems.map { it.toUi(base) }
     val typing = listOfNotNull(typed?.let { ConfigProblemUi(ConfigProblemReasonUi.NotANumber) })
-    val editor = kind.editor(value, typed, secrets, relative)
+    val editor = kind.editor(value, typed, secrets, relative, inherited?.read(binding))
     // Problems inside entries are shown at their entry; the field keeps those about the whole value.
     val own = if (editor is FieldEditorUi.Entries) relative.filter { it.path.isEmpty() } else relative
     return ConfigFieldUi(
@@ -208,6 +245,9 @@ private fun ConfigField.toUi(
         problems = (own + typing).toImmutableList(),
     )
 }
+
+private fun ConfigFieldUi.unparsed() =
+    copy(problems = (problems + ConfigProblemUi(ConfigProblemReasonUi.Unparsed, isBlocking = false)).toImmutableList())
 
 private fun ConfigProblem.toUi(base: List<String>) =
     ConfigProblemUi(ConfigProblemReasonUi.valueOf(reason.name), path.drop(base.size).toImmutableList(), isBlocking)

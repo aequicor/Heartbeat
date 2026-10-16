@@ -234,4 +234,5 @@
     <string name="engine_packages_description">Installs the listed packages and removes the ones no longer listed, or updates the installed ones.</string>
     <string name="engine_packages_sync">Install from the list</string>
     <string name="engine_packages_update">Update</string>
+    <string name="control_problem_unparsed">The file has comments or is not plain JSON. Edit this value in the file editor.</string>
 </resources>

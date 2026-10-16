@@ -61,6 +61,15 @@ data class EngineControlPanelState(
     val config: ConfigFormUi? = null,
     /** Unsaved changes of the profile configuration. */
     val configDraft: ConfigDraft? = null,
+    /** Saved projects whose files the panel edits. */
+    val projects: ImmutableList<ProjectItemUi> = persistentListOf(),
+    /** The project shown instead of the overview, and the file of it shown as a whole. */
+    val openProject: String? = null,
+    val projectFile: String? = null,
+    /** The open project's configuration once its files are read. */
+    val project: ProjectFormUi? = null,
+    /** Unsaved changes of the open project's files. */
+    val projectDraft: ProjectDraft? = null,
     val isConfigurationOff: Boolean = false,
     val isLoading: Boolean = true,
     val isMissing: Boolean = false,
@@ -81,7 +90,7 @@ sealed interface EngineControlPanelIntent : MVIIntent {
 /** The panel has no one-off actions yet. */
 sealed interface EngineControlPanelAction : MVIAction
 
-private typealias PanelContext =
+internal typealias PanelContext =
     PipelineContext<EngineControlPanelState, EngineControlPanelIntent, EngineControlPanelAction>
 
 /** Panel store of one engine: reflects the panel machine and keeps only local input. */
@@ -95,6 +104,7 @@ class EngineControlPanelModel(
 ) {
     private val log = Log.tag("EngineControlPanelModel")
     private val engineId = requireNotNull(target.engine) { "A panel graph is created for one engine" }
+    private val projects = EngineProjects(machine, engineId)
 
     val store = factory.create<EngineControlPanelState, EngineControlPanelIntent, EngineControlPanelAction>(
         "EngineControlPanel",
@@ -126,6 +136,8 @@ class EngineControlPanelModel(
             is EngineManagementIntent.EngineRequest -> request(intent)
 
             is ConfigIntent -> configure(intent)
+
+            is ProjectIntent -> with(projects) { handle(intent) }
         }
     }
 
@@ -177,7 +189,7 @@ class EngineControlPanelModel(
             return
         }
         val edit = config.schema.saveOf(draft)
-        val save = ControlOperation.SaveProfile(engineId, edit, draft.base)
+        val save = ControlOperation.SaveProfile(engineId, edit, draft.base ?: config.revision)
         // The draft stays until the saved revision changes, so a failed save keeps the edits to fix.
         if (sendTo(machine, EngineControlIntent.Public.Apply(save)) == SendResult.Accepted) {
             updateState {
@@ -224,6 +236,9 @@ internal fun EngineControlPanelState.reflect(engine: EngineId, state: EngineCont
     val config = snapshot.configuration.engine(engine)?.takeIf { snapshot.configuration.isEnabled }
     val draft = configDraft.settle(config, active)
     val form = config?.form(draft)
+    val project = active.project?.takeIf { it.engine == engine && it.workspace.value == openProject }
+    val projectDraft = projectDraft.settle(project, active)
+    val title = snapshot.projects.firstOrNull { it.ref.value == openProject }?.name ?: openProject.orEmpty()
     val panel = managed?.takeIf { snapshot.management.isEnabled }
         ?.toPanel(launchDraft, snapshot.management.platform)
     return base.copy(
@@ -236,6 +251,10 @@ internal fun EngineControlPanelState.reflect(engine: EngineId, state: EngineCont
         openPage = openPage?.takeIf { form?.hasPage(it) == true },
         config = form,
         configDraft = draft,
+        projects = config?.projectItems(snapshot.projects).orEmpty().toImmutableList(),
+        openProject = openProject.takeIf { config != null },
+        project = project?.let { config?.projectForm(it, projectDraft, title) },
+        projectDraft = projectDraft,
         isConfigurationOff = !snapshot.configuration.isEnabled,
         isMissing = managed == null,
     )

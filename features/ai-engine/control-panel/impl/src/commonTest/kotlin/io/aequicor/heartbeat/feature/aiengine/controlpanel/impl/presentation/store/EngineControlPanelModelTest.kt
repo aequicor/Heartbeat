@@ -15,6 +15,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigValues
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineConfigurationState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectConfig
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectRevision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProjectTrust
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -181,6 +185,35 @@ class EngineControlPanelModelTest {
         runCurrent()
         assertEquals(null, screen.states.value.openPage)
         assertEquals("{\n    \"retry\": 4\n}", screen.states.value.config?.files?.single()?.text)
+    }
+
+    @Test
+    fun `a project opens through the machine and closes with it`() = runTest {
+        machine.state.value = configured(ConfigRevision(0))
+        val model = model()
+        val screen = subscribe(model.store)
+        val web = WorkspaceRef("web")
+        model.store.intent(ProjectIntent.Open("web"))
+        runCurrent()
+        assertEquals(EngineControlIntent.Public.Apply(ControlOperation.OpenProject(CodexId, web)), machine.sent.last())
+        assertEquals("web" to null, screen.states.value.openProject to screen.states.value.project)
+
+        val project = ProjectConfig(CodexId, web, EngineConfigValues(), ProjectRevision())
+        machine.state.value = (configured(ConfigRevision(0)) as EngineControlState.Active).copy(project = project)
+        runCurrent()
+        assertEquals("web", screen.states.value.project?.id)
+
+        model.store.intent(ProjectIntent.SetTrust(ProjectTrustUi.Trusted))
+        model.store.intent(ProjectIntent.Close)
+        runCurrent()
+        assertEquals(
+            listOf(
+                EngineControlIntent.Public.Apply(ControlOperation.SetTrust(CodexId, web, ProjectTrust.Trusted)),
+                EngineControlIntent.Public.CloseProject,
+            ),
+            machine.sent.takeLast(2),
+        )
+        assertEquals(null, screen.states.value.openProject)
     }
 
     private fun configured(revision: ConfigRevision, values: EngineConfigValues = EngineConfigValues()) =

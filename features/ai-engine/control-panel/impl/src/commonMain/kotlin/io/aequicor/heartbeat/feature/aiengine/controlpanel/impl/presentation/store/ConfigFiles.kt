@@ -19,28 +19,38 @@ internal fun filePage(id: String): String = "$FILE_PAGE$id"
 /** The file id of a file editor page, or null for a configuration page. */
 internal fun fileOf(page: String): String? = page.removePrefix(FILE_PAGE).takeIf { page.startsWith(FILE_PAGE) }
 
-/** The profile files of the schema with the text each shows for [values] and the [typed] texts. */
-internal fun EngineConfigSchema.files(values: EngineConfigValues, typed: Map<String, String>): List<ConfigFileUi> =
-    documents.filter { ConfigScope.Profile in it.scopes }.map { spec ->
-        val raw = typed[spec.id.value]
-        ConfigFileUi(
-            id = spec.id.value,
-            title = spec.title.toUi(),
-            fileName = spec.fileName,
-            text = raw ?: values.document(spec.id).render(),
-            language = if (spec.format == ConfigFormat.Json) "json" else null,
-            isInvalid = raw != null && spec.format == ConfigFormat.Json && parseJsonObject(raw).isFailure,
-        )
-    }
+/** The files of [scope] with the text each shows for [values] and the [typed] texts. */
+internal fun EngineConfigSchema.files(
+    scope: ConfigScope,
+    values: EngineConfigValues,
+    typed: Map<String, String>,
+): List<ConfigFileUi> = documents.filter { scope in it.scopes }.map { spec ->
+    val raw = typed[spec.id.value]
+    ConfigFileUi(
+        id = spec.id.value,
+        title = spec.title.toUi(),
+        fileName = spec.fileName,
+        text = raw ?: values.document(spec.id).render(),
+        language = if (spec.format == ConfigFormat.Json) "json" else null,
+        isInvalid = raw != null && spec.format == ConfigFormat.Json && parseJsonObject(raw).isFailure,
+    )
+}
 
 /**
  * [draft] (or a new one) with the file [id] replaced by [text]: a JSON file that parses replaces its document, one
  * that does not is kept as typed and blocks saving; an empty file removes the document.
  */
-internal fun EngineConfigState.editFile(draft: ConfigDraft?, id: String, text: String): ConfigDraft? {
-    val spec = schema.documents.firstOrNull { it.id.value == id }
-    if (draft?.isSubmitted == true || spec == null) return draft
-    val current = draft ?: ConfigDraft(revision, profile)
+internal fun EngineConfigState.editFile(draft: ConfigDraft?, id: String, text: String): ConfigDraft? =
+    if (draft?.isSubmitted == true || schema.documents.none { it.id.value == id }) {
+        draft
+    } else {
+        profileSource.editFile(draft ?: ConfigDraft(revision, profile), id, text)
+    }
+
+/** [draft] with the file [id] of this source replaced by [text]; see [EngineConfigState.editFile]. */
+internal fun FormSource.editFile(draft: ConfigDraft, id: String, text: String): ConfigDraft {
+    val spec = schema.documents.firstOrNull { it.id.value == id && scope in it.scopes } ?: return draft
+    val current = draft
     val document = when {
         text.isBlank() -> null
         spec.format == ConfigFormat.Text -> ConfigDocument.Text(text)
