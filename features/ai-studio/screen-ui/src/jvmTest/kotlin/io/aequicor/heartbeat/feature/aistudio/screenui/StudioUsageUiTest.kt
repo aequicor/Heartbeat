@@ -13,12 +13,15 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.usage_compacting
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ContextUsageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ModelUi
@@ -27,6 +30,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProviderUsageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.UsageWindowUi
 import kotlinx.collections.immutable.persistentListOf
+import org.jetbrains.compose.resources.stringResource
 import java.io.File
 import javax.imageio.ImageIO
 import kotlin.test.Test
@@ -47,6 +51,22 @@ class StudioUsageUiTest {
             onNodeWithText("Weekly").assertIsDisplayed()
             onNodeWithText("99%").assertIsDisplayed()
             onNodeWithText("0%").assertDoesNotExist()
+        }
+
+    @Test
+    fun `a compacting chat announces it on the context indicator until it ends`() =
+        runSkikoComposeUiTest(size = Size(900f, 700f)) {
+            val usage = ContextUsageUi(640, 1000, 64)
+            var content by mutableStateOf(pane().copy(contextUsage = usage, isCompacting = true))
+            var compacting = ""
+            setContent {
+                compacting = stringResource(Res.string.usage_compacting)
+                UsageHost(content)
+            }
+            onNodeWithContentDescription(compacting, substring = true).assertIsDisplayed()
+            runOnIdle { content = content.copy(contextUsage = ContextUsageUi(120, 1000, 12), isCompacting = false) }
+            onNodeWithContentDescription(compacting, substring = true).assertDoesNotExist()
+            onNodeWithText("12%").assertIsDisplayed()
         }
 
     @Test

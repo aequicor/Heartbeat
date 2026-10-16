@@ -49,6 +49,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
@@ -201,6 +202,21 @@ class StudioCompactionsTest {
             listOf(Public.Claim(Chat), Public.Finished(Chat, CompactionResult.Compacted)),
             fixture.registry.sent,
         )
+        job.cancel()
+    }
+
+    @Test
+    fun `a chat is reported as compacting only while its compaction turn runs`() = runTest {
+        val fixture = Fixture(this)
+        val observed = mutableListOf<Set<String>>()
+        fixture.onExecute = { observed += fixture.compactions.compacting.first() }
+        val job = launch { fixture.compactions.run() }
+
+        fixture.pending(Chat to PendingCompaction(CompactionMethod.Native, CompactionOrigin.User, null, null))
+        runCurrent()
+
+        assertEquals(listOf(setOf("chat")), observed)
+        assertEquals(emptySet(), fixture.compactions.compacting.first())
         job.cancel()
     }
 

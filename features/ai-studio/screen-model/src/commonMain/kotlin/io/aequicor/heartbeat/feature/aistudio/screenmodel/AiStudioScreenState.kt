@@ -82,6 +82,8 @@ data class AiStudioScreenState(
     val isRememberEnabled: Boolean = false,
     /** Whether the composer offers `/compact` and the context indicator its compaction action. */
     val isCompactEnabled: Boolean = false,
+    /** Chats whose context is being compacted right now. */
+    val compactingChats: ImmutableSet<String> = persistentSetOf(),
     /** How the feed collapses agent work. */
     val feedCollapse: FeedCollapseUi = FeedCollapseUi(),
     /** Whether a new chat may be started as an organic AI organism. */

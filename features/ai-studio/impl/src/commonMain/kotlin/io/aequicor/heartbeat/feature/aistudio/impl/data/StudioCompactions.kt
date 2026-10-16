@@ -97,6 +97,7 @@ internal class StudioCompactions(
     private val log = Log.tag("StudioCompactions")
     private val store by lazy { stores.keyValue(ChatSpec) }
     private val inFlight = MutableStateFlow(emptySet<SessionRef>())
+    private val compactingChats = MutableStateFlow(emptySet<String>())
 
     /** Host-started continuations of each chat since its last other prompt turn; bounds a compaction loop. */
     private val continuations = MutableStateFlow(emptyMap<String, Int>())
@@ -124,6 +125,8 @@ internal class StudioCompactions(
     }
 
     override val availability: Flow<Boolean> get() = toggles.observe(ContextOptimizationEnabled)
+
+    override val compacting: Flow<Set<String>> get() = compactingChats
 
     override val feed: Flow<StudioFeedCollapse>
         get() = combine(toggles.observe(ContextOptimizationEnabled), view.state) { isEnabled, state ->
@@ -272,7 +275,19 @@ internal class StudioCompactions(
         return if (isContinuationAllowed) continuation(chatId, receipt.environment) else null
     }
 
+    /** Marks [chat] as compacting for the indicator while its summary and compaction turns run. */
     private suspend fun compact(chat: StudioChatRecord, compaction: PendingCompaction): CompactionResult {
+        compactingChats.update { it + chat.id }
+        log.d { "compactingChats: +1 -> ${compactingChats.value.size}" }
+        return try {
+            runCompaction(chat, compaction)
+        } finally {
+            compactingChats.update { it - chat.id }
+            log.d { "compactingChats: -1 -> ${compactingChats.value.size}" }
+        }
+    }
+
+    private suspend fun runCompaction(chat: StudioChatRecord, compaction: PendingCompaction): CompactionResult {
         // Without rollover in this chat a request for it falls back to the engine's own compaction.
         val isRollover = compaction.method == CompactionMethod.Rollover &&
             chat.isRolloverAllowed && toggles.get(ContextRolloverEnabled)
