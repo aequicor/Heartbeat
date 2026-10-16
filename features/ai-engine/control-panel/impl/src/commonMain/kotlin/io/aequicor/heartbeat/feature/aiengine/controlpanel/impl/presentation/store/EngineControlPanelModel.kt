@@ -62,7 +62,7 @@ sealed interface EngineControlPanelIntent : MVIIntent {
 /** The panel has no one-off actions yet. */
 sealed interface EngineControlPanelAction : MVIAction
 
-/** Panel store of one engine: a projection of the panel machine. */
+/** Panel store of one engine: reflects the panel machine. */
 @SingleIn(EngineControlScope::class)
 @Inject
 class EngineControlPanelModel(
@@ -75,11 +75,11 @@ class EngineControlPanelModel(
 
     val store = factory.create<EngineControlPanelState, EngineControlPanelIntent, EngineControlPanelAction>(
         "EngineControlPanel",
-        panelState(engineId, machine.state.value),
+        EngineControlPanelState(engineId.value).reflect(engineId, machine.state.value),
         onError = { copy(isLoading = false, hasLoadFailure = true) },
     ) {
         init { sendTo(machine, EngineControlIntent.Public.Start) }
-        reflect(machine) { panelState(engineId, it) }
+        reflect(machine) { reflect(engineId, it) }
         reduce { intent ->
             when (intent) {
                 EngineControlPanelIntent.RetryLoad -> sendTo(machine, EngineControlIntent.Public.RetryLoad)
@@ -93,23 +93,25 @@ class EngineControlPanelModel(
     }
 }
 
-/** The panel of [engine] projected from the machine [state]. */
-internal fun panelState(engine: EngineId, state: EngineControlState): EngineControlPanelState {
-    val empty = EngineControlPanelState(engine.value)
-    val active = state as? EngineControlState.Active ?: return empty
+/** The panel of [engine] with the machine [state]. */
+internal fun EngineControlPanelState.reflect(engine: EngineId, state: EngineControlState): EngineControlPanelState {
+    val active = state as? EngineControlState.Active ?: return copy(isLoading = true)
     val snapshot = active.snapshot
-        ?: return empty.copy(isLoading = active.loadFailure == null, hasLoadFailure = active.loadFailure != null)
-    val managed = snapshot.management.engines.firstOrNull { it.descriptor.id == engine }
-        ?: return empty.copy(isLoading = false, isMissing = true)
-    val config = snapshot.configuration.engine(engine)
-    return empty.copy(
-        title = managed.descriptor.title,
-        status = managed.statusUi(),
-        version = managed.versionUi(),
-        pages = config?.schema?.pages.orEmpty().map { PageItemUi(it.id, it.title.toUi()) }.toImmutableList(),
+    val base = copy(
+        isLoading = snapshot == null && active.loadFailure == null,
+        hasLoadFailure = active.loadFailure != null,
         failure = active.failed?.failure?.toUi(),
+    )
+    if (snapshot == null) return base
+    val managed = snapshot.management.engines.firstOrNull { it.descriptor.id == engine }
+    val config = snapshot.configuration.engine(engine)
+    return base.copy(
+        title = managed?.descriptor?.title.orEmpty(),
+        status = managed?.statusUi() ?: EngineStatusUi.On,
+        version = managed?.versionUi(),
+        pages = config?.schema?.pages.orEmpty().map { PageItemUi(it.id, it.title.toUi()) }.toImmutableList(),
         isConfigurationOff = !snapshot.configuration.isEnabled,
-        isLoading = false,
+        isMissing = managed == null,
     )
 }
 

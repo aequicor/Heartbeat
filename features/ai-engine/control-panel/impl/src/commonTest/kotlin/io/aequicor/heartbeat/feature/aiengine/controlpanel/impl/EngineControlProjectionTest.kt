@@ -7,10 +7,11 @@ import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.EngineControlStat
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.api.FailedOperation
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ControlTestData.codex
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.ControlTestData.pi
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineControlPanelState
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.EngineStatusUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.FailureUi
 import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.listState
-import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.panelState
+import io.aequicor.heartbeat.feature.aiengine.controlpanel.impl.presentation.store.reflect
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.DisabledReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
@@ -63,20 +64,29 @@ class EngineControlProjectionTest {
 
     @Test
     fun `the panel shows the engine and its configuration pages`() {
-        val panel = panelState(pi, observed)
+        val panel = EngineControlPanelState("x").reflect(pi, observed)
 
         assertEquals("Pi", panel.title)
         assertEquals(listOf("network"), panel.pages.map { it.id })
         assertEquals("Сеть", panel.pages.single().title.resolve("ru"))
         assertEquals(false, panel.isConfigurationOff)
-        assertEquals(emptyList(), panelState(codex, observed).pages.map { it.id })
+        assertEquals(emptyList(), EngineControlPanelState("x").reflect(codex, observed).pages.map { it.id })
+    }
+
+    @Test
+    fun `a restarting machine keeps what the panel showed while it loads`() {
+        val restarting = EngineControlPanelState("x").reflect(pi, observed).reflect(pi, EngineControlState.Idle)
+
+        assertTrue(restarting.isLoading)
+        assertEquals("Pi", restarting.title)
+        assertEquals(listOf("network"), restarting.pages.map { it.id })
     }
 
     @Test
     fun `the panel notices a missing engine and configuration that is off`() {
-        assertTrue(panelState(EngineId("gone"), observed).isMissing)
+        assertTrue(EngineControlPanelState("x").reflect(EngineId("gone"), observed).isMissing)
         val off = observed.copy(snapshot = ControlSnapshot(management, EngineConfigurationState.Off))
-        assertTrue(panelState(pi, off).isConfigurationOff)
+        assertTrue(EngineControlPanelState("x").reflect(pi, off).isConfigurationOff)
     }
 
     @Test
@@ -84,10 +94,10 @@ class EngineControlProjectionTest {
         val restart = ControlOperation.Manage(pi, EngineCommand.Restart)
         val network = ControlFailure.Engine(EngineFailure.Transport(TransportFailureReason.Timeout))
         val failed = observed.copy(failed = FailedOperation(restart, network))
-        assertEquals(FailureUi.Network, panelState(pi, failed).failure)
+        assertEquals(FailureUi.Network, EngineControlPanelState("x").reflect(pi, failed).failure)
 
         val config = observed.copy(failed = FailedOperation(restart, ControlFailure.Config(ConfigFailure.Conflict)))
-        assertEquals(FailureUi.Unknown, panelState(pi, config).failure)
-        assertEquals(null, panelState(pi, observed).failure)
+        assertEquals(FailureUi.Unknown, EngineControlPanelState("x").reflect(pi, config).failure)
+        assertEquals(null, EngineControlPanelState("x").reflect(pi, observed).failure)
     }
 }
