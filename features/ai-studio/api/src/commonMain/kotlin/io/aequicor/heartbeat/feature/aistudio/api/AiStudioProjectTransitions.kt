@@ -45,7 +45,10 @@ internal fun ProjectTransitions.projects() {
                 projectErrorPane = null,
                 panes = state.panes.map {
                     if (it.isProjectDraft(intent.paneId) && intent.projectId != null) {
-                        it.copy(projectId = intent.projectId)
+                        it.copy(
+                            projectId = intent.projectId,
+                            isWorktree = it.isWorktree && intent.projectId in state.repositoryProjects,
+                        )
                     } else {
                         it
                     }

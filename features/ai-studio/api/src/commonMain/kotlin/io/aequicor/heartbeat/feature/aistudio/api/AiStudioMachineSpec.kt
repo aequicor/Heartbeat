@@ -20,11 +20,11 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | Ready | AvailabilityChanged | disabled | Disabled | ObserveAvailability |
  * | Disabled | AvailabilityChanged | enabled | Loading | Load |
  * | Ready | NewSession | pane open | Ready (pane → new-session page, focused) | |
- * | Ready | SelectProject | new-session page, not creating | Ready (target project) | |
+ * | Ready | SelectProject | new-session page, not creating | Ready (target project; worktree only for Git) | |
  * | Ready | SelectWorktree | new pane of a Git project, available | Ready (execution mode; leaves organism mode) | |
  * | Ready | SelectOrganism | new-session page, not creating | Ready (organism mode; leaves the worktree) | |
  * | Ready | AddProject | supported, new-session pane, picker idle | Ready (picker active) | ChooseProject |
- * | Ready | ProjectChosen | matching picker | Ready (selected project, or unchanged on cancel) | |
+ * | Ready | ProjectChosen | matching picker | Ready (selected project; worktree only for Git; unchanged on cancel) | |
  * | Ready | ProjectChoiceFailed | matching picker | Ready (retryable project error) | |
  * | Ready | ProjectAvailabilityChanged | | Ready (project selection availability) | |
  * | Ready | OpenSession | pane open | Ready (session shown or its pane focused) | Apply(SetUnread(false)) |
@@ -51,6 +51,8 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | Ready | CancelFailed | | Ready (stop can be retried) | |
  * | Ready | Edit | valid edit | Ready (archived session leaves panes) | Apply |
  *
+ * Selecting a project through the list or folder picker clears worktree mode unless the selected project
+ * is in the current Git repository set. Picker cancellation preserves the previous project and mode.
  * Runs are effects of Ready and continue across every Ready update; several sessions may run at once.
  * Replacing or closing a creating pane abandons its first prompt before a run is accepted. Late creation
  * results are ignored, including results arriving after the pane id is reused or another submit starts. A
