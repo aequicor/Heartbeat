@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.harness.impl.data.script
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.network.release.ReleaseArtifact
 import io.aequicor.heartbeat.core.network.release.VerifiedArtifactCache
+import io.aequicor.heartbeat.feature.harness.impl.data.script.worker.verifiedCompilerFiles
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -15,13 +16,47 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import java.io.IOException
+import java.net.URLClassLoader
+import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 
 class HarnessCompilerRuntimeTest {
+    @Test
+    fun `packaged development jars fall back to pinned originals before starting the worker`() = runTest {
+        val originals = checkNotNull(HarnessCompilerArtifacts.bundled())
+        val directory = Files.createTempDirectory("harness-packaged-runtime-")
+        try {
+            // Compose adds a content hash to every packaged JAR name, including development distributions.
+            val packaged = originals.map { original ->
+                Files.copy(original, directory.resolve(original.fileName.toString().removeSuffix(".jar") + "-hash.jar"))
+            }
+            URLClassLoader(packaged.map { it.toUri().toURL() }.toTypedArray(), null).use { loader ->
+                assertNull(HarnessCompilerArtifacts.bundled(loader))
+                val requested = mutableListOf<ReleaseArtifact>()
+                val cache = object : VerifiedArtifactCache {
+                    override suspend fun prepare(
+                        artifact: ReleaseArtifact,
+                        progress: suspend (Long, Long?) -> Unit,
+                    ): Path {
+                        requested += artifact
+                        return originals[HarnessCompilerArtifacts.artifacts.indexOf(artifact)]
+                    }
+                }
+                val prepared = runtime(cache) { HarnessCompilerArtifacts.bundled(loader) }.prepare()
+
+                assertEquals(HarnessCompilerArtifacts.artifacts, requested)
+                assertEquals(originals, verifiedCompilerFiles(prepared.map(Path::toString)))
+            }
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
+
     @Test
     fun `development dependencies need no download`() = runTest {
         val cache = RecordingArtifactCache()

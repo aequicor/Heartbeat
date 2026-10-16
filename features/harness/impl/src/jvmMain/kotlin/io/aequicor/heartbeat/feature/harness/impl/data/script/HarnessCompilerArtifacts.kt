@@ -45,12 +45,19 @@ internal object HarnessCompilerArtifacts {
         "${it.fileName}:${it.download.sha256}"
     }
 
-    /** Development already verifies these dependencies through Gradle; inspecting resources does not initialize K2. */
-    fun bundled(): List<Path>? {
-        val loader = HarnessCompilerArtifacts::class.java.classLoader
-        val paths = MARKERS.map { marker ->
+    /**
+     * Gradle development dependencies keep their original Maven names; inspecting resources does not initialize K2.
+     * Compose packages renamed JARs even in development distributions. Those cannot pass the worker's pinned-file
+     * validation, so they use the verified artifact cache just like a release with no bundled compiler.
+     */
+    fun bundled(): List<Path>? = bundled(HarnessCompilerArtifacts::class.java.classLoader)
+
+    internal fun bundled(loader: ClassLoader): List<Path>? {
+        val paths = MARKERS.zip(artifacts).map { (marker, artifact) ->
             val connection = loader.getResource(marker)?.openConnection() as? JarURLConnection ?: return null
-            Path.of(connection.jarFileURL.toURI())
+            val path = Path.of(connection.jarFileURL.toURI())
+            if (path.fileName.toString() != artifact.fileName) return null
+            path
         }
         return paths.distinct().takeIf { it.size == artifacts.size }
     }
