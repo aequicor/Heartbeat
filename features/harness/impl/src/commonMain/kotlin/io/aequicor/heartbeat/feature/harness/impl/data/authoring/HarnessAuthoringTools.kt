@@ -36,6 +36,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.AuthoringComm
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.CodeCheck
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeChecks
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeReviews
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCreationScope
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessToolCatalogs
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.ItemDraft
@@ -80,6 +81,7 @@ internal class HarnessAuthoringTools(
     private val catalogs: Lazy<HarnessToolCatalogs>,
     private val clock: Clock,
     private val reviews: Lazy<HarnessCodeReviews>,
+    private val creationScopes: HarnessCreationScope,
 ) : AgentToolContribution {
     private val log = Log.tag("HarnessTools")
     override val group: String = HarnessTools.GROUP
@@ -122,7 +124,7 @@ internal class HarnessAuthoringTools(
         context: AgentToolContext,
         spec: AgentToolSpec,
         arguments: JsonObject,
-    ): AgentToolApproval = when (val planned = plan(spec.name, arguments)) {
+    ): AgentToolApproval = when (val planned = plan(context, spec.name, arguments)) {
         is Plan.Ready -> harnessSafetySnapshot(context, planned.approval, checkNotNull(planned.reviewChange)).approval
         is Plan.Invalid -> AgentToolApproval(spec.name, spec.description, planned.message, binding = "safety-refused")
     }
@@ -133,7 +135,7 @@ internal class HarnessAuthoringTools(
         arguments: JsonObject,
     ): AgentToolAutomaticAuthorization {
         if (!toggles.get(HarnessEnabled)) return AgentToolAutomaticAuthorization.Denied("Harnesses are turned off")
-        return when (val plan = reviewed(context, plan(spec.name, arguments), canStart = true)) {
+        return when (val plan = reviewed(context, plan(context, spec.name, arguments), canStart = true)) {
             is Plan.Ready -> AgentToolAutomaticAuthorization.Allowed(plan.approval)
             is Plan.Invalid -> AgentToolAutomaticAuthorization.Denied(plan.message)
         }
@@ -141,7 +143,7 @@ internal class HarnessAuthoringTools(
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
         if (!toggles.get(HarnessEnabled)) return failure("harnesses are turned off")
-        val plan = when (val planned = reviewed(context, plan(name, arguments), canStart = false)) {
+        val plan = when (val planned = reviewed(context, plan(context, name, arguments), canStart = false)) {
             is Plan.Invalid -> {
                 log.d { "Harness authoring request refused name=$name final=${planned.isFinal}" }
                 return failure("not saved: ${planned.message}")
@@ -172,7 +174,7 @@ internal class HarnessAuthoringTools(
         }
     }
 
-    private suspend fun plan(name: String, arguments: JsonObject): Plan {
+    private suspend fun plan(context: AgentToolContext, name: String, arguments: JsonObject): Plan {
         val command = when (val parsed = parse(name, arguments)) {
             is Parsed.Invalid -> return Plan.Invalid(parsed.message, isFinal = true)
             is Parsed.Valid -> parsed.value
@@ -183,6 +185,12 @@ internal class HarnessAuthoringTools(
         if (state.attachmentWrite != null || plan.harness?.id in state.pending) {
             return Plan.Invalid("the harness has a pending change; retry after it completes")
         }
+        val creationScope = if (command is AuthoringCommand.Create) {
+            creationScopes.resolve(context.workspace)
+                ?: return Plan.Invalid("the current project is unavailable; retry after it loads")
+        } else {
+            null
+        }
         val connections = plan.harness?.let { owner -> state.attachments.filterValues { owner.id in it }.keys }
         val change = buildJsonObject {
             put("operation", name)
@@ -190,6 +198,7 @@ internal class HarnessAuthoringTools(
             put("previousHarness", Json.encodeToJsonElement(plan.harness))
             put("proposedItem", Json.encodeToJsonElement(plan.item))
             put("proposedTools", Json.encodeToJsonElement(plan.tools))
+            put("creationScope", Json.encodeToJsonElement(creationScope))
             put("connections", Json.encodeToJsonElement(connections.orEmpty().sortedBy { Json.encodeToString(it) }))
             put("consequences", plan.approval.description)
         }.toString()
@@ -197,6 +206,7 @@ internal class HarnessAuthoringTools(
             approval = plan.approval.copy(name = name),
             reviewChange = change,
             connections = connections,
+            creationScope = creationScope,
         )
     }
 
@@ -388,7 +398,7 @@ internal class HarnessAuthoringTools(
         val at = clock.now()
         val harness = plan.harness
         return when (val command = plan.command) {
-            is AuthoringCommand.Create -> create(context, command)
+            is AuthoringCommand.Create -> create(context, command, checkNotNull(plan.creationScope))
 
             is AuthoringCommand.Update -> update(context, plan, command)
 
@@ -444,9 +454,14 @@ internal class HarnessAuthoringTools(
         }
     }
 
-    private suspend fun create(context: AgentToolContext, command: AuthoringCommand.Create): AgentToolResult {
+    /** Persists the project scope from the reviewed plan, independently of the optional chat connection. */
+    private suspend fun create(
+        context: AgentToolContext,
+        command: AuthoringCommand.Create,
+        scope: HarnessScope,
+    ): AgentToolResult {
         val id = HarnessId("h_" + Uuid.random().toHexString())
-        val draft = HarnessDraft(command.name, command.title, command.description, HarnessScope.Attached)
+        val draft = HarnessDraft(command.name, command.title, command.description, scope)
         val intent = HarnessIntent.Internal.Create(request(), id, draft, context.session, clock.now())
         val created = library.value.submit(intent).failureText()
         val connection = if (created != null || !command.isAttached) {
@@ -563,6 +578,7 @@ internal class HarnessAuthoringTools(
             val tools: ToolPolicySpec? = null,
             val reviewChange: String? = null,
             val connections: Set<SessionRef>? = null,
+            val creationScope: HarnessScope? = null,
         ) : Plan {
             override fun toString(): String = "Plan.Ready(***)"
         }
