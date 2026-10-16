@@ -29,6 +29,8 @@ data class AiStudioScreenState(
     /** Load of the profile's automatic safety reviews; absent while the reviewer is idle. */
     val safetyReviews: SafetyReviewsUi? = null,
     val enginePreparations: ImmutableList<EnginePreparationUi> = persistentListOf(),
+    /** The trust decision the focused chat's project waits for; absent once decided or when nothing needs it. */
+    val projectTrust: ProjectTrustNoticeUi? = null,
     val models: ImmutableList<ModelUi> = persistentListOf(),
     val isResearchEnabled: Boolean = false,
     val isProjectAddingAvailable: Boolean = false,

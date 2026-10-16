@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aistudio.screenmodel.OrganismUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PRIMARY_SUB_SESSION
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.PermissionUi
+import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectTrustNoticeUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.ProviderUsageUi
 import io.aequicor.heartbeat.feature.aistudio.screenmodel.RenameUi
@@ -98,6 +99,8 @@ data class PaneContent(
     val noticeTargets: ImmutableMap<StudioNoticeUi, StudioNoticeDismissalUi>,
     val models: ImmutableList<ModelUi> = persistentListOf(),
     val enginePreparations: ImmutableList<EnginePreparationUi> = persistentListOf(),
+    /** The trust decision the project of this (focused) chat waits for. */
+    val projectTrust: ProjectTrustNoticeUi? = null,
     val dismissedNotices: ImmutableSet<StudioNoticeUi> = persistentSetOf(),
     val cardFocus: CardFocusRequestUi? = null,
     val app: StudioAppUi? = null,
@@ -190,6 +193,7 @@ fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
     return PaneContent(
         pane = pane,
         enginePreparations = if (pane.id == focusedPaneId) enginePreparations else persistentListOf(),
+        projectTrust = projectTrust?.takeIf { pane.id == focusedPaneId },
         dismissedNotices = dismissedNotices(pane.id),
         noticeTargets = StudioNoticeUi.entries.associateWith { noticeDismissal(pane, it) }.toImmutableMap(),
         cardFocus = cardFocusRequests[pane.id]?.takeIf { it.chatId == pane.sessionId },

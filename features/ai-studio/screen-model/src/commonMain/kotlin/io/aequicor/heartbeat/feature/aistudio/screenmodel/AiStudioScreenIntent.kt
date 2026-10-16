@@ -19,6 +19,11 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     @SerialName("AiStudioScreenIntent.DismissNotice")
     data class DismissNotice(val target: StudioNoticeDismissalUi) : AiStudioScreenIntent
 
+    /** Decides whether a project may load what it configures for an engine, or only its instructions. */
+    @Serializable
+    @SerialName("AiStudioScreenIntent.DecideProjectTrust")
+    data class DecideProjectTrust(val projectId: String, val engine: String, val isTrusted: Boolean) : Composer
+
     /** Requests a native app update after the UI confirms active agents. */
     @Serializable
     @SerialName("InstallAppUpdate")
