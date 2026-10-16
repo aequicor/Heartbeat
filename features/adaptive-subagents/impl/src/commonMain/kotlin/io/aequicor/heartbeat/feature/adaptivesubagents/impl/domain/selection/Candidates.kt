@@ -45,7 +45,10 @@ internal fun expand(
     return if (efforts.isEmpty()) listOf(base.copy(effort = null)) else efforts.map { base.copy(effort = it) }
 }
 
-/** Whether [candidate] can serve the request at all; soft preferences are scored instead. */
+/**
+ * Whether [candidate] can serve the request at all; soft preferences are scored instead. A forbidden engine change
+ * requires a known parent engine: hosts without that identity keep their inherited configuration.
+ */
 internal fun isEligible(
     candidate: Candidate,
     request: SubagentRequest,
@@ -55,7 +58,7 @@ internal fun isEligible(
     val parent = context.parentTarget
     return candidate.abilities.serves(context) && candidate.accepts(request) &&
         candidate.target !in preferences.excluded &&
-        (preferences.isCrossEngineAllowed || parent == null || parent.engine == candidate.target.engine)
+        (preferences.isCrossEngineAllowed || parent?.engine == candidate.target.engine)
 }
 
 /** Organism cells are resumed by the organism; helpers need the host's trust cap applied to every turn. */

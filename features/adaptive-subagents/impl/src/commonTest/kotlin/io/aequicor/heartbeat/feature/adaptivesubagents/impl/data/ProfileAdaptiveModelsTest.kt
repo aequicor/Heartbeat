@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.adaptivesubagents.api.Ratings
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.SelectionContext
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.SubagentHost
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.SubagentNeed
+import io.aequicor.heartbeat.feature.adaptivesubagents.api.SubagentPreferences
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.SubagentPriority
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.SubagentRequest
 import io.aequicor.heartbeat.feature.adaptivesubagents.api.Traits
@@ -23,14 +24,20 @@ import io.aequicor.heartbeat.feature.adaptivesubagents.impl.FakeSelections
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.FakeToggles
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.data.router.ShortlistRouter
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.target
+import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelection
+import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedAnswer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPromptFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.IsolatedPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Instant
@@ -141,18 +148,86 @@ class ProfileAdaptiveModelsTest {
         assertEquals(best.target, selected.target)
     }
 
+    @Test
+    fun `catalog failures preserve inheritance and leave the preview empty`() = runTest {
+        val selections = object : ModelSelections by FakeSelections(opus) {
+            override fun observe() = flow<ModelSelection> { error("storage unavailable") }
+        }
+        val models = models(selections = selections)
+        val request = SubagentRequest("t")
+        assertEquals(ModelChoice.Inherit(InheritReason.Unavailable), models.select(request, context))
+        assertTrue(models.preview(request, context).isEmpty())
+    }
+
+    @Test
+    fun `thrown router failures retain the best scored configuration`() = runTest {
+        val prompts = IsolatedPrompts { error("provider unavailable") }
+        val request = SubagentRequest("t")
+        val best = models(catalog = twins).preview(request, context).first()
+        val routed = models(router = true, prompts = prompts, catalog = twins)
+        val selected = assertIs<ModelChoice.Selected>(routed.select(request, context))
+        assertEquals(ChoiceSource.RouterFallback, selected.source)
+        assertEquals(best.target, selected.target)
+    }
+
+    @Test
+    fun `failure reading the router default keeps the scored shortlist`() = runTest {
+        val selection = FakeSelections(*twins.map { it.target }.toTypedArray())
+        var reads = 0
+        val selections = object : ModelSelections by selection {
+            override fun observe() = if (++reads == 1) {
+                selection.observe()
+            } else {
+                flow<ModelSelection> { error("unreadable") }
+            }
+        }
+        val selected = assertIs<ModelChoice.Selected>(
+            models(router = true, catalog = twins, selections = selections).select(SubagentRequest("t"), context),
+        )
+        assertEquals(ChoiceSource.RouterFallback, selected.source)
+        assertEquals(twins.first().target, selected.target)
+    }
+
+    @Test
+    fun `catalog and router cancellation propagate to the caller`() = runTest {
+        val selections = object : ModelSelections by FakeSelections(opus) {
+            override fun observe() = flow<ModelSelection> { throw CancellationException("cancelled") }
+        }
+        val catalogFailure = models(selections = selections)
+        assertFailsWith<CancellationException> { catalogFailure.select(SubagentRequest("t"), context) }
+        assertFailsWith<CancellationException> { catalogFailure.preview(SubagentRequest("t"), context) }
+        val routerFailure = models(
+            router = true,
+            catalog = twins,
+            prompts = IsolatedPrompts { throw CancellationException("cancelled") },
+        )
+        assertFailsWith<CancellationException> { routerFailure.select(SubagentRequest("t"), context) }
+    }
+
+    @Test
+    fun `unknown harness parent inherits when cross engine selection is forbidden`() = runTest {
+        val library = ModelProfilesState.Ready(preferences = SubagentPreferences(isCrossEngineAllowed = false))
+        val models = models(library = library, router = true)
+        for (host in listOf(SubagentHost.WorkflowHelper, SubagentHost.ScriptHelper)) {
+            val unknown = context.copy(host = host, parentTarget = null)
+            assertEquals(ModelChoice.Inherit(InheritReason.NoCandidates), models.select(SubagentRequest("t"), unknown))
+            assertTrue(models.preview(SubagentRequest("t"), unknown).isEmpty())
+        }
+    }
+
     private fun models(
         enabled: Boolean = true,
         library: ModelProfilesState = ModelProfilesState.Ready(),
         router: Boolean = false,
-        prompts: FakePrompts = FakePrompts(),
+        prompts: IsolatedPrompts = FakePrompts(),
         catalog: List<ModelInfo> = this.catalog,
+        selections: ModelSelections? = null,
     ): ProfileAdaptiveModels {
         val toggles = FakeToggles(mapOf(AdaptiveSubagentsEnabled to enabled, AdaptiveSubagentsRouter to router))
         val enabledModels = catalog.map { it.target }.filter { it != hidden }
-        val selections = FakeSelections(*enabledModels.toTypedArray(), default = enabledModels.first())
+        val selected = selections ?: FakeSelections(*enabledModels.toTypedArray(), default = enabledModels.first())
         return ProfileAdaptiveModels(
-            CatalogCandidates(lazyOf(FakeCatalogFacade(catalog)), lazyOf(selections)),
+            CatalogCandidates(lazyOf(FakeCatalogFacade(catalog)), lazyOf(selected)),
             ShortlistRouter(lazyOf(prompts), toggles),
             lazyOf(FakeLibrary(library)),
             toggles,

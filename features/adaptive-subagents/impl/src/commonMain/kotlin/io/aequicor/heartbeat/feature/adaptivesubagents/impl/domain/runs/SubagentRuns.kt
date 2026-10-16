@@ -5,8 +5,8 @@ import kotlinx.serialization.Serializable
 import kotlin.time.Instant
 
 /**
- * A subagent a session started: its scheduler action [id], chat [title] and the chosen model, kept until the session
- * reads its result. The work, recovery and result belong to the scheduler action.
+ * A reserved subagent of a session: its scheduler action [id], chat [title] and the chosen model, persisted before
+ * scheduler admission and kept until the session reads its result. The work and result belong to the scheduler.
  */
 @Serializable
 internal data class SubagentRun(
@@ -25,9 +25,12 @@ internal interface SubagentRunStore {
     /** Runs not read yet, oldest first. */
     suspend fun list(): List<SubagentRun>
 
-    /** Adds [run], dropping the oldest beyond the limit. */
-    suspend fun add(run: SubagentRun)
+    /** Atomically reserves [run] before starting it; false when full or the id exists. Never evicts unread runs. */
+    suspend fun reserve(run: SubagentRun): Boolean
 
     /** Forgets runs read by their parent. */
     suspend fun remove(ids: Set<String>)
 }
+
+/** Maximum number of unread or starting subagents retained by a profile. */
+internal const val MAX_SUBAGENT_RUNS = 48

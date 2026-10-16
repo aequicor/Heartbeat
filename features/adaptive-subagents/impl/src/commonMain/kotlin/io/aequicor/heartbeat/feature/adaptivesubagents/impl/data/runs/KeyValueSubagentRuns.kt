@@ -9,13 +9,14 @@ import io.aequicor.heartbeat.core.datastore.jsonKey
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.runs.MAX_SUBAGENT_RUNS
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.runs.SubagentRun
 import io.aequicor.heartbeat.feature.adaptivesubagents.impl.domain.runs.SubagentRunStore
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.builtins.ListSerializer
 
-/** Started subagents in the profile key-value store, at most [MAX_RUNS]. */
+/** Durable reservations in the profile store; a full registry refuses admission without losing unread results. */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
 @Inject
@@ -28,8 +29,11 @@ internal class KeyValueSubagentRuns(
 
     override suspend fun list(): List<SubagentRun> = lock.withLock { store.get(KEY).orEmpty() }
 
-    override suspend fun add(run: SubagentRun) = lock.withLock {
-        write((store.get(KEY).orEmpty().filterNot { it.id == run.id } + run).takeLast(MAX_RUNS))
+    override suspend fun reserve(run: SubagentRun): Boolean = lock.withLock {
+        val current = store.get(KEY).orEmpty()
+        if (current.size >= MAX_SUBAGENT_RUNS || current.any { it.id == run.id }) return@withLock false
+        write(current + run)
+        true
     }
 
     override suspend fun remove(ids: Set<String>) = lock.withLock {
@@ -44,7 +48,6 @@ internal class KeyValueSubagentRuns(
     }
 
     private companion object {
-        const val MAX_RUNS = 48
         val SPEC = KeyValueSpec("adaptive_subagents_runs")
         val KEY = jsonKey("runs", ListSerializer(SubagentRun.serializer()))
     }

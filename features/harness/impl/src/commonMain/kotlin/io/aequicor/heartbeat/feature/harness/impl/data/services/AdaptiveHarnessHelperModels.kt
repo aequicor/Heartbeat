@@ -23,7 +23,8 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessHelperM
 
 /**
  * Harness helpers on the profile's adaptive subagents. The parent's model is unknown to the harness, so selection
- * runs without it; the helper host still reviews the helper's actions on its parent's model.
+ * runs without it and inherits when cross-engine selection is forbidden; the helper host still reviews the helper's
+ * actions on its parent's model.
  */
 @ContributesBinding(ProfileScope::class)
 @Inject

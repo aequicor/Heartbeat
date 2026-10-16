@@ -27,6 +27,13 @@ public interface BackgroundAgents {
     /** Actions [owner] still retains, running or finished, so it can reconcile its own records after a restart. */
     public suspend fun retained(owner: String): List<ActionId>
 
+    /**
+     * Schedules a wake for the requesting session. Only [BackgroundAgentWake.Scheduled] confirms that a host owns
+     * the session, the scheduler accepted the request and its state reached durable storage. Any other outcome
+     * must not tell the caller to end its turn expecting a wake; cancellation propagates.
+     */
+    public suspend fun schedule(request: WakeRequest): BackgroundAgentWake
+
     /** Ends [owner]'s retention of [id]; a finished result nobody awaits is then forgotten. */
     public suspend fun acknowledge(id: ActionId, owner: String)
 }
@@ -88,6 +95,18 @@ public sealed interface BackgroundAgentStart {
 
     /** Nothing started; [reason] is safe to show to the agent. */
     public data class Refused(val reason: String) : BackgroundAgentStart
+}
+
+/** Outcome of [BackgroundAgents.schedule]. */
+public sealed interface BackgroundAgentWake {
+    /** The exact wake is confirmed in durable scheduler state. */
+    public data object Scheduled : BackgroundAgentWake
+
+    /**
+     * No confirmed wake; [reason] is safe to show to the agent. An unconfirmed request may still be persisted,
+     * so this outcome alone does not justify retrying with a different wake id.
+     */
+    public data class Refused(val reason: String) : BackgroundAgentWake
 }
 
 /** State of a retained background agent. */

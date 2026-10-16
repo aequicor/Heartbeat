@@ -56,8 +56,10 @@ internal val SpawnSpec = AgentToolSpec(
 
 internal val ReceiveSpec = AgentToolSpec(
     SubagentTools.RECEIVE,
-    "Read results of finished subagents of this session; each result is returned once. With " +
-        "${Arguments.WAIT}=true and none finished yet, this session sleeps until one finishes: end your turn then.",
+    "Read a bounded batch of complete results of this session; each result is returned once. " +
+        "Call again when more results remain unread. With " +
+        "${Arguments.WAIT}=true and none finished yet, request a wake when one finishes. " +
+        "End your turn only when the result confirms the wake; on refusal keep working and read results later.",
     buildJsonObject {
         put("type", "object")
         putJsonObject("properties") {

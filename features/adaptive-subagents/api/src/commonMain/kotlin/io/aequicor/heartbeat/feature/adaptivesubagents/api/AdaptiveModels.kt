@@ -56,6 +56,9 @@ public enum class InheritReason {
 
     /** No enabled model fits the request and host. */
     NoCandidates,
+
+    /** The catalog or library could not be read; the caller keeps its inherited configuration. */
+    Unavailable,
 }
 
 /** Where the ratings of an option come from. */

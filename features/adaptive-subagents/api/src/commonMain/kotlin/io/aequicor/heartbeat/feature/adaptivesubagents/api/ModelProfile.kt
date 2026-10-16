@@ -143,7 +143,8 @@ public data class ConnectionCost(val binding: EngineBindingId, val mode: CostMod
 /**
  * Profile preferences of adaptive subagents: the [defaultPriority] when a caller names none, the models of the LLM
  * router and of the researcher (null — the profile's default model), configurations never chosen, whether a
- * subagent may run on another engine than its parent, and connection billing.
+ * subagent may run on another engine than its parent, and connection billing. When cross-engine selection is
+ * forbidden, an unknown parent engine leaves the subagent on its inherited configuration.
  */
 @Serializable
 public data class SubagentPreferences(

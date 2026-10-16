@@ -12,12 +12,15 @@ import io.aequicor.heartbeat.feature.scheduler.api.BackgroundAgentAvailability
 import io.aequicor.heartbeat.feature.scheduler.api.BackgroundAgentRequest
 import io.aequicor.heartbeat.feature.scheduler.api.BackgroundAgentStart
 import io.aequicor.heartbeat.feature.scheduler.api.BackgroundAgentStatus
+import io.aequicor.heartbeat.feature.scheduler.api.BackgroundAgentWake
 import io.aequicor.heartbeat.feature.scheduler.api.BackgroundAgents
 import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerActions
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEnabled
+import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SpawnRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.WakePrompt
+import kotlin.time.Clock
 
 /** Background agents of other features: scheduler helper actions retained for their owner. */
 @ContributesBinding(ProfileScope::class)
@@ -28,6 +31,8 @@ internal class ProfileBackgroundAgents(
     private val helpers: Lazy<HelperAgents>,
     private val results: ActionResults,
     private val toggles: FeatureToggles,
+    private val wakes: Lazy<WakeScheduler>,
+    private val clock: Clock,
 ) : BackgroundAgents {
     private val log = Log.tag("BackgroundAgents")
 
@@ -75,6 +80,18 @@ internal class ProfileBackgroundAgents(
     }
 
     override suspend fun retained(owner: String): List<ActionId> = results.retained(owner).map { it.id }
+
+    override suspend fun schedule(request: WakeRequest): BackgroundAgentWake {
+        if (!toggles.get(SchedulerEnabled) || !toggles.get(SchedulerActions)) {
+            return BackgroundAgentWake.Refused("background actions are turned off")
+        }
+        val outcome = wakes.value.schedule(request, clock.now())
+        return if (outcome == ScheduleOutcome.Scheduled) {
+            BackgroundAgentWake.Scheduled
+        } else {
+            BackgroundAgentWake.Refused(outcome.failureMessage())
+        }
+    }
 
     override suspend fun acknowledge(id: ActionId, owner: String) = results.acknowledge(id, owner)
 }

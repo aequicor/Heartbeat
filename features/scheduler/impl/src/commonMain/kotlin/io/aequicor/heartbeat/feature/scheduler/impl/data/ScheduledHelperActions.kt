@@ -92,8 +92,7 @@ internal class ScheduledHelperActions(
             if (awaitAcceptance) {
                 launchWatch(entry, lease, submitFirst(record, request, helper))
             } else {
-                val owned = lease
-                scope.coroutineScope.launch { watch(entry, owned, firstPayload(record, request, helper)) }
+                launchWatch(entry, lease) { observedFirstPayload(record, request, helper) }
             }
             isWatching = true
             log.i { "action ${record.id}: supervised helper started" }
@@ -159,6 +158,15 @@ internal class ScheduledHelperActions(
     } catch (e: Exception) {
         log.w(e) { "action ${record.id}: helper submission outcome unknown; settling its exact attempt" }
         failedPromptPayload(record, helper, request.prompt.request)
+    }
+
+    /** A host-local cancellation cannot cancel the supervisor; profile cancellation still interrupts its join. */
+    private suspend fun observedFirstPayload(record: ActionRecord, request: SpawnRequest, helper: HelperId): String? {
+        val submission = scope.coroutineScope.async { firstPayload(record, request, helper) }
+        submission.join()
+        if (!submission.isCancelled) return submission.await()
+        log.w { "action ${record.id}: first prompt wait cancelled; settling its exact attempt" }
+        return failedPromptPayload(record, helper, request.prompt.request)
     }
 
     /**
@@ -276,12 +284,16 @@ internal class ScheduledHelperActions(
     }
 
     private fun launchWatch(entry: Entry, lease: HelperLease, payload: String?) {
-        scope.coroutineScope.launch { watch(entry, lease, payload) }
+        launchWatch(entry, lease) { payload }
     }
 
-    private suspend fun watch(entry: Entry, lease: HelperLease, initialPayload: String?) {
+    private fun launchWatch(entry: Entry, lease: HelperLease, initialPayload: suspend () -> String?) {
+        scope.coroutineScope.launch { watch(entry, lease, initialPayload) }
+    }
+
+    private suspend fun watch(entry: Entry, lease: HelperLease, initialPayload: suspend () -> String?) {
         try {
-            settle(entry, lease, initialPayload ?: observedPayload(entry))
+            settle(entry, lease, initialPayload() ?: observedPayload(entry))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

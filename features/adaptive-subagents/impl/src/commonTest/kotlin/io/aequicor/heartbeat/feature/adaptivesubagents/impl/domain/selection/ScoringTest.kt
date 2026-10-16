@@ -146,6 +146,16 @@ class ScoringTest {
         assertFalse(isEligible(noResume, request, context.copy(host = SubagentHost.OrganismCell), prefs))
     }
 
+    @Test
+    fun `a forbidden engine change requires a known matching parent`() {
+        val request = SubagentRequest("t")
+        val restricted = prefs.copy(isCrossEngineAllowed = false)
+        assertTrue(isEligible(haiku, request, context, restricted))
+        assertFalse(isEligible(local, request, context, restricted))
+        assertFalse(isEligible(haiku, request, context.copy(parentTarget = null), restricted))
+        assertTrue(isEligible(haiku, request, context.copy(parentTarget = null), prefs))
+    }
+
     private fun expandAll(template: Candidate) =
         expand(template.target, template.title, template.efforts, template.defaultEffort, template)
 
