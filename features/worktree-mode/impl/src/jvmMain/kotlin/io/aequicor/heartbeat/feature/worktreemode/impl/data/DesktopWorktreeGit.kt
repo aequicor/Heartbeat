@@ -193,6 +193,12 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
         )
     }
 
+    override suspend fun reclaim(record: WorktreeRecord) = withContext(dispatchers.io) {
+        check(record.task.isSandbox && exists(record)) { "SandboxUnavailable" }
+        git(record.directory, "clean", "-d", "-X", "--force", "--quiet")
+        Unit
+    }
+
     override suspend fun snapshot(record: WorktreeRecord, id: String): String = withContext(dispatchers.io) {
         require(id.matches(IDENTIFIER)) { "InvalidBuildIdentity" }
         check(record.task.isSandbox && exists(record)) { "SandboxUnavailable" }

@@ -88,9 +88,19 @@ internal class WorktreeAgentTools(
             "genuine caches. " +
             "Configure a bounded timeoutMillis for every command. Do not detach build processes or start " +
             "background daemons. Gradle uses GRADLE_USER_HOME={cache:id}, --no-daemon and --build-cache. " +
+            "Declare each command's kind (Check, Compile, Test, Assemble, Native): the queue shares CPU and memory " +
+            "between all projects by it. Mark a cache concurrent only when its tool coordinates concurrent " +
+            "processes itself, such as GRADLE_USER_HOME; other caches serialize builds. " +
             "Native commands bypass coordination, so obey this workflow."
+        val sandbox = if (journal.find(workspace)?.isSandbox == true) {
+            " This checkout is a sandbox that keeps only sources: never build, test or run Gradle natively here. " +
+                "run_build snapshots the current files (uncommitted changes included, ignored files excluded) and " +
+                "builds them in a shared warm build slot; outputs stay in that slot, so rely on the build output."
+        } else {
+            ""
+        }
         return if (isolated) {
-            "This session owns an isolated Git worktree. $workflow Only after the user task is done call " +
+            "This session owns an isolated Git worktree.$sandbox $workflow Only after the user task is done call " +
                 "mark_task_complete with a concise summary; a normal reply does not mark it done. " +
                 "A requested pull request must include pullRequestUrl in mark_task_complete; a local merge must not push."
         } else {
@@ -387,10 +397,13 @@ internal class WorktreeAgentTools(
                                 "arguments":{"type":"array","items":{"type":"string"}},
                                 "directory":{"type":"string"},
                                 "environment":{"type":"object","additionalProperties":{"type":"string"}},
-                                "timeoutMillis":{"type":"integer","minimum":1000,"maximum":86400000}
+                                "timeoutMillis":{"type":"integer","minimum":1000,"maximum":86400000},
+                                "kind":{"type":"string",
+                                    "enum":["Check","Compile","Test","Assemble","Native"]}
                             },"required":["id","executable"],"additionalProperties":false}},
                             "caches":{"type":"array","items":{"type":"object","properties":{
-                                "id":{"type":"string"},"directory":{"type":"string"}
+                                "id":{"type":"string"},"directory":{"type":"string"},
+                                "concurrent":{"type":"boolean"}
                             },"required":["id","directory"],"additionalProperties":false}},
                             "exclusiveResources":{"type":"array","items":{"type":"string"}}
                         },"required":["system","commands","caches"],"additionalProperties":false
@@ -401,7 +414,8 @@ internal class WorktreeAgentTools(
             ),
             AgentToolSpec(
                 "run_build",
-                "Run one configured command through the shared-resource FIFO worker.",
+                "Queue one configured command in the machine-wide build queue " +
+                    "(weighted by kind, fair across projects).",
                 schema("command"),
                 AgentToolAction.Command,
             ),

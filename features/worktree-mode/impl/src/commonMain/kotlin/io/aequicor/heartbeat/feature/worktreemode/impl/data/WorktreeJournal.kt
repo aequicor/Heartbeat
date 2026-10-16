@@ -77,6 +77,7 @@ internal class WorktreeJournal(
         val saved = mutex.withLock { read() }
         saved.values.forEach { record ->
             reconcile(record.task.chatId, restart = true)
+            reclaimOutputs(record.task.chatId)
         }
         return mutex.withLock { read().mapValues { it.value.task } }
     }
@@ -145,6 +146,47 @@ internal class WorktreeJournal(
     }
 
     suspend fun apply(command: WorktreeIntent.Public, emit: suspend (WorktreeTask) -> Unit) {
+        applyCommand(command, emit)
+        command.chatId()?.let { reclaimOutputs(it) }
+    }
+
+    /**
+     * A retained sandbox keeps only sources: ignored outputs left by native agent builds are removed once, and the
+     * marker resets when the task resumes work.
+     */
+    private suspend fun reclaimOutputs(chatId: String) {
+        val current = record(chatId) ?: return
+        val isIdle = current.task.phase == WorktreePhase.Retained && !current.task.hasActiveBuilds()
+        when {
+            !current.task.isSandbox || current.provisioning.isBlank() -> Unit
+
+            isIdle && !current.isOutputsReclaimed -> try {
+                git.reclaim(current)
+                markReclaimed(chatId, isReclaimed = true)
+                log.i { "Sandbox outputs reclaimed" }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                log.w(IllegalStateException("SandboxReclaimFailed (${error::class.simpleName.orEmpty()})")) {
+                    "Sandbox outputs remain until the next retained check"
+                }
+            }
+
+            !isIdle && current.isOutputsReclaimed -> markReclaimed(chatId, isReclaimed = false)
+        }
+    }
+
+    /** Path-side bookkeeping only: the visible task and its revision stay unchanged. */
+    private suspend fun markReclaimed(chatId: String, isReclaimed: Boolean) = mutex.withLock {
+        val saved = read()
+        val previous = saved[chatId] ?: return@withLock
+        val isCurrent = !isReclaimed || previous.task.phase == WorktreePhase.Retained
+        if (previous.isOutputsReclaimed != isReclaimed && isCurrent) {
+            write(saved + (chatId to previous.copy(isOutputsReclaimed = isReclaimed)))
+        }
+    }
+
+    private suspend fun applyCommand(command: WorktreeIntent.Public, emit: suspend (WorktreeTask) -> Unit) {
         when (command) {
             is WorktreeIntent.Public.Prepare -> prepare(command, emit)
 

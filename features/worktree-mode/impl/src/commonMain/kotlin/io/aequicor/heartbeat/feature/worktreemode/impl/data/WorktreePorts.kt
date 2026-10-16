@@ -20,6 +20,7 @@ internal data class WorktreeRecord(
     val mainSession: io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef? = null,
     val mergeTargetCommit: String? = null,
     val pullRequestBase: String? = null,
+    @SerialName("outputsReclaimed") val isOutputsReclaimed: Boolean = false,
 ) {
     override fun toString(): String = "WorktreeRecord"
 }
@@ -80,8 +81,21 @@ internal data class SandboxBuild(
     override fun toString(): String = "SandboxBuild"
 }
 
+/** Sandbox checkout primitives; platforms without sandboxes never create sandbox tasks. */
+internal interface SandboxGit {
+    /**
+     * Commits the sandbox checkout's current files (respecting ignore rules, without touching the agent's index)
+     * as an immutable snapshot reachable from a private ref until its build finishes.
+     */
+    suspend fun snapshot(record: WorktreeRecord, id: String): String =
+        throw UnsupportedOperationException("Sandboxes require Desktop")
+
+    /** Removes ignored files (outputs of native builds the agent ran anyway) from a sandbox that no longer works. */
+    suspend fun reclaim(record: WorktreeRecord) = Unit
+}
+
 /** Desktop-only Git/filesystem primitives; errors carry safe codes rather than process output. */
-internal interface WorktreeGit {
+internal interface WorktreeGit : SandboxGit {
     val isAvailable: Boolean
     suspend fun plan(source: String, identity: String): WorktreeProvision
     suspend fun trackMain(source: String): WorktreeProvision
@@ -89,13 +103,6 @@ internal interface WorktreeGit {
     suspend fun exists(record: WorktreeRecord): Boolean
     suspend fun validatePlan(record: WorktreeRecord, plan: WorktreeBuildPlan)
     suspend fun build(record: WorktreeRecord, id: String, command: String): BuildExecution
-
-    /**
-     * Commits the sandbox checkout's current files (respecting ignore rules, without touching the agent's index)
-     * as an immutable snapshot reachable from a private ref until its build finishes.
-     */
-    suspend fun snapshot(record: WorktreeRecord, id: String): String =
-        throw UnsupportedOperationException("Sandboxes require Desktop")
     suspend fun actionPrompt(record: WorktreeRecord, merge: Boolean): String
 
     /** Live-agent queue reservation; native commands need explicit session recovery after lost observation. */

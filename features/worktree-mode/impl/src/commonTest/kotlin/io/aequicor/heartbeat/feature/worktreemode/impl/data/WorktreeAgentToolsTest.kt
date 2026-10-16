@@ -33,6 +33,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildCache
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildCommand
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildKind
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildOperation
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPlan
@@ -148,6 +149,32 @@ class WorktreeAgentToolsTest {
             "BuildApprovalTooLarge",
             assertFailsWith<IllegalStateException> { fixture.approval("cancel_build", operationArguments()) }.message,
         )
+    }
+
+    @Test
+    fun `sandbox sessions are told to build only through the queue with declared kinds`() = runTest {
+        val fixture = Fixture()
+        fixture.queue(
+            WorktreeBuildPlan(
+                "Gradle",
+                listOf(WorktreeBuildCommand("test", "./gradlew", kind = WorktreeBuildKind.Test)),
+                listOf(WorktreeBuildCache("gradle", "shared-gradle", isConcurrent = true)),
+            ),
+        )
+        val instructions = fixture.tools.instructions(CHECKOUT)
+        assertTrue("sandbox that keeps only sources" in instructions, instructions)
+        assertTrue("Declare each command's kind" in instructions, instructions)
+        val schema = fixture.tools.specifications(CHECKOUT).single { it.name == "configure_build" }.inputSchema
+        assertTrue("\"Native\"" in schema.toString() && "\"concurrent\"" in schema.toString())
+        val arguments = Json.encodeToJsonElement(
+            WorktreeBuildPlan(
+                "Gradle",
+                listOf(WorktreeBuildCommand("test", "./gradlew", kind = WorktreeBuildKind.Test)),
+                listOf(WorktreeBuildCache("gradle", "shared-gradle", isConcurrent = true)),
+            ),
+        ).jsonObject
+        val approval = fixture.approval("configure_build", arguments).toString()
+        assertTrue("Test" in approval && "concurrent" in approval, approval)
     }
 
     private class Fixture {

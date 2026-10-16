@@ -313,6 +313,21 @@ class WorktreeJournalTest {
     }
 
     @Test
+    fun `a retained sandbox reclaims ignored outputs once without changing the visible revision`() = runTest {
+        val fixture = Fixture()
+        fixture.toggles.isSandbox = true
+        fixture.completeCoding()
+        fixture.send(WorktreeIntent.Public.ChooseAction(CHAT, WorktreeAction.Leave))
+        val retained = fixture.task()
+        assertEquals(WorktreePhase.Retained, retained.phase)
+        assertEquals(1, fixture.git.reclaimCount)
+        assertEquals(retained, fixture.journal.taskProjection(CHAT))
+        fixture.send(WorktreeIntent.Public.Recheck(CHAT))
+        fixture.reopen().load()
+        assertEquals(1, fixture.git.reclaimCount)
+    }
+
+    @Test
     fun `worktree tasks created before sandbox mode keep building in their checkout`() = runTest {
         val fixture = Fixture()
         fixture.completeCoding()
@@ -516,6 +531,10 @@ class WorktreeJournalTest {
                 "/jobs/$id",
                 sandbox = if (record.task.isSandbox) SandboxBuild("", "/slots", record.directory) else null,
             )
+        }
+        var reclaimCount = 0
+        override suspend fun reclaim(record: WorktreeRecord) {
+            reclaimCount++
         }
         override suspend fun snapshot(record: WorktreeRecord, id: String): String {
             snapshotCount++

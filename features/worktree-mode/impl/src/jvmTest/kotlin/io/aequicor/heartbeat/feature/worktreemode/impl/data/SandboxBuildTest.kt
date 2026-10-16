@@ -99,6 +99,28 @@ class SandboxBuildTest {
         }
     }
 
+    @Test
+    fun `reclaiming a sandbox removes ignored outputs and keeps the task's work`() = runTest {
+        val root = repository()
+        val git = DesktopWorktreeGit(RealTestDispatchers)
+        try {
+            val record = sandbox(git, root)
+            val checkout = Path.of(record.directory)
+            Files.writeString(checkout.resolve("source.txt"), "edited")
+            Files.writeString(checkout.resolve("added.txt"), "new")
+            Files.createDirectories(checkout.resolve("build"))
+            Files.writeString(checkout.resolve("build/output.bin"), "artifact")
+
+            git.reclaim(record)
+
+            assertFalse(Files.exists(checkout.resolve("build")))
+            assertEquals("edited", Files.readString(checkout.resolve("source.txt")))
+            assertEquals("new", Files.readString(checkout.resolve("added.txt")))
+        } finally {
+            removeTestTree(root)
+        }
+    }
+
     private suspend fun sandbox(git: DesktopWorktreeGit, root: Path): WorktreeRecord {
         val plan = git.plan(root.toString(), "sandbox-test")
         val record = WorktreeRecord(
