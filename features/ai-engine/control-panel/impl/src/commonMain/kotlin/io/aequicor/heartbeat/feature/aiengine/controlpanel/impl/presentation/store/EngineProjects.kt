@@ -57,7 +57,10 @@ internal class EngineProjects(
         val schema = machine.state.value.configOf(engineId)?.schema
         val draft = projectDraft
         val settled = if (draft != null && schema != null) {
-            draft.copy(draft = schema.settleFiles(draft.draft))
+            // Empty text also records deletion of a file whose original contents did not parse.
+            val removed = draft.draft.files.filterValues { it.isBlank() }
+            val files = schema.settleFiles(draft.draft)
+            draft.copy(draft = files.copy(files = files.files + removed))
         } else {
             draft
         }
@@ -116,13 +119,19 @@ internal class EngineProjects(
             log.w { "ignore a project save without savable changes" }
             return
         }
-        val project = (machine.state.value as? EngineControlState.Active)?.project ?: return
+        val active = machine.state.value as? EngineControlState.Active ?: return
+        val project = active.project ?: return
         val edit = config.projectSaveOf(project, draft)
         val save = ControlOperation.SaveProject(engineId, draft.workspace, edit, draft.revision)
-        // The draft stays until the files are read anew, so a failed save keeps the edits to fix.
+        // Capture the receipt before sending: a quick save may finish before send returns.
         if (apply(save) == SendResult.Accepted) {
             updateState {
-                copy(projectDraft = projectDraft?.let { it.copy(draft = it.draft.copy(isSubmitted = true)) })
+                copy(
+                    projectDraft = projectDraft?.copy(
+                        draft = draft.draft.copy(isSubmitted = true),
+                        submittedAfterVersion = active.projectSaveVersion,
+                    ),
+                )
                     .reflect(engineId, machine.state.value)
             }
         }

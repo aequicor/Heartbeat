@@ -77,9 +77,9 @@ class PiResourceInventoryTest {
         assertEquals(ResourceState.NeedsTrust, content.first { it.kind == ResourceKind.Extension }.state)
         assertTrue(content.filter { it.kind != ResourceKind.Extension }.all { it.state == ResourceState.Enabled })
         val trusted = configurator.resources(config, project.toString(), ProjectTrust.Trusted).resources
-        assertEquals(ResourceState.KindOff, trusted.first { it.kind == ResourceKind.Extension }.state)
+        assertEquals(ResourceState.Enabled, trusted.first { it.kind == ResourceKind.Extension }.state)
         assertEquals(ResourceState.Excluded, trusted.first { it.kind == ResourceKind.Skill }.state)
-        assertEquals(ResourceState.KindOff, trusted.first { it.kind == ResourceKind.Prompt }.state)
+        assertEquals(ResourceState.Enabled, trusted.first { it.kind == ResourceKind.Prompt }.state)
     }
 
     @Test

@@ -144,6 +144,9 @@ public sealed interface EngineControlState : MachineState {
         val importPreview: ImportPreview? = null,
         val importReport: ImportReport? = null,
         val resources: ResourceInventory? = null,
+
+        /** Successful project saves, including writes that leave the file revision unchanged. */
+        val projectSaveVersion: Long = 0,
     ) : EngineControlState
 }
 
@@ -216,7 +219,7 @@ public object EngineControlMachineKey :
  * | Idle | Start | | Active | Observe |
  * | Active | Snapshot | | stay (load failure cleared) | |
  * | Active | Apply | observed, nothing pending | stay (pending, failure cleared) | Execute |
- * | Active | Applied | | stay (result, refresh resources after saved changes) | Execute ListResources if needed |
+ * | Active | Applied | | stay (result, save version advanced) | Execute ListResources after saved changes |
  * | Active | ApplyFailed | | stay (failed) | |
  * | Active | DismissError | | stay | |
  * | Active | CloseProject | | stay (no project) | |
@@ -302,9 +305,17 @@ public val EngineControlMachineSpec:
 
 private fun EngineControlState.Active.applied(result: ControlResult): EngineControlState.Active = when (result) {
     ControlResult.Done -> copy(pending = null)
+
     is ControlResult.Resources -> copy(pending = null, resources = result.inventory)
-    is ControlResult.Project -> copy(pending = null, project = result.project)
+
+    is ControlResult.Project -> copy(
+        pending = null,
+        project = result.project,
+        projectSaveVersion = projectSaveVersion + if (pending is ControlOperation.SaveProject) 1 else 0,
+    )
+
     is ControlResult.Preview -> copy(pending = null, importPreview = result.preview, importReport = null)
+
     is ControlResult.Imported -> copy(pending = null, importPreview = null, importReport = result.report)
 }
 

@@ -262,58 +262,92 @@ internal class PiProcessLauncher(
         val root = storage.profileRoot(owner.id.value)
         val secret = secrets.read(SecretKey(source.secret.value))
             ?: authenticationFailure(AuthFailureReason.NotAuthenticated, source.info.id)
-        // Per-process agent configuration; removed when the process exits.
-        val agentDir = Files.createTempDirectory(Files.createDirectories(root.resolve("runtime")), "pi-")
-        val sessionDir = Files.createDirectories(sessionDirectory(root))
-        val workingDir = workspace?.let(Path::of) ?: Files.createDirectories(root.resolve("workspace"))
-        val hosted = plan.hosted
-        val areSearchToolsEnabled = plan.search.isNotEmpty()
-        val agent = piAgentConfig(startup.config, storage.profileHome(owner.id.value), ::configSecret)
-        val extensions = piExtensions(agentDir, areSearchToolsEnabled, hosted != null)
-        // The user opened the workspace folder explicitly, so its instructions and skills may load.
+        secret.use { credential ->
+            // The key is owned before directory creation; all preparation failures close it too.
+            val agentDir = Files.createTempDirectory(Files.createDirectories(root.resolve("runtime")), "pi-")
+            var process: Process? = null
+            var isConnected = false
+            try {
+                val sessionDir = Files.createDirectories(sessionDirectory(root))
+                val workingDir = workspace?.let(Path::of) ?: Files.createDirectories(root.resolve("workspace"))
+                val hosted = plan.hosted
+                val areSearchToolsEnabled = plan.search.isNotEmpty()
+                val (agent, flags) = configuredAgent(startup, workspace, storage.profileHome(owner.id.value), agentDir)
+                val extensions = piExtensions(agentDir, areSearchToolsEnabled, hosted != null)
+                val launchFlags = PiLaunchFlags(workspace != null, plan.emptySessionId, flags)
+                val command = piCommand(executable, sessionDir, extensions, plan.tools(agent), launchFlags)
+                val builder = ProcessBuilder(command).directory(workingDir.toFile())
+                val variables = builder.environment()
+                prepareEnvironment(variables, startup, agent, agentDir, plan)
+                extensions.forEach { installExtension(it.fileName.toString(), it) }
+                modelsJson?.let { Files.writeString(agentDir.resolve("models.json"), it) }
+                writeAgentFiles(agentDir, agent)
+                val started = try {
+                    credential.reveal { chars -> variables[provider.variable] = String(chars) }
+                    log.i { "Starting Pi process source=${startup.source}" }
+                    builder.start()
+                } finally {
+                    variables.remove(provider.variable)
+                }
+                process = started
+                started.onExit().whenComplete { _, _ -> deleteTree(agentDir) }
+                val rpc = connect(started, workingDir, modelsJson, event, failed)
+                rpc.closeWith(profile.onClose(rpc::close))
+                isConnected = true
+                rpc
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.w(EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))) {
+                    "Pi startup failed: ${e::class.simpleName.orEmpty()}"
+                }
+                piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable))
+            } finally {
+                if (!isConnected) {
+                    // A started process removes its files on exit; pre-start failures own the directory here.
+                    process?.destroyForcibly() ?: deleteTree(agentDir)
+                }
+            }
+        }
+    }
+
+    /** Resolves trust before deriving resources, so trusted projects can discover their own extensions. */
+    private suspend fun configuredAgent(
+        startup: PiStartup,
+        workspace: String?,
+        home: Path,
+        agentDir: Path,
+    ): Pair<PiAgentConfig, PiFlags> {
         val content = workspace?.let { projectContent(startup, it) }
-        val launchFlags = PiLaunchFlags(workspace != null, plan.emptySessionId, agent.flags(agentDir, content))
-        val command = piCommand(executable, sessionDir, extensions, plan.tools(agent), launchFlags)
-        val builder = ProcessBuilder(command).directory(workingDir.toFile())
-        val environment = builder.environment()
+        val agent = piAgentConfig(
+            startup.config,
+            home,
+            isProjectTrusted = startup.isConfigured && workspace != null && content == null,
+            secret = ::configSecret,
+        )
+        return agent to agent.flags(agentDir, content)
+    }
+
+    /** The child environment is populated inside the launch cleanup boundary. */
+    private fun prepareEnvironment(
+        environment: MutableMap<String, String>,
+        startup: PiStartup,
+        agent: PiAgentConfig,
+        agentDir: Path,
+        plan: PiLaunchPlan,
+    ) {
         applyPiEnvironment(environment, startup)
         environment.putAll(agent.environment)
         environment["PI_CODING_AGENT_DIR"] = agentDir.toString()
         environment["PI_SKIP_VERSION_CHECK"] = "1"
-        // A harness can become active during this process's lifetime. Always gate inspection too, so live Off
-        // and hooks take effect without a restart; ordinary reads are automatically allowed by the host.
+        // Harnesses may change during the process lifetime; inspection also passes live policy and hooks.
         environment["HEARTBEAT_GATE_ALL"] = "true"
-        hosted?.applyEnvironment(environment)
-        var process: Process? = null
-        try {
-            if (areSearchToolsEnabled) {
-                val endpoint = searchBridge.endpoint()
-                environment["HEARTBEAT_SEARCH_BRIDGE_URL"] = endpoint.origin
-                environment["HEARTBEAT_SEARCH_BRIDGE_TOKEN"] = endpoint.token
-                attachNativeSearch()
-            }
-            extensions.forEach { installExtension(it.fileName.toString(), it) }
-            modelsJson?.let { Files.writeString(agentDir.resolve("models.json"), it) }
-            writeAgentFiles(agentDir, agent)
-            secret.use { it.reveal { chars -> environment[provider.variable] = String(chars) } }
-            log.i { "Starting Pi process source=${startup.source}" }
-            val started = builder.start()
-            process = started
-            started.onExit().whenComplete { _, _ -> deleteTree(agentDir) }
-            val rpc = connect(started, workingDir, modelsJson, event, failed)
-            rpc.closeWith(profile.onClose(rpc::close))
-            rpc
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.w(EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))) {
-                "Pi startup failed: ${e::class.simpleName.orEmpty()}"
-            }
-            // A process that started before the failure is destroyed; its exit hook removes the directory.
-            process?.destroyForcibly() ?: deleteTree(agentDir)
-            piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable))
-        } finally {
-            environment.remove(provider.variable)
+        plan.hosted?.applyEnvironment(environment)
+        if (plan.search.isNotEmpty()) {
+            val endpoint = searchBridge.endpoint()
+            environment["HEARTBEAT_SEARCH_BRIDGE_URL"] = endpoint.origin
+            environment["HEARTBEAT_SEARCH_BRIDGE_TOKEN"] = endpoint.token
+            attachNativeSearch()
         }
     }
 
@@ -477,17 +511,16 @@ private const val SEARCH_EXTENSION = "heartbeat-search.ts"
 private const val TOOLS_EXTENSION = "heartbeat-tools.ts"
 
 /**
- * Pi's command line. Extensions stay limited to the explicitly bundled ones (`--no-extensions` keeps
- * discovered, project and package extensions out), and templates and themes never load.
+ * Pi's command line. Without configuration, extensions stay limited to the explicitly bundled ones and templates
+ * stay off. Profile resources and explicitly trusted projects enable discovery; themes never load.
  *
  * The command never names a provider or model: a session selects its model over RPC (`set_model`) right after
  * the start, and discovery needs none. Pi rejects `--provider` without `--model`, and a `--model` pattern would
  * read a `:` inside a model id (`qwen3:8b`) as a thinking suffix.
  *
- * A session bound to a project runs project-aware: the folder the user opened in Heartbeat grants project
- * trust (`--approve`), so Pi reads the project's context files (`AGENTS.md`/`CLAUDE.md`, which load
- * regardless of trust) and its skills (`.agents/skills/`, `.pi/skills`), as content only. A session
- * without a project keeps the fully hermetic flag set and discovers nothing.
+ * With configuration enabled, project trust comes from Heartbeat's saved decision: a trusted project discovers
+ * its resources and an untrusted one receives only explicit content paths under `--no-approve`. Without
+ * configuration, project sessions keep the original `--approve` behavior with extension discovery disabled.
  */
 internal fun piCommand(
     executable: Path,

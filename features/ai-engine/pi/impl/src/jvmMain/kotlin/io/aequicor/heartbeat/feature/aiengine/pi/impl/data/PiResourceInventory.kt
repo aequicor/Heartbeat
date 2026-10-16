@@ -25,7 +25,9 @@ internal suspend fun piResourceInventory(
     directory: String?,
     trust: ProjectTrust,
 ): ResourceInventory {
-    val flags = piAgentConfig(profile, home) { null }
+    val flags = piAgentConfig(profile, home, isProjectTrusted = directory != null && trust == ProjectTrust.Trusted) {
+        null
+    }
     val profileRoot = if (Files.exists(home)) home.toRealPath() else home.toAbsolutePath().normalize()
     val profileSettings = (profile.documents[PiDocuments.Settings] as? ConfigDocument.Json)?.value ?: JsonObject(
         emptyMap(),

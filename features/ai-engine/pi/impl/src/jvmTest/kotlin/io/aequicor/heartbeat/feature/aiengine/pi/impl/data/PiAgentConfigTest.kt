@@ -27,7 +27,7 @@ class PiAgentConfigTest {
 
     @Test
     fun `an empty configuration keeps the hermetic command line`() = runTest {
-        val config = piAgentConfig(EngineConfigValues(), home, noSecrets)
+        val config = piAgentConfig(EngineConfigValues(), home, secret = noSecrets)
         assertEquals(PiAgentConfig(), config)
         val extensions = piExtensions(agentDir, searchTools = false)
         listOf(true, false).forEach { isProject ->
@@ -36,6 +36,62 @@ class PiAgentConfigTest {
                 piCommand(Path.of("pi"), Path.of("s"), extensions, "read", isProject, "id", config.flags(agentDir)),
             )
         }
+    }
+
+    @Test
+    fun `trusting a project enables its extensions and prompts without enabling profile built-ins`() = runTest {
+        val project = Files.createTempDirectory("pi-project-trust")
+        try {
+            Files.createDirectories(project.resolve(".pi/prompts"))
+            Files.createDirectories(project.resolve(".pi/extensions"))
+            Files.writeString(project.resolve(".pi/prompts/review.md"), "Review the changes")
+            Files.writeString(project.resolve(".pi/extensions/custom.ts"), "export default () => {}")
+            val content = piProjectContent(project)
+            val values = EngineConfigValues()
+            val untrusted = piAgentConfig(values, home, secret = noSecrets)
+            val before = piCommand(
+                Path.of("pi"),
+                Path.of("s"),
+                emptyList(),
+                "read",
+                isProject = true,
+                flags = untrusted.flags(agentDir, content),
+            )
+            assertTrue("--no-approve" in before && "--no-extensions" in before)
+            assertTrue("--prompt-template" in before)
+
+            val trusted = piAgentConfig(values, home, isProjectTrusted = true, secret = noSecrets)
+            val after = piCommand(
+                Path.of("pi"),
+                Path.of("s"),
+                emptyList(),
+                "read",
+                isProject = true,
+                flags = trusted.flags(agentDir),
+            )
+            assertTrue("--approve" in after)
+            assertFalse("--no-extensions" in after || "--no-prompt-templates" in after)
+            assertEquals(
+                listOf("-builtin:mcp", "-builtin:codemode", "-builtin:tool-search", "-builtin:llama.cpp")
+                    .map(::JsonPrimitive),
+                (json(trusted.files.getValue(SETTINGS_FILE)).getValue("extensions") as JsonArray).toList(),
+            )
+            assertTrue(trusted.builtins.isEmpty() && trusted.tools.isEmpty())
+        } finally {
+            project.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `trusted project discovery respects the selected profile built-ins`() = runTest {
+        val values = EngineConfigValues().write(PiHostKeys.Mcp, JsonPrimitive(true))
+        val config = piAgentConfig(values, home, isProjectTrusted = true, secret = noSecrets)
+
+        assertEquals(listOf("mcp__*"), config.tools)
+        assertEquals(
+            listOf("-builtin:codemode", "-builtin:tool-search", "-builtin:llama.cpp").map(::JsonPrimitive),
+            (json(config.files.getValue(SETTINGS_FILE)).getValue("extensions") as JsonArray).toList(),
+        )
     }
 
     @Test
@@ -52,7 +108,7 @@ class PiAgentConfigTest {
             """,
         )
 
-        val config = piAgentConfig(values, home, noSecrets)
+        val config = piAgentConfig(values, home, secret = noSecrets)
 
         val written = json(config.files.getValue(SETTINGS_FILE))
         assertFalse("defaultModel" in written || "defaultTools" in written || "sessionDir" in written)
@@ -74,7 +130,11 @@ class PiAgentConfigTest {
 
     @Test
     fun `built-in extensions load explicitly until user extensions need discovery`() = runTest {
-        val explicit = piAgentConfig(EngineConfigValues().write(PiHostKeys.Mcp, JsonPrimitive(true)), home, noSecrets)
+        val explicit = piAgentConfig(
+            EngineConfigValues().write(PiHostKeys.Mcp, JsonPrimitive(true)),
+            home,
+            secret = noSecrets,
+        )
         assertEquals(listOf("builtin:mcp"), explicit.builtins)
         assertEquals(listOf("mcp__*"), explicit.tools)
         val command = piCommand(Path.of("pi"), Path.of("s"), emptyList(), "read", flags = explicit.flags(agentDir))
@@ -87,7 +147,7 @@ class PiAgentConfigTest {
                 JsonPrimitive(true),
             ).withSettings("""{"extensions": ["ext"]}"""),
             home,
-            noSecrets,
+            secret = noSecrets,
         )
         assertEquals(emptyList(), discovering.builtins)
         assertEquals(listOf("codemode"), discovering.tools)
@@ -143,7 +203,7 @@ class PiAgentConfigTest {
             .write(PiHostKeys.ProjectContextFiles, JsonPrimitive(false))
             .write(PiHostKeys.ExtensionTools, Json.parseToJsonElement("""["my_*"]"""))
 
-        val config = piAgentConfig(values, home, noSecrets)
+        val config = piAgentConfig(values, home, secret = noSecrets)
 
         assertEquals("Be brief", config.files[AGENTS_FILE])
         assertEquals("You are Pi", config.files[SYSTEM_FILE])
@@ -167,7 +227,7 @@ class PiAgentConfigTest {
             ConfigBinding.WholeDocument(PiDocuments.Agents),
             JsonPrimitive("Be brief"),
         )
-        val flags = piAgentConfig(values, home, noSecrets).flags(agentDir)
+        val flags = piAgentConfig(values, home, secret = noSecrets).flags(agentDir)
 
         val project = piCommand(Path.of("pi"), Path.of("s"), emptyList(), "", isProject = true, flags = flags)
         val detached = piCommand(Path.of("pi"), Path.of("s"), emptyList(), "", isProject = false, flags = flags)

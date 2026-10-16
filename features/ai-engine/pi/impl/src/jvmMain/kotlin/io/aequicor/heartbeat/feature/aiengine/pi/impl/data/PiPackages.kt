@@ -33,8 +33,9 @@ internal class PiPackages(private val home: Path, private val run: suspend (List
         val desired = remoteSources(config)
         val installed = installedSources()
         val steps = when (operation) {
-            PackageOperation.Sync -> (desired - installed).map { listOf("install", it) } +
-                (installed - desired).map { listOf("remove", it) }
+            // Pi removes by package identity, not version/ref; remove old sources before installing replacements.
+            PackageOperation.Sync -> (installed - desired).map { listOf("remove", it) } +
+                (desired - installed).map { listOf("install", it) }
 
             PackageOperation.Update -> listOf(listOf("update", "--extensions"))
         }

@@ -46,6 +46,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ProjectFile
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ProjectFiles
 import io.aequicor.heartbeat.feature.aiengine.facade.api.write
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.MemoryEnginePreferences
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
@@ -242,6 +244,35 @@ class EngineConfigurationServiceTest {
     }
 
     @Test
+    fun `concurrent project saves reject the stale writer`() = runTest {
+        val service = service()
+        runCurrent()
+        files.files[agents] = ProjectFile("Old", "r1")
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        files.beforeWrite = {
+            entered.complete(Unit)
+            release.await()
+        }
+        val expected = ProjectRevision(mapOf(agents to "r1"))
+        val firstEdit = ProjectEdit(EngineConfigValues(mapOf(agents to ConfigDocument.Text("First"))))
+        val secondEdit = ProjectEdit(EngineConfigValues(mapOf(agents to ConfigDocument.Text("Second"))))
+        val first = async { service.saveProject(TestEngine, workspace, firstEdit, expected) }
+        entered.await()
+        val second = async { failure { service.saveProject(TestEngine, workspace, secondEdit, expected) } }
+        runCurrent()
+
+        assertEquals(1, files.directories.size)
+        assertFalse(second.isCompleted)
+        release.complete(Unit)
+        first.await()
+
+        assertEquals(ConfigFailure.Conflict, second.await())
+        assertEquals("First", files.files.getValue(agents).text)
+        assertEquals(1, files.writes.size)
+    }
+
+    @Test
     fun `an emptied file that does not parse is removed`() = runTest {
         val service = service()
         runCurrent()
@@ -372,6 +403,59 @@ class EngineConfigurationServiceTest {
     }
 
     @Test
+    fun `concurrent imports refuse stale input before copying resources`() = runTest {
+        val service = service()
+        runCurrent()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        files.native = NativeImport(edit(retry = 5).values)
+        files.beforeNativeRead = {
+            entered.complete(Unit)
+            release.await()
+        }
+        val selection = ImportSelection(setOf("settings", "resources"))
+        val first = async { service.importNative(TestEngine, selection, ConfigRevision(0)) }
+        entered.await()
+        val second = async { failure { service.importNative(TestEngine, selection, ConfigRevision(0)) } }
+        runCurrent()
+
+        assertEquals(1, files.nativeReads)
+        assertFalse(second.isCompleted)
+        release.complete(Unit)
+        first.await()
+
+        assertEquals(ConfigFailure.Conflict, second.await())
+        assertEquals(1, files.nativeReads)
+        assertEquals(1, preferences.current.value.configOf(TestEngine).revision)
+    }
+
+    @Test
+    fun `profile saves wait until an import has saved its copied resources`() = runTest {
+        val service = service()
+        runCurrent()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        files.native = NativeImport(edit(retry = 5).values)
+        files.beforeNativeRead = {
+            entered.complete(Unit)
+            release.await()
+        }
+        val importing = async {
+            service.importNative(TestEngine, ImportSelection(setOf("settings")), ConfigRevision(0))
+        }
+        entered.await()
+        val saving = async { failure { service.saveProfile(TestEngine, edit(retry = 2), ConfigRevision(0)) } }
+        runCurrent()
+
+        assertFalse(saving.isCompleted)
+        release.complete(Unit)
+        importing.await()
+
+        assertEquals(ConfigFailure.Conflict, saving.await())
+        assertEquals(JsonPrimitive(5), preferences.current.value.configOf(TestEngine).values.read(retries))
+    }
+
+    @Test
     fun `replace mode swaps whole documents`() {
         val current = EngineConfigValues().write(
             retries,
@@ -481,6 +565,8 @@ class EngineConfigurationServiceTest {
         val expected = mutableListOf<Map<ConfigDocumentId, String?>>()
         var isGated = false
         var native: NativeImport? = null
+        var beforeWrite: suspend () -> Unit = {}
+        var beforeNativeRead: suspend () -> Unit = {}
         private var revision = 0
 
         override suspend fun readProject(directory: String): ProjectFiles {
@@ -493,6 +579,7 @@ class EngineConfigurationServiceTest {
             changes: Map<ConfigDocumentId, String?>,
             expected: Map<ConfigDocumentId, String?>,
         ): ProjectFiles {
+            beforeWrite()
             writes += changes
             this.expected += expected
             changes.forEach { (id, text) ->
@@ -509,6 +596,7 @@ class EngineConfigurationServiceTest {
 
         override suspend fun readNative(selection: ImportSelection): NativeImport {
             nativeReads++
+            beforeNativeRead()
             return requireNotNull(native)
         }
     }

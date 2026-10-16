@@ -32,7 +32,7 @@ internal fun EngineConfigSchema.files(
         fileName = spec.fileName,
         text = raw ?: values.document(spec.id).render(),
         language = if (spec.format == ConfigFormat.Json) "json" else null,
-        isInvalid = raw != null && spec.format == ConfigFormat.Json && parseJsonObject(raw).isFailure,
+        isInvalid = !raw.isNullOrBlank() && spec.format == ConfigFormat.Json && parseJsonObject(raw).isFailure,
     )
 }
 

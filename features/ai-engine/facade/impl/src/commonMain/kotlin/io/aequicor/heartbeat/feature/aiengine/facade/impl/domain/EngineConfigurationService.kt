@@ -106,7 +106,7 @@ class EngineConfigurationService(
         workspace: WorkspaceRef,
         edit: ProjectEdit,
         expected: ProjectRevision,
-    ): ProjectConfig {
+    ): ProjectConfig = mutex.withLock {
         val (schema, configurator) = configurable(engine)
         val documents = schema.documents.filter { ConfigScope.Project in it.scopes }
         val problems = validateEngineConfig(schema, edit.values, ConfigScope.Project) + rawProblems(edit, documents)
@@ -121,7 +121,7 @@ class EngineConfigurationService(
             io { configurator.writeProject(directory, changes, changes.keys.associateWith { expected.documents[it] }) }
         }
         log.i { "project configuration saved engine=${engine.value} changed=${changes.size}" }
-        return projectOf(engine, workspace, schema, written)
+        projectOf(engine, workspace, schema, written)
     }
 
     override suspend fun projectTrust(engine: EngineId, workspace: WorkspaceRef): ProjectTrustStatus {
@@ -175,23 +175,23 @@ class EngineConfigurationService(
     ): ImportReport {
         val (schema, configurator) = configurable(engine)
         requireCapability(engine, schema, ConfigCapability.ImportNative)
-        // Reading copies resources into the profile; a stale import is refused before anything is copied.
-        if (preferences.load().configOf(engine).revision != expected.value) conflict(engine)
-        val native = io { configurator.readNative(selection) }
-        try {
-            mutex.withLock {
+        return mutex.withLock {
+            // Reading copies resources into the profile. Keep the revision check, copy and save serialized together.
+            if (preferences.load().configOf(engine).revision != expected.value) conflict(engine)
+            val native = io { configurator.readNative(selection) }
+            try {
                 val current = preferences.load().configOf(engine).values
                 val merged = merge(current, native.values, selection.mode).copy(secrets = current.secrets)
                 save(engine, schema, ConfigEdit(merged, native.secrets), expected)
+                log.i {
+                    "configuration imported engine=${engine.value} mode=${selection.mode} " +
+                        "items=${native.imported.size} notes=${native.notes.size}"
+                }
+                ImportReport(native.imported, native.notes)
+            } finally {
+                native.secrets.values.forEach(Secret::close)
             }
-        } finally {
-            native.secrets.values.forEach(Secret::close)
         }
-        log.i {
-            "configuration imported engine=${engine.value} mode=${selection.mode} items=${native.imported.size} " +
-                "notes=${native.notes.size}"
-        }
-        return ImportReport(native.imported, native.notes)
     }
 
     private fun isOn() = combine(flags.management(), flags.configuration()) { management, configuration ->

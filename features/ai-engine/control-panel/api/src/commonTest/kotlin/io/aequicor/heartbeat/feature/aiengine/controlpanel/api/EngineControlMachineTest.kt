@@ -102,6 +102,27 @@ class EngineControlMachineTest {
     }
 
     @Test
+    fun `a successful project save advances its receipt even when the files do not change`() {
+        val save = ControlOperation.SaveProject(engine, workspace, ProjectEdit(project.values), project.revision)
+        val before = observed.copy(project = project, projectSaveVersion = 4)
+        EngineControlMachineSpec.assertTransition(
+            from = before.copy(pending = save),
+            intent = Internal.Applied(ControlResult.Project(project)),
+            to = before.copy(projectSaveVersion = 5),
+        )
+        EngineControlMachineSpec.assertTransition(
+            from = before.copy(pending = ControlOperation.OpenProject(engine, workspace)),
+            intent = Internal.Applied(ControlResult.Project(project)),
+            to = before,
+        )
+        EngineControlMachineSpec.assertTransition(
+            from = before.copy(pending = save),
+            intent = Internal.ApplyFailed(ControlFailure.Engine(failure)),
+            to = before.copy(failed = FailedOperation(save, ControlFailure.Engine(failure))),
+        )
+    }
+
+    @Test
     fun `a failed operation is kept until dismissed and never repeated`() {
         val failed = FailedOperation(restart, ControlFailure.Engine(failure))
         EngineControlMachineSpec.assertTransition(
@@ -213,6 +234,7 @@ class EngineControlMachineTest {
                 pending = refresh,
                 resources = null,
                 importReport = (result as? ControlResult.Imported)?.report,
+                projectSaveVersion = if (operation is ControlOperation.SaveProject) 1 else 0,
             )
             EngineControlMachineSpec.assertTransition(
                 from = active.copy(pending = operation),

@@ -21,6 +21,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -115,6 +116,20 @@ class ConfigFilesTest {
         val emptied = config.editFile(null, "agents", "")!!
         assertNull(emptied.values.document(agents))
         assertNull(config.editFile(null, "missing", "x"))
+    }
+
+    @Test
+    fun `clearing a JSON file permits saving its deletion from the editor`() {
+        for (text in listOf("", "   ")) {
+            val draft = config.editFile(null, "settings", text)!!
+            val form = config.form(draft)
+
+            assertNull(draft.values.document(settings))
+            assertFalse(form.files.first { it.id == "settings" }.isInvalid)
+            assertEquals(0, form.blockingProblems)
+            assertTrue(form.isSaveable)
+            assertNull(schema.saveOf(draft).values.document(settings))
+        }
     }
 
     private companion object {

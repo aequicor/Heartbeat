@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ImportNoteReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ImportSelection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.secretReference
+import io.aequicor.heartbeat.feature.aiengine.facade.api.secretSlotOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
@@ -68,13 +69,15 @@ class PiNativeImportTest {
         val servers = (imported.values.documents.getValue(PiDocuments.Mcp) as ConfigDocument.Json).value
             .getValue("mcpServers").jsonObject
         val env = servers.getValue("gh").jsonObject.getValue("env").jsonObject
-        assertEquals(JsonPrimitive(secretReference("MCP_GH_GITHUB_TOKEN")), env["GITHUB_TOKEN"])
+        val githubSlot = slotFor("gh", "env", "GITHUB_TOKEN")
+        val authorizationSlot = slotFor("docs", "headers", "Authorization")
+        assertEquals(JsonPrimitive(secretReference(githubSlot)), env["GITHUB_TOKEN"])
         assertEquals(JsonPrimitive("fast"), env["MODE"])
         val headers = servers.getValue("docs").jsonObject.getValue("headers").jsonObject
-        assertEquals(JsonPrimitive(secretReference("MCP_DOCS_AUTHORIZATION")), headers["Authorization"])
+        assertEquals(JsonPrimitive(secretReference(authorizationSlot)), headers["Authorization"])
         assertEquals(JsonPrimitive("!pass show x"), headers["X-Key"])
-        assertEquals(setOf("MCP_GH_GITHUB_TOKEN", "MCP_DOCS_AUTHORIZATION"), imported.secrets.keys)
-        assertEquals("ghp_x", imported.secrets.getValue("MCP_GH_GITHUB_TOKEN").reveal { String(it) })
+        assertEquals(setOf(githubSlot, authorizationSlot), imported.secrets.keys)
+        assertEquals("ghp_x", imported.secrets.getValue(githubSlot).reveal { String(it) })
         assertTrue(imported.notes.any { it.reason == ImportNoteReason.HostVariableNotPassed })
         imported.secrets.values.forEach { it.close() }
     }
@@ -113,12 +116,56 @@ class PiNativeImportTest {
     }
 
     @Test
-    fun `vault slots stay within the limit and distinct`() {
-        val long = slotFor("a-very-long-server-name-for-testing", "ANOTHER_VERY_LONG_VARIABLE_NAME")
-        assertTrue(long.length <= 48)
-        assertTrue(Regex("[A-Z0-9_]+").matches(long))
-        assertFalse(long == slotFor("a-very-long-server-name-for-testing", "ANOTHER_VERY_LONG_VARIABLE_NAMF"))
-        assertEquals("MCP_GH_TOKEN", slotFor("gh", "token"))
+    fun `vault slots preserve credential identities within the slot limit`() {
+        val identities = listOf(
+            Triple("foo-bar", "env", "TOKEN"),
+            Triple("foo_bar", "env", "TOKEN"),
+            Triple("Foo-bar", "env", "TOKEN"),
+            Triple("foo-bar", "env", "token"),
+            Triple("foo-bar", "headers", "TOKEN"),
+            Triple("foo_bar", "env", "TOKEN_KEY"),
+            Triple("foo", "env", "bar_TOKEN_KEY"),
+            Triple("a-very-long-server-name-for-testing", "env", "ANOTHER_VERY_LONG_VARIABLE_NAME"),
+            Triple("a-very-long-server-name-for-testing", "env", "ANOTHER_VERY_LONG_VARIABLE_NAMF"),
+        )
+        val slots = identities.map { (server, kind, variable) -> slotFor(server, kind, variable) }
+
+        assertEquals(slots.size, slots.toSet().size)
+        assertTrue(slots.all { it.length <= 48 && Regex("[A-Z0-9_]+").matches(it) })
+        assertEquals(slots, identities.map { (server, kind, variable) -> slotFor(server, kind, variable) })
+    }
+
+    @Test
+    fun `imported credentials with normalized names and separate maps remain independent`() {
+        source.resolve("mcp.json").writeText(
+            """
+            {"mcpServers": {
+              "foo-bar": {"command": "one", "env": {"API_TOKEN": "first", "api_token": "second"},
+                "headers": {"API_TOKEN": "third"}},
+              "foo_bar": {"command": "two", "env": {"API_TOKEN": "fourth"}}
+            }}
+            """.trimIndent(),
+        )
+        val imported = PiNativeImporter(source, home).read(ImportSelection(setOf("mcp")))
+        try {
+            val servers = (imported.values.documents.getValue(PiDocuments.Mcp) as ConfigDocument.Json).value
+                .getValue("mcpServers").jsonObject
+            val expected = listOf(
+                Triple("foo-bar", "env", "API_TOKEN") to "first",
+                Triple("foo-bar", "env", "api_token") to "second",
+                Triple("foo-bar", "headers", "API_TOKEN") to "third",
+                Triple("foo_bar", "env", "API_TOKEN") to "fourth",
+            )
+            assertEquals(expected.size, imported.secrets.size)
+            expected.forEach { (identity, value) ->
+                val (server, kind, variable) = identity
+                val reference = servers.getValue(server).jsonObject.getValue(kind).jsonObject.getValue(variable)
+                val slot = requireNotNull(secretSlotOf((reference as JsonPrimitive).content))
+                assertEquals(value, imported.secrets.getValue(slot).reveal { String(it) })
+            }
+        } finally {
+            imported.secrets.values.forEach { it.close() }
+        }
     }
 
     @Test

@@ -39,6 +39,19 @@ class DesktopExtensionFolderTest {
     }
 
     @Test
+    fun `a packaged development build prepares its bundled extension without a checkout or downloader`() = runTest {
+        root.resolve("checkout").toFile().deleteRecursively()
+        val properties = mapOf(
+            "jpackage.app-path" to root.resolve("app/Heartbeat.exe").toString(),
+            "user.dir" to root.resolve("outside-checkout").toString(),
+            "compose.application.resources.dir" to resources.parent.toString(),
+        )
+        val folder = DesktopExtensionFolder(Dispatchers.Unconfined, properties::get)
+
+        assertEquals(resources.toString(), folder.prepare { error("Bundled extension must not download") })
+    }
+
+    @Test
     fun `a folder without a manifest is not an extension`() = runTest {
         Files.delete(resources.resolve("manifest.json"))
 
