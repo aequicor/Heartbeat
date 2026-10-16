@@ -17,7 +17,7 @@ import kotlin.test.assertTrue
 
 class DesktopPiConfiguratorTest {
     private val root = Files.createTempDirectory("pi-config")
-    private val configurator = DesktopPiConfigurator()
+    private val configurator = DesktopPiConfigurator({ root.resolve("home") })
 
     @AfterTest
     fun cleanUp() {

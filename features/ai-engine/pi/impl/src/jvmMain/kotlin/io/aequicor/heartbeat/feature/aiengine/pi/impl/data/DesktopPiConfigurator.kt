@@ -3,11 +3,17 @@ package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
+import io.aequicor.heartbeat.core.datastore.DataStores
+import io.aequicor.heartbeat.core.datastore.StorageOwner
+import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigDocumentId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ImportPreview
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ImportSelection
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.NativeImport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ProjectFile
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ProjectFiles
 import java.io.IOException
@@ -24,11 +30,35 @@ import java.util.HexFormat
  * root, the rest in `.pi`. Writes replace a file atomically (a linked file is written through its link) after the
  * file still has the revision the caller read. The facade calls it on the IO dispatcher.
  */
-@Inject
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
-internal class DesktopPiConfigurator : PiConfigurator {
+internal class DesktopPiConfigurator(
+    private val home: () -> Path?,
+    private val userAgentDirectory: () -> Path = ::piUserAgentDirectory,
+) : PiConfigurator {
+    @Inject
+    constructor(
+        storage: PiStorage,
+        @ForScope(ProfileScope::class) stores: DataStores,
+    ) : this({
+        (stores.owner as? StorageOwner.Profile)?.let { storage.profileHome(it.id.value) }
+    })
+
     private val log = Log.tag("PiConfigurator")
+
+    override suspend fun previewNative(): ImportPreview = files { importer().preview() }
+
+    override suspend fun readNative(selection: ImportSelection): NativeImport = files { importer().read(selection) }
+
+    private fun importer(): PiNativeImporter {
+        val source = userAgentDirectory()
+        if (!Files.isDirectory(source)) {
+            log.w { "Pi user configuration not found" }
+            throw ConfigException(ConfigFailure.NativeMissing)
+        }
+        val profileHome = home() ?: throw ConfigException(ConfigFailure.Unsupported)
+        return PiNativeImporter(source, profileHome)
+    }
 
     override suspend fun readProject(directory: String): ProjectFiles = files {
         val root = Path.of(directory)
