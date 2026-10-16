@@ -1,5 +1,5 @@
 plugins {
-    alias(libs.plugins.heartbeat.kmp.library)
+    alias(libs.plugins.heartbeat.kmp.compose)
     alias(libs.plugins.heartbeat.metro)
     alias(libs.plugins.kotlinSerialization)
 }
@@ -15,7 +15,17 @@ kotlin {
             implementation(projects.core.datastore.api)
             implementation(projects.core.featureToggles.api)
             implementation(projects.core.profileFacade.api)
+            implementation(projects.core.di.ext)
+            implementation(projects.core.mvi)
+            implementation(projects.core.navigation.compose)
+            implementation(projects.designSystem.components)
+            implementation(projects.designSystem.theme)
+            implementation(projects.designSystem.layouts)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.compose.components.resources)
+            implementation(libs.compose.uiToolingPreview)
         }
     }
 }
+
+compose.resources { packageOfResClass = "io.aequicor.heartbeat.feature.worktreemode.impl.resources" }

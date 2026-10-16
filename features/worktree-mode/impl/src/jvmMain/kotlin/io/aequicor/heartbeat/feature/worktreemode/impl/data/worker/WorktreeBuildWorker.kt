@@ -55,7 +55,9 @@ private class WorkerRuntime(private val job: Path, private val execution: BuildE
     private val descendants = ConcurrentHashMap<Long, ProcessHandle>()
     private val child = java.util.concurrent.atomic.AtomicReference<Process?>()
     private val captured = BoundedBuildOutput()
-    private val startedAt = System.nanoTime()
+
+    // A sandbox build restarts the command timeout after its slot is prepared.
+    private var startedAt = System.nanoTime()
     private val shutdown = Thread({ terminateTree(child.get(), descendants) }, "heartbeat-build-shutdown")
 
     fun run() {
@@ -63,7 +65,10 @@ private class WorkerRuntime(private val job: Path, private val execution: BuildE
         try {
             publish(WorktreeBuildPhase.WaitingForResource)
             if (acquireLocks()) {
-                if (execution.isHold) holdLease() else runCommand()
+                when {
+                    execution.isHold -> holdLease()
+                    syncSlot() -> runCommand()
+                }
             } else {
                 publishStopped(checkNotNull(stopped()))
             }
@@ -82,12 +87,47 @@ private class WorkerRuntime(private val job: Path, private val execution: BuildE
                 lock.release()
                 channel.close()
             }
+            execution.sandbox?.let { releaseSnapshot(it, execution.id) }
             Runtime.getRuntime().removeShutdownHook(shutdown)
         }
     }
 
+    /**
+     * A sandbox build first moves its locked slot to the snapshot; failure ends the build before the command.
+     * Cancellation and parent loss stay observable while Git runs.
+     */
+    private fun syncSlot(): Boolean {
+        val sandbox = execution.sandbox ?: return true
+        publish(WorktreeBuildPhase.Running)
+        return try {
+            captured.append(prepareSlot(sandbox) { stopped()?.takeUnless { it == "BuildTimedOut" } })
+            startedAt = System.nanoTime()
+            true
+        } catch (error: SlotPreparationStopped) {
+            workerLog.w(error) { "Build slot preparation stopped" }
+            publishStopped(error.reason)
+            false
+        } catch (error: IllegalStateException) {
+            // IO messages may contain filesystem paths, so only the exception type is logged.
+            workerLog.w(IllegalStateException("SlotPreparationFailed (${error::class.simpleName.orEmpty()})")) {
+                "Build slot could not be prepared"
+            }
+            slotFailed()
+        } catch (error: java.io.IOException) {
+            workerLog.w(IllegalStateException("SlotPreparationFailed (${error::class.simpleName.orEmpty()})")) {
+                "Build slot could not be prepared"
+            }
+            slotFailed()
+        }
+    }
+
+    private fun slotFailed(): Boolean {
+        publish(WorktreeBuildPhase.Failed, failure = "SlotPreparationFailed")
+        return false
+    }
+
     private fun acquireLocks(): Boolean {
-        val root = Files.createDirectories(Path.of(System.getProperty("java.io.tmpdir"), "heartbeat-build-locks"))
+        val root = buildLockRoot()
         for (key in execution.resources.asSequence().map(::resourceLockKey).distinct().sorted()) {
             val channel = FileChannel.open(
                 root.resolve("$key.lock"),
@@ -283,6 +323,47 @@ private fun terminateTree(child: Process?, descendants: ConcurrentHashMap<Long, 
     while (child?.isAlive == true || descendants.values.any { it.isAlive }) {
         LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(POLL_MILLIS))
         descendants.values.filter { it.isAlive }.forEach { it.destroyForcibly() }
+    }
+}
+
+/** Directory of the OS lock files shared by build workers and the application. */
+internal fun buildLockRoot(): Path =
+    Files.createDirectories(Path.of(System.getProperty("java.io.tmpdir"), "heartbeat-build-locks"))
+
+/**
+ * Runs [block] while holding the OS lock of [resource] that workers take; null when another holder has it, so a
+ * worker can never start on the resource meanwhile.
+ */
+internal fun <T> withFreeResource(resource: String, block: () -> T): T? {
+    val held = tryLockResource(resource) ?: return null
+    try {
+        return block()
+    } finally {
+        held.close()
+    }
+}
+
+/** The OS lock of [resource] if it is free; closing the result releases it. */
+internal fun tryLockResource(resource: String): java.io.Closeable? {
+    val channel = FileChannel.open(
+        buildLockRoot().resolve("${resourceLockKey(resource)}.lock"),
+        StandardOpenOption.CREATE,
+        StandardOpenOption.WRITE,
+    )
+    val lock = try {
+        channel.tryLock()
+    } catch (error: java.nio.channels.OverlappingFileLockException) {
+        // Another channel of this process holds the resource; it is just as busy.
+        workerLog.w(error) { "Build resource is held inside this process" }
+        null
+    }
+    if (lock == null) {
+        channel.close()
+        return null
+    }
+    return java.io.Closeable {
+        lock.release()
+        channel.close()
     }
 }
 

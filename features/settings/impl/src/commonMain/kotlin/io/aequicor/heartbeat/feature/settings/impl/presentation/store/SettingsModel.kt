@@ -29,6 +29,7 @@ enum class SettingsSectionUi {
     ChromiumBrowser,
     AgentLearning,
     Context,
+    Builds,
     Harness,
     Interfaces,
     ProjectConfig,
@@ -36,39 +37,11 @@ enum class SettingsSectionUi {
     FeatureFlags,
 }
 
-/** Screen value of a contract section. */
-fun SettingsSection.toUi(): SettingsSectionUi = when (this) {
-    SettingsSection.Models -> SettingsSectionUi.Models
-    SettingsSection.Security -> SettingsSectionUi.Security
-    SettingsSection.Subagents -> SettingsSectionUi.Subagents
-    SettingsSection.Search -> SettingsSectionUi.Search
-    SettingsSection.ComputerUse -> SettingsSectionUi.ComputerUse
-    SettingsSection.ChromiumBrowser -> SettingsSectionUi.ChromiumBrowser
-    SettingsSection.AgentLearning -> SettingsSectionUi.AgentLearning
-    SettingsSection.Context -> SettingsSectionUi.Context
-    SettingsSection.Harness -> SettingsSectionUi.Harness
-    SettingsSection.Interfaces -> SettingsSectionUi.Interfaces
-    SettingsSection.ProjectConfig -> SettingsSectionUi.ProjectConfig
-    SettingsSection.Logs -> SettingsSectionUi.Logs
-    SettingsSection.FeatureFlags -> SettingsSectionUi.FeatureFlags
-}
+/** Screen value of a contract section; both enums declare the same names in the same order. */
+fun SettingsSection.toUi(): SettingsSectionUi = SettingsSectionUi.valueOf(name)
 
-/** Contract section of a screen value. */
-fun SettingsSectionUi.toSection(): SettingsSection = when (this) {
-    SettingsSectionUi.Models -> SettingsSection.Models
-    SettingsSectionUi.Security -> SettingsSection.Security
-    SettingsSectionUi.Subagents -> SettingsSection.Subagents
-    SettingsSectionUi.Search -> SettingsSection.Search
-    SettingsSectionUi.ComputerUse -> SettingsSection.ComputerUse
-    SettingsSectionUi.ChromiumBrowser -> SettingsSection.ChromiumBrowser
-    SettingsSectionUi.AgentLearning -> SettingsSection.AgentLearning
-    SettingsSectionUi.Context -> SettingsSection.Context
-    SettingsSectionUi.Harness -> SettingsSection.Harness
-    SettingsSectionUi.Interfaces -> SettingsSection.Interfaces
-    SettingsSectionUi.ProjectConfig -> SettingsSection.ProjectConfig
-    SettingsSectionUi.Logs -> SettingsSection.Logs
-    SettingsSectionUi.FeatureFlags -> SettingsSection.FeatureFlags
-}
+/** Contract section of a screen value; both enums declare the same names in the same order. */
+fun SettingsSectionUi.toSection(): SettingsSection = SettingsSection.valueOf(name)
 
 /**
  * State of the settings window. [selected] is the section shown next to the list; [requested] is the section

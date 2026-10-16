@@ -174,6 +174,7 @@
     <string name="usage_window_minutes">Лимит на %1$d мин</string>
     <string name="usage_all_models">Все модели</string>
     <string name="worktree_mode">Worktree</string>
+    <string name="sandbox_mode">Песочница</string>
     <string name="worktree_this_computer">Этот компьютер</string>
     <string name="worktree_preparing">Подготовка изолированной рабочей папки…</string>
     <string name="worktree_journal_loading">Восстановление изолированной рабочей папки…</string>

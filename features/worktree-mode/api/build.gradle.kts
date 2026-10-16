@@ -9,6 +9,7 @@ kotlin {
             api(projects.features.aiEngine.facade.api)
             api(projects.core.stateMachine.api)
             api(projects.core.featureToggles.api)
+            api(projects.core.navigation.api)
             implementation(libs.kotlinx.serialization.json)
         }
     }

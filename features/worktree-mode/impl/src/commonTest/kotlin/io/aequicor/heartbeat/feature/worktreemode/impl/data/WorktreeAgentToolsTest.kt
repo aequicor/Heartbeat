@@ -33,11 +33,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildCache
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildCommand
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildKind
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildOperation
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPlan
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunIdentity
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeSandboxEnabled
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -150,9 +152,39 @@ class WorktreeAgentToolsTest {
         )
     }
 
+    @Test
+    fun `sandbox sessions are told to build only through the queue with declared kinds`() = runTest {
+        val fixture = Fixture()
+        fixture.toggles.isSandbox = true
+        fixture.queue(
+            WorktreeBuildPlan(
+                "Gradle",
+                listOf(WorktreeBuildCommand("test", "./gradlew", kind = WorktreeBuildKind.Test)),
+                listOf(WorktreeBuildCache("gradle", "shared-gradle", isConcurrent = true)),
+            ),
+        )
+        val instructions = fixture.tools.instructions(CHECKOUT)
+        assertTrue("sandbox that keeps only sources" in instructions, instructions)
+        assertTrue("Declare each command's kind" in instructions, instructions)
+        val schema = fixture.tools.specifications(CHECKOUT).single { it.name == "configure_build" }.inputSchema
+        assertTrue("\"Native\"" in schema.toString() && "\"concurrent\"" in schema.toString())
+        val arguments = Json.encodeToJsonElement(
+            WorktreeBuildPlan(
+                "Gradle",
+                listOf(WorktreeBuildCommand("test", "./gradlew", kind = WorktreeBuildKind.Test)),
+                listOf(WorktreeBuildCache("gradle", "shared-gradle", isConcurrent = true)),
+            ),
+        ).jsonObject
+        val approval = fixture.approval("configure_build", arguments).toString()
+        assertTrue("Test" in approval && "concurrent" in approval, approval)
+        val build = fixture.approval("run_build", JsonObject(mapOf("command" to JsonPrimitive("test")))).toString()
+        assertTrue("shared warm build slot" in build && "/common/slots" in build, build)
+        assertTrue("Working directory" !in build, build)
+    }
+
     private class Fixture {
         private val workspaces = PreviewWorkspaces()
-        private val toggles = PreviewToggles()
+        val toggles = PreviewToggles()
         private val journal = WorktreeJournal(PreviewStores(), PreviewGit(), PreviewBuilds(), workspaces, toggles)
         val tools = WorktreeAgentTools(journal, PreviewRegistry(), toggles, workspaces)
 
@@ -221,7 +253,9 @@ private class PreviewGit : WorktreeGit {
         listOf(record.commonDirectory),
         "/jobs/$id",
         configurationRevision = record.task.buildConfigurationRevision,
+        sandbox = if (record.task.isSandbox) SandboxBuild("", "/common/slots", "/source") else null,
     )
+    override suspend fun snapshot(record: WorktreeRecord, id: String): String = "snapshot-$id"
     override suspend fun actionPrompt(record: WorktreeRecord, merge: Boolean): String = error("Unused")
     override suspend fun mergeLease(record: WorktreeRecord, id: String): BuildExecution = error("Unused")
     override suspend fun mergePreflight(record: WorktreeRecord): String = error("Unused")
@@ -254,12 +288,14 @@ private class PreviewWorkspaces : LocalWorkspaces {
 }
 
 private class PreviewToggles : FeatureToggles {
+    var isSandbox = false
+
     override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = flowOf(toggle.default)
 
     // The feature reads its Boolean flag; unrelated declarations keep their own value type.
     @Suppress("UNCHECKED_CAST")
     override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = when (toggle) {
-        is FeatureToggle.Flag -> true as T
+        is FeatureToggle.Flag -> (toggle != WorktreeSandboxEnabled || isSandbox) as T
         is FeatureToggle.Choice -> toggle.default
     }
 }

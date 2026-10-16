@@ -22,6 +22,7 @@ kotlin {
             implementation(projects.features.harness.api)
             implementation(projects.features.serviceAsUi.api)
             implementation(projects.features.projectConfig.api)
+            implementation(projects.features.worktreeMode.api)
             implementation(projects.core.profileFacade.api)
             implementation(projects.core.di.ext)
             implementation(projects.core.mvi)

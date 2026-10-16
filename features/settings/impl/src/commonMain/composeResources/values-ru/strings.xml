@@ -8,6 +8,7 @@
     <string name="settings_section_chromium_browser">Браузер Chrome</string>
     <string name="settings_section_subagents">Субагенты</string>
     <string name="settings_section_agent_learning">Самообучение</string>
+    <string name="settings_section_builds">Сборки</string>
     <string name="settings_section_context">Контекст</string>
     <string name="settings_section_interfaces">Интерфейсы</string>
     <string name="settings_section_project_config">Конфигурация</string>

@@ -4,6 +4,8 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildCommand
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildOperation
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPlan
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -20,6 +22,7 @@ internal data class WorktreeRecord(
     val mainSession: io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef? = null,
     val mergeTargetCommit: String? = null,
     val pullRequestBase: String? = null,
+    @SerialName("outputsReclaimed") val isOutputsReclaimed: Boolean = false,
 ) {
     override fun toString(): String = "WorktreeRecord"
 }
@@ -37,7 +40,10 @@ internal data class WorktreeProvision(
     override fun toString(): String = "WorktreeProvision"
 }
 
-/** Explicit argv and canonical lock resources delivered to the worker in a private job file. */
+/**
+ * Explicit argv and canonical lock resources delivered to the worker in a private job file. [project] is the
+ * canonical repository identity that groups builds for fair capacity sharing.
+ */
 @Serializable
 internal data class BuildExecution(
     val id: String,
@@ -50,12 +56,64 @@ internal data class BuildExecution(
     val parentStartedAt: String? = null,
     val configurationRevision: Long = 0,
     val enqueueOrder: Long = 0,
+    val project: String = "",
+    val sandbox: SandboxBuild? = null,
 ) {
+    /** Hold leases only serialize agents; a build is weighed by its declared kind. */
+    val cost: BuildCost get() = if (isHold) BuildCost.None else command.kind.cost()
+
     override fun toString(): String = "BuildExecution"
 }
 
+/**
+ * Sandbox build target: the immutable [snapshot] commit of the task's files is checked out in a warm build slot of
+ * [pool] before the command runs in [relativeDirectory] of that slot. [affinity] (the task identity) prefers the slot
+ * that built the task last; [repository] is a checkout of the same repository used to create slots. The coordinator
+ * assigns [slot] at admission and adds the slot directory to the exclusive resources.
+ */
+@Serializable
+internal data class SandboxBuild(
+    val snapshot: String,
+    val pool: String,
+    val repository: String,
+    val relativeDirectory: String = ".",
+    val affinity: String = "",
+    val slot: Int? = null,
+) {
+    override fun toString(): String = "SandboxBuild"
+}
+
+/** Sandbox checkout primitives; platforms without sandboxes never create sandbox tasks. */
+internal interface SandboxGit {
+    /**
+     * Commits the sandbox checkout's current files (respecting ignore rules, without touching the agent's index)
+     * as an immutable snapshot reachable from a private ref until its build finishes.
+     */
+    suspend fun snapshot(record: WorktreeRecord, id: String): String =
+        throw UnsupportedOperationException("Sandboxes require Desktop")
+
+    /** Removes ignored files (outputs of native builds the agent ran anyway) from a sandbox that no longer works. */
+    suspend fun reclaim(record: WorktreeRecord) = Unit
+
+    /** Deletes the private ref of a snapshot whose build was never queued. */
+    suspend fun discardSnapshot(record: WorktreeRecord, id: String) = Unit
+
+    /**
+     * Deletes snapshot refs of the record's repository that no [active] operation owns and that are older than a
+     * grace period, so a build queued by another profile keeps its input.
+     */
+    suspend fun pruneSnapshots(record: WorktreeRecord, active: Set<String>) = Unit
+
+    /**
+     * Removes build slots of the record's repository numbered [keep] and above, with their Git registrations.
+     * A slot locked by a worker is skipped; a removed slot is locked for the whole removal. Returns true if a busy
+     * surplus slot remains and the caller must retry after its worker releases it.
+     */
+    suspend fun sweepSlots(record: WorktreeRecord, keep: Int): Boolean = false
+}
+
 /** Desktop-only Git/filesystem primitives; errors carry safe codes rather than process output. */
-internal interface WorktreeGit {
+internal interface WorktreeGit : SandboxGit {
     val isAvailable: Boolean
     suspend fun plan(source: String, identity: String): WorktreeProvision
     suspend fun trackMain(source: String): WorktreeProvision
@@ -84,6 +142,18 @@ internal interface WorktreeBuildCoordinator {
     /** Serializes cooperative agents; this hold lease does not own external or native shell process trees. */
     suspend fun acquireLease(execution: BuildExecution)
     suspend fun releaseLease(execution: BuildExecution): Boolean
+}
+
+/** Current machine-wide budget; the application coordinator reads it on every admission. */
+internal interface BuildCapacity {
+    /** Estimate from this machine's processors and memory, shown next to the user limit. */
+    val automatic: BuildBudget
+
+    /** The effective budget: unlimited without the build queue, else the user limit when set, else [automatic]. */
+    suspend fun budget(): BuildBudget
+
+    /** Emits whenever the effective budget may have changed, so waiting builds are admitted again. */
+    fun changes(): Flow<Unit> = emptyFlow()
 }
 
 /** Command workers inherit the same restricted environment as the facade's local command tools. */

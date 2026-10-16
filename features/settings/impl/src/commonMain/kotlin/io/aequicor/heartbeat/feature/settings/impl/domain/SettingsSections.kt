@@ -27,6 +27,7 @@ internal fun availableSections(
     isProjectConfigEnabled: Boolean = false,
     isLogsEnabled: Boolean = false,
     isDesktop: Boolean = false,
+    isBuildsEnabled: Boolean = false,
 ): ImmutableList<SettingsSection> {
     val profileToggles = mapOf(
         SettingsSection.Models to isModelsEnabled,
@@ -37,6 +38,7 @@ internal fun availableSections(
         SettingsSection.ChromiumBrowser to isChromiumBridgeEnabled,
         SettingsSection.AgentLearning to isLearningEnabled,
         SettingsSection.Context to isContextEnabled,
+        SettingsSection.Builds to isBuildsEnabled,
         SettingsSection.Harness to isHarnessEnabled,
         SettingsSection.Interfaces to isInterfacesEnabled,
         SettingsSection.ProjectConfig to isProjectConfigEnabled,
@@ -56,6 +58,7 @@ internal fun availableSections(
             SettingsSection.ChromiumBrowser,
             SettingsSection.AgentLearning,
             SettingsSection.Context,
+            SettingsSection.Builds,
             SettingsSection.Harness,
             SettingsSection.Interfaces,
             SettingsSection.ProjectConfig,

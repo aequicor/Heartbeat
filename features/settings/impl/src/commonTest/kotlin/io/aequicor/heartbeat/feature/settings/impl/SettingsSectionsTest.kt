@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.settings.impl.presentation.store.SettingsSe
 import io.aequicor.heartbeat.feature.settings.impl.presentation.store.resolve
 import io.aequicor.heartbeat.feature.settings.impl.presentation.store.toSection
 import io.aequicor.heartbeat.feature.settings.impl.presentation.store.toUi
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildsRoute
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -47,6 +48,7 @@ class SettingsSectionsTest {
                 isProjectConfigEnabled = true,
                 isLogsEnabled = true,
                 isDesktop = true,
+                isBuildsEnabled = true,
             ),
         )
         assertEquals(
@@ -142,6 +144,19 @@ class SettingsSectionsTest {
     }
 
     @Test
+    fun `builds are offered only with worktree mode and an active profile and open embedded`() {
+        for (enabled in listOf(false, true)) {
+            for (profile in listOf(false, true)) {
+                val sections = availableSections(false, false, profile, isBuildsEnabled = enabled)
+                assertEquals(enabled && profile, SettingsSection.Builds in sections)
+            }
+        }
+        assertEquals(WorktreeBuildsRoute(isEmbedded = true), SettingsSection.Builds.route())
+        assertEquals("builds", SettingsSection.Builds.deepLinkName)
+        assertEquals(SettingsSection.Builds, settingsSectionOf("builds"))
+    }
+
+    @Test
     fun `context is offered only with its toggle and an active profile and opens embedded`() {
         for (enabled in listOf(false, true)) {
             for (profile in listOf(false, true)) {
@@ -163,6 +178,15 @@ class SettingsSectionsTest {
         }
         assertEquals(StudioSecurityRoute(isEmbedded = true), SettingsSection.Security.route())
         assertEquals(SettingsSection.Security, settingsSectionOf("security"))
+    }
+
+    @Test
+    fun `every section maps to its screen value and an embedded route`() {
+        SettingsSection.entries.forEach { section ->
+            assertEquals(section, section.toUi().toSection())
+            section.route()
+        }
+        assertEquals(SettingsSection.entries.size, SettingsSectionUi.entries.size)
     }
 
     private val allUi = all.map { it.toUi() }

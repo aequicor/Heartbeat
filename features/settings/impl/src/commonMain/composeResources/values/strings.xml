@@ -8,6 +8,7 @@
     <string name="settings_section_chromium_browser">Chrome browser</string>
     <string name="settings_section_subagents">Subagents</string>
     <string name="settings_section_agent_learning">Self-learning</string>
+    <string name="settings_section_builds">Builds</string>
     <string name="settings_section_context">Context</string>
     <string name="settings_section_interfaces">Interfaces</string>
     <string name="settings_section_project_config">Configuration</string>

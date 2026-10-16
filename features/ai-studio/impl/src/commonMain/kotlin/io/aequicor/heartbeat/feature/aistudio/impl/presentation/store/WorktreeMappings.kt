@@ -27,6 +27,7 @@ internal fun WorktreeTask.toUi(): WorktreeUi = WorktreeUi(
         )
     }
         .toImmutableList(),
+    isSandbox = isSandbox,
 )
 
 internal fun WorktreeActionUi.toDomain(): WorktreeAction = WorktreeAction.valueOf(name)

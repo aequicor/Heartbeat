@@ -43,6 +43,10 @@ public enum class SettingsSection {
     @SerialName("context")
     Context,
 
+    /** The machine-wide build queue (Desktop): automatic or user limit of parallel agent builds. */
+    @SerialName("builds")
+    Builds,
+
     /** Harnesses the agent built: their approval level, scope, items, tools and workflow runs. */
     @SerialName("harness")
     Harness,
@@ -104,6 +108,7 @@ public val SettingsSection.deepLinkName: String
         SettingsSection.ChromiumBrowser -> "chromium_browser"
         SettingsSection.AgentLearning -> "agent_learning"
         SettingsSection.Context -> "context"
+        SettingsSection.Builds -> "builds"
         SettingsSection.Harness -> "harness"
         SettingsSection.Interfaces -> "interfaces"
         SettingsSection.ProjectConfig -> "project_config"

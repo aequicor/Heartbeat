@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="builds_title">Сборки</string>
+    <string name="builds_back">Назад</string>
+    <string name="builds_section_capacity">Параллельные сборки</string>
+    <string name="builds_section_capacity_hint">Сборки агентов всех проектов идут через одну очередь на компьютер. У каждого типа сборки свой вес, проекты чередуются, а сборка, которой не хватает ресурсов, ждёт, а не тормозит остальные.</string>
+    <string name="builds_auto">Автоматически (%1$d)</string>
+    <string name="builds_auto_hint">Оценка по процессорам и памяти этого компьютера</string>
+    <string name="builds_parallel">%1$d одновременно</string>
+    <string name="builds_sandbox_hint">Если включены песочницы, они собираются в общих тёплых слотах своего репозитория: не больше четырёх слотов на репозиторий и не больше лимита.</string>
+    <string name="builds_save_failed">Не удалось сохранить лимит. Попробуйте ещё раз.</string>
+</resources>

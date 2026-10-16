@@ -22,6 +22,8 @@ import io.aequicor.heartbeat.feature.settings.api.SettingsSection
 import io.aequicor.heartbeat.feature.settings.impl.di.scope.SettingsScope
 import io.aequicor.heartbeat.feature.settings.impl.domain.SettingsSections
 import io.aequicor.heartbeat.feature.settings.impl.domain.availableSections
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildQueueEnabled
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeModeEnabled
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -56,11 +58,17 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             combine(
                 toggles.observe(AdaptiveSubagentsEnabled),
                 toggles.observe(ProjectConfigEnabled),
-            ) { subagents, config ->
-                subagents to config
+                combine(
+                    toggles.observe(WorktreeModeEnabled),
+                    toggles.observe(WorktreeBuildQueueEnabled),
+                ) { worktree, queue ->
+                    worktree && queue
+                },
+            ) { subagents, config, builds ->
+                Triple(subagents, config, builds)
             },
-        ) { learning, harness, context, interfaces, (subagents, config) ->
-            ProfileSections(learning, harness, context, interfaces, subagents, config)
+        ) { learning, harness, context, interfaces, (subagents, config, builds) ->
+            ProfileSections(learning, harness, context, interfaces, subagents, config, builds)
         },
         combine(
             sessions.active,
@@ -83,6 +91,8 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
             isProjectConfigEnabled = profile.isProjectConfig,
             isLogsEnabled = logs,
             isDesktop = isDesktop,
+            // Builds run only on Desktop; mobile hosts have no build queue to configure.
+            isBuildsEnabled = profile.isBuilds && isDesktop,
         )
     }
         // No placeholder of ungated sections first: it made a requested section open only after a second fade, and
@@ -98,4 +108,5 @@ private data class ProfileSections(
     val isInterfaces: Boolean,
     val isSubagents: Boolean,
     val isProjectConfig: Boolean,
+    val isBuilds: Boolean,
 )
