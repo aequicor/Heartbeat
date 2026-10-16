@@ -201,6 +201,21 @@ class ProjectConfigEffectsTest {
     }
 
     @Test
+    fun `reviews and applications take units from the read of an unchanged folder`() = runTest {
+        fixture.files["harnesses/review.md"] = "rules\n"
+        fixture.run(Internal.Enabled(setOf(PROJECT)))
+        val proposal = fixture.ready.proposals.single()
+        val reads = fixture.folders.reads
+
+        assertEquals("rules\n", fixture.access.unit(proposal)?.files?.single()?.text)
+        assertEquals(reads, fixture.folders.reads)
+        // Changed since: the folder is read again and the reviewed unit is gone.
+        fixture.files["harnesses/review.md"] = "other\n"
+        assertNull(fixture.access.unit(proposal))
+        assertEquals(reads + 1, fixture.folders.reads)
+    }
+
+    @Test
     fun `unknown projects fail to sync and sections that are off neither propose nor write back`() = runTest {
         val unknown = SyncRequest(WorkspaceRef("gone"), 1, emptyList())
         assertEquals(

@@ -93,9 +93,10 @@ internal class EffectsFixture(vararg sections: ConfigSection) {
 /** Project folders as maps of tree paths to texts. */
 internal class MemoryFolders : ProjectFolders {
     val trees = mutableMapOf<String, MutableMap<String, String>>()
+    var reads = 0
     override val isAvailable: Boolean = true
 
-    override suspend fun read(root: String): ConfigRead = trees[root]?.let { files ->
+    override suspend fun read(root: String): ConfigRead = trees[root].also { reads++ }?.let { files ->
         ConfigRead.Read(ConfigTree.of(files.map { (path, text) -> ConfigFile(ConfigPath(path), text) }))
     } ?: ConfigRead.Absent
 
