@@ -50,6 +50,7 @@ import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_picker_conf
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_picker_empty
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_picker_export
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_picker_hint
+import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_picker_lessons_hint
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_picker_save
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_project_actions
 import io.aequicor.heartbeat.feature.projectconfig.impl.resources.pc_project_actions_named
@@ -279,8 +280,11 @@ private fun PickerRows(
 ) {
     val choosable = remember(entities) { entities.filter { it.parentId == null } }
     val hasChildren = remember(entities) { entities.any { it.parentId != null } }
+    val hasLessons = remember(entities) { entities.any { it.section == SectionUi.Learning } }
     if (choosable.isEmpty()) Caption(stringResource(Res.string.pc_picker_empty))
     if (hasChildren) Caption(stringResource(Res.string.pc_picker_hint))
+    // A lesson saved into a project applies only there from then on.
+    if (hasLessons && picker.projectKey != null) Caption(stringResource(Res.string.pc_picker_lessons_hint))
     choosable.forEach { entity ->
         key(entity.id) { PickerRow(entity, entity.id in picker.selected, onIntent) }
     }

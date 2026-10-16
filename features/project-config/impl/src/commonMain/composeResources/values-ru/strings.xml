@@ -77,6 +77,7 @@
     <string name="pc_picker_save">Сохранить в проект</string>
     <string name="pc_picker_export">Экспорт в файл</string>
     <string name="pc_picker_hint">Интерфейсы переносятся вместе со своим харнессом.</string>
+    <string name="pc_picker_lessons_hint">Выученная инструкция, сохранённая в проект, дальше действует только в этом проекте.</string>
     <string name="pc_picker_empty">Выбирать нечего: харнессы, интерфейсы и самообучение выключены или пусты.</string>
     <string name="pc_picker_confirm_save">Сохранить</string>
     <string name="pc_picker_confirm_export">Выбрать файл…</string>

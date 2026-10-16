@@ -14,7 +14,7 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Loading | Loaded | | Ready(instructions, approval) | |
  * | Loading | LoadFailed | | Failed | StorageFailed |
  * | Failed | Reload | | Loading | Load |
- * | Idle / Loading / Failed | Learn | | same | Rejected(Unavailable) |
+ * | Idle / Loading / Failed | Learn / Replace | | same | Rejected(Unavailable) |
  * | Ready | Learn | empty text or over the limits | Ready | Rejected(Invalid) |
  * | Ready | Learn | same lesson exists | Ready | Rejected(Duplicate) |
  * | Ready | Learn | registry full | Ready | Rejected(Limit) |

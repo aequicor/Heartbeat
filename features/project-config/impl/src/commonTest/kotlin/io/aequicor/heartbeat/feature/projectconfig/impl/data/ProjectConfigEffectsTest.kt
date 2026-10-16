@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ConfigEntityRef
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigReadFailure
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigRejection
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigSectionId
+import io.aequicor.heartbeat.feature.projectconfig.api.ConfigTaskFailure
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigTaskResult
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigEffect
 import io.aequicor.heartbeat.feature.projectconfig.api.ProjectConfigIntent.Internal
@@ -147,6 +148,12 @@ class ProjectConfigEffectsTest {
         val refs = listOf(
             ConfigEntityRef(ConfigSectionId.Harnesses, ConfigEntityKey("h1")),
             ConfigEntityRef(ConfigSectionId.Learning, ConfigEntityKey("l1")),
+        )
+        // Only a bundle file is written: an export never replaces another file.
+        fixture.run(Public.Export("x", "/tmp/notes.txt", refs))
+        assertEquals(
+            ProjectConfigOutput.TaskFinished("x", ConfigTaskResult.Failed(ConfigTaskFailure.Unwritable)),
+            fixture.outputs.last(),
         )
         fixture.run(Public.Export("e", "/tmp/out.hbai", refs))
         assertEquals(ProjectConfigOutput.TaskFinished("e", ConfigTaskResult.Exported(2)), fixture.outputs.last())

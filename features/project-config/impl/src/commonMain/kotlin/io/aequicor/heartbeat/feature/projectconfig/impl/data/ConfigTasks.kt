@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.projectconfig.api.ConfigApplyResult
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigBinding
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigBundle
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigEntityRef
+import io.aequicor.heartbeat.feature.projectconfig.api.ConfigLayout
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigReadFailure
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigTaskFailure
 import io.aequicor.heartbeat.feature.projectconfig.api.ConfigTaskResult
@@ -84,8 +85,11 @@ internal class ConfigTasks(private val access: ConfigFolderAccess, private val b
         return ConfigBinding(effect.project, unit.ref, entity.key, unit.digest, unit.digest)
     }
 
-    /** Writes [effect]'s entities into a bundle. */
+    /** Writes [effect]'s entities into a bundle; only a `.hbai` file is written, never another file at that path. */
     suspend fun export(effect: ProjectConfigEffect.Export): Internal {
+        if (!effect.path.endsWith(".${ConfigLayout.BUNDLE_EXTENSION}", ignoreCase = true)) {
+            return failed(effect.requestId, ConfigTaskFailure.Unwritable)
+        }
         val units = encode(effect.entities)
         if (units.isEmpty()) return failed(effect.requestId, ConfigTaskFailure.Empty)
         return try {

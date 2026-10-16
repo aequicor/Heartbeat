@@ -77,6 +77,7 @@
     <string name="pc_picker_save">Save into the project</string>
     <string name="pc_picker_export">Export to a file</string>
     <string name="pc_picker_hint">Interfaces go along with their harness.</string>
+    <string name="pc_picker_lessons_hint">A learned instruction saved into the project applies only in this project from then on.</string>
     <string name="pc_picker_empty">Nothing to choose: harnesses, interfaces and self-learning are off or empty.</string>
     <string name="pc_picker_confirm_save">Save</string>
     <string name="pc_picker_confirm_export">Choose a file…</string>
